@@ -148,9 +148,7 @@ export async function POST(request: NextRequest) {
         tiktok: data.tiktok || null,
         youtube: data.youtube || null,
         niches: data.niches || [],
-        selectedClients: data.selectedClients
-          ? data.selectedClients.split(",").map((s: string) => s.trim())
-          : [],
+        selectedClients: data.selectedClients || [],
         commissionInbound: parseFloat(data.commissionInbound) || 20,
         commissionOutbound: parseFloat(data.commissionOutbound) || 30,
         managerId: data.managerId,
