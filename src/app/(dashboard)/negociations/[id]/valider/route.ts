@@ -26,9 +26,11 @@ async function genererReferenceCollab(): Promise<string> {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
+    
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -56,7 +58,7 @@ export async function POST(
 
     // Récupérer la négociation avec ses livrables
     const nego = await prisma.negociation.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         livrables: true,
         talent: true,
@@ -78,7 +80,7 @@ export async function POST(
     // === REFUS ===
     if (action === "refuser") {
       const negoRefusee = await prisma.negociation.update({
-        where: { id: params.id },
+        where: { id },
         data: {
           statut: "REFUSEE",
           raisonRefus: raisonRefus || null,
@@ -125,7 +127,7 @@ export async function POST(
         commissionPercent,
         commissionEuros,
         montantNet,
-        statut: "GAGNE", // Directement en statut GAGNE
+        statut: "GAGNE",
         livrables: {
           create: nego.livrables.map((l) => ({
             typeContenu: l.typeContenu,
@@ -139,7 +141,7 @@ export async function POST(
 
     // Mettre à jour la négociation
     const negoValidee = await prisma.negociation.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         statut: "VALIDEE",
         budgetFinal: montantBrut,
