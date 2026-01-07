@@ -60,16 +60,16 @@ export async function GET(
         dateEcheance: document.dateEcheance?.toISOString() || new Date().toISOString(),
         poClient: document.poClient || undefined,
         emetteur: {
-          nom: AGENCE_CONFIG.nom,
+          nom: AGENCE_CONFIG.raisonSociale,
           adresse: AGENCE_CONFIG.adresse,
           codePostal: AGENCE_CONFIG.codePostal,
           ville: AGENCE_CONFIG.ville,
           siret: AGENCE_CONFIG.siret,
-          tva: AGENCE_CONFIG.tvaIntracom,
+          tva: AGENCE_CONFIG.tva,
         },
         client: {
           nom: marque.nom,
-          adresse: marque.adresse || undefined,
+          adresse: marque.adresseRue || undefined,
           codePostal: marque.codePostal || undefined,
           ville: marque.ville || undefined,
           pays: marque.pays || undefined,
@@ -89,7 +89,7 @@ export async function GET(
         mentionTVA: document.mentionTVA || "",
         modePaiement: document.modePaiement || "Virement bancaire",
         rib: {
-          banque: AGENCE_CONFIG.rib.banque,
+          banque: "QONTO",
           iban: AGENCE_CONFIG.rib.iban,
           bic: AGENCE_CONFIG.rib.bic,
         },
