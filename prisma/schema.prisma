@@ -1,6 +1,6 @@
 // ============================================
-// GLOW UP AGENCE - SCHÉMA PRISMA V7
-// V6 + Système de facturation complet
+// GLOW UP AGENCE - SCHÉMA PRISMA V8
+// V7 + Champs Talent pour portail
 // ============================================
 
 generator client {
@@ -168,29 +168,41 @@ model Talent {
   managerId     String
   manager       User      @relation("ManagerTalents", fields: [managerId], references: [id])
   
+  // Infos personnelles
   prenom        String
   nom           String
   email         String
   telephone     String?
+  dateNaissance DateTime?
   
   bio           String?   @db.Text
   presentation  String?   @db.Text
   
+  // Adresse complète
+  adresse       String?
+  codePostal    String?
   ville         String?
   pays          String?   @default("France")
   
   photo         String?
   
+  // Réseaux sociaux
   instagram     String?
   tiktok        String?
   youtube       String?
   
   niches        String[]
-  
   selectedClients String[]
   
+  // Commissions
   commissionInbound   Decimal  @default(20)
   commissionOutbound  Decimal  @default(30)
+  
+  // Infos facturation (pour le portail talent)
+  siret             String?
+  iban              String?
+  bic               String?
+  titulaireCompte   String?
   
   dateArrivee   DateTime  @default(now())
   createdAt     DateTime  @default(now())
@@ -297,7 +309,7 @@ model Marque {
   formeJuridique    String?
   siret             String?
   numeroTVA         String?
-  tvaIntracom       String?   // Numéro TVA intracommunautaire (pour clients EU)
+  tvaIntracom       String?
   
   adresseRue        String?
   adresseComplement String?
@@ -594,60 +606,45 @@ model CollabCycle {
 model Document {
   id            String    @id @default(cuid())
   
-  // Référence unique (F-2026-0001, D-2026-0001, A-2026-0001)
   reference     String    @unique
   
-  // Type et statut
   type          TypeDocument
   statut        StatutDocument  @default(BROUILLON)
   
-  // Lien collaboration
   collaborationId String?
   collaboration   Collaboration? @relation(fields: [collaborationId], references: [id], onDelete: SetNull)
   
-  // Titre du document
   titre         String?
   
-  // Montants
   montantHT     Decimal   @db.Decimal(10, 2)
   tauxTVA       Decimal   @db.Decimal(5, 2) @default(20)
   montantTVA    Decimal   @db.Decimal(10, 2)
   montantTTC    Decimal   @db.Decimal(10, 2)
   
-  // TVA selon client
   typeTVA       TypeTVA   @default(FRANCE)
   mentionTVA    String?
   
-  // Lignes du document (JSON)
-  // Format: [{ description, quantite, prixUnitaire, tauxTVA, totalHT }]
   lignes        Json?
   
-  // Dates
   dateDocument  DateTime  @default(now())
   dateEmission  DateTime  @default(now())
   dateEcheance  DateTime?
   datePaiement  DateTime?
   dateValidation DateTime?
   
-  // Références croisées (pour avoirs)
-  factureRef    String?   // Si avoir, référence à la facture annulée
-  avoirRef      String?   // Si facture, référence à l'avoir créé
+  factureRef    String?
+  avoirRef      String?
   
-  // PO Client
   poClient      String?
   
-  // Paiement
   modePaiement  String?   @default("Virement")
   referencePaiement String?
   
-  // Fichier PDF
   pdfBase64     String?   @db.Text
   fichierUrl    String?
   
-  // Notes
   notes         String?   @db.Text
   
-  // Créateur
   createdById   String?
   createdBy     User?     @relation("DocumentCreateur", fields: [createdById], references: [id])
   
@@ -669,8 +666,8 @@ model Document {
 model Compteur {
   id            String    @id @default(cuid())
   
-  code          String?   // Ex: FACTURE_2026, DEVIS_2026 (généré auto si vide)
-  type          String    // FACTURE, DEVIS, AVOIR, BON_DE_COMMANDE
+  code          String?
+  type          String
   annee         Int
   dernierNumero Int       @default(0)
   
@@ -725,7 +722,7 @@ model AgenceSettings {
   numeroTVA         String?
   rcs               String?
   
-  adresse           String?
+  adresseRue        String?
   adresseComplement String?
   codePostal        String?
   ville             String?

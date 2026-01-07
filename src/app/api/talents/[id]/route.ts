@@ -49,8 +49,11 @@ export async function PUT(
         nom: data.nom,
         email: data.email,
         telephone: data.telephone || null,
+        dateNaissance: data.dateNaissance ? new Date(data.dateNaissance) : null,
         bio: data.bio || null,
         presentation: data.presentation || null,
+        adresse: data.adresse || null,
+        codePostal: data.codePostal || null,
         ville: data.ville || null,
         pays: data.pays || "France",
         photo: data.photo || null,
@@ -61,6 +64,10 @@ export async function PUT(
         selectedClients: data.selectedClients || [],
         commissionInbound: parseFloat(data.commissionInbound) || 20,
         commissionOutbound: parseFloat(data.commissionOutbound) || 30,
+        siret: data.siret || null,
+        iban: data.iban || null,
+        bic: data.bic || null,
+        titulaireCompte: data.titulaireCompte || null,
         managerId: data.managerId,
 
         stats: {
@@ -127,7 +134,6 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    // Vérifier s'il a des collabs
     const talent = await prisma.talent.findUnique({
       where: { id: id },
       include: { _count: { select: { collaborations: true } } },

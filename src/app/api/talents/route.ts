@@ -6,7 +6,6 @@ import prisma from "@/lib/prisma";
 // GET - Liste des talents (filtrée par rôle)
 export async function GET() {
   try {
-    // Récupérer la session pour connaître le rôle
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
@@ -14,14 +13,11 @@ export async function GET() {
 
     const user = session.user as { id: string; role: string };
 
-    // Construire le filtre selon le rôle
     let whereClause = {};
     
     if (user.role === "TM") {
-      // TM ne voit que SES talents
       whereClause = { managerId: user.id };
     }
-    // ADMIN, HEAD_OF, HEAD_OF_INFLUENCE voient tous les talents (pas de filtre)
 
     const talents = await prisma.talent.findMany({
       where: whereClause,
@@ -62,7 +58,6 @@ export async function GET() {
 // POST - Créer un talent (ADMIN et HEAD_OF uniquement)
 export async function POST(request: NextRequest) {
   try {
-    // Vérifier les permissions
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
@@ -70,7 +65,6 @@ export async function POST(request: NextRequest) {
 
     const user = session.user as { id: string; role: string };
     
-    // Seuls ADMIN et HEAD_OF peuvent créer des talents
     if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(user.role)) {
       return NextResponse.json(
         { message: "Vous n'avez pas les droits pour créer un talent" },
@@ -88,11 +82,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Vérifier si le talent a les réseaux
     const hasInstagram = data.instagram && data.instagram.trim() !== "";
     const hasTiktok = data.tiktok && data.tiktok.trim() !== "";
 
-    // Au moins un réseau social obligatoire
     if (!hasInstagram && !hasTiktok) {
       return NextResponse.json(
         { message: "Le talent doit avoir au moins un compte Instagram ou TikTok" },
@@ -100,7 +92,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validation stats Instagram SI le talent a Instagram
     if (hasInstagram && (!data.igFollowers || !data.igEngagement)) {
       return NextResponse.json(
         { message: "Les statistiques Instagram (followers et engagement) sont obligatoires" },
@@ -108,7 +99,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validation stats TikTok SI le talent a TikTok
     if (hasTiktok && (!data.ttFollowers || !data.ttEngagement)) {
       return NextResponse.json(
         { message: "Les statistiques TikTok (followers et engagement) sont obligatoires" },
@@ -116,7 +106,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validation tarifs Instagram SI le talent a Instagram
     if (hasInstagram && (!data.tarifStory || !data.tarifPost || !data.tarifReel)) {
       return NextResponse.json(
         { message: "Les tarifs Story, Post et Reel sont obligatoires" },
@@ -124,7 +113,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validation tarifs TikTok SI le talent a TikTok
     if (hasTiktok && !data.tarifTiktokVideo) {
       return NextResponse.json(
         { message: "Le tarif Vidéo TikTok est obligatoire" },
@@ -139,8 +127,11 @@ export async function POST(request: NextRequest) {
         nom: data.nom,
         email: data.email,
         telephone: data.telephone || null,
+        dateNaissance: data.dateNaissance ? new Date(data.dateNaissance) : null,
         bio: data.bio || null,
         presentation: data.presentation || null,
+        adresse: data.adresse || null,
+        codePostal: data.codePostal || null,
         ville: data.ville || null,
         pays: data.pays || "France",
         photo: data.photo || null,
@@ -151,6 +142,10 @@ export async function POST(request: NextRequest) {
         selectedClients: data.selectedClients || [],
         commissionInbound: parseFloat(data.commissionInbound) || 20,
         commissionOutbound: parseFloat(data.commissionOutbound) || 30,
+        siret: data.siret || null,
+        iban: data.iban || null,
+        bic: data.bic || null,
+        titulaireCompte: data.titulaireCompte || null,
         managerId: data.managerId,
 
         stats: {
