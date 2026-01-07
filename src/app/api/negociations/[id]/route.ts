@@ -66,6 +66,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await request.json();
 
     // Supprimer les anciens livrables
@@ -115,6 +116,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Vérifier qu'elle n'est pas déjà convertie
     const nego = await prisma.negociation.findUnique({
       where: { id: id },

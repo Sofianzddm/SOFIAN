@@ -65,6 +65,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await request.json();
 
     if (data.statut === "PERDU" && !data.raisonPerdu) {
@@ -129,6 +130,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await request.json();
 
     // Supprimer les anciens livrables
@@ -189,6 +191,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Les livrables sont supprimés en cascade (onDelete: Cascade)
     await prisma.collaboration.delete({
       where: { id: id },
