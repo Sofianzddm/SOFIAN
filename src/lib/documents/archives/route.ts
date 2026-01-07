@@ -63,7 +63,7 @@ export async function GET() {
         const docsPaye = collab.documents.filter((d) => d.type === "FACTURE");
         return (
           sum +
-          docsPaye.reduce((s, d) => s + Number(d.totalTTC || 0), 0)
+          docsPaye.reduce((s, d) => s + Number(d.montantTTC || 0), 0)
         );
       }, 0);
 
