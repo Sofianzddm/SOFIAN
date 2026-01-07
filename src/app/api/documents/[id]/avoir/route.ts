@@ -8,9 +8,10 @@ import { genererNumeroDocument } from "@/lib/documents/numerotation";
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -28,7 +29,7 @@ export async function POST(
 
     // Récupérer la facture originale
     const facture = await prisma.document.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: {
         collaboration: true,
       },

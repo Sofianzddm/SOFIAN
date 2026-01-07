@@ -4,11 +4,12 @@ import prisma from "@/lib/prisma";
 // GET - Détail d'un talent
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const talent = await prisma.talent.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: {
         manager: {
           select: { id: true, prenom: true, nom: true, email: true },
@@ -35,13 +36,14 @@ export async function GET(
 // PUT - Modifier un talent
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await request.json();
 
     const talent = await prisma.talent.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         prenom: data.prenom,
         nom: data.nom,
@@ -121,12 +123,13 @@ export async function PUT(
 // DELETE - Supprimer un talent
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Vérifier s'il a des collabs
     const talent = await prisma.talent.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: { _count: { select: { collaborations: true } } },
     });
 
@@ -138,7 +141,7 @@ export async function DELETE(
     }
 
     await prisma.talent.delete({
-      where: { id: params.id },
+      where: { id: id },
     });
 
     return NextResponse.json({ message: "Supprimé" });

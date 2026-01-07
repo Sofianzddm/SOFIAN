@@ -6,9 +6,10 @@ import { authOptions } from "@/lib/auth";
 // POST - Ajouter un commentaire
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
@@ -23,7 +24,7 @@ export async function POST(
     // Créer le commentaire
     const commentaire = await prisma.negoCommentaire.create({
       data: {
-        negociationId: params.id,
+        negociationId: id,
         userId: session.user.id,
         contenu: contenu.trim(),
       },
@@ -36,13 +37,13 @@ export async function POST(
 
     // Mettre à jour le statut si c'est le Head Of qui commente et que c'est en attente
     const nego = await prisma.negociation.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       select: { statut: true },
     });
 
     if (nego?.statut === "EN_ATTENTE" && (session.user.role === "HEAD_OF" || session.user.role === "ADMIN")) {
       await prisma.negociation.update({
-        where: { id: params.id },
+        where: { id: id },
         data: { statut: "EN_DISCUSSION" },
       });
     }

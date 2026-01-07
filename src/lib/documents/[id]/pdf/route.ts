@@ -15,6 +15,7 @@ interface LigneInput {
 
 export async function POST(request: NextRequest) {
   try {
+    const { id } = await params;
     // Vérifier l'authentification
     const session = await getServerSession(authOptions);
     if (!session?.user) {

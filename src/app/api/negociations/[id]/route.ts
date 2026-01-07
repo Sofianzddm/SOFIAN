@@ -6,11 +6,12 @@ import { authOptions } from "@/lib/auth";
 // GET - Détail d'une négociation
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const negociation = await prisma.negociation.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: {
         tm: {
           select: { id: true, prenom: true, nom: true, email: true },
@@ -62,18 +63,19 @@ export async function GET(
 // PUT - Mettre à jour une négociation
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await request.json();
 
     // Supprimer les anciens livrables
     await prisma.negoLivrable.deleteMany({
-      where: { negociationId: params.id },
+      where: { negociationId: id },
     });
 
     const negociation = await prisma.negociation.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         talentId: data.talentId,
         marqueId: data.marqueId,
@@ -111,12 +113,13 @@ export async function PUT(
 // DELETE - Supprimer une négociation
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Vérifier qu'elle n'est pas déjà convertie
     const nego = await prisma.negociation.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       select: { collaborationId: true },
     });
 
@@ -128,7 +131,7 @@ export async function DELETE(
     }
 
     await prisma.negociation.delete({
-      where: { id: params.id },
+      where: { id: id },
     });
 
     return NextResponse.json({ message: "Supprimée" });

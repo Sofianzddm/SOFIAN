@@ -11,9 +11,10 @@ import React from "react";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -21,7 +22,7 @@ export async function GET(
 
     // Récupérer le document avec les relations
     const document = await prisma.document.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: {
         collaboration: {
           include: {
@@ -101,7 +102,7 @@ export async function GET(
 
       // Optionnel : sauvegarder le PDF généré en BDD pour la prochaine fois
       await prisma.document.update({
-        where: { id: params.id },
+        where: { id: id },
         data: { pdfBase64: pdfBuffer.toString("base64") },
       });
     }

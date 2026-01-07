@@ -6,9 +6,10 @@ import { authOptions } from "@/lib/auth";
 // POST - Valider ou refuser une négociation
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
@@ -27,7 +28,7 @@ export async function POST(
 
     // Récupérer la négo avec ses livrables
     const nego = await prisma.negociation.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: {
         livrables: true,
         talent: {
@@ -47,7 +48,7 @@ export async function POST(
     // REFUSER
     if (action === "refuser") {
       const updated = await prisma.negociation.update({
-        where: { id: params.id },
+        where: { id: id },
         data: {
           statut: "REFUSEE",
           validePar: session.user.id,
@@ -102,7 +103,7 @@ export async function POST(
 
     // Mettre à jour la négociation
     const updated = await prisma.negociation.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         statut: "VALIDEE",
         validePar: session.user.id,

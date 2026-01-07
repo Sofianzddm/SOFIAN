@@ -4,11 +4,12 @@ import prisma from "@/lib/prisma";
 // GET - Détail d'une marque
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const marque = await prisma.marque.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: {
         contacts: true,
         collaborations: {
@@ -53,14 +54,15 @@ export async function GET(
 // PUT - Mettre à jour une marque
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await request.json();
 
     // Mettre à jour la marque
     const marque = await prisma.marque.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         nom: data.nom,
         secteur: data.secteur || null,
@@ -87,14 +89,14 @@ export async function PUT(
     if (data.contacts) {
       // Supprimer les anciens contacts
       await prisma.marqueContact.deleteMany({
-        where: { marqueId: params.id },
+        where: { marqueId: id },
       });
 
       // Créer les nouveaux contacts
       if (data.contacts.length > 0) {
         await prisma.marqueContact.createMany({
           data: data.contacts.map((contact: any) => ({
-            marqueId: params.id,
+            marqueId: id,
             nom: contact.nom,
             email: contact.email || null,
             telephone: contact.telephone || null,
@@ -118,12 +120,13 @@ export async function PUT(
 // DELETE - Supprimer une marque
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Vérifier si la marque a des collaborations
     const marque = await prisma.marque.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: {
         _count: {
           select: { collaborations: true },
@@ -147,12 +150,12 @@ export async function DELETE(
 
     // Supprimer les contacts d'abord
     await prisma.marqueContact.deleteMany({
-      where: { marqueId: params.id },
+      where: { marqueId: id },
     });
 
     // Supprimer la marque
     await prisma.marque.delete({
-      where: { id: params.id },
+      where: { id: id },
     });
 
     return NextResponse.json({ message: "Marque supprimée" });

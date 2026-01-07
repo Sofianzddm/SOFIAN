@@ -4,11 +4,12 @@ import prisma from "@/lib/prisma";
 // GET - Détail d'une collaboration
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const collaboration = await prisma.collaboration.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: {
         talent: {
           select: { id: true, prenom: true, nom: true, email: true, photo: true },
@@ -61,9 +62,10 @@ export async function GET(
 // PATCH - Mettre à jour le statut
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await request.json();
 
     if (data.statut === "PERDU" && !data.raisonPerdu) {
@@ -79,7 +81,7 @@ export async function PATCH(
     if (data.statut === "PAYE") updateData.paidAt = new Date();
 
     const collaboration = await prisma.collaboration.update({
-      where: { id: params.id },
+      where: { id: id },
       data: updateData,
       include: {
         talent: { select: { id: true, prenom: true, nom: true, email: true, photo: true } },
@@ -125,19 +127,20 @@ export async function PATCH(
 // PUT - Mettre à jour une collaboration complète (avec livrables)
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await request.json();
 
     // Supprimer les anciens livrables
     await prisma.collabLivrable.deleteMany({
-      where: { collaborationId: params.id },
+      where: { collaborationId: id },
     });
 
     // Mettre à jour la collaboration
     const collaboration = await prisma.collaboration.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         talentId: data.talentId,
         marqueId: data.marqueId,
@@ -185,12 +188,13 @@ export async function PUT(
 // DELETE - Supprimer une collaboration
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Les livrables sont supprimés en cascade (onDelete: Cascade)
     await prisma.collaboration.delete({
-      where: { id: params.id },
+      where: { id: id },
     });
 
     return NextResponse.json({ message: "Supprimée" });
