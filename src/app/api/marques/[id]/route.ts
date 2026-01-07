@@ -57,7 +57,6 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
     const data = await request.json();
 
     // Mettre à jour la marque
@@ -123,7 +122,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
     // Vérifier si la marque a des collaborations
     const marque = await prisma.marque.findUnique({
       where: { id: id },

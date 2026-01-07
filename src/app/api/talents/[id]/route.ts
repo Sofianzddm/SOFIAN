@@ -39,7 +39,6 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
     const data = await request.json();
 
     const talent = await prisma.talent.update({
@@ -126,7 +125,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
     // Vérifier s'il a des collabs
     const talent = await prisma.talent.findUnique({
       where: { id: id },

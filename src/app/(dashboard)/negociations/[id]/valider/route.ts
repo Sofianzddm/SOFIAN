@@ -30,7 +30,6 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const { id } = await params;
     
     const session = await getServerSession(authOptions);
     if (!session?.user) {
