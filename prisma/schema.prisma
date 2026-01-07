@@ -1,0 +1,750 @@
+// ============================================
+// GLOW UP AGENCE - SCHÉMA PRISMA V7
+// V6 + Système de facturation complet
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  ADMIN
+  HEAD_OF
+  HEAD_OF_INFLUENCE
+  HEAD_OF_SALES
+  TM
+  CM
+  TALENT
+}
+
+enum Departement {
+  INFLUENCE
+  SALES
+  ADMIN
+}
+
+enum TypeContenu {
+  STORY
+  STORY_CONCOURS
+  POST
+  POST_CONCOURS
+  POST_COMMUN
+  REEL
+  TIKTOK_VIDEO
+  YOUTUBE_VIDEO
+  YOUTUBE_SHORT
+  EVENT
+  SHOOTING
+  AMBASSADEUR
+}
+
+enum Source {
+  INBOUND
+  OUTBOUND
+}
+
+enum StatutCollab {
+  NEGO
+  PERDU
+  GAGNE
+  EN_COURS
+  PUBLIE
+  FACTURE_RECUE
+  PAYE
+}
+
+enum StatutNego {
+  BROUILLON
+  EN_ATTENTE
+  EN_DISCUSSION
+  VALIDEE
+  REFUSEE
+  ANNULEE
+}
+
+enum StatutProspection {
+  NOUVEAU
+  CONTACTE
+  EN_DISCUSSION
+  PROPOSITION
+  GAGNE
+  PERDU
+  STAND_BY
+}
+
+enum StatutDocument {
+  BROUILLON
+  ENVOYE
+  VALIDE
+  REFUSE
+  PAYE
+  ANNULE
+}
+
+enum TypeDocument {
+  DEVIS
+  BON_DE_COMMANDE
+  FACTURE
+  AVOIR
+}
+
+enum TypeTVA {
+  FRANCE
+  EU_INTRACOM
+  EU_SANS_TVA
+  HORS_EU
+}
+
+enum StatutCycle {
+  A_VENIR
+  EN_COURS
+  PUBLIE
+  FACTURE
+  PAYE
+}
+
+enum TypeNotification {
+  NOUVEAU_TALENT
+  NOUVELLE_MARQUE
+  BILAN_RETARD
+  COLLAB_PUBLIE
+  FACTURE_RECUE
+  FACTURE_RELANCE
+  COLLAB_GAGNEE
+  PAIEMENT_RECU
+  GENERAL
+}
+
+// ============================================
+// USERS
+// ============================================
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  password      String
+  prenom        String
+  nom           String
+  role          Role
+  departement   Departement?
+  telephone     String?
+  actif         Boolean      @default(true)
+  
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  
+  talent        Talent?      @relation("UserTalent")
+  talentsGeres  Talent[]     @relation("ManagerTalents")
+  
+  negociations      Negociation[]   @relation("TMNegociations")
+  negosValidees     Negociation[]   @relation("ValidateurNegociations")
+  negoCommentaires  NegoCommentaire[]
+  
+  prospections      Prospection[]
+  documentsCreated  Document[]      @relation("DocumentCreateur")
+  
+  @@map("users")
+}
+
+// ============================================
+// TALENTS
+// ============================================
+
+model Talent {
+  id            String    @id @default(cuid())
+  
+  userId        String?   @unique
+  user          User?     @relation("UserTalent", fields: [userId], references: [id])
+  
+  managerId     String
+  manager       User      @relation("ManagerTalents", fields: [managerId], references: [id])
+  
+  prenom        String
+  nom           String
+  email         String
+  telephone     String?
+  
+  bio           String?   @db.Text
+  presentation  String?   @db.Text
+  
+  ville         String?
+  pays          String?   @default("France")
+  
+  photo         String?
+  
+  instagram     String?
+  tiktok        String?
+  youtube       String?
+  
+  niches        String[]
+  
+  selectedClients String[]
+  
+  commissionInbound   Decimal  @default(20)
+  commissionOutbound  Decimal  @default(30)
+  
+  dateArrivee   DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  stats         TalentStats?
+  tarifs        TalentTarifs?
+  collaborations Collaboration[]
+  negociations  Negociation[]
+  
+  @@map("talents")
+}
+
+// ============================================
+// STATS TALENT
+// ============================================
+
+model TalentStats {
+  id            String    @id @default(cuid())
+  
+  talentId      String    @unique
+  talent        Talent    @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  
+  igFollowers           Int?
+  igFollowersEvol       Decimal?
+  igEngagement          Decimal?
+  igEngagementEvol      Decimal?
+  igGenreFemme          Decimal?
+  igGenreHomme          Decimal?
+  igAge13_17            Decimal?
+  igAge18_24            Decimal?
+  igAge25_34            Decimal?
+  igAge35_44            Decimal?
+  igAge45Plus           Decimal?
+  igLocFrance           Decimal?
+  igLocAutre            String?
+  
+  ttFollowers           Int?
+  ttFollowersEvol       Decimal?
+  ttEngagement          Decimal?
+  ttEngagementEvol      Decimal?
+  ttGenreFemme          Decimal?
+  ttGenreHomme          Decimal?
+  ttAge13_17            Decimal?
+  ttAge18_24            Decimal?
+  ttAge25_34            Decimal?
+  ttAge35_44            Decimal?
+  ttAge45Plus           Decimal?
+  ttLocFrance           Decimal?
+  ttLocAutre            String?
+  
+  ytAbonnes             Int?
+  ytAbonnesEvol         Decimal?
+  
+  lastUpdate    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@map("talent_stats")
+}
+
+// ============================================
+// TARIFS TALENT
+// ============================================
+
+model TalentTarifs {
+  id            String    @id @default(cuid())
+  
+  talentId      String    @unique
+  talent        Talent    @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  
+  tarifStory          Decimal?
+  tarifStoryConcours  Decimal?
+  tarifPost           Decimal?
+  tarifPostConcours   Decimal?
+  tarifPostCommun     Decimal?
+  tarifReel           Decimal?
+  tarifTiktokVideo    Decimal?
+  tarifYoutubeVideo   Decimal?
+  tarifYoutubeShort   Decimal?
+  tarifEvent          Decimal?
+  tarifShooting       Decimal?
+  tarifAmbassadeur    Decimal?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@map("talent_tarifs")
+}
+
+// ============================================
+// MARQUES
+// ============================================
+
+model Marque {
+  id            String    @id @default(cuid())
+  
+  nom           String
+  secteur       String?
+  siteWeb       String?
+  notes         String?   @db.Text
+  
+  raisonSociale     String?
+  formeJuridique    String?
+  siret             String?
+  numeroTVA         String?
+  tvaIntracom       String?   // Numéro TVA intracommunautaire (pour clients EU)
+  
+  adresseRue        String?
+  adresseComplement String?
+  codePostal        String?
+  ville             String?
+  pays              String?   @default("France")
+  
+  delaiPaiement     Int?      @default(30)
+  modePaiement      String?
+  devise            String?   @default("EUR")
+  
+  premiereCollabAt  DateTime?
+  sourceInitiale    Source?
+  prospectePar      String?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  contacts      MarqueContact[]
+  collaborations Collaboration[]
+  negociations  Negociation[]
+  prospections  Prospection[]
+  
+  @@map("marques")
+}
+
+model MarqueContact {
+  id            String    @id @default(cuid())
+  
+  marqueId      String
+  marque        Marque    @relation(fields: [marqueId], references: [id], onDelete: Cascade)
+  
+  prenom        String?
+  nom           String
+  email         String?
+  telephone     String?
+  poste         String?
+  principal     Boolean   @default(false)
+  
+  createdAt     DateTime  @default(now())
+  
+  @@map("marque_contacts")
+}
+
+// ============================================
+// PROSPECTIONS
+// ============================================
+
+model Prospection {
+  id            String    @id @default(cuid())
+  
+  reference     String    @unique
+  
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  
+  marqueId      String
+  marque        Marque    @relation(fields: [marqueId], references: [id])
+  
+  statut        StatutProspection @default(NOUVEAU)
+  
+  notes         String?   @db.Text
+  dateContact   DateTime?
+  dateRelance   DateTime?
+  
+  montantEstime Decimal?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([marqueId])
+  @@index([statut])
+  @@map("prospections")
+}
+
+// ============================================
+// NÉGOCIATIONS
+// ============================================
+
+model Negociation {
+  id            String    @id @default(cuid())
+  
+  reference     String    @unique
+  
+  tmId          String
+  tm            User      @relation("TMNegociations", fields: [tmId], references: [id])
+  
+  talentId      String
+  talent        Talent    @relation(fields: [talentId], references: [id])
+  
+  marqueId      String
+  marque        Marque    @relation(fields: [marqueId], references: [id])
+  
+  contactMarque     String?
+  emailContact      String?
+  
+  source        Source    @default(INBOUND)
+  
+  brief         String?   @db.Text
+  
+  livrables     NegoLivrable[]
+  
+  budgetMarque      Decimal?
+  budgetSouhaite    Decimal?
+  budgetFinal       Decimal?
+  
+  dateContact       DateTime  @default(now())
+  dateDeadline      DateTime?
+  
+  statut            StatutNego  @default(BROUILLON)
+  
+  validePar         String?
+  validateur        User?     @relation("ValidateurNegociations", fields: [validePar], references: [id])
+  dateValidation    DateTime?
+  raisonRefus       String?
+  
+  collaborationId   String?   @unique
+  collaboration     Collaboration? @relation(fields: [collaborationId], references: [id])
+  
+  commentaires      NegoCommentaire[]
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@index([tmId])
+  @@index([talentId])
+  @@index([marqueId])
+  @@index([statut])
+  @@map("negociations")
+}
+
+// ============================================
+// LIVRABLES NÉGOCIATION
+// ============================================
+
+model NegoLivrable {
+  id              String   @id @default(cuid())
+  
+  negociationId   String
+  negociation     Negociation @relation(fields: [negociationId], references: [id], onDelete: Cascade)
+  
+  typeContenu     TypeContenu
+  quantite        Int       @default(1)
+  prixDemande     Decimal?
+  prixSouhaite    Decimal?
+  prixFinal       Decimal?
+  description     String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([negociationId])
+  @@map("nego_livrables")
+}
+
+// ============================================
+// COMMENTAIRES NÉGOCIATION
+// ============================================
+
+model NegoCommentaire {
+  id              String   @id @default(cuid())
+  
+  negociationId   String
+  negociation     Negociation @relation(fields: [negociationId], references: [id], onDelete: Cascade)
+  
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  
+  contenu         String   @db.Text
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([negociationId])
+  @@map("nego_commentaires")
+}
+
+// ============================================
+// COLLABORATIONS
+// ============================================
+
+model Collaboration {
+  id            String    @id @default(cuid())
+  
+  reference     String    @unique
+  
+  talentId      String
+  talent        Talent    @relation(fields: [talentId], references: [id])
+  
+  marqueId      String
+  marque        Marque    @relation(fields: [marqueId], references: [id])
+  
+  livrables     CollabLivrable[]
+  
+  source            Source    @default(INBOUND)
+  description       String?   @db.Text
+  
+  montantBrut       Decimal   @default(0)
+  commissionPercent Decimal   @default(20)
+  commissionEuros   Decimal   @default(0)
+  montantNet        Decimal   @default(0)
+  
+  statut            StatutCollab  @default(NEGO)
+  raisonPerdu       String?
+  
+  lienPublication   String?
+  datePublication   DateTime?
+  
+  factureTalentUrl      String?
+  factureTalentRecueAt  DateTime?
+  
+  paidAt            DateTime?
+  
+  isLongTerme       Boolean   @default(false)
+  
+  marqueNotifiee    Boolean   @default(false)
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  negociation       Negociation?
+  
+  cycles            CollabCycle[]
+  documents         Document[]
+  
+  @@index([talentId])
+  @@index([marqueId])
+  @@index([statut])
+  @@map("collaborations")
+}
+
+// ============================================
+// LIVRABLES COLLABORATION
+// ============================================
+
+model CollabLivrable {
+  id              String   @id @default(cuid())
+  
+  collaborationId String
+  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  
+  typeContenu     TypeContenu
+  quantite        Int       @default(1)
+  prixUnitaire    Decimal
+  description     String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([collaborationId])
+  @@map("collab_livrables")
+}
+
+// ============================================
+// CYCLES (collabs long terme)
+// ============================================
+
+model CollabCycle {
+  id            String    @id @default(cuid())
+  
+  collaborationId String
+  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  
+  numero        Int
+  description   String?
+  
+  dateDebut     DateTime?
+  dateFin       DateTime?
+  
+  montantBrut       Decimal
+  commissionEuros   Decimal
+  montantNet        Decimal
+  
+  statut        StatutCycle   @default(A_VENIR)
+  
+  lienPublication   String?
+  datePublication   DateTime?
+  
+  factureTalentUrl      String?
+  factureTalentRecueAt  DateTime?
+  paidAt                DateTime?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([collaborationId])
+  @@map("collab_cycles")
+}
+
+// ============================================
+// DOCUMENTS (Devis, BDC, Factures, Avoirs)
+// ============================================
+
+model Document {
+  id            String    @id @default(cuid())
+  
+  // Référence unique (F-2026-0001, D-2026-0001, A-2026-0001)
+  reference     String    @unique
+  
+  // Type et statut
+  type          TypeDocument
+  statut        StatutDocument  @default(BROUILLON)
+  
+  // Lien collaboration
+  collaborationId String?
+  collaboration   Collaboration? @relation(fields: [collaborationId], references: [id], onDelete: SetNull)
+  
+  // Titre du document
+  titre         String?
+  
+  // Montants
+  montantHT     Decimal   @db.Decimal(10, 2)
+  tauxTVA       Decimal   @db.Decimal(5, 2) @default(20)
+  montantTVA    Decimal   @db.Decimal(10, 2)
+  montantTTC    Decimal   @db.Decimal(10, 2)
+  
+  // TVA selon client
+  typeTVA       TypeTVA   @default(FRANCE)
+  mentionTVA    String?
+  
+  // Lignes du document (JSON)
+  // Format: [{ description, quantite, prixUnitaire, tauxTVA, totalHT }]
+  lignes        Json?
+  
+  // Dates
+  dateDocument  DateTime  @default(now())
+  dateEmission  DateTime  @default(now())
+  dateEcheance  DateTime?
+  datePaiement  DateTime?
+  dateValidation DateTime?
+  
+  // Références croisées (pour avoirs)
+  factureRef    String?   // Si avoir, référence à la facture annulée
+  avoirRef      String?   // Si facture, référence à l'avoir créé
+  
+  // PO Client
+  poClient      String?
+  
+  // Paiement
+  modePaiement  String?   @default("Virement")
+  referencePaiement String?
+  
+  // Fichier PDF
+  pdfBase64     String?   @db.Text
+  fichierUrl    String?
+  
+  // Notes
+  notes         String?   @db.Text
+  
+  // Créateur
+  createdById   String?
+  createdBy     User?     @relation("DocumentCreateur", fields: [createdById], references: [id])
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([collaborationId])
+  @@index([type, statut])
+  @@index([dateEcheance])
+  @@index([reference])
+  @@index([createdById])
+  @@map("documents")
+}
+
+// ============================================
+// COMPTEURS
+// ============================================
+
+model Compteur {
+  id            String    @id @default(cuid())
+  
+  code          String?   // Ex: FACTURE_2026, DEVIS_2026 (généré auto si vide)
+  type          String    // FACTURE, DEVIS, AVOIR, BON_DE_COMMANDE
+  annee         Int
+  dernierNumero Int       @default(0)
+  
+  @@unique([type, annee])
+  @@index([code])
+  @@map("compteurs")
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id            String           @id @default(cuid())
+  
+  userId        String
+  
+  type          TypeNotification @default(GENERAL)
+  
+  titre         String
+  message       String
+  lien          String?
+  lu            Boolean          @default(false)
+  luAt          DateTime?
+  
+  marqueId      String?
+  talentId      String?
+  collabId      String?
+  
+  createdAt     DateTime         @default(now())
+  
+  @@index([userId])
+  @@index([userId, lu])
+  @@index([type])
+  @@map("notifications")
+}
+
+// ============================================
+// PARAMÈTRES AGENCE
+// ============================================
+
+model AgenceSettings {
+  id            String    @id @default(cuid())
+  
+  nom               String    @default("Glow Up Agence")
+  logo              String?
+  
+  raisonSociale     String?
+  formeJuridique    String?
+  capitalSocial     String?
+  siret             String?
+  numeroTVA         String?
+  rcs               String?
+  
+  adresse           String?
+  adresseComplement String?
+  codePostal        String?
+  ville             String?
+  pays              String?   @default("France")
+  
+  telephone         String?
+  email             String?
+  siteWeb           String?
+  
+  banque            String?
+  iban              String?
+  bic               String?
+  
+  mentionsDevis     String?   @db.Text
+  mentionsFacture   String?   @db.Text
+  conditionsPaiement String?  @db.Text
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@map("agence_settings")
+}

@@ -1,0 +1,242 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================================
+   GLOW UP - GLOBAL STYLES
+   ================================ */
+
+:root {
+  --glowup-licorice: #220101;
+  --glowup-rose: #B06F70;
+  --glowup-rose-dark: #9A5F60;
+  --glowup-rose-light: #C48B8C;
+  --glowup-green: #E5F2B5;
+  --glowup-lace: #F5EDE0;
+  --glowup-lace-dark: #E8DED0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ================================
+   SCROLLBAR CUSTOM
+   ================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--glowup-lace);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--glowup-rose-light);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--glowup-rose);
+}
+
+/* ================================
+   FOCUS STYLES
+   ================================ */
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus {
+  outline: none;
+}
+
+.focus-ring:focus {
+  box-shadow: 0 0 0 3px rgba(176, 111, 112, 0.3);
+}
+
+/* ================================
+   ANIMATIONS
+   ================================ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.3s ease-out;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+/* ================================
+   UTILITY CLASSES
+   ================================ */
+
+.glass {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.glass-dark {
+  background: rgba(34, 1, 1, 0.6);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(176, 111, 112, 0.2);
+}
+
+/* ================================
+   BADGE STYLES
+   ================================ */
+
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+}
+
+.badge-success {
+  @apply bg-glowup-green text-glowup-licorice;
+}
+
+.badge-warning {
+  @apply bg-amber-100 text-amber-800;
+}
+
+.badge-danger {
+  @apply bg-red-100 text-red-800;
+}
+
+.badge-info {
+  @apply bg-blue-100 text-blue-800;
+}
+
+.badge-neutral {
+  @apply bg-gray-100 text-gray-800;
+}
+
+/* ================================
+   BUTTON STYLES
+   ================================ */
+
+.btn {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200;
+}
+
+.btn-primary {
+  @apply bg-glowup-rose text-white hover:bg-glowup-rose-dark;
+}
+
+.btn-secondary {
+  @apply bg-glowup-lace text-glowup-licorice hover:bg-glowup-lace-dark;
+}
+
+.btn-outline {
+  @apply border border-glowup-rose text-glowup-rose hover:bg-glowup-rose hover:text-white;
+}
+
+.btn-ghost {
+  @apply text-glowup-rose hover:bg-glowup-rose/10;
+}
+
+.btn-danger {
+  @apply bg-red-500 text-white hover:bg-red-600;
+}
+
+/* ================================
+   INPUT STYLES
+   ================================ */
+
+.input {
+  @apply w-full px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-glowup-licorice placeholder:text-gray-400 transition-all duration-200;
+}
+
+.input:focus {
+  @apply border-glowup-rose ring-2 ring-glowup-rose/20;
+}
+
+.input-error {
+  @apply border-red-500 ring-2 ring-red-500/20;
+}
+
+/* ================================
+   CARD STYLES
+   ================================ */
+
+.card {
+  @apply bg-white rounded-xl shadow-card p-6;
+}
+
+.card-hover {
+  @apply hover:shadow-card-hover transition-shadow duration-200;
+}
+
+/* ================================
+   TABLE STYLES
+   ================================ */
+
+.table-container {
+  @apply overflow-x-auto rounded-xl border border-gray-200;
+}
+
+.table {
+  @apply w-full text-sm;
+}
+
+.table th {
+  @apply px-4 py-3 text-left font-semibold text-glowup-licorice bg-glowup-lace/50 border-b border-gray-200;
+}
+
+.table td {
+  @apply px-4 py-3 border-b border-gray-100;
+}
+
+.table tr:last-child td {
+  @apply border-b-0;
+}
+
+.table tr:hover td {
+  @apply bg-glowup-lace/30;
+}
