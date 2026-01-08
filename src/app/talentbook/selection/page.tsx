@@ -405,53 +405,47 @@ export default function SelectionPage() {
       
       const { html } = await res.json();
       
-      // Charger html2pdf dynamiquement
-      const html2pdfModule = await import('html2pdf.js');
-      const html2pdf = html2pdfModule.default;
+      // Créer une iframe cachée pour l'impression
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = 'none';
+      document.body.appendChild(iframe);
       
-      // Créer un container temporaire
-      const container = document.createElement('div');
-      container.innerHTML = html;
-      container.style.position = 'absolute';
-      container.style.left = '-9999px';
-      container.style.top = '0';
-      document.body.appendChild(container);
-      
-      // Attendre le chargement des images
-      const images = container.querySelectorAll('img');
-      await Promise.all(
-        Array.from(images).map(img => {
-          if (img.complete) return Promise.resolve();
-          return new Promise((resolve) => {
-            img.onload = resolve;
-            img.onerror = resolve;
-          });
-        })
-      );
-      
-      // Générer le PDF
-      const options = {
-        margin: 0,
-        filename: `GlowUp_Selection_${new Date().toISOString().split('T')[0]}.pdf`,
-        image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: { 
-          scale: 2,
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
-        },
-        jsPDF: { 
-          unit: 'mm' as const, 
-          format: 'a4' as const, 
-          orientation: 'portrait' as const
-        },
-        pagebreak: { mode: ['css', 'legacy'] as const }
-      };
-      
-      await html2pdf().set(options).from(container).save();
-      
-      // Nettoyer
-      document.body.removeChild(container);
+      const iframeDoc = iframe.contentWindow?.document;
+      if (iframeDoc) {
+        iframeDoc.open();
+        iframeDoc.write(html);
+        iframeDoc.close();
+        
+        // Attendre le chargement des images
+        const images = iframeDoc.querySelectorAll('img');
+        await Promise.all(
+          Array.from(images).map(img => {
+            if (img.complete) return Promise.resolve();
+            return new Promise((resolve) => {
+              img.onload = resolve;
+              img.onerror = resolve;
+              // Timeout de sécurité
+              setTimeout(resolve, 3000);
+            });
+          })
+        );
+        
+        // Petit délai pour le rendu
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Lancer l'impression (qui permet de sauvegarder en PDF)
+        iframe.contentWindow?.print();
+        
+        // Nettoyer après un délai
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 1000);
+      }
       
     } catch (error) {
       console.error("Erreur PDF:", error);
