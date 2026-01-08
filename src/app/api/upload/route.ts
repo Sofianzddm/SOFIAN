@@ -1,8 +1,15 @@
-import { put, del } from "@vercel/blob";
+import { v2 as cloudinary } from "cloudinary";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+
+// Configuration Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 export async function POST(request: Request) {
   try {
@@ -36,34 +43,45 @@ export async function POST(request: Request) {
       );
     }
 
-    // Supprimer l'ancienne photo si elle existe sur Vercel Blob
-    if (talent.photo && talent.photo.includes("blob.vercel-storage.com")) {
+    // Supprimer l'ancienne photo si elle existe sur Cloudinary
+    if (talent.photo && talent.photo.includes("cloudinary.com")) {
       try {
-        await del(talent.photo);
+        // Extraire le public_id de l'URL Cloudinary
+        const urlParts = talent.photo.split("/");
+        const filenameWithExt = urlParts[urlParts.length - 1];
+        const folder = urlParts[urlParts.length - 2];
+        const publicId = `${folder}/${filenameWithExt.split(".")[0]}`;
+        await cloudinary.uploader.destroy(publicId);
       } catch (e) {
         console.log("Ancienne photo non supprimée:", e);
       }
     }
 
-    // Générer un nom de fichier unique
-    const extension = file.name.split(".").pop();
-    const filename = `talents/${talentId}/${Date.now()}.${extension}`;
+    // Convertir le fichier en base64
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const base64 = `data:${file.type};base64,${buffer.toString("base64")}`;
 
-    // Upload vers Vercel Blob
-    const blob = await put(filename, file, {
-      access: "public",
-      addRandomSuffix: false,
+    // Upload vers Cloudinary
+    const result = await cloudinary.uploader.upload(base64, {
+      folder: "glowup-talents",
+      public_id: `${talentId}-${Date.now()}`,
+      transformation: [
+        { width: 1200, height: 1500, crop: "limit" },
+        { quality: "auto:good" },
+        { fetch_format: "auto" },
+      ],
     });
 
     // Mettre à jour le talent avec la nouvelle URL
     await prisma.talent.update({
       where: { id: talentId },
-      data: { photo: blob.url },
+      data: { photo: result.secure_url },
     });
 
     return NextResponse.json({
       success: true,
-      url: blob.url,
+      url: result.secure_url,
       message: `Photo de ${talent.prenom} ${talent.nom} mise à jour`,
     });
   } catch (error) {
