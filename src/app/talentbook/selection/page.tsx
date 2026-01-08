@@ -615,8 +615,8 @@ export default function SelectionPage() {
                   <span className="font-spectral-light-italic opacity-80">{t.interestedBy}</span>{" "}
                   <span className="font-spectral-light">{t.thisSelection}</span>
                 </h2>
-                <p className="text-[#F5EDE0]/60 mb-8 font-switzer max-w-md mx-auto">
-                  {t.downloadAndSend}
+                <p className="text-[#F5EDE0]/60 mb-8 font-switzer max-w-md mx-auto text-sm md:text-base">
+                  {lang === "fr" ? "Téléchargez le PDF de votre sélection" : "Download your selection as PDF"}
                 </p>
                 <button
                   onClick={generatePDF}

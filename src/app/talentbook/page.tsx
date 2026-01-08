@@ -410,16 +410,17 @@ function TalentModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-[#220101]/90 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-[#220101]/90 backdrop-blur-md"
       onClick={onClose}
     >
       <div
-        className="bg-[#F5EDE0] rounded-2xl md:rounded-[2rem] max-w-5xl w-full max-h-[95vh] md:max-h-[92vh] overflow-hidden shadow-2xl"
+        className="bg-[#F5EDE0] w-full md:max-w-5xl md:w-full md:mx-4 h-[95vh] md:h-auto md:max-h-[92vh] rounded-t-3xl md:rounded-[2rem] overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="grid md:grid-cols-[1.2fr_1fr] max-h-[95vh] md:max-h-[92vh] overflow-auto md:overflow-hidden">
-          {/* Photo */}
-          <div className="relative min-h-[250px] md:min-h-[700px] bg-[#220101]">
+        {/* Container scrollable sur mobile */}
+        <div className="h-full overflow-y-auto md:overflow-hidden md:grid md:grid-cols-[1.2fr_1fr]">
+          {/* Photo - hauteur fixe sur mobile */}
+          <div className="relative h-[280px] md:h-auto md:min-h-[700px] bg-[#220101] flex-shrink-0">
             {hasPhoto ? (
               <>
                 <img
@@ -427,11 +428,11 @@ function TalentModal({
                   alt={`${talent.prenom} ${talent.nom}`}
                   className="w-full h-full object-cover object-top"
                 />
-                <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#220101]/40 to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 h-20 md:h-32 bg-gradient-to-t from-[#220101]/60 to-transparent" />
               </>
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#B06F70] to-[#220101]">
-                <span className="text-[80px] md:text-[140px] text-[#F5EDE0]/50 tracking-widest font-spectral-light">
+                <span className="text-[60px] md:text-[140px] text-[#F5EDE0]/50 tracking-widest font-spectral-light">
                   {getInitials(talent.prenom, talent.nom)}
                 </span>
               </div>
@@ -440,7 +441,7 @@ function TalentModal({
             {/* Bouton fermer */}
             <button
               onClick={onClose}
-              className="absolute top-3 right-3 md:top-5 md:right-5 w-9 h-9 md:w-11 md:h-11 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center text-[#220101] transition-all hover:scale-110 shadow-xl font-switzer text-base md:text-lg"
+              className="absolute top-3 right-3 md:top-5 md:right-5 w-10 h-10 md:w-11 md:h-11 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center text-[#220101] transition-all hover:scale-110 shadow-xl font-switzer text-lg"
             >
               ✕
             </button>
@@ -448,7 +449,7 @@ function TalentModal({
             {/* Bouton Favori */}
             <button
               onClick={onToggleFavorite}
-              className={`absolute top-3 left-3 md:top-5 md:left-5 w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center transition-all shadow-xl ${
+              className={`absolute top-3 left-3 md:top-5 md:left-5 w-10 h-10 md:w-11 md:h-11 rounded-full flex items-center justify-center transition-all shadow-xl ${
                 isFavorite 
                   ? "bg-[#B06F70] text-white" 
                   : "bg-white/95 backdrop-blur-sm text-[#220101]/40 hover:text-[#B06F70]"
@@ -456,30 +457,41 @@ function TalentModal({
             >
               <HeartIcon filled={isFavorite} className="w-5 h-5 md:w-6 md:h-6" />
             </button>
+            
+            {/* Nom superposé sur mobile */}
+            <div className="absolute bottom-0 left-0 right-0 p-4 md:hidden">
+              <h2 className="text-2xl text-white leading-tight drop-shadow-lg">
+                <span className="font-spectral-medium-italic">{talent.prenom}</span>{" "}
+                <span className="font-spectral-light">{talent.nom.toUpperCase()}</span>
+              </h2>
+              <p className="text-xs text-white/80 uppercase tracking-[0.1em] mt-1 font-spectral-light">
+                {talent.niches.length > 0 ? talent.niches.slice(0, 2).join(" / ") : "CRÉATEUR DE CONTENU"}
+              </p>
+            </div>
           </div>
 
           {/* Content */}
-          <div className="p-5 md:p-8 lg:p-10 overflow-y-auto max-h-[50vh] md:max-h-[92vh] bg-[#F5EDE0] flex flex-col">
-            {/* Nom */}
-            <h2 className="text-2xl md:text-3xl lg:text-[2.5rem] mb-2 md:mb-3 text-[#220101] leading-tight">
+          <div className="p-5 md:p-8 lg:p-10 md:overflow-y-auto md:max-h-[92vh] bg-[#F5EDE0] flex flex-col">
+            {/* Nom - caché sur mobile car superposé sur la photo */}
+            <h2 className="hidden md:block text-3xl lg:text-[2.5rem] mb-3 text-[#220101] leading-tight">
               <span className="font-spectral-medium-italic">{talent.prenom}</span>{" "}
               <span className="font-spectral-light">{talent.nom.toUpperCase()}</span>
             </h2>
 
-            {/* Niches */}
-            <p className="text-xs md:text-sm text-[#220101] uppercase tracking-[0.15em] mb-2 font-spectral-light font-bold">
+            {/* Niches - caché sur mobile car superposé */}
+            <p className="hidden md:block text-sm text-[#220101] uppercase tracking-[0.15em] mb-2 font-spectral-light font-bold">
               {talent.niches.length > 0 ? talent.niches.join(" / ") : "CRÉATEUR DE CONTENU"}
             </p>
 
-            {/* Rôle */}
-            <p className="text-[#220101]/70 text-base md:text-lg mb-4 md:mb-6 font-spectral-light-italic">
+            {/* Rôle - caché sur mobile */}
+            <p className="hidden md:block text-[#220101]/70 text-lg mb-6 font-spectral-light-italic">
               {lang === "fr" ? "Créatrice de contenu" : "Content Creator"}
             </p>
 
             {/* Présentation */}
             {(talent.presentation || displayPresentation) && (
-              <div className="mb-6 md:mb-8 pb-4 md:pb-6 border-b border-[#220101]/15">
-                <p className="text-[10px] md:text-[11px] text-[#220101]/50 uppercase tracking-[0.15em] mb-3 md:mb-4 font-switzer">
+              <div className="mb-4 md:mb-8 pb-4 md:pb-6 border-b border-[#220101]/15">
+                <p className="text-[10px] md:text-[11px] text-[#220101]/50 uppercase tracking-[0.15em] mb-2 md:mb-4 font-switzer">
                   {t.presentation}
                 </p>
                 {isTranslating ? (
@@ -488,7 +500,7 @@ function TalentModal({
                     <span className="font-switzer text-sm">Translating...</span>
                   </div>
                 ) : (
-                  <p className="text-[#220101] leading-[1.7] md:leading-[1.8] text-sm md:text-[16px] font-spectral-light">
+                  <p className="text-[#220101] leading-[1.6] md:leading-[1.8] text-sm md:text-[16px] font-spectral-light line-clamp-4 md:line-clamp-none">
                     {displayPresentation}
                   </p>
                 )}
@@ -496,7 +508,7 @@ function TalentModal({
             )}
 
             {/* Stats */}
-            <div className="mb-6 md:mb-8 flex-1">
+            <div className="mb-4 md:mb-8 flex-1">
               {/* Header */}
               <div className="grid grid-cols-2 gap-4 md:gap-8 mb-2 pb-2">
                 <p className="text-[10px] md:text-[11px] text-[#220101]/50 uppercase tracking-[0.1em] font-switzer">
@@ -511,7 +523,7 @@ function TalentModal({
               <div>
                 {/* Instagram */}
                 {talent.stats?.igFollowers && (
-                  <div className="grid grid-cols-2 gap-4 md:gap-8 py-3 md:py-4 border-t border-[#220101]/15">
+                  <div className="grid grid-cols-2 gap-4 md:gap-8 py-2.5 md:py-4 border-t border-[#220101]/15">
                     <div className="flex items-center gap-2 md:gap-3">
                       <a
                         href={`https://instagram.com/${talent.instagram?.replace('@', '')}`}
@@ -606,9 +618,9 @@ function TalentModal({
               </div>
             </div>
 
-            {/* Logo Glow Up */}
-            <div className="pt-4 md:pt-6 border-t border-[#220101]/10 flex justify-center">
-              <GlowUpLogo className="w-24 md:w-32 h-auto opacity-60" color="#220101" />
+            {/* Logo Glow Up - caché sur mobile */}
+            <div className="hidden md:flex pt-6 border-t border-[#220101]/10 justify-center">
+              <GlowUpLogo className="w-32 h-auto opacity-60" color="#220101" />
             </div>
           </div>
         </div>
