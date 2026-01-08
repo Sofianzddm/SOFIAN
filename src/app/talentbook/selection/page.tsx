@@ -490,13 +490,13 @@ export default function SelectionPage() {
 
       <div className="min-h-screen bg-[#F5EDE0]">
         {/* Header */}
-        <header className="bg-[#220101] py-12 px-4 relative">
+        <header className="bg-[#220101] py-8 md:py-12 px-4 relative">
           {/* Toggle Langue */}
-          <div className="absolute top-6 right-6">
+          <div className="absolute top-4 right-4 md:top-6 md:right-6">
             <div className="flex items-center bg-[#F5EDE0]/10 rounded-full p-1">
               <button
                 onClick={() => setLang("fr")}
-                className={`px-3 py-1.5 rounded-full text-sm font-switzer transition-all ${
+                className={`px-2 py-1 md:px-3 md:py-1.5 rounded-full text-xs md:text-sm font-switzer transition-all ${
                   lang === "fr"
                     ? "bg-[#B06F70] text-white"
                     : "text-[#F5EDE0]/60 hover:text-[#F5EDE0]"
@@ -506,7 +506,7 @@ export default function SelectionPage() {
               </button>
               <button
                 onClick={() => setLang("en")}
-                className={`px-3 py-1.5 rounded-full text-sm font-switzer transition-all ${
+                className={`px-2 py-1 md:px-3 md:py-1.5 rounded-full text-xs md:text-sm font-switzer transition-all ${
                   lang === "en"
                     ? "bg-[#B06F70] text-white"
                     : "text-[#F5EDE0]/60 hover:text-[#F5EDE0]"
@@ -521,21 +521,21 @@ export default function SelectionPage() {
             {/* Navigation */}
             <Link 
               href="/talentbook"
-              className="inline-flex items-center gap-2 text-[#F5EDE0]/70 hover:text-[#F5EDE0] transition-colors mb-8 font-switzer"
+              className="inline-flex items-center gap-2 text-[#F5EDE0]/70 hover:text-[#F5EDE0] transition-colors mb-6 md:mb-8 font-switzer text-sm md:text-base"
             >
-              <ArrowLeftIcon className="w-5 h-5" />
+              <ArrowLeftIcon className="w-4 h-4 md:w-5 md:h-5" />
               {t.backToCatalog}
             </Link>
 
             <div className="text-center">
-              <div className="flex justify-center mb-6">
-                <GlowUpLogo className="w-48 h-auto" color="#B06F70" />
+              <div className="flex justify-center mb-4 md:mb-6">
+                <GlowUpLogo className="w-36 md:w-48 h-auto" color="#B06F70" />
               </div>
-              <h1 className="text-3xl md:text-4xl text-[#F5EDE0] mb-2">
+              <h1 className="text-2xl md:text-3xl lg:text-4xl text-[#F5EDE0] mb-2">
                 <span className="font-spectral-light-italic opacity-80">{t.mySelection}</span>{" "}
                 <span className="font-spectral-light">{t.selection}</span>
               </h1>
-              <p className="text-sm text-[#F5EDE0]/40 tracking-wide font-switzer">
+              <p className="text-xs md:text-sm text-[#F5EDE0]/40 tracking-wide font-switzer">
                 {selectedTalents.length} {selectedTalents.length > 1 ? t.talentsSelected : t.talentSelected}
               </p>
             </div>
@@ -543,25 +543,25 @@ export default function SelectionPage() {
         </header>
 
         {/* Content */}
-        <main className="max-w-4xl mx-auto px-4 py-12">
+        <main className="max-w-4xl mx-auto px-4 py-8 md:py-12">
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#220101]" />
             </div>
           ) : selectedTalents.length === 0 ? (
-            <div className="text-center py-20">
-              <p className="text-6xl mb-6">💔</p>
-              <h2 className="text-2xl text-[#220101] mb-2 font-spectral-light">
+            <div className="text-center py-12 md:py-20">
+              <p className="text-5xl md:text-6xl mb-4 md:mb-6">💔</p>
+              <h2 className="text-xl md:text-2xl text-[#220101] mb-2 font-spectral-light">
                 {t.emptySelection}
               </h2>
-              <p className="text-[#220101]/50 mb-8 font-switzer">
+              <p className="text-sm md:text-base text-[#220101]/50 mb-6 md:mb-8 font-switzer">
                 {t.browseAndAdd}
               </p>
               <Link
                 href="/talentbook"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-[#220101] text-[#F5EDE0] rounded-full font-switzer hover:bg-[#220101]/90 transition-colors"
+                className="inline-flex items-center gap-2 px-5 md:px-6 py-2.5 md:py-3 bg-[#220101] text-[#F5EDE0] rounded-full font-switzer text-sm md:text-base hover:bg-[#220101]/90 transition-colors"
               >
-                <ArrowLeftIcon className="w-5 h-5" />
+                <ArrowLeftIcon className="w-4 h-4 md:w-5 md:h-5" />
                 {t.discoverTalents}
               </Link>
             </div>

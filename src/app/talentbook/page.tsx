@@ -410,16 +410,16 @@ function TalentModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#220101]/90 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-[#220101]/90 backdrop-blur-md"
       onClick={onClose}
     >
       <div
-        className="bg-[#F5EDE0] rounded-[2rem] max-w-5xl w-full max-h-[92vh] overflow-hidden shadow-2xl"
+        className="bg-[#F5EDE0] rounded-2xl md:rounded-[2rem] max-w-5xl w-full max-h-[95vh] md:max-h-[92vh] overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="grid md:grid-cols-[1.2fr_1fr]">
+        <div className="grid md:grid-cols-[1.2fr_1fr] max-h-[95vh] md:max-h-[92vh] overflow-auto md:overflow-hidden">
           {/* Photo */}
-          <div className="relative min-h-[350px] md:min-h-[700px] bg-[#220101]">
+          <div className="relative min-h-[250px] md:min-h-[700px] bg-[#220101]">
             {hasPhoto ? (
               <>
                 <img
@@ -431,7 +431,7 @@ function TalentModal({
               </>
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#B06F70] to-[#220101]">
-                <span className="text-[140px] text-[#F5EDE0]/50 tracking-widest font-spectral-light">
+                <span className="text-[80px] md:text-[140px] text-[#F5EDE0]/50 tracking-widest font-spectral-light">
                   {getInitials(talent.prenom, talent.nom)}
                 </span>
               </div>
@@ -440,7 +440,7 @@ function TalentModal({
             {/* Bouton fermer */}
             <button
               onClick={onClose}
-              className="absolute top-5 right-5 w-11 h-11 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center text-[#220101] transition-all hover:scale-110 shadow-xl font-switzer text-lg"
+              className="absolute top-3 right-3 md:top-5 md:right-5 w-9 h-9 md:w-11 md:h-11 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center text-[#220101] transition-all hover:scale-110 shadow-xl font-switzer text-base md:text-lg"
             >
               ✕
             </button>
@@ -448,38 +448,38 @@ function TalentModal({
             {/* Bouton Favori */}
             <button
               onClick={onToggleFavorite}
-              className={`absolute top-5 left-5 w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-xl ${
+              className={`absolute top-3 left-3 md:top-5 md:left-5 w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center transition-all shadow-xl ${
                 isFavorite 
                   ? "bg-[#B06F70] text-white" 
                   : "bg-white/95 backdrop-blur-sm text-[#220101]/40 hover:text-[#B06F70]"
               }`}
             >
-              <HeartIcon filled={isFavorite} className="w-6 h-6" />
+              <HeartIcon filled={isFavorite} className="w-5 h-5 md:w-6 md:h-6" />
             </button>
           </div>
 
           {/* Content */}
-          <div className="p-8 md:p-10 overflow-y-auto max-h-[60vh] md:max-h-[92vh] bg-[#F5EDE0] flex flex-col">
+          <div className="p-5 md:p-8 lg:p-10 overflow-y-auto max-h-[50vh] md:max-h-[92vh] bg-[#F5EDE0] flex flex-col">
             {/* Nom */}
-            <h2 className="text-3xl md:text-[2.5rem] mb-3 text-[#220101] leading-tight">
+            <h2 className="text-2xl md:text-3xl lg:text-[2.5rem] mb-2 md:mb-3 text-[#220101] leading-tight">
               <span className="font-spectral-medium-italic">{talent.prenom}</span>{" "}
               <span className="font-spectral-light">{talent.nom.toUpperCase()}</span>
             </h2>
 
             {/* Niches */}
-            <p className="text-sm text-[#220101] uppercase tracking-[0.15em] mb-2 font-spectral-light font-bold">
+            <p className="text-xs md:text-sm text-[#220101] uppercase tracking-[0.15em] mb-2 font-spectral-light font-bold">
               {talent.niches.length > 0 ? talent.niches.join(" / ") : "CRÉATEUR DE CONTENU"}
             </p>
 
             {/* Rôle */}
-            <p className="text-[#220101]/70 text-lg mb-6 font-spectral-light-italic">
+            <p className="text-[#220101]/70 text-base md:text-lg mb-4 md:mb-6 font-spectral-light-italic">
               {lang === "fr" ? "Créatrice de contenu" : "Content Creator"}
             </p>
 
             {/* Présentation */}
             {(talent.presentation || displayPresentation) && (
-              <div className="mb-8 pb-6 border-b border-[#220101]/15">
-                <p className="text-[11px] text-[#220101]/50 uppercase tracking-[0.15em] mb-4 font-switzer">
+              <div className="mb-6 md:mb-8 pb-4 md:pb-6 border-b border-[#220101]/15">
+                <p className="text-[10px] md:text-[11px] text-[#220101]/50 uppercase tracking-[0.15em] mb-3 md:mb-4 font-switzer">
                   {t.presentation}
                 </p>
                 {isTranslating ? (
@@ -488,7 +488,7 @@ function TalentModal({
                     <span className="font-switzer text-sm">Translating...</span>
                   </div>
                 ) : (
-                  <p className="text-[#220101] leading-[1.8] text-[16px] font-spectral-light">
+                  <p className="text-[#220101] leading-[1.7] md:leading-[1.8] text-sm md:text-[16px] font-spectral-light">
                     {displayPresentation}
                   </p>
                 )}
@@ -496,13 +496,13 @@ function TalentModal({
             )}
 
             {/* Stats */}
-            <div className="mb-8 flex-1">
+            <div className="mb-6 md:mb-8 flex-1">
               {/* Header */}
-              <div className="grid grid-cols-2 gap-8 mb-2 pb-2">
-                <p className="text-[11px] text-[#220101]/50 uppercase tracking-[0.1em] font-switzer">
+              <div className="grid grid-cols-2 gap-4 md:gap-8 mb-2 pb-2">
+                <p className="text-[10px] md:text-[11px] text-[#220101]/50 uppercase tracking-[0.1em] font-switzer">
                   {t.community}
                 </p>
-                <p className="text-[11px] text-[#220101]/50 uppercase tracking-[0.1em] text-right font-switzer">
+                <p className="text-[10px] md:text-[11px] text-[#220101]/50 uppercase tracking-[0.1em] text-right font-switzer">
                   {t.engagementRate}
                 </p>
               </div>
@@ -511,32 +511,32 @@ function TalentModal({
               <div>
                 {/* Instagram */}
                 {talent.stats?.igFollowers && (
-                  <div className="grid grid-cols-2 gap-8 py-4 border-t border-[#220101]/15">
-                    <div className="flex items-center gap-3">
+                  <div className="grid grid-cols-2 gap-4 md:gap-8 py-3 md:py-4 border-t border-[#220101]/15">
+                    <div className="flex items-center gap-2 md:gap-3">
                       <a
                         href={`https://instagram.com/${talent.instagram?.replace('@', '')}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="hover:scale-110 transition-transform"
                       >
-                        <InstagramIcon className="w-5 h-5 text-[#220101] hover:text-[#E1306C]" />
+                        <InstagramIcon className="w-4 h-4 md:w-5 md:h-5 text-[#220101] hover:text-[#E1306C]" />
                       </a>
-                      <span className="text-xl text-[#220101] font-switzer">
+                      <span className="text-base md:text-xl text-[#220101] font-switzer">
                         {formatFollowers(talent.stats.igFollowers)}
                       </span>
                       {talent.stats.igFollowersEvol !== null && (
-                        <span className="text-sm text-[#4a5d23] bg-[#E5F2B5] px-2.5 py-1 rounded font-switzer">
-                          ▲&nbsp;&nbsp;{talent.stats.igFollowersEvol.toFixed(2).replace(".", ",")}%
+                        <span className="text-xs md:text-sm text-[#4a5d23] bg-[#E5F2B5] px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-switzer hidden sm:inline-block">
+                          ▲ {talent.stats.igFollowersEvol.toFixed(2).replace(".", ",")}%
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center justify-end gap-3">
-                      <span className="text-xl text-[#220101] font-switzer">
+                    <div className="flex items-center justify-end gap-2 md:gap-3">
+                      <span className="text-base md:text-xl text-[#220101] font-switzer">
                         {talent.stats.igEngagement?.toFixed(2).replace(".", ",") || "—"}%
                       </span>
                       {talent.stats.igEngagementEvol !== null && (
-                        <span className="text-sm text-[#4a5d23] bg-[#E5F2B5] px-2.5 py-1 rounded font-switzer">
-                          ▲&nbsp;&nbsp;{talent.stats.igEngagementEvol.toFixed(2).replace(".", ",")}
+                        <span className="text-xs md:text-sm text-[#4a5d23] bg-[#E5F2B5] px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-switzer hidden sm:inline-block">
+                          ▲ {talent.stats.igEngagementEvol.toFixed(2).replace(".", ",")}
                           <span className="text-xs">PT</span>
                         </span>
                       )}
@@ -546,32 +546,32 @@ function TalentModal({
 
                 {/* TikTok */}
                 {talent.stats?.ttFollowers && (
-                  <div className="grid grid-cols-2 gap-8 py-4 border-t border-[#220101]/15">
-                    <div className="flex items-center gap-3">
+                  <div className="grid grid-cols-2 gap-4 md:gap-8 py-3 md:py-4 border-t border-[#220101]/15">
+                    <div className="flex items-center gap-2 md:gap-3">
                       <a
                         href={`https://tiktok.com/@${talent.tiktok?.replace('@', '')}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="hover:scale-110 transition-transform"
                       >
-                        <TikTokIcon className="w-5 h-5 text-[#220101] hover:text-black" />
+                        <TikTokIcon className="w-4 h-4 md:w-5 md:h-5 text-[#220101] hover:text-black" />
                       </a>
-                      <span className="text-xl text-[#220101] font-switzer">
+                      <span className="text-base md:text-xl text-[#220101] font-switzer">
                         {formatFollowers(talent.stats.ttFollowers)}
                       </span>
                       {talent.stats.ttFollowersEvol !== null && (
-                        <span className="text-sm text-[#4a5d23] bg-[#E5F2B5] px-2.5 py-1 rounded font-switzer">
-                          ▲&nbsp;&nbsp;{talent.stats.ttFollowersEvol.toFixed(2).replace(".", ",")}%
+                        <span className="text-xs md:text-sm text-[#4a5d23] bg-[#E5F2B5] px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-switzer hidden sm:inline-block">
+                          ▲ {talent.stats.ttFollowersEvol.toFixed(2).replace(".", ",")}%
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center justify-end gap-3">
-                      <span className="text-xl text-[#220101] font-switzer">
+                    <div className="flex items-center justify-end gap-2 md:gap-3">
+                      <span className="text-base md:text-xl text-[#220101] font-switzer">
                         {talent.stats.ttEngagement?.toFixed(2).replace(".", ",") || "—"}%
                       </span>
                       {talent.stats.ttEngagementEvol !== null && (
-                        <span className="text-sm text-[#4a5d23] bg-[#E5F2B5] px-2.5 py-1 rounded font-switzer">
-                          ▲&nbsp;&nbsp;{talent.stats.ttEngagementEvol.toFixed(2).replace(".", ",")}
+                        <span className="text-xs md:text-sm text-[#4a5d23] bg-[#E5F2B5] px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-switzer hidden sm:inline-block">
+                          ▲ {talent.stats.ttEngagementEvol.toFixed(2).replace(".", ",")}
                           <span className="text-xs">PT</span>
                         </span>
                       )}
@@ -581,22 +581,22 @@ function TalentModal({
 
                 {/* YouTube */}
                 {talent.stats?.ytAbonnes && (
-                  <div className="grid grid-cols-2 gap-8 py-4 border-t border-[#220101]/15">
-                    <div className="flex items-center gap-3">
+                  <div className="grid grid-cols-2 gap-4 md:gap-8 py-3 md:py-4 border-t border-[#220101]/15">
+                    <div className="flex items-center gap-2 md:gap-3">
                       <a
                         href={`https://youtube.com/@${talent.youtube?.replace('@', '')}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="hover:scale-110 transition-transform"
                       >
-                        <YouTubeIcon className="w-5 h-5 text-[#220101] hover:text-[#FF0000]" />
+                        <YouTubeIcon className="w-4 h-4 md:w-5 md:h-5 text-[#220101] hover:text-[#FF0000]" />
                       </a>
-                      <span className="text-xl text-[#220101] font-switzer">
+                      <span className="text-base md:text-xl text-[#220101] font-switzer">
                         {formatFollowers(talent.stats.ytAbonnes)}
                       </span>
                       {talent.stats.ytAbonnesEvol !== null && (
-                        <span className="text-sm text-[#4a5d23] bg-[#E5F2B5] px-2.5 py-1 rounded font-switzer">
-                          ▲&nbsp;&nbsp;{talent.stats.ytAbonnesEvol.toFixed(2).replace(".", ",")}%
+                        <span className="text-xs md:text-sm text-[#4a5d23] bg-[#E5F2B5] px-1.5 md:px-2.5 py-0.5 md:py-1 rounded font-switzer hidden sm:inline-block">
+                          ▲ {talent.stats.ytAbonnesEvol.toFixed(2).replace(".", ",")}%
                         </span>
                       )}
                     </div>
@@ -607,8 +607,8 @@ function TalentModal({
             </div>
 
             {/* Logo Glow Up */}
-            <div className="pt-6 border-t border-[#220101]/10 flex justify-center">
-              <GlowUpLogo className="w-32 h-auto opacity-60" color="#220101" />
+            <div className="pt-4 md:pt-6 border-t border-[#220101]/10 flex justify-center">
+              <GlowUpLogo className="w-24 md:w-32 h-auto opacity-60" color="#220101" />
             </div>
           </div>
         </div>
@@ -638,12 +638,12 @@ function SelectionBar({
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#220101] shadow-[0_-4px_30px_rgba(34,1,1,0.3)]">
-      <div className="max-w-6xl mx-auto px-4 py-4">
-        <div className="flex items-center justify-between gap-4">
+      <div className="max-w-6xl mx-auto px-3 md:px-4 py-3 md:py-4">
+        <div className="flex items-center justify-between gap-2 md:gap-4">
           {/* Avatars des sélectionnés */}
-          <div className="flex items-center gap-3">
-            <div className="flex -space-x-3">
-              {selectedTalents.slice(0, 5).map((talent) => (
+          <div className="flex items-center gap-2 md:gap-3 min-w-0">
+            <div className="flex -space-x-2 md:-space-x-3 flex-shrink-0">
+              {selectedTalents.slice(0, 3).map((talent) => (
                 <div
                   key={talent.id}
                   className="relative group"
@@ -652,49 +652,54 @@ function SelectionBar({
                     <img
                       src={talent.photo}
                       alt={talent.prenom}
-                      className="w-12 h-12 rounded-full border-3 border-[#220101] object-cover"
+                      className="w-9 h-9 md:w-12 md:h-12 rounded-full border-2 md:border-3 border-[#220101] object-cover"
                     />
                   ) : (
-                    <div className="w-12 h-12 rounded-full border-3 border-[#220101] bg-[#B06F70] flex items-center justify-center text-white font-bold text-sm">
+                    <div className="w-9 h-9 md:w-12 md:h-12 rounded-full border-2 md:border-3 border-[#220101] bg-[#B06F70] flex items-center justify-center text-white font-bold text-xs md:text-sm">
                       {getInitials(talent.prenom, talent.nom)}
                     </div>
                   )}
-                  {/* Bouton supprimer */}
+                  {/* Bouton supprimer - caché sur mobile */}
                   <button
                     onClick={() => onRemove(talent.id)}
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-white rounded-full text-[#220101] text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                    className="absolute -top-1 -right-1 w-4 h-4 md:w-5 md:h-5 bg-white rounded-full text-[#220101] text-[10px] md:text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow hidden md:flex"
                   >
                     ✕
                   </button>
                 </div>
               ))}
-              {favorites.length > 5 && (
-                <div className="w-12 h-12 rounded-full border-3 border-[#220101] bg-[#B06F70] flex items-center justify-center text-white font-bold text-sm">
-                  +{favorites.length - 5}
+              {favorites.length > 3 && (
+                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full border-2 md:border-3 border-[#220101] bg-[#B06F70] flex items-center justify-center text-white font-bold text-xs md:text-sm">
+                  +{favorites.length - 3}
                 </div>
               )}
             </div>
-            <div className="text-[#F5EDE0]">
-              <p className="font-switzer text-sm">
+            <div className="text-[#F5EDE0] hidden sm:block">
+              <p className="font-switzer text-xs md:text-sm">
                 <span className="font-bold">{favorites.length}</span> {favorites.length > 1 ? t.talentsPlural : t.talent} {favorites.length > 1 ? t.selectedPlural : t.selected}
               </p>
+            </div>
+            {/* Version mobile */}
+            <div className="text-[#F5EDE0] sm:hidden">
+              <p className="font-switzer text-xs font-bold">{favorites.length}</p>
             </div>
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             <button
               onClick={onClear}
-              className="px-4 py-2 text-[#F5EDE0]/60 hover:text-[#F5EDE0] transition-colors font-switzer text-sm"
+              className="px-2 md:px-4 py-1.5 md:py-2 text-[#F5EDE0]/60 hover:text-[#F5EDE0] transition-colors font-switzer text-xs md:text-sm hidden sm:block"
             >
               {t.clearAll}
             </button>
             <a
               href="/talentbook/selection"
-              className="px-6 py-3 bg-[#B06F70] hover:bg-[#9d5f60] text-white rounded-full font-switzer font-medium transition-all hover:scale-105 flex items-center gap-2"
+              className="px-4 md:px-6 py-2 md:py-3 bg-[#B06F70] hover:bg-[#9d5f60] text-white rounded-full font-switzer font-medium transition-all hover:scale-105 flex items-center gap-1.5 md:gap-2 text-sm md:text-base"
             >
-              <HeartIcon filled className="w-5 h-5" />
-              {t.viewSelection}
+              <HeartIcon filled className="w-4 h-4 md:w-5 md:h-5" />
+              <span className="hidden sm:inline">{t.viewSelection}</span>
+              <span className="sm:hidden">Voir</span>
             </a>
           </div>
         </div>
@@ -928,11 +933,11 @@ export default function TalentBookPage() {
         {/* Header */}
         <header className="bg-[#220101] py-16 px-4 relative">
           {/* Toggle Langue */}
-          <div className="absolute top-6 right-6">
+          <div className="absolute top-4 right-4 md:top-6 md:right-6">
             <div className="flex items-center bg-[#F5EDE0]/10 rounded-full p-1">
               <button
                 onClick={() => setLang("fr")}
-                className={`px-3 py-1.5 rounded-full text-sm font-switzer transition-all ${
+                className={`px-2 py-1 md:px-3 md:py-1.5 rounded-full text-xs md:text-sm font-switzer transition-all ${
                   lang === "fr"
                     ? "bg-[#B06F70] text-white"
                     : "text-[#F5EDE0]/60 hover:text-[#F5EDE0]"
@@ -942,7 +947,7 @@ export default function TalentBookPage() {
               </button>
               <button
                 onClick={() => setLang("en")}
-                className={`px-3 py-1.5 rounded-full text-sm font-switzer transition-all ${
+                className={`px-2 py-1 md:px-3 md:py-1.5 rounded-full text-xs md:text-sm font-switzer transition-all ${
                   lang === "en"
                     ? "bg-[#B06F70] text-white"
                     : "text-[#F5EDE0]/60 hover:text-[#F5EDE0]"
@@ -953,19 +958,19 @@ export default function TalentBookPage() {
             </div>
           </div>
 
-          <div className="max-w-6xl mx-auto text-center">
+          <div className="max-w-6xl mx-auto text-center px-4">
             <div className="flex justify-center mb-6">
-              <GlowUpLogo className="w-64 md:w-80 h-auto" color="#B06F70" />
+              <GlowUpLogo className="w-48 md:w-64 lg:w-80 h-auto" color="#B06F70" />
             </div>
-            <p className="text-[#F5EDE0]/60 text-sm tracking-[0.3em] font-spectral-light-italic">
+            <p className="text-[#F5EDE0]/60 text-xs md:text-sm tracking-[0.3em] font-spectral-light-italic">
               {t.tagline}
             </p>
-            <div className="mt-14">
-              <h1 className="text-3xl md:text-4xl text-[#F5EDE0]">
+            <div className="mt-8 md:mt-14">
+              <h1 className="text-2xl md:text-3xl lg:text-4xl text-[#F5EDE0]">
                 <span className="font-spectral-light-italic opacity-80">{t.ourTalents}</span>{" "}
                 <span className="font-spectral-light">{t.talents}</span>
               </h1>
-              <p className="mt-3 text-sm text-[#F5EDE0]/40 tracking-wide font-switzer">
+              <p className="mt-2 md:mt-3 text-xs md:text-sm text-[#F5EDE0]/40 tracking-wide font-switzer">
                 {t.discover}
               </p>
             </div>
@@ -973,53 +978,56 @@ export default function TalentBookPage() {
         </header>
 
         {/* Filtres */}
-        <nav className="sticky top-0 z-30 bg-[#F5EDE0]/95 backdrop-blur-md border-b border-[#220101]/10 py-4">
+        <nav className="sticky top-0 z-30 bg-[#F5EDE0]/95 backdrop-blur-md border-b border-[#220101]/10 py-3 md:py-4">
           <div className="max-w-6xl mx-auto px-4">
             {/* Filtres réseaux */}
-            <div className="flex justify-center gap-3 mb-4">
+            <div className="flex justify-center gap-2 md:gap-3 mb-3 md:mb-4 overflow-x-auto pb-1">
               <button
                 onClick={() => toggleNetwork("instagram")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm transition-all font-switzer ${
+                className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm transition-all font-switzer whitespace-nowrap ${
                   selectedNetworks.includes("instagram")
                     ? "bg-gradient-to-r from-[#f09433] via-[#e6683c] to-[#bc1888] text-white"
                     : "bg-white text-[#220101]/60 border border-[#220101]/20"
                 }`}
               >
-                <InstagramIcon className="w-4 h-4" />
-                Instagram
+                <InstagramIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                <span className="hidden xs:inline">Instagram</span>
+                <span className="xs:hidden">Insta</span>
               </button>
               <button
                 onClick={() => toggleNetwork("tiktok")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm transition-all font-switzer ${
+                className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm transition-all font-switzer whitespace-nowrap ${
                   selectedNetworks.includes("tiktok")
                     ? "bg-black text-white"
                     : "bg-white text-[#220101]/60 border border-[#220101]/20"
                 }`}
               >
-                <TikTokIcon className="w-4 h-4" />
+                <TikTokIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
                 TikTok
               </button>
               <button
                 onClick={() => toggleNetwork("youtube")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm transition-all font-switzer ${
+                className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm transition-all font-switzer whitespace-nowrap ${
                   selectedNetworks.includes("youtube")
                     ? "bg-[#FF0000] text-white"
                     : "bg-white text-[#220101]/60 border border-[#220101]/20"
                 }`}
               >
-                <YouTubeIcon className="w-4 h-4" />
-                YouTube
+                <YouTubeIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                <span className="hidden xs:inline">YouTube</span>
+                <span className="xs:hidden">YT</span>
               </button>
             </div>
 
             {/* Filtres niches + Tri */}
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide flex-wrap flex-1">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              {/* Niches - scrollable sur mobile */}
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap md:flex-1">
                 {nicheCategories.map((cat) => (
                   <button
                     key={cat.id}
                     onClick={() => setSelectedNiche(cat.id)}
-                    className={`px-4 py-2 rounded-full text-sm whitespace-nowrap transition-all font-switzer ${
+                    className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm whitespace-nowrap transition-all font-switzer flex-shrink-0 ${
                       selectedNiche === cat.id
                         ? "bg-[#220101] text-[#F5EDE0]"
                         : "bg-transparent text-[#220101]/60 border border-[#220101]/20 hover:border-[#220101]/40"
@@ -1031,15 +1039,15 @@ export default function TalentBookPage() {
               </div>
 
               {/* Dropdown Tri */}
-              <div className="relative">
+              <div className="relative flex-shrink-0">
                 <button
                   onClick={() => setShowSortMenu(!showSortMenu)}
-                  className="flex items-center gap-2 px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all whitespace-nowrap"
+                  className="flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 bg-white border border-[#220101]/20 rounded-full text-xs md:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all whitespace-nowrap"
                 >
-                  <SortIcon className="w-4 h-4" />
-                  <span className="hidden sm:inline">{t.sortBy}:</span>
-                  <span className="font-medium text-[#220101]">{sortLabels[sortBy]}</span>
-                  <ChevronDownIcon className={`w-4 h-4 transition-transform ${showSortMenu ? "rotate-180" : ""}`} />
+                  <SortIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                  <span className="hidden md:inline">{t.sortBy}:</span>
+                  <span className="font-medium text-[#220101] max-w-[80px] md:max-w-none truncate">{sortLabels[sortBy]}</span>
+                  <ChevronDownIcon className={`w-3.5 h-3.5 md:w-4 md:h-4 transition-transform ${showSortMenu ? "rotate-180" : ""}`} />
                 </button>
 
                 {showSortMenu && (
@@ -1048,7 +1056,7 @@ export default function TalentBookPage() {
                       className="fixed inset-0 z-40" 
                       onClick={() => setShowSortMenu(false)}
                     />
-                    <div className="absolute right-0 top-full mt-2 bg-white rounded-2xl shadow-xl border border-[#220101]/10 py-2 min-w-[200px] z-50">
+                    <div className="absolute right-0 top-full mt-2 bg-white rounded-2xl shadow-xl border border-[#220101]/10 py-2 min-w-[180px] md:min-w-[200px] z-50">
                       {(Object.keys(sortLabels) as SortOption[]).map((option) => (
                         <button
                           key={option}
@@ -1056,7 +1064,7 @@ export default function TalentBookPage() {
                             setSortBy(option);
                             setShowSortMenu(false);
                           }}
-                          className={`w-full px-4 py-2.5 text-left text-sm font-switzer transition-colors ${
+                          className={`w-full px-4 py-2 md:py-2.5 text-left text-xs md:text-sm font-switzer transition-colors ${
                             sortBy === option
                               ? "bg-[#220101] text-[#F5EDE0]"
                               : "text-[#220101]/70 hover:bg-[#F5EDE0]"
@@ -1074,7 +1082,7 @@ export default function TalentBookPage() {
         </nav>
 
         {/* Grille */}
-        <main className="max-w-6xl mx-auto px-4 py-12">
+        <main className="max-w-6xl mx-auto px-4 py-8 md:py-12">
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#220101]" />
@@ -1082,7 +1090,7 @@ export default function TalentBookPage() {
           ) : filteredTalents.length === 0 ? (
             <div className="text-center py-20">
               <p className="text-5xl mb-4">🔍</p>
-              <p className="text-lg text-[#220101]/50 font-switzer">
+              <p className="text-base md:text-lg text-[#220101]/50 font-switzer">
                 {t.noTalents}
               </p>
               <button
