@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Valider le type d'événement
-    const validTypes = ["page_view", "talent_click", "pdf_download", "favorite_add"];
+    const validTypes = ["page_view", "talent_click", "pdf_download", "favorite_add", "favorite_remove"];
     if (!validTypes.includes(type)) {
       return NextResponse.json(
         { error: "Type d'événement invalide" },
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const period = searchParams.get("period") || "7d"; // 7d, 30d, all
+    const period = searchParams.get("period") || "7d";
 
     // Calculer la date de début selon la période
     let startDate: Date;
@@ -63,18 +63,17 @@ export async function GET(request: NextRequest) {
         startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         break;
       default:
-        startDate = new Date(0); // Tout
+        startDate = new Date(0);
     }
 
     // Stats globales
     const [
       totalPageViews,
-      uniqueVisitors,
+      uniqueVisitorsData,
       totalTalentClicks,
       totalPdfDownloads,
-      topTalents,
+      topTalentsRaw,
       recentActivity,
-      dailyStats,
     ] = await Promise.all([
       // Total des vues de page
       prisma.talentbookEvent.count({
@@ -91,7 +90,7 @@ export async function GET(request: NextRequest) {
           type: "page_view",
           createdAt: { gte: startDate },
         },
-      }).then(result => result.length),
+      }),
 
       // Total clics sur talents
       prisma.talentbookEvent.count({
@@ -120,24 +119,6 @@ export async function GET(request: NextRequest) {
         _count: { talentId: true },
         orderBy: { _count: { talentId: "desc" } },
         take: 10,
-      }).then(async (results) => {
-        // Récupérer les infos des talents
-        const talentIds = results.map(r => r.talentId).filter(Boolean) as string[];
-        const talents = await prisma.talent.findMany({
-          where: { id: { in: talentIds } },
-          select: { id: true, prenom: true, nom: true, photo: true },
-        });
-        
-        return results.map(r => {
-          const talent = talents.find(t => t.id === r.talentId);
-          return {
-            talentId: r.talentId,
-            clicks: r._count.talentId,
-            prenom: talent?.prenom || "Inconnu",
-            nom: talent?.nom || "",
-            photo: talent?.photo || null,
-          };
-        });
       }),
 
       // Activité récente (20 derniers événements)
@@ -153,32 +134,70 @@ export async function GET(request: NextRequest) {
           },
         },
       }),
-
-      // Stats par jour (pour le graphique)
-      prisma.$queryRaw<Array<{ date: string; views: bigint; clicks: bigint }>>`
-        SELECT 
-          DATE(createdAt) as date,
-          SUM(CASE WHEN type = 'page_view' THEN 1 ELSE 0 END) as views,
-          SUM(CASE WHEN type = 'talent_click' THEN 1 ELSE 0 END) as clicks
-        FROM TalentbookEvent
-        WHERE createdAt >= ${startDate}
-        GROUP BY DATE(createdAt)
-        ORDER BY date DESC
-        LIMIT 30
-      `.then(results => 
-        results.map(r => ({
-          date: r.date,
-          views: Number(r.views),
-          clicks: Number(r.clicks),
-        }))
-      ),
     ]);
+
+    // Récupérer les infos des top talents
+    const talentIds = topTalentsRaw
+      .map(r => r.talentId)
+      .filter((id): id is string => id !== null);
+    
+    const talents = await prisma.talent.findMany({
+      where: { id: { in: talentIds } },
+      select: { id: true, prenom: true, nom: true, photo: true },
+    });
+
+    const topTalents = topTalentsRaw.map(r => {
+      const talent = talents.find(t => t.id === r.talentId);
+      return {
+        talentId: r.talentId,
+        clicks: r._count.talentId,
+        prenom: talent?.prenom || "Inconnu",
+        nom: talent?.nom || "",
+        photo: talent?.photo || null,
+      };
+    });
+
+    // Calculer les stats par jour (sans queryRaw)
+    const allEvents = await prisma.talentbookEvent.findMany({
+      where: {
+        createdAt: { gte: startDate },
+      },
+      select: {
+        type: true,
+        createdAt: true,
+      },
+    });
+
+    // Grouper par jour manuellement
+    const dailyStatsMap = new Map<string, { views: number; clicks: number }>();
+    
+    allEvents.forEach(event => {
+      const dateKey = event.createdAt.toISOString().split('T')[0];
+      const existing = dailyStatsMap.get(dateKey) || { views: 0, clicks: 0 };
+      
+      if (event.type === "page_view") {
+        existing.views++;
+      } else if (event.type === "talent_click") {
+        existing.clicks++;
+      }
+      
+      dailyStatsMap.set(dateKey, existing);
+    });
+
+    const dailyStats = Array.from(dailyStatsMap.entries())
+      .map(([date, stats]) => ({
+        date,
+        views: stats.views,
+        clicks: stats.clicks,
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 30);
 
     return NextResponse.json({
       period,
       stats: {
         totalPageViews,
-        uniqueVisitors,
+        uniqueVisitors: uniqueVisitorsData.length,
         totalTalentClicks,
         totalPdfDownloads,
       },
