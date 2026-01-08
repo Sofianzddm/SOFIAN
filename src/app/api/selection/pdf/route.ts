@@ -127,7 +127,7 @@ function generatePDFHtml(talents: any[], lang: Lang = "fr"): string {
         <div class="talent-photo">
           ${
             talent.photo
-              ? `<img src="${talent.photo}" alt="${talent.prenom} ${talent.nom}" />`
+              ? `<img src="${talent.photo}" alt="${talent.prenom} ${talent.nom}" style="width: 280px; height: 280px; object-fit: cover; object-position: top center; border-radius: 16px;" />`
               : `<div class="initials">${talent.prenom.charAt(0)}${talent.nom.charAt(0)}</div>`
           }
         </div>
@@ -332,39 +332,39 @@ function generatePDFHtml(talents: any[], lang: Lang = "fr"): string {
     .talent-content {
       display: flex;
       flex: 1;
-      height: 297mm;
+      padding: 30px;
+      gap: 30px;
+      align-items: flex-start;
     }
     
     .talent-photo {
-      width: 50%;
+      width: 280px;
+      height: 280px;
+      flex-shrink: 0;
       background: linear-gradient(135deg, #B06F70 0%, #220101 100%);
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: center;
       overflow: hidden;
+      border-radius: 16px;
     }
     
     .talent-photo img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      object-position: top center;
+      display: block;
     }
     
     .talent-photo .initials {
-      font-size: 120px;
+      font-size: 80px;
       color: rgba(245, 237, 224, 0.5);
       font-weight: 300;
       letter-spacing: 0.1em;
-      margin-top: 200px;
     }
     
     .talent-info {
-      width: 50%;
-      padding: 50px 40px;
+      flex: 1;
+      padding: 20px 0;
       display: flex;
       flex-direction: column;
-      background: #F5EDE0;
     }
     
     .talent-header {
