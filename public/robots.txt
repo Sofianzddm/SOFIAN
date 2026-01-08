@@ -1,0 +1,3 @@
+# Bloquer l'indexation de app.glowupagence.fr
+User-agent: *
+Disallow: /

@@ -42,33 +42,42 @@ export async function PUT(
     const { id } = await params;
     const data = await request.json();
 
+    // Construire l'objet de mise à jour en excluant les champs non fournis
+    const updateData: Record<string, unknown> = {
+      prenom: data.prenom,
+      nom: data.nom,
+      email: data.email,
+      telephone: data.telephone || null,
+      dateNaissance: data.dateNaissance ? new Date(data.dateNaissance) : null,
+      bio: data.bio || null,
+      presentation: data.presentation || null,
+      adresse: data.adresse || null,
+      codePostal: data.codePostal || null,
+      ville: data.ville || null,
+      pays: data.pays || "France",
+      instagram: data.instagram || null,
+      tiktok: data.tiktok || null,
+      youtube: data.youtube || null,
+      niches: data.niches || [],
+      selectedClients: data.selectedClients || [],
+      commissionInbound: parseFloat(data.commissionInbound) || 20,
+      commissionOutbound: parseFloat(data.commissionOutbound) || 30,
+      siret: data.siret || null,
+      iban: data.iban || null,
+      bic: data.bic || null,
+      titulaireCompte: data.titulaireCompte || null,
+      managerId: data.managerId,
+    };
+
+    // Ne mettre à jour la photo QUE si elle est explicitement fournie
+    if (data.photo !== undefined) {
+      updateData.photo = data.photo || null;
+    }
+
     const talent = await prisma.talent.update({
       where: { id: id },
       data: {
-        prenom: data.prenom,
-        nom: data.nom,
-        email: data.email,
-        telephone: data.telephone || null,
-        dateNaissance: data.dateNaissance ? new Date(data.dateNaissance) : null,
-        bio: data.bio || null,
-        presentation: data.presentation || null,
-        adresse: data.adresse || null,
-        codePostal: data.codePostal || null,
-        ville: data.ville || null,
-        pays: data.pays || "France",
-        photo: data.photo || null,
-        instagram: data.instagram || null,
-        tiktok: data.tiktok || null,
-        youtube: data.youtube || null,
-        niches: data.niches || [],
-        selectedClients: data.selectedClients || [],
-        commissionInbound: parseFloat(data.commissionInbound) || 20,
-        commissionOutbound: parseFloat(data.commissionOutbound) || 30,
-        siret: data.siret || null,
-        iban: data.iban || null,
-        bic: data.bic || null,
-        titulaireCompte: data.titulaireCompte || null,
-        managerId: data.managerId,
+        ...updateData,
 
         stats: {
           update: {

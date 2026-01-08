@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -33,6 +33,9 @@ import {
   Zap,
   Target,
   Crown,
+  Upload,
+  Check,
+  X,
 } from "lucide-react";
 
 interface TalentDetail {
@@ -110,6 +113,12 @@ export default function TalentDetailPage() {
   const [talent, setTalent] = useState<TalentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"instagram" | "tiktok">("instagram");
+  
+  // Upload photo state
+  const [uploading, setUploading] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const user = session?.user as { id: string; role: string } | undefined;
   const role = user?.role || "";
@@ -118,6 +127,7 @@ export default function TalentDetailPage() {
   const canEditTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canDeleteTalent = role === "ADMIN";
   const canUpdateStats = role === "TM" || role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
+  const canUploadPhoto = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "TM";
   const isMyTalent = talent?.managerId === userId;
 
   useEffect(() => {
@@ -155,6 +165,67 @@ export default function TalentDetailPage() {
       console.error("Erreur:", error);
     }
   };
+
+  // ========== UPLOAD PHOTO ==========
+  const handlePhotoClick = () => {
+    if (canUploadPhoto && fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !talent) return;
+
+    // Vérifier le type de fichier
+    if (!file.type.startsWith("image/")) {
+      setUploadError("Veuillez sélectionner une image");
+      return;
+    }
+
+    // Vérifier la taille (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError("L'image ne doit pas dépasser 5MB");
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+    setUploadSuccess(false);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("talentId", talent.id);
+
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setUploadSuccess(true);
+        // Mettre à jour l'état local avec la nouvelle photo
+        setTalent({ ...talent, photo: data.url });
+        // Reset après 2 secondes
+        setTimeout(() => setUploadSuccess(false), 2000);
+      } else {
+        setUploadError(data.error || "Erreur lors de l'upload");
+      }
+    } catch (error) {
+      console.error("Erreur upload:", error);
+      setUploadError("Erreur lors de l'upload");
+    } finally {
+      setUploading(false);
+      // Reset l'input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+  // ========== FIN UPLOAD PHOTO ==========
 
   const formatFollowers = (count: number | null) => {
     if (!count) return "0";
@@ -266,11 +337,23 @@ export default function TalentDetailPage() {
         {/* Hero Content */}
         <div className="relative z-10 max-w-7xl mx-auto px-6 pb-32 pt-8">
           <div className="flex flex-col lg:flex-row items-center lg:items-end gap-8 lg:gap-12">
-            {/* Photo */}
+            {/* Photo avec Upload */}
             <div className="relative group">
+              {/* Input file caché */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              
               <div className="absolute -inset-2 bg-gradient-to-br from-glowup-rose via-pink-500 to-purple-500 rounded-[2rem] opacity-75 blur-lg group-hover:opacity-100 transition-opacity" />
-              <div className="relative w-48 h-48 lg:w-56 lg:h-56 rounded-[1.5rem] bg-gradient-to-br from-glowup-rose/20 to-purple-500/20 p-1">
-                <div className="w-full h-full rounded-[1.25rem] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center overflow-hidden">
+              <div 
+                className={`relative w-48 h-48 lg:w-56 lg:h-56 rounded-[1.5rem] bg-gradient-to-br from-glowup-rose/20 to-purple-500/20 p-1 ${canUploadPhoto ? "cursor-pointer" : ""}`}
+                onClick={handlePhotoClick}
+              >
+                <div className="w-full h-full rounded-[1.25rem] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center overflow-hidden relative">
                   {talent.photo ? (
                     <img src={talent.photo} alt={talent.prenom} className="w-full h-full object-cover" />
                   ) : (
@@ -278,12 +361,61 @@ export default function TalentDetailPage() {
                       {talent.prenom.charAt(0)}{talent.nom.charAt(0)}
                     </span>
                   )}
+                  
+                  {/* Overlay upload au hover */}
+                  {canUploadPhoto && !uploading && (
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-[1.25rem]">
+                      <div className="text-center text-white">
+                        <Camera className="w-10 h-10 mx-auto mb-2" />
+                        <p className="text-sm font-medium">Changer la photo</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Loading state */}
+                  {uploading && (
+                    <div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-[1.25rem]">
+                      <div className="text-center text-white">
+                        <Loader2 className="w-10 h-10 mx-auto mb-2 animate-spin" />
+                        <p className="text-sm font-medium">Upload en cours...</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Success state */}
+                  {uploadSuccess && (
+                    <div className="absolute inset-0 bg-emerald-500/80 flex items-center justify-center rounded-[1.25rem]">
+                      <div className="text-center text-white">
+                        <Check className="w-10 h-10 mx-auto mb-2" />
+                        <p className="text-sm font-medium">Photo mise à jour !</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-              {/* Verified badge */}
-              <div className="absolute -bottom-2 -right-2 w-12 h-12 bg-gradient-to-br from-glowup-rose to-pink-500 rounded-2xl flex items-center justify-center shadow-lg shadow-pink-500/30">
-                <Sparkles className="w-6 h-6 text-white" />
+              
+              {/* Badge vérifié / Upload icon */}
+              <div className={`absolute -bottom-2 -right-2 w-12 h-12 ${uploadSuccess ? "bg-emerald-500" : "bg-gradient-to-br from-glowup-rose to-pink-500"} rounded-2xl flex items-center justify-center shadow-lg shadow-pink-500/30 transition-colors`}>
+                {uploading ? (
+                  <Loader2 className="w-6 h-6 text-white animate-spin" />
+                ) : uploadSuccess ? (
+                  <Check className="w-6 h-6 text-white" />
+                ) : canUploadPhoto ? (
+                  <Camera className="w-6 h-6 text-white" />
+                ) : (
+                  <Sparkles className="w-6 h-6 text-white" />
+                )}
               </div>
+              
+              {/* Error message */}
+              {uploadError && (
+                <div className="absolute -bottom-16 left-0 right-0 bg-red-500 text-white text-sm px-4 py-2 rounded-xl text-center">
+                  {uploadError}
+                  <button onClick={() => setUploadError(null)} className="ml-2">
+                    <X className="w-4 h-4 inline" />
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Info */}
