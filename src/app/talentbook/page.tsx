@@ -1,6 +1,34 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+
+// Helper pour générer un visitor ID anonyme
+function getVisitorId(): string {
+  if (typeof window === "undefined") return "";
+  
+  let visitorId = localStorage.getItem("talentbook-visitor-id");
+  if (!visitorId) {
+    visitorId = "v_" + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+    localStorage.setItem("talentbook-visitor-id", visitorId);
+  }
+  return visitorId;
+}
+
+// Helper pour tracker les événements
+async function trackEvent(type: string, talentId?: string, metadata?: any) {
+  try {
+    const visitorId = getVisitorId();
+    if (!visitorId) return;
+    
+    await fetch("/api/talentbook/tracking", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, talentId, visitorId, metadata }),
+    });
+  } catch (error) {
+    // Silently fail - analytics shouldn't break the app
+  }
+}
 
 // Types
 interface TalentStats {
@@ -772,6 +800,8 @@ export default function TalentBookPage() {
         if (res.ok) {
           const data = await res.json();
           setTalents(data);
+          // Track page view
+          trackEvent("page_view");
         }
       } catch (error) {
         console.error("Erreur chargement talents:", error);
@@ -793,11 +823,14 @@ export default function TalentBookPage() {
   }, [lang]);
 
   function toggleFavorite(talentId: string) {
+    const isAdding = !favorites.includes(talentId);
     setFavorites(prev => 
       prev.includes(talentId) 
         ? prev.filter(id => id !== talentId)
         : [...prev, talentId]
     );
+    // Track favorite
+    trackEvent(isAdding ? "favorite_add" : "favorite_remove", talentId);
   }
 
   function toggleNetwork(network: string) {
@@ -1087,7 +1120,10 @@ export default function TalentBookPage() {
                 <TalentCard
                   key={talent.id}
                   talent={talent}
-                  onClick={() => setSelectedTalent(talent)}
+                  onClick={() => {
+                    setSelectedTalent(talent);
+                    trackEvent("talent_click", talent.id);
+                  }}
                   isFavorite={favorites.includes(talent.id)}
                   onToggleFavorite={() => toggleFavorite(talent.id)}
                 />

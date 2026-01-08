@@ -3,6 +3,34 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
+// Helper pour générer un visitor ID anonyme
+function getVisitorId(): string {
+  if (typeof window === "undefined") return "";
+  
+  let visitorId = localStorage.getItem("talentbook-visitor-id");
+  if (!visitorId) {
+    visitorId = "v_" + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+    localStorage.setItem("talentbook-visitor-id", visitorId);
+  }
+  return visitorId;
+}
+
+// Helper pour tracker les événements
+async function trackEvent(type: string, talentId?: string, metadata?: any) {
+  try {
+    const visitorId = getVisitorId();
+    if (!visitorId) return;
+    
+    await fetch("/api/talentbook/tracking", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, talentId, visitorId, metadata }),
+    });
+  } catch (error) {
+    // Silently fail
+  }
+}
+
 // Types
 interface TalentStats {
   igFollowers: number | null;
@@ -468,6 +496,9 @@ export default function SelectionPage() {
       
       // Télécharger
       pdf.save(`GlowUp_Selection_${new Date().toISOString().split('T')[0]}.pdf`);
+      
+      // Track PDF download
+      trackEvent("pdf_download", undefined, { talentCount: favorites.length });
       
       // Nettoyer
       document.body.removeChild(container);

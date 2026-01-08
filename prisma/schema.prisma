@@ -1,6 +1,6 @@
 // ============================================
-// GLOW UP AGENCE - SCHÉMA PRISMA V8
-// V7 + Champs Talent pour portail
+// GLOW UP AGENCE - SCHÉMA PRISMA V9
+// V8 + Tracking Talentbook
 // ============================================
 
 generator client {
@@ -212,6 +212,7 @@ model Talent {
   tarifs        TalentTarifs?
   collaborations Collaboration[]
   negociations  Negociation[]
+  talentbookEvents TalentbookEvent[]
   
   @@map("talents")
 }
@@ -744,4 +745,27 @@ model AgenceSettings {
   updatedAt     DateTime  @updatedAt
   
   @@map("agence_settings")
+}
+
+// ============================================
+// TALENTBOOK TRACKING
+// ============================================
+
+model TalentbookEvent {
+  id        String   @id @default(cuid())
+  
+  type      String   // "page_view", "talent_click", "pdf_download", "favorite_add"
+  
+  talentId  String?
+  talent    Talent?  @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  
+  visitorId String   // ID anonyme du visiteur (stocké en localStorage)
+  metadata  Json?    // Données supplémentaires (nombre de talents dans le PDF, etc.)
+  
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@index([talentId])
+  @@index([createdAt])
+  @@map("talentbook_events")
 }
