@@ -49,6 +49,7 @@ const translations = {
     thisSelection: "cette sélection ?",
     downloadAndSend: "Téléchargez le PDF et envoyez-le nous pour obtenir un devis personnalisé",
     downloadThePdf: "Télécharger le PDF",
+    sendByEmail: "Envoyer par email",
   },
   en: {
     mySelection: "my",
@@ -427,14 +428,6 @@ export default function SelectionPage() {
 
   const selectedTalents = talents.filter(t => favorites.includes(t.id));
 
-  // Générer le mailto
-  const mailtoSubject = encodeURIComponent("Demande de devis - Sélection de talents");
-  const mailtoBody = encodeURIComponent(
-    `Bonjour,\n\nJe suis intéressé(e) par les talents suivants :\n\n${selectedTalents
-      .map(t => `- ${t.prenom} ${t.nom} (${t.instagram ? '@' + t.instagram : t.tiktok ? '@' + t.tiktok : 'N/A'})`)
-      .join('\n')}\n\nMerci de me recontacter pour discuter d'une collaboration.\n\nCordialement`
-  );
-
   return (
     <>
       {/* Custom Fonts */}
@@ -625,32 +618,23 @@ export default function SelectionPage() {
                 <p className="text-[#F5EDE0]/60 mb-8 font-switzer max-w-md mx-auto">
                   {t.downloadAndSend}
                 </p>
-                <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <button
-                    onClick={generatePDF}
-                    disabled={generatingPdf}
-                    className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-[#B06F70] hover:bg-[#9d5f60] text-white rounded-full font-switzer font-medium transition-all hover:scale-105 text-lg disabled:opacity-50"
-                  >
-                    {generatingPdf ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        {t.generating}
-                      </>
-                    ) : (
-                      <>
-                        <DownloadIcon className="w-5 h-5" />
-                        {t.downloadThePdf}
-                      </>
-                    )}
-                  </button>
-                  <a
-                    href={`mailto:contact@glowupagence.fr?subject=${mailtoSubject}&body=${mailtoBody}`}
-                    className="inline-flex items-center justify-center gap-3 px-8 py-4 border-2 border-[#F5EDE0]/30 text-[#F5EDE0] rounded-full font-switzer font-medium transition-all hover:border-[#F5EDE0]/60 text-lg"
-                  >
-                    <span>📩</span>
-                    {t.sendByEmail}
-                  </a>
-                </div>
+                <button
+                  onClick={generatePDF}
+                  disabled={generatingPdf}
+                  className="inline-flex items-center justify-center gap-3 px-8 py-4 bg-[#B06F70] hover:bg-[#9d5f60] text-white rounded-full font-switzer font-medium transition-all hover:scale-105 text-lg disabled:opacity-50"
+                >
+                  {generatingPdf ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      {t.generating}
+                    </>
+                  ) : (
+                    <>
+                      <DownloadIcon className="w-5 h-5" />
+                      {t.downloadThePdf}
+                    </>
+                  )}
+                </button>
               </div>
             </>
           )}
