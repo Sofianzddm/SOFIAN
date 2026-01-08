@@ -403,20 +403,74 @@ export default function SelectionPage() {
       
       if (!res.ok) throw new Error("Erreur génération PDF");
       
-      // Récupérer le PDF comme blob
-      const blob = await res.blob();
+      const { html } = await res.json();
       
-      // Créer un lien de téléchargement
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `GlowUp_Selection_${new Date().toISOString().split('T')[0]}.pdf`;
-      document.body.appendChild(a);
-      a.click();
+      // Charger les libs dynamiquement
+      const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+        import('jspdf'),
+        import('html2canvas')
+      ]);
+      
+      // Créer un container temporaire VISIBLE (nécessaire pour html2canvas)
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      container.style.position = 'fixed';
+      container.style.left = '0';
+      container.style.top = '0';
+      container.style.width = '210mm';
+      container.style.background = 'white';
+      container.style.zIndex = '-9999';
+      container.style.opacity = '0';
+      document.body.appendChild(container);
+      
+      // Attendre le chargement des images
+      const images = container.querySelectorAll('img');
+      await Promise.all(
+        Array.from(images).map(img => {
+          if (img.complete) return Promise.resolve();
+          return new Promise((resolve) => {
+            img.onload = resolve;
+            img.onerror = resolve;
+            setTimeout(resolve, 5000);
+          });
+        })
+      );
+      
+      // Attendre un peu pour le rendu CSS
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Trouver toutes les pages
+      const pages = container.querySelectorAll('.page');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i] as HTMLElement;
+        
+        // Capturer la page en canvas
+        const canvas = await html2canvas(page, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#F5EDE0',
+          width: 794, // A4 width in pixels at 96dpi
+          height: 1123, // A4 height in pixels at 96dpi
+        });
+        
+        // Ajouter au PDF
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        
+        if (i > 0) {
+          pdf.addPage();
+        }
+        
+        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+      }
+      
+      // Télécharger
+      pdf.save(`GlowUp_Selection_${new Date().toISOString().split('T')[0]}.pdf`);
       
       // Nettoyer
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      document.body.removeChild(container);
       
     } catch (error) {
       console.error("Erreur PDF:", error);
