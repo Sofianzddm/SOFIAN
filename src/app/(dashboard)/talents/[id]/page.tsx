@@ -183,9 +183,9 @@ export default function TalentDetailPage() {
       return;
     }
 
-    // Vérifier la taille (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      setUploadError("L'image ne doit pas dépasser 5MB");
+    // Vérifier la taille (max 50MB)
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError("L'image ne doit pas dépasser 50MB");
       return;
     }
 
