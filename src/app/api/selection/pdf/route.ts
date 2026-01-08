@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 
 // Traductions pour le PDF
 const pdfTranslations = {
@@ -87,10 +88,12 @@ export async function POST(request: NextRequest) {
     // Générer le HTML
     const html = generatePDFHtml(talentsWithTranslations, lang as Lang);
 
-    // Lancer Puppeteer et générer le PDF
+    // Lancer Puppeteer avec Chromium pour serverless
     const browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: { width: 1200, height: 800 },
+      executablePath: await chromium.executablePath(),
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     
     const page = await browser.newPage();
