@@ -166,7 +166,7 @@ export default function TalentDetailPage() {
     }
   };
 
-  // ========== UPLOAD PHOTO ==========
+  // ========== UPLOAD PHOTO (Direct Cloudinary) ==========
   const handlePhotoClick = () => {
     if (canUploadPhoto && fileInputRef.current) {
       fileInputRef.current.click();
@@ -183,9 +183,9 @@ export default function TalentDetailPage() {
       return;
     }
 
-    // Vérifier la taille (max 50MB)
-    if (file.size > 50 * 1024 * 1024) {
-      setUploadError("L'image ne doit pas dépasser 50MB");
+    // Pas de limite stricte - Cloudinary gère jusqu'à 100MB
+    if (file.size > 100 * 1024 * 1024) {
+      setUploadError("L'image ne doit pas dépasser 100MB");
       return;
     }
 
@@ -194,32 +194,63 @@ export default function TalentDetailPage() {
     setUploadSuccess(false);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("talentId", talent.id);
-
-      const res = await fetch("/api/upload", {
+      // 1. Récupérer la signature depuis notre API
+      const signatureRes = await fetch("/api/upload/signature", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ talentId: talent.id }),
       });
 
-      const data = await res.json();
-
-      if (res.ok) {
-        setUploadSuccess(true);
-        // Mettre à jour l'état local avec la nouvelle photo
-        setTalent({ ...talent, photo: data.url });
-        // Reset après 2 secondes
-        setTimeout(() => setUploadSuccess(false), 2000);
-      } else {
-        setUploadError(data.error || "Erreur lors de l'upload");
+      if (!signatureRes.ok) {
+        throw new Error("Erreur de signature");
       }
+
+      const { signature, timestamp, folder, publicId, cloudName, apiKey } = await signatureRes.json();
+
+      // 2. Upload direct vers Cloudinary (bypass Vercel)
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("signature", signature);
+      formData.append("timestamp", timestamp.toString());
+      formData.append("folder", folder);
+      formData.append("public_id", publicId);
+      formData.append("api_key", apiKey);
+
+      const cloudinaryRes = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!cloudinaryRes.ok) {
+        throw new Error("Erreur upload Cloudinary");
+      }
+
+      const cloudinaryData = await cloudinaryRes.json();
+      const photoUrl = cloudinaryData.secure_url;
+
+      // 3. Mettre à jour la DB avec la nouvelle URL
+      const updateRes = await fetch("/api/upload/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ talentId: talent.id, photoUrl }),
+      });
+
+      if (!updateRes.ok) {
+        throw new Error("Erreur mise à jour DB");
+      }
+
+      setUploadSuccess(true);
+      setTalent({ ...talent, photo: photoUrl });
+      setTimeout(() => setUploadSuccess(false), 2000);
+
     } catch (error) {
       console.error("Erreur upload:", error);
       setUploadError("Erreur lors de l'upload");
     } finally {
       setUploading(false);
-      // Reset l'input
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
