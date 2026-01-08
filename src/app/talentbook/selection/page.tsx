@@ -403,49 +403,20 @@ export default function SelectionPage() {
       
       if (!res.ok) throw new Error("Erreur génération PDF");
       
-      const { html } = await res.json();
+      // Récupérer le PDF comme blob
+      const blob = await res.blob();
       
-      // Créer une iframe cachée pour l'impression
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = 'none';
-      document.body.appendChild(iframe);
+      // Créer un lien de téléchargement
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `GlowUp_Selection_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
       
-      const iframeDoc = iframe.contentWindow?.document;
-      if (iframeDoc) {
-        iframeDoc.open();
-        iframeDoc.write(html);
-        iframeDoc.close();
-        
-        // Attendre le chargement des images
-        const images = iframeDoc.querySelectorAll('img');
-        await Promise.all(
-          Array.from(images).map(img => {
-            if (img.complete) return Promise.resolve();
-            return new Promise((resolve) => {
-              img.onload = resolve;
-              img.onerror = resolve;
-              // Timeout de sécurité
-              setTimeout(resolve, 3000);
-            });
-          })
-        );
-        
-        // Petit délai pour le rendu
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Lancer l'impression (qui permet de sauvegarder en PDF)
-        iframe.contentWindow?.print();
-        
-        // Nettoyer après un délai
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 1000);
-      }
+      // Nettoyer
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
       
     } catch (error) {
       console.error("Erreur PDF:", error);
