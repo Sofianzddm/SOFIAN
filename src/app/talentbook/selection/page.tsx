@@ -49,7 +49,6 @@ const translations = {
     thisSelection: "cette sélection ?",
     downloadAndSend: "Téléchargez le PDF et envoyez-le nous pour obtenir un devis personnalisé",
     downloadThePdf: "Télécharger le PDF",
-    sendByEmail: "Envoyer par email",
   },
   en: {
     mySelection: "my",
