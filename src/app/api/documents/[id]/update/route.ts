@@ -102,16 +102,20 @@ export async function PUT(
         quantite: ligne.quantite,
         prixUnitaire: ligne.prixUnitaire,
         tauxTVA: tauxTVA,
-        totalHT: ligne.quantite * ligne.prixUnitaire,
+        totalHT: Math.round(ligne.quantite * ligne.prixUnitaire * 100) / 100, // Arrondi à 2 décimales
       }));
 
       const montantHT_num = lignesCalculees.reduce(
         (sum: number, l: any) => sum + l.totalHT,
         0
       );
-      montantHT = montantHT_num as any;
-      montantTVA_calc = (montantHT_num * (tauxTVA / 100)) as any;
-      montantTTC = (montantHT_num + (montantHT_num * (tauxTVA / 100))) as any;
+      const montantHT_rounded = Math.round(montantHT_num * 100) / 100;
+      const montantTVA_num = Math.round(montantHT_rounded * (tauxTVA / 100) * 100) / 100;
+      const montantTTC_num = Math.round((montantHT_rounded + montantTVA_num) * 100) / 100;
+      
+      montantHT = montantHT_rounded as any;
+      montantTVA_calc = montantTVA_num as any;
+      montantTTC = montantTTC_num as any;
     } else if (customTypeTVA) {
       // Recalculer avec le nouveau type de TVA même si les lignes ne changent pas
       const lignesArray = Array.isArray(document.lignes) ? document.lignes : [];
@@ -124,9 +128,13 @@ export async function PUT(
         (sum: number, l: any) => sum + (l.totalHT || l.quantite * l.prixUnitaire),
         0
       );
-      montantHT = montantHT_num2 as any;
-      montantTVA_calc = (montantHT_num2 * (tauxTVA / 100)) as any;
-      montantTTC = (montantHT_num2 + (montantHT_num2 * (tauxTVA / 100))) as any;
+      const montantHT_rounded2 = Math.round(montantHT_num2 * 100) / 100;
+      const montantTVA_num2 = Math.round(montantHT_rounded2 * (tauxTVA / 100) * 100) / 100;
+      const montantTTC_num2 = Math.round((montantHT_rounded2 + montantTVA_num2) * 100) / 100;
+      
+      montantHT = montantHT_rounded2 as any;
+      montantTVA_calc = montantTVA_num2 as any;
+      montantTTC = montantTTC_num2 as any;
     }
 
     // Mettre à jour le document
