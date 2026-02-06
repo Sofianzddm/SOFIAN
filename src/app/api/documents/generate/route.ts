@@ -153,13 +153,13 @@ export async function POST(request: NextRequest) {
         statut: "BROUILLON", // Toujours en brouillon au début, validation manuelle ensuite
         collaborationId,
         titre: titreAuto,
-        montantHT,
-        tauxTVA,
-        montantTVA,
-        montantTTC,
+        montantHT: montantHT as any, // Cast pour Decimal
+        tauxTVA: tauxTVA as any, // Cast pour Decimal
+        montantTVA: montantTVA as any, // Cast pour Decimal
+        montantTTC: montantTTC as any, // Cast pour Decimal
         typeTVA,
         mentionTVA: configTVA.mention,
-        lignes: lignesCalculees,
+        lignes: lignesCalculees as any, // Cast pour Json
         dateDocument: dateDoc,
         dateEmission: now,
         dateEcheance,

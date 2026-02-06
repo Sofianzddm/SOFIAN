@@ -61,7 +61,7 @@ interface TalentDetail {
   managerId: string;
   manager?: { id: string; prenom: string; nom: string; email: string } | null;
   user?: { id: string; email: string; actif: boolean } | null;
-  stats: {
+  stats?: {
     igFollowers: number | null;
     igFollowersEvol: number | null;
     igEngagement: number | null;
@@ -90,7 +90,7 @@ interface TalentDetail {
     ytAbonnesEvol: number | null;
     lastUpdate: string | null;
   } | null;
-  tarifs: {
+  tarifs?: {
     tarifStory: number | null;
     tarifStoryConcours: number | null;
     tarifPost: number | null;
@@ -104,7 +104,24 @@ interface TalentDetail {
     tarifShooting: number | null;
     tarifAmbassadeur: number | null;
   } | null;
-  _count: { collaborations: number };
+  collaborations?: Array<{
+    id: string;
+    marque: { id: string; nom: string };
+    livrables: any[];
+    createdAt: string;
+  }>;
+  negociations?: Array<{
+    id: string;
+    marque: { id: string; nom: string };
+    createdAt: string;
+  }>;
+  demandesGift?: Array<{
+    id: string;
+    tm: { id: string; prenom: string; nom: string };
+    accountManager?: { id: string; prenom: string; nom: string } | null;
+    createdAt: string;
+  }>;
+  _count?: { collaborations: number };
 }
 
 export default function TalentDetailPage() {
@@ -503,7 +520,7 @@ export default function TalentDetailPage() {
                     <Target className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-left">
-                    <p className="text-2xl font-bold text-white">{talent._count.collaborations}</p>
+                    <p className="text-2xl font-bold text-white">{talent._count?.collaborations || 0}</p>
                     <p className="text-white/50 text-sm">Collabs</p>
                   </div>
                 </div>
@@ -677,7 +694,7 @@ export default function TalentDetailPage() {
                     />
                     <StatCard 
                       label="Collaborations" 
-                      value={talent._count.collaborations.toString()} 
+                      value={(talent._count?.collaborations || 0).toString()} 
                       gradient="from-emerald-500 to-teal-500"
                       icon={<Star className="w-6 h-6" />}
                     />
@@ -760,7 +777,7 @@ export default function TalentDetailPage() {
                     />
                     <StatCard 
                       label="Collaborations" 
-                      value={talent._count.collaborations.toString()} 
+                      value={(talent._count?.collaborations || 0).toString()} 
                       gradient="from-orange-500 to-amber-500"
                       icon={<Star className="w-6 h-6" />}
                     />
