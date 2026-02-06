@@ -14,6 +14,11 @@ import {
   TrendingUp,
   ChevronLeft,
   ChevronRight,
+  Bell,
+  DollarSign,
+  Banknote,
+  UserCog,
+  Gift,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -26,10 +31,22 @@ const menuItems = [
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM", "TALENT"],
   },
   {
+    label: "Notifications",
+    href: "/notifications",
+    icon: Bell,
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM", "TALENT"],
+  },
+  {
     label: "Talents",
     href: "/talents",
     icon: Users,
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "CM"],
+  },
+  {
+    label: "Utilisateurs",
+    href: "/users",
+    icon: UserCog,
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"],
   },
   {
     label: "Marques",
@@ -50,10 +67,40 @@ const menuItems = [
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"],
   },
   {
+    label: "Gifts",
+    href: "/gifts",
+    icon: Gift,
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "CM"],
+  },
+  {
+    label: "Account Manager",
+    href: "/account-manager",
+    icon: UserCog,
+    roles: ["CM", "ADMIN"],
+  },
+  {
     label: "Factures",
     href: "/factures",
     icon: FileText,
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"], // HEAD_OF en lecture seule
+  },
+  {
+    label: "Finance",
+    href: "/finance",
+    icon: DollarSign,
+    roles: ["ADMIN"], // ADMIN uniquement
+  },
+  {
+    label: "Réconciliation",
+    href: "/reconciliation",
+    icon: Banknote,
+    roles: ["ADMIN"], // ADMIN uniquement - Qonto
+  },
+  {
+    label: "Dossiers",
+    href: "/dossiers",
+    icon: FileText,
+    roles: ["ADMIN"], // ADMIN uniquement
   },
   {
     label: "Paramètres",

@@ -14,6 +14,13 @@ export async function GET() {
     const user = session.user as { id: string; role: string; name: string };
     const role = user.role;
 
+    // Les talents ont leur propre dashboard
+    if (role === "TALENT") {
+      return NextResponse.json({ 
+        error: "Accès refusé. Veuillez utiliser le portail créateur." 
+      }, { status: 403 });
+    }
+
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);

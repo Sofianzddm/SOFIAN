@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 // GET - Détail d'une collaboration
@@ -7,6 +9,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
     const { id } = await params;
     const collaboration = await prisma.collaboration.findUnique({
       where: { id: id },
@@ -65,8 +72,23 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const userRole = session.user.role;
     const { id } = await params;
     const data = await request.json();
+
+    // Vérifier les permissions pour le statut "PAYE"
+    if (data.statut === "PAYE") {
+      if (userRole !== "ADMIN") {
+        return NextResponse.json({ 
+          error: "Seuls les ADMIN peuvent marquer une collaboration comme payée" 
+        }, { status: 403 });
+      }
+    }
 
     if (data.statut === "PERDU" && !data.raisonPerdu) {
       return NextResponse.json({ message: "Raison obligatoire" }, { status: 400 });
@@ -191,7 +213,23 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Vérifier l'authentification et les permissions
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    }
+
+    const userRole = session.user.role;
+    
+    // Seuls les ADMIN et HEAD_OF peuvent supprimer une collaboration
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(userRole)) {
+      return NextResponse.json({ 
+        error: "Permissions insuffisantes pour supprimer une collaboration" 
+      }, { status: 403 });
+    }
+
     const { id } = await params;
+    
     // Les livrables sont supprimés en cascade (onDelete: Cascade)
     await prisma.collaboration.delete({
       where: { id: id },

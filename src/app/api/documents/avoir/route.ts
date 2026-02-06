@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
       data: {
         reference,
         type: "AVOIR" as TypeDocument,
-        statut: "BROUILLON" as StatutDocument,
+        statut: "ENVOYE" as StatutDocument, // Un avoir est directement envoyé
         collaborationId: facture.collaborationId,
         titre: `AVOIR sur ${facture.reference} - Motif: ${motif}`,
         montantHT,
@@ -99,14 +99,27 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Mettre à jour la facture avec la référence de l'avoir
+    // Lier l'avoir à la facture (mais NE PAS annuler la facture)
+    // Une facture peut avoir plusieurs avoirs partiels
     await prisma.document.update({
       where: { id: factureId },
       data: { 
-        statut: "ANNULE" as StatutDocument,
         avoirRef: reference,
+        // Ne pas changer le statut ! L'avoir vient en déduction
       },
     });
+
+    // Si l'avoir annule TOTALEMENT la facture, on peut mettre un flag
+    const totalAvoirsSurFacture = Math.abs(montantTTC);
+    const montantFactureOriginal = Math.abs(Number(facture.montantTTC));
+    
+    if (totalAvoirsSurFacture >= montantFactureOriginal) {
+      // C'est un avoir total, on peut marquer la facture comme annulée
+      await prisma.document.update({
+        where: { id: factureId },
+        data: { statut: "ANNULE" as StatutDocument },
+      });
+    }
 
     return NextResponse.json({
       success: true,

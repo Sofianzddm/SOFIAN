@@ -12,14 +12,18 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
     }
-  }, [status, router]);
+    // Rediriger les talents vers leur portail
+    if (status === "authenticated" && session?.user?.role === "TALENT") {
+      router.push("/talent/dashboard");
+    }
+  }, [status, session, router]);
 
   if (status === "loading") {
     return (

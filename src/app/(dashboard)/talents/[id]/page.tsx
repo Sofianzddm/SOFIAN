@@ -59,7 +59,8 @@ interface TalentDetail {
   dateArrivee: string;
   createdAt: string;
   managerId: string;
-  manager: { id: string; prenom: string; nom: string; email: string };
+  manager?: { id: string; prenom: string; nom: string; email: string } | null;
+  user?: { id: string; email: string; actif: boolean } | null;
   stats: {
     igFollowers: number | null;
     igFollowersEvol: number | null;
@@ -920,15 +921,21 @@ export default function TalentDetailPage() {
               </div>
               <h2 className="text-lg font-bold text-glowup-licorice">Talent Manager</h2>
             </div>
-            <div className="flex items-center gap-4 p-4 bg-gradient-to-br from-glowup-rose/5 to-pink-50 rounded-2xl border border-glowup-rose/10 mb-6">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-glowup-rose to-pink-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-pink-200">
-                {talent.manager.prenom.charAt(0)}
+            {talent.manager ? (
+              <div className="flex items-center gap-4 p-4 bg-gradient-to-br from-glowup-rose/5 to-pink-50 rounded-2xl border border-glowup-rose/10 mb-6">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-glowup-rose to-pink-500 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-pink-200">
+                  {talent.manager.prenom.charAt(0)}
+                </div>
+                <div>
+                  <p className="font-bold text-glowup-licorice text-lg">{talent.manager.prenom} {talent.manager.nom}</p>
+                  <p className="text-gray-500">{talent.manager.email}</p>
+                </div>
               </div>
-              <div>
-                <p className="font-bold text-glowup-licorice text-lg">{talent.manager.prenom} {talent.manager.nom}</p>
-                <p className="text-gray-500">{talent.manager.email}</p>
+            ) : (
+              <div className="p-4 bg-gray-50 rounded-2xl text-center text-gray-500 mb-6">
+                <p>Aucun manager assigné</p>
               </div>
-            </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 bg-gray-50 rounded-2xl text-center">
                 <p className="text-sm text-gray-500 mb-1">Arrivée</p>

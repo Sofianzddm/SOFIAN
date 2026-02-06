@@ -7,244 +7,288 @@ import {
   Text,
   View,
   StyleSheet,
+  Image,
 } from "@react-pdf/renderer";
+import path from "path";
+
+// Couleurs Glow Up Agency
+const COLORS = {
+  licorice: "#220101",   // Marron très foncé
+  oldRose: "#B06F70",    // Rose poudré
+  teaGreen: "#E5F2B5",   // Vert clair
+  oldLace: "#F5EDEO",    // Beige clair
+};
+
+// Chemin vers le logo PNG
+const LOGO_PATH = path.join(process.cwd(), 'public/logo-glowup.png');
 
 const styles = StyleSheet.create({
   page: {
-    padding: 40,
-    fontSize: 10,
+    padding: 30,
+    fontSize: 9,
     fontFamily: "Helvetica",
     backgroundColor: "#FFFFFF",
   },
+  
+  // Header
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 30,
+    marginBottom: 25,
+    paddingBottom: 15,
+    borderBottomWidth: 2,
+    borderBottomColor: COLORS.licorice,
+    borderBottomStyle: "solid",
   },
+  
+  emetteurBox: {
+    width: "50%",
+  },
+  
   logo: {
-    fontSize: 24,
+    width: 80,
+    height: 80,
+    marginBottom: 10,
+  },
+  
+  emetteurNom: {
+    fontSize: 11,
     fontWeight: "bold",
-    color: "#1a1a1a",
+    color: COLORS.licorice,
+    marginBottom: 3,
   },
-  logoSubtitle: {
-    fontSize: 10,
-    color: "#666666",
-    marginTop: 2,
-  },
-  documentInfo: {
-    textAlign: "right",
-  },
-  documentType: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#1a1a1a",
-    marginBottom: 4,
-  },
-  documentRef: {
-    fontSize: 12,
-    color: "#666666",
-  },
-  parties: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 30,
-  },
-  partyBox: {
-    width: "45%",
-  },
-  partyTitle: {
+  
+  emetteurText: {
     fontSize: 8,
-    color: "#999999",
-    textTransform: "uppercase",
-    marginBottom: 6,
-    letterSpacing: 1,
-  },
-  partyName: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#1a1a1a",
-    marginBottom: 4,
-  },
-  partyAddress: {
-    fontSize: 10,
-    color: "#666666",
+    color: "#333333",
     lineHeight: 1.4,
   },
-  infoGrid: {
-    flexDirection: "row",
-    backgroundColor: "#f8f8f8",
-    padding: 15,
-    borderRadius: 4,
-    marginBottom: 25,
+  
+  documentBox: {
+    textAlign: "right",
   },
-  infoItem: {
-    flex: 1,
-  },
-  infoLabel: {
-    fontSize: 8,
-    color: "#999999",
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  infoValue: {
-    fontSize: 11,
-    color: "#1a1a1a",
+  
+  documentType: {
+    fontSize: 18,
     fontWeight: "bold",
+    color: COLORS.licorice,
+    marginBottom: 5,
   },
-  collabTitle: {
-    fontSize: 14,
+  
+  documentRef: {
+    fontSize: 10,
+    color: COLORS.licorice,
+    marginBottom: 2,
+  },
+  
+  documentDate: {
+    fontSize: 9,
+    color: "#333333",
+    marginBottom: 2,
+  },
+  
+  // Titre campagne
+  campagneTitre: {
+    fontSize: 12,
     fontWeight: "bold",
-    color: "#1a1a1a",
-    marginBottom: 20,
-    paddingBottom: 10,
+    color: COLORS.licorice,
+    marginBottom: 15,
+    paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#eeeeee",
+    borderBottomColor: COLORS.oldRose,
     borderBottomStyle: "solid",
   },
-  table: {
-    marginBottom: 20,
-  },
+  
+  // Tableau principal
   tableHeader: {
     flexDirection: "row",
-    backgroundColor: "#1a1a1a",
-    padding: 10,
-    borderRadius: 4,
+    backgroundColor: COLORS.licorice,
+    padding: 8,
+    marginBottom: 2,
   },
+  
   tableHeaderCell: {
     color: "#ffffff",
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: "bold",
     textTransform: "uppercase",
   },
+  
   tableRow: {
     flexDirection: "row",
-    padding: 12,
+    padding: 10,
     borderBottomWidth: 1,
     borderBottomColor: "#eeeeee",
     borderBottomStyle: "solid",
+    minHeight: 40,
   },
-  tableRowAlt: {
-    flexDirection: "row",
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eeeeee",
-    borderBottomStyle: "solid",
-    backgroundColor: "#fafafa",
-  },
+  
   tableCell: {
-    fontSize: 10,
-    color: "#333333",
+    fontSize: 9,
+    color: "#000000",
   },
-  colDescription: { width: "45%" },
-  colQuantite: { width: "10%", textAlign: "center" },
-  colPrixUnit: { width: "20%", textAlign: "right" },
+  
+  colDesignation: { width: "50%" },
+  colQte: { width: "10%", textAlign: "center" },
+  colPUHT: { width: "15%", textAlign: "right" },
   colTVA: { width: "10%", textAlign: "center" },
-  colTotal: { width: "15%", textAlign: "right" },
-  totalsContainer: {
+  colTotalHT: { width: "15%", textAlign: "right" },
+  
+  // Récap TVA
+  recapTVA: {
     flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 10,
+    backgroundColor: COLORS.teaGreen,
+    padding: 10,
+    marginTop: 15,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: COLORS.licorice,
+    borderStyle: "solid",
   },
-  totalsBox: {
+  
+  recapTVACol: {
+    flex: 1,
+    textAlign: "center",
+  },
+  
+  recapTVALabel: {
+    fontSize: 8,
+    fontWeight: "bold",
+    color: "#000000",
+    marginBottom: 4,
+  },
+  
+  recapTVAValue: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#000000",
+  },
+  
+  // Totaux
+  totauxBox: {
+    marginLeft: "auto",
     width: 250,
-    backgroundColor: "#f8f8f8",
     padding: 15,
-    borderRadius: 4,
+    backgroundColor: COLORS.licorice,
+    borderWidth: 2,
+    borderColor: COLORS.oldRose,
+    borderStyle: "solid",
   },
+  
   totalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 8,
   },
+  
   totalLabel: {
     fontSize: 10,
-    color: "#666666",
+    fontWeight: "bold",
+    color: "#FFFFFF",
   },
+  
   totalValue: {
     fontSize: 10,
-    color: "#1a1a1a",
     fontWeight: "bold",
+    color: "#FFFFFF",
   },
-  totalTTCRow: {
+  
+  netPayerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 8,
+    marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 2,
-    borderTopColor: "#1a1a1a",
+    borderTopColor: COLORS.oldRose,
     borderTopStyle: "solid",
   },
-  totalTTCLabel: {
-    fontSize: 14,
+  
+  netPayerLabel: {
+    fontSize: 12,
     fontWeight: "bold",
-    color: "#1a1a1a",
+    color: "#FFFFFF",
   },
-  totalTTCValue: {
-    fontSize: 14,
+  
+  netPayerValue: {
+    fontSize: 12,
     fontWeight: "bold",
-    color: "#1a1a1a",
+    color: "#FFFFFF",
   },
-  mentionsTVA: {
-    fontSize: 9,
-    color: "#666666",
-    marginTop: 20,
-    fontStyle: "italic",
-  },
-  footer: {
-    position: "absolute",
-    bottom: 30,
-    left: 40,
-    right: 40,
-  },
-  footerDivider: {
-    borderTopWidth: 1,
-    borderTopColor: "#eeeeee",
-    borderTopStyle: "solid",
-    marginBottom: 15,
-  },
-  footerContent: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  footerSection: {
-    width: "30%",
-  },
-  footerTitle: {
-    fontSize: 8,
-    color: "#999999",
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  footerText: {
-    fontSize: 9,
-    color: "#666666",
-    lineHeight: 1.4,
-  },
-  ribBox: {
-    marginTop: 30,
+  
+  // Coordonnées bancaires
+  ibanBox: {
+    marginTop: 25,
     padding: 15,
-    backgroundColor: "#f8f8f8",
-    borderRadius: 4,
+    backgroundColor: COLORS.teaGreen,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.licorice,
+    borderLeftStyle: "solid",
   },
-  ribTitle: {
+  
+  ibanTitle: {
     fontSize: 10,
     fontWeight: "bold",
-    color: "#1a1a1a",
+    color: COLORS.licorice,
     marginBottom: 10,
+    textTransform: "uppercase",
   },
-  ribRow: {
-    flexDirection: "row",
-    marginBottom: 4,
-  },
-  ribLabel: {
-    width: 60,
-    fontSize: 9,
-    color: "#999999",
-  },
-  ribValue: {
+  
+  ibanText: {
     fontSize: 9,
     color: "#333333",
-    fontFamily: "Courier",
+    lineHeight: 1.6,
+  },
+  
+  // Pénalités et notes
+  penalitesBox: {
+    marginTop: 25,
+    padding: 12,
+    backgroundColor: "#FFF3CD",
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.oldRose,
+    borderLeftStyle: "solid",
+  },
+  
+  penalitesText: {
+    fontSize: 7,
+    color: "#856404",
+    lineHeight: 1.5,
+  },
+  
+  notesBox: {
+    marginTop: 15,
+  },
+  
+  notesLabel: {
+    fontSize: 9,
+    fontWeight: "bold",
+    color: COLORS.licorice,
+    marginBottom: 5,
+  },
+  
+  notesText: {
+    fontSize: 8,
+    color: "#666666",
+    fontStyle: "italic",
+  },
+  
+  // Footer
+  footer: {
+    position: "absolute",
+    bottom: 20,
+    left: 30,
+    right: 30,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.oldRose,
+    borderTopStyle: "solid",
+  },
+  
+  footerText: {
+    fontSize: 7,
+    color: "#666666",
+    textAlign: "center",
+    lineHeight: 1.4,
   },
 });
 
@@ -258,40 +302,43 @@ interface LigneFacture {
 }
 
 interface FactureData {
-  type: "DEVIS" | "FACTURE" | "AVOIR" | "BON_DE_COMMANDE";
   reference: string;
   titre: string;
   dateDocument: string;
   dateEcheance: string;
-  poClient?: string;
   emetteur: {
     nom: string;
     adresse: string;
     codePostal: string;
     ville: string;
+    pays: string;
+    capital: number;
     siret: string;
-    tva?: string;
+    telephone: string;
+    email: string;
+    tva: string;
+    siren: string;
+    rcs: string;
+    ape: string;
+    iban?: string;
+    bic?: string;
   };
   client: {
     nom: string;
+    prenom?: string;
     adresse?: string;
     codePostal?: string;
     ville?: string;
     pays?: string;
     tva?: string;
+    siret?: string;
   };
   lignes: LigneFacture[];
   montantHT: number;
   tauxTVA: number;
   montantTVA: number;
   montantTTC: number;
-  mentionTVA: string;
-  modePaiement: string;
-  rib?: {
-    banque: string;
-    iban: string;
-    bic: string;
-  };
+  mentionTVA?: string | null;
   notes?: string;
 }
 
@@ -300,23 +347,18 @@ const formatMoney = (amount: number) => {
     style: "currency",
     currency: "EUR",
     minimumFractionDigits: 2,
-  }).format(amount);
+    maximumFractionDigits: 2,
+    useGrouping: true,
+  }).format(amount).replace(/\u202F/g, ' ');
 };
 
 const formatDate = (dateStr: string) => {
   const date = new Date(dateStr);
   return date.toLocaleDateString("fr-FR", {
     day: "2-digit",
-    month: "long",
+    month: "2-digit",
     year: "numeric",
   });
-};
-
-const typeLabels: Record<string, string> = {
-  DEVIS: "Devis",
-  FACTURE: "Facture",
-  AVOIR: "Avoir",
-  BON_DE_COMMANDE: "Bon de commande",
 };
 
 export function FactureTemplate({ data }: { data: FactureData }) {
@@ -325,164 +367,206 @@ export function FactureTemplate({ data }: { data: FactureData }) {
       <Page size="A4" style={styles.page}>
         {/* Header */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.logo}>GLOW UP</Text>
-            <Text style={styles.logoSubtitle}>Agence d&apos;influence marketing</Text>
-          </View>
-          <View style={styles.documentInfo}>
-            <Text style={styles.documentType}>{typeLabels[data.type] || data.type}</Text>
-            <Text style={styles.documentRef}>{data.reference}</Text>
-          </View>
-        </View>
-
-        {/* Émetteur / Client */}
-        <View style={styles.parties}>
-          <View style={styles.partyBox}>
-            <Text style={styles.partyTitle}>Émetteur</Text>
-            <Text style={styles.partyName}>{data.emetteur.nom}</Text>
-            <Text style={styles.partyAddress}>
-              {data.emetteur.adresse}
+          {/* Émetteur avec Logo */}
+          <View style={styles.emetteurBox}>
+            <Image src={LOGO_PATH} style={styles.logo} />
+            <Text style={styles.emetteurNom}>{data.emetteur.nom}</Text>
+            <Text style={styles.emetteurText}>
+              {data.emetteur.adresse.split(" - ").join("\n")}
               {"\n"}
-              {data.emetteur.codePostal} {data.emetteur.ville}
+              {data.emetteur.codePostal} {data.emetteur.ville} - {data.emetteur.pays}
+              {"\n\n"}
+              Capital de {formatMoney(data.emetteur.capital)}
               {"\n"}
-              SIRET : {data.emetteur.siret}
-              {data.emetteur.tva ? `\nTVA : ${data.emetteur.tva}` : ""}
+              Siret : {data.emetteur.siret}
+              {"\n"}
+              Tel : {data.emetteur.telephone}
+              {"\n"}
+              Email : {data.emetteur.email}
             </Text>
           </View>
-          <View style={styles.partyBox}>
-            <Text style={styles.partyTitle}>Client</Text>
-            <Text style={styles.partyName}>{data.client.nom}</Text>
-            <Text style={styles.partyAddress}>
-              {data.client.adresse ? `${data.client.adresse}\n` : ""}
-              {data.client.codePostal && data.client.ville ? `${data.client.codePostal} ${data.client.ville}\n` : ""}
-              {data.client.pays && data.client.pays !== "France" ? `${data.client.pays}\n` : ""}
-              {data.client.tva ? `TVA : ${data.client.tva}` : ""}
+          
+          {/* Document info + Client */}
+          <View style={{ width: "50%" }}>
+            {/* Info document */}
+            <View style={styles.documentBox}>
+              <Text style={styles.documentType}>FACTURE</Text>
+              <Text style={styles.documentRef}>N°{data.reference}</Text>
+              <Text style={styles.documentDate}>DATE : {formatDate(data.dateDocument)}</Text>
+              <Text style={styles.documentDate}>
+                DATE D'ÉCHÉANCE : {formatDate(data.dateEcheance)}
+              </Text>
+            </View>
+            
+            {/* Client (Talent) */}
+            <View style={{ 
+              marginTop: 15,
+              padding: 10,
+              backgroundColor: "#F9FAFB",
+              borderLeftWidth: 3,
+              borderLeftColor: COLORS.oldRose,
+              borderLeftStyle: "solid"
+            }}>
+              <Text style={{
+                fontSize: 8,
+                fontWeight: "bold",
+                color: COLORS.licorice,
+                marginBottom: 5,
+                textTransform: "uppercase",
+                letterSpacing: 0.5
+              }}>
+                Talent / Prestataire
+              </Text>
+              <Text style={{
+                fontSize: 8,
+                color: "#333333",
+                lineHeight: 1.5
+              }}>
+                {data.client.prenom ? `${data.client.prenom} ${data.client.nom}` : data.client.nom}
+                {"\n"}
+                {data.client.adresse ? `${data.client.adresse}\n` : ""}
+                {data.client.codePostal && data.client.ville ? `${data.client.codePostal} ${data.client.ville}\n` : ""}
+                {data.client.pays ? `${data.client.pays}\n` : ""}
+                {data.client.tva ? `TVA : ${data.client.tva}\n` : ""}
+                {data.client.siret ? `SIRET : ${data.client.siret}` : ""}
+              </Text>
+            </View>
+          </View>
+        </View>
+        
+        {/* Section Objet */}
+        <View style={{ marginBottom: 15 }}>
+          <Text style={{
+            fontSize: 9,
+            fontWeight: "bold",
+            color: COLORS.licorice,
+            marginBottom: 5,
+            textTransform: "uppercase",
+            letterSpacing: 0.5
+          }}>
+            Objet de la facture
+          </Text>
+          <Text style={styles.campagneTitre}>{data.titre}</Text>
+        </View>
+        
+        {/* Tableau header */}
+        <View style={styles.tableHeader}>
+          <Text style={[styles.tableHeaderCell, styles.colDesignation]}>DÉSIGNATION</Text>
+          <Text style={[styles.tableHeaderCell, styles.colQte]}>QTÉ</Text>
+          <Text style={[styles.tableHeaderCell, styles.colPUHT]}>PU HT</Text>
+          <Text style={[styles.tableHeaderCell, styles.colTVA]}>TVA</Text>
+          <Text style={[styles.tableHeaderCell, styles.colTotalHT]}>TOTAL HT</Text>
+        </View>
+        
+        {/* Lignes */}
+        {data.lignes.map((ligne, index) => (
+          <View key={index} style={styles.tableRow}>
+            <Text style={[styles.tableCell, styles.colDesignation]}>{ligne.description}</Text>
+            <Text style={[styles.tableCell, styles.colQte]}>{ligne.quantite.toFixed(2)}</Text>
+            <Text style={[styles.tableCell, styles.colPUHT]}>{formatMoney(ligne.prixUnitaire)}</Text>
+            <Text style={[styles.tableCell, styles.colTVA]}>{ligne.tauxTVA.toFixed(2)} %</Text>
+            <Text style={[styles.tableCell, styles.colTotalHT]}>{formatMoney(ligne.totalHT)}</Text>
+          </View>
+        ))}
+        
+        {/* Récap TVA */}
+        <View style={styles.recapTVA}>
+          <View style={styles.recapTVACol}>
+            <Text style={styles.recapTVALabel}>BASE HT</Text>
+            <Text style={styles.recapTVAValue}>{formatMoney(data.montantHT)}</Text>
+          </View>
+          <View style={styles.recapTVACol}>
+            <Text style={styles.recapTVALabel}>TAUX</Text>
+            <Text style={styles.recapTVAValue}>{data.tauxTVA.toFixed(2)} %</Text>
+          </View>
+          <View style={styles.recapTVACol}>
+            <Text style={styles.recapTVALabel}>TVA</Text>
+            <Text style={styles.recapTVAValue}>{formatMoney(data.montantTVA)}</Text>
+          </View>
+        </View>
+        
+        {/* Mention TVA (régime spécial) */}
+        {data.mentionTVA && (
+          <View style={{ 
+            marginTop: 10,
+            padding: 8,
+            backgroundColor: "#FFF3CD",
+            borderLeftWidth: 3,
+            borderLeftColor: COLORS.oldRose,
+            borderLeftStyle: "solid"
+          }}>
+            <Text style={{ 
+              fontSize: 8,
+              color: "#856404",
+              fontWeight: "bold"
+            }}>
+              ℹ️ Régime de TVA : {data.mentionTVA}
             </Text>
           </View>
-        </View>
-
-        {/* Infos document */}
-        <View style={styles.infoGrid}>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Date d&apos;émission</Text>
-            <Text style={styles.infoValue}>{formatDate(data.dateDocument)}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Date d&apos;échéance</Text>
-            <Text style={styles.infoValue}>{formatDate(data.dateEcheance)}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Mode de paiement</Text>
-            <Text style={styles.infoValue}>{data.modePaiement}</Text>
-          </View>
-          {data.poClient ? (
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>N° PO Client</Text>
-              <Text style={styles.infoValue}>{data.poClient}</Text>
-            </View>
-          ) : null}
-        </View>
-
-        {/* Titre collaboration */}
-        <Text style={styles.collabTitle}>{data.titre}</Text>
-
-        {/* Table des lignes */}
-        <View style={styles.table}>
-          {/* Header */}
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderCell, styles.colDescription]}>Description</Text>
-            <Text style={[styles.tableHeaderCell, styles.colQuantite]}>Qté</Text>
-            <Text style={[styles.tableHeaderCell, styles.colPrixUnit]}>Prix unit. HT</Text>
-            <Text style={[styles.tableHeaderCell, styles.colTVA]}>TVA</Text>
-            <Text style={[styles.tableHeaderCell, styles.colTotal]}>Total HT</Text>
-          </View>
-          {/* Rows */}
-          {data.lignes.map((ligne, index) => (
-            <View
-              key={index}
-              style={index % 2 === 1 ? styles.tableRowAlt : styles.tableRow}
-            >
-              <Text style={[styles.tableCell, styles.colDescription]}>{ligne.description}</Text>
-              <Text style={[styles.tableCell, styles.colQuantite]}>{ligne.quantite}</Text>
-              <Text style={[styles.tableCell, styles.colPrixUnit]}>{formatMoney(ligne.prixUnitaire)}</Text>
-              <Text style={[styles.tableCell, styles.colTVA]}>{ligne.tauxTVA}%</Text>
-              <Text style={[styles.tableCell, styles.colTotal]}>{formatMoney(ligne.totalHT)}</Text>
-            </View>
-          ))}
-        </View>
-
+        )}
+        
         {/* Totaux */}
-        <View style={styles.totalsContainer}>
-          <View style={styles.totalsBox}>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total HT</Text>
-              <Text style={styles.totalValue}>{formatMoney(data.montantHT)}</Text>
-            </View>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>TVA ({data.tauxTVA}%)</Text>
-              <Text style={styles.totalValue}>{formatMoney(data.montantTVA)}</Text>
-            </View>
-            <View style={styles.totalTTCRow}>
-              <Text style={styles.totalTTCLabel}>Total TTC</Text>
-              <Text style={styles.totalTTCValue}>{formatMoney(data.montantTTC)}</Text>
-            </View>
+        <View style={styles.totauxBox}>
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>TOTAL HT</Text>
+            <Text style={styles.totalValue}>{formatMoney(data.montantHT)}</Text>
+          </View>
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Total TVA</Text>
+            <Text style={styles.totalValue}>{formatMoney(data.montantTVA)}</Text>
+          </View>
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>TOTAL TTC</Text>
+            <Text style={styles.totalValue}>{formatMoney(data.montantTTC)}</Text>
+          </View>
+          <View style={styles.netPayerRow}>
+            <Text style={styles.netPayerLabel}>NET À PAYER</Text>
+            <Text style={styles.netPayerValue}>{formatMoney(data.montantTTC)}</Text>
           </View>
         </View>
-
-        {/* Mention TVA */}
-        {data.mentionTVA ? (
-          <Text style={styles.mentionsTVA}>{data.mentionTVA}</Text>
-        ) : null}
-
-        {/* RIB */}
-        {data.rib ? (
-          <View style={styles.ribBox}>
-            <Text style={styles.ribTitle}>Coordonnées bancaires</Text>
-            <View style={styles.ribRow}>
-              <Text style={styles.ribLabel}>Banque</Text>
-              <Text style={styles.ribValue}>{data.rib.banque}</Text>
-            </View>
-            <View style={styles.ribRow}>
-              <Text style={styles.ribLabel}>IBAN</Text>
-              <Text style={styles.ribValue}>{data.rib.iban}</Text>
-            </View>
-            <View style={styles.ribRow}>
-              <Text style={styles.ribLabel}>BIC</Text>
-              <Text style={styles.ribValue}>{data.rib.bic}</Text>
-            </View>
+        
+        {/* Coordonnées bancaires */}
+        {data.emetteur.iban && (
+          <View style={styles.ibanBox}>
+            <Text style={styles.ibanTitle}>Coordonnées bancaires pour le paiement</Text>
+            <Text style={styles.ibanText}>
+              IBAN : {data.emetteur.iban}
+              {"\n"}
+              {data.emetteur.bic && `BIC : ${data.emetteur.bic}\n`}
+              {"\n"}
+              Merci d'effectuer le virement avec la référence : {data.reference}
+            </Text>
           </View>
-        ) : null}
-
+        )}
+        
+        {/* Pénalités */}
+        <View style={styles.penalitesBox}>
+          <Text style={styles.penalitesText}>
+            En cas de retard de paiement, application d'intérêts de 3 fois le taux légal selon la loi n°2008-776 du 4 août 2008.
+            {"\n"}
+            Indemnité forfaitaire pour frais de recouvrement : 40€ (article D. 441-5 du code de commerce).
+            {"\n"}
+            Paiement à effectuer sous 30 jours à réception de la facture.
+          </Text>
+        </View>
+        
         {/* Notes */}
-        {data.notes ? (
-          <Text style={[styles.mentionsTVA, { marginTop: 15 }]}>{data.notes}</Text>
-        ) : null}
-
+        {data.notes && (
+          <View style={styles.notesBox}>
+            <Text style={styles.notesLabel}>Notes :</Text>
+            <Text style={styles.notesText}>{data.notes}</Text>
+          </View>
+        )}
+        
         {/* Footer */}
         <View style={styles.footer}>
-          <View style={styles.footerDivider} />
-          <View style={styles.footerContent}>
-            <View style={styles.footerSection}>
-              <Text style={styles.footerTitle}>Contact</Text>
-              <Text style={styles.footerText}>
-                contact@glowup-agence.fr{"\n"}
-                +33 6 00 00 00 00
-              </Text>
-            </View>
-            <View style={styles.footerSection}>
-              <Text style={styles.footerTitle}>Adresse</Text>
-              <Text style={styles.footerText}>
-                {data.emetteur.adresse}{"\n"}
-                {data.emetteur.codePostal} {data.emetteur.ville}
-              </Text>
-            </View>
-            <View style={styles.footerSection}>
-              <Text style={styles.footerTitle}>Légal</Text>
-              <Text style={styles.footerText}>
-                SIRET : {data.emetteur.siret}
-              </Text>
-            </View>
-          </View>
+          <Text style={styles.footerText}>
+            {data.emetteur.nom} - {data.emetteur.adresse} - {data.emetteur.codePostal} {data.emetteur.ville}, {data.emetteur.pays}
+            {"\n"}
+            N°TVA {data.emetteur.tva} - SIREN {data.emetteur.siret} - RCS {data.emetteur.rcs}
+            {"\n"}
+            Capital de {formatMoney(data.emetteur.capital)} - APE {data.emetteur.ape}
+          </Text>
         </View>
       </Page>
     </Document>

@@ -32,8 +32,16 @@ export default function LoginPage() {
         return;
       }
 
-      // Redirection vers le dashboard
-      router.push("/dashboard");
+      // Récupérer la session pour vérifier le rôle
+      const response = await fetch("/api/auth/session");
+      const session = await response.json();
+
+      // Redirection selon le rôle
+      if (session?.user?.role === "TALENT") {
+        router.push("/talent/dashboard");
+      } else {
+        router.push("/dashboard");
+      }
       router.refresh();
     } catch (err) {
       setError("Une erreur est survenue");

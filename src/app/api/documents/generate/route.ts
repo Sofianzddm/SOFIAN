@@ -23,8 +23,9 @@ export async function POST(request: NextRequest) {
 
     const user = session.user as { id: string; role: string };
     
-    // Seuls ADMIN et HEAD_OF peuvent générer des documents
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(user.role)) {
+    // ADMIN, HEAD_OF, HEAD_OF_SALES, et TM peuvent générer des documents
+    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"];
+    if (!rolesAutorises.includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour générer des documents" },
         { status: 403 }
@@ -63,7 +64,11 @@ export async function POST(request: NextRequest) {
     const collaboration = await prisma.collaboration.findUnique({
       where: { id: collaborationId },
       include: {
-        talent: true,
+        talent: {
+          include: {
+            manager: true,
+          },
+        },
         marque: true,
       },
     });
@@ -72,6 +77,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Collaboration non trouvée" },
         { status: 404 }
+      );
+    }
+
+    // Vérifier que le TM ne peut créer que pour ses propres talents
+    if (user.role === "TM" && collaboration.talent.managerId !== user.id) {
+      return NextResponse.json(
+        { error: "Vous ne pouvez créer des factures que pour vos propres talents" },
+        { status: 403 }
       );
     }
 
@@ -102,21 +115,42 @@ export async function POST(request: NextRequest) {
     // Dates
     const now = new Date();
     const dateDoc = dateDocument ? new Date(dateDocument) : now;
+    
+    // Calcul correct de la date d'échéance : paiement à X jours fin du mois
+    // Ex: facture du 15 janvier + 30j fin de mois = 28/29 février
     const dateEcheance = new Date(dateDoc);
     dateEcheance.setDate(dateEcheance.getDate() + delaiPaiementJours);
-    // Fin de mois
+    // Aller au dernier jour du mois de l'échéance
     dateEcheance.setMonth(dateEcheance.getMonth() + 1);
     dateEcheance.setDate(0);
 
     // Titre automatique
     const titreAuto = titre || `${talent.prenom} x ${marque.nom} - ${dateDoc.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}${poClient ? ` - ${poClient}` : ""}`;
 
-    // Sauvegarder le document en BDD (sans PDF pour l'instant)
+    // Vérifier qu'il n'existe pas déjà une facture pour cette collaboration
+    if (type === "FACTURE") {
+      const existingFacture = await prisma.document.findFirst({
+        where: {
+          collaborationId,
+          type: "FACTURE",
+          statut: { notIn: ["ANNULE"] },
+        },
+      });
+
+      if (existingFacture) {
+        return NextResponse.json(
+          { error: `Une facture existe déjà pour cette collaboration (${existingFacture.reference})` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Sauvegarder le document en BDD
     const document = await prisma.document.create({
       data: {
         reference,
         type,
-        statut: type === "FACTURE" ? "ENVOYE" : "BROUILLON", // Factures directement en ENVOYE (affiché "Facturé")
+        statut: "BROUILLON", // Toujours en brouillon au début, validation manuelle ensuite
         collaborationId,
         titre: titreAuto,
         montantHT,
@@ -130,7 +164,7 @@ export async function POST(request: NextRequest) {
         dateEmission: now,
         dateEcheance,
         poClient: poClient || null,
-        modePaiement: "Virement",
+        modePaiement: "Virement bancaire",
         notes: commentaires || AGENCE_CONFIG.conditionsPaiement,
         createdById: user.id,
       },

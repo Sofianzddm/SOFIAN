@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
         budgetMarque: data.budgetMarque ? parseFloat(data.budgetMarque) : null,
         budgetSouhaite: data.budgetSouhaite ? parseFloat(data.budgetSouhaite) : null,
         dateDeadline: data.dateDeadline ? new Date(data.dateDeadline) : null,
-        statut: "EN_ATTENTE", // Directement en attente de review
+        statut: "BROUILLON", // Créer en brouillon, le TM devra soumettre
         livrables: {
           create: (data.livrables || []).map((l: any) => ({
             typeContenu: l.typeContenu,

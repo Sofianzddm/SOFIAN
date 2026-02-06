@@ -44,6 +44,10 @@ interface NegoDetail {
   validateur: { id: string; prenom: string; nom: string } | null;
   commentaires: { id: string; contenu: string; createdAt: string; user: { id: string; prenom: string; nom: string; role: string } }[];
   collaboration: { id: string; reference: string } | null;
+  modifiedSinceReview: boolean;
+  lastModifiedAt: string;
+  reviewedAt: string | null;
+  dateSubmitted: string | null;
 }
 
 const STATUTS = [
@@ -70,6 +74,7 @@ export default function NegociationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [commenting, setCommenting] = useState(false);
   const [validating, setValidating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [newComment, setNewComment] = useState("");
   const [showRefusModal, setShowRefusModal] = useState(false);
   const [raisonRefus, setRaisonRefus] = useState("");
@@ -79,10 +84,30 @@ export default function NegociationDetailPage() {
   const isHeadOf = session?.user?.role === "HEAD_OF";
   const canValidate = isAdmin || isHeadOf;
   const canEdit = nego?.statut !== "VALIDEE" && nego?.statut !== "REFUSEE";
+  const isOwner = session?.user?.id === nego?.tm.id;
 
   useEffect(() => {
-    if (params.id) fetchNego();
+    if (params.id) {
+      fetchNego();
+    }
   }, [params.id]);
+
+  // Marquer comme vu si HEAD_OF et modifiée
+  useEffect(() => {
+    if (nego && canValidate && nego.modifiedSinceReview) {
+      marquerVu();
+    }
+  }, [nego?.id, nego?.modifiedSinceReview]);
+
+  const marquerVu = async () => {
+    try {
+      await fetch(`/api/negociations/${params.id}/marquer-vu`, {
+        method: "POST",
+      });
+    } catch (error) {
+      console.error("Erreur marquer-vu:", error);
+    }
+  };
 
   useEffect(() => {
     commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -100,9 +125,25 @@ export default function NegociationDetailPage() {
   };
 
   const handleDelete = async () => {
-    if (!confirm("Supprimer cette négociation ?")) return;
-    await fetch(`/api/negociations/${params.id}`, { method: "DELETE" });
-    router.push("/negociations");
+    const confirmMessage = `⚠️ ATTENTION : Êtes-vous sûr de vouloir supprimer cette négociation ?\n\nCette action est irréversible et supprimera :\n- La négociation\n- Tous les livrables associés\n- Tous les commentaires\n\nVoulez-vous continuer ?`;
+    
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      const res = await fetch(`/api/negociations/${params.id}`, { method: "DELETE" });
+      
+      if (!res.ok) {
+        const data = await res.json();
+        alert(`❌ Erreur : ${data.error || "Impossible de supprimer cette négociation"}`);
+        return;
+      }
+
+      alert("✅ Négociation supprimée avec succès");
+      router.push("/negociations");
+    } catch (error) {
+      console.error("Erreur suppression:", error);
+      alert("❌ Erreur lors de la suppression. Veuillez réessayer.");
+    }
   };
 
   const handleComment = async () => {
@@ -137,6 +178,23 @@ export default function NegociationDetailPage() {
       }
     } finally {
       setValidating(false);
+    }
+  };
+
+  const handleSoumettre = async () => {
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/negociations/${params.id}/soumettre`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        fetchNego();
+      } else {
+        const error = await res.json();
+        alert(error.error || "Erreur lors de la soumission");
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -188,6 +246,26 @@ export default function NegociationDetailPage() {
         </div>
       </div>
 
+      {/* Badge Modification Récente */}
+      {nego.modifiedSinceReview && canValidate && (
+        <div className="bg-amber-50 border-l-4 border-amber-400 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-amber-800">
+                Modifications récentes
+              </p>
+              <p className="text-sm text-amber-700 mt-1">
+                Cette négociation a été modifiée depuis votre dernière consultation
+                <span className="text-amber-600 font-medium ml-1">
+                  (le {new Date(nego.lastModifiedAt).toLocaleDateString("fr-FR")} à {new Date(nego.lastModifiedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })})
+                </span>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Alerte Validée avec lien collab */}
       {nego.statut === "VALIDEE" && nego.collaboration && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
@@ -222,6 +300,21 @@ export default function NegociationDetailPage() {
           <p className="text-sm text-amber-700 font-medium">
             ⚠️ Deadline dépassée ({new Date(nego.dateDeadline).toLocaleDateString("fr-FR")})
           </p>
+        </div>
+      )}
+
+      {/* Actions soumission (TM propriétaire) */}
+      {isOwner && nego.statut === "BROUILLON" && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <p className="text-xs font-medium text-blue-700 uppercase mb-3">Cette négociation est en brouillon</p>
+          <button
+            onClick={handleSoumettre}
+            disabled={submitting}
+            className="flex items-center gap-2 px-4 py-2 bg-glowup-licorice text-white rounded-lg text-sm font-medium hover:bg-glowup-licorice/90 disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            Soumettre pour validation
+          </button>
         </div>
       )}
 

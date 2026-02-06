@@ -59,16 +59,7 @@ export async function POST(
       return NextResponse.json(updated);
     }
 
-    // VALIDER → Créer la collaboration
-    // Générer la référence collab
-    const year = new Date().getFullYear();
-    const compteur = await prisma.compteur.upsert({
-      where: { type_annee: { type: "COLLAB", annee: year } },
-      update: { dernierNumero: { increment: 1 } },
-      create: { type: "COLLAB", annee: year, dernierNumero: 1 },
-    });
-    const reference = `COL-${year}-${String(compteur.dernierNumero).padStart(4, "0")}`;
-
+    // VALIDER → Créer la collaboration (avec synchronisation du compteur)
     // Calculer les montants
     const montantBrut = nego.budgetFinal || nego.budgetSouhaite || nego.budgetMarque || 0;
     const commissionPercent = nego.source === "INBOUND" 
@@ -77,48 +68,101 @@ export async function POST(
     const commissionEuros = (Number(montantBrut) * commissionPercent) / 100;
     const montantNet = Number(montantBrut) - commissionEuros;
 
-    // Créer la collaboration avec les livrables
-    const collaboration = await prisma.collaboration.create({
-      data: {
-        reference,
-        talentId: nego.talentId,
-        marqueId: nego.marqueId,
-        source: nego.source,
-        description: nego.brief,
-        montantBrut,
-        commissionPercent,
-        commissionEuros,
-        montantNet,
-        statut: "GAGNE", // Directement gagné puisque validé
-        livrables: {
-          create: nego.livrables.map((l) => ({
-            typeContenu: l.typeContenu,
-            quantite: l.quantite,
-            prixUnitaire: l.prixFinal || l.prixSouhaite || l.prixDemande || 0,
-            description: l.description,
-          })),
+    // Synchroniser le compteur avec les collaborations existantes
+    const year = new Date().getFullYear();
+    const lastCollab = await prisma.collaboration.findFirst({
+      where: {
+        reference: {
+          startsWith: `COL-${year}-`,
         },
+      },
+      orderBy: {
+        reference: 'desc',
+      },
+      select: {
+        reference: true,
       },
     });
 
-    // Mettre à jour la négociation
-    const updated = await prisma.negociation.update({
-      where: { id: id },
-      data: {
-        statut: "VALIDEE",
-        validePar: session.user.id,
-        dateValidation: new Date(),
-        budgetFinal: montantBrut,
-        collaborationId: collaboration.id,
+    // Extraire le numéro de la dernière collaboration
+    let nextNumero = 1;
+    if (lastCollab) {
+      const match = lastCollab.reference.match(/COL-\d{4}-(\d{4})/);
+      if (match) {
+        nextNumero = parseInt(match[1], 10) + 1;
+      }
+    }
+
+    // Mettre à jour le compteur si nécessaire
+    await prisma.compteur.upsert({
+      where: { type_annee: { type: "COLLAB", annee: year } },
+      update: { 
+        dernierNumero: {
+          set: Math.max(nextNumero, 1)
+        }
       },
-      include: {
-        collaboration: {
-          select: { id: true, reference: true },
-        },
-      },
+      create: { type: "COLLAB", annee: year, dernierNumero: nextNumero },
     });
 
-    return NextResponse.json(updated);
+    console.log(`🔄 Compteur synchronisé, prochain numéro: ${nextNumero}`);
+
+    // Créer la collaboration dans une transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Générer la référence avec le compteur synchronisé
+      const compteur = await tx.compteur.upsert({
+        where: { type_annee: { type: "COLLAB", annee: year } },
+        update: { dernierNumero: { increment: 1 } },
+        create: { type: "COLLAB", annee: year, dernierNumero: 1 },
+      });
+      const reference = `COL-${year}-${String(compteur.dernierNumero).padStart(4, "0")}`;
+      
+      console.log(`🆕 Création collaboration: ${reference}`);
+
+      // Créer la collaboration avec les livrables
+      const collaboration = await tx.collaboration.create({
+        data: {
+          reference,
+          talentId: nego.talentId,
+          marqueId: nego.marqueId,
+          source: nego.source,
+          description: nego.brief,
+          montantBrut,
+          commissionPercent,
+          commissionEuros,
+          montantNet,
+          statut: "GAGNE", // Directement gagné puisque validé
+          livrables: {
+            create: nego.livrables.map((l) => ({
+              typeContenu: l.typeContenu,
+              quantite: l.quantite,
+              prixUnitaire: l.prixFinal || l.prixSouhaite || l.prixDemande || 0,
+              description: l.description,
+            })),
+          },
+        },
+      });
+
+      // Mettre à jour la négociation
+      const updated = await tx.negociation.update({
+        where: { id: id },
+        data: {
+          statut: "VALIDEE",
+          validePar: session.user.id,
+          dateValidation: new Date(),
+          budgetFinal: montantBrut,
+          collaborationId: collaboration.id,
+        },
+        include: {
+          collaboration: {
+            select: { id: true, reference: true },
+          },
+        },
+      });
+
+      return updated;
+    });
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Erreur validation négociation:", error);
     return NextResponse.json({ message: "Erreur" }, { status: 500 });

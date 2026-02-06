@@ -238,8 +238,12 @@ export default function CollaborationsPage() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-glowup-lace flex items-center justify-center text-xs font-semibold text-glowup-rose">
-                          {collab.talent.prenom.charAt(0)}
+                        <div className="w-7 h-7 rounded-full bg-glowup-lace flex items-center justify-center text-xs font-semibold text-glowup-rose overflow-hidden">
+                          {collab.talent.photo ? (
+                            <img src={collab.talent.photo} alt={collab.talent.prenom} className="w-full h-full object-cover" />
+                          ) : (
+                            collab.talent.prenom.charAt(0)
+                          )}
                         </div>
                         <span className="text-sm text-glowup-licorice">{collab.talent.prenom} {collab.talent.nom.charAt(0)}.</span>
                       </div>

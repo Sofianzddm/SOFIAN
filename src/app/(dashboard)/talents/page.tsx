@@ -332,10 +332,28 @@ export default function TalentsPage() {
                         <button
                           className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           title="Supprimer"
-                          onClick={() => {
-                            // TODO: Implémenter la suppression avec confirmation
-                            if (confirm(`Supprimer ${talent.prenom} ${talent.nom} ?`)) {
-                              console.log("Delete talent:", talent.id);
+                          onClick={async () => {
+                            const confirmMessage = `⚠️ ATTENTION : Êtes-vous sûr de vouloir supprimer ${talent.prenom} ${talent.nom} ?\n\nCette action est irréversible.\n\nNote : Si ce talent a des collaborations associées, la suppression sera refusée.`;
+                            
+                            if (!confirm(confirmMessage)) return;
+
+                            try {
+                              const res = await fetch(`/api/talents/${talent.id}`, {
+                                method: "DELETE",
+                              });
+
+                              const data = await res.json();
+
+                              if (!res.ok) {
+                                alert(`❌ Erreur : ${data.error || "Impossible de supprimer ce talent"}`);
+                                return;
+                              }
+
+                              alert(`✅ ${talent.prenom} ${talent.nom} a été supprimé avec succès`);
+                              fetchTalents(); // Recharger la liste
+                            } catch (error) {
+                              console.error("Erreur suppression:", error);
+                              alert("❌ Erreur lors de la suppression. Veuillez réessayer.");
                             }
                           }}
                         >

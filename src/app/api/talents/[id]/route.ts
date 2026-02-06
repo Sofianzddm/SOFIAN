@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 // GET - Détail d'un talent
@@ -7,124 +9,280 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
     const { id } = await params;
     const talent = await prisma.talent.findUnique({
-      where: { id: id },
+      where: { id },
       include: {
-        manager: {
-          select: { id: true, prenom: true, nom: true, email: true },
-        },
         stats: true,
         tarifs: true,
-        _count: {
-          select: { collaborations: true },
+        manager: {
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            email: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            actif: true,
+          },
+        },
+        collaborations: {
+          include: {
+            marque: {
+              select: { id: true, nom: true },
+            },
+            livrables: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        negociations: {
+          include: {
+            marque: {
+              select: { id: true, nom: true },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        demandesGift: {
+          include: {
+            tm: {
+              select: {
+                id: true,
+                prenom: true,
+                nom: true,
+              },
+            },
+            accountManager: {
+              select: {
+                id: true,
+                prenom: true,
+                nom: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
         },
       },
     });
 
     if (!talent) {
-      return NextResponse.json({ message: "Talent non trouvé" }, { status: 404 });
+      return NextResponse.json({ error: "Talent non trouvé" }, { status: 404 });
     }
 
     return NextResponse.json(talent);
   } catch (error) {
     console.error("Erreur GET talent:", error);
-    return NextResponse.json({ message: "Erreur" }, { status: 500 });
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
 
-// PUT - Modifier un talent
+// PUT - Mettre à jour un talent
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const userRole = session.user.role;
+    
+    // Vérifier les permissions
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"].includes(userRole)) {
+      return NextResponse.json({ 
+        error: "Permissions insuffisantes" 
+      }, { status: 403 });
+    }
+
     const { id } = await params;
     const data = await request.json();
 
-    // Construire l'objet de mise à jour en excluant les champs non fournis
-    const updateData: Record<string, unknown> = {
-      prenom: data.prenom,
-      nom: data.nom,
-      email: data.email,
-      telephone: data.telephone || null,
-      dateNaissance: data.dateNaissance ? new Date(data.dateNaissance) : null,
-      bio: data.bio || null,
-      presentation: data.presentation || null,
-      adresse: data.adresse || null,
-      codePostal: data.codePostal || null,
-      ville: data.ville || null,
-      pays: data.pays || "France",
-      instagram: data.instagram || null,
-      tiktok: data.tiktok || null,
-      youtube: data.youtube || null,
-      niches: data.niches || [],
-      selectedClients: data.selectedClients || [],
-      commissionInbound: parseFloat(data.commissionInbound) || 20,
-      commissionOutbound: parseFloat(data.commissionOutbound) || 30,
-      siret: data.siret || null,
-      iban: data.iban || null,
-      bic: data.bic || null,
-      titulaireCompte: data.titulaireCompte || null,
-      managerId: data.managerId,
-    };
+    // Séparer les champs Talent des champs TalentStats
+    const talentData: any = {};
+    const rawStatsData: any = {};
+    
+    // ========== CHAMPS TALENT ==========
+    if (data.prenom !== undefined) talentData.prenom = data.prenom;
+    if (data.nom !== undefined) talentData.nom = data.nom;
+    if (data.email !== undefined) talentData.email = data.email;
+    if (data.telephone !== undefined) talentData.telephone = data.telephone || null;
+    if (data.ville !== undefined) talentData.ville = data.ville || null;
+    if (data.photo !== undefined) talentData.photo = data.photo || null;
+    if (data.presentation !== undefined) talentData.presentation = data.presentation || null;
+    if (data.presentationEn !== undefined) talentData.presentationEn = data.presentationEn || null;
+    if (data.instagram !== undefined) talentData.instagram = data.instagram || null;
+    if (data.tiktok !== undefined) talentData.tiktok = data.tiktok || null;
+    if (data.youtube !== undefined) talentData.youtube = data.youtube || null;
+    if (data.niches !== undefined) talentData.niches = data.niches;
+    if (data.selectedClients !== undefined) talentData.selectedClients = data.selectedClients;
+    if (data.bio !== undefined) talentData.bio = data.bio || null;
+    if (data.adresse !== undefined) talentData.adresse = data.adresse || null;
+    if (data.codePostal !== undefined) talentData.codePostal = data.codePostal || null;
+    if (data.pays !== undefined) talentData.pays = data.pays || null;
+    if (data.siret !== undefined) talentData.siret = data.siret || null;
+    if (data.iban !== undefined) talentData.iban = data.iban || null;
+    if (data.bic !== undefined) talentData.bic = data.bic || null;
+    if (data.titulaireCompte !== undefined) talentData.titulaireCompte = data.titulaireCompte || null;
+    if (data.dateNaissance !== undefined) talentData.dateNaissance = data.dateNaissance ? new Date(data.dateNaissance) : null;
+    if (data.dateArrivee !== undefined) talentData.dateArrivee = data.dateArrivee ? new Date(data.dateArrivee) : null;
+    
+    // Commissions (nombres)
+    if (data.commissionInbound !== undefined) {
+      talentData.commissionInbound = data.commissionInbound ? parseFloat(data.commissionInbound) : 20;
+    }
+    if (data.commissionOutbound !== undefined) {
+      talentData.commissionOutbound = data.commissionOutbound ? parseFloat(data.commissionOutbound) : 30;
+    }
+    
+    // ========== CHAMPS TALENTSTATS (raw) ==========
+    // Instagram
+    if (data.igFollowers !== undefined) rawStatsData.igFollowers = data.igFollowers;
+    if (data.igFollowersEvol !== undefined) rawStatsData.igFollowersEvol = data.igFollowersEvol;
+    if (data.igEngagement !== undefined) rawStatsData.igEngagement = data.igEngagement;
+    if (data.igEngagementEvol !== undefined) rawStatsData.igEngagementEvol = data.igEngagementEvol;
+    if (data.igGenreFemme !== undefined) rawStatsData.igGenreFemme = data.igGenreFemme;
+    if (data.igGenreHomme !== undefined) rawStatsData.igGenreHomme = data.igGenreHomme;
+    if (data.igAge13_17 !== undefined) rawStatsData.igAge13_17 = data.igAge13_17;
+    if (data.igAge18_24 !== undefined) rawStatsData.igAge18_24 = data.igAge18_24;
+    if (data.igAge25_34 !== undefined) rawStatsData.igAge25_34 = data.igAge25_34;
+    if (data.igAge35_44 !== undefined) rawStatsData.igAge35_44 = data.igAge35_44;
+    if (data.igAge45Plus !== undefined) rawStatsData.igAge45Plus = data.igAge45Plus;
+    if (data.igLocFrance !== undefined) rawStatsData.igLocFrance = data.igLocFrance;
+    if (data.igLocAutre !== undefined) rawStatsData.igLocAutre = data.igLocAutre;
+    
+    // TikTok
+    if (data.ttFollowers !== undefined) rawStatsData.ttFollowers = data.ttFollowers;
+    if (data.ttFollowersEvol !== undefined) rawStatsData.ttFollowersEvol = data.ttFollowersEvol;
+    if (data.ttEngagement !== undefined) rawStatsData.ttEngagement = data.ttEngagement;
+    if (data.ttEngagementEvol !== undefined) rawStatsData.ttEngagementEvol = data.ttEngagementEvol;
+    if (data.ttGenreFemme !== undefined) rawStatsData.ttGenreFemme = data.ttGenreFemme;
+    if (data.ttGenreHomme !== undefined) rawStatsData.ttGenreHomme = data.ttGenreHomme;
+    if (data.ttAge13_17 !== undefined) rawStatsData.ttAge13_17 = data.ttAge13_17;
+    if (data.ttAge18_24 !== undefined) rawStatsData.ttAge18_24 = data.ttAge18_24;
+    if (data.ttAge25_34 !== undefined) rawStatsData.ttAge25_34 = data.ttAge25_34;
+    if (data.ttAge35_44 !== undefined) rawStatsData.ttAge35_44 = data.ttAge35_44;
+    if (data.ttAge45Plus !== undefined) rawStatsData.ttAge45Plus = data.ttAge45Plus;
+    if (data.ttLocFrance !== undefined) rawStatsData.ttLocFrance = data.ttLocFrance;
+    if (data.ttLocAutre !== undefined) rawStatsData.ttLocAutre = data.ttLocAutre;
+    
+    // YouTube
+    if (data.ytAbonnes !== undefined) rawStatsData.ytAbonnes = data.ytAbonnes;
+    if (data.ytAbonnesEvol !== undefined) rawStatsData.ytAbonnesEvol = data.ytAbonnesEvol;
 
-    // Ne mettre à jour la photo QUE si elle est explicitement fournie
-    if (data.photo !== undefined) {
-      updateData.photo = data.photo || null;
+    // ========== PARSER LES STATS ==========
+    // Convertir en nombres avec les bons types (Int ou Decimal)
+    // "" devient null, sinon parseInt/parseFloat
+    const parsedStatsData: any = {};
+    
+    // Int fields (parseInt)
+    const intFields = ['igFollowers', 'ttFollowers', 'ytAbonnes'];
+    intFields.forEach(field => {
+      if (field in rawStatsData) {
+        const val = rawStatsData[field];
+        parsedStatsData[field] = (val === "" || val === null || val === undefined) ? null : parseInt(val);
+      }
+    });
+    
+    // Decimal fields (parseFloat)
+    const decimalFields = [
+      'igFollowersEvol', 'igEngagement', 'igEngagementEvol',
+      'igGenreFemme', 'igGenreHomme',
+      'igAge13_17', 'igAge18_24', 'igAge25_34', 'igAge35_44', 'igAge45Plus',
+      'igLocFrance',
+      'ttFollowersEvol', 'ttEngagement', 'ttEngagementEvol',
+      'ttGenreFemme', 'ttGenreHomme',
+      'ttAge13_17', 'ttAge18_24', 'ttAge25_34', 'ttAge35_44', 'ttAge45Plus',
+      'ttLocFrance',
+      'ytAbonnesEvol'
+    ];
+    decimalFields.forEach(field => {
+      if (field in rawStatsData) {
+        const val = rawStatsData[field];
+        parsedStatsData[field] = (val === "" || val === null || val === undefined) ? null : parseFloat(val);
+      }
+    });
+    
+    // String fields
+    if ('igLocAutre' in rawStatsData) parsedStatsData.igLocAutre = rawStatsData.igLocAutre || null;
+    if ('ttLocAutre' in rawStatsData) parsedStatsData.ttLocAutre = rawStatsData.ttLocAutre || null;
+
+    // Si des stats sont fournies, inclure l'upsert
+    if (Object.keys(parsedStatsData).length > 0) {
+      talentData.stats = {
+        upsert: {
+          create: parsedStatsData,
+          update: parsedStatsData,
+        },
+      };
     }
 
     const talent = await prisma.talent.update({
-      where: { id: id },
-      data: {
-        ...updateData,
-
-        stats: {
-          update: {
-            igFollowers: data.igFollowers ? parseInt(data.igFollowers) : null,
-            igFollowersEvol: data.igFollowersEvol ? parseFloat(data.igFollowersEvol) : null,
-            igEngagement: data.igEngagement ? parseFloat(data.igEngagement) : null,
-            igEngagementEvol: data.igEngagementEvol ? parseFloat(data.igEngagementEvol) : null,
-            igGenreFemme: data.igGenreFemme ? parseFloat(data.igGenreFemme) : null,
-            igGenreHomme: data.igGenreHomme ? parseFloat(data.igGenreHomme) : null,
-            igAge13_17: data.igAge13_17 ? parseFloat(data.igAge13_17) : null,
-            igAge18_24: data.igAge18_24 ? parseFloat(data.igAge18_24) : null,
-            igAge25_34: data.igAge25_34 ? parseFloat(data.igAge25_34) : null,
-            igAge35_44: data.igAge35_44 ? parseFloat(data.igAge35_44) : null,
-            igAge45Plus: data.igAge45Plus ? parseFloat(data.igAge45Plus) : null,
-            igLocFrance: data.igLocFrance ? parseFloat(data.igLocFrance) : null,
-            ttFollowers: data.ttFollowers ? parseInt(data.ttFollowers) : null,
-            ttFollowersEvol: data.ttFollowersEvol ? parseFloat(data.ttFollowersEvol) : null,
-            ttEngagement: data.ttEngagement ? parseFloat(data.ttEngagement) : null,
-            ttEngagementEvol: data.ttEngagementEvol ? parseFloat(data.ttEngagementEvol) : null,
-            ttGenreFemme: data.ttGenreFemme ? parseFloat(data.ttGenreFemme) : null,
-            ttGenreHomme: data.ttGenreHomme ? parseFloat(data.ttGenreHomme) : null,
-            ttAge13_17: data.ttAge13_17 ? parseFloat(data.ttAge13_17) : null,
-            ttAge18_24: data.ttAge18_24 ? parseFloat(data.ttAge18_24) : null,
-            ttAge25_34: data.ttAge25_34 ? parseFloat(data.ttAge25_34) : null,
-            ttAge35_44: data.ttAge35_44 ? parseFloat(data.ttAge35_44) : null,
-            ttAge45Plus: data.ttAge45Plus ? parseFloat(data.ttAge45Plus) : null,
-            ttLocFrance: data.ttLocFrance ? parseFloat(data.ttLocFrance) : null,
-            ytAbonnes: data.ytAbonnes ? parseInt(data.ytAbonnes) : null,
-            ytAbonnesEvol: data.ytAbonnesEvol ? parseFloat(data.ytAbonnesEvol) : null,
+      where: { id },
+      data: talentData,
+      include: {
+        stats: true,
+        tarifs: true,
+        manager: {
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            email: true,
           },
         },
-
-        tarifs: {
-          update: {
-            tarifStory: data.tarifStory ? parseFloat(data.tarifStory) : null,
-            tarifStoryConcours: data.tarifStoryConcours ? parseFloat(data.tarifStoryConcours) : null,
-            tarifPost: data.tarifPost ? parseFloat(data.tarifPost) : null,
-            tarifPostConcours: data.tarifPostConcours ? parseFloat(data.tarifPostConcours) : null,
-            tarifPostCommun: data.tarifPostCommun ? parseFloat(data.tarifPostCommun) : null,
-            tarifReel: data.tarifReel ? parseFloat(data.tarifReel) : null,
-            tarifTiktokVideo: data.tarifTiktokVideo ? parseFloat(data.tarifTiktokVideo) : null,
-            tarifYoutubeVideo: data.tarifYoutubeVideo ? parseFloat(data.tarifYoutubeVideo) : null,
-            tarifYoutubeShort: data.tarifYoutubeShort ? parseFloat(data.tarifYoutubeShort) : null,
-            tarifEvent: data.tarifEvent ? parseFloat(data.tarifEvent) : null,
-            tarifShooting: data.tarifShooting ? parseFloat(data.tarifShooting) : null,
-            tarifAmbassadeur: data.tarifAmbassadeur ? parseFloat(data.tarifAmbassadeur) : null,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            actif: true,
           },
+        },
+        collaborations: {
+          include: {
+            marque: {
+              select: { id: true, nom: true },
+            },
+            livrables: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        negociations: {
+          include: {
+            marque: {
+              select: { id: true, nom: true },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        demandesGift: {
+          include: {
+            tm: {
+              select: {
+                id: true,
+                prenom: true,
+                nom: true,
+              },
+            },
+            accountManager: {
+              select: {
+                id: true,
+                prenom: true,
+                nom: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
         },
       },
     });
@@ -132,7 +290,7 @@ export async function PUT(
     return NextResponse.json(talent);
   } catch (error) {
     console.error("Erreur PUT talent:", error);
-    return NextResponse.json({ message: "Erreur" }, { status: 500 });
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
 
@@ -142,26 +300,40 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    }
+
+    const userRole = session.user.role;
+    
+    // Seuls les ADMIN peuvent supprimer un talent
+    if (userRole !== "ADMIN") {
+      return NextResponse.json({ 
+        error: "Seuls les administrateurs peuvent supprimer un talent" 
+      }, { status: 403 });
+    }
+
     const { id } = await params;
-    const talent = await prisma.talent.findUnique({
-      where: { id: id },
-      include: { _count: { select: { collaborations: true } } },
+    
+    // Vérifier si le talent a des collaborations
+    const collabCount = await prisma.collaboration.count({
+      where: { talentId: id },
     });
 
-    if (talent?._count.collaborations && talent._count.collaborations > 0) {
-      return NextResponse.json(
-        { message: "Impossible de supprimer, ce talent a des collaborations" },
-        { status: 400 }
-      );
+    if (collabCount > 0) {
+      return NextResponse.json({ 
+        error: `Impossible de supprimer ce talent car il a ${collabCount} collaboration(s) associée(s)` 
+      }, { status: 400 });
     }
 
     await prisma.talent.delete({
-      where: { id: id },
+      where: { id },
     });
 
-    return NextResponse.json({ message: "Supprimé" });
+    return NextResponse.json({ message: "Talent supprimé avec succès" });
   } catch (error) {
     console.error("Erreur DELETE talent:", error);
-    return NextResponse.json({ message: "Erreur" }, { status: 500 });
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }

@@ -66,47 +66,119 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    }
+
     const { id } = await params;
     const data = await request.json();
 
-    // Supprimer les anciens livrables
-    await prisma.negoLivrable.deleteMany({
-      where: { negociationId: id },
-    });
-
-    const negociation = await prisma.negociation.update({
-      where: { id: id },
-      data: {
-        talentId: data.talentId,
-        marqueId: data.marqueId,
-        contactMarque: data.contactMarque || null,
-        emailContact: data.emailContact || null,
-        source: data.source,
-        brief: data.brief || null,
-        budgetMarque: data.budgetMarque ? parseFloat(data.budgetMarque) : null,
-        budgetSouhaite: data.budgetSouhaite ? parseFloat(data.budgetSouhaite) : null,
-        budgetFinal: data.budgetFinal ? parseFloat(data.budgetFinal) : null,
-        dateDeadline: data.dateDeadline ? new Date(data.dateDeadline) : null,
-        livrables: {
-          create: (data.livrables || []).map((l: any) => ({
-            typeContenu: l.typeContenu,
-            quantite: l.quantite || 1,
-            prixDemande: l.prixDemande ? parseFloat(l.prixDemande) : null,
-            prixSouhaite: l.prixSouhaite ? parseFloat(l.prixSouhaite) : null,
-            prixFinal: l.prixFinal ? parseFloat(l.prixFinal) : null,
-            description: l.description || null,
-          })),
+    // Récupérer la négociation actuelle
+    const negoActuelle = await prisma.negociation.findUnique({
+      where: { id },
+      include: {
+        tm: {
+          select: { id: true, prenom: true, nom: true },
         },
       },
-      include: {
-        livrables: true,
-      },
+    });
+
+    if (!negoActuelle) {
+      return NextResponse.json({ error: "Négociation non trouvée" }, { status: 404 });
+    }
+
+    // Vérifier les permissions
+    const canEdit =
+      session.user.id === negoActuelle.tmId ||
+      ["ADMIN", "HEAD_OF"].includes(session.user.role || "");
+
+    if (!canEdit) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
+    }
+
+    // Déterminer si on doit notifier (modification après soumission)
+    const shouldNotify = ["EN_ATTENTE", "EN_DISCUSSION"].includes(negoActuelle.statut);
+
+    // Transaction pour garantir l'intégrité
+    const negociation = await prisma.$transaction(async (tx) => {
+      // 1. Supprimer les anciens livrables
+      await tx.negoLivrable.deleteMany({
+        where: { negociationId: id },
+      });
+
+      // 2. Mettre à jour la négociation
+      const updated = await tx.negociation.update({
+        where: { id },
+        data: {
+          talentId: data.talentId,
+          marqueId: data.marqueId,
+          contactMarque: data.contactMarque || null,
+          emailContact: data.emailContact || null,
+          source: data.source,
+          brief: data.brief || null,
+          budgetMarque: data.budgetMarque ? parseFloat(data.budgetMarque) : null,
+          budgetSouhaite: data.budgetSouhaite ? parseFloat(data.budgetSouhaite) : null,
+          budgetFinal: data.budgetFinal ? parseFloat(data.budgetFinal) : null,
+          dateDeadline: data.dateDeadline ? new Date(data.dateDeadline) : null,
+          modifiedSinceReview: shouldNotify,
+          lastModifiedAt: new Date(),
+          livrables: {
+            create: (data.livrables || []).map((l: any) => ({
+              typeContenu: l.typeContenu,
+              quantite: l.quantite || 1,
+              prixDemande: l.prixDemande ? parseFloat(l.prixDemande) : null,
+              prixSouhaite: l.prixSouhaite ? parseFloat(l.prixSouhaite) : null,
+              prixFinal: l.prixFinal ? parseFloat(l.prixFinal) : null,
+              description: l.description || null,
+            })),
+          },
+        },
+        include: {
+          livrables: true,
+        },
+      });
+
+      // 3. Créer notification si nécessaire
+      if (shouldNotify) {
+        // Trouver tous les HEAD_OF et ADMIN
+        const validateurs = await tx.user.findMany({
+          where: {
+            role: { in: ["HEAD_OF", "ADMIN"] },
+            actif: true,
+          },
+        });
+
+        // Créer une notification pour chaque validateur
+        for (const validateur of validateurs) {
+          await tx.notification.create({
+            data: {
+              userId: validateur.id,
+              type: "GENERAL",
+              titre: "Négociation modifiée",
+              message: `${negoActuelle.tm.prenom} ${negoActuelle.tm.nom} a modifié la négociation ${negoActuelle.reference}`,
+              lien: `/negociations/${id}`,
+            },
+          });
+        }
+
+        // Ajouter un commentaire automatique pour tracer la modification
+        await tx.negoCommentaire.create({
+          data: {
+            negociationId: id,
+            userId: session.user.id,
+            contenu: `📝 Négociation mise à jour`,
+          },
+        });
+      }
+
+      return updated;
     });
 
     return NextResponse.json(negociation);
   } catch (error) {
     console.error("Erreur PUT négociation:", error);
-    return NextResponse.json({ message: "Erreur" }, { status: 500 });
+    return NextResponse.json({ error: "Erreur lors de la mise à jour" }, { status: 500 });
   }
 }
 

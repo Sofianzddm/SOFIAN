@@ -275,8 +275,12 @@ export default function NegociationsPage() {
                     )}
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-glowup-lace flex items-center justify-center text-xs font-semibold text-glowup-rose">
-                          {nego.talent.prenom.charAt(0)}
+                        <div className="w-7 h-7 rounded-full bg-glowup-lace flex items-center justify-center text-xs font-semibold text-glowup-rose overflow-hidden">
+                          {nego.talent.photo ? (
+                            <img src={nego.talent.photo} alt={nego.talent.prenom} className="w-full h-full object-cover" />
+                          ) : (
+                            nego.talent.prenom.charAt(0)
+                          )}
                         </div>
                         <span className="text-sm text-glowup-licorice">{nego.talent.prenom} {nego.talent.nom.charAt(0)}.</span>
                       </div>

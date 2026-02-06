@@ -1,0 +1,162 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+
+/**
+ * 🔗 POST /api/qonto/associate
+ * Associer une transaction Qonto à une facture
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    }
+
+    // Seuls les ADMIN peuvent associer
+    if (session.user.role !== "ADMIN") {
+      return NextResponse.json(
+        { error: "Accès réservé aux administrateurs" },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+    const { transactionId, documentId } = body;
+
+    if (!transactionId || !documentId) {
+      return NextResponse.json(
+        { error: "transactionId et documentId requis" },
+        { status: 400 }
+      );
+    }
+
+    // Vérifier que la transaction existe et n'est pas déjà associée
+    const transaction = await prisma.transactionQonto.findUnique({
+      where: { id: transactionId },
+    });
+
+    if (!transaction) {
+      return NextResponse.json(
+        { error: "Transaction introuvable" },
+        { status: 404 }
+      );
+    }
+
+    if (transaction.associe) {
+      return NextResponse.json(
+        { error: "Transaction déjà associée" },
+        { status: 400 }
+      );
+    }
+
+    // Vérifier que le document (facture) existe
+    const document = await prisma.document.findUnique({
+      where: { id: documentId },
+      include: {
+        collaboration: {
+          select: {
+            id: true,
+            reference: true,
+            talent: {
+              select: {
+                userId: true,
+                prenom: true,
+                nom: true,
+              },
+            },
+            marque: {
+              select: {
+                nom: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!document) {
+      return NextResponse.json(
+        { error: "Document introuvable" },
+        { status: 404 }
+      );
+    }
+
+    if (document.type !== "FACTURE") {
+      return NextResponse.json(
+        { error: "Seules les factures peuvent être associées" },
+        { status: 400 }
+      );
+    }
+
+    console.log(`🔗 Association transaction ${transaction.qontoId} → facture ${document.reference}`);
+
+    // Associer la transaction au document
+    await prisma.transactionQonto.update({
+      where: { id: transactionId },
+      data: {
+        associe: true,
+        documentId: documentId,
+      },
+    });
+
+    // Marquer la facture comme PAYÉE
+    await prisma.document.update({
+      where: { id: documentId },
+      data: {
+        statut: "PAYE",
+        datePaiement: transaction.dateTransaction,
+        referencePaiement: transaction.reference || transaction.qontoId,
+      },
+    });
+
+    // Si la facture est liée à une collaboration, marquer la collab comme PAYÉE
+    if (document.collaboration) {
+      await prisma.collaboration.update({
+        where: { id: document.collaboration.id },
+        data: {
+          statut: "PAYE",
+          paidAt: transaction.dateTransaction,
+        },
+      });
+
+      // Notifier le talent (si existe)
+      if (document.collaboration.talent.userId) {
+        await prisma.notification.create({
+          data: {
+            userId: document.collaboration.talent.userId,
+            type: "PAIEMENT_RECU",
+            titre: "💰 Paiement reçu !",
+            message: `Votre collaboration ${document.collaboration.reference} avec ${document.collaboration.marque.nom} a été payée (${Number(transaction.montant).toFixed(2)}€)`,
+            lien: `/collaborations/${document.collaboration.id}`,
+            collabId: document.collaboration.id,
+          },
+        });
+      }
+    }
+
+    console.log(`✅ Association réussie + facture et collab marquées comme PAYÉES`);
+
+    return NextResponse.json({
+      success: true,
+      message: "Paiement associé avec succès",
+      transaction: {
+        id: transaction.id,
+        montant: transaction.montant,
+      },
+      document: {
+        id: document.id,
+        reference: document.reference,
+        statut: "PAYE",
+      },
+    });
+  } catch (error) {
+    console.error("❌ Erreur POST /api/qonto/associate:", error);
+    return NextResponse.json(
+      { error: "Erreur lors de l'association" },
+      { status: 500 }
+    );
+  }
+}

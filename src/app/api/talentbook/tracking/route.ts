@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 // POST - Enregistrer un événement
@@ -45,6 +47,18 @@ export async function POST(request: NextRequest) {
 // GET - Récupérer les stats (pour l'admin)
 export async function GET(request: NextRequest) {
   try {
+    // Vérifier l'authentification et le rôle ADMIN
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    }
+
+    if (session.user.role !== "ADMIN") {
+      return NextResponse.json({ 
+        error: "Accès réservé aux administrateurs" 
+      }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
     const period = searchParams.get("period") || "7d";
 

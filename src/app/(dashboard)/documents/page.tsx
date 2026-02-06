@@ -58,7 +58,7 @@ export default function DocumentsPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("ALL");
+  const [activeTab, setActiveTab] = useState<"DEVIS" | "FACTURE">("DEVIS");
   const [statutFilter, setStatutFilter] = useState<string>("ALL");
   const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState<"date" | "montant" | "reference">("date");
@@ -99,10 +99,10 @@ export default function DocumentsPage() {
       doc.collaboration?.talent.prenom.toLowerCase().includes(search.toLowerCase()) ||
       doc.collaboration?.talent.nom.toLowerCase().includes(search.toLowerCase());
 
-    const matchesType = typeFilter === "ALL" || doc.type === typeFilter;
+    const matchesTab = doc.type === activeTab;
     const matchesStatut = statutFilter === "ALL" || doc.statut === statutFilter;
 
-    return matchesSearch && matchesType && matchesStatut;
+    return matchesSearch && matchesTab && matchesStatut;
   });
 
   // Tri
@@ -141,11 +141,10 @@ export default function DocumentsPage() {
 
   const clearFilters = () => {
     setSearch("");
-    setTypeFilter("ALL");
     setStatutFilter("ALL");
   };
 
-  const hasActiveFilters = search !== "" || typeFilter !== "ALL" || statutFilter !== "ALL";
+  const hasActiveFilters = search !== "" || statutFilter !== "ALL";
 
   if (loading) {
     return (
@@ -206,6 +205,34 @@ export default function DocumentsPage() {
         </div>
       </div>
 
+      {/* Tabs Navigation */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-2 mb-6">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab("DEVIS")}
+            className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium transition-all ${
+              activeTab === "DEVIS"
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <FileText className="w-5 h-5" />
+            Devis
+          </button>
+          <button
+            onClick={() => setActiveTab("FACTURE")}
+            className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium transition-all ${
+              activeTab === "FACTURE"
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/25"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Receipt className="w-5 h-5" />
+            Factures
+          </button>
+        </div>
+      </div>
+
       {/* Filters Bar */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4 mb-6">
         <div className="flex flex-col md:flex-row gap-4">
@@ -219,21 +246,6 @@ export default function DocumentsPage() {
               placeholder="Rechercher par référence, client, talent..."
               className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all"
             />
-          </div>
-
-          {/* Type Filter */}
-          <div className="relative">
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="appearance-none pl-4 pr-10 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-glowup-rose bg-white cursor-pointer min-w-[140px]"
-            >
-              <option value="ALL">Tous types</option>
-              <option value="DEVIS">Devis</option>
-              <option value="FACTURE">Factures</option>
-              <option value="AVOIR">Avoirs</option>
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
 
           {/* Statut Filter */}

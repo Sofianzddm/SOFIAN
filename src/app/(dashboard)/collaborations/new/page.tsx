@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -60,11 +61,16 @@ const TYPES_CONTENU = [
 export default function NewCollaborationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
   const [loading, setLoading] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
   const [marques, setMarques] = useState<Marque[]>([]);
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
   const [showMarqueModal, setShowMarqueModal] = useState(false);
+
+  // Détection du rôle
+  const user = session?.user as { id: string; role: string; name: string } | undefined;
+  const isTM = user?.role === "TM";
 
   const [formData, setFormData] = useState({
     talentId: searchParams.get("talent") || "",
@@ -107,10 +113,16 @@ export default function NewCollaborationPage() {
     try {
       const res = await fetch("/api/talents");
       const data = await res.json();
-      setTalents(data);
+      
+      // Si TM, filtrer pour ne montrer que SES talents
+      const filteredTalents = isTM 
+        ? data.filter((t: any) => t.manager?.id === user?.id)
+        : data;
+      
+      setTalents(filteredTalents);
       const preselectedId = searchParams.get("talent");
       if (preselectedId) {
-        const talent = data.find((t: Talent) => t.id === preselectedId);
+        const talent = filteredTalents.find((t: Talent) => t.id === preselectedId);
         if (talent) setSelectedTalent(talent);
       }
     } catch (error) {
@@ -294,7 +306,7 @@ export default function NewCollaborationPage() {
           {/* Source */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Source</h2>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`grid ${isTM ? "grid-cols-1" : "grid-cols-2"} gap-3`}>
               <button
                 type="button"
                 onClick={() => setFormData((prev) => ({ ...prev, source: "INBOUND" }))}
@@ -315,27 +327,39 @@ export default function NewCollaborationPage() {
                   <p className="text-sm font-semibold text-blue-600 mt-3 pl-11">{selectedTalent.commissionInbound}% commission</p>
                 )}
               </button>
-              <button
-                type="button"
-                onClick={() => setFormData((prev) => ({ ...prev, source: "OUTBOUND" }))}
-                className={`p-4 rounded-lg border-2 transition-all text-left ${
-                  formData.source === "OUTBOUND" ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-gray-300"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${formData.source === "OUTBOUND" ? "bg-green-100" : "bg-gray-100"}`}>
-                    <ArrowUpRight className={`w-4 h-4 ${formData.source === "OUTBOUND" ? "text-green-600" : "text-gray-400"}`} />
+              
+              {/* OUTBOUND caché pour les TM */}
+              {!isTM && (
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, source: "OUTBOUND" }))}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    formData.source === "OUTBOUND" ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${formData.source === "OUTBOUND" ? "bg-green-100" : "bg-gray-100"}`}>
+                      <ArrowUpRight className={`w-4 h-4 ${formData.source === "OUTBOUND" ? "text-green-600" : "text-gray-400"}`} />
+                    </div>
+                    <div>
+                      <p className={`font-medium ${formData.source === "OUTBOUND" ? "text-green-700" : "text-gray-700"}`}>Outbound</p>
+                      <p className="text-xs text-gray-500">On démarche la marque</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className={`font-medium ${formData.source === "OUTBOUND" ? "text-green-700" : "text-gray-700"}`}>Outbound</p>
-                    <p className="text-xs text-gray-500">On démarche la marque</p>
-                  </div>
-                </div>
-                {selectedTalent && formData.source === "OUTBOUND" && (
-                  <p className="text-sm font-semibold text-green-600 mt-3 pl-11">{selectedTalent.commissionOutbound}% commission</p>
-                )}
-              </button>
+                  {selectedTalent && formData.source === "OUTBOUND" && (
+                    <p className="text-sm font-semibold text-green-600 mt-3 pl-11">{selectedTalent.commissionOutbound}% commission</p>
+                  )}
+                </button>
+              )}
             </div>
+            
+            {/* Message info pour TM */}
+            {isTM && (
+              <p className="mt-3 text-xs text-gray-500 flex items-center gap-2">
+                <span className="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                En tant que TM, vous gérez uniquement les collaborations INBOUND (mails entrants)
+              </p>
+            )}
           </div>
 
           {/* Livrables */}

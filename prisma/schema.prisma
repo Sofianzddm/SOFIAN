@@ -90,6 +90,18 @@ enum StatutDocument {
   ANNULE
 }
 
+enum StatutGift {
+  BROUILLON
+  EN_ATTENTE
+  EN_COURS
+  ATTENTE_MARQUE
+  ACCEPTE
+  REFUSE
+  ENVOYE
+  RECU
+  ANNULE
+}
+
 enum TypeDocument {
   DEVIS
   BON_DE_COMMANDE
@@ -118,6 +130,7 @@ enum TypeNotification {
   BILAN_RETARD
   COLLAB_PUBLIE
   FACTURE_RECUE
+  FACTURE_VALIDEE
   FACTURE_RELANCE
   COLLAB_GAGNEE
   PAIEMENT_RECU
@@ -151,6 +164,12 @@ model User {
   
   prospections      Prospection[]
   documentsCreated  Document[]      @relation("DocumentCreateur")
+  
+  demandesGiftCreees    DemandeGift[]           @relation("TMDemandeGift")
+  demandesGiftGerees    DemandeGift[]           @relation("AMDemandeGift")
+  commentairesGift      CommentaireGift[]
+  
+  collabsGerees         Collaboration[]         @relation("AccountManagerCollabs")
   
   @@map("users")
 }
@@ -213,6 +232,7 @@ model Talent {
   collaborations Collaboration[]
   negociations  Negociation[]
   talentbookEvents TalentbookEvent[]
+  demandesGift  DemandeGift[]
   
   @@map("talents")
 }
@@ -333,6 +353,7 @@ model Marque {
   collaborations Collaboration[]
   negociations  Negociation[]
   prospections  Prospection[]
+  demandesGift  DemandeGift[]
   
   @@map("marques")
 }
@@ -433,6 +454,12 @@ model Negociation {
   
   commentaires      NegoCommentaire[]
   
+  // Tracking des modifications
+  modifiedSinceReview  Boolean   @default(false)
+  lastModifiedAt       DateTime  @default(now())
+  reviewedAt           DateTime?
+  dateSubmitted        DateTime?
+  
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   
@@ -453,7 +480,7 @@ model NegoLivrable {
   negociationId   String
   negociation     Negociation @relation(fields: [negociationId], references: [id], onDelete: Cascade)
   
-  typeContenu     TypeContenu
+  typeContenu     String   // Texte libre pour plus de flexibilité
   quantite        Int       @default(1)
   prixDemande     Decimal?
   prixSouhaite    Decimal?
@@ -503,6 +530,11 @@ model Collaboration {
   marqueId      String
   marque        Marque    @relation(fields: [marqueId], references: [id])
   
+  // Account Manager assigné pour le suivi (après deal HEAD_OF_SALES)
+  accountManagerId  String?
+  accountManager    User?   @relation("AccountManagerCollabs", fields: [accountManagerId], references: [id])
+  dateAssignationAM DateTime?
+  
   livrables     CollabLivrable[]
   
   source            Source    @default(INBOUND)
@@ -521,6 +553,8 @@ model Collaboration {
   
   factureTalentUrl      String?
   factureTalentRecueAt  DateTime?
+  factureValidee        Boolean   @default(false)
+  factureValideeAt      DateTime?
   
   paidAt            DateTime?
   
@@ -539,6 +573,7 @@ model Collaboration {
   @@index([talentId])
   @@index([marqueId])
   @@index([statut])
+  @@index([accountManagerId])
   @@map("collaborations")
 }
 
@@ -552,7 +587,7 @@ model CollabLivrable {
   collaborationId String
   collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
   
-  typeContenu     TypeContenu
+  typeContenu     String   // Texte libre pour plus de flexibilité
   quantite        Int       @default(1)
   prixUnitaire    Decimal
   description     String?
@@ -648,6 +683,9 @@ model Document {
   
   createdById   String?
   createdBy     User?     @relation("DocumentCreateur", fields: [createdById], references: [id])
+  
+  // Relation transactions Qonto
+  transactionsQonto TransactionQonto[]
   
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -768,4 +806,127 @@ model TalentbookEvent {
   @@index([talentId])
   @@index([createdAt])
   @@map("talentbook_events")
+}
+
+// ============================================
+// TRANSACTIONS QONTO (RÉCONCILIATION BANCAIRE)
+// ============================================
+
+model TransactionQonto {
+  id                String    @id @default(cuid())
+  qontoId           String    @unique // ID unique de la transaction Qonto
+  
+  // Informations transaction
+  montant           Decimal   @db.Decimal(10, 2)
+  devise            String    @default("EUR")
+  libelle           String?   // Libellé du virement
+  reference         String?   // Référence bancaire
+  dateTransaction   DateTime  // Date du virement
+  
+  // Émetteur
+  emetteur          String?   // Nom de l'émetteur
+  emetteurIban      String?   // IBAN de l'émetteur
+  
+  // Statut
+  statut            String    @default("PENDING") // PENDING, SETTLED, DECLINED
+  
+  // Association avec facture
+  associe           Boolean   @default(false)
+  documentId        String?
+  document          Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  
+  // Métadonnées brutes Qonto
+  metadata          Json?
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@index([documentId])
+  @@index([associe])
+  @@index([dateTransaction])
+  @@index([statut])
+  @@map("transactions_qonto")
+}
+
+// ============================================
+// DEMANDES DE GIFTS
+// ============================================
+
+model DemandeGift {
+  id                String        @id @default(cuid())
+  reference         String        @unique // Format : GIFT-2026-0001
+  
+  // Relations
+  talentId          String
+  talent            Talent        @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  
+  tmId              String
+  tm                User          @relation("TMDemandeGift", fields: [tmId], references: [id])
+  
+  accountManagerId  String?
+  accountManager    User?         @relation("AMDemandeGift", fields: [accountManagerId], references: [id])
+  
+  marqueId          String?
+  marque            Marque?       @relation(fields: [marqueId], references: [id])
+  
+  // Détails de la demande
+  statut            StatutGift    @default(BROUILLON)
+  priorite          String        @default("NORMALE") // BASSE, NORMALE, HAUTE, URGENTE
+  
+  typeGift          String        // PRODUIT, EXPERIENCE, SERVICE, AUTRE
+  description       String        @db.Text
+  justification     String?       @db.Text // Pourquoi ce gift est important
+  valeurEstimee     Decimal?      @db.Decimal(10, 2)
+  
+  // Informations supplémentaires
+  datesouhaitee     DateTime?     // Date souhaitée de réception
+  adresseLivraison  String?       @db.Text
+  notesInternes     String?       @db.Text
+  
+  // Suivi
+  datePriseEnCharge DateTime?     // Quand l'AM a pris en charge
+  dateContactMarque DateTime?     // Quand l'AM a contacté la marque
+  dateReponseMarque DateTime?     // Quand la marque a répondu
+  dateEnvoi         DateTime?     // Date d'envoi du gift
+  dateReception     DateTime?     // Date de réception par le talent
+  
+  numeroSuivi       String?       // Numéro de suivi du colis
+  
+  // Timestamps
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  // Relations
+  commentaires      CommentaireGift[]
+  
+  @@index([talentId])
+  @@index([tmId])
+  @@index([accountManagerId])
+  @@index([marqueId])
+  @@index([statut])
+  @@index([priorite])
+  @@index([createdAt])
+  @@map("demandes_gift")
+}
+
+model CommentaireGift {
+  id              String      @id @default(cuid())
+  
+  demandeGiftId   String
+  demandeGift     DemandeGift @relation(fields: [demandeGiftId], references: [id], onDelete: Cascade)
+  
+  auteurId        String
+  auteur          User        @relation(fields: [auteurId], references: [id])
+  
+  contenu         String      @db.Text
+  interne         Boolean     @default(false) // Si true, visible uniquement par TM et AM
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  @@index([demandeGiftId])
+  @@index([auteurId])
+  @@index([createdAt])
+  @@map("commentaires_gift")
 }

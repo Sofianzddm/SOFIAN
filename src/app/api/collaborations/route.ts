@@ -1,10 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 // GET - Liste des collaborations
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const accountManagerId = searchParams.get("accountManagerId");
+
+    const where: any = {};
+
+    // Filtrer par Account Manager si spécifié
+    if (accountManagerId) {
+      where.accountManagerId = accountManagerId;
+    }
+
     const collaborations = await prisma.collaboration.findMany({
+      where,
       include: {
         talent: {
           select: { id: true, prenom: true, nom: true, photo: true },
@@ -13,6 +31,9 @@ export async function GET() {
           select: { id: true, nom: true },
         },
         livrables: true,
+        accountManager: {
+          select: { id: true, prenom: true, nom: true },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -27,20 +48,44 @@ export async function GET() {
 // POST - Créer une collaboration avec livrables
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
     const data = await request.json();
 
     if (!data.talentId || !data.marqueId || !data.livrables?.length) {
       return NextResponse.json({ message: "Champs obligatoires manquants" }, { status: 400 });
     }
 
-    // Générer la référence
+    // Générer la référence en se basant sur la dernière collaboration existante
     const year = new Date().getFullYear();
-    const count = await prisma.collaboration.count({
+    const lastCollab = await prisma.collaboration.findFirst({
       where: {
-        createdAt: { gte: new Date(`${year}-01-01`), lt: new Date(`${year + 1}-01-01`) },
+        reference: {
+          startsWith: `COL-${year}-`,
+        },
+      },
+      orderBy: {
+        reference: 'desc',
+      },
+      select: {
+        reference: true,
       },
     });
-    const reference = `COL-${year}-${String(count + 1).padStart(4, "0")}`;
+
+    // Extraire le numéro de la dernière collaboration
+    let nextNumero = 1;
+    if (lastCollab) {
+      const match = lastCollab.reference.match(/COL-\d{4}-(\d{4})/);
+      if (match) {
+        nextNumero = parseInt(match[1], 10) + 1;
+      }
+    }
+
+    const reference = `COL-${year}-${String(nextNumero).padStart(4, "0")}`;
+    console.log(`🆕 Création collaboration manuelle: ${reference}`);
 
     // Créer la collaboration avec les livrables
     const collaboration = await prisma.collaboration.create({

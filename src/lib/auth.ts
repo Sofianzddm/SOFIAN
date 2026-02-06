@@ -24,6 +24,11 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Compte inexistant ou désactivé");
         }
 
+        // Vérifier que l'utilisateur a un mot de passe défini
+        if (!user.password) {
+          throw new Error("Mot de passe non défini pour ce compte");
+        }
+
         const isPasswordValid = await bcrypt.compare(
           credentials.password,
           user.password

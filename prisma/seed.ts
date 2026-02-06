@@ -60,6 +60,40 @@ async function main() {
   console.log("✅ Head of créée:", headOf.email);
 
   // ================================
+  // Créer Leyna (Head of Sales)
+  // ================================
+  const leyna = await prisma.user.upsert({
+    where: { email: "leyna@glowup-agence.com" },
+    update: {},
+    create: {
+      email: "leyna@glowup-agence.com",
+      password: hashedPassword,
+      prenom: "Leyna",
+      nom: "Head of Sales",
+      role: Role.HEAD_OF_SALES,
+      actif: true,
+    },
+  });
+  console.log("✅ Head of Sales Leyna créée:", leyna.email);
+
+  // ================================
+  // Créer Ines (Account Manager / CM)
+  // ================================
+  const ines = await prisma.user.upsert({
+    where: { email: "ines@glowup-agence.com" },
+    update: {},
+    create: {
+      email: "ines@glowup-agence.com",
+      password: hashedPassword,
+      prenom: "Ines",
+      nom: "Account Manager",
+      role: Role.CM,
+      actif: true,
+    },
+  });
+  console.log("✅ Account Manager Ines créée:", ines.email);
+
+  // ================================
   // Créer les Talent Managers
   // ================================
   const tmNames = [
@@ -128,6 +162,8 @@ async function main() {
   console.log("   - sofian@glowup-agence.com (Admin)");
   console.log("   - maud@glowup-agence.com (Admin)");
   console.log("   - headof@glowup-agence.com (Head of)");
+  console.log("   - leyna@glowup-agence.com (Head of Sales) 🎯");
+  console.log("   - ines@glowup-agence.com (Account Manager) 💼");
   console.log("   - daphné@glowup-agence.com (TM)");
   console.log("   - joey@glowup-agence.com (TM)");
   console.log("   - alice@glowup-agence.com (TM)");

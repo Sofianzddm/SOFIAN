@@ -19,6 +19,7 @@ import {
   FileText,
   Calendar,
   Mail,
+  Send,
 } from "lucide-react";
 import QuickMarqueModal from "@/components/QuickMarqueModal";
 
@@ -163,10 +164,47 @@ export default function NewNegociationPage() {
         if (l.id !== id) return l;
         const updated = { ...l, [field]: value };
         // Auto-fill prix souhaité si on change le type et qu'on a les tarifs
-        if (field === "typeContenu" && selectedTalent?.tarifs) {
-          const typeInfo = TYPES_CONTENU.find((t) => t.value === value);
+        if (field === "typeContenu" && selectedTalent?.tarifs && typeof value === "string") {
+          console.log("🔍 Recherche tarif pour:", value);
+          console.log("📊 Tarifs disponibles:", selectedTalent.tarifs);
+          
+          // Normaliser la valeur pour la comparaison
+          const normalizeStr = (str: string) => 
+            str.toLowerCase()
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "") // Enlever accents
+              .replace(/\s+/g, ""); // Enlever espaces
+          
+          const valueNorm = normalizeStr(value);
+          
+          // Essayer de trouver une correspondance exacte d'abord
+          let typeInfo = TYPES_CONTENU.find((t) => 
+            t.value === value || 
+            t.label === value ||
+            normalizeStr(t.label) === valueNorm
+          );
+          
+          // Si pas de correspondance exacte, essayer une correspondance partielle
+          if (!typeInfo) {
+            typeInfo = TYPES_CONTENU.find((t) => {
+              const labelNorm = normalizeStr(t.label);
+              return labelNorm.includes(valueNorm) || valueNorm.includes(labelNorm);
+            });
+          }
+          
+          console.log("✅ Type trouvé:", typeInfo?.label || "Aucun");
+          
+          // Si on a trouvé un type correspondant et que le talent a ce tarif
           if (typeInfo && selectedTalent.tarifs[typeInfo.tarifKey]) {
-            updated.prixSouhaite = selectedTalent.tarifs[typeInfo.tarifKey]!.toString();
+            const tarifTalent = selectedTalent.tarifs[typeInfo.tarifKey];
+            console.log("💰 Tarif trouvé:", tarifTalent);
+            // Auto-remplir uniquement si le champ prix souhaité est vide
+            if (!l.prixSouhaite && tarifTalent) {
+              updated.prixSouhaite = tarifTalent.toString();
+              console.log("✨ Prix souhaité auto-rempli:", tarifTalent);
+            }
+          } else {
+            console.log("❌ Aucun tarif trouvé pour ce type");
           }
         }
         return updated;
@@ -174,7 +212,42 @@ export default function NewNegociationPage() {
     );
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Fonction pour obtenir le tarif recommandé du talent pour un type de contenu
+  const getTarifRecommande = (typeContenu: string): number | null => {
+    if (!selectedTalent?.tarifs || !typeContenu) return null;
+    
+    // Normaliser la valeur pour la comparaison
+    const normalizeStr = (str: string) => 
+      str.toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Enlever accents
+        .replace(/\s+/g, ""); // Enlever espaces
+    
+    const valueNorm = normalizeStr(typeContenu);
+    
+    // Essayer de trouver une correspondance exacte d'abord
+    let typeInfo = TYPES_CONTENU.find((t) => 
+      t.value === typeContenu || 
+      t.label === typeContenu ||
+      normalizeStr(t.label) === valueNorm
+    );
+    
+    // Si pas de correspondance exacte, essayer une correspondance partielle
+    if (!typeInfo) {
+      typeInfo = TYPES_CONTENU.find((t) => {
+        const labelNorm = normalizeStr(t.label);
+        return labelNorm.includes(valueNorm) || valueNorm.includes(labelNorm);
+      });
+    }
+    
+    if (typeInfo && selectedTalent.tarifs[typeInfo.tarifKey]) {
+      return selectedTalent.tarifs[typeInfo.tarifKey] as number;
+    }
+    
+    return null;
+  };
+
+  const handleSubmit = async (e: React.FormEvent, shouldSubmit: boolean = false) => {
     e.preventDefault();
     const validLivrables = livrables.filter((l) => l.typeContenu);
     if (validLivrables.length === 0) {
@@ -184,6 +257,7 @@ export default function NewNegociationPage() {
 
     setLoading(true);
     try {
+      // 1. Créer la négociation (BROUILLON)
       const res = await fetch("/api/negociations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -197,6 +271,19 @@ export default function NewNegociationPage() {
 
       if (res.ok) {
         const nego = await res.json();
+
+        // 2. Si "Soumettre", appeler l'endpoint /soumettre
+        if (shouldSubmit) {
+          const submitRes = await fetch(`/api/negociations/${nego.id}/soumettre`, {
+            method: "POST",
+          });
+          
+          if (!submitRes.ok) {
+            const error = await submitRes.json();
+            alert(error.error || "Erreur lors de la soumission");
+          }
+        }
+
         router.push(`/negociations/${nego.id}`);
       } else {
         const error = await res.json();
@@ -358,22 +445,25 @@ export default function NewNegociationPage() {
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-6">
               {livrables.map((livrable) => (
-                <div key={livrable.id} className="flex items-start gap-3 p-4 bg-gray-50 rounded-lg">
+                <div key={livrable.id} className="flex items-start gap-3 p-4 pb-6 bg-gray-50 rounded-lg">
                   <div className="flex-1 grid grid-cols-12 gap-3">
                     <div className="col-span-3">
                       <label className="block text-xs text-gray-500 mb-1">Type *</label>
-                      <select
+                      <input
+                        type="text"
+                        list={`types-contenu-${livrable.id}`}
                         value={livrable.typeContenu}
                         onChange={(e) => updateLivrable(livrable.id, "typeContenu", e.target.value)}
-                        className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm"
-                      >
-                        <option value="">Type</option>
+                        placeholder="Choisir ou écrire..."
+                        className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-glowup-rose focus:ring-1 focus:ring-glowup-rose/20"
+                      />
+                      <datalist id={`types-contenu-${livrable.id}`}>
                         {TYPES_CONTENU.map((type) => (
-                          <option key={type.value} value={type.value}>{type.label}</option>
+                          <option key={type.value} value={type.label} />
                         ))}
-                      </select>
+                      </datalist>
                     </div>
                     <div className="col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Qté</label>
@@ -398,14 +488,52 @@ export default function NewNegociationPage() {
                     </div>
                     <div className="col-span-3">
                       <label className="block text-xs text-gray-500 mb-1">Prix souhaité €</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={livrable.prixSouhaite}
-                        onChange={(e) => updateLivrable(livrable.id, "prixSouhaite", e.target.value)}
-                        placeholder="Voulu"
-                        className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-green-50"
-                      />
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          value={livrable.prixSouhaite}
+                          onChange={(e) => updateLivrable(livrable.id, "prixSouhaite", e.target.value)}
+                          placeholder="Voulu"
+                          className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-green-50"
+                        />
+                        {(() => {
+                          const tarifRecommande = getTarifRecommande(livrable.typeContenu);
+                          if (tarifRecommande && livrable.typeContenu) {
+                            const prixSouhaite = parseFloat(livrable.prixSouhaite) || 0;
+                            const difference = prixSouhaite - tarifRecommande;
+                            const pourcentage = tarifRecommande > 0 ? ((difference / tarifRecommande) * 100).toFixed(0) : 0;
+                            
+                            return (
+                              <div className="absolute -bottom-6 left-0 right-0 flex items-center justify-between text-[10px] mt-1">
+                                <span className="text-gray-600 font-medium">
+                                  Grille talent: {formatMoney(tarifRecommande)}
+                                </span>
+                                {prixSouhaite > 0 && prixSouhaite !== tarifRecommande && (
+                                  <span className={`font-bold ${
+                                    difference > 0 ? 'text-green-600' : 'text-red-600'
+                                  }`}>
+                                    {difference > 0 ? '+' : ''}{pourcentage}%
+                                  </span>
+                                )}
+                                {(!livrable.prixSouhaite || prixSouhaite === 0) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      console.log("🎯 Application du tarif:", tarifRecommande);
+                                      updateLivrable(livrable.id, "prixSouhaite", tarifRecommande.toString());
+                                    }}
+                                    className="text-blue-600 hover:text-blue-700 hover:underline font-bold transition-all"
+                                  >
+                                    → Appliquer
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                     </div>
                     <div className="col-span-1 flex items-end">
                       <button
@@ -473,12 +601,22 @@ export default function NewNegociationPage() {
           <div className="flex items-center justify-end gap-3 pt-4">
             <Link href="/negociations" className="px-4 py-2.5 text-gray-600 hover:text-gray-800">Annuler</Link>
             <button
-              type="submit"
+              type="button"
+              onClick={(e) => handleSubmit(e, false)}
+              disabled={loading}
+              className="flex items-center gap-2 px-5 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Enregistrer en brouillon
+            </button>
+            <button
+              type="button"
+              onClick={(e) => handleSubmit(e, true)}
               disabled={loading}
               className="flex items-center gap-2 px-5 py-2.5 bg-glowup-licorice text-white font-medium rounded-lg hover:bg-glowup-licorice/90 disabled:opacity-50"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Créer la négociation
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Soumettre pour validation
             </button>
           </div>
         </form>
