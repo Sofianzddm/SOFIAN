@@ -87,6 +87,11 @@ export default function PressKitPage() {
     fetch(`/api/presskit/${slug}`)
       .then(res => res.json())
       .then(data => {
+        console.log('\n🎨 Press Kit Frontend - Données reçues:');
+        console.log('   Brand:', data.name);
+        console.log('   Primary Color:', data.primaryColor);
+        console.log('   Talents:', data.talents?.length || 0);
+        
         setBrandData(data);
         setBrandColor(data.primaryColor || '#B06F70');
         setLoading(false);

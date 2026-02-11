@@ -93,11 +93,17 @@ export async function GET(
       };
     });
 
+    console.log(`\n🎨 Press Kit API Response for ${brand.name}:`);
+    console.log(`   - Logo: ${brand.logo ? 'OUI ✅' : 'NON ❌'}`);
+    console.log(`   - Primary Color: ${brand.primaryColor || 'DÉFAUT (#B06F70)'}`);
+    console.log(`   - Secondary Color: ${brand.secondaryColor || 'DÉFAUT (#220101)'}`);
+    console.log(`   - Talents: ${talents.length}\n`);
+
     const response = {
       name: brand.name,
       logo: brand.logo,
-      primaryColor: brand.primaryColor || '#ff6b9d',
-      secondaryColor: brand.secondaryColor || '#c2185b',
+      primaryColor: brand.primaryColor || '#B06F70', // Rose/marron Glow Up par défaut
+      secondaryColor: brand.secondaryColor || '#220101',
       niche: brand.niche,
       talents,
       caseStudies: caseStudies.map(cs => ({
