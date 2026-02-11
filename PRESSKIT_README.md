@@ -323,7 +323,7 @@ RÈGLES:
 - Français uniquement
 ```
 
-**Modèle:** `claude-3-5-sonnet-20241022`
+**Modèle:** `claude-sonnet-4-5-20250514` (Claude Sonnet 4.5)
 
 ## 🔒 Sécurité & Rate Limiting
 
