@@ -103,6 +103,12 @@ const menuItems = [
     roles: ["ADMIN"], // ADMIN uniquement
   },
   {
+    label: "Press Kit Dashboard",
+    href: "/presskit-dashboard",
+    icon: FileText,
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"], // BizDev
+  },
+  {
     label: "Paramètres",
     href: "/settings",
     icon: Settings,

@@ -11,6 +11,7 @@ export async function GET() {
         nom: true,
         photo: true,
         presentation: true,
+        presentationEn: true,
         instagram: true,
         tiktok: true,
         youtube: true,

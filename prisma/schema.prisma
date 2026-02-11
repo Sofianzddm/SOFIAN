@@ -196,6 +196,7 @@ model Talent {
   
   bio           String?   @db.Text
   presentation  String?   @db.Text
+  presentationEn String?  @db.Text
   
   // Adresse complète
   adresse       String?
@@ -233,6 +234,7 @@ model Talent {
   negociations  Negociation[]
   talentbookEvents TalentbookEvent[]
   demandesGift  DemandeGift[]
+  presskitTalents PressKitTalent[]
   
   @@map("talents")
 }
@@ -929,4 +931,123 @@ model CommentaireGift {
   @@index([auteurId])
   @@index([createdAt])
   @@map("commentaires_gift")
+}
+
+// ============================================
+// SYSTÈME PRESS KIT AUTOMATISÉ
+// ============================================
+
+model Brand {
+  id              String           @id @default(cuid())
+  name            String
+  slug            String           @unique
+  domain          String?
+  niche           String
+  hubspotId       String?          @unique
+  description     String?          @db.Text
+  logo            String?          // URL logo récupéré via Brandfetch
+  primaryColor    String?          // Couleur primaire de la marque (#hex)
+  secondaryColor  String?          // Couleur secondaire de la marque (#hex)
+  presskitTalents PressKitTalent[]
+  pageViews       PageView[]
+  batches         BatchBrand[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  
+  @@index([slug])
+  @@index([hubspotId])
+  @@index([niche])
+  @@map("brands")
+}
+
+model PressKitTalent {
+  id        String   @id @default(cuid())
+  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  brandId   String
+  talent    Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  talentId  String
+  pitch     String   @db.Text // Description de vente générée par Claude
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([brandId, talentId])
+  @@index([brandId])
+  @@index([talentId])
+  @@map("presskit_talents")
+}
+
+model CaseStudy {
+  id          String   @id @default(cuid())
+  title       String
+  brandName   String
+  niche       String
+  description String   @db.Text
+  impressions String?
+  engagement  String?
+  extraMetric String?
+  extraLabel  String?
+  imageUrl    String?  // Photo de la campagne
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([niche])
+  @@map("case_studies")
+}
+
+model PageView {
+  id                 String   @id @default(cuid())
+  brand              Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  brandId            String
+  hubspotContactId   String?
+  sessionId          String   // ID unique de session
+  durationSeconds    Int      @default(0)
+  scrollDepthPercent Int      @default(0)
+  talentsViewed      String[] // IDs des talents qui ont été vus
+  visitNumber        Int      @default(1)
+  ctaClicked         Boolean  @default(false)
+  userAgent          String?
+  ipAddress          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  @@index([brandId])
+  @@index([sessionId])
+  @@index([hubspotContactId])
+  @@index([createdAt])
+  @@map("page_views")
+}
+
+model Batch {
+  id          String       @id @default(cuid())
+  name        String
+  status      String       @default("processing") // processing, completed, failed
+  totalBrands Int
+  completed   Int          @default(0)
+  failed      Int          @default(0)
+  brands      BatchBrand[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  @@index([status])
+  @@index([createdAt])
+  @@map("batches")
+}
+
+model BatchBrand {
+  id        String   @id @default(cuid())
+  batch     Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batchId   String
+  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  brandId   String
+  status    String   @default("pending") // pending, generating, completed, failed
+  error     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([batchId, brandId])
+  @@index([batchId])
+  @@index([brandId])
+  @@index([status])
+  @@map("batch_brands")
 }

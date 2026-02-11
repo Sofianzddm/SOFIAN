@@ -133,6 +133,7 @@ export async function POST(request: NextRequest) {
           dateNaissance: data.dateNaissance ? new Date(data.dateNaissance) : null,
           bio: data.bio || null,
           presentation: data.presentation || null,
+          presentationEn: data.presentationEn || null,
           adresse: data.adresse || null,
           codePostal: data.codePostal || null,
           ville: data.ville || null,
