@@ -77,12 +77,46 @@ export async function fetchBrandAssets(domain: string): Promise<BrandfetchRespon
 
     console.log(`🖼️  Logo sélectionné: ${logo || 'AUCUN'}`);
 
-    // Extraire les couleurs
+    // Extraire les couleurs - éviter noir/blanc/gris
     const colors = data.colors || [];
-    const primaryColor = colors[0]?.hex || null;
-    const secondaryColor = colors[1]?.hex || null;
+    console.log(`🎨 Couleurs disponibles: ${colors.length}`);
+    
+    if (colors.length > 0) {
+      colors.forEach((c: any, i: number) => {
+        console.log(`   ${i + 1}. ${c.hex} (${c.type || 'unknown'})`);
+      });
+    }
 
-    console.log(`🎨 Couleurs: primary=${primaryColor}, secondary=${secondaryColor}\n`);
+    // Filtrer les couleurs neutres (noir, blanc, gris)
+    const isNeutralColor = (hex: string): boolean => {
+      const h = hex.toLowerCase();
+      // Noir, blanc, et variations de gris
+      return (
+        h === '#000000' || h === '#ffffff' ||
+        h === '#000' || h === '#fff' ||
+        /^#([0-9a-f])\1\1$/.test(h) || // #111, #222, etc.
+        /^#([0-9a-f]{2})\1\1$/.test(h) // #111111, #222222, etc.
+      );
+    };
+
+    // Chercher la première couleur non-neutre
+    let primaryColor = null;
+    let secondaryColor = null;
+
+    const vibrantColors = colors.filter((c: any) => c.hex && !isNeutralColor(c.hex));
+    
+    if (vibrantColors.length > 0) {
+      primaryColor = vibrantColors[0].hex;
+      secondaryColor = vibrantColors[1]?.hex || null;
+      console.log(`✅ Couleurs vibrantes sélectionnées: ${primaryColor}, ${secondaryColor}`);
+    } else {
+      // Fallback : prendre les premières couleurs même si neutres
+      primaryColor = colors[0]?.hex || null;
+      secondaryColor = colors[1]?.hex || null;
+      console.log(`⚠️  Seulement des couleurs neutres disponibles: ${primaryColor}, ${secondaryColor}`);
+    }
+
+    console.log(`🎨 Couleurs finales: primary=${primaryColor}, secondary=${secondaryColor}\n`);
 
     return {
       logo,
