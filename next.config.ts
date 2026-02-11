@@ -9,7 +9,12 @@ const nextConfig: NextConfig = {
   },
   // Images autorisées
   images: {
-    domains: ["localhost", "res.cloudinary.com", "lh3.googleusercontent.com"],
+    domains: [
+      "localhost",
+      "res.cloudinary.com",
+      "lh3.googleusercontent.com",
+      "cdn.brandfetch.io", // Logos des marques via Brandfetch API
+    ],
   },
 };
 
