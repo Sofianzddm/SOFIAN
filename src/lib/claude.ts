@@ -10,7 +10,8 @@ interface TalentData {
   platform: string;
   engagementRate: number;
   frAudience: number;
-  ageRange: string;
+  femaleAudience: number;
+  age18_34: number;
   niches: string[];
   pastCollabs: string[];
   bestFormats: string[];
@@ -47,9 +48,10 @@ TALENT (données vérifiées — ne modifie AUCUN chiffre) :
 - Followers : ${talent.followers.toLocaleString('fr-FR')} sur ${talent.platform}
 - Taux d'engagement : ${talent.engagementRate}%
 - Audience France : ${talent.frAudience}%
-- Tranche d'âge audience : ${talent.ageRange}
+- Audience 18-34 ans : ${talent.age18_34}%
+- Audience féminine : ${talent.femaleAudience}%
 - Niches : ${talent.niches.join(', ')}
-- Collaborations passées : ${talent.pastCollabs.join(', ')}
+${talent.pastCollabs.length > 0 ? `- Collaborations passées : ${talent.pastCollabs.join(', ')}` : ''}
 - Formats forts : ${talent.bestFormats.join(', ')}
 
 RÈGLES :

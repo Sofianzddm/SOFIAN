@@ -91,28 +91,37 @@ async function processBrand(
       },
     });
 
-    // Sélectionner les talents pertinents (par niche, dispo, top engagement)
-    const talents = await prisma.talent.findMany({
+    // Sélectionner les talents pertinents (par niche, triés par engagement Instagram)
+    let talents = await prisma.talent.findMany({
       where: {
         niches: {
-          hasSome: [brandData.niche],
+          has: brandData.niche,
         },
       },
       include: {
         stats: true,
       },
+      orderBy: {
+        stats: {
+          igEngagement: 'desc',
+        },
+      },
       take: 5,
     });
 
     if (talents.length === 0) {
-      // Fallback : prendre les 5 meilleurs talents tous niches confondus
-      const fallbackTalents = await prisma.talent.findMany({
+      // Fallback : prendre les 5 meilleurs talents tous niches confondus (par engagement)
+      talents = await prisma.talent.findMany({
         include: {
           stats: true,
         },
+        orderBy: {
+          stats: {
+            igEngagement: 'desc',
+          },
+        },
         take: 5,
       });
-      talents.push(...fallbackTalents);
     }
 
     // Supprimer les anciens press kit talents
@@ -124,24 +133,33 @@ async function processBrand(
     const pitchPromises = talents.map(async (talent, index) => {
       const stats = talent.stats;
       
-      // Déterminer la plateforme principale
+      // Déterminer la plateforme principale et les métriques
       let platform = 'Instagram';
       let followers = stats?.igFollowers || 0;
+      let engagementRate = stats?.igEngagement ? Number(stats.igEngagement) : 0;
+      let frAudience = stats?.igLocFrance ? Number(stats.igLocFrance) : 0;
+      let femaleAudience = stats?.igGenreFemme ? Number(stats.igGenreFemme) : 0;
+      
+      // Calculer tranche d'âge dominante (18-34)
+      const age18_24 = stats?.igAge18_24 ? Number(stats.igAge18_24) : 0;
+      const age25_34 = stats?.igAge25_34 ? Number(stats.igAge25_34) : 0;
+      const age18_34 = age18_24 + age25_34;
       
       if ((stats?.ttFollowers || 0) > followers) {
         platform = 'TikTok';
         followers = stats?.ttFollowers || 0;
+        engagementRate = stats?.ttEngagement ? Number(stats.ttEngagement) : 0;
+        frAudience = stats?.ttLocFrance ? Number(stats.ttLocFrance) : 0;
+        femaleAudience = stats?.ttGenreFemme ? Number(stats.ttGenreFemme) : 0;
+        // TikTok a aussi les mêmes champs d'âge
+        const ttAge18_24 = stats?.ttAge18_24 ? Number(stats.ttAge18_24) : 0;
+        const ttAge25_34 = stats?.ttAge25_34 ? Number(stats.ttAge25_34) : 0;
       }
+      
       if ((stats?.ytAbonnes || 0) > followers) {
         platform = 'YouTube';
         followers = stats?.ytAbonnes || 0;
-      }
-
-      let engagementRate = 0;
-      if (platform === 'Instagram') {
-        engagementRate = stats?.igEngagement ? Number(stats.igEngagement) : 0;
-      } else if (platform === 'TikTok') {
-        engagementRate = stats?.ttEngagement ? Number(stats.ttEngagement) : 0;
+        // YouTube n'a pas d'engagement rate dans le schema
       }
 
       try {
@@ -156,11 +174,16 @@ async function processBrand(
             followers,
             platform,
             engagementRate: Math.round(engagementRate * 10) / 10,
-            frAudience: 85, // TODO: À améliorer avec vraies données
-            ageRange: '18-34', // TODO: À améliorer
+            frAudience: Math.round(frAudience),
+            femaleAudience: Math.round(femaleAudience),
+            age18_34: Math.round(age18_34),
             niches: talent.niches,
             pastCollabs: talent.selectedClients || [],
-            bestFormats: ['Reels', 'Stories', 'Posts'], // TODO: À améliorer
+            bestFormats: platform === 'Instagram' 
+              ? ['Reels', 'Stories', 'Posts'] 
+              : platform === 'TikTok'
+              ? ['Vidéos courtes', 'Trends', 'Duos']
+              : ['Vidéos longues', 'Shorts'],
           }
         );
 
@@ -175,11 +198,17 @@ async function processBrand(
       } catch (error) {
         console.error(`Error generating pitch for talent ${talent.id}:`, error);
         // Créer avec un pitch par défaut
+        // Pitch par défaut si Claude échoue
+        const stats = talent.stats;
+        const followers = stats?.igFollowers || stats?.ttFollowers || stats?.ytAbonnes || 0;
+        const engagement = stats?.igEngagement || stats?.ttEngagement || 0;
+        const frAudience = stats?.igLocFrance || stats?.ttLocFrance || 0;
+        
         await prisma.pressKitTalent.create({
           data: {
             brandId: brand.id,
             talentId: talent.id,
-            pitch: `${talent.prenom} ${talent.nom} est un créateur de contenu ${talent.niches.join(', ')} avec une communauté engagée de ${followers.toLocaleString('fr-FR')} followers. Parfait pour votre marque ${brandData.name}.`,
+            pitch: `${talent.prenom} ${talent.nom} est un·e créateur·rice de contenu ${talent.niches.join(', ')} avec ${followers.toLocaleString('fr-FR')} followers et un taux d'engagement de ${Number(engagement).toFixed(1)}%. Audience française à ${Math.round(Number(frAudience))}%, parfait pour ${brandData.name}.`,
             order: index,
           },
         });
