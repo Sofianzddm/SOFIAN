@@ -166,24 +166,22 @@ export default function PressKitPage() {
     );
   }
 
-  const primaryColor = brandData.primaryColor || '#ff6b9d';
-  const secondaryColor = brandData.secondaryColor || '#c2185b';
+  // Couleurs Glow Up (toujours utilisées)
+  const glowupPink = '#ff6b9d';
+  const glowupDarkPink = '#c2185b';
+  
+  // Couleurs de la marque (utilisées SUBTILEMENT)
+  const brandColor = brandData.primaryColor || glowupPink;
 
   return (
-    <div 
-      className="min-h-screen bg-[#0a0a0a] text-white font-sans"
-      style={{
-        '--primary-color': primaryColor,
-        '--secondary-color': secondaryColor,
-      } as React.CSSProperties}
-    >
+    <div className="min-h-screen bg-[#0a0a0a] text-white font-sans">
       {/* Hero Section */}
       <section className="relative py-20 px-6 overflow-hidden">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-center gap-8 mb-12">
             {/* Glow Up Logo */}
             <div className="text-4xl font-playfair font-bold tracking-wider">
-              GLOW<span style={{ color: primaryColor }}>UP</span>
+              GLOW<span className="text-[#ff6b9d]">UP</span>
             </div>
             
             <span className="text-3xl text-gray-600">×</span>
@@ -205,7 +203,7 @@ export default function PressKitPage() {
           </div>
 
           <h1 className="text-5xl md:text-7xl font-playfair text-center mb-6">
-            Votre sélection de <span style={{ color: primaryColor }}>créateurs</span>
+            Votre sélection de <span className="text-[#ff6b9d]">créateurs</span>
           </h1>
           
           <p className="text-xl text-gray-400 text-center max-w-3xl mx-auto">
@@ -213,36 +211,39 @@ export default function PressKitPage() {
           </p>
         </div>
 
-        {/* Decorative gradient */}
-        <div 
-          className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full blur-[120px] opacity-20"
-          style={{ background: `radial-gradient(circle, ${primaryColor}, transparent)` }}
-        ></div>
+        {/* Decorative gradient - Glow Up pink */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full blur-[120px] opacity-20 bg-gradient-radial from-[#ff6b9d] to-transparent"></div>
       </section>
 
       {/* Stats Bar */}
       <section className="border-y border-gray-800 py-8 px-6">
+        {/* Ligne décorative en couleur marque */}
+        <div 
+          className="max-w-6xl mx-auto h-[2px] mb-8"
+          style={{ background: `linear-gradient(90deg, transparent, ${brandColor}, transparent)` }}
+        ></div>
+        
         <div className="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
           <div>
-            <div className="text-4xl font-playfair font-bold" style={{ color: primaryColor }}>
+            <div className="text-4xl font-playfair font-bold text-[#ff6b9d]">
               {brandData.talents.length}
             </div>
             <div className="text-sm text-gray-400 mt-1">Créateurs sélectionnés</div>
           </div>
           <div>
-            <div className="text-4xl font-playfair font-bold" style={{ color: primaryColor }}>
+            <div className="text-4xl font-playfair font-bold text-[#ff6b9d]">
               {(brandData.talents.reduce((sum, t) => sum + t.followers, 0) / 1000000).toFixed(1)}M
             </div>
             <div className="text-sm text-gray-400 mt-1">Reach cumulé</div>
           </div>
           <div>
-            <div className="text-4xl font-playfair font-bold" style={{ color: primaryColor }}>
+            <div className="text-4xl font-playfair font-bold text-[#ff6b9d]">
               {(brandData.talents.reduce((sum, t) => sum + t.engagementRate, 0) / brandData.talents.length).toFixed(1)}%
             </div>
             <div className="text-sm text-gray-400 mt-1">Engagement moyen</div>
           </div>
           <div>
-            <div className="text-4xl font-playfair font-bold" style={{ color: primaryColor }}>
+            <div className="text-4xl font-playfair font-bold text-[#ff6b9d]">
               150+
             </div>
             <div className="text-sm text-gray-400 mt-1">Campagnes réalisées</div>
@@ -254,7 +255,7 @@ export default function PressKitPage() {
       <section className="py-20 px-6">
         <div className="max-w-6xl mx-auto">
           <h2 className="text-4xl font-playfair font-bold text-center mb-16">
-            Nos <span style={{ color: primaryColor }}>talents</span>
+            Nos <span className="text-[#ff6b9d]">talents</span>
           </h2>
 
           <div className="grid md:grid-cols-2 gap-8">
@@ -300,8 +301,7 @@ export default function PressKitPage() {
                     {talent.niche.map(n => (
                       <span 
                         key={n}
-                        className="px-3 py-1 text-xs rounded-full border"
-                        style={{ borderColor: primaryColor, color: primaryColor }}
+                        className="px-3 py-1 text-xs rounded-full border border-gray-600 text-gray-300"
                       >
                         {n}
                       </span>
@@ -314,7 +314,7 @@ export default function PressKitPage() {
                   {/* Metrics */}
                   <div className="grid grid-cols-3 gap-4 mb-6">
                     <div>
-                      <div className="text-2xl font-bold" style={{ color: primaryColor }}>
+                      <div className="text-2xl font-bold text-[#ff6b9d]">
                         {talent.followers >= 1000000 
                           ? `${(talent.followers / 1000000).toFixed(1)}M`
                           : `${(talent.followers / 1000).toFixed(0)}K`
@@ -323,13 +323,13 @@ export default function PressKitPage() {
                       <div className="text-xs text-gray-400">Followers</div>
                     </div>
                     <div>
-                      <div className="text-2xl font-bold" style={{ color: primaryColor }}>
+                      <div className="text-2xl font-bold text-[#ff6b9d]">
                         {talent.engagementRate}%
                       </div>
                       <div className="text-xs text-gray-400">Engagement</div>
                     </div>
                     <div>
-                      <div className="text-2xl font-bold" style={{ color: primaryColor }}>
+                      <div className="text-2xl font-bold text-[#ff6b9d]">
                         {talent.frAudience}%
                       </div>
                       <div className="text-xs text-gray-400">Audience FR</div>
@@ -353,7 +353,7 @@ export default function PressKitPage() {
         <section className="py-20 px-6 bg-gray-900/50">
           <div className="max-w-6xl mx-auto">
             <h2 className="text-4xl font-playfair font-bold text-center mb-16">
-              Campagnes <span style={{ color: primaryColor }}>similaires</span>
+              Campagnes <span className="text-[#ff6b9d]">similaires</span>
             </h2>
 
             <div className="grid md:grid-cols-2 gap-8">
@@ -368,13 +368,13 @@ export default function PressKitPage() {
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <div className="text-3xl font-bold" style={{ color: primaryColor }}>
+                      <div className="text-3xl font-bold text-[#ff6b9d]">
                         {cs.impressions}
                       </div>
                       <div className="text-xs text-gray-400">Impressions</div>
                     </div>
                     <div>
-                      <div className="text-3xl font-bold" style={{ color: primaryColor }}>
+                      <div className="text-3xl font-bold text-[#ff6b9d]">
                         {cs.engagement}
                       </div>
                       <div className="text-xs text-gray-400">Engagement</div>
@@ -399,10 +399,9 @@ export default function PressKitPage() {
           <a
             href="mailto:contact@glowupagence.com?subject=Collaboration avec Glow Up"
             onClick={handleCTAClick}
-            className="inline-block px-10 py-4 rounded-full font-semibold text-lg transition-all hover:scale-105"
+            className="inline-block px-10 py-4 rounded-full font-semibold text-lg transition-all hover:scale-105 text-white"
             style={{ 
-              backgroundColor: primaryColor,
-              color: '#fff',
+              backgroundColor: brandColor,
             }}
           >
             Planifier un appel
@@ -413,7 +412,7 @@ export default function PressKitPage() {
       {/* Footer */}
       <footer className="border-t border-gray-800 py-8 px-6">
         <div className="max-w-6xl mx-auto text-center text-gray-500 text-sm">
-          Ce book a été créé spécialement pour <span style={{ color: primaryColor }}>{brandData.name}</span>
+          Ce book a été créé spécialement pour <span style={{ color: brandColor, fontWeight: 600 }}>{brandData.name}</span>
           <br />
           © 2026 Glow Up Agence — THE RISE of IDEAS
         </div>
