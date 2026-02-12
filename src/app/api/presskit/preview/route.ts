@@ -36,7 +36,12 @@ export async function POST(request: NextRequest) {
       .replace(/^-+|-+$/g, "");
 
     // 2. Brandfetch API → récupérer logo, couleurs, description
-    let brandfetchData = {
+    let brandfetchData: {
+      logo: string | null;
+      primaryColor: string | null;
+      secondaryColor: string | null;
+      description: string | null;
+    } = {
       logo: null,
       primaryColor: null,
       secondaryColor: null,

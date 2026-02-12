@@ -441,8 +441,9 @@ export default function PressKitPage() {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting && entry.target.dataset.talentId) {
-            talentsViewed.add(entry.target.dataset.talentId);
+          const target = entry.target as HTMLElement;
+          if (entry.isIntersecting && target.dataset.talentId) {
+            talentsViewed.add(target.dataset.talentId);
           }
         });
       },
