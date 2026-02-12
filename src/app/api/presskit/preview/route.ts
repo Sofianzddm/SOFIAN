@@ -57,11 +57,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Déterminer le nom de la marque (priorité)
-    // 1. Brandfetch → nom commercial propre
-    // 2. HubSpot company name
-    // 3. Domaine nettoyé en dernier recours
-    const brandName = brandfetchData.name 
-      || companyName 
+    // 1. HubSpot "company" (TOUJOURS prioritaire)
+    // 2. Domaine nettoyé en dernier recours (si company vide)
+    const brandName = companyName 
       || domain
         ?.replace(/^www\./, '')
         ?.replace(/\.(com|fr|net|org)$/, '')
@@ -71,7 +69,7 @@ export async function POST(request: NextRequest) {
         .join(' ')
       || 'Marque';
 
-    console.log(`  📛 Nom final: "${brandName}" (source: ${brandfetchData.name ? 'Brandfetch' : companyName ? 'HubSpot' : 'domaine'})`);
+    console.log(`  📛 Nom final: "${brandName}" (source: ${companyName ? 'HubSpot company' : 'domaine'})`);
 
     // 4. Créer ou mettre à jour la marque
     const brand = await prisma.brand.upsert({
