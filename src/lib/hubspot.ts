@@ -105,8 +105,9 @@ export async function getContactsFromList(listId: string): Promise<HubSpotContac
 
     while (hasMore) {
       // API v1 pour récupérer les contacts d'une liste avec propriétés spécifiques
+      // Ajouter associatedcompanyid pour récupérer l'ID de la société associée
       const response = await fetch(
-        `${HUBSPOT_BASE_URL}/contacts/v1/lists/${listId}/contacts/all?count=${limit}&vidOffset=${offset}&property=firstname&property=lastname&property=email&property=company&property=website`,
+        `${HUBSPOT_BASE_URL}/contacts/v1/lists/${listId}/contacts/all?count=${limit}&vidOffset=${offset}&property=firstname&property=lastname&property=email&property=company&property=associatedcompanyid&property=website`,
         {
           headers: {
             'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
@@ -134,12 +135,15 @@ export async function getContactsFromList(listId: string): Promise<HubSpotContac
         const firstname = properties.firstname?.value || '';
         const lastname = properties.lastname?.value || '';
         const email = properties.email?.value || '';
-        const company = properties.company?.value || ''; // Nom de l'entreprise depuis HubSpot
+        const company = properties.company?.value || ''; // Champ texte "company"
+        const associatedCompanyId = properties.associatedcompanyid?.value || ''; // ID de la société associée
         const website = properties.website?.value || '';
         
-        // DEBUG: Afficher la valeur du champ company pour ce contact
+        // DEBUG: Afficher les valeurs pour Claudie Pierlot
         if (email.includes('claudiepierlot')) {
-          console.log(`🔍 Contact Claudie Pierlot - company property: "${company}"`);
+          console.log(`🔍 Contact Claudie Pierlot:`);
+          console.log(`  - company (champ texte): "${company}"`);
+          console.log(`  - associatedcompanyid: "${associatedCompanyId}"`);
         }
 
         // Extraction intelligente du domaine
