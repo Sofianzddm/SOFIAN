@@ -506,61 +506,28 @@ export default function PressKitPage() {
   return (
     <>
       <style jsx global>{`
-        @font-face {
-          font-family: 'Spectral-MediumItalic';
-          src: url('/fonts/Spectral-MediumItalic.ttf') format('truetype');
-          font-weight: 500;
-          font-style: italic;
-          font-display: swap;
-        }
-        
-        @font-face {
-          font-family: 'Spectral-Light';
-          src: url('/fonts/Spectral-Light.ttf') format('truetype');
-          font-weight: 300;
-          font-style: normal;
-          font-display: swap;
-        }
-        
-        @font-face {
-          font-family: 'Spectral-LightItalic';
-          src: url('/fonts/Spectral-LightItalic.ttf') format('truetype');
-          font-weight: 300;
-          font-style: italic;
-          font-display: swap;
-        }
-        
-        @font-face {
-          font-family: 'Switzer';
-          src: url('/fonts/Switzer-Light.ttf') format('truetype');
-          font-weight: 300;
-          font-style: normal;
-          font-display: swap;
-        }
-        
+        /* Fonts personnalisées désactivées temporairement - fichiers manquants */
         .font-spectral-medium-italic {
-          font-family: 'Spectral-MediumItalic', Georgia, serif;
+          font-family: Georgia, serif;
+          font-style: italic;
         }
         
         .font-spectral-light {
-          font-family: 'Spectral-Light', Georgia, serif;
+          font-family: Georgia, serif;
+          font-weight: 300;
         }
         
         .font-spectral-light-italic {
-          font-family: 'Spectral-LightItalic', Georgia, serif;
+          font-family: Georgia, serif;
+          font-weight: 300;
+          font-style: italic;
         }
         
         .font-switzer {
-          font-family: 'Switzer', system-ui, sans-serif;
+          font-family: system-ui, sans-serif;
         }
       `}</style>
 
-      {/* Meta tags */}
-      <head>
-        <meta name="robots" content="noindex, nofollow" />
-        <title>Votre sélection pour {brandData.name} — Glow Up Agence</title>
-      </head>
-      
       <div className="min-h-screen bg-[#F5EDE0]">
         {/* Header */}
       <header className="border-b border-[#220101]/10 relative">
