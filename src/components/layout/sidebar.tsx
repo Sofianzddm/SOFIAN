@@ -106,7 +106,7 @@ const menuItems = [
     label: "Press Kit Dashboard",
     href: "/presskit-dashboard",
     icon: FileText,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"], // BizDev
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"], // BizDev + Sales
   },
   {
     label: "Paramètres",
