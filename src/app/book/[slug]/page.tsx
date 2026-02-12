@@ -574,7 +574,6 @@ export default function PressKitPage() {
             {t.personalizedSelection}
           </p>
           <h1 className="text-4xl md:text-6xl lg:text-7xl mb-6">
-            <span className="font-spectral-light text-[#220101]">{t.yourSelection} </span>
             <span className="font-spectral-medium-italic" style={{ color: brandColor }}>
               {brandData.name}
             </span>
