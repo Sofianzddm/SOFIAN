@@ -564,6 +564,19 @@ export default function PressKitPage() {
       <div className="min-h-screen bg-[#F5EDE0]">
         {/* Header */}
       <header className="border-b border-[#220101]/10 relative">
+        {/* Logo marque à gauche de la page, centré verticalement */}
+        {brandData.logo && !logoError && (
+          <div className="absolute top-1/2 left-6 md:left-8 -translate-y-1/2 z-10">
+            <img 
+              src={brandData.logo} 
+              alt={brandData.name}
+              className="h-8 md:h-10 w-auto object-contain opacity-90 hover:opacity-100 transition-opacity"
+              onError={() => setLogoError(true)}
+              style={{ maxWidth: '150px' }}
+            />
+          </div>
+        )}
+
         <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="flex flex-col items-center justify-center text-center">
             <GlowUpLogo className="h-10 md:h-12 mb-2" color="#220101" />
