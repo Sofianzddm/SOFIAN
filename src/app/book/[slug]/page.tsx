@@ -11,7 +11,8 @@ const translations = {
   fr: {
     yourSelection: "Notre sélection pour",
     personalizedSelection: "Sélection personnalisée",
-    creatorsSelected: "créateurs sélectionnés spécialement pour votre marque",
+    weSelected: "Nous avons sélectionné",
+    creatorsFor: "créateurs pour",
     discoverAllTalents: "Découvrir tous nos talents",
     exploreRoster: "Explorez l'ensemble de notre roster de créateurs de contenu",
     searchTalent: "Rechercher un talent...",
@@ -35,7 +36,8 @@ const translations = {
   en: {
     yourSelection: "Our selection for",
     personalizedSelection: "Personalized selection",
-    creatorsSelected: "creators specially selected for your brand",
+    weSelected: "We have selected",
+    creatorsFor: "creators for",
     discoverAllTalents: "Discover all our talents",
     exploreRoster: "Explore our entire roster of content creators",
     searchTalent: "Search for a talent...",
@@ -587,7 +589,10 @@ export default function PressKitPage() {
           </div>
 
           <p className="text-[#220101]/70 text-lg md:text-xl max-w-3xl mx-auto leading-relaxed">
-            {brandData.talents?.length || 0} {t.creatorsSelected}
+            {t.weSelected} {brandData.talents?.length || 0} {t.creatorsFor}{' '}
+            <span className="font-medium" style={{ color: brandColor }}>
+              {brandData.name}
+            </span>
           </p>
         </div>
       </section>
