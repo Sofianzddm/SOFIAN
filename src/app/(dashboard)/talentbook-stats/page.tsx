@@ -30,6 +30,28 @@ interface DailyStat {
   clicks: number;
 }
 
+interface PresskitStats {
+  totalViews: number;
+  uniqueVisitors: number;
+  totalDuration: number;
+  avgDuration: number;
+  avgScrollDepth: number;
+  topBrands: TopBrand[];
+}
+
+interface TopBrand {
+  brandId: string;
+  brandName: string;
+  logo: string | null;
+  color: string | null;
+  views: number;
+  avgDuration: number;
+  talentsViewedCount: number;
+  lastVisit: string;
+  ctaClicked: number;
+  conversionRate: number;
+}
+
 // Icônes
 function EyeIcon({ className = "" }: { className?: string }) {
   return (
@@ -108,8 +130,10 @@ export default function TalentbookStatsPage() {
   const [topTalents, setTopTalents] = useState<TopTalent[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [dailyStats, setDailyStats] = useState<DailyStat[]>([]);
+  const [presskitStats, setPresskitStats] = useState<PresskitStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState("7d");
+  const [activeTab, setActiveTab] = useState<"talentbook" | "presskits">("talentbook");
 
   useEffect(() => {
     fetchStats();
@@ -125,6 +149,7 @@ export default function TalentbookStatsPage() {
         setTopTalents(data.topTalents);
         setRecentActivity(data.recentActivity);
         setDailyStats(data.dailyStats);
+        setPresskitStats(data.presskitStats);
       }
     } catch (error) {
       console.error("Erreur chargement stats:", error);
@@ -146,12 +171,41 @@ export default function TalentbookStatsPage() {
       {/* Header */}
       <div className="bg-[#220101] text-white px-6 py-8">
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-2xl font-bold mb-2">📊 Stats Talentbook</h1>
-          <p className="text-white/60">Suivez l'activité sur votre Talentbook</p>
+          <h1 className="text-2xl font-bold mb-2">📊 Analytics Dashboard</h1>
+          <p className="text-white/60">Suivez l'activité sur votre Talentbook et vos Press Kits</p>
+          
+          {/* Tabs */}
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={() => setActiveTab("talentbook")}
+              className={`px-6 py-3 rounded-lg font-medium transition-all ${
+                activeTab === "talentbook"
+                  ? "bg-white text-[#220101]"
+                  : "bg-white/10 text-white/80 hover:bg-white/20"
+              }`}
+            >
+              📚 Talentbook
+            </button>
+            <button
+              onClick={() => setActiveTab("presskits")}
+              className={`px-6 py-3 rounded-lg font-medium transition-all ${
+                activeTab === "presskits"
+                  ? "bg-white text-[#220101]"
+                  : "bg-white/10 text-white/80 hover:bg-white/20"
+              }`}
+            >
+              🎯 Press Kits
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* ====================================== */}
+        {/* TALENTBOOK TAB */}
+        {/* ====================================== */}
+        {activeTab === "talentbook" && (
+          <>
         {/* Période */}
         <div className="flex gap-2 mb-8">
           {[
@@ -335,6 +389,130 @@ export default function TalentbookStatsPage() {
               </div>
             </div>
           </div>
+        )}
+          </>
+        )}
+
+        {/* ====================================== */}
+        {/* PRESS KITS TAB */}
+        {/* ====================================== */}
+        {activeTab === "presskits" && presskitStats && (
+          <>
+            {/* Période */}
+            <div className="flex gap-2 mb-8">
+              {[
+                { value: "24h", label: "24h" },
+                { value: "7d", label: "7 jours" },
+                { value: "30d", label: "30 jours" },
+                { value: "all", label: "Tout" },
+              ].map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => setPeriod(p.value)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    period === p.value
+                      ? "bg-[#220101] text-white"
+                      : "bg-white text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Stats Cards Press Kits */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 shadow-lg text-white">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
+                    👁️
+                  </div>
+                  <div>
+                    <p className="text-3xl font-bold">{presskitStats.totalViews}</p>
+                    <p className="text-sm text-white/80">Press Kits ouverts</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-6 shadow-lg text-white">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
+                    🏢
+                  </div>
+                  <div>
+                    <p className="text-3xl font-bold">{presskitStats.uniqueVisitors}</p>
+                    <p className="text-sm text-white/80">Marques uniques</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl p-6 shadow-lg text-white">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
+                    ⏱️
+                  </div>
+                  <div>
+                    <p className="text-3xl font-bold">{Math.floor(presskitStats.avgDuration / 60)}m{presskitStats.avgDuration % 60}s</p>
+                    <p className="text-sm text-white/80">Temps moyen</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 shadow-lg text-white">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
+                    📊
+                  </div>
+                  <div>
+                    <p className="text-3xl font-bold">{presskitStats.avgScrollDepth}%</p>
+                    <p className="text-sm text-white/80">Scroll moyen</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Top Marques */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">🏆 Top Marques</h2>
+              
+              {presskitStats.topBrands.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">Aucun press kit consulté pour cette période</p>
+              ) : (
+                <div className="space-y-4">
+                  {presskitStats.topBrands.map((brand, index) => (
+                    <div key={brand.brandId} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all">
+                      <div className="w-8 h-8 flex items-center justify-center">
+                        {index === 0 && <span className="text-2xl">🥇</span>}
+                        {index === 1 && <span className="text-2xl">🥈</span>}
+                        {index === 2 && <span className="text-2xl">🥉</span>}
+                        {index > 2 && <span className="text-lg text-gray-400 font-medium">{index + 1}</span>}
+                      </div>
+                      
+                      <div className="flex-1">
+                        <p className="font-semibold text-gray-900">{brand.brandName}</p>
+                        <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
+                          <span>👁️ {brand.views} vues</span>
+                          <span>⏱️ {Math.floor(brand.avgDuration / 60)}m{brand.avgDuration % 60}s</span>
+                          <span>🎯 {brand.talentsViewedCount} talents vus</span>
+                        </div>
+                      </div>
+                      
+                      <div className="text-right">
+                        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${
+                          brand.conversionRate > 0 
+                            ? 'bg-emerald-100 text-emerald-700' 
+                            : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {brand.conversionRate > 0 ? '🔥' : '📭'} {brand.conversionRate}%
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">{formatTimeAgo(brand.lastVisit)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

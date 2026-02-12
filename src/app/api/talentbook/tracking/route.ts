@@ -207,6 +207,108 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 30);
 
+    // ===================================
+    // STATS PRESS KITS (NOUVEAUTÉ !)
+    // ===================================
+    const [
+      totalPresskitViews,
+      uniquePresskitVisitors,
+      totalPresskitDuration,
+      avgScrollDepth,
+      presskitBrands,
+    ] = await Promise.all([
+      // Total vues press kits
+      prisma.pageView.count({
+        where: { createdAt: { gte: startDate } },
+      }),
+
+      // Visiteurs uniques press kits
+      prisma.pageView.groupBy({
+        by: ["sessionId"],
+        where: { createdAt: { gte: startDate } },
+      }),
+
+      // Durée totale passée sur les press kits
+      prisma.pageView.aggregate({
+        where: { createdAt: { gte: startDate } },
+        _sum: { durationSeconds: true },
+      }),
+
+      // Profondeur de scroll moyenne
+      prisma.pageView.aggregate({
+        where: { createdAt: { gte: startDate } },
+        _avg: { scrollDepthPercent: true },
+      }),
+
+      // Top marques avec le plus d'activité
+      prisma.pageView.findMany({
+        where: { createdAt: { gte: startDate } },
+        include: {
+          brand: {
+            select: { 
+              name: true, 
+              logo: true,
+              primaryColor: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+    ]);
+
+    // Calculer les stats par marque
+    const brandStatsMap = new Map<string, {
+      brandName: string;
+      logo: string | null;
+      color: string | null;
+      views: number;
+      totalDuration: number;
+      avgDuration: number;
+      talentsViewed: Set<string>;
+      lastVisit: Date;
+      ctaClicked: number;
+    }>();
+
+    presskitBrands.forEach(view => {
+      const key = view.brandId;
+      const existing = brandStatsMap.get(key) || {
+        brandName: view.brand.name,
+        logo: view.brand.logo,
+        color: view.brand.primaryColor,
+        views: 0,
+        totalDuration: 0,
+        avgDuration: 0,
+        talentsViewed: new Set<string>(),
+        lastVisit: view.createdAt,
+        ctaClicked: 0,
+      };
+
+      existing.views++;
+      existing.totalDuration += view.durationSeconds;
+      view.talentsViewed.forEach(id => existing.talentsViewed.add(id));
+      if (view.ctaClicked) existing.ctaClicked++;
+      if (view.createdAt > existing.lastVisit) existing.lastVisit = view.createdAt;
+
+      brandStatsMap.set(key, existing);
+    });
+
+    const topPresskitBrands = Array.from(brandStatsMap.entries())
+      .map(([brandId, stats]) => ({
+        brandId,
+        brandName: stats.brandName,
+        logo: stats.logo,
+        color: stats.color,
+        views: stats.views,
+        avgDuration: stats.views > 0 ? Math.round(stats.totalDuration / stats.views) : 0,
+        talentsViewedCount: stats.talentsViewed.size,
+        lastVisit: stats.lastVisit,
+        ctaClicked: stats.ctaClicked,
+        conversionRate: stats.views > 0 ? Math.round((stats.ctaClicked / stats.views) * 100) : 0,
+      }))
+      .sort((a, b) => b.views - a.views)
+      .slice(0, 10);
+
     return NextResponse.json({
       period,
       stats: {
@@ -223,6 +325,17 @@ export async function GET(request: NextRequest) {
         createdAt: event.createdAt,
       })),
       dailyStats,
+      // NOUVELLES STATS PRESS KITS
+      presskitStats: {
+        totalViews: totalPresskitViews,
+        uniqueVisitors: uniquePresskitVisitors.length,
+        totalDuration: totalPresskitDuration._sum.durationSeconds || 0,
+        avgDuration: totalPresskitViews > 0 
+          ? Math.round((totalPresskitDuration._sum.durationSeconds || 0) / totalPresskitViews)
+          : 0,
+        avgScrollDepth: Math.round(avgScrollDepth._avg.scrollDepthPercent || 0),
+        topBrands: topPresskitBrands,
+      },
     });
   } catch (error) {
     console.error("Erreur récupération stats:", error);
