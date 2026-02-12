@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
             const contactIds: string[] = [];
             if (brandData.contacts && Array.isArray(brandData.contacts)) {
               for (const contact of brandData.contacts) {
-                const presskitUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/book/${slug}?cid=${contact.hubspotContactId}`;
+                const presskitUrl = `https://app.glowupagence.fr/book/${slug}?cid=${contact.hubspotContactId}`;
                 await updateContactPresskitUrl(contact.hubspotContactId, presskitUrl);
                 contactIds.push(contact.hubspotContactId);
               }
