@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
+/**
+ * GET /api/presskit/[slug]
+ * Récupère les données d'une marque et ses talents pour afficher le press kit
+ */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -8,7 +12,7 @@ export async function GET(
   try {
     const { slug } = await params;
 
-    // Récupérer la marque avec tous les press kit talents (triés par ordre)
+    // Récupérer la marque avec ses talents
     const brand = await prisma.brand.findUnique({
       where: { slug },
       include: {
@@ -21,7 +25,7 @@ export async function GET(
             },
           },
           orderBy: {
-            order: 'asc',
+            order: "asc",
           },
         },
       },
@@ -29,98 +33,63 @@ export async function GET(
 
     if (!brand) {
       return NextResponse.json(
-        { error: "Press kit not found" },
+        { message: "Press kit introuvable" },
         { status: 404 }
       );
     }
 
-    // Récupérer les case studies de la même niche
-    const caseStudies = await prisma.caseStudy.findMany({
-      where: {
-        niche: brand.niche,
-      },
-      take: 2,
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
-
     // Formater les données pour le frontend
-    const talents = brand.presskitTalents.map(pt => {
-      const talent = pt.talent;
+    const talents = brand.presskitTalents.map((pkt) => {
+      const talent = pkt.talent;
       const stats = talent.stats;
-      
-      // Déterminer la plateforme principale et les métriques
-      let platform = 'Instagram';
-      let followers = stats?.igFollowers || 0;
-      let engagementRate = stats?.igEngagement ? Number(stats.igEngagement) : 0;
-      let frAudience = stats?.igLocFrance ? Number(stats.igLocFrance) : 0;
-      
-      if ((stats?.ttFollowers || 0) > followers) {
-        platform = 'TikTok';
-        followers = stats?.ttFollowers || 0;
-        engagementRate = stats?.ttEngagement ? Number(stats.ttEngagement) : 0;
-        frAudience = stats?.ttLocFrance ? Number(stats.ttLocFrance) : 0;
-      }
-      if ((stats?.ytAbonnes || 0) > followers) {
-        platform = 'YouTube';
-        followers = stats?.ytAbonnes || 0;
-        frAudience = 0; // YouTube n'a pas de stats détaillées dans le schema
-      }
-
-      // Meilleure collab depuis selectedClients
-      const bestCollab = talent.selectedClients && talent.selectedClients.length > 0
-        ? `Collaboration ${talent.selectedClients[0]}`
-        : 'Campagnes premium avec résultats exceptionnels';
 
       return {
         id: talent.id,
-        name: `${talent.prenom} ${talent.nom}`,
-        handle: talent.instagram?.replace('@', '') || talent.tiktok?.replace('@', '') || talent.nom.toLowerCase(),
+        name: `${talent.prenom} ${talent.nom}`.trim(),
+        prenom: talent.prenom,
+        nom: talent.nom,
+        handle: talent.instagram?.replace('@', '') || talent.tiktok?.replace('@', '') || '',
         photo: talent.photo,
-        niche: talent.niches,
+        presentation: talent.presentation,
+        presentationEn: talent.presentationEn,
+        niche: talent.niches || [],
+        ville: talent.ville,
         platforms: [
-          talent.instagram ? 'Instagram' : null,
-          talent.tiktok ? 'TikTok' : null,
-          talent.youtube ? 'YouTube' : null,
+          talent.instagram ? 'instagram' : null,
+          talent.tiktok ? 'tiktok' : null,
+          talent.youtube ? 'youtube' : null,
         ].filter(Boolean),
-        followers,
-        engagementRate: Math.round(engagementRate * 10) / 10,
-        frAudience: Math.round(frAudience),
-        ageRange: '18-34', // Calculé côté backend, affiché tel quel
-        pitch: pt.pitch,
-        bestCollab,
+        followers: Number(stats?.igFollowers || 0),
+        igFollowersEvol: stats?.igFollowersEvol ? Number(stats.igFollowersEvol) : null,
+        ttFollowers: Number(stats?.ttFollowers || 0),
+        ttFollowersEvol: stats?.ttFollowersEvol ? Number(stats.ttFollowersEvol) : null,
+        ttEngagement: Number(stats?.ttEngagement || 0),
+        ttEngagementEvol: stats?.ttEngagementEvol ? Number(stats.ttEngagementEvol) : null,
+        engagementRate: Number(stats?.igEngagement || 0),
+        igEngagementEvol: stats?.igEngagementEvol ? Number(stats.igEngagementEvol) : null,
+        frAudience: Number(stats?.igLocFrance || 0),
+        ytAbonnes: Number(stats?.ytAbonnes || 0),
+        ytAbonnesEvol: stats?.ytAbonnesEvol ? Number(stats.ytAbonnesEvol) : null,
+        pitch: pkt.pitch,
+        instagram: talent.instagram,
+        tiktok: talent.tiktok,
+        youtube: talent.youtube,
       };
     });
 
-    console.log(`\n🎨 Press Kit API Response for ${brand.name}:`);
-    console.log(`   - Logo: ${brand.logo ? 'OUI ✅' : 'NON ❌'}`);
-    console.log(`   - Primary Color: ${brand.primaryColor || 'DÉFAUT (#B06F70)'}`);
-    console.log(`   - Secondary Color: ${brand.secondaryColor || 'DÉFAUT (#220101)'}`);
-    console.log(`   - Talents: ${talents.length}\n`);
-
-    const response = {
+    return NextResponse.json({
       name: brand.name,
+      niche: brand.niche || '',
+      primaryColor: brand.primaryColor,
+      secondaryColor: brand.secondaryColor,
       logo: brand.logo,
-      primaryColor: brand.primaryColor || '#B06F70', // Rose/marron Glow Up par défaut
-      secondaryColor: brand.secondaryColor || '#220101',
-      niche: brand.niche,
+      description: brand.description,
       talents,
-      caseStudies: caseStudies.map(cs => ({
-        title: cs.title,
-        brandName: cs.brandName,
-        description: cs.description,
-        impressions: cs.impressions || '—',
-        engagement: cs.engagement || '—',
-        imageUrl: cs.imageUrl,
-      })),
-    };
-
-    return NextResponse.json(response);
+    });
   } catch (error) {
-    console.error("Error fetching press kit:", error);
+    console.error("Erreur GET presskit:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { message: "Erreur lors de la récupération du press kit" },
       { status: 500 }
     );
   }

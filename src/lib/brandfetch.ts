@@ -1,15 +1,118 @@
 /**
- * Brandfetch API client
- * Récupère le logo et les couleurs d'une marque depuis son domaine
+ * Brandfetch API client v5
+ * Récupère le logo, les couleurs et la description d'une marque depuis son domaine
+ * Avec sélection intelligente du meilleur format de logo et correction automatique des couleurs
  */
 
-interface BrandfetchResponse {
+interface BrandfetchResult {
   logo: string | null;
   primaryColor: string | null;
   secondaryColor: string | null;
+  description: string | null;
 }
 
-export async function fetchBrandAssets(domain: string): Promise<BrandfetchResponse> {
+/**
+ * Sélectionne le meilleur format de logo depuis Brandfetch
+ * Priorité : PNG transparent > SVG > Fallback
+ */
+function getBestLogo(logos: any[]): string | null {
+  if (!logos || logos.length === 0) return null;
+
+  // 1. Chercher logo "symbol" ou "icon" en PNG fond transparent
+  for (const logo of logos) {
+    if (logo.type === 'symbol' || logo.type === 'icon') {
+      for (const format of logo.formats || []) {
+        if (format.format === 'png' && format.background === 'transparent') {
+          return format.src;
+        }
+      }
+    }
+  }
+
+  // 2. Chercher logo "logo" en PNG fond transparent
+  for (const logo of logos) {
+    if (logo.type === 'logo') {
+      for (const format of logo.formats || []) {
+        if (format.format === 'png' && format.background === 'transparent') {
+          return format.src;
+        }
+      }
+    }
+  }
+
+  // 3. Chercher n'importe quel logo en PNG transparent
+  for (const logo of logos) {
+    for (const format of logo.formats || []) {
+      if (format.format === 'png' && format.background === 'transparent') {
+        return format.src;
+      }
+    }
+  }
+
+  // 4. Chercher un SVG
+  for (const logo of logos) {
+    for (const format of logo.formats || []) {
+      if (format.format === 'svg') {
+        return format.src;
+      }
+    }
+  }
+
+  // 5. Fallback : premier logo disponible
+  return logos[0]?.formats?.[0]?.src || null;
+}
+
+/**
+ * Corrige une couleur pour garantir un bon contraste sur fond crème (#F5EBE0)
+ * Assombrit les couleurs trop claires, remplace noir/blanc par le marron Glow Up
+ */
+function getUsableColor(hexColor: string | null): string {
+  const FALLBACK_COLOR = '#5C2A30'; // Marron Glow Up
+  
+  if (!hexColor) return FALLBACK_COLOR;
+
+  const hex = hexColor.replace('#', '');
+  
+  // Validation du format hex
+  if (hex.length !== 6) return FALLBACK_COLOR;
+
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+
+  // Calculer la luminosité (0 = noir, 255 = blanc)
+  const luminosity = 0.299 * r + 0.587 * g + 0.114 * b;
+
+  // Noir pur ou blanc pur → marron Glow Up
+  if (
+    hexColor === '#000000' ||
+    hexColor === '#000' ||
+    hexColor === '#ffffff' ||
+    hexColor === '#fff' ||
+    hexColor === '#0f0f0f'
+  ) {
+    return FALLBACK_COLOR;
+  }
+
+  // Trop sombre (quasi noir) → marron Glow Up
+  if (luminosity < 30) {
+    return FALLBACK_COLOR;
+  }
+
+  // Trop clair pour le fond crème → assombrir de 40%
+  if (luminosity > 180) {
+    const darken = (c: number) => Math.max(0, Math.round(c * 0.6));
+    const darkR = darken(r).toString(16).padStart(2, '0');
+    const darkG = darken(g).toString(16).padStart(2, '0');
+    const darkB = darken(b).toString(16).padStart(2, '0');
+    return `#${darkR}${darkG}${darkB}`;
+  }
+
+  // Couleur correcte
+  return hexColor;
+}
+
+export async function fetchBrandData(domain: string): Promise<BrandfetchResult> {
   try {
     const apiKey = process.env.BRANDFETCH_API_KEY;
     
@@ -19,6 +122,7 @@ export async function fetchBrandAssets(domain: string): Promise<BrandfetchRespon
         logo: null,
         primaryColor: null,
         secondaryColor: null,
+        description: null,
       };
     }
 
@@ -28,7 +132,7 @@ export async function fetchBrandAssets(domain: string): Promise<BrandfetchRespon
       .replace(/^www\./, '')
       .split('/')[0];
 
-    console.log(`\n🎨 Brandfetch API call for: ${cleanDomain}`);
+    console.log(`🎨 Brandfetch: ${cleanDomain}`);
 
     // Appel à l'API Brandfetch
     const response = await fetch(`https://api.brandfetch.io/v2/brands/${cleanDomain}`, {
@@ -37,91 +141,61 @@ export async function fetchBrandAssets(domain: string): Promise<BrandfetchRespon
       },
     });
 
-    console.log(`📡 Response status: ${response.status}`);
-
     if (!response.ok) {
-      const errorText = await response.text();
-      console.warn(`❌ Brandfetch API error ${response.status}:`, errorText);
+      console.warn(`⚠️  Brandfetch API error ${response.status}`);
       return {
         logo: null,
         primaryColor: null,
         secondaryColor: null,
+        description: null,
       };
     }
 
     const data = await response.json();
-    console.log('📦 Brandfetch response:', JSON.stringify(data, null, 2));
 
-    // Extraire le logo - chercher d'abord un logo de type "logo" (pas "icon")
-    let logo = null;
-    
-    if (data.logos && Array.isArray(data.logos)) {
-      console.log(`🖼️  Logos disponibles: ${data.logos.length}`);
-      
-      // Chercher un logo de type "logo"
-      const mainLogo = data.logos.find((l: any) => l.type === 'logo');
-      
-      if (mainLogo) {
-        console.log('✅ Logo de type "logo" trouvé');
-        // Prendre le format PNG en priorité, sinon le premier format disponible
-        const pngFormat = mainLogo.formats?.find((f: any) => f.format === 'png');
-        logo = pngFormat?.src || mainLogo.formats?.[0]?.src || null;
+    // Logo : sélection intelligente du meilleur format
+    const logo = getBestLogo(data.logos || []);
+
+    // Couleurs : prendre la première qui n'est ni noir ni blanc
+    const colors = data.colors || [];
+    const brandColor = colors.find((c: any) => {
+      const hex = c.hex?.toLowerCase();
+      return hex && hex !== '#000000' && hex !== '#ffffff' && hex !== '#000' && hex !== '#fff';
+    });
+
+    // Valider et nettoyer le hex (doit avoir 6 caractères)
+    let rawColor = brandColor?.hex || null;
+    if (rawColor) {
+      const cleanHex = rawColor.replace('#', '');
+      // Si le hex est incomplet, on le complète avec des 0
+      if (cleanHex.length === 3) {
+        // Format court #RGB -> #RRGGBB
+        rawColor = `#${cleanHex[0]}${cleanHex[0]}${cleanHex[1]}${cleanHex[1]}${cleanHex[2]}${cleanHex[2]}`;
+      } else if (cleanHex.length === 5) {
+        // Compléter avec un 0
+        rawColor = `#${cleanHex}0`;
+      } else if (cleanHex.length < 6 || cleanHex.length > 6) {
+        console.warn(`⚠️  Hex invalide: ${rawColor}, ignoré`);
+        rawColor = null;
       } else {
-        console.log('⚠️  Pas de logo de type "logo", utilisation du premier disponible');
-        // Fallback : prendre le premier logo disponible
-        const firstLogo = data.logos[0];
-        const pngFormat = firstLogo?.formats?.find((f: any) => f.format === 'png');
-        logo = pngFormat?.src || firstLogo?.formats?.[0]?.src || null;
+        rawColor = `#${cleanHex}`;
       }
     }
 
-    console.log(`🖼️  Logo sélectionné: ${logo || 'AUCUN'}`);
-
-    // Extraire les couleurs - éviter noir/blanc/gris
-    const colors = data.colors || [];
-    console.log(`🎨 Couleurs disponibles: ${colors.length}`);
+    // Corriger la couleur pour garantir un bon contraste
+    const primaryColor = getUsableColor(rawColor);
     
-    if (colors.length > 0) {
-      colors.forEach((c: any, i: number) => {
-        console.log(`   ${i + 1}. ${c.hex} (${c.type || 'unknown'})`);
-      });
-    }
+    const secondaryColor = colors[1]?.hex || null;
 
-    // Filtrer les couleurs neutres (noir, blanc, gris)
-    const isNeutralColor = (hex: string): boolean => {
-      const h = hex.toLowerCase();
-      // Noir, blanc, et variations de gris
-      return (
-        h === '#000000' || h === '#ffffff' ||
-        h === '#000' || h === '#fff' ||
-        /^#([0-9a-f])\1\1$/.test(h) || // #111, #222, etc.
-        /^#([0-9a-f]{2})\1\1$/.test(h) // #111111, #222222, etc.
-      );
-    };
+    const description = data.description || null;
 
-    // Chercher la première couleur non-neutre
-    let primaryColor = null;
-    let secondaryColor = null;
-
-    const vibrantColors = colors.filter((c: any) => c.hex && !isNeutralColor(c.hex));
-    
-    if (vibrantColors.length > 0) {
-      primaryColor = vibrantColors[0].hex;
-      secondaryColor = vibrantColors[1]?.hex || null;
-      console.log(`✅ Couleurs vibrantes sélectionnées: ${primaryColor}, ${secondaryColor}`);
-    } else {
-      // Fallback : prendre les premières couleurs même si neutres
-      primaryColor = colors[0]?.hex || null;
-      secondaryColor = colors[1]?.hex || null;
-      console.log(`⚠️  Seulement des couleurs neutres disponibles: ${primaryColor}, ${secondaryColor}`);
-    }
-
-    console.log(`🎨 Couleurs finales: primary=${primaryColor}, secondary=${secondaryColor}\n`);
+    console.log(`  ✅ Logo: ${logo ? '✓' : '✗'}, Couleur: ${primaryColor} (brut: ${rawColor || 'aucune'})`);
 
     return {
       logo,
       primaryColor,
       secondaryColor,
+      description,
     };
   } catch (error) {
     console.error('❌ Brandfetch error:', error);
@@ -129,6 +203,7 @@ export async function fetchBrandAssets(domain: string): Promise<BrandfetchRespon
       logo: null,
       primaryColor: null,
       secondaryColor: null,
+      description: null,
     };
   }
 }

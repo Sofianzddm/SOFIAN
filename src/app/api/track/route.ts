@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
+/**
+ * POST /api/track
+ * Enregistre les événements de tracking pour les press kits
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { slug, sessionId, type, metadata } = body;
+    const { event, slug, sessionId, hubspotContactId, data } = body;
 
-    if (!slug || !sessionId || !type) {
+    if (!event || !slug || !sessionId) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { message: "Paramètres manquants" },
         { status: 400 }
       );
     }
@@ -16,95 +20,114 @@ export async function POST(request: NextRequest) {
     // Récupérer la marque
     const brand = await prisma.brand.findUnique({
       where: { slug },
-      select: { id: true },
     });
 
     if (!brand) {
       return NextResponse.json(
-        { error: "Brand not found" },
+        { message: "Marque introuvable" },
         { status: 404 }
       );
     }
 
-    // Récupérer le contact HubSpot depuis les query params
-    const url = new URL(request.url);
-    const hubspotContactId = url.searchParams.get('cid');
-
-    // Headers pour analytics
-    const userAgent = request.headers.get('user-agent');
-    const forwarded = request.headers.get('x-forwarded-for');
-    const ipAddress = forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip');
-
-    if (type === 'view') {
-      // Compter le nombre de visites existantes pour ce contact
-      const existingViews = await prisma.pageView.findMany({
-        where: {
-          brandId: brand.id,
-          hubspotContactId: hubspotContactId || undefined,
-        },
-        select: { id: true },
-      });
-
-      // Créer une nouvelle page view
-      await prisma.pageView.create({
-        data: {
-          brandId: brand.id,
-          sessionId,
-          hubspotContactId: hubspotContactId || null,
-          visitNumber: existingViews.length + 1,
-          userAgent: userAgent || null,
-          ipAddress: ipAddress || null,
-        },
-      });
-    } else if (type === 'session_end') {
-      // Mettre à jour la dernière page view avec les metrics
-      const pageView = await prisma.pageView.findFirst({
-        where: {
-          brandId: brand.id,
-          sessionId,
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
-
-      if (pageView) {
-        await prisma.pageView.update({
-          where: { id: pageView.id },
-          data: {
-            durationSeconds: metadata.durationSeconds || 0,
-            scrollDepthPercent: metadata.scrollDepthPercent || 0,
-            talentsViewed: metadata.talentsViewed || [],
+    // Traiter l'événement selon le type
+    switch (event) {
+      case "view":
+        // Vérifier si une session existe déjà pour ce sessionId
+        const existingSession = await prisma.pageView.findFirst({
+          where: {
+            brandId: brand.id,
+            sessionId,
           },
         });
-      }
-    } else if (type === 'cta_click') {
-      // Marquer le CTA comme cliqué
-      const pageView = await prisma.pageView.findFirst({
-        where: {
-          brandId: brand.id,
-          sessionId,
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
 
-      if (pageView) {
-        await prisma.pageView.update({
-          where: { id: pageView.id },
+        if (!existingSession) {
+          // Compter les visites précédentes de ce contact
+          const visitNumber = hubspotContactId
+            ? await prisma.pageView.count({
+                where: {
+                  brandId: brand.id,
+                  hubspotContactId,
+                },
+              }) + 1
+            : 1;
+
+          // Créer une nouvelle session
+          await prisma.pageView.create({
+            data: {
+              brandId: brand.id,
+              hubspotContactId,
+              sessionId,
+              visitNumber,
+              durationSeconds: 0,
+              scrollDepthPercent: 0,
+              talentsViewed: [],
+              ctaClicked: false,
+            },
+          });
+
+          console.log(`📊 Nouvelle visite enregistrée: ${brand.name} (session ${sessionId})`);
+        }
+        break;
+
+      case "session_end":
+        // Mettre à jour la session avec les données finales
+        await prisma.pageView.updateMany({
+          where: {
+            brandId: brand.id,
+            sessionId,
+          },
+          data: {
+            durationSeconds: data?.durationSeconds || 0,
+            scrollDepthPercent: data?.scrollDepthPercent || 0,
+            talentsViewed: data?.talentsViewed || [],
+          },
+        });
+
+        console.log(`📊 Session terminée: ${brand.name} — ${data?.durationSeconds}s, scroll ${data?.scrollDepthPercent}%`);
+        break;
+
+      case "cta_click":
+        // Marquer le CTA comme cliqué
+        await prisma.pageView.updateMany({
+          where: {
+            brandId: brand.id,
+            sessionId,
+          },
           data: {
             ctaClicked: true,
           },
         });
-      }
+
+        console.log(`📊 CTA cliqué: ${brand.name}`);
+        break;
+
+      case "talentbook_click":
+        // Marquer le clic sur le lien Talent Book
+        await prisma.pageView.updateMany({
+          where: {
+            brandId: brand.id,
+            sessionId,
+          },
+          data: {
+            talentbookClicked: true,
+          },
+        });
+
+        console.log(`📊 Talent Book cliqué: ${brand.name}`);
+        break;
+
+      default:
+        return NextResponse.json(
+          { message: "Type d'événement invalide" },
+          { status: 400 }
+        );
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error tracking event:", error);
+    console.error("Erreur tracking:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { message: "Erreur lors de l'enregistrement" },
       { status: 500 }
     );
   }

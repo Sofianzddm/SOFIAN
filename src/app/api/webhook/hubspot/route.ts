@@ -7,7 +7,7 @@ import { Client } from "@hubspot/api-client";
  * 
  * Écoute les events HubSpot pour:
  * - Trigger la génération de press kit quand un contact est ajouté à une liste
- * - Mettre à jour le champ presskit_url sur la fiche company
+ * - Mettre à jour le champ press_kit_url sur la fiche company
  */
 
 export async function POST(request: NextRequest) {

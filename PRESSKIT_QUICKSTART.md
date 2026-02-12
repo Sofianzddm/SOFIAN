@@ -120,7 +120,7 @@ Bonjour {{company.name}},
 J'ai préparé une sélection personnalisée de nos meilleurs créateurs 
 pour votre marque dans l'univers {{company.industry}}.
 
-👉 Découvrir les profils: {{company.presskit_url}}?cid={{contact.id}}
+👉 Découvrir les profils: {{company.press_kit_url}}?cid={{contact.id}}
 
 Je reste disponible pour échanger,
 

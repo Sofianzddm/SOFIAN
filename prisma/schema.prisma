@@ -944,10 +944,11 @@ model Brand {
   domain          String?
   niche           String
   hubspotId       String?          @unique
-  description     String?          @db.Text
+  description     String           @db.Text // OBLIGATOIRE : décrit précisément ce que vend la marque
   logo            String?          // URL logo récupéré via Brandfetch
   primaryColor    String?          // Couleur primaire de la marque (#hex)
   secondaryColor  String?          // Couleur secondaire de la marque (#hex)
+  category        String?          // Catégorie : MODE, BEAUTÉ, SPORT, FOOD, TECH, LIFESTYLE, SANTÉ, FINANCE, AUTRE
   presskitTalents PressKitTalent[]
   pageViews       PageView[]
   batches         BatchBrand[]
@@ -961,15 +962,15 @@ model Brand {
 }
 
 model PressKitTalent {
-  id        String   @id @default(cuid())
-  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  brandId   String
-  talent    Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  talentId  String
-  pitch     String   @db.Text // Description de vente générée par Claude
-  order     Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  brand       Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  brandId     String
+  talent      Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  talentId    String
+  pitch       String   @db.Text // Phrase de vente percutante
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@unique([brandId, talentId])
   @@index([brandId])
@@ -1006,6 +1007,7 @@ model PageView {
   talentsViewed      String[] // IDs des talents qui ont été vus
   visitNumber        Int      @default(1)
   ctaClicked         Boolean  @default(false)
+  talentbookClicked  Boolean  @default(false) // Clic sur le lien "Voir le Talent Book complet"
   userAgent          String?
   ipAddress          String?
   createdAt          DateTime @default(now())
@@ -1035,15 +1037,17 @@ model Batch {
 }
 
 model BatchBrand {
-  id        String   @id @default(cuid())
-  batch     Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  batchId   String
-  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  brandId   String
-  status    String   @default("pending") // pending, generating, completed, failed
-  error     String?  @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String   @id @default(cuid())
+  batch             Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batchId           String
+  brand             Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  brandId           String
+  status            String   @default("pending") // pending, generating, completed, failed
+  error             String?  @db.Text
+  talentIds         String[] @default([]) // Talents spécifiques pour cette marque (override du défaut si fourni)
+  hubspotContactIds String[] @default([]) // IDs des contacts HubSpot associés (plusieurs contacts par marque)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@unique([batchId, brandId])
   @@index([batchId])

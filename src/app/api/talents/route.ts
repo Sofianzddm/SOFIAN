@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 // GET - Liste des talents (filtrée par rôle)
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
@@ -13,9 +13,13 @@ export async function GET() {
 
     const user = session.user as { id: string; role: string };
 
+    // Si ?presskit=true → retourner tous les talents pour le sélecteur du dashboard
+    const { searchParams } = new URL(request.url);
+    const isPresskit = searchParams.get('presskit') === 'true';
+
     let whereClause = {};
     
-    if (user.role === "TM") {
+    if (user.role === "TM" && !isPresskit) {
       whereClause = { managerId: user.id };
     }
 
@@ -29,22 +33,38 @@ export async function GET() {
             nom: true,
           },
         },
-        stats: {
-          select: {
-            igFollowers: true,
-            ttFollowers: true,
-          },
-        },
+        stats: true, // Inclure TOUTES les stats pour le sélecteur
         _count: {
           select: {
             collaborations: true,
           },
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: isPresskit 
+        ? [{ stats: { igFollowers: 'desc' } }] // Trier par followers pour le presskit
+        : [{ createdAt: "desc" }],
     });
+
+    // Si presskit, formater les données pour le sélecteur
+    if (isPresskit) {
+      const formatted = talents.map((t) => ({
+        id: t.id,
+        name: `${t.prenom} ${t.nom}`, // Construire le nom complet
+        prenom: t.prenom,
+        nom: t.nom,
+        photo: t.photo,
+        instagram: t.instagram,
+        tiktok: t.tiktok,
+        niches: t.niches || [],
+        selectedClients: t.selectedClients || [],
+        igFollowers: Number(t.stats?.igFollowers || 0),
+        igEngagement: Number(t.stats?.igEngagement || 0),
+        ttFollowers: Number(t.stats?.ttFollowers || 0),
+        ttEngagement: Number(t.stats?.ttEngagement || 0),
+      }));
+
+      return NextResponse.json({ talents: formatted });
+    }
 
     return NextResponse.json(talents);
   } catch (error) {

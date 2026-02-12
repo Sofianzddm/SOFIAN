@@ -94,7 +94,7 @@ Génère les press kits pour un batch de marques.
    - Récupération logo + couleurs via Brandfetch
    - Sélection de 5 talents par niche
    - Génération pitchs via Claude API
-   - Mise à jour HubSpot avec `presskit_url`
+   - Mise à jour HubSpot avec `press_kit_url`
 3. Création d'un Batch avec suivi temps réel
 
 #### 3. `POST /api/track`
@@ -237,7 +237,7 @@ curl -X POST https://app.glowupagence.fr/api/presskit/generate-batch \
    - URL: `https://app.glowupagence.fr/api/webhook/hubspot`
    - Events: `company.creation`
 3. Le press kit est généré automatiquement
-4. Le champ `presskit_url` est mis à jour sur la company
+4. Le champ `press_kit_url` est mis à jour sur la company
 
 ### 3. Utilisation dans les séquences HubSpot
 
@@ -247,7 +247,7 @@ curl -X POST https://app.glowupagence.fr/api/presskit/generate-batch \
 Bonjour {{company.name}},
 
 J'ai préparé une sélection personnalisée de créateurs pour votre marque:
-{{company.presskit_url}}?cid={{contact.id}}
+{{company.press_kit_url}}?cid={{contact.id}}
 
 Au plaisir d'échanger,
 Sofian
@@ -323,7 +323,7 @@ RÈGLES:
 - Français uniquement
 ```
 
-**Modèle:** `claude-sonnet-4-5-20250514` (Claude Sonnet 4.5)
+**Modèle:** `claude-sonnet-4-5` (Claude Sonnet 4.5 — meilleur rapport vitesse/intelligence)
 
 ## 🔒 Sécurité & Rate Limiting
 

@@ -1,330 +1,323 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { generatePitchesForBrand, enrichBrandDescription } from "@/lib/claude";
 import { fetchBrandAssets } from "@/lib/brandfetch";
-import { selectTalentsWithClaude } from "@/lib/claude";
 import { Client } from "@hubspot/api-client";
 
-// Helpers
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-async function processBrand(
-  brandData: {
-    hubspotId: string;
-    name: string;
-    domain: string;
-    niche: string;
-    description?: string;
-  },
-  batchId: string,
-  hubspotClient: Client | null
-) {
-  try {
-    const slug = slugify(brandData.name);
-    
-    // Vérifier si la marque existe déjà
-    let brand = await prisma.brand.findFirst({
-      where: {
-        OR: [
-          { hubspotId: brandData.hubspotId },
-          { slug },
-        ],
-      },
-    });
-
-    // Récupérer logo et couleurs via Brandfetch
-    const brandAssets = await fetchBrandAssets(brandData.domain);
-
-    if (brand) {
-      // Mettre à jour
-      brand = await prisma.brand.update({
-        where: { id: brand.id },
-        data: {
-          name: brandData.name,
-          domain: brandData.domain,
-          niche: brandData.niche,
-          description: brandData.description,
-          logo: brandAssets.logo || brand.logo,
-          primaryColor: brandAssets.primaryColor || brand.primaryColor,
-          secondaryColor: brandAssets.secondaryColor || brand.secondaryColor,
-          hubspotId: brandData.hubspotId,
-        },
-      });
-    } else {
-      // Créer
-      brand = await prisma.brand.create({
-        data: {
-          name: brandData.name,
-          slug,
-          domain: brandData.domain,
-          niche: brandData.niche,
-          description: brandData.description,
-          logo: brandAssets.logo,
-          primaryColor: brandAssets.primaryColor,
-          secondaryColor: brandAssets.secondaryColor,
-          hubspotId: brandData.hubspotId,
-        },
-      });
-    }
-
-    // Créer l'association batch-brand
-    const batchBrand = await prisma.batchBrand.upsert({
-      where: {
-        batchId_brandId: {
-          batchId,
-          brandId: brand.id,
-        },
-      },
-      create: {
-        batchId,
-        brandId: brand.id,
-        status: 'generating',
-      },
-      update: {
-        status: 'generating',
-      },
-    });
-
-    // Récupérer TOUS les talents avec leurs stats
-    const allTalents = await prisma.talent.findMany({
-      include: {
-        stats: true,
-      },
-    });
-
-    console.log(`\n📊 Total talents disponibles: ${allTalents.length}`);
-
-    // Supprimer les anciens press kit talents
-    await prisma.pressKitTalent.deleteMany({
-      where: { brandId: brand.id },
-    });
-
-    let selectedTalents: Array<{ id: string; pitch: string }> = [];
-
-    try {
-      // Utiliser Claude pour sélectionner les meilleurs talents
-      console.log(`🤖 Demande à Claude de sélectionner les talents pour ${brandData.name}...`);
-      
-      const claudeResult = await selectTalentsWithClaude(
-        {
-          name: brandData.name,
-          domain: brandData.domain,
-          niche: brandData.niche,
-          description: brandData.description,
-        },
-        allTalents.map(t => ({
-          id: t.id,
-          name: `${t.prenom} ${t.nom}`,
-          instagram: t.instagram,
-          tiktok: t.tiktok,
-          niches: t.niches,
-          selectedClients: t.selectedClients || [],
-          stats: t.stats ? {
-            igFollowers: t.stats.igFollowers,
-            igEngagement: t.stats.igEngagement ? Number(t.stats.igEngagement) : null,
-            igGenreFemme: t.stats.igGenreFemme ? Number(t.stats.igGenreFemme) : null,
-            igAge18_24: t.stats.igAge18_24 ? Number(t.stats.igAge18_24) : null,
-            igAge25_34: t.stats.igAge25_34 ? Number(t.stats.igAge25_34) : null,
-            igLocFrance: t.stats.igLocFrance ? Number(t.stats.igLocFrance) : null,
-            ttFollowers: t.stats.ttFollowers,
-            ttEngagement: t.stats.ttEngagement ? Number(t.stats.ttEngagement) : null,
-            ttGenreFemme: t.stats.ttGenreFemme ? Number(t.stats.ttGenreFemme) : null,
-            ttLocFrance: t.stats.ttLocFrance ? Number(t.stats.ttLocFrance) : null,
-          } : null,
-        }))
-      );
-
-      selectedTalents = claudeResult.talents;
-      console.log(`✅ Claude a sélectionné ${selectedTalents.length} talents`);
-
-    } catch (claudeError) {
-      console.error('❌ Erreur Claude, fallback sur matching par niche:', claudeError);
-      
-      // Fallback : matching par niche
-      const talentsByNiche = await prisma.talent.findMany({
-        where: {
-          niches: {
-            has: brandData.niche,
-          },
-        },
-        include: {
-          stats: true,
-        },
-        orderBy: {
-          stats: {
-            igEngagement: 'desc',
-          },
-        },
-        take: 5,
-      });
-
-      selectedTalents = talentsByNiche.map(t => ({
-        id: t.id,
-        pitch: `${t.prenom} ${t.nom}, créateur·rice ${t.niches.join('/')} avec ${(t.stats?.igFollowers || 0).toLocaleString('fr-FR')} followers et ${Number(t.stats?.igEngagement || 0).toFixed(1)}% d'engagement. Audience française à ${Math.round(Number(t.stats?.igLocFrance || 0))}%.`,
-      }));
-    }
-
-    // Créer les PressKitTalent avec les pitchs de Claude
-    const createPromises = selectedTalents.map(async (selected, index) => {
-      await prisma.pressKitTalent.create({
-        data: {
-          brandId: brand.id,
-          talentId: selected.id,
-          pitch: selected.pitch,
-          order: index,
-        },
-      });
-    });
-
-    await Promise.all(createPromises);
-
-    // Générer l'URL du press kit
-    const presskitUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://app.glowupagence.fr'}/book/${slug}`;
-
-    // Mettre à jour HubSpot avec l'URL du press kit
-    if (hubspotClient) {
-      try {
-        await hubspotClient.crm.companies.basicApi.update(brandData.hubspotId, {
-          properties: {
-            presskit_url: presskitUrl,
-          },
-        });
-      } catch (error) {
-        console.error('Error updating HubSpot:', error);
-      }
-    }
-
-    // Marquer le batch brand comme completed
-    await prisma.batchBrand.update({
-      where: { id: batchBrand.id },
-      data: {
-        status: 'completed',
-      },
-    });
-
-    return { success: true, slug, url: presskitUrl };
-  } catch (error) {
-    console.error(`Error processing brand ${brandData.name}:`, error);
-    
-    // Marquer comme failed
-    const brand = await prisma.brand.findFirst({
-      where: {
-        OR: [
-          { hubspotId: brandData.hubspotId },
-          { slug: slugify(brandData.name) },
-        ],
-      },
-    });
-
-    if (brand) {
-      await prisma.batchBrand.updateMany({
-        where: {
-          batchId,
-          brandId: brand.id,
-        },
-        data: {
-          status: 'failed',
-          error: error instanceof Error ? error.message : 'Unknown error',
-        },
-      });
-    }
-
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-  }
-}
-
+/**
+ * POST /api/presskit/generate-batch
+ * Génération batch de press kits avec sélection manuelle des talents
+ */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { brands, batchName } = body;
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+    }
 
-    if (!brands || !Array.isArray(brands) || brands.length === 0) {
+    const user = session.user as { role: string };
+
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_SALES"].includes(user.role)) {
       return NextResponse.json(
-        { error: "Missing or invalid 'brands' array" },
+        { message: "Accès réservé aux HEAD OF SALES et ADMIN" },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+    const { batchName, defaultTalentIds, brands } = body;
+
+    if (!batchName || !Array.isArray(brands) || brands.length === 0) {
+      return NextResponse.json(
+        { message: "batchName et brands[] sont requis" },
         { status: 400 }
       );
     }
 
-    // Initialiser le client HubSpot si la clé API est disponible
-    let hubspotClient: Client | null = null;
-    if (process.env.HUBSPOT_API_KEY) {
-      hubspotClient = new Client({
-        accessToken: process.env.HUBSPOT_API_KEY,
-      });
-    }
+    console.log(`\n🚀 GÉNÉRATION BATCH "${batchName}" — ${brands.length} marques\n`);
 
-    // Créer le batch
+    // 1. Créer le Batch
     const batch = await prisma.batch.create({
       data: {
-        name: batchName || `Batch ${new Date().toISOString()}`,
+        name: batchName,
         totalBrands: brands.length,
-        status: 'processing',
+        defaultTalentIds: defaultTalentIds || [],
+        status: "processing",
       },
     });
 
-    // Traiter les marques par paquets de 20 pour éviter les rate limits
-    const BATCH_SIZE = 20;
-    const results = [];
+    console.log(`✅ Batch créé: ${batch.id}`);
 
-    for (let i = 0; i < brands.length; i += BATCH_SIZE) {
-      const chunk = brands.slice(i, i + BATCH_SIZE);
-      
-      const chunkResults = await Promise.allSettled(
-        chunk.map(brand => processBrand(brand, batch.id, hubspotClient))
-      );
+    // 2. Traiter chaque marque
+    let completed = 0;
+    let failed = 0;
 
-      results.push(...chunkResults);
+    const processBrand = async (brandData: any) => {
+      try {
+        console.log(`\n📦 Traitement: ${brandData.companyName} (${brandData.domain})`);
 
-      // Mettre à jour le batch
-      const completed = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-      const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
+        // Les talents pour cette marque : talentIds si fourni, sinon defaultTalentIds
+        const talentIds = brandData.talentIds && brandData.talentIds.length > 0
+          ? brandData.talentIds
+          : defaultTalentIds || [];
 
-      await prisma.batch.update({
-        where: { id: batch.id },
-        data: {
-          completed,
-          failed,
-        },
-      });
+        if (talentIds.length === 0) {
+          throw new Error("Aucun talent sélectionné pour cette marque");
+        }
+
+        // Créer un slug unique
+        const slug = brandData.companyName
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+
+        // Vérifier si la marque existe déjà
+        let brand = await prisma.brand.findUnique({
+          where: { slug },
+        });
+
+        // 🔥 BRANDFETCH : Récupérer logo + couleurs + description
+        let logo: string | null = null;
+        let primaryColor: string | null = null;
+        let secondaryColor: string | null = null;
+        let brandfetchDescription: string | null = null;
+
+        if (brandData.domain) {
+          try {
+            const assets = await fetchBrandAssets(brandData.domain);
+            logo = assets.logo;
+            primaryColor = assets.primaryColor;
+            secondaryColor = assets.secondaryColor;
+            brandfetchDescription = assets.description;
+            console.log(`  ✅ Brandfetch: logo ${logo ? '✓' : '✗'}, couleurs ${primaryColor ? '✓' : '✗'}`);
+          } catch (error) {
+            console.log(`  ⚠️  Brandfetch échoué, on continue sans assets`);
+          }
+        }
+
+        // 🔥 ENRICHIR LA DESCRIPTION avec Claude
+        const enrichedDescription = await enrichBrandDescription(
+          brandData.companyName,
+          brandData.domain || "",
+          brandData.niche || "Autre",
+          brandfetchDescription
+        );
+
+        // Créer ou mettre à jour la marque
+        if (brand) {
+          brand = await prisma.brand.update({
+            where: { id: brand.id },
+            data: {
+              name: brandData.companyName,
+              domain: brandData.domain || null,
+              niche: brandData.niche || "Autre",
+              description: enrichedDescription,
+              logo,
+              primaryColor,
+              secondaryColor,
+            },
+          });
+          console.log(`  ✅ Marque mise à jour`);
+        } else {
+          brand = await prisma.brand.create({
+            data: {
+              name: brandData.companyName,
+              slug,
+              domain: brandData.domain || null,
+              niche: brandData.niche || "Autre",
+              description: enrichedDescription,
+              logo,
+              primaryColor,
+              secondaryColor,
+            },
+          });
+          console.log(`  ✅ Marque créée`);
+        }
+
+        // 🔥 RÉCUPÉRER LES TALENTS avec leurs stats
+        const talents = await prisma.talent.findMany({
+          where: {
+            id: { in: talentIds },
+          },
+          include: {
+            stats: true,
+          },
+        });
+
+        if (talents.length === 0) {
+          throw new Error("Aucun talent trouvé avec les IDs fournis");
+        }
+
+        console.log(`  📊 ${talents.length} talents récupérés`);
+
+        // 🔥 GÉNÉRER LES PITCHS avec Claude
+        const pitchInputs = talents.map((t) => ({
+          talentName: `${t.prenom} ${t.nom}`,
+          instagram: t.instagram,
+          tiktok: t.tiktok,
+          niches: t.niches,
+          selectedClients: t.selectedClients,
+          igFollowers: t.stats?.igFollowers || null,
+          igEngagement: t.stats?.igEngagement || null,
+          igGenreFemme: t.stats?.igGenreFemme || null,
+          igAge18_24: t.stats?.igAge18_24 || null,
+          igAge25_34: t.stats?.igAge25_34 || null,
+          igLocFrance: t.stats?.igLocFrance || null,
+          ttFollowers: t.stats?.ttFollowers || null,
+          ttEngagement: t.stats?.ttEngagement || null,
+        }));
+
+        const pitchMap = await generatePitchesForBrand(
+          {
+            name: brand.name,
+            description: brand.description,
+          },
+          pitchInputs
+        );
+
+        // 🔥 SUPPRIMER les anciens talents de ce press kit
+        await prisma.pressKitTalent.deleteMany({
+          where: { brandId: brand.id },
+        });
+
+        // 🔥 CRÉER les nouveaux PressKitTalent
+        const presskitTalents = talents.map((talent, index) => {
+          const talentName = `${talent.prenom} ${talent.nom}`;
+          const pitch = pitchMap.get(talentName) || `Talent ${talentName}`;
+
+          return prisma.pressKitTalent.create({
+            data: {
+              brandId: brand!.id,
+              talentId: talent.id,
+              pitch,
+              order: index,
+            },
+          });
+        });
+
+        await Promise.all(presskitTalents);
+
+        console.log(`  ✅ ${talents.length} PressKitTalent créés`);
+
+        // 🔥 MISE À JOUR HUBSPOT : Écrire l'URL du press kit
+        if (brandData.hubspotContactId) {
+          try {
+            const hubspotApiKey = process.env.HUBSPOT_API_KEY;
+            if (hubspotApiKey) {
+              const presskitUrl = `https://app.glowupagence.fr/book/${brand.slug}?cid=${brandData.hubspotContactId}`;
+
+              // Mise à jour via l'API REST
+              await fetch(
+                `https://api.hubapi.com/contacts/v1/contact/vid/${brandData.hubspotContactId}/profile`,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${hubspotApiKey}`,
+                    "Content-Type": "application/json",
+                  },
+                        body: JSON.stringify({
+                          properties: [
+                            {
+                              property: "press_kit_url",
+                              value: presskitUrl,
+                            },
+                          ],
+                        }),
+                }
+              );
+
+              console.log(`  ✅ HubSpot mis à jour: ${presskitUrl}`);
+            }
+          } catch (hubspotError) {
+            console.error(`  ⚠️  Erreur HubSpot:`, hubspotError);
+            // On continue même si HubSpot échoue
+          }
+        }
+
+        // Créer le BatchBrand
+        await prisma.batchBrand.create({
+          data: {
+            batchId: batch.id,
+            brandId: brand.id,
+            status: "completed",
+            talentIds,
+            hubspotContactId: brandData.hubspotContactId || null,
+          },
+        });
+
+        completed++;
+        console.log(`  ✅ ${brandData.companyName} terminé (${completed}/${brands.length})`);
+      } catch (error: any) {
+        failed++;
+        console.error(`  ❌ Erreur pour ${brandData.companyName}:`, error);
+
+        // Créer un BatchBrand en erreur
+        try {
+          // Essayer de récupérer la marque
+          const slug = brandData.companyName
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "");
+
+          let brand = await prisma.brand.findUnique({ where: { slug } });
+          
+          if (brand) {
+            await prisma.batchBrand.create({
+              data: {
+                batchId: batch.id,
+                brandId: brand.id,
+                status: "failed",
+                error: error.message,
+                talentIds: brandData.talentIds || [],
+                hubspotContactId: brandData.hubspotContactId || null,
+              },
+            });
+          }
+        } catch (e) {
+          console.error(`  ❌ Impossible de créer BatchBrand en erreur`);
+        }
+      }
+    };
+
+    // Traiter par paquets de 10 marques en parallèle
+    const batchSize = 10;
+    for (let i = 0; i < brands.length; i += batchSize) {
+      const batch = brands.slice(i, i + batchSize);
+      await Promise.allSettled(batch.map(processBrand));
     }
 
-    // Finaliser le batch
-    const completed = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-    const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
-
+    // Mettre à jour le statut du batch
     await prisma.batch.update({
       where: { id: batch.id },
       data: {
-        status: 'completed',
+        status: failed === 0 ? "completed" : "partial",
         completed,
         failed,
       },
     });
 
+    console.log(`\n🎉 BATCH TERMINÉ : ${completed} succès, ${failed} échecs\n`);
+
     return NextResponse.json({
       batchId: batch.id,
-      totalBrands: brands.length,
+      total: brands.length,
       completed,
       failed,
-      results: results.map((r, i) => ({
-        brand: brands[i].name,
-        success: r.status === 'fulfilled' && r.value.success,
-        url: r.status === 'fulfilled' && r.value.success ? r.value.url : null,
-        error: r.status === 'rejected' 
-          ? r.reason?.message 
-          : (r.status === 'fulfilled' && !r.value.success ? r.value.error : null),
-      })),
+      status: failed === 0 ? "completed" : "partial",
     });
-  } catch (error) {
-    console.error("Error generating batch:", error);
+  } catch (error: any) {
+    console.error("❌ Erreur POST /api/presskit/generate-batch:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      {
+        message: "Erreur lors de la génération batch",
+        error: error?.message || "Erreur inconnue",
+      },
       { status: 500 }
     );
   }
