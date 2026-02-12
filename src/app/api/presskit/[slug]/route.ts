@@ -43,6 +43,29 @@ export async function GET(
       const talent = pkt.talent;
       const stats = talent.stats;
 
+      // Calculer la tranche d'âge dominante
+      let mainAgeRange: string | null = null;
+      let agePercentage: number | null = null;
+      
+      if (stats) {
+        const ageRanges = [
+          { range: '13-17', value: Number(stats.igAge13_17 || 0) },
+          { range: '18-24', value: Number(stats.igAge18_24 || 0) },
+          { range: '25-34', value: Number(stats.igAge25_34 || 0) },
+          { range: '35-44', value: Number(stats.igAge35_44 || 0) },
+          { range: '45+', value: Number(stats.igAge45Plus || 0) },
+        ];
+        
+        const dominant = ageRanges.reduce((max, current) => 
+          current.value > max.value ? current : max
+        );
+        
+        if (dominant.value > 0) {
+          mainAgeRange = dominant.range;
+          agePercentage = Math.round(dominant.value);
+        }
+      }
+
       return {
         id: talent.id,
         name: `${talent.prenom} ${talent.nom}`.trim(),
@@ -74,6 +97,9 @@ export async function GET(
         instagram: talent.instagram,
         tiktok: talent.tiktok,
         youtube: talent.youtube,
+        // Nouvelles données démographiques
+        mainAgeRange,
+        agePercentage,
       };
     });
 

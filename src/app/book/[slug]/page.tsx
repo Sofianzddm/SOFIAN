@@ -111,6 +111,9 @@ interface TalentData {
   instagram: string | null;
   tiktok: string | null;
   youtube: string | null;
+  // Nouvelles données démographiques
+  mainAgeRange: string | null; // Tranche d'âge dominante (ex: "18-24")
+  agePercentage: number | null; // % de la tranche d'âge dominante
 }
 
 interface BrandData {
@@ -689,6 +692,26 @@ export default function PressKitPage() {
                       {talent.niche.length > 0 ? talent.niche.slice(0, 3).map(n => translateNiche(n, lang)).join(" · ") : t.contentCreator}
                     </p>
 
+                    {/* Démographie */}
+                    <div className="flex items-center gap-3 mb-3">
+                      {talent.frAudience > 0 && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm">🇫🇷</span>
+                          <span className="text-xs text-[#220101]/70 font-switzer">
+                            {Math.round(talent.frAudience)}%
+                          </span>
+                        </div>
+                      )}
+                      {talent.mainAgeRange && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm">👥</span>
+                          <span className="text-xs text-[#220101]/70 font-switzer">
+                            {talent.mainAgeRange} ans {talent.agePercentage ? `(${talent.agePercentage}%)` : ''}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Stats */}
                     <div className="space-y-2">
                       {talent.followers > 0 && (
@@ -921,6 +944,26 @@ export default function PressKitPage() {
                       <p className="text-[11px] text-[#220101]/50 uppercase tracking-[0.15em] mb-3 font-spectral-light">
                         {talent.niches.length > 0 ? talent.niches.slice(0, 3).map(n => translateNiche(n, lang)).join(" · ") : t.contentCreator}
                       </p>
+
+                      {/* Démographie */}
+                      <div className="flex items-center gap-3 mb-3">
+                        {talent.stats?.igLocFrance && talent.stats.igLocFrance > 0 && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm">🇫🇷</span>
+                            <span className="text-xs text-[#220101]/70 font-switzer">
+                              {Math.round(talent.stats.igLocFrance)}%
+                            </span>
+                          </div>
+                        )}
+                        {talent.stats?.mainAgeRange && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm">👥</span>
+                            <span className="text-xs text-[#220101]/70 font-switzer">
+                              {talent.stats.mainAgeRange} ans {talent.stats.agePercentage ? `(${talent.stats.agePercentage}%)` : ''}
+                            </span>
+                          </div>
+                        )}
+                      </div>
 
                       <div className="space-y-2">
                         {talent.stats?.igFollowers && (
