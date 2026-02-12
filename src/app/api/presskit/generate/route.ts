@@ -138,23 +138,18 @@ export async function POST(request: NextRequest) {
 
             console.log(`  🎭 ${talents.length} talents à associer`);
 
-            // Associer les talents à la marque (sans pitch)
+            // 5. SUPPRIMER les anciens PressKitTalent de cette marque (pour éviter les doublons)
+            await prisma.pressKitTalent.deleteMany({
+              where: { brandId: brand.id },
+            });
+            console.log(`  🗑️  Anciens talents supprimés pour ${brandData.companyName}`);
+
+            // 6. Créer les nouveaux PressKitTalent avec la sélection actuelle
             for (let order = 0; order < talents.length; order++) {
               const talent = talents[order];
 
-              // Stocker dans PressKitTalent (sans pitch)
-              await prisma.pressKitTalent.upsert({
-                where: {
-                  brandId_talentId: {
-                    brandId: brand.id,
-                    talentId: talent.id,
-                  },
-                },
-                update: {
-                  pitch: "", // Pas de pitch
-                  order,
-                },
-                create: {
+              await prisma.pressKitTalent.create({
+                data: {
                   brandId: brand.id,
                   talentId: talent.id,
                   pitch: "", // Pas de pitch
