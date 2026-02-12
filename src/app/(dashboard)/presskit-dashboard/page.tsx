@@ -540,7 +540,7 @@ export default function PressKitDashboardV5() {
           {loadingCategorization ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="w-12 h-12 animate-spin text-blue-600 mb-4" />
-              <p className="text-gray-600">Catégorisation en cours avec Claude...</p>
+              <p className="text-gray-600">Catégorisation en cours...</p>
             </div>
           ) : (
             <>
