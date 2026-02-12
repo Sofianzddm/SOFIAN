@@ -124,11 +124,23 @@ export async function getContactsFromList(listId: string): Promise<HubSpotContac
       // Traiter TOUS les contacts (sans filtre)
       (data.contacts || []).forEach((contact: any) => {
         const properties = contact.properties || {};
+        
+        // DEBUG: Afficher toutes les propriétés du premier contact pour diagnostic
+        if (contacts.length === 0) {
+          console.log('🔍 Propriétés HubSpot récupérées pour le premier contact:');
+          console.log('  Available properties:', Object.keys(properties));
+        }
+        
         const firstname = properties.firstname?.value || '';
         const lastname = properties.lastname?.value || '';
         const email = properties.email?.value || '';
         const company = properties.company?.value || ''; // Nom de l'entreprise depuis HubSpot
         const website = properties.website?.value || '';
+        
+        // DEBUG: Afficher la valeur du champ company pour ce contact
+        if (email.includes('claudiepierlot')) {
+          console.log(`🔍 Contact Claudie Pierlot - company property: "${company}"`);
+        }
 
         // Extraction intelligente du domaine
         let domain = '';
