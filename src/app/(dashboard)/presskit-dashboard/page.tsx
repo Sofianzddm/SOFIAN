@@ -43,6 +43,7 @@ interface BrandData {
 interface CategorizedBrand extends BrandData {
   category: string;
   talentIds: string[];
+  customName?: string; // Nom personnalisé modifiable par l'utilisateur
 }
 
 type Step = 1 | 2 | 3 | 4 | 5;
@@ -354,7 +355,7 @@ export default function PressKitDashboardV5() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyName: brand.companyName,
+          companyName: brand.customName || brand.companyName, // Utiliser le nom personnalisé si défini
           domain: brand.domain,
           talentIds: brand.talentIds,
           contacts: brand.contacts,
@@ -399,7 +400,7 @@ export default function PressKitDashboardV5() {
           batchName: `${selectedListName} - ${new Date().toLocaleDateString("fr-FR")}`,
           brands: brandsReady.map((brand) => ({
             contacts: brand.contacts,
-            companyName: brand.companyName,
+            companyName: brand.customName || brand.companyName, // Utiliser le nom personnalisé si défini
             domain: brand.domain,
             talentIds: brand.talentIds,
           })),
@@ -688,7 +689,27 @@ export default function PressKitDashboardV5() {
 
                   return (
                     <tr key={brand.domain} className="border-b hover:bg-gray-50">
-                      <td className="py-3 font-medium">{brand.companyName}</td>
+                      <td className="py-3">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={brand.customName || brand.companyName}
+                            onChange={(e) => {
+                              const newName = e.target.value;
+                              setCategorizedBrands((prev) =>
+                                prev.map((b) =>
+                                  b.domain === brand.domain
+                                    ? { ...b, customName: newName }
+                                    : b
+                                )
+                              );
+                            }}
+                            className="font-medium px-2 py-1 border border-gray-200 rounded hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
+                            placeholder="Nom de la marque"
+                          />
+                          <span className="text-xs text-gray-400">✏️</span>
+                        </div>
+                      </td>
                       <td className="py-3 text-sm text-gray-600">{brand.domain || '—'}</td>
                       <td className="py-3 text-sm">
                         {brand.contacts.length > 0 ? (
