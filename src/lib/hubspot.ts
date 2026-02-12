@@ -156,6 +156,11 @@ export async function getContactsFromList(listId: string): Promise<HubSpotContac
         // Déterminer le nom de l'entreprise à afficher
         let companyName = company || ''; // Utiliser le champ company s'il existe
         
+        // LOG DEBUG : Afficher ce qui est récupéré de HubSpot
+        if (!companyName && email) {
+          console.log(`⚠️  Contact ${email}: champ "company" vide dans HubSpot`);
+        }
+        
         if (!companyName && domain) {
           // Extraire le nom depuis le domaine
           const domainName = domain.replace(/\.(com|fr|co|io|net|org)$/i, '');
