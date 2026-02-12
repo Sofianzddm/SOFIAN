@@ -12,54 +12,69 @@ interface BrandfetchResult {
 }
 
 /**
+ * Convertit une URL Brandfetch en version haute résolution (2000px)
+ */
+function upgradeTo4K(url: string): string {
+  // Si c'est une URL Brandfetch avec des paramètres de taille
+  if (url.includes('cdn.brandfetch.io') && url.match(/\/w\/\d+\/h\/\d+\//)) {
+    // Remplacer w/XXX/h/YYY par w/2000
+    return url.replace(/\/w\/\d+\/h\/\d+\//, '/w/2000/h/2000/');
+  }
+  return url;
+}
+
+/**
  * Sélectionne le meilleur format de logo depuis Brandfetch
- * Priorité : PNG transparent > SVG > Fallback
+ * Priorité : SVG > PNG transparent haute résolution > Fallback
  */
 function getBestLogo(logos: any[]): string | null {
   if (!logos || logos.length === 0) return null;
 
-  // 1. Chercher logo "symbol" ou "icon" en PNG fond transparent
+  // 1. Chercher un SVG en priorité (meilleur format, vectoriel)
   for (const logo of logos) {
-    if (logo.type === 'symbol' || logo.type === 'icon') {
+    if (logo.type === 'logo' || logo.type === 'symbol' || logo.type === 'icon') {
       for (const format of logo.formats || []) {
-        if (format.format === 'png' && format.background === 'transparent') {
+        if (format.format === 'svg') {
           return format.src;
         }
       }
     }
   }
 
-  // 2. Chercher logo "logo" en PNG fond transparent
+  // 2. Si pas de SVG, chercher logo "logo" en PNG fond transparent
   for (const logo of logos) {
     if (logo.type === 'logo') {
       for (const format of logo.formats || []) {
         if (format.format === 'png' && format.background === 'transparent') {
-          return format.src;
+          return upgradeTo4K(format.src);
         }
       }
     }
   }
 
-  // 3. Chercher n'importe quel logo en PNG transparent
+  // 3. Chercher logo "symbol" ou "icon" en PNG fond transparent
   for (const logo of logos) {
-    for (const format of logo.formats || []) {
-      if (format.format === 'png' && format.background === 'transparent') {
-        return format.src;
+    if (logo.type === 'symbol' || logo.type === 'icon') {
+      for (const format of logo.formats || []) {
+        if (format.format === 'png' && format.background === 'transparent') {
+          return upgradeTo4K(format.src);
+        }
       }
     }
   }
 
-  // 4. Chercher un SVG
+  // 4. Chercher n'importe quel logo en PNG transparent
   for (const logo of logos) {
     for (const format of logo.formats || []) {
-      if (format.format === 'svg') {
-        return format.src;
+      if (format.format === 'png' && format.background === 'transparent') {
+        return upgradeTo4K(format.src);
       }
     }
   }
 
   // 5. Fallback : premier logo disponible
-  return logos[0]?.formats?.[0]?.src || null;
+  const fallbackUrl = logos[0]?.formats?.[0]?.src || null;
+  return fallbackUrl ? upgradeTo4K(fallbackUrl) : null;
 }
 
 /**
