@@ -22,7 +22,7 @@ export interface HubSpotContact {
 }
 
 /**
- * Récupérer les listes de contacts depuis HubSpot
+ * Récupérer les listes de contacts depuis HubSpot (avec pagination)
  */
 export async function getLists(): Promise<HubSpotList[]> {
   if (!HUBSPOT_API_KEY) {
@@ -31,28 +31,43 @@ export async function getLists(): Promise<HubSpotList[]> {
   }
 
   try {
-    // API v1 pour les listes
-    const response = await fetch(`${HUBSPOT_BASE_URL}/contacts/v1/lists`, {
-      headers: {
-        'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
-      },
-    });
+    const allLists: HubSpotList[] = [];
+    let hasMore = true;
+    let offset = 0;
+    const limit = 250; // Maximum autorisé par HubSpot
 
-    if (!response.ok) {
-      console.error(`❌ HubSpot getLists error: ${response.status}`);
-      return [];
+    while (hasMore) {
+      const response = await fetch(
+        `${HUBSPOT_BASE_URL}/contacts/v1/lists?count=${limit}&offset=${offset}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        console.error(`❌ HubSpot getLists error: ${response.status}`);
+        break;
+      }
+
+      const data = await response.json();
+      
+      const lists: HubSpotList[] = (data.lists || []).map((list: any) => ({
+        id: list.listId?.toString() || '',
+        name: list.name || 'Liste sans nom',
+        contactCount: list.metaData?.size || null,
+      }));
+
+      allLists.push(...lists);
+
+      // Vérifier s'il y a d'autres pages
+      hasMore = data['has-more'] || false;
+      offset = data.offset || (offset + limit);
     }
 
-    const data = await response.json();
-    
-    const lists: HubSpotList[] = (data.lists || []).map((list: any) => ({
-      id: list.listId?.toString() || '',
-      name: list.name || 'Liste sans nom',
-      contactCount: list.metaData?.size || null,
-    }));
-
-    console.log(`✅ ${lists.length} listes HubSpot récupérées`);
-    return lists;
+    console.log(`✅ ${allLists.length} listes HubSpot récupérées`);
+    return allLists;
   } catch (error) {
     console.error('❌ HubSpot getLists error:', error);
     return [];
