@@ -5,6 +5,7 @@
  */
 
 interface BrandfetchResult {
+  name: string | null; // Nom commercial de la marque
   logo: string | null;
   primaryColor: string | null;
   secondaryColor: string | null;
@@ -25,14 +26,15 @@ function upgradeTo4K(url: string): string {
 
 /**
  * Sélectionne le meilleur format de logo depuis Brandfetch
- * Priorité : SVG > PNG transparent haute résolution > Fallback
+ * Priorité : theme="dark" > pas de theme > Fallback
+ * ÉVITE les logos blancs autant que possible
  */
 function getBestLogo(logos: any[]): string | null {
   if (!logos || logos.length === 0) return null;
 
-  // 1. Chercher un SVG en priorité (meilleur format, vectoriel)
+  // 1. PRIORITÉ ABSOLUE : Logos avec theme="dark" (garantis d'être visibles)
   for (const logo of logos) {
-    if (logo.type === 'logo' || logo.type === 'symbol' || logo.type === 'icon') {
+    if (logo.theme === 'dark') {
       for (const format of logo.formats || []) {
         if (format.format === 'svg') {
           return format.src;
@@ -41,9 +43,8 @@ function getBestLogo(logos: any[]): string | null {
     }
   }
 
-  // 2. Si pas de SVG, chercher logo "logo" en PNG fond transparent
   for (const logo of logos) {
-    if (logo.type === 'logo') {
+    if (logo.theme === 'dark') {
       for (const format of logo.formats || []) {
         if (format.format === 'png' && format.background === 'transparent') {
           return upgradeTo4K(format.src);
@@ -52,9 +53,21 @@ function getBestLogo(logos: any[]): string | null {
     }
   }
 
-  // 3. Chercher logo "symbol" ou "icon" en PNG fond transparent
+  // 2. Logos sans theme spécifique (souvent les versions par défaut)
   for (const logo of logos) {
-    if (logo.type === 'symbol' || logo.type === 'icon') {
+    if (!logo.theme || logo.theme === 'neutral') {
+      if (logo.type === 'logo' || logo.type === 'symbol' || logo.type === 'icon') {
+        for (const format of logo.formats || []) {
+          if (format.format === 'svg') {
+            return format.src;
+          }
+        }
+      }
+    }
+  }
+
+  for (const logo of logos) {
+    if (!logo.theme || logo.theme === 'neutral') {
       for (const format of logo.formats || []) {
         if (format.format === 'png' && format.background === 'transparent') {
           return upgradeTo4K(format.src);
@@ -63,16 +76,7 @@ function getBestLogo(logos: any[]): string | null {
     }
   }
 
-  // 4. Chercher n'importe quel logo en PNG transparent
-  for (const logo of logos) {
-    for (const format of logo.formats || []) {
-      if (format.format === 'png' && format.background === 'transparent') {
-        return upgradeTo4K(format.src);
-      }
-    }
-  }
-
-  // 5. Fallback : premier logo disponible
+  // 3. Fallback : premier logo disponible (en dernier recours)
   const fallbackUrl = logos[0]?.formats?.[0]?.src || null;
   return fallbackUrl ? upgradeTo4K(fallbackUrl) : null;
 }
@@ -134,6 +138,7 @@ export async function fetchBrandData(domain: string): Promise<BrandfetchResult> 
     if (!apiKey) {
       console.warn('❌ BRANDFETCH_API_KEY not configured');
       return {
+        name: null,
         logo: null,
         primaryColor: null,
         secondaryColor: null,
@@ -159,6 +164,7 @@ export async function fetchBrandData(domain: string): Promise<BrandfetchResult> 
     if (!response.ok) {
       console.warn(`⚠️  Brandfetch API error ${response.status}`);
       return {
+        name: null,
         logo: null,
         primaryColor: null,
         secondaryColor: null,
@@ -167,6 +173,9 @@ export async function fetchBrandData(domain: string): Promise<BrandfetchResult> 
     }
 
     const data = await response.json();
+
+    // Nom commercial de la marque (priorité #1)
+    const brandName = data.name || null;
 
     // Logo : sélection intelligente du meilleur format
     const logo = getBestLogo(data.logos || []);
@@ -204,9 +213,10 @@ export async function fetchBrandData(domain: string): Promise<BrandfetchResult> 
 
     const description = data.description || null;
 
-    console.log(`  ✅ Logo: ${logo ? '✓' : '✗'}, Couleur: ${primaryColor} (brut: ${rawColor || 'aucune'})`);
+    console.log(`  ✅ Nom: "${brandName}", Logo: ${logo ? '✓' : '✗'}, Couleur: ${primaryColor} (brut: ${rawColor || 'aucune'})`);
 
     return {
+      name: brandName,
       logo,
       primaryColor,
       secondaryColor,
@@ -215,6 +225,7 @@ export async function fetchBrandData(domain: string): Promise<BrandfetchResult> 
   } catch (error) {
     console.error('❌ Brandfetch error:', error);
     return {
+      name: null,
       logo: null,
       primaryColor: null,
       secondaryColor: null,

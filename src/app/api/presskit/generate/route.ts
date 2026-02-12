@@ -61,13 +61,15 @@ export async function POST(request: NextRequest) {
               .replace(/[^a-z0-9]+/g, "-")     // Remplacer espaces et caractères spéciaux par -
               .replace(/^-+|-+$/g, "");         // Supprimer les tirets en début/fin
 
-            // 2. Brandfetch API → récupérer logo, couleurs, description (si domaine disponible)
+            // 2. Brandfetch API → récupérer nom commercial, logo, couleurs, description
             let brandfetchData: {
+              name: string | null;
               logo: string | null;
               primaryColor: string | null;
               secondaryColor: string | null;
               description: string | null;
             } = {
+              name: null,
               logo: null,
               primaryColor: null,
               secondaryColor: null,
@@ -80,11 +82,28 @@ export async function POST(request: NextRequest) {
               console.log(`  ⚠️  Pas de domaine, Brandfetch ignoré`);
             }
 
-            // 3. Créer ou mettre à jour la marque
+            // 3. Déterminer le nom de la marque (priorité)
+            // 1. Brandfetch → nom commercial propre
+            // 2. HubSpot company name
+            // 3. Domaine nettoyé en dernier recours
+            const brandName = brandfetchData.name 
+              || brandData.companyName 
+              || brandData.domain
+                ?.replace(/^www\./, '')
+                ?.replace(/\.(com|fr|net|org)$/, '')
+                ?.replace(/-/g, ' ')
+                ?.split(' ')
+                .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+                .join(' ')
+              || 'Marque';
+
+            console.log(`  📛 Nom final: "${brandName}" (source: ${brandfetchData.name ? 'Brandfetch' : brandData.companyName ? 'HubSpot' : 'domaine'})`);
+
+            // 4. Créer ou mettre à jour la marque
             const brand = await prisma.brand.upsert({
               where: { slug },
               update: {
-                name: brandData.companyName,
+                name: brandName,
                 domain: brandData.domain || null,
                 logo: brandfetchData.logo,
                 primaryColor: brandfetchData.primaryColor,
@@ -92,7 +111,7 @@ export async function POST(request: NextRequest) {
                 description: brandfetchData.description || "Marque",
               },
               create: {
-                name: brandData.companyName,
+                name: brandName,
                 slug,
                 domain: brandData.domain || null,
                 niche: "Press Kit", // Valeur par défaut pour les press kits
