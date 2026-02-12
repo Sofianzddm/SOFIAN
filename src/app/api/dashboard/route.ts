@@ -408,6 +408,114 @@ export async function GET() {
       });
     }
 
+    // ============================================
+    // HEAD_OF_INFLUENCE - Dashboard Influence
+    // ============================================
+    if (role === "HEAD_OF_INFLUENCE") {
+      const [
+        totalTalents,
+        collabsEnCours,
+        negosEnCours,
+        caMois,
+        caAnnee,
+      ] = await Promise.all([
+        prisma.talent.count(),
+        prisma.collaboration.count({ where: { statut: "EN_COURS" } }),
+        prisma.negociation.count({ 
+          where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } } 
+        }),
+        prisma.collaboration.aggregate({
+          _sum: { montantBrut: true, commissionEuros: true },
+          where: {
+            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
+            createdAt: { gte: startOfMonth },
+          },
+        }),
+        prisma.collaboration.aggregate({
+          _sum: { montantBrut: true, commissionEuros: true },
+          where: {
+            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
+            createdAt: { gte: startOfYear },
+          },
+        }),
+      ]);
+
+      return NextResponse.json({
+        role: "HEAD_OF_INFLUENCE",
+        stats: {
+          totalTalents,
+          collabsEnCours,
+          collabsNego: negosEnCours,
+          caMois: Number(caMois._sum.montantBrut) || 0,
+          commissionMois: Number(caMois._sum.commissionEuros) || 0,
+          caAnnee: Number(caAnnee._sum.montantBrut) || 0,
+          commissionAnnee: Number(caAnnee._sum.commissionEuros) || 0,
+        },
+      });
+    }
+
+    // ============================================
+    // HEAD_OF_SALES - Dashboard Sales
+    // ============================================
+    if (role === "HEAD_OF_SALES") {
+      const [
+        totalMarques,
+        negosEnCours,
+        caMois,
+        caAnnee,
+      ] = await Promise.all([
+        prisma.marque.count(),
+        prisma.negociation.count({ 
+          where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } } 
+        }),
+        prisma.collaboration.aggregate({
+          _sum: { montantBrut: true },
+          where: {
+            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
+            createdAt: { gte: startOfMonth },
+          },
+        }),
+        prisma.collaboration.aggregate({
+          _sum: { montantBrut: true },
+          where: {
+            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
+            createdAt: { gte: startOfYear },
+          },
+        }),
+      ]);
+
+      return NextResponse.json({
+        role: "HEAD_OF_SALES",
+        stats: {
+          totalMarques,
+          collabsNego: negosEnCours,
+          caMois: Number(caMois._sum.montantBrut) || 0,
+          caAnnee: Number(caAnnee._sum.montantBrut) || 0,
+        },
+      });
+    }
+
+    // ============================================
+    // CM - Dashboard Community Manager
+    // ============================================
+    if (role === "CM") {
+      const [
+        collabsEnCours,
+        collabsPublie,
+      ] = await Promise.all([
+        prisma.collaboration.count({ where: { statut: "EN_COURS" } }),
+        prisma.collaboration.count({ where: { statut: "PUBLIE" } }),
+      ]);
+
+      return NextResponse.json({
+        role: "CM",
+        stats: {
+          collabsEnCours,
+          collabsPublie,
+        },
+      });
+    }
+
     return NextResponse.json({ error: "Rôle non reconnu" }, { status: 400 });
   } catch (error) {
     console.error("Erreur dashboard:", error);

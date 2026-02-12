@@ -35,8 +35,10 @@ export async function getLists(): Promise<HubSpotList[]> {
     let hasMore = true;
     let offset = 0;
     const limit = 250; // Maximum autorisé par HubSpot
+    const maxPages = 20; // Limite de sécurité : 20 pages = 5000 listes max
+    let pageCount = 0;
 
-    while (hasMore) {
+    while (hasMore && pageCount < maxPages) {
       const response = await fetch(
         `${HUBSPOT_BASE_URL}/contacts/v1/lists?count=${limit}&offset=${offset}`,
         {
@@ -48,6 +50,11 @@ export async function getLists(): Promise<HubSpotList[]> {
 
       if (!response.ok) {
         console.error(`❌ HubSpot getLists error: ${response.status}`);
+        // Si c'est la première page qui échoue, retourner un tableau vide
+        if (pageCount === 0) {
+          return [];
+        }
+        // Sinon, retourner ce qu'on a déjà récupéré
         break;
       }
 
@@ -61,12 +68,18 @@ export async function getLists(): Promise<HubSpotList[]> {
 
       allLists.push(...lists);
 
+      // Si aucune liste retournée, arrêter
+      if (lists.length === 0) {
+        break;
+      }
+
       // Vérifier s'il y a d'autres pages
-      hasMore = data['has-more'] || false;
+      hasMore = data['has-more'] === true;
       offset = data.offset || (offset + limit);
+      pageCount++;
     }
 
-    console.log(`✅ ${allLists.length} listes HubSpot récupérées`);
+    console.log(`✅ ${allLists.length} listes HubSpot récupérées (${pageCount} page(s))`);
     return allLists;
   } catch (error) {
     console.error('❌ HubSpot getLists error:', error);
