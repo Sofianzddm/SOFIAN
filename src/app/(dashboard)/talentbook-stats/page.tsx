@@ -420,95 +420,271 @@ export default function TalentbookStatsPage() {
               ))}
             </div>
 
+            {/* Aide / Légende */}
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4 mb-6 border border-blue-100">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">💡</div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 mb-2">Comment lire ces statistiques ?</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div className="flex items-start gap-2">
+                      <span className="text-blue-600 font-bold">👁️ Vues :</span>
+                      <span className="text-gray-700">Nombre total de fois que le press kit a été ouvert</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-emerald-600 font-bold">🏢 Uniques :</span>
+                      <span className="text-gray-700">Nombre de marques différentes qui ont consulté</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-amber-600 font-bold">⏱️ Temps :</span>
+                      <span className="text-gray-700">Durée moyenne de consultation (plus c'est long, mieux c'est)</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-purple-600 font-bold">📊 Scroll :</span>
+                      <span className="text-gray-700">% de la page consultée (&gt;80% = excellent engagement)</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-emerald-600 font-bold">🔥 CTA :</span>
+                      <span className="text-gray-700">% de visiteurs qui ont cliqué sur "Contactez-nous"</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="text-blue-600 font-bold">🎯 Talents :</span>
+                      <span className="text-gray-700">Nombre de profils de créateurs consultés</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Vue d'ensemble */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm mb-8">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">📊 Vue d'ensemble</h2>
+              <p className="text-sm text-gray-600 mb-6">
+                Performance globale de vos press kits personnalisés envoyés aux marques
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Engagement */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700">📖 Engagement global</span>
+                    <span className="text-sm font-bold text-gray-900">{presskitStats.avgScrollDepth}%</span>
+                  </div>
+                  <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
+                      style={{ width: `${presskitStats.avgScrollDepth}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {presskitStats.avgScrollDepth >= 80 
+                      ? "🔥 Excellent ! Les marques consultent tout le contenu" 
+                      : presskitStats.avgScrollDepth >= 50
+                      ? "✅ Bon engagement, les marques scrollent en moyenne jusqu'à la moitié"
+                      : "⚠️ Engagement faible, optimisez le contenu du haut"}
+                  </p>
+                </div>
+
+                {/* Taux de visite */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700">🎯 Taux de visite</span>
+                    <span className="text-sm font-bold text-gray-900">
+                      {presskitStats.uniqueVisitors > 0 
+                        ? Math.round((presskitStats.totalViews / presskitStats.uniqueVisitors) * 100) / 100
+                        : 0}x
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <div className="text-xs text-gray-600 mb-1">Visites totales</div>
+                      <div className="text-2xl font-bold text-blue-600">{presskitStats.totalViews}</div>
+                    </div>
+                    <div className="text-2xl text-gray-300">→</div>
+                    <div className="flex-1">
+                      <div className="text-xs text-gray-600 mb-1">Marques uniques</div>
+                      <div className="text-2xl font-bold text-emerald-600">{presskitStats.uniqueVisitors}</div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {presskitStats.totalViews > presskitStats.uniqueVisitors 
+                      ? "✨ Certaines marques reviennent consulter plusieurs fois !" 
+                      : "📌 Chaque marque consulte une seule fois"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Stats Cards Press Kits */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 shadow-lg text-white">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
-                    👁️
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 shadow-lg text-white group hover:scale-105 transition-transform">
+                <div className="flex flex-col">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
+                      👁️
+                    </div>
+                    <span className="text-xs bg-white/20 px-2 py-1 rounded-full">Total</span>
                   </div>
-                  <div>
-                    <p className="text-3xl font-bold">{presskitStats.totalViews}</p>
-                    <p className="text-sm text-white/80">Press Kits ouverts</p>
-                  </div>
+                  <p className="text-4xl font-bold mb-1">{presskitStats.totalViews}</p>
+                  <p className="text-sm text-white/90 font-medium mb-2">Press Kits ouverts</p>
+                  <p className="text-xs text-white/70">
+                    Nombre total de consultations de vos press kits personnalisés
+                  </p>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-6 shadow-lg text-white">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
-                    🏢
+              <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-6 shadow-lg text-white group hover:scale-105 transition-transform">
+                <div className="flex flex-col">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
+                      🏢
+                    </div>
+                    <span className="text-xs bg-white/20 px-2 py-1 rounded-full">Unique</span>
                   </div>
-                  <div>
-                    <p className="text-3xl font-bold">{presskitStats.uniqueVisitors}</p>
-                    <p className="text-sm text-white/80">Marques uniques</p>
-                  </div>
+                  <p className="text-4xl font-bold mb-1">{presskitStats.uniqueVisitors}</p>
+                  <p className="text-sm text-white/90 font-medium mb-2">Marques uniques</p>
+                  <p className="text-xs text-white/70">
+                    Nombre de marques différentes ayant consulté leurs press kits
+                  </p>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl p-6 shadow-lg text-white">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
-                    ⏱️
+              <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl p-6 shadow-lg text-white group hover:scale-105 transition-transform">
+                <div className="flex flex-col">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
+                      ⏱️
+                    </div>
+                    <span className="text-xs bg-white/20 px-2 py-1 rounded-full">Moyenne</span>
                   </div>
-                  <div>
-                    <p className="text-3xl font-bold">{Math.floor(presskitStats.avgDuration / 60)}m{presskitStats.avgDuration % 60}s</p>
-                    <p className="text-sm text-white/80">Temps moyen</p>
-                  </div>
+                  <p className="text-4xl font-bold mb-1">
+                    {Math.floor(presskitStats.avgDuration / 60)}<span className="text-2xl">m</span>
+                    <span className="text-2xl">{presskitStats.avgDuration % 60}s</span>
+                  </p>
+                  <p className="text-sm text-white/90 font-medium mb-2">Temps de consultation</p>
+                  <p className="text-xs text-white/70">
+                    Durée moyenne passée sur chaque press kit
+                    {presskitStats.avgDuration >= 120 ? " 🔥 Excellent !" : presskitStats.avgDuration >= 60 ? " ✅" : " ⚠️"}
+                  </p>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 shadow-lg text-white">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
-                    📊
+              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 shadow-lg text-white group hover:scale-105 transition-transform">
+                <div className="flex flex-col">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
+                      📊
+                    </div>
+                    <span className="text-xs bg-white/20 px-2 py-1 rounded-full">Scroll</span>
                   </div>
-                  <div>
-                    <p className="text-3xl font-bold">{presskitStats.avgScrollDepth}%</p>
-                    <p className="text-sm text-white/80">Scroll moyen</p>
-                  </div>
+                  <p className="text-4xl font-bold mb-1">{presskitStats.avgScrollDepth}<span className="text-2xl">%</span></p>
+                  <p className="text-sm text-white/90 font-medium mb-2">Profondeur de scroll</p>
+                  <p className="text-xs text-white/70">
+                    % du contenu consulté en moyenne
+                    {presskitStats.avgScrollDepth >= 80 ? " 🔥" : presskitStats.avgScrollDepth >= 50 ? " ✅" : " ⚠️"}
+                  </p>
                 </div>
               </div>
             </div>
 
             {/* Top Marques */}
             <div className="bg-white rounded-2xl p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">🏆 Top Marques</h2>
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">🏆 Top Marques</h2>
+                  <p className="text-sm text-gray-500 mt-1">Classement des marques par engagement</p>
+                </div>
+                <div className="text-xs text-gray-400">
+                  {presskitStats.topBrands.length} marque{presskitStats.topBrands.length > 1 ? 's' : ''}
+                </div>
+              </div>
               
               {presskitStats.topBrands.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">Aucun press kit consulté pour cette période</p>
+                <div className="text-center py-12">
+                  <div className="text-6xl mb-4">📭</div>
+                  <p className="text-gray-500">Aucun press kit consulté pour cette période</p>
+                  <p className="text-sm text-gray-400 mt-2">Envoyez des press kits aux marques pour voir les stats ici</p>
+                </div>
               ) : (
-                <div className="space-y-4">
-                  {presskitStats.topBrands.map((brand, index) => (
-                    <div key={brand.brandId} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all">
-                      <div className="w-8 h-8 flex items-center justify-center">
-                        {index === 0 && <span className="text-2xl">🥇</span>}
-                        {index === 1 && <span className="text-2xl">🥈</span>}
-                        {index === 2 && <span className="text-2xl">🥉</span>}
-                        {index > 2 && <span className="text-lg text-gray-400 font-medium">{index + 1}</span>}
-                      </div>
-                      
-                      <div className="flex-1">
-                        <p className="font-semibold text-gray-900">{brand.brandName}</p>
-                        <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
-                          <span>👁️ {brand.views} vues</span>
-                          <span>⏱️ {Math.floor(brand.avgDuration / 60)}m{brand.avgDuration % 60}s</span>
-                          <span>🎯 {brand.talentsViewedCount} talents vus</span>
+                <div className="space-y-3">
+                  {presskitStats.topBrands.map((brand, index) => {
+                    const maxViews = Math.max(...presskitStats.topBrands.map(b => b.views));
+                    const viewsPercent = (brand.views / maxViews) * 100;
+                    
+                    return (
+                      <div 
+                        key={brand.brandId} 
+                        className="group bg-gradient-to-r from-gray-50 to-white hover:from-blue-50 hover:to-blue-50/30 rounded-xl p-4 transition-all border border-gray-100 hover:border-blue-200 hover:shadow-md"
+                      >
+                        {/* Header */}
+                        <div className="flex items-center gap-4 mb-3">
+                          <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-white rounded-lg shadow-sm">
+                            {index === 0 && <span className="text-2xl">🥇</span>}
+                            {index === 1 && <span className="text-2xl">🥈</span>}
+                            {index === 2 && <span className="text-2xl">🥉</span>}
+                            {index > 2 && <span className="text-lg text-gray-400 font-bold">{index + 1}</span>}
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-gray-900 text-lg truncate">{brand.brandName}</p>
+                            <p className="text-xs text-gray-400">{formatTimeAgo(brand.lastVisit)}</p>
+                          </div>
+                          
+                          <div className={`px-3 py-1.5 rounded-full text-sm font-bold ${
+                            brand.conversionRate > 0 
+                              ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg' 
+                              : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {brand.conversionRate > 0 ? '🔥' : '📭'} {brand.conversionRate}% CTA
+                          </div>
+                        </div>
+
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-3 gap-3 mb-3">
+                          <div className="bg-white rounded-lg p-3 border border-gray-100">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-lg">👁️</span>
+                              <span className="text-xs text-gray-500">Vues</span>
+                            </div>
+                            <p className="text-xl font-bold text-gray-900">{brand.views}</p>
+                          </div>
+                          
+                          <div className="bg-white rounded-lg p-3 border border-gray-100">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-lg">⏱️</span>
+                              <span className="text-xs text-gray-500">Temps</span>
+                            </div>
+                            <p className="text-xl font-bold text-gray-900">
+                              {Math.floor(brand.avgDuration / 60)}<span className="text-sm">m</span>
+                              {brand.avgDuration % 60}<span className="text-sm">s</span>
+                            </p>
+                          </div>
+                          
+                          <div className="bg-white rounded-lg p-3 border border-gray-100">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-lg">🎯</span>
+                              <span className="text-xs text-gray-500">Talents</span>
+                            </div>
+                            <p className="text-xl font-bold text-gray-900">{brand.talentsViewedCount}</p>
+                          </div>
+                        </div>
+
+                        {/* Barre de progression engagement */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-gray-600">Engagement relatif</span>
+                            <span className="text-xs font-bold text-blue-600">{Math.round(viewsPercent)}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-700"
+                              style={{ width: `${viewsPercent}%` }}
+                            />
+                          </div>
                         </div>
                       </div>
-                      
-                      <div className="text-right">
-                        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${
-                          brand.conversionRate > 0 
-                            ? 'bg-emerald-100 text-emerald-700' 
-                            : 'bg-gray-100 text-gray-500'
-                        }`}>
-                          {brand.conversionRate > 0 ? '🔥' : '📭'} {brand.conversionRate}%
-                        </div>
-                        <p className="text-xs text-gray-400 mt-1">{formatTimeAgo(brand.lastVisit)}</p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
