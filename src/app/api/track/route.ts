@@ -116,6 +116,21 @@ export async function POST(request: NextRequest) {
         console.log(`📊 Talent Book cliqué: ${brand.name}`);
         break;
 
+      case "talent_click":
+        // Talent modal ouvert (juste un log, on ne stocke pas en base pour l'instant)
+        console.log(`📊 Talent cliqué: ${brand.name} - Talent ${data?.talentId}`);
+        break;
+
+      case "talent_modal_duration":
+        // Durée passée dans une modal talent (juste un log pour l'instant)
+        console.log(`📊 Durée modal talent: ${brand.name} - Talent ${data?.talentId} - ${data?.durationSeconds}s`);
+        break;
+
+      case "scroll_complete":
+        // Utilisateur a scrollé jusqu'en bas (juste un log pour l'instant)
+        console.log(`📊 Scroll complet: ${brand.name}`);
+        break;
+
       default:
         return NextResponse.json(
           { message: "Type d'événement invalide" },

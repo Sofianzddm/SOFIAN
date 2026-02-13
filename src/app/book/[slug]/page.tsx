@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 
 // Types
@@ -306,6 +306,13 @@ export default function PressKitPage() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [selectedFullTalent, setSelectedFullTalent] = useState<FullTalent | null>(null);
 
+  // Tracking refs et states
+  const sessionIdRef = useRef<string>('');
+  const hubspotContactIdRef = useRef<string | null>(null);
+  const scrollCompleteTrackedRef = useRef(false);
+  const [modalOpenTime, setModalOpenTime] = useState<number | null>(null);
+  const [openedTalentId, setOpenedTalentId] = useState<string | null>(null);
+
   const t = translations[lang];
 
   // Ajouter meta robots noindex nofollow
@@ -406,6 +413,62 @@ export default function PressKitPage() {
     new Set(allTalents.flatMap(t => t.niches))
   ).sort();
 
+  // Fonction helper pour envoyer les events de tracking
+  const sendTrackingEvent = (event: string, data?: any) => {
+    if (!sessionIdRef.current) return;
+    
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event,
+        slug,
+        sessionId: sessionIdRef.current,
+        hubspotContactId: hubspotContactIdRef.current,
+        data,
+      }),
+    }).catch(err => console.error('Tracking error:', err));
+  };
+
+  // Tracker l'ouverture/fermeture des modals de talents
+  useEffect(() => {
+    // Modal talent sélection personnalisée
+    if (selectedTalent && !modalOpenTime) {
+      setModalOpenTime(Date.now());
+      setOpenedTalentId(selectedTalent.id);
+      sendTrackingEvent('talent_click', { talentId: selectedTalent.id });
+      console.log('📊 Talent modal opened:', selectedTalent.id);
+    } else if (!selectedTalent && modalOpenTime && openedTalentId) {
+      const durationSeconds = Math.round((Date.now() - modalOpenTime) / 1000);
+      sendTrackingEvent('talent_modal_duration', { 
+        talentId: openedTalentId, 
+        durationSeconds 
+      });
+      console.log(`📊 Talent modal closed: ${openedTalentId} (${durationSeconds}s)`);
+      setModalOpenTime(null);
+      setOpenedTalentId(null);
+    }
+  }, [selectedTalent, modalOpenTime, openedTalentId]);
+
+  // Tracker l'ouverture/fermeture des modals de talents (Talent Book complet)
+  useEffect(() => {
+    if (selectedFullTalent && !modalOpenTime) {
+      setModalOpenTime(Date.now());
+      setOpenedTalentId(selectedFullTalent.id);
+      sendTrackingEvent('talent_click', { talentId: selectedFullTalent.id });
+      console.log('📊 Full talent modal opened:', selectedFullTalent.id);
+    } else if (!selectedFullTalent && modalOpenTime && openedTalentId) {
+      const durationSeconds = Math.round((Date.now() - modalOpenTime) / 1000);
+      sendTrackingEvent('talent_modal_duration', { 
+        talentId: openedTalentId, 
+        durationSeconds 
+      });
+      console.log(`📊 Full talent modal closed: ${openedTalentId} (${durationSeconds}s)`);
+      setModalOpenTime(null);
+      setOpenedTalentId(null);
+    }
+  }, [selectedFullTalent, modalOpenTime, openedTalentId]);
+
   // Tracking
   useEffect(() => {
     if (!brandData) return;
@@ -413,10 +476,12 @@ export default function PressKitPage() {
     // Générer un ID de session unique et le stocker
     const sessionId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     sessionStorage.setItem('presskit-session-id', sessionId);
+    sessionIdRef.current = sessionId;
     
     // Récupérer le hubspotContactId depuis l'URL (?cid=...)
     const urlParams = new URLSearchParams(window.location.search);
     const hubspotContactId = urlParams.get('cid');
+    hubspotContactIdRef.current = hubspotContactId;
 
     // Temps de début
     const startTime = Date.now();
@@ -424,29 +489,27 @@ export default function PressKitPage() {
     const talentsViewed = new Set<string>();
 
     // Event "view" au chargement
-    fetch('/api/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        event: 'view',
-        slug,
-        sessionId,
-        hubspotContactId,
-      }),
-    });
+    sendTrackingEvent('view');
 
-    // Tracker le scroll depth
+    // Tracker le scroll depth + scroll_complete
     const handleScroll = () => {
       const scrollTop = window.scrollY;
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
       const scrollPercent = Math.round((scrollTop / docHeight) * 100);
       maxScrollDepth = Math.max(maxScrollDepth, scrollPercent);
+
+      // Détecter scroll_complete (>= 95%)
+      if (scrollPercent >= 95 && !scrollCompleteTrackedRef.current) {
+        scrollCompleteTrackedRef.current = true;
+        sendTrackingEvent('scroll_complete');
+        console.log('📊 Scroll complete tracked');
+      }
     };
 
     window.addEventListener('scroll', handleScroll);
 
     // Intersection Observer pour tracker les talents vus
-    const observer = new IntersectionObserver(
+    const talentObserver = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           const target = entry.target as HTMLElement;
@@ -461,8 +524,30 @@ export default function PressKitPage() {
     // Observer toutes les cards talents
     setTimeout(() => {
       document.querySelectorAll('[data-talent-id]').forEach((el) => {
-        observer.observe(el);
+        talentObserver.observe(el);
       });
+    }, 500);
+
+    // Intersection Observer pour détecter le scroll vers la section Talent Book
+    const talentbookSectionObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            sendTrackingEvent('talentbook_click');
+            console.log('📊 Talent Book section viewed');
+            talentbookSectionObserver.disconnect(); // Ne tracker qu'une seule fois
+          }
+        });
+      },
+      { threshold: 0.3 }
+    );
+
+    // Observer la section Talent Book
+    setTimeout(() => {
+      const talentBookSection = document.getElementById('talent-book-section');
+      if (talentBookSection) {
+        talentbookSectionObserver.observe(talentBookSection);
+      }
     }, 500);
 
     // Event "session_end" au beforeunload
@@ -491,7 +576,8 @@ export default function PressKitPage() {
     return () => {
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      observer.disconnect();
+      talentObserver.disconnect();
+      talentbookSectionObserver.disconnect();
     };
   }, [brandData, slug]);
 
@@ -748,14 +834,28 @@ export default function PressKitPage() {
       </section>
 
       {/* Section Découvrir tous nos talents - HEADER */}
-      <section className="mt-16 py-12 border-t border-[#220101]/10 text-center bg-[#F5EDE0]">
+      <section 
+        id="talent-book-section"
+        className="mt-16 py-12 border-t border-[#220101]/10 text-center bg-[#F5EDE0]"
+      >
         <div className="max-w-3xl mx-auto px-6">
           <h2 className="text-2xl md:text-3xl font-spectral-light text-[#220101] mb-4">
             {t.discoverAllTalents}
           </h2>
-          <p className="text-[#220101]/60 text-base md:text-lg font-spectral-light">
+          <p className="text-[#220101]/60 text-base md:text-lg font-spectral-light mb-6">
             {t.exploreRoster}
           </p>
+          
+          {/* CTA Contactez-nous */}
+          <button
+            onClick={() => {
+              sendTrackingEvent('cta_click');
+              window.location.href = 'mailto:contact@glowupagence.fr?subject=Demande de renseignements - Press Kit';
+            }}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-[#220101] hover:bg-[#220101]/90 text-white rounded-full font-switzer font-medium transition-all hover:scale-105 text-sm md:text-base"
+          >
+            📧 {lang === "fr" ? "Contactez-nous" : "Contact us"}
+          </button>
         </div>
       </section>
 
