@@ -37,12 +37,29 @@ interface PresskitStats {
   avgDuration: number;
   avgScrollDepth: number;
   topBrands: TopBrand[];
+  allBrands: AllBrand[];
+}
+
+interface AllBrand {
+  brandId: string;
+  brandName: string;
+  slug: string;
+  pressKitUrl: string;
+  logo: string | null;
+  color: string | null;
+  hasBeenOpened: boolean;
+  views: number;
+  lastVisit: string | null;
+  avgDuration: number;
+  conversionRate: number;
+  createdAt: string;
 }
 
 interface TalentViewed {
   id: string;
   name: string;
   photo: string | null;
+  duration: number; // Durée totale passée sur ce talent (en secondes)
 }
 
 interface Visit {
@@ -50,6 +67,7 @@ interface Visit {
   duration: number;
   scrollDepth: number;
   talentsViewed: string[];
+  talentDurations: Record<string, number>;
   ctaClicked: boolean;
   talentbookClicked: boolean;
 }
@@ -152,6 +170,10 @@ export default function TalentbookStatsPage() {
   const [period, setPeriod] = useState("7d");
   const [activeTab, setActiveTab] = useState<"talentbook" | "presskits">("talentbook");
   const [expandedBrand, setExpandedBrand] = useState<string | null>(null);
+  
+  // Filtres pour la liste complète des press kits
+  const [sortBy, setSortBy] = useState<"recent" | "views" | "duration" | "cta" | "name">("recent");
+  const [filterStatus, setFilterStatus] = useState<"all" | "opened" | "pending">("all");
 
   useEffect(() => {
     fetchStats();
@@ -739,34 +761,73 @@ export default function TalentbookStatsPage() {
                         {/* Section détails (visible si étendu) */}
                         {isExpanded && (
                           <div className="border-t border-blue-200 bg-white/50 p-4 space-y-4">
-                            {/* Talents consultés */}
+                            {/* Talents consultés avec durées */}
                             <div>
                               <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
-                                🎯 Talents consultés ({brand.talentsViewed.length})
+                                🎯 Temps passé par talent ({brand.talentsViewed.length})
                               </h4>
                               {brand.talentsViewed.length > 0 ? (
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                  {brand.talentsViewed.map((talent) => (
-                                    <div 
-                                      key={talent.id} 
-                                      className="flex items-center gap-2 bg-white rounded-lg p-2 border border-gray-200"
-                                    >
-                                      {talent.photo ? (
-                                        <img 
-                                          src={talent.photo} 
-                                          alt={talent.name}
-                                          className="w-8 h-8 rounded-full object-cover"
-                                        />
-                                      ) : (
-                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
-                                          {talent.name.split(' ').map(n => n[0]).join('')}
+                                <div className="space-y-2">
+                                  {brand.talentsViewed
+                                    .sort((a, b) => b.duration - a.duration) // Trier par durée décroissante
+                                    .map((talent, idx) => {
+                                      const maxDuration = Math.max(...brand.talentsViewed.map(t => t.duration));
+                                      const durationPercent = maxDuration > 0 ? (talent.duration / maxDuration) * 100 : 0;
+                                      
+                                      return (
+                                        <div 
+                                          key={talent.id} 
+                                          className="bg-white rounded-lg p-3 border border-gray-200 hover:border-blue-300 transition-all"
+                                        >
+                                          <div className="flex items-center gap-3 mb-2">
+                                            {/* Rang */}
+                                            <div className="w-6 h-6 flex items-center justify-center">
+                                              {idx === 0 && <span className="text-lg">🥇</span>}
+                                              {idx === 1 && <span className="text-lg">🥈</span>}
+                                              {idx === 2 && <span className="text-lg">🥉</span>}
+                                              {idx > 2 && <span className="text-xs text-gray-400 font-bold">{idx + 1}</span>}
+                                            </div>
+                                            
+                                            {/* Photo */}
+                                            {talent.photo ? (
+                                              <img 
+                                                src={talent.photo} 
+                                                alt={talent.name}
+                                                className="w-10 h-10 rounded-full object-cover"
+                                              />
+                                            ) : (
+                                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                                                {talent.name.split(' ').map(n => n[0]).join('')}
+                                              </div>
+                                            )}
+                                            
+                                            {/* Nom */}
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-sm font-bold text-gray-900 truncate">{talent.name}</p>
+                                            </div>
+                                            
+                                            {/* Durée */}
+                                            <div className="text-right">
+                                              <p className="text-lg font-bold text-blue-600">
+                                                {Math.floor(talent.duration / 60)}<span className="text-xs">m</span>
+                                                {talent.duration % 60}<span className="text-xs">s</span>
+                                              </p>
+                                              <p className="text-xs text-gray-500">
+                                                {talent.duration === 0 ? "Pas de modal" : "Temps consulté"}
+                                              </p>
+                                            </div>
+                                          </div>
+                                          
+                                          {/* Barre de progression */}
+                                          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                            <div 
+                                              className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-700"
+                                              style={{ width: `${durationPercent}%` }}
+                                            />
+                                          </div>
                                         </div>
-                                      )}
-                                      <span className="text-xs font-medium text-gray-700 truncate">
-                                        {talent.name}
-                                      </span>
-                                    </div>
-                                  ))}
+                                      );
+                                    })}
                                 </div>
                               ) : (
                                 <p className="text-xs text-gray-500 italic">Aucun talent consulté</p>
@@ -828,8 +889,23 @@ export default function TalentbookStatsPage() {
                                     </div>
 
                                     {visit.talentsViewed.length > 0 && (
-                                      <div className="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1">
-                                        <span className="font-medium">Talents vus :</span> {visit.talentsViewed.join(', ')}
+                                      <div className="bg-gray-50 rounded p-2 space-y-1">
+                                        <p className="text-xs font-medium text-gray-700 mb-1">Temps par talent :</p>
+                                        {visit.talentsViewed.map((talentName, tidx) => {
+                                          const talentId = Object.keys(visit.talentDurations)[tidx];
+                                          const duration = talentId ? visit.talentDurations[talentId] : 0;
+                                          
+                                          return (
+                                            <div key={tidx} className="flex items-center justify-between text-xs">
+                                              <span className="text-gray-600 truncate flex-1">{talentName}</span>
+                                              <span className="text-gray-900 font-medium ml-2">
+                                                {duration > 0 
+                                                  ? `${Math.floor(duration / 60)}m${duration % 60}s` 
+                                                  : "—"}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     )}
 
@@ -856,6 +932,217 @@ export default function TalentbookStatsPage() {
                   })}
                 </div>
               )}
+            </div>
+
+            {/* ===================================
+                TOUS LES PRESS KITS ENVOYÉS
+                =================================== */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="mb-6">
+                <h3 className="text-2xl font-bold text-gray-900 mb-4">📋 Tous les Press Kits Envoyés</h3>
+                
+                {/* Filtres et tri */}
+                <div className="flex flex-col md:flex-row gap-4 mb-4">
+                  {/* Filtre par statut */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-600">Statut :</span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setFilterStatus("all")}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                          filterStatus === "all"
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        Tous ({presskitStats.allBrands.length})
+                      </button>
+                      <button
+                        onClick={() => setFilterStatus("opened")}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                          filterStatus === "opened"
+                            ? 'bg-emerald-600 text-white shadow-md'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        Ouverts ({presskitStats.allBrands.filter(b => b.hasBeenOpened).length})
+                      </button>
+                      <button
+                        onClick={() => setFilterStatus("pending")}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                          filterStatus === "pending"
+                            ? 'bg-gray-600 text-white shadow-md'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        En attente ({presskitStats.allBrands.filter(b => !b.hasBeenOpened).length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Tri */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-600">Trier par :</span>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as any)}
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:border-blue-300 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="recent">📅 Plus récent</option>
+                      <option value="views">👁️ Plus de vues</option>
+                      <option value="duration">⏱️ Plus engageant</option>
+                      <option value="cta">🔥 Meilleur CTA</option>
+                      <option value="name">🔤 Nom (A-Z)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {(() => {
+                // Appliquer les filtres
+                let filtered = presskitStats.allBrands;
+                
+                if (filterStatus === "opened") {
+                  filtered = filtered.filter(b => b.hasBeenOpened);
+                } else if (filterStatus === "pending") {
+                  filtered = filtered.filter(b => !b.hasBeenOpened);
+                }
+
+                // Appliquer le tri
+                const sorted = [...filtered].sort((a, b) => {
+                  switch (sortBy) {
+                    case "recent":
+                      // Les ouverts : trier par lastVisit, les non-ouverts : par createdAt
+                      if (a.hasBeenOpened && b.hasBeenOpened && a.lastVisit && b.lastVisit) {
+                        return new Date(b.lastVisit).getTime() - new Date(a.lastVisit).getTime();
+                      }
+                      if (!a.hasBeenOpened && !b.hasBeenOpened) {
+                        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                      }
+                      return a.hasBeenOpened ? -1 : 1; // Ouverts en premier
+                    
+                    case "views":
+                      return b.views - a.views;
+                    
+                    case "duration":
+                      return b.avgDuration - a.avgDuration;
+                    
+                    case "cta":
+                      return b.conversionRate - a.conversionRate;
+                    
+                    case "name":
+                      return a.brandName.localeCompare(b.brandName);
+                    
+                    default:
+                      return 0;
+                  }
+                });
+
+                return sorted.length === 0 ? (
+                  <div className="text-center py-12 bg-gray-50 rounded-lg">
+                    <p className="text-gray-400 text-lg">
+                      {filterStatus === "opened" && "📭 Aucun press kit ouvert"}
+                      {filterStatus === "pending" && "🎉 Tous les press kits ont été ouverts !"}
+                      {filterStatus === "all" && "📭 Aucun press kit envoyé"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {sorted.map((brand) => (
+                    <div 
+                      key={brand.brandId}
+                      className={`group border rounded-lg p-4 transition-all ${
+                        brand.hasBeenOpened
+                          ? 'bg-gradient-to-r from-green-50 to-emerald-50/30 border-green-200 hover:border-green-300'
+                          : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        {/* Statut */}
+                        <div className="flex-shrink-0">
+                          {brand.hasBeenOpened ? (
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center text-white text-2xl shadow-lg">
+                              ✅
+                            </div>
+                          ) : (
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-300 to-gray-400 flex items-center justify-center text-white text-2xl">
+                              ⏳
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Info marque */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="text-lg font-bold text-gray-900 truncate">{brand.brandName}</h4>
+                            {brand.hasBeenOpened && (
+                              <span className="px-2 py-0.5 bg-green-600 text-white text-xs font-bold rounded-full">
+                                {brand.views} vue{brand.views > 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                          
+                          {/* Lien press kit */}
+                          <div className="flex items-center gap-2">
+                            <a 
+                              href={brand.pressKitUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-sm text-blue-600 hover:text-blue-700 hover:underline font-medium truncate"
+                            >
+                              {brand.pressKitUrl}
+                            </a>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(brand.pressKitUrl);
+                                alert('Lien copié !');
+                              }}
+                              className="flex-shrink-0 p-1.5 rounded-lg bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-300 transition-all"
+                              title="Copier le lien"
+                            >
+                              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                              </svg>
+                            </button>
+                          </div>
+
+                          {/* Stats si ouvert */}
+                          {brand.hasBeenOpened && brand.lastVisit && (
+                            <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
+                              <span className="flex items-center gap-1">
+                                <span>⏱️</span>
+                                {Math.floor(brand.avgDuration / 60)}m{brand.avgDuration % 60}s
+                              </span>
+                              <span className="text-gray-300">•</span>
+                              <span className="flex items-center gap-1">
+                                <span>📅</span>
+                                {formatTimeAgo(brand.lastVisit)}
+                              </span>
+                              {brand.conversionRate > 0 && (
+                                <>
+                                  <span className="text-gray-300">•</span>
+                                  <span className="flex items-center gap-1 font-medium text-emerald-600">
+                                    <span>🔥</span>
+                                    {brand.conversionRate}% CTA
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Pas encore ouvert */}
+                          {!brand.hasBeenOpened && (
+                            <p className="text-xs text-gray-500 italic mt-2">
+                              En attente d'ouverture • Créé le {new Date(brand.createdAt).toLocaleDateString('fr-FR')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                );
+              })()}
             </div>
           </>
         )}

@@ -1005,6 +1005,7 @@ model PageView {
   durationSeconds    Int      @default(0)
   scrollDepthPercent Int      @default(0)
   talentsViewed      String[] // IDs des talents qui ont été vus
+  talentDurations    Json?    // Durées par talent: { "talentId": durationSeconds }
   visitNumber        Int      @default(1)
   ctaClicked         Boolean  @default(false)
   talentbookClicked  Boolean  @default(false) // Clic sur le lien "Voir le Talent Book complet"

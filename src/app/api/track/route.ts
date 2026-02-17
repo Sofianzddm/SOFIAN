@@ -122,8 +122,32 @@ export async function POST(request: NextRequest) {
         break;
 
       case "talent_modal_duration":
-        // Durée passée dans une modal talent (juste un log pour l'instant)
-        console.log(`📊 Durée modal talent: ${brand.name} - Talent ${data?.talentId} - ${data?.durationSeconds}s`);
+        // Stocker la durée passée sur ce talent spécifique
+        const pageView = await prisma.pageView.findFirst({
+          where: {
+            brandId: brand.id,
+            sessionId,
+          },
+        });
+
+        if (pageView && data?.talentId && data?.durationSeconds) {
+          // Récupérer les durées existantes
+          const existingDurations = (pageView.talentDurations as Record<string, number>) || {};
+          
+          // Ajouter ou mettre à jour la durée pour ce talent
+          existingDurations[data.talentId] = 
+            (existingDurations[data.talentId] || 0) + data.durationSeconds;
+
+          // Sauvegarder en base
+          await prisma.pageView.update({
+            where: { id: pageView.id },
+            data: {
+              talentDurations: existingDurations,
+            },
+          });
+
+          console.log(`📊 Durée modal talent stockée: ${brand.name} - Talent ${data.talentId} - ${data.durationSeconds}s`);
+        }
         break;
 
       case "scroll_complete":

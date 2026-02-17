@@ -266,6 +266,7 @@ export async function GET(request: NextRequest) {
       totalDuration: number;
       avgDuration: number;
       talentsViewed: Set<string>;
+      talentDurations: Map<string, number>; // Durée totale par talent
       lastVisit: Date;
       ctaClicked: number;
       visits: Array<{
@@ -273,6 +274,7 @@ export async function GET(request: NextRequest) {
         duration: number;
         scrollDepth: number;
         talentsViewed: string[];
+        talentDurations: Record<string, number>;
         ctaClicked: boolean;
         talentbookClicked: boolean;
       }>;
@@ -288,6 +290,7 @@ export async function GET(request: NextRequest) {
         totalDuration: 0,
         avgDuration: 0,
         talentsViewed: new Set<string>(),
+        talentDurations: new Map<string, number>(),
         lastVisit: view.createdAt,
         ctaClicked: 0,
         visits: [],
@@ -299,12 +302,20 @@ export async function GET(request: NextRequest) {
       if (view.ctaClicked) existing.ctaClicked++;
       if (view.createdAt > existing.lastVisit) existing.lastVisit = view.createdAt;
       
+      // Agréger les durées par talent
+      const viewTalentDurations = (view.talentDurations as Record<string, number>) || {};
+      Object.entries(viewTalentDurations).forEach(([talentId, duration]) => {
+        const currentDuration = existing.talentDurations.get(talentId) || 0;
+        existing.talentDurations.set(talentId, currentDuration + duration);
+      });
+      
       // Ajouter le détail de cette visite
       existing.visits.push({
         date: view.createdAt,
         duration: view.durationSeconds,
         scrollDepth: view.scrollDepthPercent,
         talentsViewed: view.talentsViewed,
+        talentDurations: viewTalentDurations,
         ctaClicked: view.ctaClicked,
         talentbookClicked: view.talentbookClicked,
       });
@@ -338,10 +349,12 @@ export async function GET(request: NextRequest) {
         talentsViewedCount: stats.talentsViewed.size,
         talentsViewed: Array.from(stats.talentsViewed).map(id => {
           const talent = talentsMap.get(id);
+          const duration = stats.talentDurations.get(id) || 0;
           return talent ? {
             id,
             name: `${talent.prenom} ${talent.nom}`,
             photo: talent.photo,
+            duration, // Durée totale passée sur ce talent
           } : null;
         }).filter(Boolean),
         lastVisit: stats.lastVisit,
@@ -357,6 +370,45 @@ export async function GET(request: NextRequest) {
       }))
       .sort((a, b) => b.views - a.views)
       .slice(0, 10);
+
+    // ===================================
+    // TOUTES LES MARQUES AVEC PRESS KIT
+    // ===================================
+    const allPresskitBrands = await prisma.brand.findMany({
+      where: {
+        presskitTalents: {
+          some: {}, // Marques qui ont au moins un talent assigné (donc un press kit généré)
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        logo: true,
+        primaryColor: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Enrichir avec les stats de vues
+    const allPresskitBrandsWithStats = allPresskitBrands.map(brand => {
+      const stats = brandStatsMap.get(brand.id);
+      return {
+        brandId: brand.id,
+        brandName: brand.name,
+        slug: brand.slug,
+        pressKitUrl: `https://app.glowupagence.fr/book/${brand.slug}`, // Construire l'URL dynamiquement
+        logo: brand.logo,
+        color: brand.primaryColor,
+        hasBeenOpened: !!stats,
+        views: stats?.views || 0,
+        lastVisit: stats?.lastVisit || null,
+        avgDuration: stats ? (stats.views > 0 ? Math.round(stats.totalDuration / stats.views) : 0) : 0,
+        conversionRate: stats ? (stats.views > 0 ? Math.round((stats.ctaClicked / stats.views) * 100) : 0) : 0,
+        createdAt: brand.createdAt,
+      };
+    });
 
     return NextResponse.json({
       period,
@@ -384,6 +436,7 @@ export async function GET(request: NextRequest) {
           : 0,
         avgScrollDepth: Math.round(avgScrollDepth._avg.scrollDepthPercent || 0),
         topBrands: topPresskitBrands,
+        allBrands: allPresskitBrandsWithStats, // Toutes les marques avec press kit
       },
     });
   } catch (error) {
