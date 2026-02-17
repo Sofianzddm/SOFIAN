@@ -23,7 +23,7 @@ import {
 const NICHES = ["Fashion", "Beauty", "Lifestyle", "Food", "Travel", "Sport", "Gaming", "Tech", "Family", "Music", "Art", "Business"];
 const FORMES_JURIDIQUES = ["Auto-entrepreneur", "SASU", "EURL", "SARL", "SAS", "Autre"];
 
-type UserRole = "ADMIN" | "HEAD_OF" | "TM";
+type UserRole = "ADMIN" | "HEAD_OF" | "HEAD_OF_INFLUENCE" | "TM";
 
 export default function EditTalentPage() {
   const params = useParams();
@@ -33,6 +33,7 @@ export default function EditTalentPage() {
   const [activeStep, setActiveStep] = useState(1);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [managers, setManagers] = useState<{ id: string; prenom: string; nom: string }[]>([]);
+  const [talentUsers, setTalentUsers] = useState<{ id: string; prenom: string; nom: string; email: string }[]>([]);
 
   const [formData, setFormData] = useState({
     // Infos de base
@@ -49,6 +50,7 @@ export default function EditTalentPage() {
     commissionInbound: "20",
     commissionOutbound: "30",
     managerId: "",
+    userId: "",
     
     // Contact urgence
     contactUrgenceNom: "",
@@ -149,6 +151,10 @@ export default function EditTalentPage() {
   }, [params.id]);
 
   useEffect(() => {
+    if (userRole === "ADMIN" || userRole === "HEAD_OF_INFLUENCE") fetchTalentUsers();
+  }, [userRole]);
+
+  useEffect(() => {
     if (userRole) {
       const steps = getAvailableSteps();
       if (steps.length > 0) setActiveStep(steps[0].id);
@@ -186,6 +192,7 @@ export default function EditTalentPage() {
           commissionInbound: talent.commissionInbound?.toString() || "20",
           commissionOutbound: talent.commissionOutbound?.toString() || "30",
           managerId: talent.managerId || "",
+          userId: talent.userId || talent.user?.id || "",
           contactUrgenceNom: talent.contactUrgenceNom || "",
           contactUrgenceTel: talent.contactUrgenceTel || "",
           contactUrgenceLien: talent.contactUrgenceLien || "",
@@ -256,6 +263,11 @@ export default function EditTalentPage() {
   const fetchManagers = async () => {
     const res = await fetch("/api/users?role=TM");
     if (res.ok) setManagers(await res.json());
+  };
+
+  const fetchTalentUsers = async () => {
+    const res = await fetch("/api/users?role=TALENT");
+    if (res.ok) setTalentUsers(await res.json());
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -431,6 +443,18 @@ export default function EditTalentPage() {
                     ))}
                   </select>
                 </div>
+                {(userRole === "ADMIN" || userRole === "HEAD_OF_INFLUENCE") && (
+                  <div className="md:col-span-2">
+                    <label className={labelClass}>Compte utilisateur (portail talent)</label>
+                    <select name="userId" value={formData.userId} onChange={handleChange} className={inputClass}>
+                      <option value="">Aucun — pas de connexion portail</option>
+                      {talentUsers.map((u) => (
+                        <option key={u.id} value={u.id}>{u.prenom} {u.nom} — {u.email}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Lie cette fiche Talent au compte utilisateur (rôle Talent) pour qu&apos;il accède au portail (collaborations, factures).</p>
+                  </div>
+                )}
               </div>
 
               <div className="mt-4">

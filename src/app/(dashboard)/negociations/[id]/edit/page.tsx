@@ -496,7 +496,7 @@ export default function EditNegociationPage() {
                     </span>
                     <div className="flex-1 space-y-4">
                       <div className="grid md:grid-cols-12 gap-3">
-                        <div className="col-span-3">
+                        <div className="col-span-2">
                           <label className="block text-xs text-gray-500 mb-1">Type *</label>
                           <input
                             type="text"
@@ -513,7 +513,7 @@ export default function EditNegociationPage() {
                             ))}
                           </datalist>
                         </div>
-                        <div className="col-span-2">
+                        <div className="col-span-1">
                           <label className="block text-xs text-gray-500 mb-1">Qté *</label>
                           <input
                             type="number"
@@ -525,80 +525,61 @@ export default function EditNegociationPage() {
                           />
                         </div>
                         <div className="col-span-2">
-                          <label className="block text-xs text-gray-500 mb-1">Prix demandé €</label>
+                          <label className="block text-xs text-gray-500 mb-1">Notre prix €</label>
+                          <div className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-gray-100 text-gray-700 font-medium">
+                            {livrable.typeContenu
+                              ? getTarifRecommande(livrable.typeContenu) != null
+                                ? formatMoney(getTarifRecommande(livrable.typeContenu)!)
+                                : "—"
+                              : "—"}
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-0.5">Grille DB</p>
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs text-gray-500 mb-1">Prix marque €</label>
                           <input
                             type="number"
                             min="0"
                             value={livrable.prixDemande || ""}
                             onChange={(e) => updateLivrable(livrable.id, "prixDemande", e.target.value)}
-                            placeholder="Demande"
-                            className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-red-50"
+                            placeholder="Proposé"
+                            className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm"
                           />
                         </div>
-                        <div className="col-span-3 relative">
+                        <div className="col-span-2">
                           <label className="block text-xs text-gray-500 mb-1">Prix souhaité €</label>
                           <input
                             type="number"
                             min="0"
                             value={livrable.prixSouhaite || ""}
                             onChange={(e) => updateLivrable(livrable.id, "prixSouhaite", e.target.value)}
-                            placeholder="Voulu"
+                            placeholder="Cible"
                             className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-green-50"
                           />
-                          {(() => {
-                            const tarifRecommande = getTarifRecommande(livrable.typeContenu);
-                            if (tarifRecommande && livrable.typeContenu) {
-                              const prixSouhaite = parseFloat(String(livrable.prixSouhaite)) || 0;
-                              const difference = prixSouhaite - tarifRecommande;
-                              const pourcentage =
-                                tarifRecommande > 0
-                                  ? ((difference / tarifRecommande) * 100).toFixed(0)
-                                  : 0;
-
-                              return (
-                                <div className="absolute -bottom-6 left-0 right-0 flex items-center justify-between text-[10px] mt-1">
-                                  <span className="text-gray-600 font-medium">
-                                    Grille: {formatMoney(tarifRecommande)}
-                                  </span>
-                                  {prixSouhaite > 0 && prixSouhaite !== tarifRecommande && (
-                                    <span
-                                      className={`font-bold ${
-                                        difference > 0 ? "text-green-600" : "text-red-600"
-                                      }`}
-                                    >
-                                      {difference > 0 ? "+" : ""}
-                                      {pourcentage}%
-                                    </span>
-                                  )}
-                                  {(!livrable.prixSouhaite || prixSouhaite === 0) && (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        updateLivrable(
-                                          livrable.id,
-                                          "prixSouhaite",
-                                          tarifRecommande.toString()
-                                        )
-                                      }
-                                      className="text-blue-600 hover:text-blue-700 hover:underline font-bold transition-all"
-                                    >
-                                      → Appliquer
-                                    </button>
-                                  )}
-                                </div>
-                              );
-                            }
-                            return null;
-                          })()}
+                          {livrable.typeContenu && getTarifRecommande(livrable.typeContenu) != null && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateLivrable(
+                                  livrable.id,
+                                  "prixSouhaite",
+                                  getTarifRecommande(livrable.typeContenu)!.toString()
+                                )
+                              }
+                              className="text-[10px] text-blue-600 hover:underline mt-0.5"
+                            >
+                              → Grille
+                            </button>
+                          )}
                         </div>
-                        <div className="col-span-2">
-                          <label className="block text-xs text-gray-500 mb-1">Prix final €</label>
+                        <div className="col-span-1">
+                          <label className="block text-xs text-gray-500 mb-1">Final €</label>
                           <input
                             type="number"
                             min="0"
                             value={livrable.prixFinal || ""}
                             onChange={(e) => updateLivrable(livrable.id, "prixFinal", e.target.value)}
-                            placeholder="Final"
+                            placeholder="—"
                             className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-blue-50"
                           />
                         </div>

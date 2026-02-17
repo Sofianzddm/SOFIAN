@@ -423,7 +423,18 @@ export default function NewNegociationPage() {
                         className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm text-center"
                       />
                     </div>
-                    <div className="col-span-3">
+                    <div className="col-span-2">
+                      <label className="block text-xs text-gray-500 mb-1">Notre prix €</label>
+                      <div className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-gray-100 text-gray-700 font-medium">
+                        {livrable.typeContenu
+                          ? (getTarifRecommande(livrable.typeContenu) != null
+                              ? formatMoney(getTarifRecommande(livrable.typeContenu)!)
+                              : "—")
+                          : "—"}
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Grille DB</p>
+                    </div>
+                    <div className="col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Prix marque €</label>
                       <input
                         type="number"
@@ -434,54 +445,31 @@ export default function NewNegociationPage() {
                         className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm"
                       />
                     </div>
-                    <div className="col-span-3">
+                    <div className="col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Prix souhaité €</label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          min="0"
-                          value={livrable.prixSouhaite}
-                          onChange={(e) => updateLivrable(livrable.id, "prixSouhaite", e.target.value)}
-                          placeholder="Voulu"
-                          className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-green-50"
-                        />
-                        {(() => {
-                          const tarifRecommande = getTarifRecommande(livrable.typeContenu);
-                          if (tarifRecommande && livrable.typeContenu) {
-                            const prixSouhaite = parseFloat(livrable.prixSouhaite) || 0;
-                            const difference = prixSouhaite - tarifRecommande;
-                            const pourcentage = tarifRecommande > 0 ? ((difference / tarifRecommande) * 100).toFixed(0) : 0;
-                            
-                            return (
-                              <div className="absolute -bottom-6 left-0 right-0 flex items-center justify-between text-[10px] mt-1">
-                                <span className="text-gray-600 font-medium">
-                                  Grille talent: {formatMoney(tarifRecommande)}
-                                </span>
-                                {prixSouhaite > 0 && prixSouhaite !== tarifRecommande && (
-                                  <span className={`font-bold ${
-                                    difference > 0 ? 'text-green-600' : 'text-red-600'
-                                  }`}>
-                                    {difference > 0 ? '+' : ''}{pourcentage}%
-                                  </span>
-                                )}
-                                {(!livrable.prixSouhaite || prixSouhaite === 0) && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      console.log("🎯 Application du tarif:", tarifRecommande);
-                                      updateLivrable(livrable.id, "prixSouhaite", tarifRecommande.toString());
-                                    }}
-                                    className="text-blue-600 hover:text-blue-700 hover:underline font-bold transition-all"
-                                  >
-                                    → Appliquer
-                                  </button>
-                                )}
-                              </div>
-                            );
+                      <input
+                        type="number"
+                        min="0"
+                        value={livrable.prixSouhaite}
+                        onChange={(e) => updateLivrable(livrable.id, "prixSouhaite", e.target.value)}
+                        placeholder="Cible"
+                        className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-green-50"
+                      />
+                      {livrable.typeContenu && getTarifRecommande(livrable.typeContenu) != null && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateLivrable(
+                              livrable.id,
+                              "prixSouhaite",
+                              getTarifRecommande(livrable.typeContenu)!.toString()
+                            )
                           }
-                          return null;
-                        })()}
-                      </div>
+                          className="text-[10px] text-blue-600 hover:underline mt-0.5"
+                        >
+                          → Grille
+                        </button>
+                      )}
                     </div>
                     <div className="col-span-1 flex items-end">
                       <button
@@ -499,14 +487,27 @@ export default function NewNegociationPage() {
             </div>
 
             {/* Totaux */}
-            {(totalDemande > 0 || totalSouhaite > 0) && (
-              <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-8">
+            {(totalDemande > 0 || totalSouhaite > 0 || livrables.some((l) => getTarifRecommande(l.typeContenu))) && (
+              <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-6 flex-wrap">
+                {livrables.some((l) => getTarifRecommande(l.typeContenu)) && (
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">Total notre prix (grille)</p>
+                    <p className="text-lg font-semibold text-gray-600">
+                      {formatMoney(
+                        livrables.reduce(
+                          (acc, l) => acc + (getTarifRecommande(l.typeContenu) || 0) * l.quantite,
+                          0
+                        )
+                      )}
+                    </p>
+                  </div>
+                )}
                 <div className="text-right">
-                  <p className="text-xs text-gray-500">Budget marque</p>
-                  <p className="text-lg font-semibold text-gray-600">{formatMoney(totalDemande)}</p>
+                  <p className="text-xs text-gray-500">Total prix marque</p>
+                  <p className="text-lg font-semibold text-glowup-licorice">{formatMoney(totalDemande)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-gray-500">Budget souhaité</p>
+                  <p className="text-xs text-gray-500">Total prix souhaité</p>
                   <p className="text-lg font-bold text-green-600">{formatMoney(totalSouhaite)}</p>
                 </div>
               </div>

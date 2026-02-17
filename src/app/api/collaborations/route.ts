@@ -17,15 +17,14 @@ export async function GET(request: NextRequest) {
 
     const where: any = {};
 
-    // Si TM → voir uniquement SES collaborations (via ses talents)
+    // Si TM → voir uniquement SES collaborations (via ses talents), tous statuts sauf PERDU
     if (user.role === "TM") {
       const mesTalents = await prisma.talent.findMany({
         where: { managerId: user.id },
         select: { id: true },
       });
       where.talentId = { in: mesTalents.map((t) => t.id) };
-      // Filtrer seulement les collabs EN_COURS
-      where.statut = "EN_COURS";
+      where.statut = { not: "PERDU" };
     }
     
     // Filtrer par Account Manager si spécifié (pour ADMIN uniquement)
@@ -112,7 +111,7 @@ export async function POST(request: NextRequest) {
         commissionEuros: parseFloat(data.commissionEuros) || 0,
         montantNet: parseFloat(data.montantNet) || 0,
         isLongTerme: data.isLongTerme || false,
-        statut: "NEGO",
+        statut: "EN_COURS", // Création manuelle = déjà en cours ; le TM peut mettre "Publié" en 1 clic
         livrables: {
           create: data.livrables.map((l: any) => ({
             typeContenu: l.typeContenu,

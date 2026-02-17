@@ -13,6 +13,7 @@ interface User {
   email: string;
   role: string;
   actif: boolean;
+  talent?: { id: string; prenom: string; nom: string } | null;
 }
 
 const roleOptions = [
@@ -39,7 +40,9 @@ export default function EditUserPage() {
     email: "",
     role: "",
     actif: true,
+    talentId: "",
   });
+  const [talents, setTalents] = useState<{ id: string; prenom: string; nom: string }[]>([]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -49,6 +52,10 @@ export default function EditUserPage() {
   useEffect(() => {
     fetchUser();
   }, [params.id]);
+
+  useEffect(() => {
+    if (formData.role === "TALENT" && isAdmin) fetchTalents();
+  }, [formData.role, isAdmin]);
 
   async function fetchUser() {
     try {
@@ -62,7 +69,9 @@ export default function EditUserPage() {
           email: data.email,
           role: data.role,
           actif: data.actif,
+          talentId: data.talent?.id || "",
         });
+        if (data.role === "TALENT") fetchTalents();
       } else {
         alert("❌ Erreur lors du chargement de l'utilisateur");
         router.push("/users");
@@ -71,6 +80,18 @@ export default function EditUserPage() {
       console.error("Erreur:", error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchTalents() {
+    try {
+      const res = await fetch("/api/talents");
+      if (res.ok) {
+        const list = await res.json();
+        setTalents(Array.isArray(list) ? list : list.talents || []);
+      }
+    } catch (e) {
+      console.error(e);
     }
   }
 
@@ -269,6 +290,31 @@ export default function EditUserPage() {
                 </label>
                 <p className="text-gray-500 text-sm mt-1">
                   Un compte inactif ne peut pas se connecter
+                </p>
+              </div>
+            )}
+
+            {formData.role === "TALENT" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Fiche Talent liée (portail)
+                </label>
+                <select
+                  value={formData.talentId}
+                  onChange={(e) =>
+                    setFormData({ ...formData, talentId: e.target.value })
+                  }
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
+                >
+                  <option value="">Aucune — pas de fiche Talent</option>
+                  {talents.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.prenom} {t.nom}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-gray-500 text-sm mt-1">
+                  Associe ce compte à une fiche Talent en base pour l&apos;accès au portail (collaborations, factures).
                 </p>
               </div>
             )}

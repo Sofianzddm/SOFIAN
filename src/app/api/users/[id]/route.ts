@@ -36,6 +36,9 @@ export async function GET(
         actif: true,
         createdAt: true,
         updatedAt: true,
+        talent: {
+          select: { id: true, prenom: true, nom: true },
+        },
       },
     });
 
@@ -96,10 +99,25 @@ export async function PUT(
       updateData.email = data.email;
     }
 
-    // Seuls les ADMIN peuvent modifier le rôle et l'état actif
+    // Seuls les ADMIN peuvent modifier le rôle, l'état actif et la liaison Talent
     if (isAdmin) {
       if (data.role !== undefined) updateData.role = data.role;
       if (data.actif !== undefined) updateData.actif = data.actif;
+    }
+
+    // Liaison User (TALENT) ↔ Fiche Talent : mettre à jour Talent.userId
+    if (isAdmin && data.talentId !== undefined) {
+      const talentId = data.talentId === "" || data.talentId == null ? null : data.talentId;
+      await prisma.talent.updateMany({
+        where: { userId: id },
+        data: { userId: null },
+      });
+      if (talentId) {
+        await prisma.talent.update({
+          where: { id: talentId },
+          data: { userId: id },
+        });
+      }
     }
 
     const user = await prisma.user.update({
@@ -113,6 +131,7 @@ export async function PUT(
         role: true,
         actif: true,
         updatedAt: true,
+        talent: { select: { id: true, prenom: true, nom: true } },
       },
     });
 

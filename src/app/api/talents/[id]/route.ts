@@ -227,6 +227,18 @@ export async function PUT(
       };
     }
 
+    // Liaison compte utilisateur (rôle TALENT) ↔ fiche Talent : 1 user = 1 talent max
+    if (data.userId !== undefined) {
+      const newUserId = data.userId === "" || data.userId == null ? null : data.userId;
+      talentData.userId = newUserId;
+      if (newUserId) {
+        await prisma.talent.updateMany({
+          where: { userId: newUserId, id: { not: id } },
+          data: { userId: null },
+        });
+      }
+    }
+
     const talent = await prisma.talent.update({
       where: { id },
       data: talentData,

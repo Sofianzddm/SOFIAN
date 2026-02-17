@@ -17,13 +17,8 @@ export async function GET(
           select: { id: true, prenom: true, nom: true, email: true },
         },
         talent: {
-          select: { 
-            id: true, 
-            prenom: true, 
-            nom: true, 
-            photo: true,
-            commissionInbound: true,
-            commissionOutbound: true,
+          include: {
+            tarifs: true,
           },
         },
         marque: {

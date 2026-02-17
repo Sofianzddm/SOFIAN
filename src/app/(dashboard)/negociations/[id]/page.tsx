@@ -38,7 +38,13 @@ interface NegoDetail {
   dateValidation: string | null;
   createdAt: string;
   tm: { id: string; prenom: string; nom: string; email: string };
-  talent: { id: string; prenom: string; nom: string; photo: string | null };
+  talent: {
+    id: string;
+    prenom: string;
+    nom: string;
+    photo: string | null;
+    tarifs?: Record<string, number | null> | null;
+  };
   marque: { id: string; nom: string; secteur: string | null } | null;
   nomMarqueSaisi?: string | null;
   livrables: { id: string; typeContenu: string; quantite: number; prixDemande: number | null; prixSouhaite: number | null; prixFinal: number | null }[];
@@ -66,6 +72,33 @@ const TYPE_LABELS: Record<string, string> = {
   SHOOTING: "Shooting", AMBASSADEUR: "Ambassadeur", STORY_CONCOURS: "Story Concours",
   POST_CONCOURS: "Post Concours", POST_COMMUN: "Post Commun",
 };
+
+const TYPE_TO_TARIF_KEY: Record<string, string> = {
+  STORY: "tarifStory",
+  STORY_CONCOURS: "tarifStoryConcours",
+  POST: "tarifPost",
+  POST_CONCOURS: "tarifPostConcours",
+  POST_COMMUN: "tarifPostCommun",
+  REEL: "tarifReel",
+  TIKTOK_VIDEO: "tarifTiktokVideo",
+  YOUTUBE_VIDEO: "tarifYoutubeVideo",
+  YOUTUBE_SHORT: "tarifYoutubeShort",
+  EVENT: "tarifEvent",
+  SHOOTING: "tarifShooting",
+  AMBASSADEUR: "tarifAmbassadeur",
+};
+
+function getNotrePrix(typeContenu: string, tarifs: Record<string, number | null> | null | undefined): number | null {
+  if (!tarifs) return null;
+  const key = TYPE_TO_TARIF_KEY[typeContenu];
+  if (key && tarifs[key] != null) return Number(tarifs[key]);
+  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "");
+  const typeNorm = norm(typeContenu);
+  for (const [type, tarifKey] of Object.entries(TYPE_TO_TARIF_KEY)) {
+    if (norm(TYPE_LABELS[type] || type) === typeNorm && tarifs[tarifKey] != null) return Number(tarifs[tarifKey]);
+  }
+  return null;
+}
 
 export default function NegociationDetailPage() {
   const params = useParams();
@@ -417,29 +450,47 @@ export default function NegociationDetailPage() {
               <Package className="w-4 h-4" /> Livrables ({nego.livrables.length})
             </h3>
             <div className="space-y-2">
-              {nego.livrables.map((l) => (
-                <div key={l.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <span className="w-6 h-6 bg-glowup-lace rounded text-xs font-semibold text-glowup-licorice flex items-center justify-center">
-                      {l.quantite}
-                    </span>
-                    <span className="text-sm font-medium text-glowup-licorice">
-                      {TYPE_LABELS[l.typeContenu] || l.typeContenu}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm">
-                    <div className="text-right">
-                      <p className="text-gray-500">{formatMoney(l.prixDemande)}</p>
-                      <p className="text-xs text-gray-400">Marque</p>
+              {nego.livrables.map((l) => {
+                const notrePrix = getNotrePrix(l.typeContenu, nego.talent.tarifs);
+                return (
+                  <div key={l.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 h-6 bg-glowup-lace rounded text-xs font-semibold text-glowup-licorice flex items-center justify-center">
+                        {l.quantite}
+                      </span>
+                      <span className="text-sm font-medium text-glowup-licorice">
+                        {TYPE_LABELS[l.typeContenu] || l.typeContenu}
+                      </span>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-gray-300" />
-                    <div className="text-right">
-                      <p className="font-semibold text-green-600">{formatMoney(l.prixSouhaite)}</p>
-                      <p className="text-xs text-gray-400">Souhaité</p>
+                    <div className="flex items-center gap-4 text-sm">
+                      {notrePrix != null && (
+                        <>
+                          <div className="text-right">
+                            <p className="font-medium text-gray-700">{formatMoney(notrePrix)}</p>
+                            <p className="text-xs text-gray-400">Notre prix</p>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-gray-300" />
+                        </>
+                      )}
+                      <div className="text-right">
+                        <p className="text-glowup-licorice font-medium">{formatMoney(l.prixDemande ?? 0)}</p>
+                        <p className="text-xs text-gray-400">Prix marque</p>
+                      </div>
+                      {(l.prixSouhaite != null || l.prixFinal != null) && (
+                        <>
+                          <ArrowRight className="w-4 h-4 text-gray-300" />
+                          <div className="text-right">
+                            <p className="font-semibold text-green-600">
+                              {formatMoney(Number(l.prixFinal ?? l.prixSouhaite ?? 0))}
+                            </p>
+                            <p className="text-xs text-gray-400">Souhaité / Final</p>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
