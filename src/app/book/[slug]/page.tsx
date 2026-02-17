@@ -846,16 +846,14 @@ export default function PressKitPage() {
             {t.exploreRoster}
           </p>
           
-          {/* CTA Contactez-nous */}
-          <button
-            onClick={() => {
-              sendTrackingEvent('cta_click');
-              window.location.href = 'mailto:contact@glowupagence.fr?subject=Demande de renseignements - Press Kit';
-            }}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-[#220101] hover:bg-[#220101]/90 text-white rounded-full font-switzer font-medium transition-all hover:scale-105 text-sm md:text-base"
+          {/* Email contact */}
+          <a
+            href="mailto:leyna@glowupagence.fr"
+            onClick={() => sendTrackingEvent('cta_click')}
+            className="inline-flex items-center gap-2 text-[#220101] hover:text-[#220101]/80 font-switzer font-medium transition-all text-base md:text-lg"
           >
-            📧 {lang === "fr" ? "Contactez-nous" : "Contact us"}
-          </button>
+            📧 leyna@glowupagence.fr
+          </a>
         </div>
       </section>
 
