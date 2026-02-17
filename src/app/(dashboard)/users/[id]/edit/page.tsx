@@ -72,6 +72,8 @@ export default function EditUserPage() {
           role: data.role,
           actif: data.actif,
           talentId: data.talent?.id || "",
+          password: "",
+          passwordConfirm: "",
         });
         if (data.role === "TALENT") fetchTalents();
       } else {
