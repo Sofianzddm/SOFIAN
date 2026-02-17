@@ -289,7 +289,7 @@ export function SearchBar() {
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-gray-900">{nego.reference}</div>
                         <div className="text-sm text-gray-500 truncate">
-                          {nego.talent.prenom} {nego.talent.nom} × {nego.marque.nom}
+                          {nego.talent.prenom} {nego.talent.nom} × {nego.nomMarqueSaisi || nego.marque?.nom || "—"}
                         </div>
                       </div>
                       <ArrowRight className="w-4 h-4 text-gray-400" />

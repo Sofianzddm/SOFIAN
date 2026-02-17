@@ -59,7 +59,30 @@ export async function POST(
       return NextResponse.json(updated);
     }
 
-    // VALIDER → Créer la collaboration (avec synchronisation du compteur)
+    // VALIDER → Résoudre la marque (find-or-create pour éviter doublons) puis créer la collaboration
+    let marqueIdToUse: string | null = nego.marqueId;
+    if (!marqueIdToUse && nego.nomMarqueSaisi) {
+      const nom = String(nego.nomMarqueSaisi).trim();
+      const existing = await prisma.marque.findFirst({
+        where: { nom: { equals: nom, mode: "insensitive" } },
+      });
+      if (existing) {
+        marqueIdToUse = existing.id;
+      } else {
+        const created = await prisma.marque.create({
+          data: { nom },
+        });
+        marqueIdToUse = created.id;
+      }
+    }
+    if (!marqueIdToUse) {
+      return NextResponse.json(
+        { message: "Marque manquante : indiquez un nom de marque ou une marque existante" },
+        { status: 400 }
+      );
+    }
+    const marqueIdFinal = marqueIdToUse as string;
+
     // Calculer les montants
     const montantBrut = nego.budgetFinal || nego.budgetSouhaite || nego.budgetMarque || 0;
     const commissionPercent = nego.source === "INBOUND" 
@@ -123,7 +146,7 @@ export async function POST(
         data: {
           reference,
           talentId: nego.talentId,
-          marqueId: nego.marqueId,
+          marqueId: marqueIdFinal,
           source: nego.source,
           description: nego.brief,
           montantBrut,
@@ -142,11 +165,12 @@ export async function POST(
         },
       });
 
-      // Mettre à jour la négociation
+      // Mettre à jour la négociation (lier la marque résolue)
       const updated = await tx.negociation.update({
         where: { id: id },
         data: {
           statut: "VALIDEE",
+          marqueId: marqueIdFinal,
           validePar: session.user.id,
           dateValidation: new Date(),
           budgetFinal: montantBrut,

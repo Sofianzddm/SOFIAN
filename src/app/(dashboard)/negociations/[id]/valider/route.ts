@@ -96,8 +96,33 @@ export async function POST(
       });
     }
 
-    // === VALIDATION → Créer la collaboration ===
-    
+    // === VALIDATION → Résoudre la marque (find-or-create pour éviter doublons) puis créer la collaboration ===
+    let marqueIdToUse: string | null = nego.marqueId;
+
+    if (!marqueIdToUse && nego.nomMarqueSaisi) {
+      const nom = String(nego.nomMarqueSaisi).trim();
+      const existing = await prisma.marque.findFirst({
+        where: { nom: { equals: nom, mode: "insensitive" } },
+      });
+      if (existing) {
+        marqueIdToUse = existing.id;
+      } else {
+        const created = await prisma.marque.create({
+          data: { nom },
+        });
+        marqueIdToUse = created.id;
+      }
+    }
+
+    if (!marqueIdToUse) {
+      return NextResponse.json(
+        { error: "Marque manquante : indiquez un nom de marque ou une marque existante" },
+        { status: 400 }
+      );
+    }
+
+    const marqueIdFinal = marqueIdToUse as string; // garanti par le return au-dessus
+
     // Calculer le montant total (prix souhaité ou prix demandé)
     const montantBrut = nego.livrables.reduce((sum, l) => {
       const prix = l.prixFinal || l.prixSouhaite || l.prixDemande || 0;
@@ -120,7 +145,7 @@ export async function POST(
       data: {
         reference,
         talentId: nego.talentId,
-        marqueId: nego.marqueId,
+        marqueId: marqueIdFinal,
         source: nego.source,
         description: nego.brief,
         montantBrut,
@@ -139,11 +164,12 @@ export async function POST(
       },
     });
 
-    // Mettre à jour la négociation
+    // Mettre à jour la négociation (lier la marque résolue pour cohérence)
     const negoValidee = await prisma.negociation.update({
       where: { id },
       data: {
         statut: "VALIDEE",
+        marqueId: marqueIdFinal,
         budgetFinal: montantBrut,
         validePar: user.id,
         dateValidation: new Date(),

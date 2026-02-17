@@ -21,19 +21,11 @@ import {
   Mail,
   Send,
 } from "lucide-react";
-import QuickMarqueModal from "@/components/QuickMarqueModal";
-
 interface Talent {
   id: string;
   prenom: string;
   nom: string;
   tarifs: Record<string, number | null> | null;
-}
-
-interface Marque {
-  id: string;
-  nom: string;
-  contacts?: { nom: string; email: string | null }[];
 }
 
 interface Livrable {
@@ -65,14 +57,11 @@ export default function NewNegociationPage() {
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
-  const [marques, setMarques] = useState<Marque[]>([]);
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
-  const [selectedMarque, setSelectedMarque] = useState<Marque | null>(null);
-  const [showMarqueModal, setShowMarqueModal] = useState(false);
 
   const [formData, setFormData] = useState({
     talentId: searchParams.get("talent") || "",
-    marqueId: searchParams.get("marque") || "",
+    nomMarqueSaisi: searchParams.get("marque") || "", // Nom libre ; fiche marque créée/reliée à la validation
     contactMarque: "",
     emailContact: "",
     source: "INBOUND",
@@ -92,7 +81,6 @@ export default function NewNegociationPage() {
 
   useEffect(() => {
     fetchTalents();
-    fetchMarques();
   }, []);
 
   const fetchTalents = async () => {
@@ -106,43 +94,15 @@ export default function NewNegociationPage() {
     }
   };
 
-  const fetchMarques = async () => {
-    const res = await fetch("/api/marques");
-    setMarques(await res.json());
-  };
-
   const handleTalentChange = (talentId: string) => {
     setFormData((prev) => ({ ...prev, talentId }));
     const talent = talents.find((t) => t.id === talentId);
     setSelectedTalent(talent || null);
   };
 
-  const handleMarqueChange = async (marqueId: string) => {
-    setFormData((prev) => ({ ...prev, marqueId, contactMarque: "", emailContact: "" }));
-    if (marqueId) {
-      const res = await fetch(`/api/marques/${marqueId}`);
-      if (res.ok) {
-        const marque = await res.json();
-        setSelectedMarque(marque);
-        // Auto-remplir le contact principal
-        const principal = marque.contacts?.find((c: any) => c.principal);
-        if (principal) {
-          setFormData((prev) => ({ ...prev, contactMarque: principal.nom, emailContact: principal.email || "" }));
-        }
-      }
-    } else {
-      setSelectedMarque(null);
-    }
-  };
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleMarqueCreated = (marque: { id: string; nom: string }) => {
-    setMarques((prev) => [...prev, marque]);
-    setFormData((prev) => ({ ...prev, marqueId: marque.id }));
   };
 
   // Gestion des livrables
@@ -338,32 +298,20 @@ export default function NewNegociationPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Marque *</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <select
-                      name="marqueId"
-                      value={formData.marqueId}
-                      onChange={(e) => handleMarqueChange(e.target.value)}
-                      required
-                      className="w-full pl-9 pr-8 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm"
-                    >
-                      <option value="">Sélectionner</option>
-                      {marques.map((m) => (
-                        <option key={m.id} value={m.id}>{m.nom}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowMarqueModal(true)}
-                    className="px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom de la marque *</label>
+                <div className="relative">
+                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    name="nomMarqueSaisi"
+                    value={formData.nomMarqueSaisi}
+                    onChange={handleChange}
+                    placeholder="Ex: Nike France"
+                    required
+                    className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                  />
                 </div>
+                <p className="text-xs text-gray-500 mt-1">La fiche marque sera créée ou reliée à la validation (évite les doublons)</p>
               </div>
             </div>
 
@@ -621,8 +569,6 @@ export default function NewNegociationPage() {
           </div>
         </form>
       </div>
-
-      <QuickMarqueModal isOpen={showMarqueModal} onClose={() => setShowMarqueModal(false)} onCreated={handleMarqueCreated} />
     </>
   );
 }

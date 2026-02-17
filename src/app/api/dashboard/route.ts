@@ -376,7 +376,7 @@ export async function GET() {
           id: n.id,
           reference: n.reference,
           talent: `${n.talent.prenom} ${n.talent.nom}`,
-          marque: n.marque.nom,
+          marque: n.nomMarqueSaisi || n.marque?.nom || "—",
           statut: n.statut,
           source: n.source,
           montant: Number(n.budgetFinal || n.budgetSouhaite || n.budgetMarque) || 0,

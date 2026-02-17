@@ -425,8 +425,9 @@ model Negociation {
   talentId      String
   talent        Talent    @relation(fields: [talentId], references: [id])
   
-  marqueId      String
-  marque        Marque    @relation(fields: [marqueId], references: [id])
+  marqueId      String?
+  marque        Marque?   @relation(fields: [marqueId], references: [id])
+  nomMarqueSaisi String?  // Nom saisi en négo ; à la validation → find-or-create marque (évite doublons)
   
   contactMarque     String?
   emailContact      String?

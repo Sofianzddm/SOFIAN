@@ -32,7 +32,8 @@ interface Negociation {
   createdAt: string;
   tm: { id: string; prenom: string; nom: string };
   talent: { id: string; prenom: string; nom: string; photo: string | null };
-  marque: { id: string; nom: string; secteur: string | null };
+  marque: { id: string; nom: string; secteur: string | null } | null;
+  nomMarqueSaisi?: string | null;
   livrables: { typeContenu: string; quantite: number }[];
   _count: { commentaires: number };
 }
@@ -98,7 +99,7 @@ export default function NegociationsPage() {
     const matchSearch =
       nego.reference.toLowerCase().includes(search.toLowerCase()) ||
       `${nego.talent.prenom} ${nego.talent.nom}`.toLowerCase().includes(search.toLowerCase()) ||
-      nego.marque.nom.toLowerCase().includes(search.toLowerCase());
+      (nego.nomMarqueSaisi || nego.marque?.nom || "").toLowerCase().includes(search.toLowerCase());
     return matchSearch;
   });
 
@@ -286,7 +287,7 @@ export default function NegociationsPage() {
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="text-sm text-gray-600">{nego.marque.nom}</span>
+                      <span className="text-sm text-gray-600">{nego.nomMarqueSaisi || nego.marque?.nom || "—"}</span>
                     </td>
                     <td className="py-3 px-4">
                       <span className="text-sm text-gray-500">{getLivrablesLabel(nego.livrables)}</span>

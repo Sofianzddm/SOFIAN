@@ -112,11 +112,13 @@ export async function PUT(
       });
 
       // 2. Mettre à jour la négociation
+      const nomMarqueSaisi = data.nomMarqueSaisi ? String(data.nomMarqueSaisi).trim() : null;
       const updated = await tx.negociation.update({
         where: { id },
         data: {
           talentId: data.talentId,
-          marqueId: data.marqueId,
+          marqueId: data.marqueId || null,
+          nomMarqueSaisi: nomMarqueSaisi ?? undefined,
           contactMarque: data.contactMarque || null,
           emailContact: data.emailContact || null,
           source: data.source,

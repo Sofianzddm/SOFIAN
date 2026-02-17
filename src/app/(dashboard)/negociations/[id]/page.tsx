@@ -39,7 +39,8 @@ interface NegoDetail {
   createdAt: string;
   tm: { id: string; prenom: string; nom: string; email: string };
   talent: { id: string; prenom: string; nom: string; photo: string | null };
-  marque: { id: string; nom: string; secteur: string | null };
+  marque: { id: string; nom: string; secteur: string | null } | null;
+  nomMarqueSaisi?: string | null;
   livrables: { id: string; typeContenu: string; quantite: number; prixDemande: number | null; prixSouhaite: number | null; prixFinal: number | null }[];
   validateur: { id: string; prenom: string; nom: string } | null;
   commentaires: { id: string; contenu: string; createdAt: string; user: { id: string; prenom: string; nom: string; role: string } }[];
@@ -375,15 +376,27 @@ export default function NegociationDetailPage() {
                   <p className="text-xs text-gray-500">Talent</p>
                 </div>
               </Link>
-              <Link href={`/marques/${nego.marque.id}`} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100">
-                <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center">
-                  <Building2 className="w-5 h-5 text-gray-500" />
+              {nego.marque ? (
+                <Link href={`/marques/${nego.marque.id}`} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100">
+                  <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center">
+                    <Building2 className="w-5 h-5 text-gray-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-glowup-licorice">{nego.marque.nom}</p>
+                    <p className="text-xs text-gray-500">{nego.marque.secteur || "Marque"}</p>
+                  </div>
+                </Link>
+              ) : (
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                  <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center">
+                    <Building2 className="w-5 h-5 text-gray-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-glowup-licorice">{nego.nomMarqueSaisi || "—"}</p>
+                    <p className="text-xs text-gray-500">Fiche marque à compléter après validation</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-glowup-licorice">{nego.marque.nom}</p>
-                  <p className="text-xs text-gray-500">{nego.marque.secteur || "Marque"}</p>
-                </div>
-              </Link>
+              )}
             </div>
             {(nego.contactMarque || nego.emailContact) && (
               <div className="mt-4 pt-4 border-t border-gray-100">

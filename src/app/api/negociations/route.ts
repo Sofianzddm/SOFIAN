@@ -71,8 +71,13 @@ export async function POST(request: NextRequest) {
 
     const data = await request.json();
 
-    if (!data.talentId || !data.marqueId) {
-      return NextResponse.json({ message: "Talent et marque obligatoires" }, { status: 400 });
+    if (!data.talentId) {
+      return NextResponse.json({ message: "Talent obligatoire" }, { status: 400 });
+    }
+    // Marque : soit marqueId (existant), soit nomMarqueSaisi (texte libre → fiche marque créée à la validation)
+    const hasMarque = data.marqueId || (data.nomMarqueSaisi && String(data.nomMarqueSaisi).trim());
+    if (!hasMarque) {
+      return NextResponse.json({ message: "Nom de la marque obligatoire" }, { status: 400 });
     }
 
     // Générer la référence NEG-2026-0001
@@ -84,13 +89,17 @@ export async function POST(request: NextRequest) {
     });
     const reference = `NEG-${year}-${String(compteur.dernierNumero).padStart(4, "0")}`;
 
-    // Créer la négociation
+    const nomMarqueSaisi = data.nomMarqueSaisi ? String(data.nomMarqueSaisi).trim() : null;
+    const marqueId = data.marqueId || null;
+
+    // Créer la négociation (marqueId optionnel si nomMarqueSaisi fourni)
     const negociation = await prisma.negociation.create({
       data: {
         reference,
         tmId: session.user.id, // Le TM connecté
         talentId: data.talentId,
-        marqueId: data.marqueId,
+        marqueId,
+        nomMarqueSaisi: nomMarqueSaisi || null,
         contactMarque: data.contactMarque || null,
         emailContact: data.emailContact || null,
         source: data.source || "INBOUND",
@@ -112,7 +121,7 @@ export async function POST(request: NextRequest) {
       include: {
         tm: { select: { prenom: true, nom: true } },
         talent: { select: { prenom: true, nom: true } },
-        marque: { select: { nom: true } },
+        marque: { select: { id: true, nom: true } },
         livrables: true,
       },
     });

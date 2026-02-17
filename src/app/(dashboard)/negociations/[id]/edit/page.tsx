@@ -45,12 +45,6 @@ interface Talent {
   tarifs?: any;
 }
 
-interface Marque {
-  id: string;
-  nom: string;
-  secteur: string | null;
-}
-
 interface Livrable {
   id: string;
   typeContenu: string;
@@ -68,12 +62,11 @@ export default function EditNegociationPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
-  const [marques, setMarques] = useState<Marque[]>([]);
   const [negoStatut, setNegoStatut] = useState<string>("");
 
   const [formData, setFormData] = useState({
     talentId: "",
-    marqueId: "",
+    nomMarqueSaisi: "",
     source: "INBOUND",
     contactMarque: "",
     emailContact: "",
@@ -88,7 +81,6 @@ export default function EditNegociationPage() {
   useEffect(() => {
     fetchNegociation();
     fetchTalents();
-    fetchMarques();
   }, [params.id]);
 
   const fetchNegociation = async () => {
@@ -99,7 +91,7 @@ export default function EditNegociationPage() {
         setNegoStatut(nego.statut); // 🔍 Capturer le statut
         setFormData({
           talentId: nego.talentId,
-          marqueId: nego.marqueId,
+          nomMarqueSaisi: nego.nomMarqueSaisi || nego.marque?.nom || "",
           source: nego.source,
           contactMarque: nego.contactMarque || "",
           emailContact: nego.emailContact || "",
@@ -129,11 +121,6 @@ export default function EditNegociationPage() {
   const fetchTalents = async () => {
     const res = await fetch("/api/talents");
     if (res.ok) setTalents(await res.json());
-  };
-
-  const fetchMarques = async () => {
-    const res = await fetch("/api/marques");
-    if (res.ok) setMarques(await res.json());
   };
 
   const addLivrable = () => {
@@ -230,7 +217,7 @@ export default function EditNegociationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           talentId: formData.talentId,
-          marqueId: formData.marqueId,
+          nomMarqueSaisi: formData.nomMarqueSaisi || null,
           source: formData.source,
           contactMarque: formData.contactMarque,
           emailContact: formData.emailContact,
@@ -347,21 +334,16 @@ export default function EditNegociationPage() {
             </div>
 
             <div>
-              <label className={labelClass}>Marque *</label>
-              <select
-                name="marqueId"
-                value={formData.marqueId}
-                onChange={(e) => setFormData({ ...formData, marqueId: e.target.value })}
+              <label className={labelClass}>Nom de la marque *</label>
+              <input
+                type="text"
+                name="nomMarqueSaisi"
+                value={formData.nomMarqueSaisi}
+                onChange={(e) => setFormData({ ...formData, nomMarqueSaisi: e.target.value })}
+                placeholder="Ex: Nike France"
                 required
                 className={inputClass}
-              >
-                <option value="">Sélectionner...</option>
-                {marques.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.nom}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div>
