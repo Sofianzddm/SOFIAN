@@ -62,10 +62,24 @@ export default function CollaborationsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterStatut, setFilterStatut] = useState("");
+  const [userRole, setUserRole] = useState("");
 
   useEffect(() => {
     fetchCollaborations();
+    fetchUserRole();
   }, []);
+
+  const fetchUserRole = async () => {
+    try {
+      const res = await fetch("/api/auth/me");
+      if (res.ok) {
+        const data = await res.json();
+        setUserRole(data.role);
+      }
+    } catch (error) {
+      console.error("Erreur:", error);
+    }
+  };
 
   const fetchCollaborations = async () => {
     try {
@@ -131,45 +145,47 @@ export default function CollaborationsPage() {
         </Link>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">CA confirmé</p>
-              <p className="text-2xl font-bold text-glowup-licorice mt-1">{formatMoney(totalCA)}</p>
+      {/* Stats - Masqués pour TM */}
+      {userRole !== "TM" && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">CA confirmé</p>
+                <p className="text-2xl font-bold text-glowup-licorice mt-1">{formatMoney(totalCA)}</p>
+              </div>
+              <div className="p-3 bg-green-50 rounded-xl"><Euro className="w-5 h-5 text-green-600" /></div>
             </div>
-            <div className="p-3 bg-green-50 rounded-xl"><Euro className="w-5 h-5 text-green-600" /></div>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Commissions</p>
+                <p className="text-2xl font-bold text-glowup-rose mt-1">{formatMoney(totalCommission)}</p>
+              </div>
+              <div className="p-3 bg-glowup-lace rounded-xl"><TrendingUp className="w-5 h-5 text-glowup-rose" /></div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">En négo</p>
+                <p className="text-2xl font-bold text-amber-600 mt-1">{enNego}</p>
+              </div>
+              <div className="p-3 bg-amber-50 rounded-xl"><Clock className="w-5 h-5 text-amber-600" /></div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Gagnées</p>
+                <p className="text-2xl font-bold text-green-600 mt-1">{gagnes}</p>
+              </div>
+              <div className="p-3 bg-green-50 rounded-xl"><Handshake className="w-5 h-5 text-green-600" /></div>
+            </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Commissions</p>
-              <p className="text-2xl font-bold text-glowup-rose mt-1">{formatMoney(totalCommission)}</p>
-            </div>
-            <div className="p-3 bg-glowup-lace rounded-xl"><TrendingUp className="w-5 h-5 text-glowup-rose" /></div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">En négo</p>
-              <p className="text-2xl font-bold text-amber-600 mt-1">{enNego}</p>
-            </div>
-            <div className="p-3 bg-amber-50 rounded-xl"><Clock className="w-5 h-5 text-amber-600" /></div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Gagnées</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">{gagnes}</p>
-            </div>
-            <div className="p-3 bg-green-50 rounded-xl"><Handshake className="w-5 h-5 text-green-600" /></div>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -215,8 +231,8 @@ export default function CollaborationsPage() {
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Talent</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Marque</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Livrables</th>
-                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Brut</th>
-                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Commission</th>
+                {userRole !== "TM" && <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Brut</th>}
+                {userRole !== "TM" && <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Commission</th>}
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Statut</th>
                 <th className="text-right py-3 px-4"></th>
               </tr>
@@ -257,13 +273,17 @@ export default function CollaborationsPage() {
                         <span className="text-sm text-gray-600">{getLivrablesLabel(collab.livrables)}</span>
                       </div>
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <span className="text-sm font-semibold text-glowup-licorice">{formatMoney(collab.montantBrut)}</span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <span className="text-sm text-glowup-rose font-medium">{formatMoney(collab.commissionEuros)}</span>
-                      <span className="text-xs text-gray-400 ml-1">({collab.commissionPercent}%)</span>
-                    </td>
+                    {userRole !== "TM" && (
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-sm font-semibold text-glowup-licorice">{formatMoney(collab.montantBrut)}</span>
+                      </td>
+                    )}
+                    {userRole !== "TM" && (
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-sm text-glowup-rose font-medium">{formatMoney(collab.commissionEuros)}</span>
+                        <span className="text-xs text-gray-400 ml-1">({collab.commissionPercent}%)</span>
+                      </td>
+                    )}
                     <td className="py-3 px-4">
                       <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border ${statutInfo.color}`}>
                         <statutInfo.icon className="w-3 h-3" />

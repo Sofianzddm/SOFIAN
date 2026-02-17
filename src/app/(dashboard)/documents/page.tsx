@@ -19,6 +19,8 @@ import {
   MoreHorizontal,
   ArrowUpDown,
   X,
+  RefreshCw,
+  Check,
 } from "lucide-react";
 
 interface Document {
@@ -63,6 +65,9 @@ export default function DocumentsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState<"date" | "montant" | "reference">("date");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [selectedFacture, setSelectedFacture] = useState<Document | null>(null);
+  const [replacing, setReplacing] = useState(false);
 
   useEffect(() => {
     fetchDocuments();
@@ -145,6 +150,44 @@ export default function DocumentsPage() {
   };
 
   const hasActiveFilters = search !== "" || statutFilter !== "ALL";
+
+  const handleReplace = async () => {
+    if (!selectedFacture) return;
+
+    try {
+      setReplacing(true);
+      const res = await fetch(`/api/documents/${selectedFacture.id}/remplacer`, {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Erreur");
+      }
+
+      const data = await res.json();
+      
+      // Afficher un message de succès
+      alert(data.message);
+      
+      // Recharger les documents
+      await fetchDocuments();
+      
+      // Fermer la modal
+      setShowReplaceModal(false);
+      setSelectedFacture(null);
+      
+      // Rediriger vers la collaboration pour voir la nouvelle facture
+      if (selectedFacture.collaboration?.id) {
+        window.location.href = `/collaborations/${selectedFacture.collaboration.id}`;
+      }
+    } catch (error: any) {
+      console.error("Erreur remplacement:", error);
+      alert(error.message || "Erreur lors du remplacement de la facture");
+    } finally {
+      setReplacing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -415,6 +458,19 @@ export default function DocumentsPage() {
                         >
                           <Download className="w-4 h-4" />
                         </a>
+                        {/* Bouton Remplacer (uniquement pour les factures non annulées) */}
+                        {doc.type === "FACTURE" && doc.statut !== "ANNULE" && (
+                          <button
+                            onClick={() => {
+                              setSelectedFacture(doc);
+                              setShowReplaceModal(true);
+                            }}
+                            className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                            title="Remplacer cette facture"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -424,6 +480,98 @@ export default function DocumentsPage() {
           </table>
         )}
       </div>
+
+      {/* Modal Remplacement */}
+      {showReplaceModal && selectedFacture && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-14 h-14 rounded-2xl bg-orange-100 flex items-center justify-center">
+                <RefreshCw className="w-7 h-7 text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-glowup-licorice">
+                  Remplacer la facture
+                </h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {selectedFacture.reference}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 mb-6">
+              <p className="text-sm text-orange-900 leading-relaxed">
+                <strong>Cette action va :</strong>
+              </p>
+              <ul className="mt-3 space-y-2 text-sm text-orange-800">
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>Créer un avoir <strong>total</strong> qui annule cette facture</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>Marquer la facture actuelle comme <strong>annulée</strong></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>Créer automatiquement une <strong>nouvelle facture</strong> (en brouillon)</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-4 mb-6">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm text-gray-500">Client</span>
+                <span className="text-sm font-medium text-glowup-licorice">
+                  {selectedFacture.collaboration?.marque.nom}
+                </span>
+              </div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm text-gray-500">Talent</span>
+                <span className="text-sm font-medium text-glowup-licorice">
+                  {selectedFacture.collaboration?.talent.prenom} {selectedFacture.collaboration?.talent.nom}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Montant TTC</span>
+                <span className="text-sm font-bold text-glowup-licorice">
+                  {formatMoney(selectedFacture.montantTTC)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowReplaceModal(false);
+                  setSelectedFacture(null);
+                }}
+                disabled={replacing}
+                className="flex-1 px-6 py-3 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition-all disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleReplace}
+                disabled={replacing}
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 rounded-xl transition-all disabled:opacity-50"
+              >
+                {replacing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Remplacement...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4" />
+                    Remplacer la facture
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -83,7 +83,7 @@ export default function NegociationDetailPage() {
   const isAdmin = session?.user?.role === "ADMIN";
   const isHeadOf = session?.user?.role === "HEAD_OF";
   const canValidate = isAdmin || isHeadOf;
-  const canEdit = nego?.statut !== "VALIDEE" && nego?.statut !== "REFUSEE";
+  const canEdit = nego?.statut !== "VALIDEE"; // ✅ Permet l'édition même si REFUSEE
   const isOwner = session?.user?.id === nego?.tm.id;
 
   useEffect(() => {
@@ -238,7 +238,7 @@ export default function NegociationDetailPage() {
               <Pencil className="w-4 h-4" />
             </Link>
           )}
-          {canEdit && (
+          {canEdit && !nego.collaboration && (
             <button onClick={handleDelete} className="px-3 py-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg">
               <Trash2 className="w-4 h-4" />
             </button>
@@ -284,12 +284,28 @@ export default function NegociationDetailPage() {
 
       {/* Alerte Refusée */}
       {nego.statut === "REFUSEE" && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-          <XCircle className="w-5 h-5 text-red-500" />
-          <div>
-            <p className="font-medium text-red-700">Négociation refusée</p>
-            {nego.raisonRefus && <p className="text-sm text-red-600 mt-1">{nego.raisonRefus}</p>}
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start gap-3 mb-3">
+            <XCircle className="w-5 h-5 text-red-500" />
+            <div className="flex-1">
+              <p className="font-medium text-red-700">Négociation refusée</p>
+              {nego.raisonRefus && <p className="text-sm text-red-600 mt-1">{nego.raisonRefus}</p>}
+            </div>
           </div>
+          {isOwner && (
+            <div className="mt-3 pt-3 border-t border-red-200">
+              <p className="text-xs text-red-700 mb-2">
+                💡 Vous pouvez modifier cette négociation et la re-soumettre
+              </p>
+              <Link
+                href={`/negociations/${nego.id}/edit`}
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors"
+              >
+                <Pencil className="w-3 h-3" />
+                Modifier et re-soumettre
+              </Link>
+            </div>
+          )}
         </div>
       )}
 

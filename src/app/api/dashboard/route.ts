@@ -321,8 +321,6 @@ export async function GET() {
         mesTalents,
         mesNegociations, // ✅ CORRIGÉ: Utilise la table Negociation
         mesCollabsEnCours,
-        mesCollabsPublie,
-        caMois,
       ] = await Promise.all([
         prisma.talent.findMany({
           where: { managerId: user.id },
@@ -348,18 +346,6 @@ export async function GET() {
         prisma.collaboration.count({
           where: { statut: "EN_COURS", talent: { managerId: user.id } },
         }),
-        prisma.collaboration.findMany({
-          where: { statut: "PUBLIE", talent: { managerId: user.id } },
-          include: { talent: true, marque: true },
-        }),
-        prisma.collaboration.aggregate({
-          _sum: { montantBrut: true },
-          where: {
-            talent: { managerId: user.id },
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfMonth },
-          },
-        }),
       ]);
 
       const talentsAvecBilanRetard = mesTalents.filter(
@@ -372,9 +358,7 @@ export async function GET() {
           mesTalents: mesTalents.length,
           mesNegos: mesNegociations.length, // ✅ Compte les vraies négos
           mesCollabsEnCours,
-          aFacturer: mesCollabsPublie.length,
           bilansRetard: talentsAvecBilanRetard.length,
-          caMois: Number(caMois._sum.montantBrut) || 0,
         },
         talents: mesTalents.map((t) => ({
           id: t.id,
@@ -397,13 +381,6 @@ export async function GET() {
           source: n.source,
           montant: Number(n.budgetFinal || n.budgetSouhaite || n.budgetMarque) || 0,
           createdAt: n.createdAt,
-        })),
-        aFacturer: mesCollabsPublie.map((c) => ({
-          id: c.id,
-          reference: c.reference,
-          talent: `${c.talent.prenom} ${c.talent.nom}`,
-          marque: c.marque.nom,
-          montant: Number(c.montantBrut),
         })),
       });
     }

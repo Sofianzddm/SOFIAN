@@ -69,6 +69,7 @@ export default function EditNegociationPage() {
   const [saving, setSaving] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
   const [marques, setMarques] = useState<Marque[]>([]);
+  const [negoStatut, setNegoStatut] = useState<string>("");
 
   const [formData, setFormData] = useState({
     talentId: "",
@@ -95,6 +96,7 @@ export default function EditNegociationPage() {
       const res = await fetch(`/api/negociations/${params.id}`);
       if (res.ok) {
         const nego = await res.json();
+        setNegoStatut(nego.statut); // 🔍 Capturer le statut
         setFormData({
           talentId: nego.talentId,
           marqueId: nego.marqueId,
@@ -290,6 +292,19 @@ export default function EditNegociationPage() {
           </div>
         </div>
       </div>
+
+      {/* Avertissement REFUSEE */}
+      {negoStatut === "REFUSEE" && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-amber-900 text-sm">🔄 Réouverture de négociation refusée</p>
+            <p className="text-xs text-amber-700 mt-1">
+              Cette négociation a été refusée. En enregistrant vos modifications, elle sera <strong>automatiquement remise en brouillon</strong> et vous pourrez la re-soumettre.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Avertissement */}
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">

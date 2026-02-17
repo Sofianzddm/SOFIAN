@@ -97,6 +97,10 @@ export async function PUT(
       return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
     }
 
+    // 🔄 Si la négo est REFUSEE, on la remet en BROUILLON
+    const newStatut = negoActuelle.statut === "REFUSEE" ? "BROUILLON" : negoActuelle.statut;
+    const resetRefus = negoActuelle.statut === "REFUSEE";
+
     // Déterminer si on doit notifier (modification après soumission)
     const shouldNotify = ["EN_ATTENTE", "EN_DISCUSSION"].includes(negoActuelle.statut);
 
@@ -123,6 +127,9 @@ export async function PUT(
           dateDeadline: data.dateDeadline ? new Date(data.dateDeadline) : null,
           modifiedSinceReview: shouldNotify,
           lastModifiedAt: new Date(),
+          // 🔄 Réinitialiser le statut et la raison de refus si nécessaire
+          statut: newStatut,
+          raisonRefus: resetRefus ? null : undefined,
           livrables: {
             create: (data.livrables || []).map((l: any) => ({
               typeContenu: l.typeContenu,
@@ -139,7 +146,19 @@ export async function PUT(
         },
       });
 
-      // 3. Créer notification si nécessaire
+      // 3. Créer notification et commentaire si nécessaire
+      if (resetRefus) {
+        // 🔄 Si la négo était refusée, ajouter un commentaire de réouverture
+        await tx.negoCommentaire.create({
+          data: {
+            negociationId: id,
+            userId: session.user.id,
+            contenu: `🔄 Négociation rouverte et remise en brouillon pour modification`,
+          },
+        });
+        console.log(`🔄 Négociation ${negoActuelle.reference} rouverte après refus`);
+      }
+
       if (shouldNotify) {
         // Trouver tous les HEAD_OF et ADMIN
         const validateurs = await tx.user.findMany({

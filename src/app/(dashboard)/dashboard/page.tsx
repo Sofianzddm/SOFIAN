@@ -608,7 +608,7 @@ function HeadOfDashboard({ data }: { data: any }) {
 // TM DASHBOARD - REDESIGNED ✨
 // ============================================
 function TMDashboard({ data }: { data: any }) {
-  const { stats, talents, negociations, aFacturer } = data;
+  const { stats, talents, negociations } = data;
 
   return (
     <div className="space-y-6">
@@ -635,17 +635,11 @@ function TMDashboard({ data }: { data: any }) {
           <p className="text-white/80 text-sm mt-1">En cours</p>
         </div>
         
-        <div className={`relative overflow-hidden rounded-2xl p-5 text-white shadow-lg ${stats.aFacturer > 0 ? "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-200" : "bg-gradient-to-br from-gray-400 to-gray-500 shadow-gray-200"}`}>
+        <div className="relative overflow-hidden bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl p-5 text-white shadow-lg shadow-purple-200">
           <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <Euro className="w-6 h-6 mb-3 opacity-80" />
-          <p className="text-3xl font-bold">{stats.aFacturer}</p>
-          <p className="text-white/80 text-sm mt-1">À facturer</p>
-          {stats.aFacturer > 0 && (
-            <span className="absolute top-3 right-3 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
-            </span>
-          )}
+          <Handshake className="w-6 h-6 mb-3 opacity-80" />
+          <p className="text-3xl font-bold">{stats.mesTalents}</p>
+          <p className="text-white/80 text-sm mt-1">Collaborations</p>
         </div>
       </div>
 
@@ -678,41 +672,6 @@ function TMDashboard({ data }: { data: any }) {
         </div>
       )}
 
-      {/* 💰 À FACTURER */}
-      {aFacturer && aFacturer.length > 0 && (
-        <div className="relative overflow-hidden bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-5 text-white shadow-lg">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="relative">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
-                <FileText className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="font-bold text-lg">💰 {aFacturer.length} collab(s) publiée(s)</h3>
-                <p className="text-white/80 text-sm">En attente de la facture talent</p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {aFacturer.map((c: any) => (
-                <Link 
-                  key={c.id} 
-                  href={`/collaborations/${c.id}`}
-                  className="flex items-center justify-between p-4 bg-white/10 backdrop-blur-sm rounded-xl hover:bg-white/20 transition-all group"
-                >
-                  <div>
-                    <p className="font-semibold">{c.talent}</p>
-                    <p className="text-white/70 text-sm">{c.marque} · {c.reference}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl font-bold">{formatMoney(c.montant)}</span>
-                    <ArrowUpRight className="w-5 h-5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Layout 2 colonnes */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -867,7 +826,7 @@ function TMDashboard({ data }: { data: any }) {
             )}
           </div>
 
-          {/* 💵 CA DU MOIS */}
+          {/* 💼 MES STATS */}
           <div className="relative overflow-hidden bg-gradient-to-br from-glowup-licorice to-gray-800 rounded-2xl p-6 text-white">
             <div className="absolute top-0 right-0 w-24 h-24 bg-glowup-rose/20 rounded-full blur-2xl" />
             <div className="absolute bottom-0 left-0 w-20 h-20 bg-pink-500/10 rounded-full blur-xl" />
@@ -875,18 +834,18 @@ function TMDashboard({ data }: { data: any }) {
             <div className="relative">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="w-5 h-5 text-glowup-rose" />
-                <span className="text-white/60 text-sm">Mon CA du mois</span>
+                <span className="text-white/60 text-sm">Mes collaborations</span>
               </div>
-              <p className="text-4xl font-bold">{formatMoney(stats.caMois)}</p>
+              <p className="text-4xl font-bold">{stats.mesCollabsEnCours}</p>
               <div className="flex items-center gap-4 mt-4 pt-4 border-t border-white/10">
                 <div>
-                  <p className="text-2xl font-bold">{stats.mesCollabsEnCours}</p>
-                  <p className="text-white/50 text-xs">en cours</p>
+                  <p className="text-2xl font-bold">{stats.mesTalents}</p>
+                  <p className="text-white/50 text-xs">talents gérés</p>
                 </div>
                 <div className="w-px h-8 bg-white/20" />
                 <div>
-                  <p className="text-2xl font-bold">{stats.aFacturer}</p>
-                  <p className="text-white/50 text-xs">à facturer</p>
+                  <p className="text-2xl font-bold">{stats.mesNegos}</p>
+                  <p className="text-white/50 text-xs">négociations</p>
                 </div>
               </div>
             </div>

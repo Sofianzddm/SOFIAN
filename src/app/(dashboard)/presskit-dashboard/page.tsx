@@ -284,50 +284,7 @@ export default function PressKitDashboardV5() {
 
   function openCategorySelector(category: string) {
     setSelectedCategory(category);
-    
-    // Si des talents sont déjà sélectionnés pour cette catégorie, les garder
-    const existingSelection = categoryTalents[category] || [];
-    
-    // Sinon, suggérer intelligemment des talents selon la catégorie
-    if (existingSelection.length === 0) {
-      const suggestedTalents = suggestTalentsForCategory(category, talents);
-      setTempSelectedTalents(suggestedTalents);
-    } else {
-      setTempSelectedTalents(existingSelection);
-    }
-  }
-  
-  // Suggestion intelligente de talents selon la catégorie de marque
-  function suggestTalentsForCategory(category: string, allTalents: Talent[]): string[] {
-    const categoryToNicheMap: Record<string, string[]> = {
-      "MODE": ["Fashion", "Lifestyle"],
-      "BEAUTÉ": ["Beauty", "Lifestyle"],
-      "SPORT": ["Sport", "Lifestyle"],
-      "FOOD": ["Food", "Lifestyle"],
-      "TECH": ["Creative", "Lifestyle"],
-      "LIFESTYLE": ["Lifestyle", "Fashion", "Beauty"],
-      "SANTÉ": ["Sport", "Lifestyle"],
-      "FINANCE": ["Lifestyle"],
-      "AUTRE": [],
-    };
-    
-    const targetNiches = categoryToNicheMap[category] || [];
-    
-    // Filtrer les talents qui ont au moins une niche qui match
-    const matchingTalents = allTalents
-      .filter(talent => 
-        talent.niches.some(niche => 
-          targetNiches.some(targetNiche => 
-            niche.toLowerCase().includes(targetNiche.toLowerCase())
-          )
-        )
-      )
-      .sort((a, b) => (b.igFollowers || 0) - (a.igFollowers || 0)) // Trier par followers
-      .slice(0, 5) // Suggérer les 5 meilleurs
-      .map(t => t.id);
-    
-    console.log(`💡 Suggestion pour ${category}:`, matchingTalents.length, 'talents suggérés');
-    return matchingTalents;
+    setTempSelectedTalents(categoryTalents[category] || []);
   }
 
   function toggleTalentSelection(talentId: string) {
@@ -929,32 +886,15 @@ export default function PressKitDashboardV5() {
               <div className="grid grid-cols-2 gap-4">
                 {talents.map((talent) => {
                   const isSelected = tempSelectedTalents.includes(talent.id);
-                  
-                  // Vérifier si le talent matche la catégorie (pour affichage suggéré)
-                  const categoryNiches = selectedCategory ? {
-                    "MODE": ["Fashion", "Lifestyle"],
-                    "BEAUTÉ": ["Beauty", "Lifestyle"],
-                    "SPORT": ["Sport", "Lifestyle"],
-                    "FOOD": ["Food", "Lifestyle"],
-                  }[selectedCategory] || [] : [];
-                  
-                  const isRecommended = talent.niches.some(niche => 
-                    categoryNiches.some(cn => niche.toLowerCase().includes(cn.toLowerCase()))
-                  );
 
                   return (
                     <button
                       key={talent.id}
                       onClick={() => toggleTalentSelection(talent.id)}
-                      className={`relative flex items-center gap-4 p-4 border rounded-lg text-left transition-colors ${
+                      className={`flex items-center gap-4 p-4 border rounded-lg text-left transition-colors ${
                         isSelected ? "border-blue-600 bg-blue-50" : "hover:bg-gray-50"
                       }`}
                     >
-                      {isRecommended && !isSelected && (
-                        <span className="absolute top-2 right-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
-                          ✨ Recommandé
-                        </span>
-                      )}
                       <input
                         type="checkbox"
                         checked={isSelected}

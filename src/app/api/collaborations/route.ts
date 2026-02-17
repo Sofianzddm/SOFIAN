@@ -11,13 +11,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
+    const user = session.user as { id: string; role: string };
     const { searchParams } = new URL(request.url);
     const accountManagerId = searchParams.get("accountManagerId");
 
     const where: any = {};
 
-    // Filtrer par Account Manager si spécifié
-    if (accountManagerId) {
+    // Si TM → voir uniquement SES collaborations (via ses talents)
+    if (user.role === "TM") {
+      const mesTalents = await prisma.talent.findMany({
+        where: { managerId: user.id },
+        select: { id: true },
+      });
+      where.talentId = { in: mesTalents.map((t) => t.id) };
+      // Filtrer seulement les collabs EN_COURS
+      where.statut = "EN_COURS";
+    }
+    
+    // Filtrer par Account Manager si spécifié (pour ADMIN uniquement)
+    if (accountManagerId && user.role === "ADMIN") {
       where.accountManagerId = accountManagerId;
     }
 
