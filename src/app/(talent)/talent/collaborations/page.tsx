@@ -198,7 +198,7 @@ export default function TalentCollaborationsPage() {
                   )}
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Building2 className="w-4 h-4" />
-                    <span>{collab.livrables || 0} livrable(s)</span>
+                    <span>{Array.isArray(collab.livrables) ? collab.livrables.length : 0} livrable(s)</span>
                   </div>
                   {collab.lienPublication && (
                     <a

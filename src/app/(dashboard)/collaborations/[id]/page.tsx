@@ -422,7 +422,7 @@ export default function CollabDetailPage() {
   const nextStatuts = WORKFLOW[collab.statut as keyof typeof WORKFLOW] || [];
   const activeDevis = getActiveDocument("DEVIS");
   const activeFacture = getActiveDocument("FACTURE");
-  const canGenerateDevis = ["NEGO", "GAGNE"].includes(collab.statut) && !activeDevis;
+  const canGenerateDevis = ["NEGO", "GAGNE", "EN_COURS"].includes(collab.statut) && !activeDevis;
   const canGenerateFacture = ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) && !activeFacture;
   const existingDocs = collab.documents || [];
 
