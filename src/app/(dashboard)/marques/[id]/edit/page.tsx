@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
@@ -21,6 +21,8 @@ import {
   Phone,
   CreditCard,
   Clock,
+  Sparkles,
+  Search,
 } from "lucide-react";
 
 const SECTEURS = [
@@ -52,10 +54,20 @@ interface Contact {
 export default function EditMarquePage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeStep, setActiveStep] = useState(1);
+  
+  // Si ?complete=true, commencer au step 2 (Adresse & Légal)
+  const shouldComplete = searchParams.get("complete") === "true";
+  const [activeStep, setActiveStep] = useState(shouldComplete ? 2 : 1);
+  
+  // Recherche Pappers
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [showResults, setShowResults] = useState(false);
 
   const [formData, setFormData] = useState({
     nom: "",
@@ -164,6 +176,49 @@ export default function EditMarquePage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  // Recherche via API Pappers
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    
+    setSearching(true);
+    setShowResults(false);
+    
+    try {
+      const res = await fetch(`/api/recherche-entreprise?query=${encodeURIComponent(searchQuery)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(data.results || []);
+        setShowResults(true);
+      } else {
+        alert("Erreur lors de la recherche");
+      }
+    } catch (error) {
+      alert("Erreur de connexion");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // Auto-remplir depuis Pappers
+  const fillFromPappers = (entreprise: any) => {
+    setFormData({
+      ...formData,
+      raisonSociale: entreprise.nom_entreprise || entreprise.denomination || formData.nom,
+      formeJuridique: entreprise.forme_juridique || "",
+      siret: entreprise.siret || "",
+      numeroTVA: entreprise.numero_tva_intracommunautaire || "",
+      adresseRue: entreprise.adresse || "",
+      adresseComplement: entreprise.complement || "",
+      codePostal: entreprise.code_postal || "",
+      ville: entreprise.ville || "",
+      pays: entreprise.pays || "France",
+    });
+    
+    setShowResults(false);
+    setSearchQuery("");
+    alert("✅ Informations importées depuis Pappers !");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -226,6 +281,94 @@ export default function EditMarquePage() {
           </div>
         </div>
       </div>
+
+      {/* 🔍 Recherche entreprise via Pappers */}
+      {activeStep === 2 && (
+        <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-200 rounded-2xl p-6">
+          <div className="flex items-start gap-4 mb-4">
+            <div className="p-3 bg-purple-100 rounded-xl">
+              <Sparkles className="w-6 h-6 text-purple-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-purple-900 text-lg">
+                🔍 Auto-complétion via API Pappers
+              </h3>
+              <p className="text-sm text-purple-700 mt-1">
+                Recherchez l'entreprise par nom ou SIRET pour importer automatiquement ses données légales
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && handleSearch()}
+              placeholder={`Rechercher "${formData.nom}" ou entrer un SIRET...`}
+              className="flex-1 px-4 py-3 rounded-xl border-2 border-purple-200 focus:outline-none focus:border-purple-500 bg-white"
+            />
+            <button
+              onClick={handleSearch}
+              disabled={searching || !searchQuery.trim()}
+              className="px-6 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition-all disabled:opacity-50 flex items-center gap-2"
+            >
+              {searching ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Recherche...
+                </>
+              ) : (
+                <>
+                  <Search className="w-4 h-4" />
+                  Rechercher
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Résultats */}
+          {showResults && (
+            <div className="mt-4 space-y-2 max-h-[400px] overflow-y-auto">
+              {searchResults.length === 0 ? (
+                <div className="bg-white rounded-xl p-4 text-center text-gray-500">
+                  Aucun résultat trouvé
+                </div>
+              ) : (
+                searchResults.map((entreprise, index) => (
+                  <button
+                    key={index}
+                    onClick={() => fillFromPappers(entreprise)}
+                    className="w-full bg-white rounded-xl p-4 border-2 border-gray-200 hover:border-purple-400 hover:shadow-lg transition-all text-left group"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <h4 className="font-bold text-glowup-licorice group-hover:text-purple-600 transition-colors">
+                          {entreprise.nom_entreprise}
+                        </h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {entreprise.forme_juridique} • SIRET: {entreprise.siret}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {entreprise.adresse}, {entreprise.code_postal} {entreprise.ville}
+                        </p>
+                        {entreprise.numero_tva_intracommunautaire && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            TVA: {entreprise.numero_tva_intracommunautaire}
+                          </p>
+                        )}
+                      </div>
+                      <div className="px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-medium">
+                        Importer →
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Steps */}
       <div className="flex gap-2 overflow-x-auto pb-2">
