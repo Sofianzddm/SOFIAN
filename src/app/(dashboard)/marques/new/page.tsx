@@ -225,7 +225,7 @@ export default function NewMarquePage() {
                     ✨ Auto-complétion intelligente
                   </h3>
                   <p className="text-sm text-blue-700 leading-relaxed">
-                    Après la création, vous pourrez <strong>rechercher automatiquement</strong> les informations légales de l'entreprise (SIRET, TVA, adresse) via l'API Pappers.
+                    Après la création, vous pourrez <strong>rechercher automatiquement</strong> les informations légales de l'entreprise (SIRET, TVA, adresse) via l'API Recherche d'entreprises.
                   </p>
                   <p className="text-xs text-blue-600 mt-2">
                     Plus besoin de tout remplir à la main !
@@ -281,7 +281,7 @@ export default function NewMarquePage() {
                     <p className="text-xs text-gray-600 flex items-center gap-2">
                       <Check className="w-4 h-4 text-glowup-rose" />
                       <span>
-                        <strong>Prochaine étape :</strong> Compléter les infos légales avec l'API Pappers
+                        <strong>Prochaine étape :</strong> Compléter les infos légales avec l'API Recherche d'entreprises
                       </span>
                     </p>
                   </div>

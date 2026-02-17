@@ -63,7 +63,7 @@ export default function EditMarquePage() {
   const shouldComplete = searchParams.get("complete") === "true";
   const [activeStep, setActiveStep] = useState(shouldComplete ? 2 : 1);
   
-  // Recherche Pappers
+  // Recherche API Recherche d'entreprises
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -176,7 +176,7 @@ export default function EditMarquePage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // Recherche via API Pappers
+  // Recherche via API Recherche d'entreprises
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     
@@ -199,7 +199,7 @@ export default function EditMarquePage() {
     }
   };
 
-  // Auto-remplir depuis Pappers
+  // Auto-remplir depuis les résultats
   const fillFromPappers = (entreprise: any) => {
     setFormData({
       ...formData,
@@ -216,7 +216,7 @@ export default function EditMarquePage() {
     
     setShowResults(false);
     setSearchQuery("");
-    alert("✅ Informations importées depuis Pappers !");
+    alert("✅ Informations importées !");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -282,7 +282,7 @@ export default function EditMarquePage() {
         </div>
       </div>
 
-      {/* 🔍 Recherche entreprise via Pappers */}
+      {/* 🔍 Recherche entreprise via API Recherche d'entreprises */}
       {activeStep === 2 && (
         <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-200 rounded-2xl p-6">
           <div className="flex items-start gap-4 mb-4">
@@ -291,7 +291,7 @@ export default function EditMarquePage() {
             </div>
             <div className="flex-1">
               <h3 className="font-bold text-purple-900 text-lg">
-                🔍 Auto-complétion via API Pappers
+                🔍 Auto-complétion via API Recherche d'entreprises
               </h3>
               <p className="text-sm text-purple-700 mt-1">
                 Recherchez l'entreprise par nom ou SIRET pour importer automatiquement ses données légales

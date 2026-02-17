@@ -29,6 +29,8 @@ import {
   Check,
   ChevronRight,
   Upload,
+  Search,
+  Sparkles,
 } from "lucide-react";
 
 interface Livrable {
@@ -133,6 +135,11 @@ export default function CollabDetailPage() {
   const [marqueFormData, setMarqueFormData] = useState({
     raisonSociale: "", adresseRue: "", codePostal: "", ville: "", pays: "France", siret: "", numeroTVA: "",
   });
+  // Recherche Pappers (modal compléter marque)
+  const [pappersSearchQuery, setPappersSearchQuery] = useState("");
+  const [pappersSearching, setPappersSearching] = useState(false);
+  const [pappersSearchResults, setPappersSearchResults] = useState<any[]>([]);
+  const [pappersShowResults, setPappersShowResults] = useState(false);
   const [savingMarque, setSavingMarque] = useState(false);
   const [selectedFactureTalent, setSelectedFactureTalent] = useState<File | null>(null);
   const [uploadingFactureTalent, setUploadingFactureTalent] = useState(false);
@@ -231,10 +238,46 @@ export default function CollabDetailPage() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(marqueFormData),
       });
-      if (res.ok) { setShowCompleteMarqueModal(false); await fetchCollab(); await generateDocument(pendingDocType, true); }
+      if (res.ok) { setShowCompleteMarqueModal(false); setPappersShowResults(false); setPappersSearchQuery(""); await fetchCollab(); await generateDocument(pendingDocType, true); }
       else alert("Erreur lors de la mise à jour de la marque");
     } catch (error) { alert("Erreur lors de la mise à jour"); }
     finally { setSavingMarque(false); setPendingDocType(null); }
+  };
+
+  const handlePappersSearch = async () => {
+    if (!pappersSearchQuery.trim()) return;
+    setPappersSearching(true);
+    setPappersShowResults(false);
+    try {
+      const res = await fetch(`/api/recherche-entreprise?query=${encodeURIComponent(pappersSearchQuery)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPappersSearchResults(data.results || []);
+        setPappersShowResults(true);
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erreur lors de la recherche");
+      }
+    } catch (error) {
+      alert("Erreur de connexion");
+    } finally {
+      setPappersSearching(false);
+    }
+  };
+
+  const fillMarqueFromPappers = (entreprise: any) => {
+    setMarqueFormData((prev) => ({
+      ...prev,
+      raisonSociale: entreprise.nom_entreprise || entreprise.denomination || prev.raisonSociale,
+      adresseRue: entreprise.adresse || "",
+      codePostal: entreprise.code_postal || "",
+      ville: entreprise.ville || "",
+      pays: entreprise.pays || "France",
+      siret: entreprise.siret || "",
+      numeroTVA: entreprise.numero_tva_intracommunautaire || "",
+    }));
+    setPappersShowResults(false);
+    setPappersSearchQuery("");
   };
 
   const openNotesModal = (type: "DEVIS" | "FACTURE") => {
@@ -937,7 +980,7 @@ export default function CollabDetailPage() {
       {/* Modals */}
       {showCompleteMarqueModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center gap-4 mb-6">
               <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center">
                 <AlertTriangle className="w-7 h-7 text-amber-600" />
@@ -947,6 +990,63 @@ export default function CollabDetailPage() {
                 <p className="text-sm text-gray-500">Complétez les infos de {collab?.marque.nom}</p>
               </div>
             </div>
+
+            {/* Recherche API Recherche d'entreprises — à la génération du devis */}
+            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-200 rounded-2xl p-4 mb-6">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="p-2 bg-purple-100 rounded-xl">
+                  <Sparkles className="w-5 h-5 text-purple-600" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-bold text-purple-900 text-sm">Auto-complétion via API Recherche d'entreprises</h4>
+                  <p className="text-xs text-purple-700 mt-0.5">Recherchez par nom ou SIRET pour importer les données légales</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={pappersSearchQuery}
+                  onChange={(e) => setPappersSearchQuery(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), handlePappersSearch())}
+                  placeholder={collab?.marque.nom ? `Ex: ${collab.marque.nom} ou SIRET` : "Nom entreprise ou SIRET"}
+                  className="flex-1 px-3 py-2.5 rounded-xl border-2 border-purple-200 focus:outline-none focus:border-purple-500 bg-white text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={handlePappersSearch}
+                  disabled={pappersSearching || !pappersSearchQuery.trim()}
+                  className="px-4 py-2.5 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition-all disabled:opacity-50 flex items-center gap-1.5 text-sm"
+                >
+                  {pappersSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  {pappersSearching ? "..." : "Rechercher"}
+                </button>
+              </div>
+              {pappersShowResults && (
+                <div className="mt-3 space-y-2 max-h-[220px] overflow-y-auto">
+                  {pappersSearchResults.length === 0 ? (
+                    <div className="bg-white rounded-xl p-3 text-center text-gray-500 text-sm">Aucun résultat</div>
+                  ) : (
+                    pappersSearchResults.map((entreprise, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => fillMarqueFromPappers(entreprise)}
+                        className="w-full bg-white rounded-xl p-3 border-2 border-gray-200 hover:border-purple-400 hover:shadow transition-all text-left text-sm"
+                      >
+                        <div className="font-semibold text-glowup-licorice">{entreprise.nom_entreprise}</div>
+                        <div className="text-xs text-gray-600 mt-0.5">
+                          {entreprise.forme_juridique} • SIRET: {entreprise.siret}
+                        </div>
+                        <div className="text-xs text-gray-500 truncate">
+                          {entreprise.adresse}, {entreprise.code_postal} {entreprise.ville}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Raison sociale *</label>
@@ -978,7 +1078,7 @@ export default function CollabDetailPage() {
               </div>
             </div>
             <div className="flex gap-4 mt-8">
-              <button onClick={() => { setShowCompleteMarqueModal(false); setPendingDocType(null); }} className="flex-1 px-6 py-3.5 text-gray-600 bg-gray-100 rounded-xl font-semibold hover:bg-gray-200 transition-colors">Annuler</button>
+              <button onClick={() => { setShowCompleteMarqueModal(false); setPendingDocType(null); setPappersShowResults(false); setPappersSearchQuery(""); }} className="flex-1 px-6 py-3.5 text-gray-600 bg-gray-100 rounded-xl font-semibold hover:bg-gray-200 transition-colors">Annuler</button>
               <button onClick={saveMarqueAndGenerate} disabled={savingMarque || !marqueFormData.adresseRue || !marqueFormData.codePostal || !marqueFormData.ville} className="flex-1 px-6 py-3.5 bg-glowup-rose text-white rounded-xl font-semibold hover:bg-glowup-rose/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
                 {savingMarque ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Enregistrer
               </button>

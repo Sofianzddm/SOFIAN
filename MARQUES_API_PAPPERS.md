@@ -1,11 +1,11 @@
-# 🏢 Système de Marques avec API Pappers
+# 🏢 Système de Marques avec API Recherche d'entreprises
 
 ## 📋 Vue d'ensemble
 
 Le système de création de marques a été simplifié en **2 étapes** :
 
 1. **Création rapide** : Juste le nom + secteur (optionnel)
-2. **Complétion automatique** : Recherche via API Pappers pour auto-remplir les données légales
+2. **Complétion automatique** : Recherche via API Recherche d'entreprises (api.gouv.fr) pour auto-remplir les données légales
 
 ---
 
@@ -23,9 +23,9 @@ Le système de création de marques a été simplifié en **2 étapes** :
 
 Après création, l'utilisateur est redirigé vers `/marques/[id]/edit?complete=true` pour compléter les infos.
 
-### Auto-complétion via API Pappers (`/marques/[id]/edit`)
+### Auto-complétion via API Recherche d'entreprises (`/marques/[id]/edit`)
 
-Sur la page d'édition (Step 2: "Adresse & Légal"), un module de recherche apparaît :
+Sur la page d'édition (Step 2: "Adresse & Légal") et dans le modal "Compléter les infos marque" (génération devis/facture), un module de recherche apparaît :
 
 - **Recherche par** :
   - Nom de l'entreprise
@@ -33,9 +33,9 @@ Sur la page d'édition (Step 2: "Adresse & Légal"), un module de recherche appa
 
 - **Données importées automatiquement** :
   - Raison sociale
-  - Forme juridique (SAS, SARL, etc.)
+  - Forme juridique (code)
   - SIRET
-  - Numéro TVA intracommunautaire
+  - Numéro TVA intracommunautaire (calculé à partir du SIREN pour les sociétés françaises)
   - Adresse complète du siège
   - Code postal, ville, pays
 
@@ -43,22 +43,13 @@ Sur la page d'édition (Step 2: "Adresse & Légal"), un module de recherche appa
 
 ## 🔧 Configuration
 
-### 1. Obtenir une clé API Pappers
+### API Recherche d'entreprises — Gratuite, sans clé
 
-1. Créer un compte sur [Pappers.fr](https://www.pappers.fr)
-2. Aller dans l'onglet [API](https://www.pappers.fr/api)
-3. Copier votre clé API
-4. Ajouter dans `.env` :
+- **Aucune clé API requise** : l'API est publique et gratuite
+- **Limite** : 7 requêtes par seconde par utilisateur
+- **Documentation** : https://recherche-entreprises.api.gouv.fr/docs/
 
-```bash
-PAPPERS_API_KEY=votre_cle_api_ici
-```
-
-### 2. Plan gratuit Pappers
-
-- **250 recherches/mois** gratuites
-- Idéal pour tester et petites structures
-- Plans payants disponibles pour volumes supérieurs
+Aucune variable d'environnement à configurer.
 
 ---
 
@@ -67,7 +58,7 @@ PAPPERS_API_KEY=votre_cle_api_ici
 ### `GET /api/recherche-entreprise?query=Nike`
 
 **Paramètres** :
-- `query` (required) : Nom ou SIRET de l'entreprise
+- `query` (required) : Nom ou SIRET de l'entreprise (min 2 caractères)
 
 **Réponse** :
 
@@ -78,9 +69,9 @@ PAPPERS_API_KEY=votre_cle_api_ici
   "results": [
     {
       "nom_entreprise": "NIKE FRANCE",
-      "siret": "123456789000 12",
-      "numero_tva_intracommunautaire": "FR12345678901",
-      "forme_juridique": "SAS",
+      "siret": "12345678900012",
+      "numero_tva_intracommunautaire": "FR19356000000",
+      "forme_juridique": "5510",
       "adresse": "123 Rue de la Paix",
       "code_postal": "75001",
       "ville": "PARIS",
@@ -102,14 +93,14 @@ PAPPERS_API_KEY=votre_cle_api_ici
    
 2. Redirection vers /marques/[id]/edit?complete=true
    → Step 2 : "Adresse & Légal"
-   → Module de recherche Pappers visible
+   → Module de recherche API Recherche d'entreprises visible
    
 3. Recherche "Nike France"
    → Liste de résultats apparaît
-   → Clic sur "Importer"
+   → Clic sur un résultat pour importer
    
 4. ✅ Tous les champs légaux sont auto-remplis
-   → SIRET, TVA, adresse, etc.
+   → SIRET, TVA (calculée), adresse, etc.
    → L'utilisateur peut modifier si besoin
    
 5. Clic sur "Enregistrer"
@@ -129,7 +120,8 @@ PAPPERS_API_KEY=votre_cle_api_ici
 ### Après
 - 1 champ obligatoire (nom)
 - Auto-complétion en 1 clic
-- Données officielles certifiées
+- Données officielles (api.gouv.fr)
+- **Gratuit, sans quota**
 - **30 secondes par marque** ⚡
 
 ---
@@ -143,25 +135,18 @@ PAPPERS_API_KEY=votre_cle_api_ici
   - Redirection vers edit avec `?complete=true`
 
 - **`src/app/(dashboard)/marques/[id]/edit/page.tsx`**
-  - Module de recherche Pappers sur Step 2
+  - Module de recherche sur Step 2
   - Auto-remplissage des champs
-  - UI avec résultats de recherche
+
+- **`src/app/(dashboard)/collaborations/[id]/page.tsx`**
+  - Modal "Compléter les infos marque" avec recherche à la génération devis/facture
 
 ### Backend
 
-- **`src/app/api/recherche-entreprise/route.ts`** (nouveau)
-  - Endpoint de recherche via API Pappers
-  - Transformation des données
-  - Gestion des erreurs
-
-- **`src/app/api/marques/route.ts`**
-  - Déjà compatible : tous les champs sont optionnels sauf `nom`
-  - Aucune modification nécessaire
-
-### Configuration
-
-- **`.env`**
-  - Ajout de `PAPPERS_API_KEY`
+- **`src/app/api/recherche-entreprise/route.ts`**
+  - Appel à API Recherche d'entreprises (recherche-entreprises.api.gouv.fr)
+  - Calcul du numéro TVA français à partir du SIREN
+  - Transformation des données au format attendu par le frontend
 
 ---
 
@@ -176,71 +161,64 @@ PAPPERS_API_KEY=votre_cle_api_ici
 4. Vérifier redirection vers /marques/[id]/edit
 ```
 
-### 2. Tester la recherche Pappers
+### 2. Tester la recherche
 
 ```
 1. Sur la page d'édition, aller au Step 2
-2. Voir le module violet "API Pappers"
-3. Rechercher "Nike France"
+2. Voir le module "API Recherche d'entreprises"
+3. Rechercher "Nike France" ou "La Poste"
 4. Cliquer sur un résultat
 5. Vérifier que les champs sont remplis
 ```
 
-### 3. Tester sans clé API
+### 3. Tester à la génération devis
 
 ```
-1. Supprimer PAPPERS_API_KEY du .env
-2. Relancer le serveur
-3. Tenter une recherche
-4. Message d'erreur : "API Pappers non configurée"
+1. Ouvrir une collaboration dont la marque n'a pas d'adresse
+2. Cliquer "Générer devis"
+3. Le modal "Informations manquantes" s'ouvre
+4. Rechercher l'entreprise par nom ou SIRET
+5. Sélectionner un résultat et enregistrer
 ```
 
 ---
 
 ## 🔐 Sécurité
 
-- ✅ Clé API stockée côté serveur uniquement
 - ✅ Authentification requise (NextAuth)
 - ✅ Validation des inputs
 - ✅ Gestion des erreurs API
+- ✅ User-Agent explicite dans les requêtes (recommandé par api.gouv.fr)
 
 ---
 
 ## 📈 Évolutions possibles
 
 ### Court terme
-- [ ] Recherche par SIREN (9 chiffres au lieu de 14)
+- [ ] Recherche par SIREN (9 chiffres)
 - [ ] Import contact dirigeant principal
 - [ ] Afficher date de création entreprise
 
 ### Moyen terme
 - [ ] Cache des recherches fréquentes
-- [ ] Historique des imports
-- [ ] Support entreprises internationales (API alternative)
-
-### Long terme
-- [ ] Veille automatique sur les entreprises
-- [ ] Notifications si changement (adresse, dirigeant)
-- [ ] Suggestions de marques similaires
+- [ ] Support entreprises internationales (hors France)
 
 ---
 
 ## 📞 Support
 
-**API Pappers** : [support@pappers.fr](mailto:support@pappers.fr)  
-**Documentation** : https://www.pappers.fr/api/documentation
+**API Recherche d'entreprises** : https://recherche-entreprises.api.gouv.fr/docs/  
+**Fiche métier** : https://api.gouv.fr/les-api/api-recherche-entreprises
 
 ---
 
 ## ✅ Checklist déploiement
 
-- [ ] Ajouter `PAPPERS_API_KEY` dans Vercel Environment Variables
+- [x] Aucune clé API à configurer
 - [ ] Tester la recherche en production
-- [ ] Vérifier le quota API (250/mois gratuit)
-- [ ] Former les utilisateurs au nouveau workflow
-- [ ] Mettre à jour la doc interne
+- [ ] Former les utilisateurs au workflow
 
 ---
 
 Créé le : **26 janvier 2026**  
-Dernière mise à jour : **26 janvier 2026**
+Dernière mise à jour : **17 février 2026** — Migration vers API Recherche d'entreprises (gratuite)
