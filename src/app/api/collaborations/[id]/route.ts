@@ -106,7 +106,16 @@ export async function PATCH(
       where: { id: id },
       data: updateData,
       include: {
-        talent: { select: { id: true, prenom: true, nom: true, email: true, photo: true } },
+        talent: { 
+          select: { 
+            id: true, 
+            userId: true, // IMPORTANT: pour créer la notification
+            prenom: true, 
+            nom: true, 
+            email: true, 
+            photo: true 
+          } 
+        },
         marque: { 
           select: { 
             id: true, 
@@ -138,6 +147,26 @@ export async function PATCH(
         },
       },
     });
+
+    // 🔔 NOTIFICATION : Si la collaboration passe en PUBLIE, notifier le talent
+    if (data.statut === "PUBLIE" && collaboration.talent.userId) {
+      try {
+        await prisma.notification.create({
+          data: {
+            userId: collaboration.talent.userId,
+            type: "COLLAB_PUBLIE",
+            titre: "🎉 Collaboration publiée !",
+            message: `Félicitations ! Ta collaboration avec ${collaboration.marque.nom} (${collaboration.reference}) est maintenant publiée. Tu peux maintenant uploader ta facture.`,
+            lien: `/talent/collaborations`,
+            collabId: collaboration.id,
+          },
+        });
+        console.log(`✅ Notification envoyée au talent ${collaboration.talent.prenom} pour collab publiée`);
+      } catch (notifError) {
+        console.error("❌ Erreur création notification PUBLIE:", notifError);
+        // On ne bloque pas la mise à jour si la notification échoue
+      }
+    }
 
     return NextResponse.json(collaboration);
   } catch (error) {
