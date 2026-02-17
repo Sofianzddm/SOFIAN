@@ -62,7 +62,9 @@ export async function GET(
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${document.reference}.pdf"`,
         "Content-Length": pdfBuffer.length.toString(),
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "no-cache, no-store, must-revalidate", // Pas de cache pour toujours avoir les dernières données
+        "Pragma": "no-cache",
+        "Expires": "0",
       },
     });
   } catch (error) {

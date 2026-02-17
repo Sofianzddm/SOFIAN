@@ -155,6 +155,7 @@ export async function PUT(
         poClient: poClient !== undefined ? poClient : document.poClient,
         modePaiement: modePaiement || document.modePaiement,
         referencePaiement: referencePaiement !== undefined ? referencePaiement : document.referencePaiement,
+        pdfBase64: null, // Invalider le cache PDF pour forcer la régénération avec les nouvelles données
       },
     });
 

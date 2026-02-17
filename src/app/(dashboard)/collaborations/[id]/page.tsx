@@ -399,8 +399,9 @@ export default function CollabDetailPage() {
         alert("✅ Document modifié avec succès !");
         setShowEditDocModal(false);
         fetchCollab();
-        // Régénérer le PDF
-        window.open(`/api/documents/${editingDoc.id}/pdf`, "_blank");
+        // Régénérer le PDF avec timestamp pour éviter le cache navigateur
+        const timestamp = Date.now();
+        window.open(`/api/documents/${editingDoc.id}/pdf?t=${timestamp}`, "_blank");
       } else {
         const err = await res.json();
         console.error("❌ Update error:", err);

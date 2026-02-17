@@ -61,13 +61,13 @@ export function documentToPDFData(document: any): FactureData | DevisData {
     },
     
     client: {
-      nom: marque?.nom || "",
+      nom: marque?.raisonSociale || marque?.nom || "",
       adresse: marque?.adresseRue || undefined,
       codePostal: marque?.codePostal || undefined,
       ville: marque?.ville || undefined,
       pays: marque?.pays || undefined,
       tva: marque?.numeroTVA || undefined,
-      siret: marque?.numeroSIRET || undefined,
+      siret: marque?.siret || undefined,
     },
     
     lignes: lignes.map((l: any) => ({
