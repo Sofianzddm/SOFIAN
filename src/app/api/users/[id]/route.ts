@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import bcrypt from "bcryptjs";
 
 // GET - Détail d'un utilisateur
 export async function GET(
@@ -99,10 +100,17 @@ export async function PUT(
       updateData.email = data.email;
     }
 
-    // Seuls les ADMIN peuvent modifier le rôle, l'état actif et la liaison Talent
+    // Seuls les ADMIN peuvent modifier le rôle, l'état actif, la liaison Talent et le mot de passe
     if (isAdmin) {
       if (data.role !== undefined) updateData.role = data.role;
       if (data.actif !== undefined) updateData.actif = data.actif;
+      if (data.password && data.password.trim().length >= 6) {
+        updateData.password = await bcrypt.hash(data.password, 10);
+      } else if (data.password && data.password.trim().length > 0) {
+        return NextResponse.json({
+          error: "Le mot de passe doit contenir au moins 6 caractères",
+        }, { status: 400 });
+      }
     }
 
     // Liaison User (TALENT) ↔ Fiche Talent : mettre à jour Talent.userId

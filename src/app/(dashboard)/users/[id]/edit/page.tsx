@@ -41,6 +41,8 @@ export default function EditUserPage() {
     role: "",
     actif: true,
     talentId: "",
+    password: "",
+    passwordConfirm: "",
   });
   const [talents, setTalents] = useState<{ id: string; prenom: string; nom: string }[]>([]);
 
@@ -105,6 +107,11 @@ export default function EditUserPage() {
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = "L'email n'est pas valide";
     }
+    if (formData.password && formData.password.length < 6) {
+      newErrors.password = "Le mot de passe doit contenir au moins 6 caractères";
+    } else if (formData.password !== formData.passwordConfirm) {
+      newErrors.passwordConfirm = "Les mots de passe ne correspondent pas";
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -118,10 +125,17 @@ export default function EditUserPage() {
     setSaving(true);
 
     try {
+      const payload: Record<string, unknown> = {
+        ...formData,
+        password: formData.password || undefined,
+        passwordConfirm: undefined,
+      };
+      delete payload.passwordConfirm;
+
       const res = await fetch(`/api/users/${params.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -231,10 +245,10 @@ export default function EditUserPage() {
           </div>
         </div>
 
-        {/* Email */}
+        {/* Email - modifiable par admin ou par soi-même */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Email *
+            Adresse email *
           </label>
           <input
             type="email"
@@ -250,6 +264,51 @@ export default function EditUserPage() {
             <p className="text-red-600 text-sm mt-1">{errors.email}</p>
           )}
         </div>
+
+        {/* Mot de passe - ADMIN uniquement */}
+        {isAdmin && (
+          <div className="space-y-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <h3 className="text-sm font-semibold text-gray-900">Réinitialiser le mot de passe</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Nouveau mot de passe
+              </label>
+              <input
+                type="password"
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
+                placeholder="Laisser vide pour ne pas modifier"
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent ${
+                  errors.password ? "border-red-500" : "border-gray-300"
+                }`}
+              />
+              {errors.password && (
+                <p className="text-red-600 text-sm mt-1">{errors.password}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Confirmer le mot de passe
+              </label>
+              <input
+                type="password"
+                value={formData.passwordConfirm}
+                onChange={(e) =>
+                  setFormData({ ...formData, passwordConfirm: e.target.value })
+                }
+                placeholder="Confirmer le nouveau mot de passe"
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent ${
+                  errors.passwordConfirm ? "border-red-500" : "border-gray-300"
+                }`}
+              />
+              {errors.passwordConfirm && (
+                <p className="text-red-600 text-sm mt-1">{errors.passwordConfirm}</p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Rôle et Statut - ADMIN uniquement */}
         {isAdmin && (
