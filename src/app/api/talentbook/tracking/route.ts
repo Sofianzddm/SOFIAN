@@ -268,6 +268,14 @@ export async function GET(request: NextRequest) {
       talentsViewed: Set<string>;
       lastVisit: Date;
       ctaClicked: number;
+      visits: Array<{
+        date: Date;
+        duration: number;
+        scrollDepth: number;
+        talentsViewed: string[];
+        ctaClicked: boolean;
+        talentbookClicked: boolean;
+      }>;
     }>();
 
     presskitBrands.forEach(view => {
@@ -282,6 +290,7 @@ export async function GET(request: NextRequest) {
         talentsViewed: new Set<string>(),
         lastVisit: view.createdAt,
         ctaClicked: 0,
+        visits: [],
       };
 
       existing.views++;
@@ -289,9 +298,34 @@ export async function GET(request: NextRequest) {
       view.talentsViewed.forEach(id => existing.talentsViewed.add(id));
       if (view.ctaClicked) existing.ctaClicked++;
       if (view.createdAt > existing.lastVisit) existing.lastVisit = view.createdAt;
+      
+      // Ajouter le détail de cette visite
+      existing.visits.push({
+        date: view.createdAt,
+        duration: view.durationSeconds,
+        scrollDepth: view.scrollDepthPercent,
+        talentsViewed: view.talentsViewed,
+        ctaClicked: view.ctaClicked,
+        talentbookClicked: view.talentbookClicked,
+      });
 
       brandStatsMap.set(key, existing);
     });
+
+    // Récupérer les infos des talents pour les afficher par nom
+    const allTalentIds = Array.from(
+      new Set(
+        Array.from(brandStatsMap.values())
+          .flatMap(brand => Array.from(brand.talentsViewed))
+      )
+    );
+    
+    const talentsInfo = await prisma.talent.findMany({
+      where: { id: { in: allTalentIds } },
+      select: { id: true, prenom: true, nom: true, photo: true },
+    });
+    
+    const talentsMap = new Map(talentsInfo.map(t => [t.id, t]));
 
     const topPresskitBrands = Array.from(brandStatsMap.entries())
       .map(([brandId, stats]) => ({
@@ -302,9 +336,24 @@ export async function GET(request: NextRequest) {
         views: stats.views,
         avgDuration: stats.views > 0 ? Math.round(stats.totalDuration / stats.views) : 0,
         talentsViewedCount: stats.talentsViewed.size,
+        talentsViewed: Array.from(stats.talentsViewed).map(id => {
+          const talent = talentsMap.get(id);
+          return talent ? {
+            id,
+            name: `${talent.prenom} ${talent.nom}`,
+            photo: talent.photo,
+          } : null;
+        }).filter(Boolean),
         lastVisit: stats.lastVisit,
         ctaClicked: stats.ctaClicked,
         conversionRate: stats.views > 0 ? Math.round((stats.ctaClicked / stats.views) * 100) : 0,
+        visits: stats.visits.sort((a, b) => b.date.getTime() - a.date.getTime()).map(v => ({
+          ...v,
+          talentsViewed: v.talentsViewed.map(id => {
+            const talent = talentsMap.get(id);
+            return talent ? `${talent.prenom} ${talent.nom}` : 'Inconnu';
+          }),
+        })),
       }))
       .sort((a, b) => b.views - a.views)
       .slice(0, 10);

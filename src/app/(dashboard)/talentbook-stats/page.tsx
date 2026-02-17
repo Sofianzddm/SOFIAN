@@ -39,6 +39,21 @@ interface PresskitStats {
   topBrands: TopBrand[];
 }
 
+interface TalentViewed {
+  id: string;
+  name: string;
+  photo: string | null;
+}
+
+interface Visit {
+  date: string;
+  duration: number;
+  scrollDepth: number;
+  talentsViewed: string[];
+  ctaClicked: boolean;
+  talentbookClicked: boolean;
+}
+
 interface TopBrand {
   brandId: string;
   brandName: string;
@@ -47,9 +62,11 @@ interface TopBrand {
   views: number;
   avgDuration: number;
   talentsViewedCount: number;
+  talentsViewed: TalentViewed[];
   lastVisit: string;
   ctaClicked: number;
   conversionRate: number;
+  visits: Visit[];
 }
 
 // Icônes
@@ -134,6 +151,7 @@ export default function TalentbookStatsPage() {
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState("7d");
   const [activeTab, setActiveTab] = useState<"talentbook" | "presskits">("talentbook");
+  const [expandedBrand, setExpandedBrand] = useState<string | null>(null);
 
   useEffect(() => {
     fetchStats();
@@ -611,12 +629,19 @@ export default function TalentbookStatsPage() {
                     const maxViews = Math.max(...presskitStats.topBrands.map(b => b.views));
                     const viewsPercent = (brand.views / maxViews) * 100;
                     
+                    const isExpanded = expandedBrand === brand.brandId;
+                    
                     return (
                       <div 
                         key={brand.brandId} 
-                        className="group bg-gradient-to-r from-gray-50 to-white hover:from-blue-50 hover:to-blue-50/30 rounded-xl p-4 transition-all border border-gray-100 hover:border-blue-200 hover:shadow-md"
+                        className={`group bg-gradient-to-r rounded-xl transition-all border ${
+                          isExpanded 
+                            ? 'from-blue-50 to-blue-50/50 border-blue-300 shadow-lg' 
+                            : 'from-gray-50 to-white hover:from-blue-50 hover:to-blue-50/30 border-gray-100 hover:border-blue-200 hover:shadow-md'
+                        }`}
                       >
                         {/* Header */}
+                        <div className="p-4">
                         <div className="flex items-center gap-4 mb-3">
                           <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center bg-white rounded-lg shadow-sm">
                             {index === 0 && <span className="text-2xl">🥇</span>}
@@ -683,18 +708,149 @@ export default function TalentbookStatsPage() {
                         </div>
 
                         {/* Barre de progression engagement */}
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-gray-600">Engagement relatif</span>
-                            <span className="text-xs font-bold text-blue-600">{Math.round(viewsPercent)}%</span>
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-medium text-gray-600">Engagement relatif</span>
+                              <span className="text-xs font-bold text-blue-600">{Math.round(viewsPercent)}%</span>
+                            </div>
+                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-700"
+                                style={{ width: `${viewsPercent}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-700"
-                              style={{ width: `${viewsPercent}%` }}
-                            />
-                          </div>
+                          
+                          {/* Bouton Voir détails */}
+                          <button
+                            onClick={() => setExpandedBrand(isExpanded ? null : brand.brandId)}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                              isExpanded
+                                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                : 'bg-white text-blue-600 hover:bg-blue-50 border border-blue-200'
+                            }`}
+                          >
+                            {isExpanded ? '🔼 Masquer' : '🔽 Détails'}
+                          </button>
                         </div>
+                        </div>
+
+                        {/* Section détails (visible si étendu) */}
+                        {isExpanded && (
+                          <div className="border-t border-blue-200 bg-white/50 p-4 space-y-4">
+                            {/* Talents consultés */}
+                            <div>
+                              <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+                                🎯 Talents consultés ({brand.talentsViewed.length})
+                              </h4>
+                              {brand.talentsViewed.length > 0 ? (
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                  {brand.talentsViewed.map((talent) => (
+                                    <div 
+                                      key={talent.id} 
+                                      className="flex items-center gap-2 bg-white rounded-lg p-2 border border-gray-200"
+                                    >
+                                      {talent.photo ? (
+                                        <img 
+                                          src={talent.photo} 
+                                          alt={talent.name}
+                                          className="w-8 h-8 rounded-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                                          {talent.name.split(' ').map(n => n[0]).join('')}
+                                        </div>
+                                      )}
+                                      <span className="text-xs font-medium text-gray-700 truncate">
+                                        {talent.name}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-gray-500 italic">Aucun talent consulté</p>
+                              )}
+                            </div>
+
+                            {/* Historique des visites */}
+                            <div>
+                              <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+                                📅 Historique des visites ({brand.visits.length})
+                              </h4>
+                              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                                {brand.visits.map((visit, idx) => (
+                                  <div 
+                                    key={idx}
+                                    className="bg-white rounded-lg p-3 border border-gray-200 hover:border-blue-300 transition-all"
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-blue-600">
+                                          Visite #{brand.visits.length - idx}
+                                        </span>
+                                        <span className="text-xs text-gray-400">•</span>
+                                        <span className="text-xs text-gray-600">
+                                          {new Date(visit.date).toLocaleDateString('fr-FR', {
+                                            day: '2-digit',
+                                            month: 'short',
+                                            year: 'numeric',
+                                          })}
+                                        </span>
+                                      </div>
+                                      <span className="text-xs font-bold text-gray-700">
+                                        {new Date(visit.date).toLocaleTimeString('fr-FR', {
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                        })}
+                                      </span>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-3 gap-2 mb-2">
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs text-gray-500">⏱️</span>
+                                        <span className="text-xs font-medium text-gray-700">
+                                          {Math.floor(visit.duration / 60)}m{visit.duration % 60}s
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs text-gray-500">📊</span>
+                                        <span className="text-xs font-medium text-gray-700">
+                                          {visit.scrollDepth}% scroll
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs text-gray-500">🎯</span>
+                                        <span className="text-xs font-medium text-gray-700">
+                                          {visit.talentsViewed.length} talents
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {visit.talentsViewed.length > 0 && (
+                                      <div className="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1">
+                                        <span className="font-medium">Talents vus :</span> {visit.talentsViewed.join(', ')}
+                                      </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2 mt-2">
+                                      {visit.ctaClicked && (
+                                        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+                                          ✅ CTA cliqué
+                                        </span>
+                                      )}
+                                      {visit.talentbookClicked && (
+                                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                                          📚 Talent Book consulté
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
