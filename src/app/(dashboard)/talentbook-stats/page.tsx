@@ -627,7 +627,20 @@ export default function TalentbookStatsPage() {
                           
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-gray-900 text-lg truncate">{brand.brandName}</p>
-                            <p className="text-xs text-gray-400">{formatTimeAgo(brand.lastVisit)}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs text-gray-400">📅 Dernière ouverture :</span>
+                              <span className="text-xs font-medium text-blue-600">{formatTimeAgo(brand.lastVisit)}</span>
+                              <span className="text-xs text-gray-300">•</span>
+                              <span className="text-xs text-gray-500">
+                                {new Date(brand.lastVisit).toLocaleDateString('fr-FR', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
                           </div>
                           
                           <div className={`px-3 py-1.5 rounded-full text-sm font-bold ${
