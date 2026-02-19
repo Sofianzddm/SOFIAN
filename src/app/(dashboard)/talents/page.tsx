@@ -15,6 +15,7 @@ import {
   Users,
   Loader2,
   AlertTriangle,
+  Archive,
 } from "lucide-react";
 
 // Types
@@ -57,6 +58,7 @@ export default function TalentsPage() {
   const canAddTalent = role === "ADMIN" || role === "HEAD_OF";
   const canEditTalent = role === "ADMIN" || role === "HEAD_OF";
   const canDeleteTalent = role === "ADMIN";
+  const canArchiveTalent = role === "ADMIN" || role === "HEAD_OF";
 
   useEffect(() => {
     fetchTalents();
@@ -325,6 +327,42 @@ export default function TalentsPage() {
                         >
                           <Pencil className="w-4 h-4" />
                         </Link>
+                      )}
+                      
+                      {/* Archiver - ADMIN et HEAD_OF : masque partout sans tout casser */}
+                      {canArchiveTalent && (
+                        <button
+                          className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                          title="Archiver (ne plus afficher le talent)"
+                          onClick={async () => {
+                            const confirmMessage = `Archiver ${talent.prenom} ${talent.nom} ?\n\nLe talent ne sera plus visible dans le dashboard, les partenaires, le talentbook…\nLes collaborations et négociations existantes seront conservées en historique.`;
+                            
+                            if (!confirm(confirmMessage)) return;
+
+                            try {
+                              const res = await fetch(`/api/talents/${talent.id}`, {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ isArchived: true }),
+                              });
+
+                              const data = await res.json();
+
+                              if (!res.ok) {
+                                alert(`❌ Erreur : ${data.error || "Impossible d'archiver ce talent"}`);
+                                return;
+                              }
+
+                              alert(`✅ ${talent.prenom} ${talent.nom} a été archivé (il n'apparaîtra plus nulle part).`);
+                              fetchTalents();
+                            } catch (error) {
+                              console.error("Erreur archivage:", error);
+                              alert("❌ Erreur lors de l'archivage. Veuillez réessayer.");
+                            }
+                          }}
+                        >
+                          <Archive className="w-4 h-4" />
+                        </button>
                       )}
                       
                       {/* Supprimer - ADMIN uniquement */}

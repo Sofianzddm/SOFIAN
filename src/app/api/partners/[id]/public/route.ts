@@ -38,8 +38,9 @@ export async function GET(
       updatedAt: partner.updatedAt,
     };
 
-    // ⚠️ TOUJOURS afficher TOUS les talents - utiliser la même logique que /api/public/talents
+    // ⚠️ Afficher uniquement les talents non archivés - même logique que /api/public/talents
     const talentsList = await prisma.talent.findMany({
+      where: { isArchived: false },
       select: {
         id: true,
         prenom: true,
@@ -306,6 +307,12 @@ export async function GET(
                 prenom: true,
                 nom: true,
                 photo: true,
+                stats: {
+                  select: {
+                    igFollowers: true,
+                    ttFollowers: true,
+                  },
+                },
               },
             },
           },
@@ -333,6 +340,12 @@ export async function GET(
           nom: pt.talent.nom,
           photo: pt.talent.photo,
           role: pt.role,
+          stats: pt.talent.stats
+            ? {
+                igFollowers: Number(pt.talent.stats.igFollowers || 0),
+                ttFollowers: Number(pt.talent.stats.ttFollowers || 0),
+              }
+            : null,
         })),
     }));
 

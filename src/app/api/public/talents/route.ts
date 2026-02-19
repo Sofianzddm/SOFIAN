@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 export async function GET() {
   try {
     const talents = await prisma.talent.findMany({
+      where: { isArchived: false },
       select: {
         id: true,
         prenom: true,

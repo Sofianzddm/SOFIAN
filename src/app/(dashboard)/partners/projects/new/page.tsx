@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Loader2, Plus, X, Link2, Upload } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Plus, X, Link2, Upload, Crop } from "lucide-react";
+import Cropper, { Area } from "react-easy-crop";
 
 const BASE = "/partners/projects";
 
@@ -14,6 +15,68 @@ interface Talent {
   prenom: string;
   nom: string;
   photo: string | null;
+}
+
+function RichTextEditor({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  // Sync external value -> editor
+  useEffect(() => {
+    if (ref.current && ref.current.innerHTML !== (value || "")) {
+      ref.current.innerHTML = value || "";
+    }
+  }, [value]);
+
+  const handleInput = () => {
+    if (ref.current) {
+      onChange(ref.current.innerHTML);
+    }
+  };
+
+  const applyFormat = (command: "bold" | "underline") => {
+    if (!ref.current) return;
+    ref.current.focus();
+    document.execCommand(command, false);
+    handleInput();
+  };
+
+  return (
+    <div className="border rounded-lg">
+      <div className="flex items-center gap-2 px-2 py-1 border-b bg-gray-50 text-xs text-gray-600">
+        <span className="mr-1">Mise en forme</span>
+        <button
+          type="button"
+          onClick={() => applyFormat("bold")}
+          className="px-2 py-0.5 rounded hover:bg-gray-200 font-semibold"
+        >
+          B
+        </button>
+        <button
+          type="button"
+          onClick={() => applyFormat("underline")}
+          className="px-2 py-0.5 rounded hover:bg-gray-200 underline"
+        >
+          U
+        </button>
+      </div>
+      <div
+        ref={ref}
+        className="px-3 py-2 min-h-[96px] text-sm focus:outline-none"
+        contentEditable
+        onInput={handleInput}
+        data-placeholder={placeholder}
+        suppressContentEditableWarning
+      />
+    </div>
+  );
 }
 
 export default function NewPartnerProjectPage() {
@@ -37,6 +100,10 @@ export default function NewPartnerProjectPage() {
   const [selectedTalents, setSelectedTalents] = useState<string[]>([]);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
+  const [isCroppingCover, setIsCroppingCover] = useState(false);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
   useEffect(() => {
     fetchTalents();
@@ -109,6 +176,66 @@ export default function NewPartnerProjectPage() {
     setImages(images.filter((_, i) => i !== index));
   }
 
+  function onCropComplete(_area: Area, croppedPixels: Area) {
+    setCroppedAreaPixels(croppedPixels);
+  }
+
+  async function getCroppedImageUrl(imageUrl: string, area: Area): Promise<string> {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.src = imageUrl;
+
+    await new Promise((resolve, reject) => {
+      image.onload = () => resolve(null);
+      image.onerror = (err) => reject(err);
+    });
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas non supporté");
+
+    canvas.width = area.width;
+    canvas.height = area.height;
+
+    ctx.drawImage(
+      image,
+      area.x,
+      area.y,
+      area.width,
+      area.height,
+      0,
+      0,
+      area.width,
+      area.height
+    );
+
+    const blob: Blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/jpeg", 0.9);
+    });
+
+    const form = new FormData();
+    form.append("file", blob, "crop.jpg");
+    const res = await fetch("/api/projects/upload", { method: "POST", body: form });
+    if (!res.ok) throw new Error("Upload recadrage échoué");
+    const { url } = await res.json();
+    return url;
+  }
+
+  async function applyCoverCrop() {
+    if (!formData.coverImage || !croppedAreaPixels) return;
+    setUploadingCover(true);
+    try {
+      const url = await getCroppedImageUrl(formData.coverImage, croppedAreaPixels);
+      setFormData((prev) => ({ ...prev, coverImage: url }));
+      setIsCroppingCover(false);
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors du recadrage de l'image");
+    } finally {
+      setUploadingCover(false);
+    }
+  }
+
   function addLink() {
     setLinks([...links, { label: "", url: "" }]);
   }
@@ -179,48 +306,65 @@ export default function NewPartnerProjectPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-2">Description</label>
-          <textarea
+          <label className="block text-sm font-medium mb-1">Description</label>
+          <RichTextEditor
             value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            className="w-full px-4 py-2 border rounded-lg"
-            rows={4}
+            onChange={(html) => setFormData({ ...formData, description: html })}
             placeholder="Description du projet..."
           />
+          <p className="mt-1 text-xs text-gray-500">
+            Tu peux aérer (Entrée), mettre en <strong>gras</strong> ou <span className="underline">souligné</span>.
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Image de couverture</label>
-            <div className="flex gap-2 items-start">
-              <input
-                type="text"
-                value={formData.coverImage}
-                onChange={(e) => setFormData({ ...formData, coverImage: e.target.value })}
-                className="flex-1 px-4 py-2 border rounded-lg"
-                placeholder="URL ou upload ci-contre"
-              />
-              <label className="shrink-0 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer flex items-center gap-2 text-sm">
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2 items-start">
                 <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleCoverUpload}
-                  disabled={uploadingCover}
+                  type="text"
+                  value={formData.coverImage}
+                  onChange={(e) => setFormData({ ...formData, coverImage: e.target.value })}
+                  className="flex-1 px-4 py-2 border rounded-lg"
+                  placeholder="URL ou upload ci-contre"
                 />
-                {uploadingCover ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Upload className="w-4 h-4" />
-                )}
-                Upload
-              </label>
-            </div>
-            {formData.coverImage && (
-              <div className="mt-2 w-32 h-20 rounded-lg border bg-gray-50 overflow-hidden">
-                <img src={formData.coverImage} alt="Couverture" className="w-full h-full object-cover" />
+                <label className="shrink-0 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer flex items-center gap-2 text-sm">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleCoverUpload}
+                    disabled={uploadingCover}
+                  />
+                  {uploadingCover ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  Upload
+                </label>
               </div>
-            )}
+              {formData.coverImage && (
+                <div className="flex items-center gap-2">
+                  <div className="w-32 h-20 rounded-lg border bg-gray-50 overflow-hidden">
+                    <img src={formData.coverImage} alt="Couverture" className="w-full h-full object-cover" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCrop({ x: 0, y: 0 });
+                      setZoom(1);
+                      setIsCroppingCover(true);
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-2 text-xs border rounded-lg hover:bg-gray-50"
+                  >
+                    <Crop className="w-3 h-3" />
+                    Recadrer
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">Catégorie</label>
@@ -462,6 +606,56 @@ export default function NewPartnerProjectPage() {
             )}
           </button>
         </div>
+
+        {isCroppingCover && formData.coverImage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="bg-white rounded-xl shadow-xl max-w-xl w-full p-4 md:p-6">
+              <h2 className="text-lg font-semibold mb-3">Recadrer l'image de couverture</h2>
+              <div className="relative w-full h-64 bg-black/80 rounded-lg overflow-hidden">
+                <Cropper
+                  image={formData.coverImage}
+                  crop={crop}
+                  zoom={zoom}
+                  aspect={16 / 9}
+                  onCropChange={setCrop}
+                  onZoomChange={setZoom}
+                  onCropComplete={onCropComplete}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-4">
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-xs text-gray-500">Zoom</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={3}
+                    step={0.1}
+                    value={zoom}
+                    onChange={(e) => setZoom(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+                <div className="flex items-center gap-2 ml-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsCroppingCover(false)}
+                    className="px-3 py-1.5 text-xs border rounded-lg hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applyCoverCrop}
+                    disabled={uploadingCover}
+                    className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {uploadingCover ? "Enregistrement..." : "Appliquer"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </form>
     </div>
   );

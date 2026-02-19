@@ -137,6 +137,7 @@ export async function PUT(
     if (data.titulaireCompte !== undefined) talentData.titulaireCompte = data.titulaireCompte || null;
     if (data.dateNaissance !== undefined) talentData.dateNaissance = data.dateNaissance ? new Date(data.dateNaissance) : null;
     if (data.dateArrivee !== undefined) talentData.dateArrivee = data.dateArrivee ? new Date(data.dateArrivee) : null;
+    if (data.isArchived !== undefined) talentData.isArchived = !!data.isArchived;
     
     // Commissions (nombres)
     if (data.commissionInbound !== undefined) {
@@ -388,6 +389,18 @@ export async function DELETE(
       return NextResponse.json({ 
         error: `Impossible de supprimer ce talent car il a ${collabCount} collaboration(s) associée(s)` 
       }, { status: 400 });
+    }
+
+    // Vérifier si le talent a des négociations
+    const negoCount = await prisma.negociation.count({
+      where: { talentId: id },
+    });
+
+    if (negoCount > 0) {
+      return NextResponse.json(
+        { error: `Impossible de supprimer ce talent car il a ${negoCount} négociation(s) associée(s)` },
+        { status: 400 }
+      );
     }
 
     await prisma.talent.delete({

@@ -227,6 +227,7 @@ model Talent {
   dateArrivee   DateTime  @default(now())
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  isArchived    Boolean   @default(false)
   
   stats         TalentStats?
   tarifs        TalentTarifs?

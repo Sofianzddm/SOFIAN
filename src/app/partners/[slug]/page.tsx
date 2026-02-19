@@ -55,6 +55,16 @@ function trackEvent(
   });
 }
 
+// Les descriptions de projet sont stockées en HTML (éditeur riche côté dashboard)
+// On s'assure ici de bien décoder d'éventuelles entités HTML (&lt;div&gt; → <div>)
+function decodeHtmlEntities(html: string) {
+  if (!html) return "";
+  return html
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
 // Types
 interface TalentStats {
   igFollowers: number | null;
@@ -152,6 +162,10 @@ interface Project {
     nom: string;
     photo: string | null;
     role: string | null;
+    stats?: {
+      igFollowers: number;
+      ttFollowers: number;
+    } | null;
   }>;
 }
 
@@ -1018,6 +1032,8 @@ function ProjectModal({
 }) {
   if (!project) return null;
 
+  const mainTalent = project.talents[0];
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-[#220101]/90 backdrop-blur-md overflow-y-auto"
@@ -1028,23 +1044,8 @@ function ProjectModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="max-h-[95vh] overflow-y-auto">
-          {/* Cover Image */}
-          <div className="relative h-[250px] md:h-[350px] bg-[#220101]">
-            {project.coverImage ? (
-              <>
-                <img
-                  src={project.coverImage}
-                  alt={project.title}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#220101]/90 via-[#220101]/50 to-transparent" />
-              </>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#B06F70] to-[#220101]">
-                <span className="text-6xl md:text-8xl">🎬</span>
-              </div>
-            )}
-            
+          {/* Header avec cover en carré + stats talent */}
+          <div className="relative px-6 pt-6 pb-4 md:px-8 md:pt-8 bg-[#220101] text-white">
             <button
               onClick={onClose}
               className="absolute top-4 right-4 w-10 h-10 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center text-[#220101] transition-all hover:scale-110 shadow-xl font-switzer text-lg"
@@ -1052,13 +1053,105 @@ function ProjectModal({
               ✕
             </button>
 
-            <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-              <h2 className="text-3xl md:text-4xl mb-2 font-spectral-light">{project.title}</h2>
-              {project.category && (
-                <span className="inline-block px-3 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs uppercase tracking-wider">
-                  {project.category}
-                </span>
-              )}
+            <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
+              {/* Cover carré */}
+              <div className="relative w-24 h-24 md:w-32 md:h-32 rounded-2xl overflow-hidden bg-[#110000] flex-shrink-0">
+                {project.coverImage ? (
+                  <img
+                    src={project.coverImage}
+                    alt={project.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#B06F70] to-[#220101]">
+                    <span className="text-3xl md:text-4xl">🎬</span>
+                  </div>
+                )}
+                {project.category && (
+                  <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-white/15 backdrop-blur-sm rounded-full">
+                    <span className="text-[10px] md:text-xs font-switzer uppercase tracking-wider">
+                      {project.category}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Titre + meta + stats talent */}
+              <div className="flex-1 min-w-0">
+                <h2 className="text-2xl md:text-3xl mb-2 font-spectral-light">
+                  {project.title}
+                </h2>
+
+                <div className="flex flex-wrap gap-4 text-xs md:text-sm text-white/80 mb-3">
+                  {project.date && (
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      {new Date(project.date).toLocaleDateString("fr-FR", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </div>
+                  )}
+                  {project.location && (
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-4 h-4" />
+                      {project.location}
+                    </div>
+                  )}
+                </div>
+
+                {mainTalent && (
+                  <div className="flex items-center justify-between gap-4 mt-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 md:w-12 md:h-12 rounded-full overflow-hidden bg-[#B06F70]">
+                        {mainTalent.photo ? (
+                          <img
+                            src={mainTalent.photo}
+                            alt={`${mainTalent.prenom} ${mainTalent.nom}`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-white text-sm font-bold">
+                            {mainTalent.prenom.charAt(0)}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm md:text-base font-switzer">
+                          {mainTalent.prenom} {mainTalent.nom}
+                        </p>
+                        {mainTalent.role && (
+                          <p className="text-xs text-white/70">{mainTalent.role}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {mainTalent.stats && (
+                      <div className="flex flex-col items-end gap-1 text-xs md:text-sm font-switzer">
+                        {typeof mainTalent.stats.igFollowers === "number" &&
+                          mainTalent.stats.igFollowers > 0 && (
+                            <p>
+                              <span className="font-semibold">
+                                {mainTalent.stats.igFollowers.toLocaleString("fr-FR")}
+                              </span>{" "}
+                              IG
+                            </p>
+                          )}
+                        {typeof mainTalent.stats.ttFollowers === "number" &&
+                          mainTalent.stats.ttFollowers > 0 && (
+                            <p>
+                              <span className="font-semibold">
+                                {mainTalent.stats.ttFollowers.toLocaleString("fr-FR")}
+                              </span>{" "}
+                              TT
+                            </p>
+                          )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1090,9 +1183,10 @@ function ProjectModal({
                 <p className="text-xs text-[#220101]/50 uppercase tracking-[0.15em] mb-3 font-switzer">
                   Description
                 </p>
-                <p className="text-[#220101] leading-relaxed font-spectral-light">
-                  {project.description}
-                </p>
+                <div
+                  className="text-[#220101] leading-relaxed font-spectral-light space-y-2 text-sm"
+                  dangerouslySetInnerHTML={{ __html: decodeHtmlEntities(project.description) }}
+                />
               </div>
             )}
 
@@ -1141,12 +1235,16 @@ function ProjectModal({
                 </p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {project.images.map((img, idx) => (
-                    <img
+                    <div
                       key={idx}
-                      src={img}
-                      alt={`${project.title} - Image ${idx + 1}`}
-                      className="w-full h-32 md:h-40 object-cover rounded-lg"
-                    />
+                      className="w-full h-32 md:h-40 rounded-lg border border-[#220101]/10 bg-[#F7F2F0] flex items-center justify-center overflow-hidden"
+                    >
+                      <img
+                        src={img}
+                        alt={`${project.title} - Image ${idx + 1}`}
+                        className="max-w-full max-h-full object-contain"
+                      />
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1879,7 +1977,7 @@ export default function PartnerTalentBookPage() {
                   className="group bg-white rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(34,1,1,0.15)]"
                   style={{ boxShadow: "0 4px 24px rgba(34, 1, 1, 0.06)" }}
                 >
-                  {/* Cover Image */}
+                  {/* Cover Image (ancienne version pleine largeur) */}
                   <div className="relative h-48 overflow-hidden bg-[#220101]">
                     {project.coverImage ? (
                       <img

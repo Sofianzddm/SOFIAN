@@ -48,6 +48,12 @@ export async function GET(
                 prenom: true,
                 nom: true,
                 photo: true,
+                stats: {
+                  select: {
+                    igFollowers: true,
+                    ttFollowers: true,
+                  },
+                },
               },
             },
           },
@@ -81,6 +87,12 @@ export async function GET(
           nom: pt.talent.nom,
           photo: pt.talent.photo,
           role: pt.role,
+          stats: pt.talent.stats
+            ? {
+                igFollowers: Number(pt.talent.stats.igFollowers || 0),
+                ttFollowers: Number(pt.talent.stats.ttFollowers || 0),
+              }
+            : null,
         })),
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,

@@ -17,10 +17,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const isPresskit = searchParams.get('presskit') === 'true';
 
-    let whereClause = {};
+    let whereClause: any = { isArchived: false };
     
     if (user.role === "TM" && !isPresskit) {
-      whereClause = { managerId: user.id };
+      whereClause = { ...whereClause, managerId: user.id };
     }
 
     const talents = await prisma.talent.findMany({

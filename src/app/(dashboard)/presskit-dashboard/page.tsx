@@ -68,6 +68,7 @@ const CATEGORIES = [
 export default function PressKitDashboardV5() {
   // États pour les 5 étapes
   const [currentStep, setCurrentStep] = useState<Step>(1);
+  const [mode, setMode] = useState<"hubspot" | "manual">("hubspot");
 
   // ÉTAPE 1 : Sélection du segment HubSpot
   const [lists, setLists] = useState<HubSpotList[]>([]);
@@ -82,11 +83,12 @@ export default function PressKitDashboardV5() {
   const [categorizedBrands, setCategorizedBrands] = useState<CategorizedBrand[]>([]);
   const [loadingCategorization, setLoadingCategorization] = useState(false);
 
-  // ÉTAPE 3 : Sélection des talents par catégorie
+  // ÉTAPE 3 : Sélection des talents (catégorie / marque)
   const [talents, setTalents] = useState<Talent[]>([]);
   const [categoryTalents, setCategoryTalents] = useState<Record<string, string[]>>({});
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [tempSelectedTalents, setTempSelectedTalents] = useState<string[]>([]);
+  const [step3Tab, setStep3Tab] = useState<"category" | "brand">("category");
 
   // ÉTAPE 4 : Récap + ajustements
   const [searchRecap, setSearchRecap] = useState("");
@@ -98,6 +100,15 @@ export default function PressKitDashboardV5() {
   
   // Preview
   const [previewingBrand, setPreviewingBrand] = useState<string | null>(null);
+
+  // Mode manuel (sélection pour une seule marque)
+  const [manualBrandName, setManualBrandName] = useState("");
+  const [manualDomain, setManualDomain] = useState("");
+  const [manualSelectedTalents, setManualSelectedTalents] = useState<string[]>([]);
+  const [manualSearch, setManualSearch] = useState("");
+  const [manualLoading, setManualLoading] = useState(false);
+  const [manualUrl, setManualUrl] = useState<string | null>(null);
+  const [manualError, setManualError] = useState<string | null>(null);
 
   // ============================================
   // ÉTAPE 1 : Charger les listes HubSpot
@@ -272,6 +283,13 @@ export default function PressKitDashboardV5() {
     }
   }, [currentStep, talents.length]);
 
+  // Charger les talents aussi quand on passe en mode manuel seul
+  useEffect(() => {
+    if (mode === "manual" && talents.length === 0) {
+      loadTalents();
+    }
+  }, [mode, talents.length]);
+
   async function loadTalents() {
     try {
       const res = await fetch("/api/talents?presskit=true");
@@ -327,6 +345,56 @@ export default function PressKitDashboardV5() {
   function openBrandEditor(brand: CategorizedBrand) {
     setEditingBrand(brand);
     setTempSelectedTalents(brand.talentIds);
+  }
+
+  function toggleManualTalent(talentId: string) {
+    setManualSelectedTalents((prev) =>
+      prev.includes(talentId) ? prev.filter((id) => id !== talentId) : [...prev, talentId]
+    );
+  }
+
+  async function generateManualPresskit() {
+    if (!manualBrandName.trim()) {
+      setManualError("Merci d'indiquer un nom de marque.");
+      return;
+    }
+    if (manualSelectedTalents.length === 0) {
+      setManualError("Sélectionne au moins un talent.");
+      return;
+    }
+
+    setManualLoading(true);
+    setManualError(null);
+    setManualUrl(null);
+
+    try {
+      const res = await fetch("/api/presskit/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: manualBrandName.trim(),
+          domain: manualDomain.trim() || null,
+          talentIds: manualSelectedTalents,
+          contacts: [],
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setManualError(data.message || "Erreur lors de la génération du lien.");
+        return;
+      }
+
+      const base =
+        typeof window !== "undefined" ? window.location.origin : "https://app.glowupagence.fr";
+      setManualUrl(`${base}${data.url}`);
+    } catch (error) {
+      console.error("Erreur génération manuelle:", error);
+      setManualError("Erreur lors de la génération du lien.");
+    } finally {
+      setManualLoading(false);
+    }
   }
 
   function saveBrandEdit() {
@@ -434,43 +502,87 @@ export default function PressKitDashboardV5() {
     <div className="p-8 max-w-7xl mx-auto">
       {/* Header + Stepper */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Press Kit System v5</h1>
-        <p className="text-gray-600 mb-6">Génération automatisée de landing pages personnalisées</p>
-
-        {/* Stepper */}
-        <div className="flex items-center gap-2 mb-8">
-          {[1, 2, 3, 4, 5].map((step) => (
-            <div key={step} className="flex items-center">
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
-                  step === currentStep
-                    ? "bg-blue-600 text-white"
-                    : step < currentStep
-                    ? "bg-green-600 text-white"
-                    : "bg-gray-200 text-gray-500"
-                }`}
-              >
-                {step < currentStep ? <Check className="w-5 h-5" /> : step}
-              </div>
-              {step < 5 && (
-                <ChevronRight
-                  className={`w-6 h-6 mx-2 ${step < currentStep ? "text-green-600" : "text-gray-300"}`}
-                />
-              )}
-            </div>
-          ))}
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">Press Kit System v5</h1>
+            <p className="text-gray-600">
+              Génération de landing pages personnalisées pour la prospection.
+            </p>
+          </div>
+          <div className="inline-flex rounded-full border bg-gray-50 p-1">
+            <button
+              type="button"
+              onClick={() => setMode("hubspot")}
+              className={`px-4 py-1.5 text-sm rounded-full ${
+                mode === "hubspot"
+                  ? "bg-white shadow-sm text-gray-900"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              Mode HubSpot
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("manual")}
+              className={`px-4 py-1.5 text-sm rounded-full ${
+                mode === "manual"
+                  ? "bg-white shadow-sm text-gray-900"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              Sélection manuelle
+            </button>
+          </div>
         </div>
 
-        {/* Titre de l'étape */}
-        <h2 className="text-xl font-semibold">
-          {currentStep === 1 && "Étape 1 — Sélection du segment HubSpot"}
-          {currentStep === 2 && "Étape 2 — Catégorisation automatique"}
-          {currentStep === 3 && "Étape 3 — Sélection des talents par catégorie"}
-          {currentStep === 4 && "Étape 4 — Récapitulatif et ajustements"}
-          {currentStep === 5 && "Étape 5 — Séquence + Génération + Envoi"}
-        </h2>
+        {mode === "hubspot" && (
+          <>
+            {/* Stepper */}
+            <div className="flex items-center gap-2 mb-8">
+              {[1, 2, 3, 4, 5].map((step) => (
+                <div key={step} className="flex items-center">
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
+                      step === currentStep
+                        ? "bg-blue-600 text-white"
+                        : step < currentStep
+                        ? "bg-green-600 text-white"
+                        : "bg-gray-200 text-gray-500"
+                    }`}
+                  >
+                    {step < currentStep ? <Check className="w-5 h-5" /> : step}
+                  </div>
+                  {step < 5 && (
+                    <ChevronRight
+                      className={`w-6 h-6 mx-2 ${
+                        step < currentStep ? "text-green-600" : "text-gray-300"
+                      }`}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Titre de l'étape */}
+            <h2 className="text-xl font-semibold">
+              {currentStep === 1 && "Étape 1 — Sélection du segment HubSpot"}
+              {currentStep === 2 && "Étape 2 — Catégorisation automatique"}
+              {currentStep === 3 && "Étape 3 — Sélection des talents par catégorie / marque"}
+              {currentStep === 4 && "Étape 4 — Récapitulatif et ajustements"}
+              {currentStep === 5 && "Étape 5 — Séquence + Génération + Envoi"}
+            </h2>
+          </>
+        )}
+
+        {mode === "manual" && (
+          <h2 className="text-xl font-semibold mt-4">
+            Sélection manuelle — Faire un press kit pour une marque
+          </h2>
+        )}
       </div>
 
+      {mode === "hubspot" && (
+        <>
       {/* ============================================ */}
       {/* ÉTAPE 1 : SÉLECTION DU SEGMENT HUBSPOT */}
       {/* ============================================ */}
@@ -593,38 +705,112 @@ export default function PressKitDashboardV5() {
       )}
 
       {/* ============================================ */}
-      {/* ÉTAPE 3 : SÉLECTION DES TALENTS PAR CATÉGORIE */}
+      {/* ÉTAPE 3 : SÉLECTION DES TALENTS PAR CATÉGORIE / PAR MARQUE */}
       {/* ============================================ */}
       {currentStep === 3 && (
         <div className="bg-white rounded-lg border p-6">
-          <div className="space-y-3">
-            {categoryCounts.map((cat) => {
-              const assigned = categoryTalents[cat.key]?.length || 0;
-              const brandCount = categorizedBrands.filter((b) => b.category === cat.key).length;
-
-              return (
-                <div
-                  key={cat.key}
-                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
-                >
-                  <div>
-                    <h3 className="font-semibold">
-                      {cat.emoji} {cat.label} ({brandCount} marques)
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      {assigned > 0 ? `${assigned} talents sélectionnés` : "Aucun talent sélectionné"}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => openCategorySelector(cat.key)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    Choisir ▾
-                  </button>
-                </div>
-              );
-            })}
+          {/* Onglets mode de sélection */}
+          <div className="mb-4 inline-flex rounded-full border bg-gray-50 p-1">
+            <button
+              type="button"
+              onClick={() => setStep3Tab("category")}
+              className={`px-4 py-1.5 text-sm rounded-full ${
+                step3Tab === "category"
+                  ? "bg-white shadow-sm text-gray-900"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              Par catégorie
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep3Tab("brand")}
+              className={`px-4 py-1.5 text-sm rounded-full ${
+                step3Tab === "brand"
+                  ? "bg-white shadow-sm text-gray-900"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              Par marque (optionnel)
+            </button>
           </div>
+
+          {/* Vue par catégorie (comme avant) */}
+          {step3Tab === "category" && (
+            <div className="space-y-3">
+              {categoryCounts.map((cat) => {
+                const assigned = categoryTalents[cat.key]?.length || 0;
+                const brandCount = categorizedBrands.filter((b) => b.category === cat.key).length;
+
+                return (
+                  <div
+                    key={cat.key}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                  >
+                    <div>
+                      <h3 className="font-semibold">
+                        {cat.emoji} {cat.label} ({brandCount} marques)
+                      </h3>
+                      <p className="text-sm text-gray-600">
+                        {assigned > 0 ? `${assigned} talents sélectionnés` : "Aucun talent sélectionné"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => openCategorySelector(cat.key)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      Choisir ▾
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Vue par marque : affiner la sélection marque par marque */}
+          {step3Tab === "brand" && (
+            <div className="space-y-3 mt-2">
+              {categorizedBrands.map((brand) => {
+                const catMeta = CATEGORIES.find((c) => c.key === brand.category);
+                const talentsCount = brand.talentIds.length;
+                return (
+                  <div
+                    key={brand.domain}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">
+                        {brand.customName || brand.companyName}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate">{brand.domain}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {catMeta && (
+                          <>
+                            {catMeta.emoji} {catMeta.label} •{" "}
+                          </>
+                        )}
+                        {talentsCount > 0
+                          ? `${talentsCount} talents sélectionnés`
+                          : "Aucun talent sélectionné"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openBrandEditor(brand)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                    >
+                      Sélectionner les talents
+                    </button>
+                  </div>
+                );
+              })}
+              {categorizedBrands.length === 0 && (
+                <div className="text-sm text-gray-500">
+                  Aucune marque pour le moment. Revenez ici après la catégorisation.
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-between mt-6">
             <button onClick={() => setCurrentStep(2)} className="px-6 py-2 border rounded-lg hover:bg-gray-50">
@@ -841,6 +1027,133 @@ export default function PressKitDashboardV5() {
                 "🚀 Générer les press kits"
               )}
             </button>
+          </div>
+        </div>
+      )}
+
+        </>
+      )}
+
+      {/* ============================================ */}
+      {/* MODE MANUEL : SÉLECTION POUR UNE MARQUE */}
+      {/* ============================================ */}
+      {mode === "manual" && (
+        <div className="bg-white rounded-lg border p-6 space-y-6">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Nom de la marque *
+              </label>
+              <input
+                type="text"
+                value={manualBrandName}
+                onChange={(e) => setManualBrandName(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg"
+                placeholder="Ex: Sephora, Nike..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Domaine (optionnel)
+              </label>
+              <input
+                type="text"
+                value={manualDomain}
+                onChange={(e) => setManualDomain(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg"
+                placeholder="Ex: sephora.fr"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium">
+                Sélection des talents
+              </label>
+              <input
+                type="text"
+                value={manualSearch}
+                onChange={(e) => setManualSearch(e.target.value)}
+                className="px-3 py-1.5 border rounded-lg text-sm"
+                placeholder="Rechercher un talent..."
+              />
+            </div>
+            <div className="border rounded-lg max-h-80 overflow-y-auto">
+              {talents
+                .filter((t) =>
+                  t.name.toLowerCase().includes(manualSearch.toLowerCase())
+                )
+                .map((talent) => {
+                  const selected = manualSelectedTalents.includes(talent.id);
+                  return (
+                    <button
+                      key={talent.id}
+                      type="button"
+                      onClick={() => toggleManualTalent(talent.id)}
+                      className={`w-full flex items-center justify-between px-4 py-2 text-sm border-b last:border-b-0 text-left ${
+                        selected ? "bg-blue-50" : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className="truncate">{talent.name}</span>
+                      {selected && (
+                        <Check className="w-4 h-4 text-blue-600 shrink-0 ml-2" />
+                      )}
+                    </button>
+                  );
+                })}
+              {talents.length === 0 && (
+                <div className="p-4 text-sm text-gray-500">
+                  Chargement des talents...
+                </div>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              {manualSelectedTalents.length} talent
+              {manualSelectedTalents.length > 1 ? "s" : ""} sélectionné
+              {manualSelectedTalents.length > 1 ? "s" : ""}.
+            </p>
+          </div>
+
+          {manualError && (
+            <div className="flex items-center gap-2 text-sm text-red-600">
+              <AlertCircle className="w-4 h-4" />
+              {manualError}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={generateManualPresskit}
+              disabled={manualLoading}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              {manualLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Génération...
+                </>
+              ) : (
+                <>Générer le lien press kit</>
+              )}
+            </button>
+
+            {manualUrl && (
+              <div className="text-right">
+                <p className="text-xs text-gray-500 mb-1">
+                  Lien généré pour cette marque :
+                </p>
+                <a
+                  href={manualUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:underline break-all"
+                >
+                  {manualUrl}
+                </a>
+              </div>
+            )}
           </div>
         </div>
       )}
