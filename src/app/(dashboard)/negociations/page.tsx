@@ -12,12 +12,12 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
-  ArrowRight,
+  ChevronRight,
   Loader2,
-  Filter,
   Users,
   TrendingUp,
-  MessageCircle,
+  Building2,
+  Sparkles,
 } from "lucide-react";
 
 interface Negociation {
@@ -30,6 +30,7 @@ interface Negociation {
   dateDeadline: string | null;
   statut: string;
   createdAt: string;
+  lastModifiedAt?: string;
   tm: { id: string; prenom: string; nom: string };
   talent: { id: string; prenom: string; nom: string; photo: string | null };
   marque: { id: string; nom: string; secteur: string | null } | null;
@@ -39,12 +40,12 @@ interface Negociation {
 }
 
 const STATUTS = [
-  { value: "BROUILLON", label: "Brouillon", color: "bg-gray-100 text-gray-600 border-gray-200", icon: Clock },
-  { value: "EN_ATTENTE", label: "En attente", color: "bg-amber-50 text-amber-700 border-amber-200", icon: AlertCircle },
-  { value: "EN_DISCUSSION", label: "En discussion", color: "bg-blue-50 text-blue-700 border-blue-200", icon: MessageSquare },
-  { value: "VALIDEE", label: "Validée", color: "bg-green-50 text-green-700 border-green-200", icon: CheckCircle2 },
-  { value: "REFUSEE", label: "Refusée", color: "bg-red-50 text-red-700 border-red-200", icon: XCircle },
-  { value: "ANNULEE", label: "Annulée", color: "bg-gray-100 text-gray-500 border-gray-200", icon: XCircle },
+  { value: "", label: "Tous" },
+  { value: "BROUILLON", label: "Brouillon", dot: "bg-slate-400" },
+  { value: "EN_ATTENTE", label: "En attente", dot: "bg-amber-500" },
+  { value: "EN_DISCUSSION", label: "En discussion", dot: "bg-blue-500" },
+  { value: "VALIDEE", label: "Validée", dot: "bg-emerald-500" },
+  { value: "REFUSEE", label: "Refusée", dot: "bg-red-500" },
 ];
 
 const TYPE_LABELS: Record<string, string> = {
@@ -76,7 +77,6 @@ export default function NegociationsPage() {
       const params = new URLSearchParams();
       if (filterStatut) params.set("statut", filterStatut);
       if (filterTm) params.set("tmId", filterTm);
-      
       const res = await fetch(`/api/negociations?${params}`);
       setNegociations(await res.json());
     } catch (error) {
@@ -104,14 +104,24 @@ export default function NegociationsPage() {
   });
 
   const formatMoney = (amount: number | null) => {
-    if (!amount) return "-";
+    if (!amount) return "—";
     return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 0 }).format(amount);
   };
 
-  const getStatutInfo = (statut: string) => STATUTS.find((s) => s.value === statut) || STATUTS[0];
+  const getStatutConfig = (statut: string) => {
+    const config: Record<string, { label: string; className: string }> = {
+      BROUILLON: { label: "Brouillon", className: "bg-slate-100 text-slate-600" },
+      EN_ATTENTE: { label: "En attente", className: "bg-amber-500/10 text-amber-600" },
+      EN_DISCUSSION: { label: "En discussion", className: "bg-blue-500/10 text-blue-600" },
+      VALIDEE: { label: "Validée", className: "bg-emerald-500/10 text-emerald-600" },
+      REFUSEE: { label: "Refusée", className: "bg-red-500/10 text-red-600" },
+      ANNULEE: { label: "Annulée", className: "bg-slate-100 text-slate-500" },
+    };
+    return config[statut] || { label: statut, className: "bg-slate-100 text-slate-600" };
+  };
 
   const getLivrablesLabel = (livrables: { typeContenu: string; quantite: number }[]) => {
-    if (livrables.length === 0) return "-";
+    if (livrables.length === 0) return "—";
     if (livrables.length === 1) {
       const l = livrables[0];
       return l.quantite > 1 ? `${l.quantite}x ${TYPE_LABELS[l.typeContenu] || l.typeContenu}` : TYPE_LABELS[l.typeContenu] || l.typeContenu;
@@ -119,7 +129,6 @@ export default function NegociationsPage() {
     return `${livrables.reduce((acc, l) => acc + l.quantite, 0)} livrables`;
   };
 
-  // Stats
   const enAttente = negociations.filter((n) => n.statut === "EN_ATTENTE").length;
   const enDiscussion = negociations.filter((n) => n.statut === "EN_DISCUSSION").length;
   const validees = negociations.filter((n) => n.statut === "VALIDEE").length;
@@ -127,202 +136,203 @@ export default function NegociationsPage() {
     .filter((n) => !["REFUSEE", "ANNULEE"].includes(n.statut))
     .reduce((acc, n) => acc + (Number(n.budgetSouhaite) || Number(n.budgetMarque) || 0), 0);
 
+  const cinqJoursMs = 5 * 24 * 60 * 60 * 1000;
+  const sansReponse = filteredNegos.filter(
+    (n) => ["EN_ATTENTE", "EN_DISCUSSION"].includes(n.statut) &&
+    n.lastModifiedAt && new Date(n.lastModifiedAt).getTime() < Date.now() - cinqJoursMs
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-glowup-licorice">Négociations</h1>
-          <p className="text-gray-500 mt-1">{negociations.length} négociations</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Négociations</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {negociations.length} négociation{negociations.length > 1 ? "s" : ""}
+          </p>
         </div>
         <Link
           href="/negociations/new"
-          className="flex items-center gap-2 px-4 py-2.5 bg-glowup-licorice text-white font-medium rounded-xl hover:bg-glowup-licorice/90 transition-colors"
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 transition-colors"
         >
-          <Plus className="w-4 h-4" />
-          Nouvelle négo
+          <Plus className="h-4 w-4" />
+          Nouvelle négociation
         </Link>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">En attente</p>
-              <p className="text-2xl font-bold text-amber-600 mt-1">{enAttente}</p>
-            </div>
-            <div className="p-3 bg-amber-50 rounded-xl">
-              <AlertCircle className="w-5 h-5 text-amber-600" />
+      {/* Stats - 4 carrés sympas */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
+              <AlertCircle className="h-4 w-4 text-amber-600" />
             </div>
           </div>
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">{enAttente}</p>
+          <p className="text-sm text-slate-500">En attente</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">En discussion</p>
-              <p className="text-2xl font-bold text-blue-600 mt-1">{enDiscussion}</p>
-            </div>
-            <div className="p-3 bg-blue-50 rounded-xl">
-              <MessageCircle className="w-5 h-5 text-blue-600" />
+        <div className="rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
+              <MessageSquare className="h-4 w-4 text-blue-600" />
             </div>
           </div>
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">{enDiscussion}</p>
+          <p className="text-sm text-slate-500">En discussion</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Validées</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">{validees}</p>
-            </div>
-            <div className="p-3 bg-green-50 rounded-xl">
-              <CheckCircle2 className="w-5 h-5 text-green-600" />
+        <div className="rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
             </div>
           </div>
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">{validees}</p>
+          <p className="text-sm text-slate-500">Validées</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Budget en négo</p>
-              <p className="text-2xl font-bold text-glowup-licorice mt-1">{formatMoney(totalBudget)}</p>
-            </div>
-            <div className="p-3 bg-glowup-lace rounded-xl">
-              <TrendingUp className="w-5 h-5 text-glowup-rose" />
+        <div className="rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-glowup-rose/10">
+              <TrendingUp className="h-4 w-4 text-glowup-rose" />
             </div>
           </div>
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">{formatMoney(totalBudget)}</p>
+          <p className="text-sm text-slate-500">Budget en négo</p>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Rechercher..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
-            />
-          </div>
-          <select
-            value={filterStatut}
-            onChange={(e) => setFilterStatut(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm min-w-[150px]"
-          >
-            <option value="">Tous statuts</option>
-            {STATUTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
+      {/* Barre recherche + filtres */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Rechercher talent, marque, référence..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-10 w-full rounded-lg border-0 bg-slate-50 pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-200"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {STATUTS.map((s) => (
+            <button
+              key={s.value || "all"}
+              onClick={() => setFilterStatut(s.value)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                filterStatut === s.value
+                  ? "bg-slate-900 text-white"
+                  : "bg-white border border-slate-200 text-slate-600 hover:border-slate-300"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
           {canSeeAll && (
             <select
               value={filterTm}
               onChange={(e) => setFilterTm(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm min-w-[150px]"
+              className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm text-slate-700 focus:ring-2 focus:ring-slate-200"
             >
               <option value="">Tous les TM</option>
-              {tms.map((tm) => <option key={tm.id} value={tm.id}>{tm.prenom} {tm.nom}</option>)}
+              {tms.map((tm) => (
+                <option key={tm.id} value={tm.id}>{tm.prenom} {tm.nom}</option>
+              ))}
             </select>
           )}
         </div>
       </div>
 
-      {/* Liste */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="p-8 text-center">
-            <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
+      {/* Liste - cartes */}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-24 gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-glowup-rose" />
+          <p className="text-sm text-slate-500">Chargement...</p>
+        </div>
+      ) : filteredNegos.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 py-24 text-center">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
+            <Sparkles className="h-8 w-8 text-slate-400" />
           </div>
-        ) : filteredNegos.length === 0 ? (
-          <div className="p-12 text-center">
-            <MessageSquare className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 mb-4">Aucune négociation</p>
-            <Link href="/negociations/new" className="inline-flex items-center gap-2 px-4 py-2 bg-glowup-licorice text-white text-sm font-medium rounded-lg">
-              <Plus className="w-4 h-4" />Créer
-            </Link>
-          </div>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Ref</th>
-                {canSeeAll && <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">TM</th>}
-                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Talent</th>
-                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Marque</th>
-                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Livrables</th>
-                <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Budget</th>
-                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Statut</th>
-                <th className="text-right py-3 px-4"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filteredNegos.map((nego) => {
-                const statutInfo = getStatutInfo(nego.statut);
-                return (
-                  <tr key={nego.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm font-medium text-glowup-licorice">{nego.reference}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                          nego.source === "INBOUND" ? "bg-blue-50 text-blue-600" : "bg-green-50 text-green-600"
-                        }`}>
-                          {nego.source === "INBOUND" ? "IN" : "OUT"}
-                        </span>
-                      </div>
-                    </td>
-                    {canSeeAll && (
-                      <td className="py-3 px-4">
-                        <span className="text-sm text-gray-600">{nego.tm.prenom}</span>
-                      </td>
-                    )}
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-glowup-lace flex items-center justify-center text-xs font-semibold text-glowup-rose overflow-hidden">
-                          {nego.talent.photo ? (
-                            <img src={nego.talent.photo} alt={nego.talent.prenom} className="w-full h-full object-cover" />
-                          ) : (
-                            nego.talent.prenom.charAt(0)
-                          )}
-                        </div>
-                        <span className="text-sm text-glowup-licorice">{nego.talent.prenom} {nego.talent.nom.charAt(0)}.</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-sm text-gray-600">{nego.nomMarqueSaisi || nego.marque?.nom || "—"}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-sm text-gray-500">{getLivrablesLabel(nego.livrables)}</span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <span className="text-sm font-semibold text-glowup-licorice">
-                        {formatMoney(nego.budgetSouhaite || nego.budgetMarque)}
+          <h3 className="text-lg font-semibold text-slate-900">Aucune négociation</h3>
+          <p className="mt-2 max-w-sm mx-auto text-sm text-slate-500">
+            Crée ta première négociation pour lancer une collaboration avec une marque.
+          </p>
+          <Link
+            href="/negociations/new"
+            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            <Plus className="h-4 w-4" />
+            Nouvelle négociation
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredNegos.map((nego) => {
+            const statut = getStatutConfig(nego.statut);
+            const isSansReponse = sansReponse.some((s) => s.id === nego.id);
+            const joursSansReponse = nego.lastModifiedAt
+              ? Math.floor((Date.now() - new Date(nego.lastModifiedAt).getTime()) / (24 * 60 * 60 * 1000))
+              : 0;
+
+            return (
+              <Link
+                key={nego.id}
+                href={`/negociations/${nego.id}`}
+                className={`group flex items-center justify-between gap-4 rounded-xl border bg-white p-5 transition-all hover:shadow-md ${
+                  isSansReponse ? "border-amber-200 ring-1 ring-amber-200/50" : "border-slate-200 ring-1 ring-slate-200/60"
+                }`}
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-4">
+                  <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-glowup-rose/20 to-pink-100">
+                    {nego.talent.photo ? (
+                      <img src={nego.talent.photo} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-lg font-bold text-glowup-rose">
+                        {nego.talent.prenom.charAt(0)}{nego.talent.nom.charAt(0)}
                       </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border ${statutInfo.color}`}>
-                          <statutInfo.icon className="w-3 h-3" />
-                          {statutInfo.label}
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-slate-900 truncate">
+                        {nego.talent.prenom} {nego.talent.nom} × {nego.nomMarqueSaisi || nego.marque?.nom || "—"}
+                      </span>
+                      <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${statut.className}`}>
+                        {statut.label}
+                      </span>
+                      {nego.source === "INBOUND" && (
+                        <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600">IN</span>
+                      )}
+                      {isSansReponse && (
+                        <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          {joursSansReponse}j sans réponse
                         </span>
-                        {nego._count.commentaires > 0 && (
-                          <span className="flex items-center gap-0.5 text-xs text-gray-400">
-                            <MessageCircle className="w-3 h-3" />
-                            {nego._count.commentaires}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <Link href={`/negociations/${nego.id}`} className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-glowup-licorice">
-                        Voir <ArrowRight className="w-3 h-3" />
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center gap-3 text-sm text-slate-500">
+                      <span className="font-mono text-slate-400">{nego.reference}</span>
+                      <span>{getLivrablesLabel(nego.livrables)}</span>
+                      {canSeeAll && <span>{nego.tm.prenom} {nego.tm.nom}</span>}
+                      {nego._count.commentaires > 0 && (
+                        <span className="flex items-center gap-1">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          {nego._count.commentaires}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-4">
+                  <span className="text-lg font-semibold text-slate-900 tabular-nums">
+                    {formatMoney(nego.budgetSouhaite || nego.budgetMarque)}
+                  </span>
+                  <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

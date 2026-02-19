@@ -64,7 +64,7 @@ export const MENTIONS_TVA: Record<TypeTVA, { tauxTVA: number; mention: string | 
   },
 };
 
-// Liste des pays EU pour détection automatique
+// Liste des pays EU (noms français) pour affichage
 export const PAYS_EU = [
   "Allemagne",
   "Autriche",
@@ -94,15 +94,78 @@ export const PAYS_EU = [
   "Suède",
 ];
 
+// Alias pays EU : noms anglais, codes ISO, variantes → détection intracom
+const PAYS_EU_ALIASES: Record<string, string[]> = {
+  Allemagne: ["Germany", "DE", "DEU"],
+  Autriche: ["Austria", "AT", "AUT"],
+  Belgique: ["Belgium", "BE", "BEL"],
+  Bulgarie: ["Bulgaria", "BG", "BGR"],
+  Chypre: ["Cyprus", "CY", "CYP"],
+  Croatie: ["Croatia", "HR", "HRV"],
+  Danemark: ["Denmark", "DK", "DNK"],
+  Espagne: ["Spain", "ES", "ESP"],
+  Estonie: ["Estonia", "EE", "EST"],
+  Finlande: ["Finland", "FI", "FIN"],
+  Grèce: ["Greece", "EL", "GR", "GRC"],
+  Hongrie: ["Hungary", "HU", "HUN"],
+  Irlande: ["Ireland", "IE", "IRL"],
+  Italie: ["Italy", "IT", "ITA"],
+  Lettonie: ["Latvia", "LV", "LVA"],
+  Lituanie: ["Lithuania", "LT", "LTU"],
+  Luxembourg: ["LU", "LUX"],
+  Malte: ["Malta", "MT", "MLT"],
+  "Pays-Bas": ["Netherlands", "NL", "NLD"],
+  Pologne: ["Poland", "PL", "POL"],
+  Portugal: ["PT", "PRT"],
+  "République tchèque": ["Czech Republic", "Czechia", "CZ", "CZE"],
+  Roumanie: ["Romania", "RO", "ROU"],
+  Slovaquie: ["Slovakia", "SK", "SVK"],
+  Slovénie: ["Slovenia", "SI", "SVN"],
+  Suède: ["Sweden", "SE", "SWE"],
+};
+
+// France : alias anglais et codes
+const FRANCE_ALIASES = ["France", "FR", "FRA", "French"];
+
+/** Normalise une chaîne pour comparaison (minuscules, sans accents) */
+function normalizeForComparison(s: string): string {
+  return (s || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Set de toutes les valeurs normalisées pour pays EU (pour lookup rapide) */
+const PAYS_EU_NORMALIZED = new Set<string>();
+for (const [nomFr, aliases] of Object.entries(PAYS_EU_ALIASES)) {
+  PAYS_EU_NORMALIZED.add(normalizeForComparison(nomFr));
+  aliases.forEach((a) => PAYS_EU_NORMALIZED.add(normalizeForComparison(a)));
+}
+
+const FRANCE_NORMALIZED = new Set(FRANCE_ALIASES.map(normalizeForComparison));
+
+/** Vérifie si le pays est la France */
+function isFrance(pays: string): boolean {
+  if (!pays || !pays.trim()) return true; // vide = France par défaut
+  return FRANCE_NORMALIZED.has(normalizeForComparison(pays));
+}
+
+/** Vérifie si le pays est dans l'UE */
+function isPaysEU(pays: string): boolean {
+  if (!pays || !pays.trim()) return false;
+  return PAYS_EU_NORMALIZED.has(normalizeForComparison(pays));
+}
+
 // Fonction pour déterminer le type de TVA
 export function getTypeTVA(pays: string, tvaIntracom: string | null): TypeTVA {
   // France
-  if (pays === "France" || !pays) {
+  if (isFrance(pays)) {
     return "FRANCE";
   }
 
-  // EU
-  if (PAYS_EU.includes(pays)) {
+  // EU (avec alias anglais / codes ISO)
+  if (isPaysEU(pays)) {
     // Avec numéro TVA intracom valide
     if (tvaIntracom && tvaIntracom.trim().length > 0) {
       return "EU_INTRACOM";

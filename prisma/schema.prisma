@@ -235,6 +235,9 @@ model Talent {
   talentbookEvents TalentbookEvent[]
   demandesGift  DemandeGift[]
   presskitTalents PressKitTalent[]
+  partnerTalents  PartnerTalent[]
+  agencyProjects AgencyProjectTalent[]
+  partnerTarifOverrides PartnerTarifOverride[]
   
   @@map("talents")
 }
@@ -1056,4 +1059,182 @@ model BatchBrand {
   @@index([brandId])
   @@index([status])
   @@map("batch_brands")
+}
+
+// ============================================
+// PARTNER TALENT BOOK
+// ============================================
+
+model Partner {
+  id          String   @id @default(cuid())
+  name        String                          // "WOO", "Influence4You", etc.
+  slug        String   @unique                // lien unique : /partners/[slug]
+  logo        String?                         // URL logo agence (Cloudinary)
+  contactName String?                         // Nom du contact principal
+  contactEmail String?                        // Email contact
+  isActive    Boolean  @default(true)         // Actif ou désactivé
+  showAllTalents Boolean @default(true)       // true = affiche TOUS les talents actifs automatiquement
+  
+  // Personnalisation
+  description String?                         // Description libre
+  message     String?                         // Message d'accueil personnalisé
+  
+  // Talents sélectionnés
+  talents     PartnerTalent[]
+  
+  // Analytics
+  views       PartnerView[]
+  
+  // Tarifs négociés
+  tarifOverrides PartnerTarifOverride[]
+  
+  // Projets affichés sur la page partenaire (vide = tous les projets actifs)
+  projects     PartnerProject[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?                         // ID de l'admin qui a créé
+  
+  @@index([slug])
+  @@index([isActive])
+  @@map("partners")
+}
+
+model PartnerTalent {
+  id        String   @id @default(cuid())
+  partnerId String
+  partner   Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  talentId  String
+  talent    Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  order     Int      @default(0)              // Ordre d'affichage
+  createdAt DateTime @default(now())
+  
+  @@unique([partnerId, talentId])
+  @@index([partnerId])
+  @@index([talentId])
+  @@map("partner_talents")
+}
+
+model PartnerView {
+  id              String   @id @default(cuid())
+  partnerId       String
+  partner         Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  visitorId       String                      // Cookie ou fingerprint
+  
+  // Tracking
+  talentClicked   String?                     // ID du talent cliqué (si modal ouverte)
+  talentName      String?                     // Nom du talent (pour stats rapides)
+  action          String   @default("view")   // "view", "talent_click", "cta_click", "filter"
+  duration        Int?                        // Durée en secondes
+  metadata        Json?                       // Données supplémentaires (filtres utilisés, etc.)
+  
+  // Source
+  referrer        String?
+  userAgent       String?
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([partnerId])
+  @@index([partnerId, createdAt])
+  @@index([action])
+  @@map("partner_views")
+}
+
+model PartnerTarifOverride {
+  id          String   @id @default(cuid())
+  partnerId   String
+  partner     Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  talentId    String
+  talent      Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  
+  // Tarifs négociés — null = utiliser le tarif par défaut du talent
+  // Mapping avec TalentTarifs : tarifStory -> storyIg, tarifPost -> postIg, etc.
+  tarifStory          Decimal?  // Story Instagram
+  tarifPost           Decimal?  // Post Instagram
+  tarifReel           Decimal?  // Reel Instagram
+  tarifStoryConcours  Decimal?  // Story Concours
+  tarifPostConcours   Decimal?  // Post Concours
+  tarifTiktokVideo    Decimal?  // Vidéo TikTok
+  tarifYoutubeVideo   Decimal?  // Vidéo YouTube
+  tarifYoutubeShort   Decimal?  // YouTube Short
+  tarifPostCommun     Decimal?  // Post Commun (UGC)
+  tarifEvent          Decimal?  // Event / Apparition
+  tarifShooting       Decimal?  // Shooting photo
+  tarifAmbassadeur    Decimal?  // Pack Ambassadeur
+  
+  note        String?  @db.Text  // Note interne ("Tarif négocié contrat annuel 2025")
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([partnerId, talentId])
+  @@index([partnerId])
+  @@index([talentId])
+  @@map("partner_tarif_overrides")
+}
+
+// ============================================
+// AGENCY PROJECTS (PORTFOLIO GLOW UP)
+// ============================================
+
+model AgencyProject {
+  id          String   @id @default(cuid())
+  title       String                          // "LONDON NICE"
+  slug        String   @unique
+  description String?  @db.Text               // Description du projet
+  coverImage  String?                         // Photo principale (Cloudinary)
+  images      Json?                           // ["url1", "url2", ...] galerie photos
+  links       Json?                           // [{ label, url }, ...] liens externes (articles, réseaux...)
+  videoUrl    String?                         // Lien vidéo (YouTube, Vimeo)
+  
+  // Infos projet
+  category    String?                         // "Event", "Production", "Shooting", "Concept"
+  date        DateTime?                       // Date du projet
+  location    String?                         // "Londres → Nice"
+  
+  // Talents impliqués
+  talents     AgencyProjectTalent[]
+  
+  // Partenaires qui affichent ce projet (via PartnerProject)
+  partners    PartnerProject[]
+  
+  // Visibilité
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)            // Ordre d'affichage
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([isActive])
+  @@map("agency_projects")
+}
+
+model PartnerProject {
+  id        String         @id @default(cuid())
+  partnerId String
+  partner   Partner        @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  projectId String
+  project   AgencyProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  order     Int            @default(0)       // Ordre d'affichage pour ce partenaire
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([partnerId, projectId])
+  @@index([partnerId])
+  @@index([projectId])
+  @@map("partner_projects")
+}
+
+model AgencyProjectTalent {
+  id        String         @id @default(cuid())
+  projectId String
+  project   AgencyProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  talentId  String
+  talent    Talent         @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  role      String?                           // "Host", "Participant", etc.
+  
+  @@unique([projectId, talentId])
+  @@index([projectId])
+  @@index([talentId])
+  @@map("agency_project_talents")
 }

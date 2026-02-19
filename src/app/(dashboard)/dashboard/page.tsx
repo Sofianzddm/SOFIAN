@@ -114,7 +114,7 @@ export default function DashboardPage() {
 // ADMIN DASHBOARD - ULTRA MODERNE 2.0 ✨
 // ============================================
 function AdminDashboard({ data }: { data: any }) {
-  const { stats, pipeline, topTalents, topMarques, tmPerformance, facturesRelance } = data;
+  const { stats, pipeline, topTalents, topMarques, tmPerformance, facturesRelance, negociationsSansReponse = [] } = data;
 
   // Calculer les tendances (simulé - à remplacer par vraies données)
   const trends = {
@@ -126,6 +126,36 @@ function AdminDashboard({ data }: { data: any }) {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* ALERTE: Négos > 5j sans réponse client */}
+      {negociationsSansReponse.length > 0 && (
+        <Link
+          href="/negociations"
+          className="block rounded-xl border-2 border-amber-200 bg-amber-50 p-4 ring-1 ring-amber-200/60 hover:bg-amber-100/80 transition-colors"
+        >
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500">
+              <AlertTriangle className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-amber-900">
+                {negociationsSansReponse.length} négociation{negociationsSansReponse.length > 1 ? "s" : ""} sans réponse client depuis 5+ jours
+              </h3>
+              <p className="mt-1 text-sm text-amber-800">À relancer auprès des marques</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {negociationsSansReponse.slice(0, 4).map((n: any) => (
+                  <span key={n.id} className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2.5 py-1 text-sm font-medium text-amber-800">
+                    {n.talent} × {n.marque}
+                    <span className="text-amber-600">({n.joursSansReponse}j)</span>
+                    {n.tm && <span className="text-amber-500">· {n.tm}</span>}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <ChevronRight className="h-5 w-5 flex-shrink-0 text-amber-600" />
+          </div>
+        </Link>
+      )}
+
       {/* Hero Stats Cards - Style glassmorphism moderne avec animations */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
         {/* CA du mois */}
@@ -546,60 +576,233 @@ function AdminDashboard({ data }: { data: any }) {
 }
 
 // ============================================
-// HEAD_OF DASHBOARD (inchangé pour l'instant)
+// HEAD_OF DASHBOARD - Épuré, négos en premier
 // ============================================
 function HeadOfDashboard({ data }: { data: any }) {
-  const { stats, tmBilans } = data;
+  const { stats, negociations = [], negociationsSansReponse = [], tmBilans = [] } = data;
+
+  const negoStatutLabel: Record<string, string> = {
+    BROUILLON: "Brouillon",
+    EN_ATTENTE: "En attente",
+    EN_DISCUSSION: "En discussion",
+  };
 
   return (
     <div className="space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="CA du mois" value={formatMoney(stats.caMois)} icon={<Euro className="w-5 h-5" />} color="emerald" subtitle={`Commission: ${formatMoney(stats.commissionMois)}`} />
-        <StatCard title="Négociations" value={stats.collabsNego} icon={<Target className="w-5 h-5" />} color="yellow" />
-        <StatCard title="Sans tarifs" value={stats.talentsSansTarifs} icon={<AlertTriangle className="w-5 h-5" />} color="orange" alert={stats.talentsSansTarifs > 0} />
-        <StatCard title="Bilans en retard" value={stats.talentsAvecBilanRetard} icon={<Clock className="w-5 h-5" />} color="red" alert={stats.talentsAvecBilanRetard > 0} />
-      </div>
-
-      {/* CA Annuel */}
-      <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
-        <p className="text-white/80 text-sm">CA Pôle Influence (Année)</p>
-        <p className="text-3xl font-bold mt-2">{formatMoney(stats.caAnnee)}</p>
-        <p className="text-white/80 text-sm mt-1">Commission: {formatMoney(stats.commissionAnnee)}</p>
-      </div>
-
-      {/* Supervision TM */}
-      {tmBilans && tmBilans.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-lg font-semibold text-glowup-licorice mb-4">Supervision Talent Managers</h2>
-          <div className="space-y-4">
-            {tmBilans.map((tm: any) => (
-              <div key={tm.id} className="border border-gray-100 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h3 className="font-semibold">{tm.nom}</h3>
-                    <p className="text-sm text-gray-500">{tm.talents} talents · CA: {formatMoney(tm.ca)}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    {tm.bilansRetard > 0 && <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium">{tm.bilansRetard} bilan(s) retard</span>}
-                    {tm.sansTarifs > 0 && <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-medium">{tm.sansTarifs} sans tarifs</span>}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {tm.talentsDetail?.map((t: any) => (
-                    <Link key={t.id} href={`/talents/${t.id}`} className={`p-2 rounded-lg text-sm flex items-center gap-2 ${!t.bilanOk || !t.tarifsOk ? "bg-red-50 hover:bg-red-100" : "bg-gray-50 hover:bg-gray-100"}`}>
-                      {t.bilanOk && t.tarifsOk ? <CheckCircle className="w-4 h-4 text-emerald-500" /> : <AlertTriangle className="w-4 h-4 text-red-500" />}
-                      <span className="truncate">{t.nom}</span>
-                    </Link>
-                  ))}
-                </div>
+      {/* ALERTE: Négos > 5j sans réponse client */}
+      {negociationsSansReponse.length > 0 && (
+        <Link
+          href="/negociations"
+          className="block rounded-xl border-2 border-amber-200 bg-amber-50 p-4 ring-1 ring-amber-200/60 hover:bg-amber-100/80 transition-colors"
+        >
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500">
+              <AlertTriangle className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-amber-900">
+                {negociationsSansReponse.length} négociation{negociationsSansReponse.length > 1 ? "s" : ""} sans réponse client depuis 5+ jours
+              </h3>
+              <p className="mt-1 text-sm text-amber-800">
+                À relancer auprès des marques
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {negociationsSansReponse.slice(0, 4).map((n: any) => (
+                  <span key={n.id} className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2.5 py-1 text-sm font-medium text-amber-800">
+                    {n.talent} × {n.marque}
+                    <span className="text-amber-600">({n.joursSansReponse}j)</span>
+                  </span>
+                ))}
+                {negociationsSansReponse.length > 4 && (
+                  <span className="text-sm text-amber-600">+{negociationsSansReponse.length - 4} autre{negociationsSansReponse.length - 4 > 1 ? "s" : ""}</span>
+                )}
               </div>
-            ))}
+            </div>
+            <ChevronRight className="h-5 w-5 flex-shrink-0 text-amber-600" />
           </div>
-        </div>
+        </Link>
       )}
 
-      <QuickActions role="HEAD_OF" />
+      {/* 1. NÉGOCIATIONS EN COURS - Premier bloc, mega visible */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
+              <Target className="h-5 w-5 text-amber-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Négociations en cours</h2>
+              <p className="text-sm text-slate-500">{stats.collabsNego} négo{stats.collabsNego > 1 ? "s" : ""} en attente</p>
+            </div>
+          </div>
+          <Link
+            href="/negociations"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+          >
+            Voir tout <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {!negociations || negociations.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <Target className="mx-auto h-12 w-12 text-slate-300" />
+              <p className="mt-3 text-sm font-medium text-slate-600">Aucune négociation en cours</p>
+              <p className="mt-1 text-sm text-slate-400">Les négociations apparaîtront ici</p>
+            </div>
+          ) : (
+            negociations.slice(0, 8).map((n: any) => (
+              <Link
+                key={n.id}
+                href={`/negociations/${n.id}`}
+                className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-slate-50/80 transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-900 truncate">{n.talent} × {n.marque}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-xs text-slate-500">{n.reference}</span>
+                    {n.tm && <span className="text-xs text-slate-400">• {n.tm}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                    {negoStatutLabel[n.statut] || n.statut}
+                  </span>
+                  <span className="text-base font-semibold text-slate-900 tabular-nums">{formatMoney(n.montant)}</span>
+                  <ChevronRight className="h-4 w-4 text-slate-400" />
+                </div>
+              </Link>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* 2. KPI CARDS - 4 carrés épurés */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Link href="/finance" className="group rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
+              <Euro className="h-4 w-4 text-emerald-600" />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">{formatMoney(stats.caMois)}</p>
+          <p className="text-sm text-slate-500 mt-0.5">CA du mois</p>
+          <p className="text-xs text-slate-400 mt-2">Comm. {formatMoney(stats.commissionMois)}</p>
+        </Link>
+
+        <Link href="/negociations" className="group rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
+              <Target className="h-4 w-4 text-amber-600" />
+            </div>
+            {stats.collabsNego > 0 && (
+              <span className="flex h-2 w-2 rounded-full bg-amber-500" />
+            )}
+          </div>
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">{stats.collabsNego}</p>
+          <p className="text-sm text-slate-500 mt-0.5">Négociations</p>
+          <p className="text-xs text-slate-400 mt-2">En cours</p>
+        </Link>
+
+        <Link href="/talents" className="group rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all">
+          <div className="flex items-center justify-between mb-3">
+            <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stats.talentsSansTarifs > 0 ? "bg-orange-500/10" : "bg-slate-100"}`}>
+              <AlertTriangle className={`h-4 w-4 ${stats.talentsSansTarifs > 0 ? "text-orange-600" : "text-slate-400"}`} />
+            </div>
+            {stats.talentsSansTarifs > 0 && (
+              <span className="rounded-md bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">Action</span>
+            )}
+          </div>
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">{stats.talentsSansTarifs}</p>
+          <p className="text-sm text-slate-500 mt-0.5">Sans tarifs</p>
+          <p className="text-xs text-slate-400 mt-2">À valider</p>
+        </Link>
+
+        <Link href="/talents" className="group rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all">
+          <div className="flex items-center justify-between mb-3">
+            <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stats.talentsAvecBilanRetard > 0 ? "bg-red-500/10" : "bg-slate-100"}`}>
+              <Clock className={`h-4 w-4 ${stats.talentsAvecBilanRetard > 0 ? "text-red-600" : "text-slate-400"}`} />
+            </div>
+            {stats.talentsAvecBilanRetard > 0 && (
+              <span className="rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Retard</span>
+            )}
+          </div>
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">{stats.talentsAvecBilanRetard}</p>
+          <p className="text-sm text-slate-500 mt-0.5">Bilans en retard</p>
+          <p className="text-xs text-slate-400 mt-2">À mettre à jour</p>
+        </Link>
+      </div>
+
+      {/* 3. CA ANNUEL + SUPERVISION TM - 2 colonnes */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* CA Annuel */}
+        <Link href="/finance" className="rounded-xl border border-slate-200 bg-slate-50/50 p-6 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all block">
+          <p className="text-sm font-medium text-slate-500">CA Pôle Influence</p>
+          <p className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{formatMoney(stats.caAnnee)}</p>
+          <p className="text-sm text-slate-500 mt-2">Année en cours</p>
+          <p className="text-xs text-slate-400 mt-1">Commission: {formatMoney(stats.commissionAnnee)}</p>
+        </Link>
+
+        {/* Supervision TM */}
+        <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+            <h3 className="font-semibold text-slate-900">Supervision TM</h3>
+            <Link href="/talents" className="text-sm font-medium text-slate-600 hover:text-slate-900">Voir les talents</Link>
+          </div>
+          {tmBilans.length === 0 ? (
+            <div className="px-6 py-8 text-center text-sm text-slate-500">Aucun TM actif</div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {tmBilans.slice(0, 4).map((tm: any) => (
+                <div key={tm.id} className="flex items-center justify-between gap-4 px-6 py-4">
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-900 truncate">{tm.nom}</p>
+                    <p className="text-sm text-slate-500">{tm.talents} talents · {formatMoney(tm.ca)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    {tm.bilansRetard > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+                        <Clock className="h-3 w-3" /> {tm.bilansRetard} retard
+                      </span>
+                    )}
+                    {tm.sansTarifs > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-orange-50 px-2 py-1 text-xs font-medium text-orange-700">
+                        <AlertTriangle className="h-3 w-3" /> {tm.sansTarifs} sans tarifs
+                      </span>
+                    )}
+                    {tm.bilansRetard === 0 && tm.sansTarifs === 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                        <CheckCircle className="h-3 w-3" /> OK
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 4. Quick actions - minimal */}
+      <div className="flex flex-wrap gap-3">
+        <Link
+          href="/talents"
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+        >
+          <Users className="h-4 w-4" /> Talents
+        </Link>
+        <Link
+          href="/negociations"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          <Target className="h-4 w-4" /> Négociations
+        </Link>
+        <Link
+          href="/collaborations"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          <Handshake className="h-4 w-4" /> Collaborations
+        </Link>
+      </div>
     </div>
   );
 }
@@ -608,10 +811,38 @@ function HeadOfDashboard({ data }: { data: any }) {
 // TM DASHBOARD - REDESIGNED ✨
 // ============================================
 function TMDashboard({ data }: { data: any }) {
-  const { stats, talents, negociations } = data;
+  const { stats, talents, negociations, negociationsSansReponse = [] } = data;
 
   return (
     <div className="space-y-6">
+      {/* ALERTE: Négos > 5j sans réponse client */}
+      {negociationsSansReponse.length > 0 && (
+        <Link
+          href="/negociations"
+          className="block rounded-xl border-2 border-amber-200 bg-amber-50 p-4 ring-1 ring-amber-200/60 hover:bg-amber-100/80 transition-colors"
+        >
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500">
+              <AlertTriangle className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-amber-900">
+                {negociationsSansReponse.length} négo{negociationsSansReponse.length > 1 ? "s" : ""} sans réponse client depuis 5+ jours
+              </h3>
+              <p className="mt-1 text-sm text-amber-800">À relancer auprès des marques</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {negociationsSansReponse.slice(0, 4).map((n: any) => (
+                  <span key={n.id} className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2.5 py-1 text-sm font-medium text-amber-800">
+                    {n.talent} × {n.marque} <span className="text-amber-600">({n.joursSansReponse}j)</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+            <ChevronRight className="h-5 w-5 flex-shrink-0 text-amber-600" />
+          </div>
+        </Link>
+      )}
+
       {/* Stats Cards - Style glassmorphism */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="relative overflow-hidden bg-gradient-to-br from-glowup-rose/90 to-pink-500 rounded-2xl p-5 text-white shadow-lg shadow-pink-200">

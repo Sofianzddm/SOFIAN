@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -28,6 +28,7 @@ type UserRole = "ADMIN" | "HEAD_OF" | "HEAD_OF_INFLUENCE" | "TM";
 export default function EditTalentPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeStep, setActiveStep] = useState(1);
@@ -157,9 +158,16 @@ export default function EditTalentPage() {
   useEffect(() => {
     if (userRole) {
       const steps = getAvailableSteps();
-      if (steps.length > 0) setActiveStep(steps[0].id);
+      if (steps.length > 0) {
+        const stepParam = searchParams.get("step");
+        if (stepParam === "stats" && steps.some((s) => s.id === 4)) {
+          setActiveStep(4);
+        } else {
+          setActiveStep(steps[0].id);
+        }
+      }
     }
-  }, [userRole]);
+  }, [userRole, searchParams]);
 
   const fetchCurrentUser = async () => {
     try {

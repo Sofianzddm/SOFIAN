@@ -55,6 +55,12 @@ const menuItems = [
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"],
   },
   {
+    label: "Partenaires",
+    href: "/partners",
+    icon: Building2,
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"],
+  },
+  {
     label: "Collaborations",
     href: "/collaborations",
     icon: Handshake,

@@ -1,0 +1,468 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft, Save, Loader2, Plus, X, Link2, Upload } from "lucide-react";
+
+const BASE = "/partners/projects";
+
+type ProjectLink = { label: string; url: string };
+
+interface Talent {
+  id: string;
+  prenom: string;
+  nom: string;
+  photo: string | null;
+}
+
+export default function NewPartnerProjectPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [talents, setTalents] = useState<Talent[]>([]);
+  const [formData, setFormData] = useState({
+    title: "",
+    description: "",
+    coverImage: "",
+    videoUrl: "",
+    category: "",
+    date: "",
+    location: "",
+    order: 0,
+    isActive: true,
+  });
+  const [images, setImages] = useState<string[]>([]);
+  const [newImageUrl, setNewImageUrl] = useState("");
+  const [links, setLinks] = useState<ProjectLink[]>([]);
+  const [selectedTalents, setSelectedTalents] = useState<string[]>([]);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [uploadingGallery, setUploadingGallery] = useState(false);
+
+  useEffect(() => {
+    fetchTalents();
+  }, []);
+
+  async function fetchTalents() {
+    try {
+      const res = await fetch("/api/talents");
+      if (res.ok) {
+        const data = await res.json();
+        setTalents(data.talents || data);
+      }
+    } catch (error) {
+      console.error("Erreur:", error);
+    }
+  }
+
+  function addImage() {
+    if (newImageUrl.trim()) {
+      setImages([...images, newImageUrl.trim()]);
+      setNewImageUrl("");
+    }
+  }
+
+  async function handleCoverUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setUploadingCover(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/projects/upload", { method: "POST", body: form });
+      if (!res.ok) throw new Error("Upload échoué");
+      const { url } = await res.json();
+      setFormData((prev) => ({ ...prev, coverImage: url }));
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de l'upload de l'image de couverture");
+    } finally {
+      setUploadingCover(false);
+    }
+  }
+
+  async function handleGalleryUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files?.length) return;
+    e.target.value = "";
+    setUploadingGallery(true);
+    try {
+      const urls: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const form = new FormData();
+        form.append("file", files[i]);
+        const res = await fetch("/api/projects/upload", { method: "POST", body: form });
+        if (!res.ok) throw new Error("Upload échoué");
+        const { url } = await res.json();
+        urls.push(url);
+      }
+      setImages((prev) => [...prev, ...urls]);
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de l'upload des photos");
+    } finally {
+      setUploadingGallery(false);
+    }
+  }
+
+  function removeImage(index: number) {
+    setImages(images.filter((_, i) => i !== index));
+  }
+
+  function addLink() {
+    setLinks([...links, { label: "", url: "" }]);
+  }
+
+  function removeLink(index: number) {
+    setLinks(links.filter((_, i) => i !== index));
+  }
+
+  function updateLink(index: number, field: "label" | "url", value: string) {
+    setLinks(links.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
+  }
+
+  function toggleTalent(talentId: string) {
+    setSelectedTalents((prev) =>
+      prev.includes(talentId) ? prev.filter((id) => id !== talentId) : [...prev, talentId]
+    );
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...formData,
+          images: images.length > 0 ? images : null,
+          links: links.filter((l) => l.url.trim()).length > 0 ? links.filter((l) => l.url.trim()) : null,
+          date: formData.date || null,
+          talentIds: selectedTalents,
+        }),
+      });
+      if (res.ok) {
+        router.push(BASE);
+      } else {
+        const error = await res.json();
+        alert(error.error || "Erreur lors de la création");
+      }
+    } catch (error) {
+      console.error("Erreur:", error);
+      alert("Erreur lors de la création");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto">
+      <Link href={BASE} className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6">
+        <ArrowLeft className="w-4 h-4" />
+        Retour à la liste
+      </Link>
+
+      <h1 className="text-3xl font-bold mb-8">Nouveau projet</h1>
+
+      <form onSubmit={handleSubmit} className="bg-white rounded-lg border p-6 space-y-6">
+        <div>
+          <label className="block text-sm font-medium mb-2">Titre du projet *</label>
+          <input
+            type="text"
+            required
+            value={formData.title}
+            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+            className="w-full px-4 py-2 border rounded-lg"
+            placeholder="Ex: Campagne Printemps 2025..."
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">Description</label>
+          <textarea
+            value={formData.description}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            className="w-full px-4 py-2 border rounded-lg"
+            rows={4}
+            placeholder="Description du projet..."
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Image de couverture</label>
+            <div className="flex gap-2 items-start">
+              <input
+                type="text"
+                value={formData.coverImage}
+                onChange={(e) => setFormData({ ...formData, coverImage: e.target.value })}
+                className="flex-1 px-4 py-2 border rounded-lg"
+                placeholder="URL ou upload ci-contre"
+              />
+              <label className="shrink-0 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer flex items-center gap-2 text-sm">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleCoverUpload}
+                  disabled={uploadingCover}
+                />
+                {uploadingCover ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                Upload
+              </label>
+            </div>
+            {formData.coverImage && (
+              <div className="mt-2 w-32 h-20 rounded-lg border bg-gray-50 overflow-hidden">
+                <img src={formData.coverImage} alt="Couverture" className="w-full h-full object-cover" />
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Catégorie</label>
+            <input
+              type="text"
+              value={formData.category}
+              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg"
+              placeholder="Ex: Campagne, Événement..."
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Date</label>
+            <input
+              type="date"
+              value={formData.date}
+              onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Lieu</label>
+            <input
+              type="text"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg"
+              placeholder="Ex: Paris, France..."
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">URL Vidéo (YouTube, Vimeo...)</label>
+          <input
+            type="text"
+            value={formData.videoUrl}
+            onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
+            className="w-full px-4 py-2 border rounded-lg"
+            placeholder="https://youtube.com/embed/..."
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Photos du projet (galerie)</label>
+          <p className="text-xs text-gray-500 mb-2">
+            Upload direct ou coller une URL. Vous pouvez sélectionner plusieurs fichiers.
+          </p>
+          <div className="flex flex-wrap gap-2 mb-2">
+            <label className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer flex items-center gap-2 text-sm shrink-0">
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                multiple
+                onChange={handleGalleryUpload}
+                disabled={uploadingGallery}
+              />
+              {uploadingGallery ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Upload...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4" />
+                  Uploader des photos
+                </>
+              )}
+            </label>
+            <span className="text-gray-400 self-center text-sm">ou</span>
+            <input
+              type="text"
+              value={newImageUrl}
+              onChange={(e) => setNewImageUrl(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addImage();
+                }
+              }}
+              className="flex-1 min-w-[200px] px-4 py-2 border rounded-lg"
+              placeholder="Coller l'URL d'une photo"
+            />
+            <button
+              type="button"
+              onClick={addImage}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg shrink-0"
+            >
+              <Plus className="w-4 h-4" /> Ajouter l'URL
+            </button>
+          </div>
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-3">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative group">
+                  <div className="w-24 h-24 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+                    <img src={img} alt={`Photo ${idx + 1}`} className="max-w-full max-h-full object-contain" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeImage(idx)}
+                    className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1 flex items-center gap-2">
+            <Link2 className="w-4 h-4" />
+            Liens (optionnel)
+          </label>
+          <p className="text-xs text-gray-500 mb-2">
+            Articles, posts réseaux, site du projet, etc.
+          </p>
+          {links.map((link, idx) => (
+            <div key={idx} className="flex gap-2 mb-2">
+              <input
+                type="text"
+                value={link.label}
+                onChange={(e) => updateLink(idx, "label", e.target.value)}
+                className="w-40 px-3 py-2 border rounded-lg"
+                placeholder="Libellé"
+              />
+              <input
+                type="url"
+                value={link.url}
+                onChange={(e) => updateLink(idx, "url", e.target.value)}
+                className="flex-1 px-3 py-2 border rounded-lg"
+                placeholder="https://..."
+              />
+              <button
+                type="button"
+                onClick={() => removeLink(idx)}
+                className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addLink}
+            className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+          >
+            <Plus className="w-4 h-4" /> Ajouter un lien
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Ordre d'affichage</label>
+            <input
+              type="number"
+              value={formData.order}
+              onChange={(e) => setFormData({ ...formData, order: parseInt(e.target.value) || 0 })}
+              className="w-full px-4 py-2 border rounded-lg"
+              min="0"
+            />
+          </div>
+          <div className="flex items-center gap-3 pt-6">
+            <input
+              type="checkbox"
+              id="isActive"
+              checked={formData.isActive}
+              onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+              className="w-4 h-4"
+            />
+            <label htmlFor="isActive" className="text-sm font-medium">
+              Projet actif
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-4">
+            Sélectionner les talents ({selectedTalents.length} sélectionnés)
+          </label>
+          <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-3">
+              {talents.map((talent) => {
+                const isSelected = selectedTalents.includes(talent.id);
+                return (
+                  <button
+                    key={talent.id}
+                    type="button"
+                    onClick={() => toggleTalent(talent.id)}
+                    className={`flex items-center gap-3 p-3 border rounded-lg text-left transition-colors ${
+                      isSelected ? "border-blue-600 bg-blue-50" : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <input type="checkbox" checked={isSelected} readOnly className="w-4 h-4" />
+                    {talent.photo ? (
+                      <img src={talent.photo} alt={talent.prenom} className="w-10 h-10 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                        {talent.prenom[0]}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">
+                        {talent.prenom} {talent.nom}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-4 pt-4 border-t">
+          <Link href={BASE} className="px-6 py-2 border rounded-lg hover:bg-gray-50">
+            Annuler
+          </Link>
+          <button
+            type="submit"
+            disabled={loading || !formData.title}
+            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Création...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Créer le projet
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

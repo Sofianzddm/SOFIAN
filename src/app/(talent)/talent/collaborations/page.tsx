@@ -1,31 +1,56 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import {
-  Handshake,
   Search,
-  Filter,
   Calendar,
   Building2,
-  Euro,
   Loader2,
   ExternalLink,
-  Clock,
-  CheckCircle2,
   Upload,
+  Package,
+  FileText,
+  ChevronRight,
+  X,
+  SlidersHorizontal,
 } from "lucide-react";
+
+const TYPE_LABELS: Record<string, string> = {
+  STORY: "Story",
+  STORY_CONCOURS: "Story Concours",
+  POST: "Post",
+  POST_CONCOURS: "Post Concours",
+  POST_COMMUN: "Post Commun",
+  REEL: "Reel",
+  TIKTOK_VIDEO: "Vidéo TikTok",
+  YOUTUBE_VIDEO: "Vidéo YouTube",
+  YOUTUBE_SHORT: "YouTube Short",
+  EVENT: "Event",
+  SHOOTING: "Shooting",
+  AMBASSADEUR: "Ambassadeur",
+};
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "Tous" },
+  { value: "EN_COURS", label: "En cours" },
+  { value: "PUBLIE", label: "Publié" },
+  { value: "FACTURE_RECUE", label: "Facture reçue" },
+  { value: "PAYE", label: "Payé" },
+];
 
 export default function TalentCollaborationsPage() {
   const [collaborations, setCollaborations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  
-  // Modal upload facture
+  const [sortBy, setSortBy] = useState<"date" | "montant">("date");
+  const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+
   const [uploadingCollabId, setUploadingCollabId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
     fetchCollaborations();
@@ -34,9 +59,7 @@ export default function TalentCollaborationsPage() {
   async function fetchCollaborations() {
     try {
       const res = await fetch("/api/talents/me/collaborations");
-      if (res.ok) {
-        setCollaborations(await res.json());
-      }
+      if (res.ok) setCollaborations(await res.json());
     } catch (error) {
       console.error("Erreur:", error);
     } finally {
@@ -46,23 +69,18 @@ export default function TalentCollaborationsPage() {
 
   async function uploadFacture() {
     if (!selectedFile || !uploadingCollabId) return;
-
     setUploading(true);
-
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
-
       const res = await fetch(`/api/collaborations/${uploadingCollabId}/upload-facture-talent`, {
         method: "POST",
         body: formData,
       });
-
       if (res.ok) {
-        alert("✅ Facture uploadée avec succès !");
         setUploadingCollabId(null);
         setSelectedFile(null);
-        fetchCollaborations(); // Rafraîchir la liste
+        fetchCollaborations();
       } else {
         const error = await res.json();
         alert(`❌ ${error.error || "Erreur lors de l'upload"}`);
@@ -79,189 +97,279 @@ export default function TalentCollaborationsPage() {
     const matchSearch =
       collab.marque?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       collab.reference?.toLowerCase().includes(searchTerm.toLowerCase());
-
     const matchStatus = statusFilter === "all" || collab.statut === statusFilter;
-
     return matchSearch && matchStatus;
   });
 
+  const sortedCollabs = [...filteredCollabs].sort((a, b) => {
+    if (sortBy === "date") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    return b.montant - a.montant;
+  });
+
   const getStatusConfig = (statut: string) => {
-    const configs: Record<string, { label: string; color: string }> = {
-      EN_COURS: { label: "En cours", color: "bg-blue-100 text-blue-700" },
-      PUBLIE: { label: "Publié", color: "bg-purple-100 text-purple-700" },
-      FACTURE_RECUE: { label: "Facture reçue", color: "bg-amber-100 text-amber-700" },
-      PAYE: { label: "Payé ✓", color: "bg-green-100 text-green-700" },
-      NEGO: { label: "Négociation", color: "bg-yellow-100 text-yellow-700" },
+    const configs: Record<string, { label: string; className: string }> = {
+      EN_COURS: { label: "En cours", className: "bg-slate-100 text-slate-600" },
+      PUBLIE: { label: "Publié", className: "bg-indigo-500/10 text-indigo-600" },
+      FACTURE_RECUE: { label: "Facture reçue", className: "bg-amber-500/10 text-amber-600" },
+      PAYE: { label: "Payé", className: "bg-emerald-500/10 text-emerald-600" },
+      NEGO: { label: "Négociation", className: "bg-amber-500/10 text-amber-600" },
     };
-    return configs[statut] || { label: statut, color: "bg-gray-100 text-gray-700" };
+    return configs[statut] || { label: statut, className: "bg-slate-100 text-slate-600" };
+  };
+
+  const formatMoney = (amount: number) =>
+    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 0 }).format(amount);
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && /\.(pdf|jpg|jpeg|png)$/i.test(file.name)) setSelectedFile(file);
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-glowup-licorice flex items-center gap-3">
-          <Handshake className="w-8 h-8" />
-          Mes Collaborations
+    <div className="min-h-[calc(100vh-8rem)]">
+      {/* Header minimal */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+          Collaborations
         </h1>
-        <p className="text-gray-600 mt-1">
-          {filteredCollabs.length} collaboration{filteredCollabs.length > 1 ? "s" : ""}
+        <p className="mt-1 text-sm text-slate-500">
+          {collaborations.length} collaboration{collaborations.length > 1 ? "s" : ""} au total
         </p>
       </div>
 
-      {/* Filtres */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 flex flex-col md:flex-row gap-4">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+      {/* Toolbar */}
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-xs">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Rechercher une marque, référence..."
+            placeholder="Rechercher..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
+            className="h-10 w-full rounded-lg border-0 bg-slate-50 pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-200"
           />
         </div>
-
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
-        >
-          <option value="all">Tous les statuts</option>
-          <option value="EN_COURS">En cours</option>
-          <option value="PUBLIE">Publié</option>
-          <option value="FACTURE_RECUE">Facture reçue</option>
-          <option value="PAYE">Payé</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors ${
+              showFilters ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Filtres
+          </button>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as "date" | "montant")}
+            className="h-10 rounded-lg border-0 bg-slate-50 px-4 text-sm text-slate-700 focus:ring-2 focus:ring-slate-200"
+          >
+            <option value="date">Plus récent</option>
+            <option value="montant">Montant</option>
+          </select>
+        </div>
       </div>
 
-      {/* Liste */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-glowup-rose" />
+      {/* Filtres dépliables */}
+      {showFilters && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {STATUS_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setStatusFilter(opt.value)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                statusFilter === opt.value
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-slate-300"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
-      ) : filteredCollabs.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <Handshake className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500 text-lg font-medium">Aucune collaboration trouvée</p>
-          <p className="text-gray-400 text-sm mt-2">
-            Les collaborations apparaîtront ici une fois créées par ton Talent Manager
+      )}
+
+      {/* Contenu */}
+      {loading ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="animate-pulse rounded-xl bg-slate-100/80 p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex gap-4">
+                  <div className="h-12 w-12 rounded-lg bg-slate-200" />
+                  <div className="space-y-2">
+                    <div className="h-5 w-40 rounded bg-slate-200" />
+                    <div className="h-4 w-24 rounded bg-slate-200" />
+                  </div>
+                </div>
+                <div className="h-6 w-20 rounded bg-slate-200" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : sortedCollabs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-24">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
+            <Package className="h-7 w-7 text-slate-400" />
+          </div>
+          <h3 className="text-base font-medium text-slate-900">Aucune collaboration</h3>
+          <p className="mt-1 max-w-sm text-center text-sm text-slate-500">
+            Tes collaborations apparaîtront ici dès leur création par ton Talent Manager.
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {filteredCollabs.map((collab) => {
+        <div className="space-y-3">
+          {sortedCollabs.map((collab) => {
             const status = getStatusConfig(collab.statut);
-            const needsInvoice = collab.statut === "PUBLIE";
+            const needsInvoice = collab.statut === "PUBLIE" && !collab.factureTalentUrl;
+            const isExpanded = expandedCollab === collab.id;
 
             return (
               <div
                 key={collab.id}
-                className={`bg-white rounded-xl border-2 p-6 hover:shadow-lg transition-all ${
-                  needsInvoice
-                    ? "border-amber-300 bg-amber-50/20"
-                    : "border-gray-200 hover:border-glowup-rose"
+                className={`group overflow-hidden rounded-xl bg-white ring-1 ring-slate-200/60 transition-all duration-200 hover:ring-slate-300 ${
+                  needsInvoice ? "ring-amber-200" : ""
                 }`}
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-xl font-bold text-glowup-licorice">{collab.marque}</h3>
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-medium ${status.color}`}
+                <div
+                  className="flex cursor-pointer flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"
+                  onClick={() => setExpandedCollab(isExpanded ? null : collab.id)}
+                >
+                  <div className="flex min-w-0 gap-4">
+                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 group-hover:bg-slate-100">
+                      <Building2 className="h-5 w-5 text-slate-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="truncate font-semibold text-slate-900">{collab.marque}</h3>
+                      <div className="mt-1 flex flex-wrap items-center gap-4 text-sm text-slate-500">
+                        {collab.datePublication && (
+                          <span className="flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5" />
+                            {new Date(collab.datePublication).toLocaleDateString("fr-FR", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1.5">
+                          <Package className="h-3.5 w-3.5" />
+                          {collab.livrables?.length || 0} livrable{(collab.livrables?.length || 0) > 1 ? "s" : ""}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-shrink-0 items-center gap-4">
+                    <span className={`rounded-md px-2.5 py-1 text-xs font-medium ${status.className}`}>
+                      {status.label}
+                    </span>
+                    <span className="text-lg font-semibold tabular-nums text-slate-900">
+                      {formatMoney(collab.montant)}
+                    </span>
+                    <ChevronRight
+                      className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${
+                        isExpanded ? "rotate-90" : ""
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Section dépliée */}
+                {isExpanded && (
+                  <div className="border-t border-slate-100 bg-slate-50/30 px-5 py-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-wrap gap-3">
+                        {collab.lienPublication && (
+                          <a
+                            href={collab.lienPublication}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Voir la publication
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {collab.livrables?.length > 0 && (
+                      <div className="mt-4">
+                        <h4 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">
+                          Livrables
+                        </h4>
+                        <div className="space-y-2">
+                          {collab.livrables.map((livrable: any, idx: number) => (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between rounded-lg bg-white px-4 py-3 ring-1 ring-slate-200/60"
+                            >
+                              <span className="font-medium text-slate-900">
+                                {livrable.quantite}x {TYPE_LABELS[livrable.typeContenu] || livrable.typeContenu}
+                              </span>
+                              {livrable.description && (
+                                <span className="text-sm text-slate-500">{livrable.description}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action facture */}
+                    {needsInvoice && (
+                      <div
+                        className="mt-4 flex flex-col gap-4 rounded-lg bg-amber-50/80 p-4 ring-1 ring-amber-200/60 sm:flex-row sm:items-center sm:justify-between"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        {status.label}
-                      </span>
-                    </div>
-                    <p className="text-gray-500 text-sm">{collab.reference}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-emerald-600">
-                      {new Intl.NumberFormat("fr-FR", {
-                        style: "currency",
-                        currency: "EUR",
-                      }).format(collab.montant)}
-                    </p>
-                    <p className="text-xs text-gray-500">Montant net</p>
-                  </div>
-                </div>
-
-                {/* Infos */}
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 py-4 border-t border-b border-gray-200 mb-4">
-                  {collab.datePublication && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Calendar className="w-4 h-4" />
-                      <span>
-                        {new Date(collab.datePublication).toLocaleDateString("fr-FR")}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Building2 className="w-4 h-4" />
-                    <span>{Array.isArray(collab.livrables) ? collab.livrables.length : 0} livrable(s)</span>
-                  </div>
-                  {collab.lienPublication && (
-                    <a
-                      href={collab.lienPublication}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-sm text-glowup-rose hover:underline"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      <span>Voir la publication</span>
-                    </a>
-                  )}
-                </div>
-
-                {/* Actions */}
-                {needsInvoice && !collab.factureTalentUrl && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                    <div className="flex items-start gap-3">
-                      <Upload className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-amber-900 mb-1">
-                          ⚠️ Action requise : Envoyer ta facture
-                        </p>
-                        <p className="text-xs text-amber-700 mb-3">
-                          La collaboration est publiée. Tu dois maintenant envoyer ta facture pour
-                          être payé.
-                        </p>
-                        <button 
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100">
+                            <Upload className="h-4 w-4 text-amber-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-amber-900">Facture requise</p>
+                            <p className="text-sm text-amber-700">Envoie ta facture pour être payé</p>
+                          </div>
+                        </div>
+                        <button
                           onClick={() => setUploadingCollabId(collab.id)}
-                          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-colors"
+                          className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-600"
                         >
-                          📤 Envoyer ma facture
+                          Envoyer ma facture
                         </button>
                       </div>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Facture déjà uploadée */}
-                {collab.factureTalentUrl && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 className="w-5 h-5 text-green-600" />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-green-900">
-                          ✅ Facture envoyée
-                        </p>
-                        <p className="text-xs text-green-700">
-                          {collab.factureValidee 
-                            ? "Ta facture a été validée et le paiement est en cours" 
-                            : "Ta facture est en attente de validation"}
-                        </p>
-                      </div>
-                      <a
-                        href={collab.factureTalentUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-green-600 hover:underline flex items-center gap-1"
+                    )}
+
+                    {collab.factureTalentUrl && (
+                      <div
+                        className="mt-4 flex items-center justify-between rounded-lg bg-emerald-50/80 p-4 ring-1 ring-emerald-200/60"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        Voir <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100">
+                            <FileText className="h-4 w-4 text-emerald-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-emerald-900">Facture envoyée</p>
+                            <p className="text-sm text-emerald-700">
+                              {collab.factureValidee ? "Validation en cours" : "En attente"}
+                            </p>
+                          </div>
+                        </div>
+                        <a
+                          href={collab.factureTalentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-emerald-600 hover:text-emerald-700"
+                        >
+                          Voir →
+                        </a>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -270,61 +378,86 @@ export default function TalentCollaborationsPage() {
         </div>
       )}
 
-      {/* MODAL UPLOAD FACTURE */}
+      {/* Modal upload */}
       {uploadingCollabId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">
-              📤 Envoyer ta facture
-            </h3>
-            
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 mb-2">
-                Formats acceptés : <strong>PDF, JPG, PNG</strong>
-              </p>
-              <p className="text-sm text-gray-600 mb-4">
-                Taille maximum : <strong>10 MB</strong>
-              </p>
-              
-              <input
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                className="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              />
-              
-              {selectedFile && (
-                <p className="text-xs text-green-600 mt-2">
-                  ✅ {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
-                </p>
-              )}
-            </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">
+            <div className="p-6">
+              <div className="mb-5 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-slate-900">Envoyer ta facture</h3>
+                <button
+                  onClick={() => {
+                    setUploadingCollabId(null);
+                    setSelectedFile(null);
+                  }}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setUploadingCollabId(null);
-                  setSelectedFile(null);
+              <p className="mb-4 text-sm text-slate-500">PDF, JPG ou PNG — max 10 Mo</p>
+
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
                 }}
-                disabled={uploading}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                className={`relative cursor-pointer rounded-xl border-2 border-dashed transition-all ${
+                  dragOver ? "border-slate-400 bg-slate-50" : "border-slate-200 hover:border-slate-300"
+                }`}
               >
-                Annuler
-              </button>
-              <button
-                onClick={uploadFacture}
-                disabled={!selectedFile || uploading}
-                className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {uploading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Envoi...
-                  </>
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                />
+                {selectedFile ? (
+                  <div className="flex flex-col items-center gap-2 p-8">
+                    <FileText className="h-10 w-10 text-emerald-500" />
+                    <p className="truncate max-w-full px-2 text-sm font-medium text-slate-900">
+                      {selectedFile.name}
+                    </p>
+                    <p className="text-xs text-slate-500">Cliquer pour changer</p>
+                  </div>
                 ) : (
-                  "Envoyer"
+                  <div className="flex flex-col items-center gap-2 p-8">
+                    <Upload className="h-10 w-10 text-slate-400" />
+                    <p className="text-sm font-medium text-slate-700">Glisser ou cliquer</p>
+                    <p className="text-xs text-slate-500">pour sélectionner un fichier</p>
+                  </div>
                 )}
-              </button>
+              </div>
+
+              <div className="mt-5 flex gap-3">
+                <button
+                  onClick={() => {
+                    setUploadingCollabId(null);
+                    setSelectedFile(null);
+                  }}
+                  disabled={uploading}
+                  className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={uploadFacture}
+                  disabled={!selectedFile || uploading}
+                  className="flex-1 rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {uploading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Envoi...
+                    </>
+                  ) : (
+                    "Envoyer"
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

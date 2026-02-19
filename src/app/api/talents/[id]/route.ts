@@ -108,9 +108,10 @@ export async function PUT(
     const { id } = await params;
     const data = await request.json();
 
-    // Séparer les champs Talent des champs TalentStats
+    // Séparer les champs Talent, Stats et Tarifs
     const talentData: any = {};
     const rawStatsData: any = {};
+    const rawTarifsData: any = {};
     
     // ========== CHAMPS TALENT ==========
     if (data.prenom !== undefined) talentData.prenom = data.prenom;
@@ -180,6 +181,20 @@ export async function PUT(
     if (data.ytAbonnes !== undefined) rawStatsData.ytAbonnes = data.ytAbonnes;
     if (data.ytAbonnesEvol !== undefined) rawStatsData.ytAbonnesEvol = data.ytAbonnesEvol;
 
+    // ========== CHAMPS TARIFS (raw) ==========
+    if (data.tarifStory !== undefined) rawTarifsData.tarifStory = data.tarifStory;
+    if (data.tarifStoryConcours !== undefined) rawTarifsData.tarifStoryConcours = data.tarifStoryConcours;
+    if (data.tarifPost !== undefined) rawTarifsData.tarifPost = data.tarifPost;
+    if (data.tarifPostConcours !== undefined) rawTarifsData.tarifPostConcours = data.tarifPostConcours;
+    if (data.tarifPostCommun !== undefined) rawTarifsData.tarifPostCommun = data.tarifPostCommun;
+    if (data.tarifReel !== undefined) rawTarifsData.tarifReel = data.tarifReel;
+    if (data.tarifTiktokVideo !== undefined) rawTarifsData.tarifTiktokVideo = data.tarifTiktokVideo;
+    if (data.tarifYoutubeVideo !== undefined) rawTarifsData.tarifYoutubeVideo = data.tarifYoutubeVideo;
+    if (data.tarifYoutubeShort !== undefined) rawTarifsData.tarifYoutubeShort = data.tarifYoutubeShort;
+    if (data.tarifEvent !== undefined) rawTarifsData.tarifEvent = data.tarifEvent;
+    if (data.tarifShooting !== undefined) rawTarifsData.tarifShooting = data.tarifShooting;
+    if (data.tarifAmbassadeur !== undefined) rawTarifsData.tarifAmbassadeur = data.tarifAmbassadeur;
+
     // ========== PARSER LES STATS ==========
     // Convertir en nombres avec les bons types (Int ou Decimal)
     // "" devient null, sinon parseInt/parseFloat
@@ -225,6 +240,42 @@ export async function PUT(
           update: parsedStatsData,
         },
       };
+    }
+
+    // ========== PARSER LES TARIFS ==========
+    if (Object.keys(rawTarifsData).length > 0) {
+      const parsedTarifsData: any = {};
+      const tarifFields = [
+        "tarifStory",
+        "tarifStoryConcours",
+        "tarifPost",
+        "tarifPostConcours",
+        "tarifPostCommun",
+        "tarifReel",
+        "tarifTiktokVideo",
+        "tarifYoutubeVideo",
+        "tarifYoutubeShort",
+        "tarifEvent",
+        "tarifShooting",
+        "tarifAmbassadeur",
+      ] as const;
+
+      tarifFields.forEach((field) => {
+        if (field in rawTarifsData) {
+          const val = rawTarifsData[field];
+          parsedTarifsData[field] =
+            val === "" || val === null || val === undefined ? null : parseFloat(val);
+        }
+      });
+
+      if (Object.keys(parsedTarifsData).length > 0) {
+        talentData.tarifs = {
+          upsert: {
+            create: parsedTarifsData,
+            update: parsedTarifsData,
+          },
+        };
+      }
     }
 
     // Liaison compte utilisateur (rôle TALENT) ↔ fiche Talent : 1 user = 1 talent max

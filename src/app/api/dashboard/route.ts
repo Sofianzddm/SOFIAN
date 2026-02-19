@@ -44,6 +44,7 @@ export async function GET() {
         topMarques,
         performanceTM,
         facturesRelance,
+        negociationsSansReponse,
       ] = await Promise.all([
         prisma.talent.count(),
         prisma.marque.count(),
@@ -126,6 +127,18 @@ export async function GET() {
           include: { talent: true, marque: true },
           orderBy: { datePublication: "asc" },
         }),
+        prisma.negociation.findMany({
+          where: {
+            statut: { in: ["EN_ATTENTE", "EN_DISCUSSION"] },
+            lastModifiedAt: { lt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000) },
+          },
+          include: {
+            talent: { select: { prenom: true, nom: true } },
+            marque: { select: { nom: true } },
+            tm: { select: { prenom: true, nom: true } },
+          },
+          orderBy: { lastModifiedAt: "asc" },
+        }),
       ]);
 
       // Enrichir données
@@ -189,6 +202,17 @@ export async function GET() {
           ca: Number(m._sum.montantBrut) || 0,
         })),
         tmPerformance,
+        negociationsSansReponse: negociationsSansReponse.map((n) => {
+          const jours = Math.floor((Date.now() - new Date(n.lastModifiedAt).getTime()) / (24 * 60 * 60 * 1000));
+          return {
+            id: n.id,
+            reference: n.reference,
+            talent: `${n.talent.prenom} ${n.talent.nom}`,
+            marque: n.nomMarqueSaisi || n.marque?.nom || "—",
+            tm: n.tm ? `${n.tm.prenom} ${n.tm.nom}` : null,
+            joursSansReponse: jours,
+          };
+        }),
         facturesRelance: facturesRelance.map((f) => {
           const jours = f.datePublication
             ? Math.floor((Date.now() - new Date(f.datePublication).getTime()) / (1000 * 60 * 60 * 24))
@@ -215,6 +239,8 @@ export async function GET() {
         talentsSansTarifs,
         talentsAvecBilanRetard,
         negosEnCours,
+        negociations,
+        negociationsSansReponse,
         caMois,
         caAnnee,
         performanceTM,
@@ -229,9 +255,31 @@ export async function GET() {
             ],
           },
         }),
-        // ✅ CORRIGÉ: Compter les vraies négociations
         prisma.negociation.count({ 
           where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } } 
+        }),
+        prisma.negociation.findMany({
+          where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } },
+          include: {
+            talent: { select: { id: true, prenom: true, nom: true } },
+            marque: { select: { id: true, nom: true } },
+            tm: { select: { prenom: true, nom: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 15,
+        }),
+        // Négos > 5j sans réponse client (EN_ATTENTE ou EN_DISCUSSION, lastModifiedAt > 5j)
+        prisma.negociation.findMany({
+          where: {
+            statut: { in: ["EN_ATTENTE", "EN_DISCUSSION"] },
+            lastModifiedAt: { lt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000) },
+          },
+          include: {
+            talent: { select: { prenom: true, nom: true } },
+            marque: { select: { nom: true } },
+            tm: { select: { prenom: true, nom: true } },
+          },
+          orderBy: { lastModifiedAt: "asc" },
         }),
         prisma.collaboration.aggregate({
           _sum: { montantBrut: true, commissionEuros: true },
@@ -303,12 +351,34 @@ export async function GET() {
           totalTalents,
           talentsSansTarifs,
           talentsAvecBilanRetard,
-          collabsNego: negosEnCours, // ✅ Utilise le vrai compteur
+          collabsNego: negosEnCours,
           caMois: Number(caMois._sum.montantBrut) || 0,
           commissionMois: Number(caMois._sum.commissionEuros) || 0,
           caAnnee: Number(caAnnee._sum.montantBrut) || 0,
           commissionAnnee: Number(caAnnee._sum.commissionEuros) || 0,
         },
+        negociations: negociations.map((n) => ({
+          id: n.id,
+          reference: n.reference,
+          talent: `${n.talent.prenom} ${n.talent.nom}`,
+          marque: n.nomMarqueSaisi || n.marque?.nom || "—",
+          statut: n.statut,
+          montant: Number(n.budgetFinal || n.budgetSouhaite || n.budgetMarque) || 0,
+          tm: n.tm ? `${n.tm.prenom} ${n.tm.nom}` : null,
+          createdAt: n.createdAt,
+          lastModifiedAt: n.lastModifiedAt,
+        })),
+        negociationsSansReponse: negociationsSansReponse.map((n) => {
+          const jours = Math.floor((Date.now() - new Date(n.lastModifiedAt).getTime()) / (24 * 60 * 60 * 1000));
+          return {
+            id: n.id,
+            reference: n.reference,
+            talent: `${n.talent.prenom} ${n.talent.nom}`,
+            marque: n.nomMarqueSaisi || n.marque?.nom || "—",
+            tm: n.tm ? `${n.tm.prenom} ${n.tm.nom}` : null,
+            joursSansReponse: jours,
+          };
+        }),
         tmBilans,
       });
     }
@@ -352,14 +422,26 @@ export async function GET() {
         (t) => !t.stats || new Date(t.stats.lastUpdate).getTime() < Date.now() - 30 * 24 * 60 * 60 * 1000
       );
 
+      const cinqJoursMs = 5 * 24 * 60 * 60 * 1000;
+      const negociationsSansReponse = mesNegociations
+        .filter((n) => ["EN_ATTENTE", "EN_DISCUSSION"].includes(n.statut) && new Date(n.lastModifiedAt).getTime() < Date.now() - cinqJoursMs)
+        .map((n) => ({
+          id: n.id,
+          reference: n.reference,
+          talent: `${n.talent.prenom} ${n.talent.nom}`,
+          marque: n.nomMarqueSaisi || n.marque?.nom || "—",
+          joursSansReponse: Math.floor((Date.now() - new Date(n.lastModifiedAt).getTime()) / (24 * 60 * 60 * 1000)),
+        }));
+
       return NextResponse.json({
         role: "TM",
         stats: {
           mesTalents: mesTalents.length,
-          mesNegos: mesNegociations.length, // ✅ Compte les vraies négos
+          mesNegos: mesNegociations.length,
           mesCollabsEnCours,
           bilansRetard: talentsAvecBilanRetard.length,
         },
+        negociationsSansReponse,
         talents: mesTalents.map((t) => ({
           id: t.id,
           nom: `${t.prenom} ${t.nom}`,
@@ -372,7 +454,7 @@ export async function GET() {
             : 999,
         })),
         // ✅ CORRIGÉ: Mapper les vraies négociations
-        negociations: mesNegociations.map((n) => ({
+        negociations: mesNegociations.map((n: any) => ({
           id: n.id,
           reference: n.reference,
           talent: `${n.talent.prenom} ${n.talent.nom}`,
