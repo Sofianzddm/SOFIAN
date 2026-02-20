@@ -349,10 +349,10 @@ function TalentCard({
   return (
     <article
       onClick={onClick}
-      className="group bg-white rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(34,1,1,0.15)]"
+      className="group bg-white rounded-2xl sm:rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:-translate-y-1 sm:hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(34,1,1,0.15)] active:scale-[0.99]"
       style={{ boxShadow: "0 4px 24px rgba(34, 1, 1, 0.06)" }}
     >
-      <div className="relative h-[340px] overflow-hidden bg-[#F5EDE0]">
+      <div className="relative h-[240px] sm:h-[300px] md:h-[340px] overflow-hidden bg-[#F5EDE0]">
         {hasPhoto ? (
           <img
             src={talent.photo!}
@@ -369,15 +369,15 @@ function TalentCard({
         
         <div className="absolute inset-0 bg-gradient-to-t from-[#220101]/90 via-[#220101]/30 to-transparent" />
         
-        <div className="absolute bottom-5 left-5 right-5">
-          <p className="text-[#F5EDE0]/70 text-base font-spectral-medium-italic">
+        <div className="absolute bottom-3 left-3 right-3 sm:bottom-5 sm:left-5 sm:right-5">
+          <p className="text-[#F5EDE0]/70 text-sm sm:text-base font-spectral-medium-italic">
             {talent.prenom}
           </p>
-          <p className="text-[#F5EDE0] text-2xl tracking-wide font-spectral-light">
+          <p className="text-[#F5EDE0] text-lg sm:text-2xl tracking-wide font-spectral-light">
             {talent.nom.toUpperCase()}
           </p>
           {(talent.instagram || talent.tiktok) && (
-            <p className="text-[#F5EDE0]/50 text-sm font-switzer mt-1">
+            <p className="text-[#F5EDE0]/50 text-xs sm:text-sm font-switzer mt-0.5 sm:mt-1">
               @{talent.instagram?.replace('@', '') || talent.tiktok?.replace('@', '')}
             </p>
           )}
@@ -388,7 +388,7 @@ function TalentCard({
             e.stopPropagation();
             onToggleFavorite();
           }}
-          className={`absolute top-4 left-4 w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-lg ${
+          className={`absolute top-3 left-3 sm:top-4 sm:left-4 w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all shadow-lg touch-manipulation ${
             isFavorite 
               ? "bg-[#B06F70] text-white scale-110" 
               : "bg-white/90 text-[#220101]/40 hover:text-[#B06F70] hover:scale-110"
@@ -397,16 +397,16 @@ function TalentCard({
           <HeartIcon filled={isFavorite} className="w-5 h-5" />
         </button>
 
-        <div className="absolute top-4 right-4 flex gap-2">
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 sm:gap-2">
           {talent.instagram && talent.stats?.igFollowers && (
             <a
               href={`https://instagram.com/${talent.instagram.replace('@', '')}`}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="w-8 h-8 bg-white/90 rounded-full flex items-center justify-center hover:bg-white hover:scale-110 transition-all shadow-sm"
+              className="w-7 h-7 sm:w-8 sm:h-8 bg-white/90 rounded-full flex items-center justify-center hover:bg-white hover:scale-110 transition-all shadow-sm touch-manipulation"
             >
-              <InstagramIcon className="w-4 h-4 text-[#220101]" />
+              <InstagramIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#220101]" />
             </a>
           )}
           {talent.tiktok && talent.stats?.ttFollowers && (
@@ -415,9 +415,9 @@ function TalentCard({
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="w-8 h-8 bg-white/90 rounded-full flex items-center justify-center hover:bg-white hover:scale-110 transition-all shadow-sm"
+              className="w-7 h-7 sm:w-8 sm:h-8 bg-white/90 rounded-full flex items-center justify-center hover:bg-white hover:scale-110 transition-all shadow-sm touch-manipulation"
             >
-              <TikTokIcon className="w-4 h-4 text-[#220101]" />
+              <TikTokIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#220101]" />
             </a>
           )}
           {talent.youtube && talent.stats?.ytAbonnes && (
@@ -426,33 +426,33 @@ function TalentCard({
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="w-8 h-8 bg-white/90 rounded-full flex items-center justify-center hover:bg-white hover:scale-110 transition-all shadow-sm"
+              className="w-7 h-7 sm:w-8 sm:h-8 bg-white/90 rounded-full flex items-center justify-center hover:bg-white hover:scale-110 transition-all shadow-sm touch-manipulation"
             >
-              <YouTubeIcon className="w-4 h-4 text-[#220101]" />
+              <YouTubeIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#220101]" />
             </a>
           )}
         </div>
       </div>
 
-      <div className="p-5">
-        <p className="text-[11px] text-[#220101]/50 uppercase tracking-[0.15em] mb-3 font-spectral-light">
+      <div className="p-3 sm:p-5">
+        <p className="text-[10px] sm:text-[11px] text-[#220101]/50 uppercase tracking-[0.15em] mb-2 sm:mb-3 font-spectral-light line-clamp-1">
           {talent.niches.length > 0 ? talent.niches.slice(0, 3).join(" · ") : "Créateur de contenu"}
         </p>
 
-        <div className="space-y-2">
+        <div className="space-y-1.5 sm:space-y-2">
           {talent.stats?.igFollowers && (
-            <div className="flex items-center justify-between py-2.5 px-3 bg-[#F5EDE0]/50 rounded-xl">
-              <div className="flex items-center gap-2.5">
+            <div className="flex items-center justify-between py-2 px-2.5 sm:py-2.5 sm:px-3 bg-[#F5EDE0]/50 rounded-lg sm:rounded-xl">
+              <div className="flex items-center gap-1.5 sm:gap-2.5">
                 <a
                   href={`https://instagram.com/${talent.instagram?.replace('@', '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="hover:scale-125 transition-transform"
+                  className="hover:scale-125 transition-transform shrink-0"
                 >
-                  <InstagramIcon className="w-4 h-4 text-[#220101]/60 hover:text-[#E1306C]" />
+                  <InstagramIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#220101]/60 hover:text-[#E1306C]" />
                 </a>
-                <span className="font-switzer text-[#220101]">
+                <span className="font-switzer text-[#220101] text-xs sm:text-sm">
                   {formatFollowers(talent.stats.igFollowers)}
                 </span>
                 {talent.stats.igFollowersEvol !== null && talent.stats.igFollowersEvol > 0 && (
@@ -461,25 +461,25 @@ function TalentCard({
                   </span>
                 )}
               </div>
-              <span className="font-switzer text-[#220101]">
+              <span className="font-switzer text-[#220101] text-xs sm:text-sm">
                 {talent.stats.igEngagement?.toFixed(2).replace(".", ",") || "—"}%
               </span>
             </div>
           )}
 
           {talent.stats?.ttFollowers && (
-            <div className="flex items-center justify-between py-2.5 px-3 bg-[#F5EDE0]/50 rounded-xl">
-              <div className="flex items-center gap-2.5">
+            <div className="flex items-center justify-between py-2 px-2.5 sm:py-2.5 sm:px-3 bg-[#F5EDE0]/50 rounded-lg sm:rounded-xl">
+              <div className="flex items-center gap-1.5 sm:gap-2.5">
                 <a
                   href={`https://tiktok.com/@${talent.tiktok?.replace('@', '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="hover:scale-125 transition-transform"
+                  className="hover:scale-125 transition-transform shrink-0"
                 >
-                  <TikTokIcon className="w-4 h-4 text-[#220101]/60 hover:text-black" />
+                  <TikTokIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#220101]/60 hover:text-black" />
                 </a>
-                <span className="font-switzer text-[#220101]">
+                <span className="font-switzer text-[#220101] text-xs sm:text-sm">
                   {formatFollowers(talent.stats.ttFollowers)}
                 </span>
                 {talent.stats.ttFollowersEvol !== null && talent.stats.ttFollowersEvol > 0 && (
@@ -488,25 +488,25 @@ function TalentCard({
                   </span>
                 )}
               </div>
-              <span className="font-switzer text-[#220101]">
+              <span className="font-switzer text-[#220101] text-xs sm:text-sm">
                 {talent.stats.ttEngagement?.toFixed(2).replace(".", ",") || "—"}%
               </span>
             </div>
           )}
 
           {talent.stats?.ytAbonnes && (
-            <div className="flex items-center justify-between py-2.5 px-3 bg-[#F5EDE0]/50 rounded-xl">
-              <div className="flex items-center gap-2.5">
+            <div className="flex items-center justify-between py-2 px-2.5 sm:py-2.5 sm:px-3 bg-[#F5EDE0]/50 rounded-lg sm:rounded-xl">
+              <div className="flex items-center gap-1.5 sm:gap-2.5">
                 <a
                   href={`https://youtube.com/@${talent.youtube?.replace('@', '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="hover:scale-125 transition-transform"
+                  className="hover:scale-125 transition-transform shrink-0"
                 >
-                  <YouTubeIcon className="w-4 h-4 text-[#220101]/60 hover:text-[#FF0000]" />
+                  <YouTubeIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#220101]/60 hover:text-[#FF0000]" />
                 </a>
-                <span className="font-switzer text-[#220101]">
+                <span className="font-switzer text-[#220101] text-xs sm:text-sm">
                   {formatFollowers(talent.stats.ytAbonnes)}
                 </span>
               </div>
@@ -631,48 +631,48 @@ function TalentModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-[#220101]/90 backdrop-blur-md overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[#220101]/90 backdrop-blur-md overflow-y-auto"
       onClick={onClose}
     >
       <div
-        className="bg-[#F5EDE0] w-full max-w-6xl max-h-[95vh] rounded-2xl md:rounded-[2rem] overflow-hidden shadow-2xl my-auto"
+        className="bg-[#F5EDE0] w-full max-w-6xl max-h-[90vh] sm:max-h-[95vh] rounded-xl sm:rounded-2xl md:rounded-[2rem] overflow-hidden shadow-2xl my-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="max-h-[95vh] overflow-y-auto">
+        <div className="max-h-[90vh] sm:max-h-[95vh] overflow-y-auto">
           {/* Header avec photo de profil en petit carré */}
-          <div className="relative bg-gradient-to-br from-[#220101] to-[#3a1a1a] p-6 md:p-8">
+          <div className="relative bg-gradient-to-br from-[#220101] to-[#3a1a1a] p-4 sm:p-6 md:p-8">
             {/* Boutons */}
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 w-10 h-10 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center text-[#220101] transition-all hover:scale-110 shadow-xl font-switzer text-lg"
+              className="absolute top-3 right-3 sm:top-4 sm:right-4 w-9 h-9 sm:w-10 sm:h-10 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center text-[#220101] transition-all hover:scale-110 shadow-xl font-switzer text-base sm:text-lg touch-manipulation"
             >
               ✕
             </button>
 
             <button
               onClick={onToggleFavorite}
-              className={`absolute top-4 left-4 w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-xl ${
+              className={`absolute top-3 left-3 sm:top-4 sm:left-4 w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all shadow-xl touch-manipulation ${
                 isFavorite 
                   ? "bg-[#B06F70] text-white" 
                   : "bg-white/95 backdrop-blur-sm text-[#220101]/40 hover:text-[#B06F70]"
               }`}
             >
-              <HeartIcon filled={isFavorite} className="w-5 h-5" />
+              <HeartIcon filled={isFavorite} className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
 
             {/* Contenu avec photo de profil */}
-            <div className="flex items-start gap-6 pt-8">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 pt-12 sm:pt-8">
               {/* Photo de profil en petit carré */}
-              <div className="flex-shrink-0">
+              <div className="flex-shrink-0 flex justify-center sm:justify-start">
                 {hasPhoto ? (
                   <img
                     src={talent.photo!}
                     alt={`${talent.prenom} ${talent.nom}`}
-                    className="w-24 h-24 md:w-32 md:h-32 rounded-xl object-cover border-4 border-white/20 shadow-xl"
+                    className="w-20 h-20 sm:w-24 sm:h-24 md:w-32 md:h-32 rounded-xl object-cover border-4 border-white/20 shadow-xl"
                   />
                 ) : (
-                  <div className="w-24 h-24 md:w-32 md:h-32 rounded-xl bg-gradient-to-br from-[#B06F70] to-[#220101] flex items-center justify-center border-4 border-white/20 shadow-xl">
-                    <span className="text-3xl md:text-4xl text-[#F5EDE0]/80 tracking-widest font-spectral-light">
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-32 md:h-32 rounded-xl bg-gradient-to-br from-[#B06F70] to-[#220101] flex items-center justify-center border-4 border-white/20 shadow-xl">
+                    <span className="text-2xl sm:text-3xl md:text-4xl text-[#F5EDE0]/80 tracking-widest font-spectral-light">
                       {getInitials(talent.prenom, talent.nom)}
                     </span>
                   </div>
@@ -680,8 +680,8 @@ function TalentModal({
               </div>
 
               {/* Info */}
-              <div className="flex-1 text-white">
-                <h2 className="text-3xl md:text-4xl mb-2 leading-tight">
+              <div className="flex-1 text-white text-center sm:text-left min-w-0">
+                <h2 className="text-2xl sm:text-3xl md:text-4xl mb-2 leading-tight">
                   <span className="font-spectral-medium-italic">{talent.prenom}</span>{" "}
                   <span className="font-spectral-light">{talent.nom.toUpperCase()}</span>
                 </h2>
@@ -700,7 +700,7 @@ function TalentModal({
           </div>
 
           {/* Content */}
-          <div className="p-6 md:p-8 lg:p-10 space-y-8">
+          <div className="p-4 sm:p-6 md:p-8 lg:p-10 space-y-6 sm:space-y-8">
             {/* Présentation */}
             {(talent.presentation || displayPresentation) && (
               <div>
@@ -728,13 +728,13 @@ function TalentModal({
                   {hasInstagram && (
                     <button
                       onClick={() => setActiveTab("instagram")}
-                      className={`flex-1 flex items-center justify-center gap-2 py-4 font-semibold transition-all ${
+                      className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-3 sm:py-4 font-semibold transition-all text-sm sm:text-base touch-manipulation ${
                         activeTab === "instagram"
                           ? "text-pink-500 bg-gradient-to-b from-pink-50 to-transparent border-b-2 border-pink-500"
                           : "text-[#220101]/40 hover:text-[#220101]/60 hover:bg-[#F5EDE0]"
                       }`}
                     >
-                      <InstagramIcon className="w-5 h-5" />
+                      <InstagramIcon className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                       <span>Instagram</span>
                       {stats?.igFollowers && (
                         <span className={`px-2 py-0.5 rounded-full text-xs ${activeTab === "instagram" ? "bg-pink-100 text-pink-600" : "bg-[#F5EDE0] text-[#220101]/50"}`}>
@@ -746,13 +746,13 @@ function TalentModal({
                   {hasTiktok && (
                     <button
                       onClick={() => setActiveTab("tiktok")}
-                      className={`flex-1 flex items-center justify-center gap-2 py-4 font-semibold transition-all ${
+                      className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-3 sm:py-4 font-semibold transition-all text-sm sm:text-base touch-manipulation ${
                         activeTab === "tiktok"
                           ? "text-[#220101] bg-gradient-to-b from-gray-100 to-transparent border-b-2 border-[#220101]"
                           : "text-[#220101]/40 hover:text-[#220101]/60 hover:bg-[#F5EDE0]"
                       }`}
                     >
-                      <TikTokIcon className="w-5 h-5" />
+                      <TikTokIcon className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                       <span>TikTok</span>
                       {stats?.ttFollowers && (
                         <span className={`px-2 py-0.5 rounded-full text-xs ${activeTab === "tiktok" ? "bg-gray-200 text-[#220101]" : "bg-[#F5EDE0] text-[#220101]/50"}`}>
@@ -764,14 +764,14 @@ function TalentModal({
                 </div>
 
                 {/* Tab Content */}
-                <div className="p-6">
+                <div className="p-4 sm:p-6">
                   {activeTab === "instagram" && hasInstagram && (
-                    <div className="space-y-6">
+                    <div className="space-y-4 sm:space-y-6">
                       {/* Main Stats Grid */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-gradient-to-br from-pink-500 to-rose-500 rounded-xl p-4 text-white">
-                          <div className="flex items-center justify-between mb-2">
-                            <Users className="w-5 h-5" />
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
+                        <div className="bg-gradient-to-br from-pink-500 to-rose-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
+                          <div className="flex items-center justify-between mb-1 sm:mb-2">
+                            <Users className="w-4 h-4 sm:w-5 sm:h-5" />
                             {stats?.igFollowersEvol !== null && stats.igFollowersEvol > 0 && (
                               <span className="text-xs flex items-center gap-1">
                                 <TrendingUp className="w-3 h-3" />
@@ -779,40 +779,40 @@ function TalentModal({
                               </span>
                             )}
                           </div>
-                          <p className="text-2xl font-bold">{formatFollowers(stats?.igFollowers)}</p>
-                          <p className="text-xs text-white/80">Abonnés</p>
+                          <p className="text-lg sm:text-2xl font-bold">{formatFollowers(stats?.igFollowers)}</p>
+                          <p className="text-[10px] sm:text-xs text-white/80">Abonnés</p>
                         </div>
-                        <div className="bg-gradient-to-br from-purple-500 to-indigo-500 rounded-xl p-4 text-white">
-                          <div className="flex items-center justify-between mb-2">
-                            <Heart className="w-5 h-5" />
+                        <div className="bg-gradient-to-br from-purple-500 to-indigo-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
+                          <div className="flex items-center justify-between mb-1 sm:mb-2">
+                            <Heart className="w-4 h-4 sm:w-5 sm:h-5" />
                             {stats?.igEngagementEvol !== null && stats.igEngagementEvol > 0 && (
-                              <span className="text-xs flex items-center gap-1">
-                                <TrendingUp className="w-3 h-3" />
+                              <span className="text-[10px] sm:text-xs flex items-center gap-1">
+                                <TrendingUp className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                                 {stats.igEngagementEvol.toFixed(1)}pts
                               </span>
                             )}
                           </div>
-                          <p className="text-2xl font-bold">{stats?.igEngagement?.toFixed(2) || "—"}%</p>
-                          <p className="text-xs text-white/80">Engagement</p>
+                          <p className="text-lg sm:text-2xl font-bold">{stats?.igEngagement?.toFixed(2) || "—"}%</p>
+                          <p className="text-[10px] sm:text-xs text-white/80">Engagement</p>
                         </div>
-                        <div className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl p-4 text-white">
-                          <Globe className="w-5 h-5 mb-2" />
-                          <p className="text-2xl font-bold">{stats?.igLocFrance || 0}%</p>
-                          <p className="text-xs text-white/80">France</p>
+                        <div className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
+                          <Globe className="w-4 h-4 sm:w-5 sm:h-5 mb-1 sm:mb-2" />
+                          <p className="text-lg sm:text-2xl font-bold">{stats?.igLocFrance || 0}%</p>
+                          <p className="text-[10px] sm:text-xs text-white/80">France</p>
                         </div>
-                        <div className="bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl p-4 text-white">
-                          <Star className="w-5 h-5 mb-2" />
-                          <p className="text-2xl font-bold">{talent.niches.length}</p>
-                          <p className="text-xs text-white/80">Niches</p>
+                        <div className="bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
+                          <Star className="w-4 h-4 sm:w-5 sm:h-5 mb-1 sm:mb-2" />
+                          <p className="text-lg sm:text-2xl font-bold">{talent.niches.length}</p>
+                          <p className="text-[10px] sm:text-xs text-white/80">Niches</p>
                         </div>
                       </div>
 
                       {/* Demographics */}
-                      <div className="grid md:grid-cols-2 gap-6">
+                      <div className="grid md:grid-cols-2 gap-4 sm:gap-6">
                         {/* Gender */}
-                        <div className="bg-[#F5EDE0] rounded-xl p-5 border border-[#220101]/10">
-                          <h3 className="font-bold text-[#220101] mb-4 flex items-center gap-2">
-                            <Users className="w-5 h-5 text-[#220101]/60" />
+                        <div className="bg-[#F5EDE0] rounded-xl p-4 sm:p-5 border border-[#220101]/10">
+                          <h3 className="font-bold text-[#220101] mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                            <Users className="w-4 h-4 sm:w-5 sm:h-5 text-[#220101]/60" />
                             Répartition par genre
                           </h3>
                           <div className="space-y-4">
@@ -822,9 +822,9 @@ function TalentModal({
                         </div>
 
                         {/* Age */}
-                        <div className="bg-[#F5EDE0] rounded-xl p-5 border border-[#220101]/10">
-                          <h3 className="font-bold text-[#220101] mb-4 flex items-center gap-2">
-                            <Calendar className="w-5 h-5 text-[#220101]/60" />
+                        <div className="bg-[#F5EDE0] rounded-xl p-4 sm:p-5 border border-[#220101]/10">
+                          <h3 className="font-bold text-[#220101] mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                            <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-[#220101]/60" />
                             Tranches d'âge
                           </h3>
                           <div className="space-y-3">
@@ -858,12 +858,12 @@ function TalentModal({
                   )}
 
                   {activeTab === "tiktok" && hasTiktok && (
-                    <div className="space-y-6">
+                    <div className="space-y-4 sm:space-y-6">
                       {/* Main Stats Grid */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-gradient-to-br from-gray-700 to-gray-900 rounded-xl p-4 text-white">
-                          <div className="flex items-center justify-between mb-2">
-                            <Users className="w-5 h-5" />
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
+                        <div className="bg-gradient-to-br from-gray-700 to-gray-900 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
+                          <div className="flex items-center justify-between mb-1 sm:mb-2">
+                            <Users className="w-4 h-4 sm:w-5 sm:h-5" />
                             {stats?.ttFollowersEvol !== null && stats.ttFollowersEvol > 0 && (
                               <span className="text-xs flex items-center gap-1">
                                 <TrendingUp className="w-3 h-3" />
@@ -871,12 +871,12 @@ function TalentModal({
                               </span>
                             )}
                           </div>
-                          <p className="text-2xl font-bold">{formatFollowers(stats?.ttFollowers)}</p>
-                          <p className="text-xs text-white/80">Abonnés</p>
+                          <p className="text-lg sm:text-2xl font-bold">{formatFollowers(stats?.ttFollowers)}</p>
+                          <p className="text-[10px] sm:text-xs text-white/80">Abonnés</p>
                         </div>
-                        <div className="bg-gradient-to-br from-cyan-500 to-blue-500 rounded-xl p-4 text-white">
-                          <div className="flex items-center justify-between mb-2">
-                            <Heart className="w-5 h-5" />
+                        <div className="bg-gradient-to-br from-cyan-500 to-blue-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
+                          <div className="flex items-center justify-between mb-1 sm:mb-2">
+                            <Heart className="w-4 h-4 sm:w-5 sm:h-5" />
                             {stats?.ttEngagementEvol !== null && stats.ttEngagementEvol > 0 && (
                               <span className="text-xs flex items-center gap-1">
                                 <TrendingUp className="w-3 h-3" />
@@ -884,27 +884,27 @@ function TalentModal({
                               </span>
                             )}
                           </div>
-                          <p className="text-2xl font-bold">{stats?.ttEngagement?.toFixed(2) || "—"}%</p>
-                          <p className="text-xs text-white/80">Engagement</p>
+                          <p className="text-lg sm:text-2xl font-bold">{stats?.ttEngagement?.toFixed(2) || "—"}%</p>
+                          <p className="text-[10px] sm:text-xs text-white/80">Engagement</p>
                         </div>
-                        <div className="bg-gradient-to-br from-teal-500 to-emerald-500 rounded-xl p-4 text-white">
-                          <Globe className="w-5 h-5 mb-2" />
-                          <p className="text-2xl font-bold">{stats?.ttLocFrance || 0}%</p>
-                          <p className="text-xs text-white/80">France</p>
+                        <div className="bg-gradient-to-br from-teal-500 to-emerald-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
+                          <Globe className="w-4 h-4 sm:w-5 sm:h-5 mb-1 sm:mb-2" />
+                          <p className="text-lg sm:text-2xl font-bold">{stats?.ttLocFrance || 0}%</p>
+                          <p className="text-[10px] sm:text-xs text-white/80">France</p>
                         </div>
-                        <div className="bg-gradient-to-br from-orange-500 to-amber-500 rounded-xl p-4 text-white">
-                          <Star className="w-5 h-5 mb-2" />
-                          <p className="text-2xl font-bold">{talent.niches.length}</p>
-                          <p className="text-xs text-white/80">Niches</p>
+                        <div className="bg-gradient-to-br from-orange-500 to-amber-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
+                          <Star className="w-4 h-4 sm:w-5 sm:h-5 mb-1 sm:mb-2" />
+                          <p className="text-lg sm:text-2xl font-bold">{talent.niches.length}</p>
+                          <p className="text-[10px] sm:text-xs text-white/80">Niches</p>
                         </div>
                       </div>
 
                       {/* Demographics */}
-                      <div className="grid md:grid-cols-2 gap-6">
+                      <div className="grid md:grid-cols-2 gap-4 sm:gap-6">
                         {/* Gender */}
-                        <div className="bg-[#F5EDE0] rounded-xl p-5 border border-[#220101]/10">
-                          <h3 className="font-bold text-[#220101] mb-4 flex items-center gap-2">
-                            <Users className="w-5 h-5 text-[#220101]/60" />
+                        <div className="bg-[#F5EDE0] rounded-xl p-4 sm:p-5 border border-[#220101]/10">
+                          <h3 className="font-bold text-[#220101] mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                            <Users className="w-4 h-4 sm:w-5 sm:h-5 text-[#220101]/60" />
                             Répartition par genre
                           </h3>
                           <div className="space-y-4">
@@ -914,9 +914,9 @@ function TalentModal({
                         </div>
 
                         {/* Age */}
-                        <div className="bg-[#F5EDE0] rounded-xl p-5 border border-[#220101]/10">
-                          <h3 className="font-bold text-[#220101] mb-4 flex items-center gap-2">
-                            <Calendar className="w-5 h-5 text-[#220101]/60" />
+                        <div className="bg-[#F5EDE0] rounded-xl p-4 sm:p-5 border border-[#220101]/10">
+                          <h3 className="font-bold text-[#220101] mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                            <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-[#220101]/60" />
                             Tranches d'âge
                           </h3>
                           <div className="space-y-3">
@@ -954,7 +954,7 @@ function TalentModal({
 
             {/* Tarifs Section */}
             {tarifs && (
-              <div className="bg-white rounded-2xl shadow-lg p-6 md:p-8 border border-[#220101]/10">
+              <div className="bg-white rounded-xl sm:rounded-2xl shadow-lg p-4 sm:p-6 md:p-8 border border-[#220101]/10">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="p-3 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl">
                     <Euro className="w-6 h-6 text-white" />
@@ -970,7 +970,7 @@ function TalentModal({
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                   {/* Instagram Tarifs */}
                   {hasInstagram && (
                     <>
@@ -1038,26 +1038,26 @@ function ProjectModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-[#220101]/90 backdrop-blur-md overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[#220101]/90 backdrop-blur-md overflow-y-auto"
       onClick={onClose}
     >
       <div
-        className="bg-[#F5EDE0] w-full max-w-4xl max-h-[95vh] rounded-2xl md:rounded-[2rem] overflow-hidden shadow-2xl my-auto"
+        className="bg-[#F5EDE0] w-full max-w-4xl max-h-[90vh] sm:max-h-[95vh] rounded-xl sm:rounded-2xl md:rounded-[2rem] overflow-hidden shadow-2xl my-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="max-h-[95vh] overflow-y-auto">
+        <div className="max-h-[90vh] sm:max-h-[95vh] overflow-y-auto">
           {/* Header avec cover en carré + stats talent */}
-          <div className="relative px-6 pt-6 pb-4 md:px-8 md:pt-8 bg-[#220101] text-white">
+          <div className="relative px-4 pt-4 pb-3 sm:px-6 sm:pt-6 sm:pb-4 md:px-8 md:pt-8 bg-[#220101] text-white">
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 w-10 h-10 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center text-[#220101] transition-all hover:scale-110 shadow-xl font-switzer text-lg"
+              className="absolute top-3 right-3 sm:top-4 sm:right-4 w-9 h-9 sm:w-10 sm:h-10 bg-white/95 backdrop-blur-sm rounded-full flex items-center justify-center text-[#220101] transition-all hover:scale-110 shadow-xl font-switzer text-base sm:text-lg touch-manipulation"
             >
               ✕
             </button>
 
-            <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
+            <div className="flex flex-col md:flex-row md:items-center gap-3 sm:gap-4 md:gap-6">
               {/* Cover carré */}
-              <div className="relative w-24 h-24 md:w-32 md:h-32 rounded-2xl overflow-hidden bg-[#110000] flex-shrink-0">
+              <div className="relative w-20 h-20 sm:w-24 sm:h-24 md:w-32 md:h-32 rounded-xl sm:rounded-2xl overflow-hidden bg-[#110000] flex-shrink-0 mx-auto md:mx-0">
                 {project.coverImage ? (
                   <img
                     src={project.coverImage}
@@ -1346,11 +1346,11 @@ function SelectionBar({
   const mailto = `mailto:${contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyLines.join("\n"))}`;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-3 md:px-4 md:pb-4">
-      <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-[0_-4px_24px_rgba(34,1,1,0.15),0_8px_32px_rgba(0,0,0,0.12)] border border-[#220101]/10 overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 md:p-5">
+    <div className="fixed bottom-0 left-0 right-0 z-40 px-2 sm:px-3 pb-2 sm:pb-3 md:px-4 md:pb-4">
+      <div className="max-w-3xl mx-auto bg-white rounded-xl sm:rounded-2xl shadow-[0_-4px_24px_rgba(34,1,1,0.15),0_8px_32px_rgba(0,0,0,0.12)] border border-[#220101]/10 overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 sm:p-4 md:p-5">
           {/* Avatars + compteur */}
-          <div className="flex items-center gap-4 min-w-0 flex-1">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
             <div className="flex -space-x-2 flex-shrink-0">
               {selectedTalents.slice(0, 5).map((talent) => (
                 <div key={talent.id} className="relative group">
@@ -1358,16 +1358,16 @@ function SelectionBar({
                     <img
                       src={talent.photo}
                       alt={talent.prenom}
-                      className="w-11 h-11 md:w-12 md:h-12 rounded-full border-2 border-white object-cover shadow-md"
+                      className="w-9 h-9 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-full border-2 border-white object-cover shadow-md"
                     />
                   ) : (
-                    <div className="w-11 h-11 md:w-12 md:h-12 rounded-full border-2 border-white bg-[#B06F70] flex items-center justify-center text-white font-bold text-xs shadow-md">
+                    <div className="w-9 h-9 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-full border-2 border-white bg-[#B06F70] flex items-center justify-center text-white font-bold text-xs shadow-md">
                       {getInitials(talent.prenom, talent.nom)}
                     </div>
                   )}
                   <button
                     onClick={() => onRemove(talent.id)}
-                    className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-[#220101] text-white rounded-full flex items-center justify-center text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow hover:bg-[#3a1a1a]"
+                    className="absolute -top-0.5 -right-0.5 w-4 h-4 sm:w-5 sm:h-5 bg-[#220101] text-white rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow hover:bg-[#3a1a1a] touch-manipulation"
                     aria-label={lang === "fr" ? "Retirer de la sélection" : "Remove from selection"}
                   >
                     ×
@@ -1375,43 +1375,44 @@ function SelectionBar({
                 </div>
               ))}
               {favorites.length > 5 && (
-                <div className="w-11 h-11 md:w-12 md:h-12 rounded-full border-2 border-white bg-[#F5EDE0] text-[#220101] flex items-center justify-center font-bold text-xs shadow-md">
+                <div className="w-9 h-9 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-full border-2 border-white bg-[#F5EDE0] text-[#220101] flex items-center justify-center font-bold text-[10px] sm:text-xs shadow-md">
                   +{favorites.length - 5}
                 </div>
               )}
             </div>
-            <div>
-              <p className="font-switzer font-semibold text-[#220101] text-sm md:text-base">
+            <div className="min-w-0">
+              <p className="font-switzer font-semibold text-[#220101] text-xs sm:text-sm md:text-base">
                 {favorites.length} {favorites.length > 1 ? t.talentsPlural : t.talent} {favorites.length > 1 ? t.selectedPlural : t.selected}
               </p>
-              <p className="text-xs text-[#220101]/60 font-switzer mt-0.5">
+              <p className="text-[10px] sm:text-xs text-[#220101]/60 font-switzer mt-0.5 hidden sm:block">
                 {lang === "fr" ? "Envoyer par mail ou télécharger en PDF" : "Send by email or download PDF"}
               </p>
             </div>
           </div>
 
           {/* Actions : Tout effacer + Envoyer par mail + Télécharger ma sélection */}
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0">
+          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 sm:gap-3 flex-shrink-0">
             <button
               onClick={onClear}
-              className="px-4 py-2.5 text-[#220101]/60 hover:text-[#220101] hover:bg-[#F5EDE0]/80 rounded-xl font-switzer text-sm transition-colors"
+              className="px-3 sm:px-4 py-2 sm:py-2.5 text-[#220101]/60 hover:text-[#220101] hover:bg-[#F5EDE0]/80 rounded-lg sm:rounded-xl font-switzer text-xs sm:text-sm transition-colors touch-manipulation"
             >
               {t.clearAll}
             </button>
             <a
               href={mailto}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#220101] hover:bg-[#3a1a1a] text-white rounded-xl font-switzer font-semibold text-sm shadow-lg hover:shadow-xl transition-all"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-[#220101] hover:bg-[#3a1a1a] text-white rounded-lg sm:rounded-xl font-switzer font-semibold text-xs sm:text-sm shadow-lg hover:shadow-xl transition-all touch-manipulation"
             >
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                 <polyline points="22,6 12,13 2,6" />
               </svg>
-              {lang === "fr" ? "Envoyer par mail" : "Send by email"}
+              <span className="hidden sm:inline">{lang === "fr" ? "Envoyer par mail" : "Send by email"}</span>
+              <span className="sm:hidden">{lang === "fr" ? "Mail" : "Email"}</span>
             </a>
             <button
               onClick={onDownloadPdf}
               disabled={downloadingPdf}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#B06F70] hover:bg-[#9d5f60] text-white rounded-xl font-switzer font-semibold text-sm shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-[#B06F70] hover:bg-[#9d5f60] text-white rounded-lg sm:rounded-xl font-switzer font-semibold text-xs sm:text-sm shadow-lg hover:shadow-xl transition-all disabled:opacity-50 touch-manipulation"
             >
               {downloadingPdf ? (
                 <>
@@ -1821,44 +1822,45 @@ export default function PartnerTalentBookPage() {
           </div>
         </div>
       ) : (
-        <div className={`min-h-screen bg-[#F5EDE0] ${favorites.length > 0 ? 'pb-24' : ''}`}>
+        <div className={`min-h-screen bg-[#F5EDE0] ${favorites.length > 0 ? 'pb-28 sm:pb-24' : ''}`}>
           {/* Header */}
-          <header className="bg-[#220101] py-12 md:py-16 px-4 relative">
+          <header className="bg-[#220101] py-8 sm:py-12 md:py-16 px-3 sm:px-4 relative">
             {/* Toggle Langue + Bouton Excel */}
-            <div className="absolute top-4 right-4 md:top-6 md:right-6 flex items-center gap-3">
+            <div className="absolute top-3 right-3 sm:top-4 sm:right-4 md:top-6 md:right-6 flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
               <button
                 onClick={handleExcelDownload}
                 disabled={downloadingExcel}
-                className="group flex items-center gap-3 pl-1 pr-4 py-2 md:pl-2 md:pr-5 md:py-2.5 bg-white/10 hover:bg-white/20 border border-white/30 hover:border-white/50 rounded-xl text-white font-switzer font-medium text-sm md:text-base transition-all disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-lg backdrop-blur-sm"
+                className="group flex items-center gap-2 sm:gap-3 pl-1 pr-3 py-2 sm:pl-2 sm:pr-4 md:pr-5 md:py-2.5 bg-white/10 hover:bg-white/20 border border-white/30 hover:border-white/50 rounded-xl text-white font-switzer font-medium text-xs sm:text-sm md:text-base transition-all disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-lg backdrop-blur-sm touch-manipulation"
                 title="Télécharger le catalogue en tableau Excel (.xlsx)"
               >
                 {downloadingExcel ? (
                   <>
-                    <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-white/10">
-                      <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-white/10 shrink-0">
+                      <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                     </div>
                     <span className="hidden sm:inline">Téléchargement…</span>
                   </>
                 ) : (
                   <>
-                    <div className="flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-lg bg-emerald-600/90 group-hover:bg-emerald-500 shadow-md">
-                      <svg className="w-5 h-5 md:w-6 md:h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 md:w-11 md:h-11 rounded-lg bg-emerald-600/90 group-hover:bg-emerald-500 shadow-md shrink-0">
+                      <svg className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                         <polyline points="14 2 14 8 20 8" />
                         <path d="M8 13h2" /><path d="M8 17h2" /><path d="M14 13h2" /><path d="M14 17h2" />
                       </svg>
                     </div>
-                    <div className="text-left">
-                      <span className="block font-semibold tracking-tight">Télécharger en tableau Excel</span>
-                      <span className="hidden sm:block text-xs text-white/70 font-normal">Catalogue talents · .xlsx</span>
+                    <div className="text-left min-w-0 hidden sm:block">
+                      <span className="block font-semibold tracking-tight text-sm sm:text-base">Télécharger en tableau Excel</span>
+                      <span className="hidden md:block text-xs text-white/70 font-normal">Catalogue talents · .xlsx</span>
                     </div>
+                    <span className="sm:hidden font-semibold">Excel</span>
                   </>
                 )}
               </button>
-              <div className="flex items-center bg-[#F5EDE0]/10 rounded-full p-1">
+              <div className="flex items-center bg-[#F5EDE0]/10 rounded-full p-1 shrink-0">
                 <button
                   onClick={() => setLang("fr")}
-                  className={`px-3 py-1.5 rounded-full text-sm font-switzer transition-all ${
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-switzer transition-all touch-manipulation ${
                     lang === "fr"
                       ? "bg-[#B06F70] text-white"
                       : "text-[#F5EDE0]/60 hover:text-[#F5EDE0]"
@@ -1868,7 +1870,7 @@ export default function PartnerTalentBookPage() {
                 </button>
                 <button
                   onClick={() => setLang("en")}
-                  className={`px-3 py-1.5 rounded-full text-sm font-switzer transition-all ${
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-switzer transition-all touch-manipulation ${
                     lang === "en"
                       ? "bg-[#B06F70] text-white"
                       : "text-[#F5EDE0]/60 hover:text-[#F5EDE0]"
@@ -1879,35 +1881,35 @@ export default function PartnerTalentBookPage() {
               </div>
             </div>
 
-            <div className="max-w-6xl mx-auto text-center px-4">
+            <div className="max-w-6xl mx-auto text-center px-2 sm:px-4 pt-12 sm:pt-14 md:pt-0">
               {/* Notre logo × logo partenaire — même hauteur, petit et équilibré */}
-              <div className="flex items-center justify-center gap-3 mb-6">
-                <div className="h-7 md:h-8 flex items-center shrink-0">
+              <div className="flex items-center justify-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+                <div className="h-6 sm:h-7 md:h-8 flex items-center shrink-0">
                   <GlowUpLogo className="h-full w-auto" color="#ffffff" />
                 </div>
-                <span className="text-[#F5EDE0]/50 text-sm select-none" aria-hidden>×</span>
+                <span className="text-[#F5EDE0]/50 text-xs sm:text-sm select-none" aria-hidden>×</span>
                 {partner?.logo ? (
-                  <div className="h-7 md:h-8 flex items-center shrink-0">
+                  <div className="h-6 sm:h-7 md:h-8 flex items-center shrink-0 max-w-[120px] sm:max-w-[160px]">
                     <img src={partner.logo} alt={partner.name} className="h-full w-auto object-contain object-center brightness-0 invert" />
                   </div>
                 ) : (
-                  <span className="text-[#F5EDE0]/90 text-sm font-spectral-light">{partner?.name}</span>
+                  <span className="text-[#F5EDE0]/90 text-xs sm:text-sm font-spectral-light truncate max-w-[140px] sm:max-w-none">{partner?.name}</span>
                 )}
               </div>
               {partner?.message && (
-                <p className="text-[#F5EDE0]/80 text-sm md:text-base mb-6 font-spectral-light-italic max-w-2xl mx-auto">
+                <p className="text-[#F5EDE0]/80 text-xs sm:text-sm md:text-base mb-4 sm:mb-6 font-spectral-light-italic max-w-2xl mx-auto line-clamp-3 sm:line-clamp-none">
                   {partner.message}
                 </p>
               )}
-              <p className="text-[#F5EDE0]/60 text-sm tracking-[0.3em] font-spectral-light-italic">
+              <p className="text-[#F5EDE0]/60 text-xs sm:text-sm tracking-[0.2em] sm:tracking-[0.3em] font-spectral-light-italic">
                 {t.tagline}
               </p>
-              <div className="mt-10 md:mt-14">
-                <h1 className="text-3xl md:text-4xl text-[#F5EDE0]">
+              <div className="mt-6 sm:mt-10 md:mt-14">
+                <h1 className="text-2xl sm:text-3xl md:text-4xl text-[#F5EDE0]">
                   <span className="font-spectral-light-italic opacity-80">{t.ourTalents}</span>{" "}
                   <span className="font-spectral-light">{t.talents}</span>
                 </h1>
-                <p className="mt-3 text-sm text-[#F5EDE0]/40 tracking-wide font-switzer">
+                <p className="mt-2 sm:mt-3 text-xs sm:text-sm text-[#F5EDE0]/40 tracking-wide font-switzer">
                   {t.discover}
                 </p>
               </div>
@@ -1917,11 +1919,11 @@ export default function PartnerTalentBookPage() {
           {/* Contenu sous le header — fond couleur page */}
           <div className="bg-[#F5EDE0]">
           {/* Onglets Talents & Projets */}
-          <div className="max-w-6xl mx-auto px-4 pt-8 pb-6">
-            <div className="inline-flex rounded-2xl bg-white/80 backdrop-blur-sm p-1.5 border border-[#220101]/10 shadow-[0_2px_12px_rgba(34,1,1,0.06)]">
+          <div className="max-w-6xl mx-auto px-3 sm:px-4 pt-5 sm:pt-8 pb-4 sm:pb-6">
+            <div className="inline-flex w-full sm:w-auto rounded-xl sm:rounded-2xl bg-white/80 backdrop-blur-sm p-1 sm:p-1.5 border border-[#220101]/10 shadow-[0_2px_12px_rgba(34,1,1,0.06)]">
               <button
                 onClick={() => setActiveTab("talents")}
-                className={`min-w-[120px] px-7 py-3.5 rounded-xl text-sm font-semibold font-switzer tracking-wide uppercase transition-all duration-200 ${
+                className={`flex-1 sm:flex-none min-w-0 sm:min-w-[120px] px-4 sm:px-7 py-3 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm font-semibold font-switzer tracking-wide uppercase transition-all duration-200 touch-manipulation ${
                   activeTab === "talents"
                     ? "bg-[#220101] text-white shadow-lg shadow-[#220101]/25"
                     : "text-[#220101]/60 hover:text-[#220101] hover:bg-[#220101]/[0.06]"
@@ -1931,7 +1933,7 @@ export default function PartnerTalentBookPage() {
               </button>
               <button
                 onClick={() => setActiveTab("projets")}
-                className={`min-w-[120px] px-7 py-3.5 rounded-xl text-sm font-semibold font-switzer tracking-wide uppercase transition-all duration-200 ${
+                className={`flex-1 sm:flex-none min-w-0 sm:min-w-[120px] px-4 sm:px-7 py-3 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm font-semibold font-switzer tracking-wide uppercase transition-all duration-200 touch-manipulation ${
                   activeTab === "projets"
                     ? "bg-[#220101] text-white shadow-lg shadow-[#220101]/25"
                     : "text-[#220101]/60 hover:text-[#220101] hover:bg-[#220101]/[0.06]"
@@ -1944,53 +1946,53 @@ export default function PartnerTalentBookPage() {
 
         {/* Filtres (uniquement pour l'onglet Talents) */}
         {activeTab === "talents" && (
-        <nav className="sticky top-0 z-30 bg-[#F5EDE0]/95 backdrop-blur-md border-b border-[#220101]/10 py-4">
-          <div className="max-w-6xl mx-auto px-4">
+        <nav className="sticky top-0 z-30 bg-[#F5EDE0]/95 backdrop-blur-md border-b border-[#220101]/10 py-3 sm:py-4">
+          <div className="max-w-6xl mx-auto px-3 sm:px-4">
             {/* Filtres réseaux */}
-            <div className="flex justify-center gap-2 md:gap-3 mb-4">
+            <div className="flex flex-wrap justify-center gap-2 md:gap-3 mb-3 sm:mb-4">
               <button
                 onClick={() => toggleNetwork("instagram")}
-                className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-full text-sm transition-all font-switzer ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 md:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm transition-all font-switzer touch-manipulation ${
                   selectedNetworks.includes("instagram")
                     ? "bg-gradient-to-r from-[#f09433] via-[#e6683c] to-[#bc1888] text-white"
                     : "bg-white text-[#220101]/60 border border-[#220101]/20"
                 }`}
               >
-                <InstagramIcon className="w-4 h-4" />
+                <InstagramIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                 <span className="hidden sm:inline">Instagram</span>
               </button>
               <button
                 onClick={() => toggleNetwork("tiktok")}
-                className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-full text-sm transition-all font-switzer ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 md:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm transition-all font-switzer touch-manipulation ${
                   selectedNetworks.includes("tiktok")
                     ? "bg-black text-white"
                     : "bg-white text-[#220101]/60 border border-[#220101]/20"
                 }`}
               >
-                <TikTokIcon className="w-4 h-4" />
+                <TikTokIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                 <span className="hidden sm:inline">TikTok</span>
               </button>
               <button
                 onClick={() => toggleNetwork("youtube")}
-                className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-full text-sm transition-all font-switzer ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 md:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm transition-all font-switzer touch-manipulation ${
                   selectedNetworks.includes("youtube")
                     ? "bg-[#FF0000] text-white"
                     : "bg-white text-[#220101]/60 border border-[#220101]/20"
                 }`}
               >
-                <YouTubeIcon className="w-4 h-4" />
+                <YouTubeIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                 <span className="hidden sm:inline">YouTube</span>
               </button>
             </div>
 
             {/* Filtres niches + Tri */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap md:flex-1">
+              <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-3 px-3 sm:-mx-4 sm:px-4 md:mx-0 md:px-0 md:flex-wrap md:flex-1">
                 {nicheCategories.map((cat) => (
                   <button
                     key={cat.id}
                     onClick={() => setSelectedNiche(cat.id)}
-                    className={`px-4 py-2 rounded-full text-sm whitespace-nowrap transition-all font-switzer flex-shrink-0 ${
+                    className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm whitespace-nowrap transition-all font-switzer flex-shrink-0 touch-manipulation ${
                       selectedNiche === cat.id
                         ? "bg-[#220101] text-[#F5EDE0]"
                         : "bg-transparent text-[#220101]/60 border border-[#220101]/20 hover:border-[#220101]/40"
@@ -2002,15 +2004,15 @@ export default function PartnerTalentBookPage() {
               </div>
 
               {/* Dropdown Tri */}
-              <div className="relative flex-shrink-0">
+              <div className="relative flex-shrink-0 self-start md:self-auto">
                 <button
                   onClick={() => setShowSortMenu(!showSortMenu)}
-                  className="flex items-center gap-2 px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all whitespace-nowrap"
+                  className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all whitespace-nowrap touch-manipulation"
                 >
-                  <SortIcon className="w-4 h-4" />
+                  <SortIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span className="hidden md:inline">{t.sortBy}:</span>
-                  <span className="font-medium text-[#220101]">{sortLabels[sortBy]}</span>
-                  <ChevronDownIcon className={`w-4 h-4 transition-transform ${showSortMenu ? "rotate-180" : ""}`} />
+                  <span className="font-medium text-[#220101] max-w-[120px] sm:max-w-none truncate sm:truncate-none">{sortLabels[sortBy]}</span>
+                  <ChevronDownIcon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 transition-transform ${showSortMenu ? "rotate-180" : ""}`} />
                 </button>
 
                 {showSortMenu && (
@@ -2047,15 +2049,15 @@ export default function PartnerTalentBookPage() {
 
         {/* Contenu selon l'onglet */}
         {activeTab === "talents" ? (
-        <main className="max-w-7xl mx-auto px-5 md:px-8 py-10 md:py-14">
+        <main className="max-w-7xl mx-auto px-3 sm:px-5 md:px-8 py-6 sm:py-10 md:py-14">
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#220101]" />
+            <div className="flex items-center justify-center py-16 sm:py-20">
+              <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-[#220101]" />
             </div>
           ) : filteredTalents.length === 0 ? (
-            <div className="text-center py-20">
-              <p className="text-5xl mb-4">🔍</p>
-              <p className="text-lg text-[#220101]/50 font-switzer">
+            <div className="text-center py-12 sm:py-20 px-4">
+              <p className="text-4xl sm:text-5xl mb-3 sm:mb-4">🔍</p>
+              <p className="text-base sm:text-lg text-[#220101]/50 font-switzer">
                 {t.noTalents}
               </p>
               <button
@@ -2063,13 +2065,13 @@ export default function PartnerTalentBookPage() {
                   setSelectedNiche("all");
                   setSelectedNetworks([]);
                 }}
-                className="mt-4 px-6 py-2 bg-[#220101] text-[#F5EDE0] rounded-full text-sm font-switzer"
+                className="mt-4 px-5 py-2.5 sm:px-6 sm:py-2 bg-[#220101] text-[#F5EDE0] rounded-full text-sm font-switzer touch-manipulation"
               >
                 {lang === "fr" ? "Réinitialiser les filtres" : "Reset filters"}
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 md:gap-8">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 lg:gap-8">
               {filteredTalents.map((talent) => (
                 <TalentCard
                   key={talent.id}
@@ -2088,29 +2090,29 @@ export default function PartnerTalentBookPage() {
           )}
         </main>
         ) : (
-        <main className="max-w-6xl mx-auto px-4 py-8 md:py-12">
+        <main className="max-w-6xl mx-auto px-3 sm:px-4 py-6 sm:py-8 md:py-12">
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#220101]" />
+            <div className="flex items-center justify-center py-16 sm:py-20">
+              <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-[#220101]" />
             </div>
           ) : projects.length === 0 ? (
-            <div className="text-center py-20">
-              <p className="text-5xl mb-4">🎬</p>
-              <p className="text-lg text-[#220101]/50 font-switzer">
+            <div className="text-center py-12 sm:py-20 px-4">
+              <p className="text-4xl sm:text-5xl mb-3 sm:mb-4">🎬</p>
+              <p className="text-base sm:text-lg text-[#220101]/50 font-switzer">
                 Aucun projet disponible
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {projects.map((project) => (
                 <div
                   key={project.id}
                   onClick={() => setSelectedProject(project)}
-                  className="group bg-white rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(34,1,1,0.15)]"
+                  className="group bg-white rounded-2xl sm:rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:-translate-y-1 sm:hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(34,1,1,0.15)] active:scale-[0.99]"
                   style={{ boxShadow: "0 4px 24px rgba(34, 1, 1, 0.06)" }}
                 >
                   {/* Cover Image (ancienne version pleine largeur) */}
-                  <div className="relative h-48 overflow-hidden bg-[#220101]">
+                  <div className="relative h-40 sm:h-48 overflow-hidden bg-[#220101]">
                     {project.coverImage ? (
                       <img
                         src={project.coverImage}
@@ -2133,8 +2135,8 @@ export default function PartnerTalentBookPage() {
                   </div>
 
                   {/* Content */}
-                  <div className="p-5">
-                    <h3 className="text-xl font-spectral-light mb-2 text-[#220101]">
+                  <div className="p-4 sm:p-5">
+                    <h3 className="text-lg sm:text-xl font-spectral-light mb-2 text-[#220101] line-clamp-2">
                       {project.title}
                     </h3>
                     {project.location && (
@@ -2190,38 +2192,38 @@ export default function PartnerTalentBookPage() {
 
           </div>
         {/* Footer */}
-        <footer className="bg-[#220101] py-12 md:py-16 px-4">
+        <footer className="bg-[#220101] py-8 sm:py-12 md:py-16 px-3 sm:px-4">
           <div className="max-w-6xl mx-auto text-center">
-            <div className="flex justify-center mb-8">
-              <GlowUpLogo className="w-40 md:w-48 h-auto" color="#ffffff" />
+            <div className="flex justify-center mb-6 sm:mb-8">
+              <GlowUpLogo className="w-28 sm:w-40 md:w-48 h-auto" color="#ffffff" />
             </div>
-            <p className="text-[#F5EDE0]/60 text-sm tracking-[0.2em] font-spectral-light-italic mb-12">
+            <p className="text-[#F5EDE0]/60 text-xs sm:text-sm tracking-[0.15em] sm:tracking-[0.2em] font-spectral-light-italic mb-8 sm:mb-12">
               THE RISE of IDEAS
             </p>
-            <div className="mb-6">
-              <p className="text-[10px] text-[#F5EDE0]/30 uppercase tracking-[0.2em] mb-2 font-switzer">
+            <div className="mb-4 sm:mb-6">
+              <p className="text-[10px] text-[#F5EDE0]/30 uppercase tracking-[0.2em] mb-1 sm:mb-2 font-switzer">
                 Adresse
               </p>
-              <p className="text-[#F5EDE0]/70 font-spectral-light text-sm md:text-base">
+              <p className="text-[#F5EDE0]/70 font-spectral-light text-xs sm:text-sm md:text-base break-words">
                 1330 Avenue Guilibert de la Lauziere, 13290 Aix-en-Provence
               </p>
             </div>
-            <div className="mb-6">
-              <p className="text-[10px] text-[#F5EDE0]/30 uppercase tracking-[0.2em] mb-2 font-switzer">
+            <div className="mb-4 sm:mb-6">
+              <p className="text-[10px] text-[#F5EDE0]/30 uppercase tracking-[0.2em] mb-1 sm:mb-2 font-switzer">
                 Contact
               </p>
               <a
                 href="mailto:Leyna@glowupagence.fr"
-                className="text-[#F5EDE0] hover:text-[#B06F70] transition-colors font-spectral-light"
+                className="text-[#F5EDE0] hover:text-[#B06F70] transition-colors font-spectral-light text-sm sm:text-base break-all"
               >
                 Leyna@glowupagence.fr
               </a>
             </div>
-            <div className="mb-10">
-              <p className="text-[10px] text-[#F5EDE0]/30 uppercase tracking-[0.2em] mb-3 font-switzer">
+            <div className="mb-8 sm:mb-10">
+              <p className="text-[10px] text-[#F5EDE0]/30 uppercase tracking-[0.2em] mb-2 sm:mb-3 font-switzer">
                 Socials
               </p>
-              <div className="flex justify-center gap-6 md:gap-8">
+              <div className="flex flex-wrap justify-center gap-4 sm:gap-6 md:gap-8">
                 <a
                   href="https://instagram.com/glowithup"
                   target="_blank"
