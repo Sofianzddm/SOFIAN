@@ -1298,25 +1298,29 @@ function ProjectModal({
   );
 }
 
-// Barre de sélection flottante — envoyer par mail + UI sympa
-function SelectionBar({ 
-  favorites, 
+// Barre de sélection flottante — deux boutons : Envoyer par mail | Télécharger ma sélection
+function SelectionBar({
+  favorites,
   talents,
   onRemove,
   onClear,
+  onDownloadPdf,
+  downloadingPdf,
   lang,
   partner,
-}: { 
+}: {
   favorites: string[];
   talents: Talent[];
   onRemove: (id: string) => void;
   onClear: () => void;
+  onDownloadPdf: () => void;
+  downloadingPdf: boolean;
   lang: Lang;
   partner: { name: string; slug: string } | null;
 }) {
-  const selectedTalents = talents.filter(t => favorites.includes(t.id));
+  const selectedTalents = talents.filter((t) => favorites.includes(t.id));
   const t = translations[lang];
-  
+
   if (favorites.length === 0) return null;
 
   const pageUrl = typeof window !== "undefined" ? window.location.href : "";
@@ -1381,13 +1385,13 @@ function SelectionBar({
                 {favorites.length} {favorites.length > 1 ? t.talentsPlural : t.talent} {favorites.length > 1 ? t.selectedPlural : t.selected}
               </p>
               <p className="text-xs text-[#220101]/60 font-switzer mt-0.5">
-                {lang === "fr" ? "Prêt à envoyer par mail" : "Ready to send by email"}
+                {lang === "fr" ? "Envoyer par mail ou télécharger en PDF" : "Send by email or download PDF"}
               </p>
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          {/* Actions : Tout effacer + Envoyer par mail + Télécharger ma sélection */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0">
             <button
               onClick={onClear}
               className="px-4 py-2.5 text-[#220101]/60 hover:text-[#220101] hover:bg-[#F5EDE0]/80 rounded-xl font-switzer text-sm transition-colors"
@@ -1396,15 +1400,33 @@ function SelectionBar({
             </button>
             <a
               href={mailto}
-              className="inline-flex items-center gap-2.5 px-5 py-3 bg-[#220101] hover:bg-[#3a1a1a] text-white rounded-xl font-switzer font-semibold text-sm shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#220101] hover:bg-[#3a1a1a] text-white rounded-xl font-switzer font-semibold text-sm shadow-lg hover:shadow-xl transition-all"
             >
-              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                 <polyline points="22,6 12,13 2,6" />
               </svg>
-              <span className="hidden sm:inline">{t.sendByEmail}</span>
-              <span className="sm:hidden">{t.sendByEmailShort}</span>
+              {lang === "fr" ? "Envoyer par mail" : "Send by email"}
             </a>
+            <button
+              onClick={onDownloadPdf}
+              disabled={downloadingPdf}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#B06F70] hover:bg-[#9d5f60] text-white rounded-xl font-switzer font-semibold text-sm shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+            >
+              {downloadingPdf ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  {lang === "fr" ? "Génération…" : "Generating…"}
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                  </svg>
+                  {lang === "fr" ? "Télécharger ma sélection" : "Download my selection"}
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -1435,10 +1457,15 @@ export default function PartnerTalentBookPage() {
   const [sortBy, setSortBy] = useState<SortOption>("default");
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [downloadingExcel, setDownloadingExcel] = useState(false);
+  const [downloadingSelectionPdf, setDownloadingSelectionPdf] = useState(false);
 
   const landingTimeRef = useRef<number | null>(null);
   const partnerIdRef = useRef<string | null>(null);
   const sessionEndSentRef = useRef(false);
+  const favoritesRef = useRef<string[]>(favorites);
+  const slugRef = useRef(slug);
+  favoritesRef.current = favorites;
+  slugRef.current = slug ?? undefined;
 
   const t = translations[lang];
 
@@ -1558,6 +1585,13 @@ export default function PartnerTalentBookPage() {
       if (durationSeconds > 0) trackEvent(pid, "session_end", undefined, undefined, durationSeconds);
     }
     const onEnd = () => {
+      // Persister la sélection au moment de quitter (au cas où le dernier effet n'a pas eu le temps)
+      const s = slugRef.current;
+      if (s) {
+        try {
+          localStorage.setItem(`partner-${s}-favorites`, JSON.stringify(favoritesRef.current));
+        } catch (_) {}
+      }
       sendSessionEnd();
     };
     const onVisibility = () => {
@@ -1657,13 +1691,71 @@ export default function PartnerTalentBookPage() {
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-        // Track download
         trackEvent(partner.id, "excel_download");
       }
     } catch (error) {
       console.error("Erreur téléchargement Excel:", error);
     } finally {
       setDownloadingExcel(false);
+    }
+  }
+
+  async function handleDownloadSelectionPdf() {
+    if (favorites.length === 0) return;
+    setDownloadingSelectionPdf(true);
+    try {
+      const res = await fetch("/api/selection/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ talentIds: favorites, lang }),
+      });
+      if (!res.ok) throw new Error("Erreur génération PDF");
+      const { html } = await res.json();
+      const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+        import("jspdf"),
+        import("html2canvas"),
+      ]);
+      const container = document.createElement("div");
+      container.innerHTML = html;
+      container.style.position = "fixed";
+      container.style.left = "0";
+      container.style.top = "0";
+      container.style.width = "210mm";
+      container.style.background = "white";
+      container.style.zIndex = "-9999";
+      container.style.opacity = "0";
+      document.body.appendChild(container);
+      const images = container.querySelectorAll("img");
+      await Promise.all(
+        Array.from(images).map((img) =>
+          img.complete ? Promise.resolve() : new Promise((r) => { img.onload = r; img.onerror = r; setTimeout(r, 5000); })
+        )
+      );
+      await new Promise((r) => setTimeout(r, 500));
+      const pages = container.querySelectorAll(".page");
+      const pdf = new jsPDF("p", "mm", "a4");
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i] as HTMLElement;
+        const canvas = await html2canvas(page, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: "#F5EDE0",
+          width: 794,
+          height: 1123,
+        });
+        const imgData = canvas.toDataURL("image/jpeg", 0.95);
+        if (i > 0) pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, 0, 210, 297);
+      }
+      const name = partner?.name?.replace(/[^a-z0-9]/gi, "_") || "partenaire";
+      pdf.save(`GlowUp_Selection_${name}_${new Date().toISOString().split("T")[0]}.pdf`);
+      document.body.removeChild(container);
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de la génération du PDF");
+    } finally {
+      setDownloadingSelectionPdf(false);
     }
   }
 
@@ -2178,11 +2270,13 @@ export default function PartnerTalentBookPage() {
         )}
 
         {/* Barre de sélection */}
-        <SelectionBar 
+        <SelectionBar
           favorites={favorites}
           talents={talents}
-          onRemove={(id) => toggleFavorite(id)}
+          onRemove={(id) => setFavorites((prev) => prev.filter((x) => x !== id))}
           onClear={() => setFavorites([])}
+          onDownloadPdf={handleDownloadSelectionPdf}
+          downloadingPdf={downloadingSelectionPdf}
           lang={lang}
           partner={partner ? { name: partner.name, slug: partner.slug } : null}
         />
