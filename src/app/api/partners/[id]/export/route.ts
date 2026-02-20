@@ -47,7 +47,7 @@ export async function GET(
     talentsSheet.mergeCells("A1:J1");
     const titleRow = talentsSheet.getRow(1);
     titleRow.height = 30;
-    titleRow.getCell(1).value = `📊 CATALOGUE TALENTS - ${partner.name.toUpperCase()}`;
+    titleRow.getCell(1).value = "TALENTS";
     titleRow.getCell(1).font = { 
       name: "Arial", 
       size: 16, 
@@ -170,7 +170,7 @@ export async function GET(
     tarifsSheet.mergeCells("A1:J1");
     const tarifsTitleRow = tarifsSheet.getRow(1);
     tarifsTitleRow.height = 30;
-    tarifsTitleRow.getCell(1).value = `💰 GRILLE TARIFAIRE - ${partner.name.toUpperCase()}`;
+    tarifsTitleRow.getCell(1).value = "Nos tarifs";
     tarifsTitleRow.getCell(1).font = { 
       name: "Arial", 
       size: 16, 

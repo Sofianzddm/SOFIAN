@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-const VALID_ACTIONS = ["view", "talent_click", "cta_click", "filter", "excel_download"] as const;
+const VALID_ACTIONS = ["view", "talent_click", "cta_click", "filter", "excel_download", "session_end"] as const;
 type Action = (typeof VALID_ACTIONS)[number];
 
 // POST /api/partners/tracking

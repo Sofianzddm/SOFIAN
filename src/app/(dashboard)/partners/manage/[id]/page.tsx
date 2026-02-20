@@ -12,6 +12,7 @@ interface PartnerStats {
   talentClicks: number;
   ctaClicks: number;
   lastVisit: string | null;
+  avgDurationSeconds: number | null;
 }
 
 interface TopTalent {
@@ -152,7 +153,7 @@ export default function PartnerDetailPage() {
 
       {/* KPIs */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
           <div className="bg-white rounded-lg border p-6">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
@@ -160,7 +161,27 @@ export default function PartnerDetailPage() {
               </div>
               <div>
                 <p className="text-3xl font-bold">{stats.totalViews}</p>
-                <p className="text-sm text-gray-500">Vues totales</p>
+                <p className="text-sm text-gray-500">Vues (entrées site)</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg border p-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
+                <span className="text-2xl">⏱</span>
+              </div>
+              <div>
+                <p className="text-3xl font-bold">
+                  {stats.avgDurationSeconds != null
+                    ? (() => {
+                        const m = Math.floor(stats.avgDurationSeconds / 60);
+                        const s = stats.avgDurationSeconds % 60;
+                        return s > 0 ? `${m} min ${s} s` : `${m} min`;
+                      })()
+                    : "—"}
+                </p>
+                <p className="text-sm text-gray-500">Temps moyen sur le site</p>
               </div>
             </div>
           </div>
@@ -245,6 +266,7 @@ export default function PartnerDetailPage() {
                     {event.action === "view" && "👁️"}
                     {event.action === "talent_click" && "👆"}
                     {event.action === "cta_click" && "🔥"}
+                    {event.action === "session_end" && "⏱"}
                   </span>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -253,6 +275,13 @@ export default function PartnerDetailPage() {
                       </span>
                       {event.talentName && (
                         <span className="text-sm font-medium">{event.talentName}</span>
+                      )}
+                      {event.action === "session_end" && event.duration != null && (
+                        <span className="text-xs text-gray-500">
+                          {event.duration >= 60
+                            ? `${Math.floor(event.duration / 60)} min ${event.duration % 60} s`
+                            : `${event.duration} s`}
+                        </span>
                       )}
                     </div>
                   </div>

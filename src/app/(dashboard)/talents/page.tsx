@@ -17,8 +17,6 @@ import {
   AlertTriangle,
   Archive,
   GripVertical,
-  ChevronUp,
-  ChevronDown,
   BookOpen,
   X,
 } from "lucide-react";
@@ -71,6 +69,7 @@ export default function TalentsPage() {
   const [showBookOrderModal, setShowBookOrderModal] = useState(false);
   const [bookOrderList, setBookOrderList] = useState<Talent[]>([]);
   const [savingBookOrder, setSavingBookOrder] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   useEffect(() => {
     fetchTalents();
@@ -461,16 +460,41 @@ export default function TalentsPage() {
               </button>
             </div>
             <p className="text-sm text-gray-500 px-4 pb-2">
-              Utilisez les flèches pour modifier l'ordre. Le premier de la liste
-              s'affichera en premier sur le book public.
+              Glissez-déposez les lignes pour modifier l'ordre. Le premier de la
+              liste s'affichera en premier sur le book public.
             </p>
             <ul className="overflow-y-auto flex-1 p-4 space-y-1">
               {bookOrderList.map((talent, index) => (
                 <li
                   key={talent.id}
-                  className="flex items-center gap-3 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100"
+                  draggable
+                  onDragStart={() => setDraggedIndex(index)}
+                  onDragEnd={() => setDraggedIndex(null)}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.classList.add("ring-2", "ring-glowup-rose/50");
+                  }}
+                  onDragLeave={(e) => {
+                    e.currentTarget.classList.remove("ring-2", "ring-glowup-rose/50");
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.classList.remove("ring-2", "ring-glowup-rose/50");
+                    if (draggedIndex === null) return;
+                    const from = draggedIndex;
+                    const to = index;
+                    if (from === to) return;
+                    const next = [...bookOrderList];
+                    const [removed] = next.splice(from, 1);
+                    next.splice(to, 0, removed);
+                    setBookOrderList(next);
+                    setDraggedIndex(null);
+                  }}
+                  className={`flex items-center gap-3 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100 cursor-grab active:cursor-grabbing transition-shadow ${
+                    draggedIndex === index ? "opacity-50 shadow-lg" : ""
+                  }`}
                 >
-                  <span className="text-gray-400">
+                  <span className="text-gray-400 touch-none" aria-hidden>
                     <GripVertical className="w-4 h-4" />
                   </span>
                   <div className="w-9 h-9 rounded-full bg-glowup-lace overflow-hidden flex-shrink-0">
@@ -479,6 +503,7 @@ export default function TalentsPage() {
                         src={talent.photo}
                         alt=""
                         className="w-full h-full object-cover"
+                        draggable={false}
                       />
                     ) : (
                       <span className="w-full h-full flex items-center justify-center text-sm font-semibold text-glowup-rose">
@@ -490,38 +515,6 @@ export default function TalentsPage() {
                   <span className="flex-1 font-medium text-glowup-licorice truncate">
                     {talent.prenom} {talent.nom}
                   </span>
-                  <div className="flex flex-col gap-0.5">
-                    <button
-                      type="button"
-                      disabled={index === 0}
-                      onClick={() => {
-                        const next = [...bookOrderList];
-                        const prev = next[index - 1];
-                        next[index - 1] = next[index];
-                        next[index] = prev;
-                        setBookOrderList(next);
-                      }}
-                      className="p-1 rounded text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
-                      title="Monter"
-                    >
-                      <ChevronUp className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={index === bookOrderList.length - 1}
-                      onClick={() => {
-                        const next = [...bookOrderList];
-                        const prev = next[index + 1];
-                        next[index + 1] = next[index];
-                        next[index] = prev;
-                        setBookOrderList(next);
-                      }}
-                      className="p-1 rounded text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
-                      title="Descendre"
-                    >
-                      <ChevronDown className="w-4 h-4" />
-                    </button>
-                  </div>
                 </li>
               ))}
             </ul>

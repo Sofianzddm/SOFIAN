@@ -29,14 +29,14 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    await prisma.$transaction(
-      talentIds.map((id, index) =>
-        prisma.talent.update({
-          where: { id },
-          data: { orderBook: index },
-        })
-      )
-    );
+    await prisma.$transaction(async (tx) => {
+      for (let i = 0; i < talentIds.length; i++) {
+        await tx.talent.update({
+          where: { id: talentIds[i] },
+          data: { orderBook: i },
+        });
+      }
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

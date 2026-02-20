@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
@@ -18,28 +18,30 @@ function getVisitorId(): string {
 // Helper pour tracker les événements partenaire
 function trackEvent(
   partnerId: string,
-  action: "view" | "talent_click" | "cta_click" | "filter",
+  action: "view" | "talent_click" | "cta_click" | "filter" | "session_end",
   talentId?: string,
-  talentName?: string
+  talentName?: string,
+  durationSeconds?: number
 ) {
   if (typeof window === "undefined") return;
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     partnerId,
     action,
     visitorId: getVisitorId(),
     talentClicked: talentId,
     talentName,
   };
+  if (durationSeconds != null) payload.duration = durationSeconds;
 
-  fetch("/api/partners/tracking", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    keepalive: true,
-  }).catch(() => {
-    // best-effort, ne casse jamais l'UX
-  });
+  const body = JSON.stringify(payload);
+  const opts = { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true as const };
+
+  if (action === "session_end" && navigator.sendBeacon) {
+    navigator.sendBeacon("/api/partners/tracking", new Blob([body], { type: "application/json" }));
+    return;
+  }
+  fetch("/api/partners/tracking", opts).catch(() => {});
 }
 
 // Types
@@ -772,6 +774,10 @@ export default function PartnerTalentBookPage() {
   const [sortBy, setSortBy] = useState<SortOption>("default");
   const [showSortMenu, setShowSortMenu] = useState(false);
 
+  const landingTimeRef = useRef<number | null>(null);
+  const partnerIdRef = useRef<string | null>(null);
+  const sessionEndSentRef = useRef(false);
+
   const t = translations[lang];
 
   async function translatePresentation(talentId: string, text: string) {
@@ -836,9 +842,15 @@ export default function PartnerTalentBookPage() {
           const data = await res.json();
           setPartner(data.partner);
           setTalents(data.talents);
-          // Track page view
           if (data.partner?.id) {
-            trackEvent(data.partner.id, "view");
+            const pid = data.partner.id;
+            const storageKey = `partner_view_${pid}`;
+            if (typeof sessionStorage !== "undefined" && !sessionStorage.getItem(storageKey)) {
+              trackEvent(pid, "view");
+              sessionStorage.setItem(storageKey, "1");
+            }
+            partnerIdRef.current = pid;
+            landingTimeRef.current = Date.now();
           }
         }
       } catch (error) {
@@ -864,6 +876,28 @@ export default function PartnerTalentBookPage() {
       localStorage.setItem(`partner-${slug}-lang`, lang);
     }
   }, [lang, slug]);
+
+  useEffect(() => {
+    function sendSessionEnd() {
+      if (sessionEndSentRef.current) return;
+      const pid = partnerIdRef.current;
+      const start = landingTimeRef.current;
+      if (!pid || start == null) return;
+      sessionEndSentRef.current = true;
+      const durationSeconds = Math.round((Date.now() - start) / 1000);
+      if (durationSeconds > 0) trackEvent(pid, "session_end", undefined, undefined, durationSeconds);
+    }
+    const onEnd = () => { sendSessionEnd(); };
+    const onVisibility = () => { if (document.visibilityState === "hidden") sendSessionEnd(); };
+    window.addEventListener("beforeunload", onEnd);
+    window.addEventListener("pagehide", onEnd);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", onEnd);
+      window.removeEventListener("pagehide", onEnd);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   function toggleFavorite(talentId: string) {
     setFavorites(prev => 

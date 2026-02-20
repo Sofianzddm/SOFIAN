@@ -63,8 +63,16 @@ export async function GET(
     const period = url.searchParams.get("period") || "7d";
     const startDate = getStartDateForPeriod(period);
 
-    const [partner, viewsCount, uniqueVisitors, talentClickCount, ctaClickCount, topTalentsRaw, recentActivity] =
-      await Promise.all([
+    const [
+      partner,
+      viewsCount,
+      uniqueVisitors,
+      talentClickCount,
+      ctaClickCount,
+      topTalentsRaw,
+      sessionDurationAgg,
+      recentActivity,
+    ] = await Promise.all([
         prisma.partner.findUnique({
           where: { id },
           include: {
@@ -79,9 +87,11 @@ export async function GET(
             projects: { orderBy: { order: "asc" }, select: { projectId: true, order: true } },
           },
         }),
+        // Vues = entrées sur le site (1 par session, action "view" uniquement)
         prisma.partnerView.count({
           where: {
             partnerId: id,
+            action: "view",
             ...(startDate ? { createdAt: { gte: startDate } } : {}),
           },
         }),
@@ -114,6 +124,17 @@ export async function GET(
             talentClicked: { not: null },
             ...(startDate ? { createdAt: { gte: startDate } } : {}),
           },
+          _count: true,
+        }),
+        // Temps moyen sur le site (session_end avec duration)
+        prisma.partnerView.aggregate({
+          where: {
+            partnerId: id,
+            action: "session_end",
+            duration: { not: null },
+            ...(startDate ? { createdAt: { gte: startDate } } : {}),
+          },
+          _avg: { duration: true },
           _count: true,
         }),
         prisma.partnerView.findMany({
@@ -175,6 +196,10 @@ export async function GET(
         talentClicks: talentClickCount,
         ctaClicks: ctaClickCount,
         lastVisit,
+        avgDurationSeconds:
+          sessionDurationAgg._count > 0 && sessionDurationAgg._avg.duration != null
+            ? Math.round(sessionDurationAgg._avg.duration)
+            : null,
       },
       topTalents,
       recentActivity: recentActivity.map((view) => ({
