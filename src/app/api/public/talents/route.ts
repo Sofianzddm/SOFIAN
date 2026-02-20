@@ -40,7 +40,8 @@ export async function GET() {
         },
       },
       orderBy: [
-        { stats: { igFollowers: "desc" } },
+        { orderBook: "asc" },
+        { prenom: "asc" },
       ],
     });
 

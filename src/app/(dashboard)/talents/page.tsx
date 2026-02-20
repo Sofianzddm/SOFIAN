@@ -16,6 +16,11 @@ import {
   Loader2,
   AlertTriangle,
   Archive,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
+  BookOpen,
+  X,
 } from "lucide-react";
 
 // Types
@@ -30,6 +35,7 @@ interface Talent {
   niches: string[];
   commissionInbound: number;
   commissionOutbound: number;
+  orderBook?: number;
   manager: {
     prenom: string;
     nom: string;
@@ -59,10 +65,28 @@ export default function TalentsPage() {
   const canEditTalent = role === "ADMIN" || role === "HEAD_OF";
   const canDeleteTalent = role === "ADMIN";
   const canArchiveTalent = role === "ADMIN" || role === "HEAD_OF";
+  const canReorderBook =
+    role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
+
+  const [showBookOrderModal, setShowBookOrderModal] = useState(false);
+  const [bookOrderList, setBookOrderList] = useState<Talent[]>([]);
+  const [savingBookOrder, setSavingBookOrder] = useState(false);
 
   useEffect(() => {
     fetchTalents();
   }, []);
+
+  useEffect(() => {
+    if (showBookOrderModal && talents.length > 0) {
+      const sorted = [...talents].sort((a, b) => {
+        const oA = a.orderBook ?? 999999;
+        const oB = b.orderBook ?? 999999;
+        if (oA !== oB) return oA - oB;
+        return `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`);
+      });
+      setBookOrderList(sorted);
+    }
+  }, [showBookOrderModal, talents]);
 
   const fetchTalents = async () => {
     try {
@@ -113,16 +137,29 @@ export default function TalentsPage() {
           <p className="text-gray-500 mt-1">{getPageSubtitle()}</p>
         </div>
         
-        {/* Bouton Nouveau talent - ADMIN et HEAD_OF uniquement */}
-        {canAddTalent && (
-          <Link
-            href="/talents/new"
-            className="flex items-center gap-2 px-4 py-2 bg-glowup-rose text-white rounded-lg hover:bg-glowup-rose/90 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Nouveau talent
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Ordre du book - ADMIN, HEAD_OF, HEAD_OF_INFLUENCE */}
+          {canReorderBook && (
+            <button
+              type="button"
+              onClick={() => setShowBookOrderModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <BookOpen className="w-4 h-4" />
+              Ordre du book
+            </button>
+          )}
+          {/* Bouton Nouveau talent - ADMIN et HEAD_OF uniquement */}
+          {canAddTalent && (
+            <Link
+              href="/talents/new"
+              className="flex items-center gap-2 px-4 py-2 bg-glowup-rose text-white rounded-lg hover:bg-glowup-rose/90 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Nouveau talent
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -406,6 +443,138 @@ export default function TalentsPage() {
           </table>
         )}
       </div>
+
+      {/* Modale Ordre du book */}
+      {showBookOrderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-lg font-semibold text-glowup-licorice">
+                Ordre d'affichage dans le talent book
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowBookOrderModal(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 px-4 pb-2">
+              Utilisez les flèches pour modifier l'ordre. Le premier de la liste
+              s'affichera en premier sur le book public.
+            </p>
+            <ul className="overflow-y-auto flex-1 p-4 space-y-1">
+              {bookOrderList.map((talent, index) => (
+                <li
+                  key={talent.id}
+                  className="flex items-center gap-3 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100"
+                >
+                  <span className="text-gray-400">
+                    <GripVertical className="w-4 h-4" />
+                  </span>
+                  <div className="w-9 h-9 rounded-full bg-glowup-lace overflow-hidden flex-shrink-0">
+                    {talent.photo ? (
+                      <img
+                        src={talent.photo}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="w-full h-full flex items-center justify-center text-sm font-semibold text-glowup-rose">
+                        {talent.prenom.charAt(0)}
+                        {talent.nom.charAt(0)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="flex-1 font-medium text-glowup-licorice truncate">
+                    {talent.prenom} {talent.nom}
+                  </span>
+                  <div className="flex flex-col gap-0.5">
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      onClick={() => {
+                        const next = [...bookOrderList];
+                        const prev = next[index - 1];
+                        next[index - 1] = next[index];
+                        next[index] = prev;
+                        setBookOrderList(next);
+                      }}
+                      className="p-1 rounded text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Monter"
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === bookOrderList.length - 1}
+                      onClick={() => {
+                        const next = [...bookOrderList];
+                        const prev = next[index + 1];
+                        next[index + 1] = next[index];
+                        next[index] = prev;
+                        setBookOrderList(next);
+                      }}
+                      className="p-1 rounded text-gray-500 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Descendre"
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="flex items-center justify-end gap-2 p-4 border-t">
+              <button
+                type="button"
+                onClick={() => setShowBookOrderModal(false)}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={savingBookOrder}
+                onClick={async () => {
+                  setSavingBookOrder(true);
+                  try {
+                    const res = await fetch("/api/talents/book-order", {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        talentIds: bookOrderList.map((t) => t.id),
+                      }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                      alert(data.error || "Erreur lors de l'enregistrement");
+                      return;
+                    }
+                    setShowBookOrderModal(false);
+                    fetchTalents();
+                  } catch (e) {
+                    console.error(e);
+                    alert("Erreur réseau");
+                  } finally {
+                    setSavingBookOrder(false);
+                  }
+                }}
+                className="px-4 py-2 bg-glowup-rose text-white rounded-lg hover:bg-glowup-rose/90 disabled:opacity-50"
+              >
+                {savingBookOrder ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                    Enregistrement…
+                  </>
+                ) : (
+                  "Enregistrer l'ordre"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
