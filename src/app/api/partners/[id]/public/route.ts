@@ -102,7 +102,7 @@ export async function GET(
           },
         },
       },
-      orderBy: { prenom: "asc" },
+      orderBy: [{ orderBook: "asc" }, { prenom: "asc" }],
     });
 
     console.log(`[API /partners/${slug}/public] Partenaire trouvé: ${partner.name}, Talents totaux: ${talentsList.length}`);
