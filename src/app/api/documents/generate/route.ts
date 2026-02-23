@@ -145,12 +145,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Sauvegarder le document en BDD
+    // Devis : créés directement en "Enregistré" (VALIDE) ; factures/BDC en brouillon
+    const statutInitial = type === "DEVIS" ? "VALIDE" : "BROUILLON";
+
     const document = await prisma.document.create({
       data: {
         reference,
         type,
-        statut: "BROUILLON", // Toujours en brouillon au début, validation manuelle ensuite
+        statut: statutInitial,
         collaborationId,
         titre: titreAuto,
         montantHT: montantHT as any, // Cast pour Decimal
@@ -163,12 +165,24 @@ export async function POST(request: NextRequest) {
         dateDocument: dateDoc,
         dateEmission: now,
         dateEcheance,
+        dateValidation: type === "DEVIS" ? now : null,
         poClient: poClient || null,
         modePaiement: "Virement bancaire",
         notes: commentaires || AGENCE_CONFIG.conditionsPaiement,
         createdById: user.id,
       },
     });
+
+    if (type === "DEVIS") {
+      await prisma.documentEvent.create({
+        data: {
+          documentId: document.id,
+          type: "REGISTERED",
+          description: "Enregistrement (création devis)",
+          userId: user.id,
+        },
+      });
+    }
 
     return NextResponse.json({
       success: true,
