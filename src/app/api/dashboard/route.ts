@@ -28,7 +28,7 @@ export async function GET() {
     const startOfNextYear = new Date(now.getFullYear() + 1, 0, 1);
 
     // Filtre "date de référence" pour les stats : datePublication si renseignée (modifiable par le TM), sinon createdAt
-    const statutsGagnes = ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] as const;
+    const statutsGagnes: ("EN_COURS" | "PUBLIE" | "FACTURE_RECUE" | "PAYE")[] = ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"];
     const whereCaMoisAvecDatePub =
       { statut: { in: statutsGagnes }, datePublication: { gte: startOfMonth, lt: startOfNextMonth } };
     const whereCaMoisSansDatePub =

@@ -31,9 +31,6 @@ export async function GET(request: NextRequest) {
             marque: {
               select: { id: true, nom: true },
             },
-            marqueContact: {
-              select: { id: true, prenom: true, nom: true },
-            },
           },
         },
       },

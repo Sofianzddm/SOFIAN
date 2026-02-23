@@ -46,10 +46,12 @@ interface DocDetail {
   dateEcheance: string | null;
   datePaiement: string | null;
   dateValidation: string | null;
+  createdAt?: string | null;
   modePaiement: string | null;
   referencePaiement: string | null;
   poClient: string | null;
   notes: string | null;
+  mentionTVA?: string | null;
   lignes?: unknown;
   collaboration?: {
     id: string;
@@ -495,7 +497,7 @@ export default function FactureDetailPage() {
               <div>
                 <div className="flex items-center gap-3 flex-wrap">
                   <h1 className="text-2xl font-bold text-[#1A1110]">{doc.reference}</h1>
-                  <StatutBadge statut={doc.statut} isLate={isLate} />
+                  <StatutBadge statut={doc.statut} isLate={!!isLate} />
                 </div>
                 <p className="text-sm text-gray-500 mt-0.5">
                   {doc.type} {isFacture && "• Facture marque"}

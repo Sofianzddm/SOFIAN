@@ -46,6 +46,7 @@ interface DocumentInfo {
   reference: string;
   type: string;
   statut: string;
+  montantHT?: number;
   montantTTC: number;
   dateEmission: string | null;
   avoirRef: string | null;
@@ -152,6 +153,7 @@ export default function CollabDetailPage() {
     titre: string;
     commentaires: string;
     typeTVA: string;
+    clientZone?: string;
     dateEmission: string;
     dateEcheance: string;
     poClient: string;
@@ -824,7 +826,7 @@ export default function CollabDetailPage() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <span className={`font-semibold ${isAvoir ? "text-orange-600" : "text-glowup-licorice"}`}>
-                            {isAvoir ? "-" : ""}{formatMoney(doc.montantHT)}
+                            {isAvoir ? "-" : ""}{formatMoney(doc.montantHT ?? doc.montantTTC)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">

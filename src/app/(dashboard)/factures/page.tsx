@@ -771,7 +771,7 @@ export default function FacturesPage() {
                             {doc.dateEmission ? new Date(doc.dateEmission).toLocaleDateString("fr-FR") : "-"}
                           </td>
                           <td className="py-4 px-4">
-                            <FactureStatutBadge statut={doc.statut} isLate={isLate} />
+                            <FactureStatutBadge statut={doc.statut} isLate={!!isLate} />
                           </td>
                           <td className="py-4 px-4">
                             <ClientCell marqueId={marqueId} marqueNom={marqueNom} contact={contact} isCancelled={isCancelled} />
@@ -1091,13 +1091,15 @@ function QuoteStatutBadge({ status }: { status: string }) {
   return <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-medium ${c.className}`}>{c.label}</span>;
 }
 
-function FooterTotalsFactures(
+function FooterTotalsFactures({
+  items,
+}: {
   items: Array<{
     montantHT?: number;
     montantTTC?: number;
     statut?: string;
-  }>
-) {
+  }>;
+}) {
   const list = Array.isArray(items) ? items : [];
   const byCurrency: Record<string, { ht: number; ttc: number; restantDu: number }> = {};
   list.forEach((item) => {
