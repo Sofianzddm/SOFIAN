@@ -135,10 +135,21 @@ export async function PUT(
     if (data.iban !== undefined) talentData.iban = data.iban || null;
     if (data.bic !== undefined) talentData.bic = data.bic || null;
     if (data.titulaireCompte !== undefined) talentData.titulaireCompte = data.titulaireCompte || null;
+    if (data.nomBanque !== undefined) talentData.nomBanque = data.nomBanque || null;
+    if (data.formeJuridique !== undefined) talentData.formeJuridique = data.formeJuridique || null;
+    if (data.raisonSociale !== undefined) talentData.raisonSociale = data.raisonSociale || null;
+    if (data.numeroTVA !== undefined) talentData.numeroTVA = data.numeroTVA || null;
+    if (data.telephoneSecondaire !== undefined) talentData.telephoneSecondaire = data.telephoneSecondaire || null;
+    if (data.nationalite !== undefined) talentData.nationalite = data.nationalite || null;
+    if (data.contactUrgenceNom !== undefined) talentData.contactUrgenceNom = data.contactUrgenceNom || null;
+    if (data.contactUrgenceTel !== undefined) talentData.contactUrgenceTel = data.contactUrgenceTel || null;
+    if (data.contactUrgenceLien !== undefined) talentData.contactUrgenceLien = data.contactUrgenceLien || null;
+    if (data.notesInternes !== undefined) talentData.notesInternes = data.notesInternes || null;
     if (data.dateNaissance !== undefined) talentData.dateNaissance = data.dateNaissance ? new Date(data.dateNaissance) : null;
     if (data.dateArrivee !== undefined) talentData.dateArrivee = data.dateArrivee ? new Date(data.dateArrivee) : null;
     if (data.isArchived !== undefined) talentData.isArchived = !!data.isArchived;
-    
+    if (data.managerId !== undefined) talentData.managerId = data.managerId;
+
     // Commissions (nombres)
     if (data.commissionInbound !== undefined) {
       talentData.commissionInbound = data.commissionInbound ? parseFloat(data.commissionInbound) : 20;
@@ -233,12 +244,15 @@ export async function PUT(
     if ('igLocAutre' in rawStatsData) parsedStatsData.igLocAutre = rawStatsData.igLocAutre || null;
     if ('ttLocAutre' in rawStatsData) parsedStatsData.ttLocAutre = rawStatsData.ttLocAutre || null;
 
-    // Si des stats sont fournies, inclure l'upsert
+    // Si des stats sont fournies, inclure l'upsert et forcer lastUpdate pour que le dashboard TM ne marque plus "à mettre à jour"
     if (Object.keys(parsedStatsData).length > 0) {
+      const now = new Date();
+      const statsCreate = { ...parsedStatsData, lastUpdate: now };
+      const statsUpdate = { ...parsedStatsData, lastUpdate: now };
       talentData.stats = {
         upsert: {
-          create: parsedStatsData,
-          update: parsedStatsData,
+          create: statsCreate,
+          update: statsUpdate,
         },
       };
     }

@@ -23,7 +23,20 @@ export async function GET() {
 
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const startOfNextYear = new Date(now.getFullYear() + 1, 0, 1);
+
+    // Filtre "date de référence" pour les stats : datePublication si renseignée (modifiable par le TM), sinon createdAt
+    const statutsGagnes = ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] as const;
+    const whereCaMoisAvecDatePub =
+      { statut: { in: statutsGagnes }, datePublication: { gte: startOfMonth, lt: startOfNextMonth } };
+    const whereCaMoisSansDatePub =
+      { statut: { in: statutsGagnes }, datePublication: null, createdAt: { gte: startOfMonth, lt: startOfNextMonth } };
+    const whereCaAnneeAvecDatePub =
+      { statut: { in: statutsGagnes }, datePublication: { gte: startOfYear, lt: startOfNextYear } };
+    const whereCaAnneeSansDatePub =
+      { statut: { in: statutsGagnes }, datePublication: null, createdAt: { gte: startOfYear, lt: startOfNextYear } };
 
     // ============================================
     // ADMIN - Accès total
@@ -36,12 +49,17 @@ export async function GET() {
         negosEnCours,
         collabsPublie,
         facturesEnAttente,
-        caMoisBrut,
-        caAnneeBrut,
-        commissionMois,
+        caMoisAvecDatePub,
+        caMoisSansDatePub,
+        caAnneeAvecDatePub,
+        caAnneeSansDatePub,
+        commissionMoisAvecDatePub,
+        commissionMoisSansDatePub,
         collabsParStatut,
-        topTalents,
-        topMarques,
+        topTalentsAvecDatePub,
+        topTalentsSansDatePub,
+        topMarquesAvecDatePub,
+        topMarquesSansDatePub,
         performanceTM,
         facturesRelance,
         negociationsSansReponse,
@@ -50,8 +68,8 @@ export async function GET() {
         prisma.marque.count(),
         prisma.collaboration.count({ where: { statut: "EN_COURS" } }),
         // ✅ CORRIGÉ: Compter les vraies négociations
-        prisma.negociation.count({ 
-          where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } } 
+        prisma.negociation.count({
+          where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } },
         }),
         prisma.collaboration.count({ where: { statut: "PUBLIE" } }),
         prisma.collaboration.count({
@@ -59,24 +77,27 @@ export async function GET() {
         }),
         prisma.collaboration.aggregate({
           _sum: { montantBrut: true },
-          where: {
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfMonth },
-          },
+          where: whereCaMoisAvecDatePub,
         }),
         prisma.collaboration.aggregate({
           _sum: { montantBrut: true },
-          where: {
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfYear },
-          },
+          where: whereCaMoisSansDatePub,
+        }),
+        prisma.collaboration.aggregate({
+          _sum: { montantBrut: true },
+          where: whereCaAnneeAvecDatePub,
+        }),
+        prisma.collaboration.aggregate({
+          _sum: { montantBrut: true },
+          where: whereCaAnneeSansDatePub,
         }),
         prisma.collaboration.aggregate({
           _sum: { commissionEuros: true },
-          where: {
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfMonth },
-          },
+          where: whereCaMoisAvecDatePub,
+        }),
+        prisma.collaboration.aggregate({
+          _sum: { commissionEuros: true },
+          where: whereCaMoisSansDatePub,
         }),
         prisma.collaboration.groupBy({
           by: ["statut"],
@@ -85,22 +106,22 @@ export async function GET() {
         prisma.collaboration.groupBy({
           by: ["talentId"],
           _sum: { montantBrut: true },
-          where: {
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfYear },
-          },
-          orderBy: { _sum: { montantBrut: "desc" } },
-          take: 5,
+          where: whereCaAnneeAvecDatePub,
+        }),
+        prisma.collaboration.groupBy({
+          by: ["talentId"],
+          _sum: { montantBrut: true },
+          where: whereCaAnneeSansDatePub,
         }),
         prisma.collaboration.groupBy({
           by: ["marqueId"],
           _sum: { montantBrut: true },
-          where: {
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfYear },
-          },
-          orderBy: { _sum: { montantBrut: "desc" } },
-          take: 5,
+          where: whereCaAnneeAvecDatePub,
+        }),
+        prisma.collaboration.groupBy({
+          by: ["marqueId"],
+          _sum: { montantBrut: true },
+          where: whereCaAnneeSansDatePub,
         }),
         prisma.user.findMany({
           where: { role: "TM", actif: true },
@@ -112,7 +133,12 @@ export async function GET() {
               select: {
                 id: true,
                 collaborations: {
-                  where: { createdAt: { gte: startOfYear } },
+                  where: {
+                    OR: [
+                      { datePublication: { gte: startOfYear, lt: startOfNextYear } },
+                      { datePublication: null, createdAt: { gte: startOfYear, lt: startOfNextYear } },
+                    ],
+                  },
                   select: { statut: true, montantBrut: true },
                 },
               },
@@ -140,6 +166,39 @@ export async function GET() {
           orderBy: { lastModifiedAt: "asc" },
         }),
       ]);
+
+      // CA / commissions : date de référence = datePublication si présente, sinon createdAt
+      const caMoisBrut =
+        (Number(caMoisAvecDatePub._sum.montantBrut) || 0) + (Number(caMoisSansDatePub._sum.montantBrut) || 0);
+      const caAnneeBrut =
+        (Number(caAnneeAvecDatePub._sum.montantBrut) || 0) + (Number(caAnneeSansDatePub._sum.montantBrut) || 0);
+      const commissionMois =
+        (Number(commissionMoisAvecDatePub._sum.commissionEuros) || 0) + (Number(commissionMoisSansDatePub._sum.commissionEuros) || 0);
+
+      // Fusion top talents / top marques (avec + sans datePublication), tri par CA, top 5
+      const talentSums = new Map<string, number>();
+      for (const t of topTalentsAvecDatePub) {
+        talentSums.set(t.talentId, (talentSums.get(t.talentId) || 0) + Number(t._sum.montantBrut || 0));
+      }
+      for (const t of topTalentsSansDatePub) {
+        talentSums.set(t.talentId, (talentSums.get(t.talentId) || 0) + Number(t._sum.montantBrut || 0));
+      }
+      const topTalents = Array.from(talentSums.entries())
+        .map(([talentId, ca]) => ({ talentId, _sum: { montantBrut: ca } }))
+        .sort((a, b) => b._sum.montantBrut - a._sum.montantBrut)
+        .slice(0, 5);
+
+      const marqueSums = new Map<string, number>();
+      for (const m of topMarquesAvecDatePub) {
+        marqueSums.set(m.marqueId, (marqueSums.get(m.marqueId) || 0) + Number(m._sum.montantBrut || 0));
+      }
+      for (const m of topMarquesSansDatePub) {
+        marqueSums.set(m.marqueId, (marqueSums.get(m.marqueId) || 0) + Number(m._sum.montantBrut || 0));
+      }
+      const topMarques = Array.from(marqueSums.entries())
+        .map(([marqueId, ca]) => ({ marqueId, _sum: { montantBrut: ca } }))
+        .sort((a, b) => b._sum.montantBrut - a._sum.montantBrut)
+        .slice(0, 5);
 
       // Enrichir données
       const talentIds = topTalents.map((t) => t.talentId);
@@ -186,9 +245,9 @@ export async function GET() {
           collabsNego: negosEnCours, // ✅ Utilise le vrai compteur de négociations
           collabsPublie,
           facturesEnAttente,
-          caMois: Number(caMoisBrut._sum.montantBrut) || 0,
-          caAnnee: Number(caAnneeBrut._sum.montantBrut) || 0,
-          commissionMois: Number(commissionMois._sum.commissionEuros) || 0,
+          caMois: caMoisBrut,
+          caAnnee: caAnneeBrut,
+          commissionMois,
         },
         pipeline: collabsParStatut.map((s) => ({ statut: s.statut, count: s._count })),
         topTalents: topTalents.map((t) => ({
@@ -241,8 +300,10 @@ export async function GET() {
         negosEnCours,
         negociations,
         negociationsSansReponse,
-        caMois,
-        caAnnee,
+        caMoisAvec,
+        caMoisSans,
+        caAnneeAvec,
+        caAnneeSans,
         performanceTM,
       ] = await Promise.all([
         prisma.talent.count(),
@@ -255,8 +316,8 @@ export async function GET() {
             ],
           },
         }),
-        prisma.negociation.count({ 
-          where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } } 
+        prisma.negociation.count({
+          where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } },
         }),
         prisma.negociation.findMany({
           where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } },
@@ -268,7 +329,6 @@ export async function GET() {
           orderBy: { createdAt: "desc" },
           take: 15,
         }),
-        // Négos > 5j sans réponse client (EN_ATTENTE ou EN_DISCUSSION, lastModifiedAt > 5j)
         prisma.negociation.findMany({
           where: {
             statut: { in: ["EN_ATTENTE", "EN_DISCUSSION"] },
@@ -283,17 +343,19 @@ export async function GET() {
         }),
         prisma.collaboration.aggregate({
           _sum: { montantBrut: true, commissionEuros: true },
-          where: {
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfMonth },
-          },
+          where: whereCaMoisAvecDatePub,
         }),
         prisma.collaboration.aggregate({
           _sum: { montantBrut: true, commissionEuros: true },
-          where: {
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfYear },
-          },
+          where: whereCaMoisSansDatePub,
+        }),
+        prisma.collaboration.aggregate({
+          _sum: { montantBrut: true, commissionEuros: true },
+          where: whereCaAnneeAvecDatePub,
+        }),
+        prisma.collaboration.aggregate({
+          _sum: { montantBrut: true, commissionEuros: true },
+          where: whereCaAnneeSansDatePub,
         }),
         prisma.user.findMany({
           where: { role: "TM", actif: true },
@@ -309,7 +371,12 @@ export async function GET() {
                 stats: { select: { lastUpdate: true } },
                 tarifs: { select: { id: true } },
                 collaborations: {
-                  where: { createdAt: { gte: startOfYear } },
+                  where: {
+                    OR: [
+                      { datePublication: { gte: startOfYear, lt: startOfNextYear } },
+                      { datePublication: null, createdAt: { gte: startOfYear, lt: startOfNextYear } },
+                    ],
+                  },
                   select: { statut: true, montantBrut: true },
                 },
               },
@@ -317,6 +384,11 @@ export async function GET() {
           },
         }),
       ]);
+
+      const caMois = (Number(caMoisAvec._sum.montantBrut) || 0) + (Number(caMoisSans._sum.montantBrut) || 0);
+      const commissionMois = (Number(caMoisAvec._sum.commissionEuros) || 0) + (Number(caMoisSans._sum.commissionEuros) || 0);
+      const caAnnee = (Number(caAnneeAvec._sum.montantBrut) || 0) + (Number(caAnneeSans._sum.montantBrut) || 0);
+      const commissionAnnee = (Number(caAnneeAvec._sum.commissionEuros) || 0) + (Number(caAnneeSans._sum.commissionEuros) || 0);
 
       const tmBilans = performanceTM.map((tm) => {
         const talents = tm.talentsGeres;
@@ -352,10 +424,10 @@ export async function GET() {
           talentsSansTarifs,
           talentsAvecBilanRetard,
           collabsNego: negosEnCours,
-          caMois: Number(caMois._sum.montantBrut) || 0,
-          commissionMois: Number(caMois._sum.commissionEuros) || 0,
-          caAnnee: Number(caAnnee._sum.montantBrut) || 0,
-          commissionAnnee: Number(caAnnee._sum.commissionEuros) || 0,
+          caMois,
+          commissionMois,
+          caAnnee,
+          commissionAnnee,
         },
         negociations: negociations.map((n) => ({
           id: n.id,

@@ -25,6 +25,7 @@ import {
   Landmark,
   AlertCircle,
 } from "lucide-react";
+import { LISTE_PAYS } from "@/lib/pays";
 
 interface Manager {
   id: string;
@@ -100,6 +101,7 @@ export default function NewTalentPage() {
     
     // Banque
     nomBanque: "",
+    titulaireCompte: "",
     iban: "",
     bic: "",
     
@@ -195,11 +197,19 @@ export default function NewTalentPage() {
   const handleSubmit = async () => {
     setLoading(true);
     try {
+      const adresse = [formData.adresseRue, formData.adresseComplement].filter(Boolean).join(" – ") || null;
       const res = await fetch("/api/talents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          adresse,
+          codePostal: formData.codePostal || null,
+          ville: formData.ville || null,
+          pays: formData.pays || null,
+          siret: formData.siret?.trim() || null,
+          iban: formData.iban?.trim() || null,
+          bic: formData.bic?.trim() || null,
           selectedClients: formData.selectedClients.split(",").map((s) => s.trim()).filter(Boolean),
           dateNaissance: formData.dateNaissance || null,
         }),
@@ -683,13 +693,16 @@ export default function NewTalentPage() {
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">
                           Pays
                         </label>
-                        <input
-                          type="text"
+                        <select
                           name="pays"
                           value={formData.pays}
                           onChange={handleChange}
-                          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all"
-                        />
+                          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all bg-white"
+                        >
+                          {LISTE_PAYS.map((p) => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
                       </div>
                     </div>
                   </div>
@@ -788,16 +801,16 @@ export default function NewTalentPage() {
                         className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all"
                       />
                     </div>
-                    <div className="md:col-span-2">
+                    <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        IBAN
+                        Titulaire du compte
                       </label>
                       <input
                         type="text"
-                        name="iban"
-                        value={formData.iban}
+                        name="titulaireCompte"
+                        value={formData.titulaireCompte}
                         onChange={handleChange}
-                        placeholder="FR76 1234 5678 9012 3456 7890 123"
+                        placeholder="Nom du titulaire"
                         className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all"
                       />
                     </div>
@@ -811,6 +824,19 @@ export default function NewTalentPage() {
                         value={formData.bic}
                         onChange={handleChange}
                         placeholder="BNPAFRPP"
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all"
+                      />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        IBAN
+                      </label>
+                      <input
+                        type="text"
+                        name="iban"
+                        value={formData.iban}
+                        onChange={handleChange}
+                        placeholder="FR76 1234 5678 9012 3456 7890 123"
                         className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all"
                       />
                     </div>

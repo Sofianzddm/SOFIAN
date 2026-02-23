@@ -180,7 +180,7 @@ export default function ReconciliationPage() {
 
   const totalNonAssocie = transactionsNonAssociees.reduce((s, t) => s + t.montant, 0);
   const totalAssocie = transactionsAssociees.reduce((s, t) => s + t.montant, 0);
-  const totalFacturesAttente = factures.reduce((s, f) => s + Number(f.montantTTC), 0);
+  const totalFacturesAttente = factures.reduce((s, f) => s + Number(f.montantHT), 0);
 
   return (
     <div className="min-h-screen bg-slate-50/50">
@@ -226,7 +226,7 @@ export default function ReconciliationPage() {
             </p>
           </div>
           <div className="bg-white rounded-lg border border-slate-200 px-5 py-4">
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Factures en attente</p>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Factures en attente (HT)</p>
             <p className="text-2xl font-semibold text-slate-900 mt-1">{factures.length}</p>
             <p className="text-sm text-slate-600 font-medium mt-0.5 tabular-nums">
               {formatMoney(totalFacturesAttente)}
@@ -355,7 +355,7 @@ export default function ReconciliationPage() {
                                               </p>
                                             </div>
                                             <span className="text-sm font-medium text-slate-700 tabular-nums">
-                                              {formatMoney(Number(facture.montantTTC))}
+                                              {formatMoney(Number(facture.montantHT))}
                                             </span>
                                           </div>
                                           <button
@@ -398,7 +398,7 @@ export default function ReconciliationPage() {
                                               {facture.collaboration?.marque?.nom ?? "—"}
                                             </span>
                                             <span className="text-slate-600 text-xs tabular-nums shrink-0">
-                                              {formatMoney(Number(facture.montantTTC))}
+                                              {formatMoney(Number(facture.montantHT))}
                                             </span>
                                           </div>
                                           <button

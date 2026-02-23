@@ -87,7 +87,7 @@ export async function POST(
       },
     });
 
-    // Mettre à jour la facture originale pour indiquer qu'elle a un avoir
+    // Mettre à jour la facture originale : annulée, liée à l'avoir
     await prisma.document.update({
       where: { id: facture.id },
       data: {
@@ -95,6 +95,14 @@ export async function POST(
         avoirRef: referenceAvoir,
       },
     });
+
+    // Repasser la collaboration en PUBLIE pour pouvoir générer une nouvelle facture (nouveau numéro)
+    if (facture.collaborationId) {
+      await prisma.collaboration.update({
+        where: { id: facture.collaborationId },
+        data: { statut: "PUBLIE" },
+      });
+    }
 
     return NextResponse.json({
       success: true,

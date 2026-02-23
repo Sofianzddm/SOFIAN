@@ -8,6 +8,7 @@ import type { FactureData, LigneFacture } from "@/lib/documents/templates/Factur
 import { createElement } from "react";
 import path from "path";
 import fs from "fs/promises";
+import { getTypeTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
 
 export async function POST(
   request: NextRequest,
@@ -30,12 +31,18 @@ export async function POST(
       );
     }
     const body = await request.json();
-    const { titre, dateEcheance, notes, lignes } = body;
+    const { titre, dateEcheance, notes, lignes, billing } = body;
 
     // Validation
     if (!titre || !lignes || lignes.length === 0) {
       return NextResponse.json(
         { error: "Titre et prestations requis" },
+        { status: 400 }
+      );
+    }
+    if (!billing?.raisonSociale || !billing?.adresseRue || !billing?.codePostal || !billing?.ville || !billing?.pays) {
+      return NextResponse.json(
+        { error: "Informations de facturation requises (raison sociale, adresse, code postal, ville, pays)" },
         { status: 400 }
       );
     }
@@ -60,8 +67,8 @@ export async function POST(
       );
     }
 
-    // Vérifier le statut
-    if (collab.statut !== "PUBLIE") {
+    // Vérifier le statut (PUBLIE ou FACTURE_RECUE si ancienne facture annulée par un avoir)
+    if (!["PUBLIE", "FACTURE_RECUE"].includes(collab.statut)) {
       return NextResponse.json(
         { error: "La collaboration doit être publiée pour générer une facture" },
         { status: 400 }
@@ -111,59 +118,52 @@ export async function POST(
       };
     });
 
-    const tauxTVA = 20; // Par défaut
-    const montantTVA = montantHT * (tauxTVA / 100);
+    // Régime TVA selon pays + n° TVA (France 20%, UE avec n° TVA 0% autoliquidation, etc.)
+    const typeTVA = getTypeTVA(billing.pays, billing.numeroTVA || null);
+    const { tauxTVA: tauxTVAApplicable, mention: mentionTVA } = MENTIONS_TVA[typeTVA];
+    const montantTVA = montantHT * (tauxTVAApplicable / 100);
     const montantTTC = montantHT + montantTVA;
+    // Aligner les lignes sur le taux applicable
+    lignesFacture.forEach((l) => { l.tauxTVA = tauxTVAApplicable; });
 
-    // Données de l'émetteur (Glow Up Agency)
-    const agenceSettings = await prisma.agenceSettings.findUnique({
-      where: { id: "default" },
-    });
-
-    if (!agenceSettings) {
-      return NextResponse.json(
-        { error: "Paramètres agence non configurés" },
-        { status: 500 }
-      );
-    }
-
-    // Préparer les données pour le template
+    // Émetteur = même identité que le devis (AGENCE_CONFIG / Glow Up Agency)
     const factureData: FactureData = {
       reference,
       titre,
       dateDocument: new Date().toISOString(),
       dateEcheance: dateEcheance || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       emetteur: {
-        nom: agenceSettings.nom || "Glow Up Agency",
-        adresse: agenceSettings.adresseRue || "22 Avenue Victor Hugo",
-        codePostal: agenceSettings.codePostal || "13100",
-        ville: agenceSettings.ville || "Aix-en-Provence",
-        pays: agenceSettings.pays || "France",
-        capital: Number(agenceSettings.capitalSocial) || 1000,
-        siret: agenceSettings.siret || "",
-        telephone: agenceSettings.telephone || "",
-        email: agenceSettings.email || "contact@glowup-agence.com",
-        tva: agenceSettings.numeroTVA || "",
-        siren: agenceSettings.siret?.substring(0, 9) || "",
-        rcs: agenceSettings.rcs || "",
-        ape: "",
-        iban: agenceSettings.iban || undefined,
-        bic: agenceSettings.bic || undefined,
+        nom: AGENCE_CONFIG.raisonSociale,
+        adresse: AGENCE_CONFIG.adresse,
+        codePostal: AGENCE_CONFIG.codePostal,
+        ville: AGENCE_CONFIG.ville,
+        pays: AGENCE_CONFIG.pays,
+        capital: AGENCE_CONFIG.capital,
+        siret: AGENCE_CONFIG.siret,
+        siren: AGENCE_CONFIG.siren,
+        telephone: AGENCE_CONFIG.telephone,
+        email: AGENCE_CONFIG.email,
+        tva: AGENCE_CONFIG.tva,
+        rcs: AGENCE_CONFIG.rcs,
+        ape: AGENCE_CONFIG.ape,
+        iban: AGENCE_CONFIG.rib?.iban || undefined,
+        bic: AGENCE_CONFIG.rib?.bic || undefined,
       },
       client: {
-        nom: collab.talent.nom,
-        prenom: collab.talent.prenom,
-        adresse: collab.talent.adresse || undefined,
-        codePostal: collab.talent.codePostal || undefined,
-        ville: collab.talent.ville || undefined,
-        pays: collab.talent.pays || undefined,
-        siret: collab.talent.siret || undefined,
+        nom: billing.raisonSociale,
+        adresse: billing.adresseRue || undefined,
+        codePostal: billing.codePostal || undefined,
+        ville: billing.ville || undefined,
+        pays: billing.pays || undefined,
+        tva: billing.numeroTVA || undefined,
+        siret: billing.siret || undefined,
       },
       lignes: lignesFacture,
       montantHT,
-      tauxTVA,
+      tauxTVA: tauxTVAApplicable,
       montantTVA,
       montantTTC,
+      mentionTVA: mentionTVA ?? undefined,
       notes: notes || undefined,
     };
 
@@ -180,20 +180,34 @@ export async function POST(
 
     const pdfUrl = `/documents/factures/${filename}`;
 
-    // Créer l'entrée Document dans la base
+    // Créer l'entrée Document dans la base (avec lignes pour que le PDF régénéré affiche les prestations)
     const document = await prisma.document.create({
       data: {
         type: "FACTURE",
         reference,
         titre,
+        dateDocument: new Date(),
         dateEmission: new Date(),
         dateEcheance: new Date(dateEcheance || Date.now() + 30 * 24 * 60 * 60 * 1000),
         montantHT,
         montantTVA,
         montantTTC,
+        tauxTVA: tauxTVAApplicable,
+        typeTVA,
+        mentionTVA: mentionTVA ?? null,
+        lignes: lignesFacture.map((l) => ({
+          description: l.description,
+          quantite: l.quantite,
+          prixUnitaire: l.prixUnitaire,
+          tauxTVA: l.tauxTVA,
+          totalHT: l.totalHT,
+        })) as any,
+        notes: notes || null,
         fichierUrl: pdfUrl,
+        pdfBase64: pdfBuffer.toString("base64"),
         statut: "BROUILLON",
         collaborationId: collab.id,
+        createdById: user.id,
       },
     });
 

@@ -52,7 +52,8 @@ const menuItems = [
     label: "Marques",
     href: "/marques",
     icon: Building2,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"],
+    // Masquée pour TM et Head of Influence
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"],
   },
   {
     label: "Partenaires",

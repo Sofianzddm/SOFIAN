@@ -116,6 +116,33 @@ enum TypeTVA {
   HORS_EU
 }
 
+// Statut des devis (quotes)
+enum QuoteStatus {
+  DRAFT
+  REGISTERED
+  SENT
+  VIEWED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  INVOICED
+  CANCELLED
+}
+
+// Types d'événements sur documents (factures + devis)
+enum DocumentEventType {
+  CREATED
+  REGISTERED
+  SENT
+  VIEWED
+  PAYMENT
+  STATUS_CHANGE
+  EDITED
+  CONVERTED
+  REMINDER_SENT
+  COMMENT
+}
+
 enum StatutCycle {
   A_VENIR
   EN_COURS
@@ -170,6 +197,10 @@ model User {
   commentairesGift      CommentaireGift[]
   
   collabsGerees         Collaboration[]         @relation("AccountManagerCollabs")
+  // Historique documents / devis
+  quotesCreated         Quote[]
+  documentEvents        DocumentEvent[]
+  documentComments      DocumentComment[]
   
   @@map("users")
 }
@@ -223,7 +254,20 @@ model Talent {
   iban              String?
   bic               String?
   titulaireCompte   String?
-  
+  nomBanque         String?
+  formeJuridique    String?   // Auto-entrepreneur, SASU, EURL, etc.
+  raisonSociale     String?
+  numeroTVA         String?
+
+  // Contact d'urgence
+  contactUrgenceNom  String?
+  contactUrgenceTel  String?
+  contactUrgenceLien String?
+
+  telephoneSecondaire String?
+  nationalite         String?
+  notesInternes      String?   @db.Text
+
   dateArrivee   DateTime  @default(now())
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -240,6 +284,7 @@ model Talent {
   partnerTalents  PartnerTalent[]
   agencyProjects AgencyProjectTalent[]
   partnerTarifOverrides PartnerTarifOverride[]
+  quotes        Quote[]
   
   @@map("talents")
 }
@@ -361,6 +406,7 @@ model Marque {
   negociations  Negociation[]
   prospections  Prospection[]
   demandesGift  DemandeGift[]
+  quotes        Quote[]
   
   @@map("marques")
 }
@@ -379,7 +425,7 @@ model MarqueContact {
   principal     Boolean   @default(false)
   
   createdAt     DateTime  @default(now())
-  
+  quotes        Quote[]
   @@map("marque_contacts")
 }
 
@@ -577,6 +623,7 @@ model Collaboration {
   
   cycles            CollabCycle[]
   documents         Document[]
+  quotes            Quote[]
   
   @@index([talentId])
   @@index([marqueId])
@@ -692,6 +739,12 @@ model Document {
   createdById   String?
   createdBy     User?     @relation("DocumentCreateur", fields: [createdById], references: [id])
   
+  // Historique et commentaires
+  events        DocumentEvent[]   @relation("DocumentEvents")
+  comments      DocumentComment[] @relation("DocumentComments")
+  // Devis lié (si ce document est issu d'un devis)
+  linkedQuote   Quote?            @relation("QuoteInvoice")
+  
   // Relation transactions Qonto
   transactionsQonto TransactionQonto[]
   
@@ -704,6 +757,124 @@ model Document {
   @@index([reference])
   @@index([createdById])
   @@map("documents")
+}
+
+// ============================================
+// DEVIS (Quotes) & HISTORIQUE DOCUMENTS
+// ============================================
+
+model Quote {
+  id              String       @id @default(cuid())
+  reference       String       @unique    // ex: D-2026-59
+
+  collaborationId String?
+  collaboration   Collaboration? @relation(fields: [collaborationId], references: [id])
+
+  marqueId        String
+  marque          Marque        @relation(fields: [marqueId], references: [id])
+
+  marqueContactId String?
+  marqueContact   MarqueContact? @relation(fields: [marqueContactId], references: [id])
+
+  talentId        String?
+  talent          Talent?       @relation(fields: [talentId], references: [id])
+
+  object          String
+  issueDate       DateTime      @default(now())
+  validUntil      DateTime
+
+  totalHT         Float         @default(0)
+  totalTVA        Float         @default(0)
+  totalTTC        Float         @default(0)
+  currency        String        @default("EUR")
+  tvaRate         Float         @default(20.0)
+
+  status          QuoteStatus   @default(DRAFT)
+  items           QuoteItem[]
+
+  // Lien vers facture (Document) si converti
+  invoiceId       String?       @unique
+  invoice         Document?     @relation("QuoteInvoice", fields: [invoiceId], references: [id])
+  convertedAt     DateTime?
+
+  pdfUrl          String?
+  notes           String?
+
+  // Historique
+  events          DocumentEvent[]   @relation("QuoteEvents")
+  comments        DocumentComment[] @relation("QuoteComments")
+
+  createdBy       String
+  createdByUser   User          @relation(fields: [createdBy], references: [id])
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([marqueId])
+  @@index([status])
+  @@index([issueDate])
+}
+
+model QuoteItem {
+  id          String  @id @default(cuid())
+  quoteId     String
+  quote       Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  reference   String?
+  designation String
+  quantity    Float    @default(1)
+  unitPriceHT Float
+  discount    Float    @default(0)
+  tvaRate     Float    @default(20.0)
+  totalHT     Float
+  sortOrder   Int      @default(0)
+
+  @@index([quoteId])
+}
+
+// Historique des événements sur documents (factures) et devis
+model DocumentEvent {
+  id          String   @id @default(cuid())
+
+  // Lien vers un document (facture / devis PDF généré) ou un devis Quote
+  documentId  String?
+  document    Document? @relation("DocumentEvents", fields: [documentId], references: [id], onDelete: Cascade)
+
+  quoteId     String?
+  quote       Quote?    @relation("QuoteEvents", fields: [quoteId], references: [id], onDelete: Cascade)
+
+  type        DocumentEventType
+  description String?
+
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime  @default(now())
+
+  @@index([documentId])
+  @@index([quoteId])
+}
+
+// Commentaires internes sur documents et devis
+model DocumentComment {
+  id          String   @id @default(cuid())
+
+  documentId  String?
+  document    Document? @relation("DocumentComments", fields: [documentId], references: [id], onDelete: Cascade)
+
+  quoteId     String?
+  quote       Quote?    @relation("QuoteComments", fields: [quoteId], references: [id], onDelete: Cascade)
+
+  content     String
+
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([documentId])
+  @@index([quoteId])
 }
 
 // ============================================

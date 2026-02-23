@@ -197,7 +197,7 @@ export default function NegociationsPage() {
             </div>
           </div>
           <p className="text-2xl font-bold text-slate-900 tabular-nums">{formatMoney(totalBudget)}</p>
-          <p className="text-sm text-slate-500">Budget en négo</p>
+          <p className="text-sm text-slate-500">Budget en négo (HT)</p>
         </div>
       </div>
 

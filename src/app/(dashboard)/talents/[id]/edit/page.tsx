@@ -19,6 +19,7 @@ import {
   Euro,
   AlertCircle,
 } from "lucide-react";
+import { LISTE_PAYS } from "@/lib/pays";
 
 const NICHES = ["Fashion", "Beauty", "Lifestyle", "Food", "Travel", "Sport", "Gaming", "Tech", "Family", "Music", "Art", "Business"];
 const FORMES_JURIDIQUES = ["Auto-entrepreneur", "SASU", "EURL", "SARL", "SAS", "Autre"];
@@ -73,6 +74,7 @@ export default function EditTalentPage() {
     
     // Banque
     nomBanque: "",
+    titulaireCompte: "",
     iban: "",
     bic: "",
     
@@ -204,8 +206,16 @@ export default function EditTalentPage() {
           contactUrgenceNom: talent.contactUrgenceNom || "",
           contactUrgenceTel: talent.contactUrgenceTel || "",
           contactUrgenceLien: talent.contactUrgenceLien || "",
-          adresseRue: talent.adresseRue || "",
-          adresseComplement: talent.adresseComplement || "",
+          adresseRue: (() => {
+            const a = talent.adresse || "";
+            const sep = " – ";
+            return a.includes(sep) ? a.split(sep)[0].trim() : a;
+          })(),
+          adresseComplement: (() => {
+            const a = talent.adresse || "";
+            const sep = " – ";
+            return a.includes(sep) ? a.split(sep).slice(1).join(sep).trim() : "";
+          })(),
           codePostal: talent.codePostal || "",
           ville: talent.ville || "",
           pays: talent.pays || "France",
@@ -214,6 +224,7 @@ export default function EditTalentPage() {
           raisonSociale: talent.raisonSociale || "",
           formeJuridique: talent.formeJuridique || "",
           nomBanque: talent.nomBanque || "",
+          titulaireCompte: talent.titulaireCompte || "",
           iban: talent.iban || "",
           bic: talent.bic || "",
           notesInternes: talent.notesInternes || "",
@@ -296,11 +307,19 @@ export default function EditTalentPage() {
     setSaving(true);
 
     try {
+      const adresse = [formData.adresseRue, formData.adresseComplement].filter(Boolean).join(" – ") || null;
       const res = await fetch(`/api/talents/${params.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          adresse,
+          codePostal: formData.codePostal || null,
+          ville: formData.ville || null,
+          pays: formData.pays || null,
+          siret: formData.siret?.trim() || null,
+          iban: formData.iban?.trim() || null,
+          bic: formData.bic?.trim() || null,
           selectedClients: formData.selectedClients.split(",").map((s) => s.trim()).filter(Boolean),
           dateNaissance: formData.dateNaissance || null,
           _userRole: userRole,
@@ -583,7 +602,11 @@ export default function EditTalentPage() {
                   </div>
                   <div>
                     <label className={labelClass}>Pays</label>
-                    <input type="text" name="pays" value={formData.pays} onChange={handleChange} className={inputClass} />
+                    <select name="pays" value={formData.pays} onChange={handleChange} className={inputClass}>
+                      {LISTE_PAYS.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>
@@ -635,13 +658,17 @@ export default function EditTalentPage() {
                   <label className={labelClass}>Banque</label>
                   <input type="text" name="nomBanque" value={formData.nomBanque} onChange={handleChange} placeholder="BNP Paribas" className={inputClass} />
                 </div>
-                <div className="md:col-span-2">
-                  <label className={labelClass}>IBAN</label>
-                  <input type="text" name="iban" value={formData.iban} onChange={handleChange} placeholder="FR76 1234 5678 9012 3456 7890 123" className={inputClass} />
+                <div>
+                  <label className={labelClass}>Titulaire du compte</label>
+                  <input type="text" name="titulaireCompte" value={formData.titulaireCompte} onChange={handleChange} placeholder="Nom du titulaire" className={inputClass} />
                 </div>
                 <div>
                   <label className={labelClass}>BIC</label>
                   <input type="text" name="bic" value={formData.bic} onChange={handleChange} placeholder="BNPAFRPP" className={inputClass} />
+                </div>
+                <div className="md:col-span-3">
+                  <label className={labelClass}>IBAN</label>
+                  <input type="text" name="iban" value={formData.iban} onChange={handleChange} placeholder="FR76 1234 5678 9012 3456 7890 123" className={inputClass} />
                 </div>
               </div>
             </div>

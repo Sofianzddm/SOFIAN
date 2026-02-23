@@ -340,10 +340,21 @@ export default function CollabDetailPage() {
         const docData = await res.json();
         console.log("📄 Document data:", docData);
         setEditingDoc(doc);
+        // Déterminer la zone client à partir du régime de TVA existant
+        const initialTypeTVA = docData.typeTVA || "FRANCE";
+        const initialClientZone =
+          initialTypeTVA === "FRANCE"
+            ? "FRANCE"
+            : initialTypeTVA === "HORS_EU"
+            ? "HORS_EU"
+            : "UE";
+
         setEditFormData({
           titre: docData.titre || collab?.talent.prenom + " x " + collab?.marque.nom || "",
           commentaires: docData.notes || "",
-          typeTVA: docData.typeTVA || "FRANCE",
+          typeTVA: initialTypeTVA,
+          // Nouvelle info purement UI : zone/pays du client
+          clientZone: initialClientZone,
           dateEmission: docData.dateEmission ? new Date(docData.dateEmission).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
           dateEcheance: docData.dateEcheance ? new Date(docData.dateEcheance).toISOString().split('T')[0] : "",
           poClient: docData.poClient || "",
@@ -468,6 +479,9 @@ export default function CollabDetailPage() {
   const activeFacture = getActiveDocument("FACTURE");
   const canGenerateDevis = ["NEGO", "GAGNE", "EN_COURS"].includes(collab.statut) && !activeDevis;
   const canGenerateFacture = ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) && !activeFacture;
+  const hasAnnuledFacture = (collab?.documents || []).some(
+    (d: DocumentInfo) => d.type === "FACTURE" && (d.statut === "ANNULE" || d.avoirRef)
+  );
   const existingDocs = collab.documents || [];
 
   return (
@@ -574,7 +588,7 @@ export default function CollabDetailPage() {
               </p>
               <div className="bg-blue-100 border border-blue-200 rounded-lg p-3 mb-4">
                 <p className="text-sm text-blue-800">
-                  <span className="font-medium">Montant net à facturer :</span>{" "}
+                  <span className="font-medium">Montant net à facturer (HT) :</span>{" "}
                   <span className="text-lg font-bold">{formatMoney(collab.montantNet)}</span>
                 </p>
               </div>
@@ -775,7 +789,7 @@ export default function CollabDetailPage() {
                     <th className="px-6 py-3 text-left font-medium">Référence</th>
                     <th className="px-6 py-3 text-left font-medium">Type</th>
                     <th className="px-6 py-3 text-left font-medium">Statut</th>
-                    <th className="px-6 py-3 text-right font-medium">Montant</th>
+                    <th className="px-6 py-3 text-right font-medium">Montant HT</th>
                     <th className="px-6 py-3 text-right font-medium"></th>
                   </tr>
                 </thead>
@@ -810,7 +824,7 @@ export default function CollabDetailPage() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <span className={`font-semibold ${isAvoir ? "text-orange-600" : "text-glowup-licorice"}`}>
-                            {isAvoir ? "-" : ""}{formatMoney(doc.montantTTC)}
+                            {isAvoir ? "-" : ""}{formatMoney(doc.montantHT)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -863,9 +877,16 @@ export default function CollabDetailPage() {
                   </a>
                 )}
                 {canGenerateFacture && (
-                  <Link href={`/collaborations/${collab.id}/facturer`} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-semibold hover:bg-emerald-100 transition-colors">
-                    <Receipt className="w-4 h-4" /> Facturer la collaboration
-                  </Link>
+                  <>
+                    {hasAnnuledFacture && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
+                        Facture précédente annulée. La nouvelle facture aura un nouveau numéro.
+                      </p>
+                    )}
+                    <Link href={`/collaborations/${collab.id}/facturer`} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-semibold hover:bg-emerald-100 transition-colors">
+                      <Receipt className="w-4 h-4" /> Facturer la collaboration
+                    </Link>
+                  </>
                 )}
                 {activeFacture && (
                   <>
@@ -931,7 +952,7 @@ export default function CollabDetailPage() {
               </div>
               <div className="pt-4 mt-2 border-t border-gray-100">
                 <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-5 text-center">
-                  <p className="text-sm text-green-600 font-medium mb-1">Net talent</p>
+                  <p className="text-sm text-green-600 font-medium mb-1">Net talent (HT)</p>
                   <p className="text-3xl font-bold text-green-700">{formatMoney(collab.montantNet)}</p>
                 </div>
               </div>
@@ -1419,6 +1440,46 @@ export default function CollabDetailPage() {
               {/* Tab: Facturation */}
               {editModalTab === "facturation" && (
                 <>
+                  {/* Pays / zone du client */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      🌍 Pays / zone du client
+                    </label>
+                    <select
+                      value={editFormData.clientZone || "FRANCE"}
+                      onChange={(e) => {
+                        const zone = e.target.value as "FRANCE" | "UE" | "HORS_EU";
+                        setEditFormData((prev: any) => {
+                          let nextTypeTVA = prev.typeTVA || "FRANCE";
+                          if (zone === "FRANCE") {
+                            nextTypeTVA = "FRANCE";
+                          } else if (zone === "HORS_EU") {
+                            nextTypeTVA = "HORS_EU";
+                          } else {
+                            // Zone UE : conserver le sous-type UE si déjà choisi, sinon par défaut EU_SANS_TVA
+                            nextTypeTVA =
+                              prev.typeTVA === "EU_INTRACOM" || prev.typeTVA === "EU_SANS_TVA"
+                                ? prev.typeTVA
+                                : "EU_SANS_TVA";
+                          }
+                          return {
+                            ...prev,
+                            clientZone: zone,
+                            typeTVA: nextTypeTVA,
+                          };
+                        });
+                      }}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm bg-white"
+                    >
+                      <option value="FRANCE">🇫🇷 France</option>
+                      <option value="UE">🇪🇺 Union européenne</option>
+                      <option value="HORS_EU">🌍 Hors Union européenne</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      Ce choix ajuste automatiquement le régime de TVA ci‑dessous et les mentions légales du devis / de la facture.
+                    </p>
+                  </div>
+
                   {/* Type de TVA */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">

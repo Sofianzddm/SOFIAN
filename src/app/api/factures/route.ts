@@ -18,7 +18,7 @@ export async function GET() {
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
     // ============================================
-    // FACTURES MARQUES (Documents de type FACTURE)
+    // FACTURES MARQUES (Documents de type FACTURE) + liste complète pour la page factures
     // ============================================
     const facturesMarques = await prisma.document.findMany({
       where: { type: "FACTURE" },
@@ -32,6 +32,48 @@ export async function GET() {
       },
       orderBy: { createdAt: "desc" },
     });
+
+    // Liste complète des documents FACTURE pour la page liste (Collaboration n'a pas marqueContact, on met null)
+    const documents = await prisma.document.findMany({
+      where: { type: "FACTURE" },
+      include: {
+        collaboration: {
+          select: {
+            id: true,
+            reference: true,
+            talent: { select: { id: true, prenom: true, nom: true } },
+            marque: { select: { id: true, nom: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // ============================================
+    // DEVIS (documents type DEVIS) pour l'onglet Devis de la page factures
+    // ============================================
+    const devisDocuments = await prisma.document.findMany({
+      where: { type: "DEVIS" },
+      include: {
+        collaboration: {
+          select: {
+            id: true,
+            reference: true,
+            talent: { select: { id: true, prenom: true, nom: true } },
+            marque: { select: { id: true, nom: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    const devisEnAttente = devisDocuments.filter(
+      (d) => d.statut === "VALIDE" || d.statut === "ENVOYE"
+    ).length;
+    const devisExpire = devisDocuments.filter((d) => {
+      if (d.statut === "ANNULE") return false;
+      const validUntil = d.dateEcheance ?? new Date(new Date(d.dateEmission).getTime() + 30 * 24 * 60 * 60 * 1000);
+      return new Date(validUntil) < now;
+    }).length;
 
     // ============================================
     // FACTURES TALENTS (Collaborations avec facture reçue ou à payer)
@@ -220,6 +262,27 @@ export async function GET() {
         facturesEnAttente,
         talentsAPayer,
       },
+      // Liste complète pour la page factures (toutes les factures, avec collaboration optionnelle)
+      documents: documents.map((d) => ({
+        id: d.id,
+        reference: d.reference,
+        type: d.type,
+        statut: d.statut,
+        montantHT: Number(d.montantHT),
+        montantTTC: Number(d.montantTTC),
+        dateEmission: d.dateEmission,
+        dateEcheance: d.dateEcheance,
+        createdAt: d.createdAt,
+        collaboration: d.collaboration
+          ? {
+              id: d.collaboration.id,
+              reference: d.collaboration.reference,
+              talent: d.collaboration.talent,
+              marque: d.collaboration.marque,
+              marqueContact: null,
+            }
+          : null,
+      })),
       // Filtrer les factures sans collaboration (au cas où)
       facturesMarques: facturesMarques
         .filter((f) => f.collaboration !== null)
@@ -240,6 +303,29 @@ export async function GET() {
         })),
       facturesTalents,
       monthlyData,
+      // Devis pour l'onglet Devis (même source que les factures, même auth)
+      devis: devisDocuments.map((d) => ({
+        id: d.id,
+        reference: d.reference,
+        type: d.type,
+        statut: d.statut,
+        titre: d.titre,
+        dateEmission: d.dateEmission,
+        dateEcheance: d.dateEcheance,
+        montantHT: Number(d.montantHT),
+        montantTTC: Number(d.montantTTC),
+        createdAt: d.createdAt,
+        collaboration: d.collaboration
+          ? {
+              id: d.collaboration.id,
+              reference: d.collaboration.reference,
+              talent: d.collaboration.talent,
+              marque: d.collaboration.marque,
+              marqueContact: null,
+            }
+          : null,
+      })),
+      devisStats: { enAttente: devisEnAttente, expire: devisExpire },
     });
   } catch (error) {
     console.error("Erreur API factures:", error);

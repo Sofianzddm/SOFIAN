@@ -13,7 +13,10 @@ import {
   Euro,
   Calendar,
   Save,
+  Building2,
 } from "lucide-react";
+import { LISTE_PAYS } from "@/lib/pays";
+import { getTypeTVA, MENTIONS_TVA } from "@/lib/documents/config";
 
 interface LignePrestation {
   description: string;
@@ -34,6 +37,16 @@ export default function FacturerPage() {
     titre: "",
     dateEcheance: "",
     notes: "",
+  });
+
+  const [billingData, setBillingData] = useState({
+    raisonSociale: "",
+    adresseRue: "",
+    codePostal: "",
+    ville: "",
+    pays: "France",
+    siret: "",
+    numeroTVA: "",
   });
 
   const [lignes, setLignes] = useState<LignePrestation[]>([
@@ -59,20 +72,77 @@ export default function FacturerPage() {
         // Pré-remplir avec les données de la collaboration
         setFormData({
           titre: data.titre || `Campagne ${data.marque?.nom}`,
-          dateEcheance: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          dateEcheance: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
           notes: "",
         });
+        setBillingData({
+          raisonSociale: data.marque?.raisonSociale || data.marque?.nom || "",
+          adresseRue: data.marque?.adresseRue || "",
+          codePostal: data.marque?.codePostal || "",
+          ville: data.marque?.ville || "",
+          pays: data.marque?.pays || "France",
+          siret: data.marque?.siret || "",
+          numeroTVA: data.marque?.numeroTVA || "",
+        });
 
-        // Pré-remplir les livrables si disponibles
-        if (data.livrables && data.livrables.length > 0) {
-          setLignes(
-            data.livrables.map((l: any) => ({
-              description: l.description || "",
-              quantite: l.quantite || 1,
-              prixUnitaire: Number(l.prix) || 0,
-              tauxTVA: 20,
-            }))
-          );
+        // 1) Si un devis existe pour cette collab, on reprend ses infos (lignes, TVA, échéance, notes)
+        const devisSummary =
+          (data.documents || []).find((d: any) => d.type === "DEVIS" && d.statut === "VALIDE") ||
+          (data.documents || []).find((d: any) => d.type === "DEVIS");
+
+        if (devisSummary) {
+          try {
+            const devisRes = await fetch(`/api/documents/${devisSummary.id}`);
+            if (devisRes.ok) {
+              const devis = await devisRes.json();
+
+              // Titre / échéance / notes depuis le devis
+              setFormData(prev => ({
+                ...prev,
+                titre: devis.titre || prev.titre,
+                dateEcheance: devis.dateEcheance
+                  ? new Date(devis.dateEcheance).toISOString().split("T")[0]
+                  : prev.dateEcheance,
+                notes: devis.notes || prev.notes,
+              }));
+
+              // Lignes : copier celles du devis
+              if (devis.lignes && Array.isArray(devis.lignes) && devis.lignes.length > 0) {
+                setLignes(
+                  devis.lignes.map((l: any) => {
+                    const q = Number(l.quantite) || 1;
+                    const pu =
+                      l.prixUnitaire != null
+                        ? Number(l.prixUnitaire)
+                        : l.totalHT != null
+                        ? Number(l.totalHT) / q
+                        : 0;
+                    const taux = l.tauxTVA != null ? Number(l.tauxTVA) : devis.tauxTVA != null ? Number(devis.tauxTVA) : 20;
+                    return {
+                      description: l.description || "",
+                      quantite: q,
+                      prixUnitaire: pu,
+                      tauxTVA: taux,
+                    } as LignePrestation;
+                  })
+                );
+              }
+            }
+          } catch (e) {
+            console.error("Erreur lors du chargement du devis pour la facturation:", e);
+          }
+        } else {
+          // 2) Sinon, fallback : pré-remplir avec les livrables de la collaboration
+          if (data.livrables && data.livrables.length > 0) {
+            setLignes(
+              data.livrables.map((l: any) => ({
+                description: l.description || "",
+                quantite: l.quantite || 1,
+                prixUnitaire: Number(l.prix) || Number(l.prixUnitaire) || 0,
+                tauxTVA: 20,
+              }))
+            );
+          }
         }
       }
     } catch (error) {
@@ -83,13 +153,14 @@ export default function FacturerPage() {
   }
 
   const addLigne = () => {
+    const regime = MENTIONS_TVA[getTypeTVA(billingData.pays, billingData.numeroTVA?.trim() || null)];
     setLignes([
       ...lignes,
       {
         description: "",
         quantite: 1,
         prixUnitaire: 0,
-        tauxTVA: 20,
+        tauxTVA: regime.tauxTVA,
       },
     ]);
   };
@@ -107,13 +178,17 @@ export default function FacturerPage() {
     setLignes(newLignes);
   };
 
+  // TVA selon pays + n° TVA intracom (France 20%, UE avec n° TVA 0%, etc.)
+  const tvaRegime = MENTIONS_TVA[getTypeTVA(billingData.pays, billingData.numeroTVA?.trim() || null)];
+
   const calculateTotaux = () => {
     let montantHT = 0;
     lignes.forEach((ligne) => {
       montantHT += ligne.quantite * ligne.prixUnitaire;
     });
 
-    const montantTVA = montantHT * 0.2; // 20% par défaut
+    const taux = tvaRegime.tauxTVA / 100;
+    const montantTVA = montantHT * taux;
     const montantTTC = montantHT + montantTVA;
 
     return { montantHT, montantTVA, montantTTC };
@@ -130,6 +205,10 @@ export default function FacturerPage() {
       alert("❌ Ajoutez au moins une prestation");
       return;
     }
+    if (!billingData.raisonSociale.trim() || !billingData.adresseRue.trim() || !billingData.codePostal.trim() || !billingData.ville.trim() || !billingData.pays.trim()) {
+      alert("❌ Complétez les informations de facturation (raison sociale, adresse, code postal, ville, pays).");
+      return;
+    }
 
     setGenerating(true);
 
@@ -141,13 +220,24 @@ export default function FacturerPage() {
           titre: formData.titre,
           dateEcheance: formData.dateEcheance,
           notes: formData.notes,
+          billing: {
+            raisonSociale: billingData.raisonSociale.trim(),
+            adresseRue: billingData.adresseRue.trim(),
+            codePostal: billingData.codePostal.trim(),
+            ville: billingData.ville.trim(),
+            pays: billingData.pays.trim(),
+            siret: billingData.siret.trim() || null,
+            numeroTVA: billingData.numeroTVA.trim() || null,
+          },
           lignes: lignes.map((ligne) => ({
             description: ligne.description,
             quantite: ligne.quantite,
             prixUnitaire: ligne.prixUnitaire,
-            tauxTVA: ligne.tauxTVA,
+            tauxTVA: tvaRegime.tauxTVA,
             totalHT: ligne.quantite * ligne.prixUnitaire,
           })),
+          typeTVA: getTypeTVA(billingData.pays.trim(), billingData.numeroTVA.trim() || null),
+          mentionTVA: tvaRegime.mention ?? undefined,
         }),
       });
 
@@ -209,6 +299,91 @@ export default function FacturerPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Formulaire principal */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Informations de facturation */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 className="text-lg font-bold text-glowup-licorice mb-4 flex items-center gap-2">
+              <Building2 className="w-5 h-5" />
+              Informations de facturation *
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Client à facturer (marque ou prestataire). Ces informations apparaîtront sur la facture.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Raison sociale / Nom *</label>
+                <input
+                  type="text"
+                  value={billingData.raisonSociale}
+                  onChange={(e) => setBillingData((p) => ({ ...p, raisonSociale: e.target.value }))}
+                  placeholder="Ex : Société ou Nom du prestataire"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Adresse *</label>
+                <input
+                  type="text"
+                  value={billingData.adresseRue}
+                  onChange={(e) => setBillingData((p) => ({ ...p, adresseRue: e.target.value }))}
+                  placeholder="Numéro et nom de rue"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Code postal *</label>
+                <input
+                  type="text"
+                  value={billingData.codePostal}
+                  onChange={(e) => setBillingData((p) => ({ ...p, codePostal: e.target.value }))}
+                  placeholder="Ex : 75001"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ville *</label>
+                <input
+                  type="text"
+                  value={billingData.ville}
+                  onChange={(e) => setBillingData((p) => ({ ...p, ville: e.target.value }))}
+                  placeholder="Ex : Paris"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pays *</label>
+                <select
+                  value={billingData.pays}
+                  onChange={(e) => setBillingData((p) => ({ ...p, pays: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent bg-white"
+                >
+                  {LISTE_PAYS.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">SIRET</label>
+                <input
+                  type="text"
+                  value={billingData.siret}
+                  onChange={(e) => setBillingData((p) => ({ ...p, siret: e.target.value }))}
+                  placeholder="Optionnel"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">N° TVA intracom.</label>
+                <input
+                  type="text"
+                  value={billingData.numeroTVA}
+                  onChange={(e) => setBillingData((p) => ({ ...p, numeroTVA: e.target.value }))}
+                  placeholder="Optionnel"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Informations générales */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-lg font-bold text-glowup-licorice mb-4">
@@ -352,7 +527,7 @@ export default function FacturerPage() {
                 </div>
 
                 <div className="flex justify-between items-center pb-3 border-b border-white/20">
-                  <span className="text-white/80">TVA 20%</span>
+                  <span className="text-white/80">TVA {tvaRegime.tauxTVA}%{tvaRegime.mention ? " (intracom.)" : ""}</span>
                   <span className="text-lg font-semibold">
                     {new Intl.NumberFormat("fr-FR", {
                       style: "currency",

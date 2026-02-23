@@ -59,6 +59,9 @@ export default function EditNegociationPage() {
   const params = useParams();
   const router = useRouter();
   const { data: session } = useSession();
+  const userRole = (session?.user as { role?: string })?.role;
+  const isTM = userRole === "TM";
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
@@ -82,6 +85,13 @@ export default function EditNegociationPage() {
     fetchNegociation();
     fetchTalents();
   }, [params.id]);
+
+  // TM ne gère que les entrants → forcer INBOUND
+  useEffect(() => {
+    if (isTM && formData.source === "OUTBOUND") {
+      setFormData((prev) => ({ ...prev, source: "INBOUND" }));
+    }
+  }, [isTM, formData.source]);
 
   const fetchNegociation = async () => {
     try {
@@ -354,13 +364,17 @@ export default function EditNegociationPage() {
                 onChange={(e) => setFormData({ ...formData, source: e.target.value as any })}
                 required
                 className={inputClass}
+                disabled={isTM}
               >
-                {SOURCES.map((s) => (
+                {SOURCES.filter((s) => !isTM || s === "INBOUND").map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {s === "INBOUND" ? "Inbound (entrant)" : "Outbound"}
                   </option>
                 ))}
               </select>
+              {isTM && (
+                <p className="text-xs text-gray-500 mt-1">En tant que TM vous gérez uniquement les négociations entrantes.</p>
+              )}
             </div>
           </div>
 
@@ -414,7 +428,7 @@ export default function EditNegociationPage() {
 
           <div className="grid md:grid-cols-4 gap-4">
             <div>
-              <label className={labelClass}>Budget marque €</label>
+              <label className={labelClass}>Budget marque € HT</label>
               <input
                 type="number"
                 name="budgetMarque"
@@ -426,7 +440,7 @@ export default function EditNegociationPage() {
             </div>
 
             <div>
-              <label className={labelClass}>Budget souhaité €</label>
+              <label className={labelClass}>Budget souhaité € HT</label>
               <input
                 type="number"
                 name="budgetSouhaite"
@@ -438,7 +452,7 @@ export default function EditNegociationPage() {
             </div>
 
             <div>
-              <label className={labelClass}>Budget final €</label>
+              <label className={labelClass}>Budget final € HT</label>
               <input
                 type="number"
                 name="budgetFinal"
@@ -536,7 +550,7 @@ export default function EditNegociationPage() {
                           <p className="text-[10px] text-gray-400 mt-0.5">Grille DB</p>
                         </div>
                         <div className="col-span-2">
-                          <label className="block text-xs text-gray-500 mb-1">Prix marque €</label>
+                          <label className="block text-xs text-gray-500 mb-1">Prix marque € HT</label>
                           <input
                             type="number"
                             min="0"
@@ -547,7 +561,7 @@ export default function EditNegociationPage() {
                           />
                         </div>
                         <div className="col-span-2">
-                          <label className="block text-xs text-gray-500 mb-1">Prix souhaité €</label>
+                          <label className="block text-xs text-gray-500 mb-1">Prix souhaité € HT</label>
                           <input
                             type="number"
                             min="0"

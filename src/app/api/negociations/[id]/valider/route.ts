@@ -59,21 +59,17 @@ export async function POST(
       return NextResponse.json(updated);
     }
 
-    // VALIDER → Résoudre la marque (find-or-create pour éviter doublons) puis créer la collaboration
+    // VALIDER → Résoudre la marque puis créer la collaboration
     let marqueIdToUse: string | null = nego.marqueId;
     if (!marqueIdToUse && nego.nomMarqueSaisi) {
       const nom = String(nego.nomMarqueSaisi).trim();
-      const existing = await prisma.marque.findFirst({
-        where: { nom: { equals: nom, mode: "insensitive" } },
+      // Toujours créer une nouvelle fiche marque, même si une marque
+      // avec le même nom existe déjà, pour garder un contrôle manuel
+      // sur les informations légales / facturation.
+      const created = await prisma.marque.create({
+        data: { nom },
       });
-      if (existing) {
-        marqueIdToUse = existing.id;
-      } else {
-        const created = await prisma.marque.create({
-          data: { nom },
-        });
-        marqueIdToUse = created.id;
-      }
+      marqueIdToUse = created.id;
     }
     if (!marqueIdToUse) {
       return NextResponse.json(

@@ -26,9 +26,42 @@ export async function GET(
         collaboration: {
           include: {
             talent: true,
-            marque: true,
+            marque: {
+              select: {
+                id: true,
+                nom: true,
+                raisonSociale: true,
+                adresseRue: true,
+                adresseComplement: true,
+                codePostal: true,
+                ville: true,
+                pays: true,
+                siret: true,
+                numeroTVA: true,
+              },
+            },
+            quotes: {
+              select: {
+                id: true,
+                reference: true,
+                issueDate: true,
+                status: true,
+                invoiceId: true,
+              },
+              orderBy: { issueDate: "desc" },
+            },
           },
         },
+        createdBy: { select: { id: true, prenom: true, nom: true, email: true } },
+        events: {
+          orderBy: { createdAt: "desc" },
+          include: { user: { select: { id: true, prenom: true, nom: true, email: true } } },
+        },
+        comments: {
+          orderBy: { createdAt: "desc" },
+          include: { user: { select: { id: true, prenom: true, nom: true, email: true } } },
+        },
+        linkedQuote: true,
       },
     });
 

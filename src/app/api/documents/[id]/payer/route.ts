@@ -28,7 +28,7 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { datePaiement, referencePaiement } = body;
+    const { datePaiement, referencePaiement, modePaiement } = body;
 
     // Récupérer le document
     const document = await prisma.document.findUnique({
@@ -61,6 +61,19 @@ export async function POST(
         statut: "PAYE" as StatutDocument,
         datePaiement: datePaiement ? new Date(datePaiement) : new Date(),
         referencePaiement: referencePaiement || undefined,
+        modePaiement: modePaiement || undefined,
+      },
+    });
+
+    // Créer un événement historique PAYMENT
+    await prisma.documentEvent.create({
+      data: {
+        documentId: id,
+        type: "PAYMENT",
+        description: referencePaiement
+          ? `Paiement enregistré - Réf. ${referencePaiement}`
+          : "Paiement enregistré",
+        userId: user.id,
       },
     });
 

@@ -571,16 +571,16 @@ export default function NegociationDetailPage() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <p className="text-xs font-medium text-slate-500">Budget marque</p>
+                <p className="text-xs font-medium text-slate-500">Budget marque (HT)</p>
                 <p className="text-xl font-semibold text-slate-900 tabular-nums">{formatMoney(nego.budgetMarque)}</p>
               </div>
               <div className="pt-4 border-t border-slate-100">
-                <p className="text-xs font-medium text-slate-500">Budget souhaité</p>
+                <p className="text-xs font-medium text-slate-500">Budget souhaité (HT)</p>
                 <p className="text-xl font-bold text-slate-900 tabular-nums">{formatMoney(nego.budgetSouhaite)}</p>
               </div>
               {nego.budgetFinal != null && (
                 <div className="pt-4 border-t border-slate-100 rounded-lg bg-emerald-50 p-4 -mx-2 -mb-2">
-                  <p className="text-xs font-medium text-emerald-700">Budget final</p>
+                  <p className="text-xs font-medium text-emerald-700">Budget final (HT)</p>
                   <p className="text-xl font-bold text-emerald-700 tabular-nums">{formatMoney(nego.budgetFinal)}</p>
                 </div>
               )}

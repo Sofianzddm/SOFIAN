@@ -18,8 +18,9 @@ import {
   ChevronDown,
   Trash2,
   Package,
+  Search,
 } from "lucide-react";
-import QuickMarqueModal from "@/components/QuickMarqueModal";
+import { LISTE_PAYS } from "@/lib/pays";
 
 interface Talent {
   id: string;
@@ -30,17 +31,17 @@ interface Talent {
   tarifs: Record<string, number | null> | null;
 }
 
-interface Marque {
-  id: string;
-  nom: string;
-  // Infos de facturation client (utilisées pour devis / factures)
-  raisonSociale?: string | null;
-  adresseRue?: string | null;
-  codePostal?: string | null;
-  ville?: string | null;
-  pays?: string | null;
-  siret?: string | null;
-  numeroTVA?: string | null;
+// Résultat API recherche entreprise (api.gouv.fr)
+interface EntrepriseSearchResult {
+  nom_entreprise: string;
+  denomination?: string;
+  siret: string | null;
+  numero_tva_intracommunautaire: string | null;
+  adresse: string | null;
+  complement: string | null;
+  code_postal: string | null;
+  ville: string | null;
+  pays: string;
 }
 
 interface Livrable {
@@ -72,9 +73,13 @@ export default function NewCollaborationPage() {
   const { data: session } = useSession();
   const [loading, setLoading] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
-  const [marques, setMarques] = useState<Marque[]>([]);
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
-  const [showMarqueModal, setShowMarqueModal] = useState(false);
+
+  // Recherche entreprise (API api.gouv.fr)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<EntrepriseSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
 
   // Détection du rôle
   const user = session?.user as { id: string; role: string; name: string } | undefined;
@@ -82,7 +87,6 @@ export default function NewCollaborationPage() {
 
   const [formData, setFormData] = useState({
     talentId: searchParams.get("talent") || "",
-    marqueId: searchParams.get("marque") || "",
     source: "INBOUND",
     description: "",
     commissionPercent: "",
@@ -115,7 +119,6 @@ export default function NewCollaborationPage() {
 
   useEffect(() => {
     fetchTalents();
-    fetchMarques();
   }, []);
 
   useEffect(() => {
@@ -149,74 +152,50 @@ export default function NewCollaborationPage() {
     }
   };
 
-  const fetchMarques = async () => {
-    try {
-      const res = await fetch("/api/marques");
-      const data = await res.json();
-      setMarques(data);
-
-      const preselectedId = searchParams.get("marque");
-      if (preselectedId) {
-        const marque = (data as Marque[]).find((m) => m.id === preselectedId);
-        if (marque) {
-          setFormData((prev) => ({ ...prev, marqueId: marque.id }));
-          setBillingData({
-            raisonSociale: marque.raisonSociale || marque.nom || "",
-            adresseRue: marque.adresseRue || "",
-            codePostal: marque.codePostal || "",
-            ville: marque.ville || "",
-            pays: marque.pays || "France",
-            siret: marque.siret || "",
-            numeroTVA: marque.numeroTVA || "",
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Erreur:", error);
-    }
-  };
-
   const handleTalentChange = (talentId: string) => {
     setFormData((prev) => ({ ...prev, talentId }));
     const talent = talents.find((t) => t.id === talentId);
     setSelectedTalent(talent || null);
   };
 
-  const handleMarqueSelect = (marqueId: string) => {
-    setFormData((prev) => ({ ...prev, marqueId }));
-    const marque = marques.find((m) => m.id === marqueId);
-    if (marque) {
-      setBillingData({
-        raisonSociale: marque.raisonSociale || marque.nom || "",
-        adresseRue: marque.adresseRue || "",
-        codePostal: marque.codePostal || "",
-        ville: marque.ville || "",
-        pays: marque.pays || "France",
-        siret: marque.siret || "",
-        numeroTVA: marque.numeroTVA || "",
-      });
+  const searchEntreprise = async () => {
+    const q = searchQuery.trim();
+    if (q.length < 2) return;
+    setSearching(true);
+    setShowSearchResults(true);
+    try {
+      const res = await fetch(`/api/recherche-entreprise?query=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (data.results) setSearchResults(data.results);
+      else setSearchResults([]);
+    } catch (e) {
+      console.error(e);
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
     }
+  };
+
+  const fillFromSearchResult = (e: EntrepriseSearchResult) => {
+    const adresseRue = [e.adresse, e.complement].filter(Boolean).join(" – ") || "";
+    setBillingData({
+      raisonSociale: e.nom_entreprise || "",
+      adresseRue,
+      codePostal: e.code_postal || "",
+      ville: e.ville || "",
+      pays: e.pays || "France",
+      siret: e.siret || "",
+      numeroTVA: e.numero_tva_intracommunautaire || "",
+    });
+    setShowSearchResults(false);
+    setSearchResults([]);
+    setSearchQuery("");
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     const newValue = type === "checkbox" ? (e.target as HTMLInputElement).checked : value;
     setFormData((prev) => ({ ...prev, [name]: newValue }));
-  };
-
-  const handleMarqueCreated = (marque: { id: string; nom: string }) => {
-    setMarques((prev) => [...prev, { ...marque } as Marque]);
-    setFormData((prev) => ({ ...prev, marqueId: marque.id }));
-    // Nouvelle marque = on force la saisie complète de la facturation
-    setBillingData({
-      raisonSociale: marque.nom,
-      adresseRue: "",
-      codePostal: "",
-      ville: "",
-      pays: "France",
-      siret: "",
-      numeroTVA: "",
-    });
   };
 
   // Gestion des livrables
@@ -260,23 +239,44 @@ export default function NewCollaborationPage() {
       return;
     }
 
-    // Validation facturation client — toujours remplie, même si la marque existe déjà
-    if (!formData.marqueId) {
-      alert("Sélectionnez une marque avant de continuer.");
-      return;
-    }
+    // Validation facturation client (obligatoire pour devis / facture)
     if (!billingData.raisonSociale.trim() || !billingData.adresseRue.trim() || !billingData.codePostal.trim() || !billingData.ville.trim() || !billingData.pays.trim()) {
-      alert("Complétez les informations de facturation client (raison sociale, adresse, code postal, ville, pays).");
+      alert("Complétez les informations de facturation client (raison sociale, adresse, code postal, ville, pays). Vous pouvez les remplir à la main ou rechercher une entreprise ci‑dessous.");
       return;
     }
 
     setLoading(true);
     try {
+      // 1. Créer la marque avec les infos de facturation
+      const marqueRes = await fetch("/api/marques", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nom: billingData.raisonSociale.trim(),
+          raisonSociale: billingData.raisonSociale.trim(),
+          adresseRue: billingData.adresseRue.trim(),
+          codePostal: billingData.codePostal.trim(),
+          ville: billingData.ville.trim(),
+          pays: billingData.pays.trim(),
+          siret: billingData.siret.trim() || null,
+          numeroTVA: billingData.numeroTVA.trim() || null,
+        }),
+      });
+      if (!marqueRes.ok) {
+        const err = await marqueRes.json();
+        alert(err.message || "Erreur lors de la création de la marque");
+        setLoading(false);
+        return;
+      }
+      const marque = await marqueRes.json();
+
+      // 2. Créer la collaboration
       const res = await fetch("/api/collaborations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          marqueId: marque.id,
           livrables: validLivrables.map((l) => ({
             typeContenu: l.typeContenu,
             quantite: l.quantite,
@@ -356,32 +356,60 @@ export default function NewCollaborationPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Marque *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Client / Marque (recherche par nom ou SIRET) *</label>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
-                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <select
-                        name="marqueId"
-                        value={formData.marqueId}
-                        onChange={(e) => handleMarqueSelect(e.target.value)}
-                        required
-                        className="w-full pl-9 pr-8 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm"
-                      >
-                        <option value="">Sélectionner une marque</option>
-                        {marques.map((m) => (
-                          <option key={m.id} value={m.id}>{m.nom}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => {
+                          setSearchQuery(e.target.value);
+                          if (!e.target.value.trim()) setShowSearchResults(false);
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), searchEntreprise())}
+                        placeholder="Ex : L'Oréal, Nike ou 123 456 789 00012"
+                        className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice bg-white text-sm"
+                      />
                     </div>
                     <button
                       type="button"
-                      onClick={() => setShowMarqueModal(true)}
-                      className="px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors"
+                      onClick={searchEntreprise}
+                      disabled={searching || searchQuery.trim().length < 2}
+                      className="px-4 py-2.5 bg-glowup-licorice text-white rounded-lg hover:bg-glowup-licorice/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium"
                     >
-                      <Plus className="w-4 h-4" />
+                      {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                      Rechercher
                     </button>
                   </div>
+                  {showSearchResults && (
+                    <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                      {searchResults.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-gray-500">
+                          {searching ? "Recherche..." : "Aucun résultat. Essayez un autre nom ou SIRET."}
+                        </div>
+                      ) : (
+                        searchResults.map((ent, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => fillFromSearchResult(ent)}
+                            className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors"
+                          >
+                            <p className="font-medium text-gray-900">{ent.nom_entreprise}</p>
+                            {(ent.siret || ent.ville) && (
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {[ent.siret, [ent.code_postal, ent.ville].filter(Boolean).join(" ")].filter(Boolean).join(" • ")}
+                              </p>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    Recherche via API officielle (api.gouv.fr). Vous pouvez aussi remplir la facturation à la main ci‑dessous.
+                  </p>
                 </div>
               </div>
             </div>
@@ -393,7 +421,7 @@ export default function NewCollaborationPage() {
                   Facturation client (devis / facture)
                 </h3>
                 <p className="text-xs text-gray-500">
-                  À remplir à chaque nouvelle collaboration, même si la marque existe déjà.
+                  Remplir manuellement ou importer via la recherche ci‑dessus.
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-3">
@@ -448,14 +476,16 @@ export default function NewCollaborationPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">Pays *</label>
-                    <input
-                      type="text"
+                    <select
                       value={billingData.pays}
                       onChange={(e) => setBillingData((prev) => ({ ...prev, pays: e.target.value }))}
-                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
-                      placeholder="France"
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm bg-white"
                       required
-                    />
+                    >
+                      {LISTE_PAYS.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -600,7 +630,7 @@ export default function NewCollaborationPage() {
 
                     {/* Prix unitaire */}
                     <div className="col-span-3">
-                      <label className="block text-xs text-gray-500 mb-1">Prix unit. € *</label>
+                      <label className="block text-xs text-gray-500 mb-1">Prix unit. € HT *</label>
                       <input
                         type="number"
                         min="0"
@@ -693,7 +723,7 @@ export default function NewCollaborationPage() {
               {/* Commission */}
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-600">Commission</span>
+                  <span className="text-gray-600">Commission (HT)</span>
                   <div className="relative">
                     <input
                       type="number"
@@ -713,7 +743,7 @@ export default function NewCollaborationPage() {
 
               {/* Net */}
               <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                <span className="font-medium text-gray-700">Net talent</span>
+                <span className="font-medium text-gray-700">Net talent (HT)</span>
                 <span className="text-lg font-bold text-green-600">{formatMoney(montantNet)}</span>
               </div>
             </div>
@@ -736,7 +766,6 @@ export default function NewCollaborationPage() {
         </form>
       </div>
 
-      <QuickMarqueModal isOpen={showMarqueModal} onClose={() => setShowMarqueModal(false)} onCreated={handleMarqueCreated} />
     </>
   );
 }

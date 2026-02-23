@@ -116,7 +116,7 @@ export default function DocumentsPage() {
     if (sortBy === "date") {
       comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     } else if (sortBy === "montant") {
-      comparison = a.montantTTC - b.montantTTC;
+      comparison = a.montantHT - b.montantHT;
     } else if (sortBy === "reference") {
       comparison = a.reference.localeCompare(b.reference);
     }
@@ -132,7 +132,7 @@ export default function DocumentsPage() {
     enAttente: documents.filter((d) => d.statut === "ENVOYE" && d.type === "FACTURE").length,
     totalFacture: documents
       .filter((d) => d.type === "FACTURE" && d.statut !== "ANNULE")
-      .reduce((sum, d) => sum + d.montantTTC, 0),
+      .reduce((sum, d) => sum + d.montantHT, 0),
   };
 
   const toggleSort = (field: "date" | "montant" | "reference") => {
@@ -374,7 +374,7 @@ export default function DocumentsPage() {
                     onClick={() => toggleSort("montant")}
                     className="flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 ml-auto"
                   >
-                    Montant
+                    Montant HT
                     <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
@@ -436,7 +436,7 @@ export default function DocumentsPage() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <span className={`text-sm font-semibold ${doc.type === "AVOIR" ? "text-orange-600" : "text-glowup-licorice"}`}>
-                        {doc.type === "AVOIR" ? "-" : ""}{formatMoney(doc.montantTTC)}
+                        {doc.type === "AVOIR" ? "-" : ""}{formatMoney(doc.montantHT)}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -533,9 +533,9 @@ export default function DocumentsPage() {
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Montant TTC</span>
+                <span className="text-sm text-gray-500">Montant HT</span>
                 <span className="text-sm font-bold text-glowup-licorice">
-                  {formatMoney(selectedFacture.montantTTC)}
+                  {formatMoney(selectedFacture.montantHT)}
                 </span>
               </div>
             </div>

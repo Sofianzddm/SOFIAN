@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -55,6 +56,10 @@ const TYPES_CONTENU = [
 export default function NewNegociationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
+  const user = session?.user as { role?: string } | undefined;
+  const isTM = user?.role === "TM";
+
   const [loading, setLoading] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
@@ -64,7 +69,7 @@ export default function NewNegociationPage() {
     nomMarqueSaisi: searchParams.get("marque") || "", // Nom libre ; fiche marque créée/reliée à la validation
     contactMarque: "",
     emailContact: "",
-    source: "INBOUND",
+    source: "INBOUND" as "INBOUND" | "OUTBOUND",
     brief: "",
     budgetMarque: "",
     budgetSouhaite: "",
@@ -82,6 +87,11 @@ export default function NewNegociationPage() {
   useEffect(() => {
     fetchTalents();
   }, []);
+
+  // TM ne gère que les entrants → forcer INBOUND
+  useEffect(() => {
+    if (isTM) setFormData((prev) => ({ ...prev, source: "INBOUND" }));
+  }, [isTM]);
 
   const fetchTalents = async () => {
     const res = await fetch("/api/talents");
@@ -348,7 +358,7 @@ export default function NewNegociationPage() {
           {/* Source */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Source</h2>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`grid gap-3 ${isTM ? "grid-cols-1" : "grid-cols-2"}`}>
               <button
                 type="button"
                 onClick={() => setFormData((prev) => ({ ...prev, source: "INBOUND" }))}
@@ -364,22 +374,30 @@ export default function NewNegociationPage() {
                   </div>
                 </div>
               </button>
-              <button
-                type="button"
-                onClick={() => setFormData((prev) => ({ ...prev, source: "OUTBOUND" }))}
-                className={`p-4 rounded-lg border-2 transition-all text-left ${
-                  formData.source === "OUTBOUND" ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-gray-300"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <ArrowUpRight className={`w-5 h-5 ${formData.source === "OUTBOUND" ? "text-green-600" : "text-gray-400"}`} />
-                  <div>
-                    <p className={`font-medium ${formData.source === "OUTBOUND" ? "text-green-700" : "text-gray-700"}`}>Outbound</p>
-                    <p className="text-xs text-gray-500">On démarche la marque</p>
+              {!isTM && (
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, source: "OUTBOUND" }))}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    formData.source === "OUTBOUND" ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <ArrowUpRight className={`w-5 h-5 ${formData.source === "OUTBOUND" ? "text-green-600" : "text-gray-400"}`} />
+                    <div>
+                      <p className={`font-medium ${formData.source === "OUTBOUND" ? "text-green-700" : "text-gray-700"}`}>Outbound</p>
+                      <p className="text-xs text-gray-500">On démarche la marque</p>
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+              )}
             </div>
+            {isTM && (
+              <p className="text-xs text-gray-500 mt-3 flex items-center gap-2">
+                <span className="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                En tant que Talent Manager, vous gérez uniquement les négociations entrantes (Inbound).
+              </p>
+            )}
           </div>
 
           {/* Livrables */}
@@ -435,7 +453,7 @@ export default function NewNegociationPage() {
                       <p className="text-[10px] text-gray-400 mt-0.5">Grille DB</p>
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">Prix marque €</label>
+                      <label className="block text-xs text-gray-500 mb-1">Prix marque € HT</label>
                       <input
                         type="number"
                         min="0"
@@ -446,7 +464,7 @@ export default function NewNegociationPage() {
                       />
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">Prix souhaité €</label>
+                      <label className="block text-xs text-gray-500 mb-1">Prix souhaité € HT</label>
                       <input
                         type="number"
                         min="0"
