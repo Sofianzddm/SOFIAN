@@ -70,6 +70,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "Champs obligatoires manquants" }, { status: 400 });
     }
 
+    // Validation facturation client : doit toujours être remplie pour toute création de collab (pour devis / facture)
+    const billing = data.billing || {};
+    if (
+      !billing.raisonSociale ||
+      !billing.adresseRue ||
+      !billing.codePostal ||
+      !billing.ville ||
+      !billing.pays
+    ) {
+      return NextResponse.json(
+        { message: "Informations de facturation client manquantes (raison sociale, adresse, code postal, ville, pays)." },
+        { status: 400 }
+      );
+    }
+
+    // Mettre à jour les infos de facturation de la marque AVANT de créer la collaboration
+    await prisma.marque.update({
+      where: { id: data.marqueId },
+      data: {
+        raisonSociale: String(billing.raisonSociale).trim(),
+        adresseRue: String(billing.adresseRue).trim(),
+        codePostal: String(billing.codePostal).trim(),
+        ville: String(billing.ville).trim(),
+        pays: String(billing.pays).trim(),
+        siret: billing.siret ? String(billing.siret).trim() : null,
+        numeroTVA: billing.numeroTVA ? String(billing.numeroTVA).trim() : null,
+      },
+    });
+
     // Générer la référence en se basant sur la dernière collaboration existante
     const year = new Date().getFullYear();
     const lastCollab = await prisma.collaboration.findFirst({

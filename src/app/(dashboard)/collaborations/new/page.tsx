@@ -33,6 +33,14 @@ interface Talent {
 interface Marque {
   id: string;
   nom: string;
+  // Infos de facturation client (utilisées pour devis / factures)
+  raisonSociale?: string | null;
+  adresseRue?: string | null;
+  codePostal?: string | null;
+  ville?: string | null;
+  pays?: string | null;
+  siret?: string | null;
+  numeroTVA?: string | null;
 }
 
 interface Livrable {
@@ -79,6 +87,17 @@ export default function NewCollaborationPage() {
     description: "",
     commissionPercent: "",
     isLongTerme: false,
+  });
+
+  // Bloc facturation client — toujours rempli à la création de collab
+  const [billingData, setBillingData] = useState({
+    raisonSociale: "",
+    adresseRue: "",
+    codePostal: "",
+    ville: "",
+    pays: "France",
+    siret: "",
+    numeroTVA: "",
   });
 
   const [livrables, setLivrables] = useState<Livrable[]>([
@@ -133,7 +152,25 @@ export default function NewCollaborationPage() {
   const fetchMarques = async () => {
     try {
       const res = await fetch("/api/marques");
-      setMarques(await res.json());
+      const data = await res.json();
+      setMarques(data);
+
+      const preselectedId = searchParams.get("marque");
+      if (preselectedId) {
+        const marque = (data as Marque[]).find((m) => m.id === preselectedId);
+        if (marque) {
+          setFormData((prev) => ({ ...prev, marqueId: marque.id }));
+          setBillingData({
+            raisonSociale: marque.raisonSociale || marque.nom || "",
+            adresseRue: marque.adresseRue || "",
+            codePostal: marque.codePostal || "",
+            ville: marque.ville || "",
+            pays: marque.pays || "France",
+            siret: marque.siret || "",
+            numeroTVA: marque.numeroTVA || "",
+          });
+        }
+      }
     } catch (error) {
       console.error("Erreur:", error);
     }
@@ -145,6 +182,22 @@ export default function NewCollaborationPage() {
     setSelectedTalent(talent || null);
   };
 
+  const handleMarqueSelect = (marqueId: string) => {
+    setFormData((prev) => ({ ...prev, marqueId }));
+    const marque = marques.find((m) => m.id === marqueId);
+    if (marque) {
+      setBillingData({
+        raisonSociale: marque.raisonSociale || marque.nom || "",
+        adresseRue: marque.adresseRue || "",
+        codePostal: marque.codePostal || "",
+        ville: marque.ville || "",
+        pays: marque.pays || "France",
+        siret: marque.siret || "",
+        numeroTVA: marque.numeroTVA || "",
+      });
+    }
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     const newValue = type === "checkbox" ? (e.target as HTMLInputElement).checked : value;
@@ -152,8 +205,18 @@ export default function NewCollaborationPage() {
   };
 
   const handleMarqueCreated = (marque: { id: string; nom: string }) => {
-    setMarques((prev) => [...prev, marque]);
+    setMarques((prev) => [...prev, { ...marque } as Marque]);
     setFormData((prev) => ({ ...prev, marqueId: marque.id }));
+    // Nouvelle marque = on force la saisie complète de la facturation
+    setBillingData({
+      raisonSociale: marque.nom,
+      adresseRue: "",
+      codePostal: "",
+      ville: "",
+      pays: "France",
+      siret: "",
+      numeroTVA: "",
+    });
   };
 
   // Gestion des livrables
@@ -190,10 +253,20 @@ export default function NewCollaborationPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validation
+    // Validation livrables
     const validLivrables = livrables.filter((l) => l.typeContenu && l.prixUnitaire);
     if (validLivrables.length === 0) {
       alert("Ajoutez au moins un livrable");
+      return;
+    }
+
+    // Validation facturation client — toujours remplie, même si la marque existe déjà
+    if (!formData.marqueId) {
+      alert("Sélectionnez une marque avant de continuer.");
+      return;
+    }
+    if (!billingData.raisonSociale.trim() || !billingData.adresseRue.trim() || !billingData.codePostal.trim() || !billingData.ville.trim() || !billingData.pays.trim()) {
+      alert("Complétez les informations de facturation client (raison sociale, adresse, code postal, ville, pays).");
       return;
     }
 
@@ -214,6 +287,15 @@ export default function NewCollaborationPage() {
           commissionPercent,
           commissionEuros,
           montantNet,
+          billing: {
+            raisonSociale: billingData.raisonSociale.trim(),
+            adresseRue: billingData.adresseRue.trim(),
+            codePostal: billingData.codePostal.trim(),
+            ville: billingData.ville.trim(),
+            pays: billingData.pays.trim(),
+            siret: billingData.siret.trim() || null,
+            numeroTVA: billingData.numeroTVA.trim() || null,
+          },
         }),
       });
 
@@ -250,54 +332,157 @@ export default function NewCollaborationPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Partenaires */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Partenaires</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Talent *</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <select
-                    name="talentId"
-                    value={formData.talentId}
-                    onChange={(e) => handleTalentChange(e.target.value)}
-                    required
-                    className="w-full pl-9 pr-8 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm"
-                  >
-                    <option value="">Sélectionner un talent</option>
-                    {talents.map((t) => (
-                      <option key={t.id} value={t.id}>{t.prenom} {t.nom}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Marque *</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Partenaires</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Talent *</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <select
-                      name="marqueId"
-                      value={formData.marqueId}
-                      onChange={handleChange}
+                      name="talentId"
+                      value={formData.talentId}
+                      onChange={(e) => handleTalentChange(e.target.value)}
                       required
                       className="w-full pl-9 pr-8 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm"
                     >
-                      <option value="">Sélectionner une marque</option>
-                      {marques.map((m) => (
-                        <option key={m.id} value={m.id}>{m.nom}</option>
+                      <option value="">Sélectionner un talent</option>
+                      {talents.map((t) => (
+                        <option key={t.id} value={t.id}>{t.prenom} {t.nom}</option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowMarqueModal(true)}
-                    className="px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Marque *</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <select
+                        name="marqueId"
+                        value={formData.marqueId}
+                        onChange={(e) => handleMarqueSelect(e.target.value)}
+                        required
+                        className="w-full pl-9 pr-8 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm"
+                      >
+                        <option value="">Sélectionner une marque</option>
+                        {marques.map((m) => (
+                          <option key={m.id} value={m.id}>{m.nom}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowMarqueModal(true)}
+                      className="px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Facturation client pour devis / factures */}
+            <div className="border-t border-gray-100 pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
+                  Facturation client (devis / facture)
+                </h3>
+                <p className="text-xs text-gray-500">
+                  À remplir à chaque nouvelle collaboration, même si la marque existe déjà.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Raison sociale / Nom du client *
+                  </label>
+                  <input
+                    type="text"
+                    value={billingData.raisonSociale}
+                    onChange={(e) => setBillingData((prev) => ({ ...prev, raisonSociale: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                    placeholder="Ex : L'ORÉAL FRANCE SAS"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Adresse de facturation *</label>
+                    <input
+                      type="text"
+                      value={billingData.adresseRue}
+                      onChange={(e) => setBillingData((prev) => ({ ...prev, adresseRue: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                      placeholder="Rue et numéro"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Code postal *</label>
+                    <input
+                      type="text"
+                      value={billingData.codePostal}
+                      onChange={(e) => setBillingData((prev) => ({ ...prev, codePostal: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                      placeholder="75001"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Ville *</label>
+                    <input
+                      type="text"
+                      value={billingData.ville}
+                      onChange={(e) => setBillingData((prev) => ({ ...prev, ville: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                      placeholder="Paris"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Pays *</label>
+                    <input
+                      type="text"
+                      value={billingData.pays}
+                      onChange={(e) => setBillingData((prev) => ({ ...prev, pays: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                      placeholder="France"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      SIRET <span className="text-gray-400 text-xs">(recommandé)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={billingData.siret}
+                      onChange={(e) => setBillingData((prev) => ({ ...prev, siret: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                      placeholder="123 456 789 00010"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      N° TVA intracom <span className="text-gray-400 text-xs">(recommandé)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={billingData.numeroTVA}
+                      onChange={(e) => setBillingData((prev) => ({ ...prev, numeroTVA: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                      placeholder="FR 12 345678900"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
