@@ -1179,15 +1179,19 @@ export default function CollabDetailPage() {
                       <p className="text-sm text-gray-600 mt-0.5">
                         {renderCommentWithMentions(
                           c.content,
-                          new Map([
-                            ...mentionableUsers.map((u) => [
-                              u.id,
-                              { firstName: u.firstName, lastName: u.lastName },
-                            ]),
-                            ...(collab.comments || []).map((com) => [
-                              com.user.id,
-                              { firstName: com.user.prenom, lastName: com.user.nom },
-                            ]),
+                          new Map<string, { firstName: string; lastName: string }>([
+                            ...mentionableUsers.map(
+                              (u): [string, { firstName: string; lastName: string }] => [
+                                u.id,
+                                { firstName: u.firstName, lastName: u.lastName },
+                              ]
+                            ),
+                            ...(collab.comments || []).map(
+                              (com): [string, { firstName: string; lastName: string }] => [
+                                com.user.id,
+                                { firstName: com.user.prenom, lastName: com.user.nom },
+                              ]
+                            ),
                           ]),
                           (session?.user as { id?: string })?.id
                         )}
