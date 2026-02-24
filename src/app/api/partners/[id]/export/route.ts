@@ -43,8 +43,8 @@ export async function GET(
     // Feuille 1 : Talents
     const talentsSheet = workbook.addWorksheet("Talents");
     
-    // Titre principal
-    talentsSheet.mergeCells("A1:J1");
+    // Titre principal (ligne 1)
+    talentsSheet.mergeCells("A1:I1");
     const titleRow = talentsSheet.getRow(1);
     titleRow.height = 30;
     titleRow.getCell(1).value = "TALENTS";
@@ -64,21 +64,34 @@ export async function GET(
       horizontal: "center" 
     };
 
-    // En-têtes de colonnes
+    // En-têtes écrits en ligne 2 (sinon écrasés par le titre)
+    const talentsHeaders = [
+      "Prénom",
+      "Nom",
+      "Handle IG",
+      "Handle TT",
+      "Niches",
+      "IG Abonnés",
+      "IG Engagement %",
+      "TT Abonnés",
+      "TT Engagement %",
+    ];
     talentsSheet.columns = [
-      { header: "Prénom", key: "prenom", width: 18 },
-      { header: "Nom", key: "nom", width: 18 },
-      { header: "Handle IG", key: "handleIg", width: 22 },
-      { header: "Handle TT", key: "handleTt", width: 22 },
-      { header: "Niches", key: "niches", width: 35 },
-      { header: "IG Abonnés", key: "igFollowers", width: 16 },
-      { header: "IG Engagement %", key: "igEngagement", width: 18 },
-      { header: "TT Abonnés", key: "ttFollowers", width: 16 },
-      { header: "TT Engagement %", key: "ttEngagement", width: 18 },
-      { header: "Bio", key: "bio", width: 60 },
+      { key: "prenom", width: 18 },
+      { key: "nom", width: 18 },
+      { key: "handleIg", width: 22 },
+      { key: "handleTt", width: 22 },
+      { key: "niches", width: 35 },
+      { key: "igFollowers", width: 16 },
+      { key: "igEngagement", width: 18 },
+      { key: "ttFollowers", width: 16 },
+      { key: "ttEngagement", width: 18 },
     ];
 
     const headerRow = talentsSheet.getRow(2);
+    talentsHeaders.forEach((text, i) => {
+      headerRow.getCell(i + 1).value = text;
+    });
     headerRow.height = 25;
     headerRow.font = { 
       name: "Arial", 
@@ -107,11 +120,13 @@ export async function GET(
     });
 
     talentsList.forEach((talent, index) => {
+      const handleIg = talent.instagram?.replace("@", "") || "";
+      const handleTt = talent.tiktok?.replace("@", "") || "";
       const row = talentsSheet.addRow({
         prenom: talent.prenom,
         nom: talent.nom,
-        handleIg: talent.instagram?.replace("@", "") || "",
-        handleTt: talent.tiktok?.replace("@", "") || "",
+        handleIg,
+        handleTt,
         niches: (talent.niches || []).join(", "),
         igFollowers: talent.stats?.igFollowers || "",
         igEngagement: talent.stats?.igEngagement
@@ -121,9 +136,8 @@ export async function GET(
         ttEngagement: talent.stats?.ttEngagement
           ? `${Number(talent.stats.ttEngagement).toFixed(2)}%`
           : "",
-        bio: talent.presentation || "",
       });
-      
+
       // Style alterné pour les lignes
       const isEven = index % 2 === 0;
       row.fill = {
@@ -143,6 +157,18 @@ export async function GET(
         cell.font = { name: "Arial", size: 10 };
         cell.alignment = { vertical: "middle", wrapText: true };
       });
+
+      // Liens cliquables Instagram et TikTok (après eachCell pour garder le style)
+      if (handleIg) {
+        const cellIg = row.getCell("handleIg");
+        cellIg.value = { text: handleIg, hyperlink: `https://instagram.com/${handleIg}` };
+        cellIg.font = { name: "Arial", size: 10, color: { argb: "FFE4405F" }, underline: true };
+      }
+      if (handleTt) {
+        const cellTt = row.getCell("handleTt");
+        cellTt.value = { text: handleTt, hyperlink: `https://tiktok.com/@${handleTt}` };
+        cellTt.font = { name: "Arial", size: 10, color: { argb: "FF000000" }, underline: true };
+      }
       
       // Mise en forme spéciale pour les nombres
       if (talent.stats?.igFollowers) {
@@ -166,8 +192,8 @@ export async function GET(
     // Feuille 2 : Tarifs
     const tarifsSheet = workbook.addWorksheet("Tarifs");
     
-    // Titre principal
-    tarifsSheet.mergeCells("A1:J1");
+    // Titre principal (ligne 1) — ne pas écraser les en-têtes
+    tarifsSheet.mergeCells("A1:N1");
     const tarifsTitleRow = tarifsSheet.getRow(1);
     tarifsTitleRow.height = 30;
     tarifsTitleRow.getCell(1).value = "Nos tarifs";
@@ -187,20 +213,45 @@ export async function GET(
       horizontal: "center" 
     };
 
+    // Colonnes avec clés uniquement (en-têtes écrits manuellement en ligne 2)
+    const tarifsHeaders = [
+      "Prénom",
+      "Nom",
+      "Story Instagram",
+      "Post Instagram",
+      "Reel Instagram",
+      "Story Concours",
+      "Post Concours",
+      "Post Commun (UGC)",
+      "Vidéo TikTok",
+      "Vidéo YouTube",
+      "YouTube Short",
+      "Shooting photo",
+      "Event / Apparition",
+      "Ambassadeur",
+    ];
     tarifsSheet.columns = [
-      { header: "Prénom", key: "prenom", width: 18 },
-      { header: "Nom", key: "nom", width: 18 },
-      { header: "Story IG", key: "storyIg", width: 16 },
-      { header: "Post IG", key: "postIg", width: 16 },
-      { header: "Reel IG", key: "reelIg", width: 16 },
-      { header: "TikTok", key: "tiktok", width: 16 },
-      { header: "YouTube", key: "youtube", width: 16 },
-      { header: "Shooting", key: "shooting", width: 16 },
-      { header: "Event", key: "event", width: 16 },
-      { header: "Ambassadeur", key: "ambassadeur", width: 18 },
+      { key: "prenom", width: 18 },
+      { key: "nom", width: 18 },
+      { key: "storyIg", width: 18 },
+      { key: "postIg", width: 18 },
+      { key: "reelIg", width: 18 },
+      { key: "storyConcours", width: 18 },
+      { key: "postConcours", width: 18 },
+      { key: "postCommun", width: 18 },
+      { key: "tiktok", width: 18 },
+      { key: "youtube", width: 18 },
+      { key: "youtubeShort", width: 18 },
+      { key: "shooting", width: 18 },
+      { key: "event", width: 20 },
+      { key: "ambassadeur", width: 18 },
     ];
 
+    // Ligne 2 : en-têtes avec noms des livrables (sinon écrasés par le titre)
     const tarifsHeaderRow = tarifsSheet.getRow(2);
+    tarifsHeaders.forEach((text, i) => {
+      tarifsHeaderRow.getCell(i + 1).value = text;
+    });
     tarifsHeaderRow.height = 25;
     tarifsHeaderRow.font = { 
       name: "Arial", 
@@ -235,38 +286,30 @@ export async function GET(
       // Merger avec les overrides si ils existent
       const mergedTarifs = ov && defaultTarifs
         ? {
-            tarifStory: ov.tarifStory !== null && ov.tarifStory !== undefined
-              ? Number(ov.tarifStory)
-              : defaultTarifs.tarifStory ? Number(defaultTarifs.tarifStory) : null,
-            tarifPost: ov.tarifPost !== null && ov.tarifPost !== undefined
-              ? Number(ov.tarifPost)
-              : defaultTarifs.tarifPost ? Number(defaultTarifs.tarifPost) : null,
-            tarifReel: ov.tarifReel !== null && ov.tarifReel !== undefined
-              ? Number(ov.tarifReel)
-              : defaultTarifs.tarifReel ? Number(defaultTarifs.tarifReel) : null,
-            tarifTiktokVideo: ov.tarifTiktokVideo !== null && ov.tarifTiktokVideo !== undefined
-              ? Number(ov.tarifTiktokVideo)
-              : defaultTarifs.tarifTiktokVideo ? Number(defaultTarifs.tarifTiktokVideo) : null,
-            tarifYoutubeVideo: ov.tarifYoutubeVideo !== null && ov.tarifYoutubeVideo !== undefined
-              ? Number(ov.tarifYoutubeVideo)
-              : defaultTarifs.tarifYoutubeVideo ? Number(defaultTarifs.tarifYoutubeVideo) : null,
-            tarifShooting: ov.tarifShooting !== null && ov.tarifShooting !== undefined
-              ? Number(ov.tarifShooting)
-              : defaultTarifs.tarifShooting ? Number(defaultTarifs.tarifShooting) : null,
-            tarifEvent: ov.tarifEvent !== null && ov.tarifEvent !== undefined
-              ? Number(ov.tarifEvent)
-              : defaultTarifs.tarifEvent ? Number(defaultTarifs.tarifEvent) : null,
-            tarifAmbassadeur: ov.tarifAmbassadeur !== null && ov.tarifAmbassadeur !== undefined
-              ? Number(ov.tarifAmbassadeur)
-              : defaultTarifs.tarifAmbassadeur ? Number(defaultTarifs.tarifAmbassadeur) : null,
+            tarifStory: ov.tarifStory !== null && ov.tarifStory !== undefined ? Number(ov.tarifStory) : defaultTarifs.tarifStory ? Number(defaultTarifs.tarifStory) : null,
+            tarifPost: ov.tarifPost !== null && ov.tarifPost !== undefined ? Number(ov.tarifPost) : defaultTarifs.tarifPost ? Number(defaultTarifs.tarifPost) : null,
+            tarifReel: ov.tarifReel !== null && ov.tarifReel !== undefined ? Number(ov.tarifReel) : defaultTarifs.tarifReel ? Number(defaultTarifs.tarifReel) : null,
+            tarifStoryConcours: ov.tarifStoryConcours !== null && ov.tarifStoryConcours !== undefined ? Number(ov.tarifStoryConcours) : defaultTarifs.tarifStoryConcours ? Number(defaultTarifs.tarifStoryConcours) : null,
+            tarifPostConcours: ov.tarifPostConcours !== null && ov.tarifPostConcours !== undefined ? Number(ov.tarifPostConcours) : defaultTarifs.tarifPostConcours ? Number(defaultTarifs.tarifPostConcours) : null,
+            tarifPostCommun: ov.tarifPostCommun !== null && ov.tarifPostCommun !== undefined ? Number(ov.tarifPostCommun) : defaultTarifs.tarifPostCommun ? Number(defaultTarifs.tarifPostCommun) : null,
+            tarifTiktokVideo: ov.tarifTiktokVideo !== null && ov.tarifTiktokVideo !== undefined ? Number(ov.tarifTiktokVideo) : defaultTarifs.tarifTiktokVideo ? Number(defaultTarifs.tarifTiktokVideo) : null,
+            tarifYoutubeVideo: ov.tarifYoutubeVideo !== null && ov.tarifYoutubeVideo !== undefined ? Number(ov.tarifYoutubeVideo) : defaultTarifs.tarifYoutubeVideo ? Number(defaultTarifs.tarifYoutubeVideo) : null,
+            tarifYoutubeShort: ov.tarifYoutubeShort !== null && ov.tarifYoutubeShort !== undefined ? Number(ov.tarifYoutubeShort) : defaultTarifs.tarifYoutubeShort ? Number(defaultTarifs.tarifYoutubeShort) : null,
+            tarifShooting: ov.tarifShooting !== null && ov.tarifShooting !== undefined ? Number(ov.tarifShooting) : defaultTarifs.tarifShooting ? Number(defaultTarifs.tarifShooting) : null,
+            tarifEvent: ov.tarifEvent !== null && ov.tarifEvent !== undefined ? Number(ov.tarifEvent) : defaultTarifs.tarifEvent ? Number(defaultTarifs.tarifEvent) : null,
+            tarifAmbassadeur: ov.tarifAmbassadeur !== null && ov.tarifAmbassadeur !== undefined ? Number(ov.tarifAmbassadeur) : defaultTarifs.tarifAmbassadeur ? Number(defaultTarifs.tarifAmbassadeur) : null,
           }
         : defaultTarifs
           ? {
               tarifStory: defaultTarifs.tarifStory ? Number(defaultTarifs.tarifStory) : null,
               tarifPost: defaultTarifs.tarifPost ? Number(defaultTarifs.tarifPost) : null,
               tarifReel: defaultTarifs.tarifReel ? Number(defaultTarifs.tarifReel) : null,
+              tarifStoryConcours: defaultTarifs.tarifStoryConcours ? Number(defaultTarifs.tarifStoryConcours) : null,
+              tarifPostConcours: defaultTarifs.tarifPostConcours ? Number(defaultTarifs.tarifPostConcours) : null,
+              tarifPostCommun: defaultTarifs.tarifPostCommun ? Number(defaultTarifs.tarifPostCommun) : null,
               tarifTiktokVideo: defaultTarifs.tarifTiktokVideo ? Number(defaultTarifs.tarifTiktokVideo) : null,
               tarifYoutubeVideo: defaultTarifs.tarifYoutubeVideo ? Number(defaultTarifs.tarifYoutubeVideo) : null,
+              tarifYoutubeShort: defaultTarifs.tarifYoutubeShort ? Number(defaultTarifs.tarifYoutubeShort) : null,
               tarifShooting: defaultTarifs.tarifShooting ? Number(defaultTarifs.tarifShooting) : null,
               tarifEvent: defaultTarifs.tarifEvent ? Number(defaultTarifs.tarifEvent) : null,
               tarifAmbassadeur: defaultTarifs.tarifAmbassadeur ? Number(defaultTarifs.tarifAmbassadeur) : null,
@@ -276,30 +319,18 @@ export async function GET(
       const row = tarifsSheet.addRow({
         prenom: talent.prenom,
         nom: talent.nom,
-        storyIg: mergedTarifs?.tarifStory
-          ? `${mergedTarifs.tarifStory.toFixed(2)} €`
-          : "",
-        postIg: mergedTarifs?.tarifPost
-          ? `${mergedTarifs.tarifPost.toFixed(2)} €`
-          : "",
-        reelIg: mergedTarifs?.tarifReel
-          ? `${mergedTarifs.tarifReel.toFixed(2)} €`
-          : "",
-        tiktok: mergedTarifs?.tarifTiktokVideo
-          ? `${mergedTarifs.tarifTiktokVideo.toFixed(2)} €`
-          : "",
-        youtube: mergedTarifs?.tarifYoutubeVideo
-          ? `${mergedTarifs.tarifYoutubeVideo.toFixed(2)} €`
-          : "",
-        shooting: mergedTarifs?.tarifShooting
-          ? `${mergedTarifs.tarifShooting.toFixed(2)} €`
-          : "",
-        event: mergedTarifs?.tarifEvent
-          ? `${mergedTarifs.tarifEvent.toFixed(2)} €`
-          : "",
-        ambassadeur: mergedTarifs?.tarifAmbassadeur
-          ? `${mergedTarifs.tarifAmbassadeur.toFixed(2)} €`
-          : "",
+        storyIg: mergedTarifs?.tarifStory ? `${mergedTarifs.tarifStory.toFixed(2)} €` : "",
+        postIg: mergedTarifs?.tarifPost ? `${mergedTarifs.tarifPost.toFixed(2)} €` : "",
+        reelIg: mergedTarifs?.tarifReel ? `${mergedTarifs.tarifReel.toFixed(2)} €` : "",
+        storyConcours: mergedTarifs?.tarifStoryConcours ? `${mergedTarifs.tarifStoryConcours.toFixed(2)} €` : "",
+        postConcours: mergedTarifs?.tarifPostConcours ? `${mergedTarifs.tarifPostConcours.toFixed(2)} €` : "",
+        postCommun: mergedTarifs?.tarifPostCommun ? `${mergedTarifs.tarifPostCommun.toFixed(2)} €` : "",
+        tiktok: mergedTarifs?.tarifTiktokVideo ? `${mergedTarifs.tarifTiktokVideo.toFixed(2)} €` : "",
+        youtube: mergedTarifs?.tarifYoutubeVideo ? `${mergedTarifs.tarifYoutubeVideo.toFixed(2)} €` : "",
+        youtubeShort: mergedTarifs?.tarifYoutubeShort ? `${mergedTarifs.tarifYoutubeShort.toFixed(2)} €` : "",
+        shooting: mergedTarifs?.tarifShooting ? `${mergedTarifs.tarifShooting.toFixed(2)} €` : "",
+        event: mergedTarifs?.tarifEvent ? `${mergedTarifs.tarifEvent.toFixed(2)} €` : "",
+        ambassadeur: mergedTarifs?.tarifAmbassadeur ? `${mergedTarifs.tarifAmbassadeur.toFixed(2)} €` : "",
       });
       
       // Style alterné pour les lignes
@@ -323,7 +354,7 @@ export async function GET(
       });
       
       // Mise en forme spéciale pour les tarifs (en gras et couleur)
-      ["storyIg", "postIg", "reelIg", "tiktok", "youtube", "shooting", "event", "ambassadeur"].forEach((key) => {
+      ["storyIg", "postIg", "reelIg", "storyConcours", "postConcours", "postCommun", "tiktok", "youtube", "youtubeShort", "shooting", "event", "ambassadeur"].forEach((key) => {
         const cell = row.getCell(key);
         if (cell.value && cell.value !== "") {
           cell.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFB06F70" } };
