@@ -53,8 +53,9 @@ export async function PUT(
     }
 
     // Ne pas permettre la modification de documents validés/payés
-    // Les devis ENVOYES peuvent être modifiés (pas encore signés)
-    if (["VALIDE", "PAYE"].includes(document.statut)) {
+    // ⚠️ Exception : on autorise désormais la modification des DEVIS même en statut VALIDE
+    // Pour les FACTURES / AVOIRS / BDC, on bloque toujours une fois validés ou payés
+    if (document.type !== "DEVIS" && ["VALIDE", "PAYE"].includes(document.statut)) {
       return NextResponse.json(
         { error: "Impossible de modifier un document validé ou payé" },
         { status: 400 }

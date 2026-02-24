@@ -487,20 +487,24 @@ export function FactureTemplate({ data }: { data: FactureData }) {
         
         {/* Mention TVA (régime spécial) */}
         {data.mentionTVA && (
-          <View style={{ 
-            marginTop: 10,
-            padding: 8,
-            backgroundColor: "#FFF3CD",
-            borderLeftWidth: 3,
-            borderLeftColor: COLORS.oldRose,
-            borderLeftStyle: "solid"
-          }}>
-            <Text style={{ 
-              fontSize: 8,
-              color: "#856404",
-              fontWeight: "bold"
-            }}>
-              ℹ️ Régime de TVA : {data.mentionTVA}
+          <View
+            style={{
+              marginTop: 10,
+              padding: 8,
+              backgroundColor: "#FFF3CD",
+              borderLeftWidth: 3,
+              borderLeftColor: COLORS.oldRose,
+              borderLeftStyle: "solid",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 8,
+                color: "#856404",
+                fontWeight: "bold",
+              }}
+            >
+              Régime de TVA applicable : {data.mentionTVA}
             </Text>
           </View>
         )}

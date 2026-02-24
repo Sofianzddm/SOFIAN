@@ -49,7 +49,7 @@ export const MENTIONS_TVA: Record<TypeTVA, { tauxTVA: number; mention: string | 
   // 🇫🇷 Client France : TVA à facturer (20 %), tu collectes la TVA
   FRANCE: {
     tauxTVA: 20,
-    mention: "TVA française normale",
+    mention: "TVA française au taux normal (20 %)",
   },
   // 🇪🇺 Client UE avec n° TVA valide : autoliquidation (mention + n° TVA client ajouté à la génération)
   EU_INTRACOM: {
@@ -59,7 +59,7 @@ export const MENTIONS_TVA: Record<TypeTVA, { tauxTVA: number; mention: string | 
   // Client UE sans n° TVA : TVA française applicable
   EU_SANS_TVA: {
     tauxTVA: 20,
-    mention: "TVA française normale",
+    mention: "TVA française au taux normal (20 %)",
   },
   // 🌍 Client hors UE : TVA non applicable
   HORS_EU: {

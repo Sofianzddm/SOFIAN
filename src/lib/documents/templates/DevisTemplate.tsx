@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     color: "#666666",
   },
   
-  // Totaux
+  // Totaux (wrap: false en JSX pour ne jamais couper le carré entre deux pages)
   totauxBox: {
     marginLeft: "auto",
     width: 250,
@@ -209,6 +209,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.oldRose,
     borderStyle: "solid",
+  },
+  totauxWrapper: {
+    // Conteneur pour garder le carré d'un bloc (remonte si coupé)
+    marginTop: 10,
+    marginBottom: 5,
   },
   
   totalRow: {
@@ -538,23 +543,49 @@ export function DevisTemplate({ data }: { data: DevisData }) {
         
         {/* Mention TVA (régime spécial) */}
         {data.mentionTVA && (
-          <View style={{ 
-            marginTop: 10,
-            padding: 8,
-            backgroundColor: "#FFF3CD",
-            borderLeftWidth: 3,
-            borderLeftColor: COLORS.oldRose,
-            borderLeftStyle: "solid"
-          }}>
-            <Text style={{ 
-              fontSize: 8,
-              color: "#856404",
-              fontWeight: "bold"
-            }}>
-              ℹ️ Régime de TVA : {data.mentionTVA}
+          <View
+            style={{
+              marginTop: 10,
+              padding: 8,
+              backgroundColor: "#FFF3CD",
+              borderLeftWidth: 3,
+              borderLeftColor: COLORS.oldRose,
+              borderLeftStyle: "solid",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 8,
+                color: "#856404",
+                fontWeight: "bold",
+              }}
+            >
+              Régime de TVA applicable : {data.mentionTVA}
             </Text>
           </View>
         )}
+        
+        {/* Totaux (carré remonté : juste après récap TVA, jamais coupé entre deux pages) */}
+        <View style={styles.totauxWrapper} wrap={false}>
+          <View style={styles.totauxBox}>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>TOTAL HT</Text>
+              <Text style={styles.totalValue}>{formatMoney(data.montantHT)}</Text>
+            </View>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total TVA</Text>
+              <Text style={styles.totalValue}>{formatMoney(data.montantTVA)}</Text>
+            </View>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>TOTAL TTC</Text>
+              <Text style={styles.totalValue}>{formatMoney(data.montantTTC)}</Text>
+            </View>
+            <View style={styles.netPayerRow}>
+              <Text style={styles.netPayerLabel}>NET À PAYER</Text>
+              <Text style={styles.netPayerValue}>{formatMoney(data.montantTTC)}</Text>
+            </View>
+          </View>
+        </View>
         
         {/* Section Conditions */}
         <View style={{ 
@@ -595,26 +626,6 @@ export function DevisTemplate({ data }: { data: DevisData }) {
           <View style={styles.signatureBox}>
             <Text style={styles.signatureLabel}>Bon pour accord le :</Text>
             <Text style={styles.signatureText}>Signature du client</Text>
-          </View>
-        </View>
-        
-        {/* Totaux */}
-        <View style={styles.totauxBox}>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>TOTAL HT</Text>
-            <Text style={styles.totalValue}>{formatMoney(data.montantHT)}</Text>
-          </View>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total TVA</Text>
-            <Text style={styles.totalValue}>{formatMoney(data.montantTVA)}</Text>
-          </View>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>TOTAL TTC</Text>
-            <Text style={styles.totalValue}>{formatMoney(data.montantTTC)}</Text>
-          </View>
-          <View style={styles.netPayerRow}>
-            <Text style={styles.netPayerLabel}>NET À PAYER</Text>
-            <Text style={styles.netPayerValue}>{formatMoney(data.montantTTC)}</Text>
           </View>
         </View>
         
