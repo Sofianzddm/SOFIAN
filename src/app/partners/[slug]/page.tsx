@@ -1882,14 +1882,16 @@ export default function PartnerTalentBookPage() {
             </div>
 
             <div className="max-w-6xl mx-auto text-center px-2 sm:px-4 pt-12 sm:pt-14 md:pt-0">
-              {/* Notre logo × logo partenaire — même hauteur, petit et équilibré */}
-              <div className="flex items-center justify-center gap-2 sm:gap-3 mb-4 sm:mb-6">
-                <div className="h-6 sm:h-7 md:h-8 flex items-center shrink-0">
+              {/* Notre logo au dessus, séparateur ×, logo partenaire en dessous, centrés */}
+              <div className="flex flex-col items-center justify-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+                <div className="h-7 sm:h-8 md:h-9 flex items-center shrink-0">
                   <GlowUpLogo className="h-full w-auto" color="#ffffff" />
                 </div>
-                <span className="text-[#F5EDE0]/50 text-xs sm:text-sm select-none" aria-hidden>×</span>
+                <span className="text-[#F5EDE0]/50 text-xs sm:text-sm select-none" aria-hidden>
+                  ×
+                </span>
                 {partner?.logo ? (
-                  <div className="h-6 sm:h-7 md:h-8 flex items-center shrink-0 max-w-[120px] sm:max-w-[160px] bg-white/90 rounded-md px-3 py-1 shadow-sm">
+                  <div className="h-10 sm:h-11 md:h-12 flex items-center shrink-0 max-w-[180px] sm:max-w-[220px] bg-white/90 rounded-md px-4 py-2 shadow-sm">
                     <img
                       src={partner.logo}
                       alt={partner.name}
