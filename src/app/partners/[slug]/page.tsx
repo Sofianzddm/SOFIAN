@@ -1891,7 +1891,7 @@ export default function PartnerTalentBookPage() {
                   ×
                 </span>
                 {partner?.logo ? (
-                  <div className="h-10 sm:h-11 md:h-12 flex items-center shrink-0 max-w-[180px] sm:max-w-[220px] bg-white/90 rounded-md px-4 py-2 shadow-sm">
+                  <div className="h-16 sm:h-20 md:h-24 flex items-center shrink-0 max-w-[320px] sm:max-w-[380px] bg-white/95 rounded-lg px-7 py-4 shadow-md">
                     <img
                       src={partner.logo}
                       alt={partner.name}
