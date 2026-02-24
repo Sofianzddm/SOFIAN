@@ -63,6 +63,7 @@ export async function GET() {
         performanceTM,
         facturesRelance,
         negociationsSansReponse,
+        facturesTalentAValider,
       ] = await Promise.all([
         prisma.talent.count(),
         prisma.marque.count(),
@@ -165,6 +166,18 @@ export async function GET() {
           },
           orderBy: { lastModifiedAt: "asc" },
         }),
+        prisma.collaboration.findMany({
+          where: {
+            factureTalentUrl: { not: null },
+            factureValidee: false,
+          },
+          include: {
+            talent: { select: { prenom: true, nom: true } },
+            marque: { select: { nom: true } },
+          },
+          orderBy: { factureTalentRecueAt: "desc" },
+          take: 10,
+        }),
       ]);
 
       // CA / commissions : date de référence = datePublication si présente, sinon createdAt
@@ -259,6 +272,13 @@ export async function GET() {
           id: m.marqueId,
           nom: marquesMap[m.marqueId]?.nom || "Inconnue",
           ca: Number(m._sum.montantBrut) || 0,
+        })),
+        facturesTalentAValider: facturesTalentAValider.map((c) => ({
+          id: c.id,
+          reference: c.reference,
+          talent: `${c.talent.prenom} ${c.talent.nom}`,
+          marque: c.marque.nom,
+          factureTalentRecueAt: c.factureTalentRecueAt?.toISOString() ?? null,
         })),
         tmPerformance,
         negociationsSansReponse: negociationsSansReponse.map((n) => {

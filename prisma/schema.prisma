@@ -161,6 +161,7 @@ enum TypeNotification {
   FACTURE_RELANCE
   COLLAB_GAGNEE
   PAIEMENT_RECU
+  MENTION
   GENERAL
 }
 
@@ -201,6 +202,8 @@ model User {
   quotesCreated         Quote[]
   documentEvents        DocumentEvent[]
   documentComments      DocumentComment[]
+  collaborationComments CollaborationComment[]
+  notifications         Notification[]
   
   @@map("users")
 }
@@ -610,7 +613,8 @@ model Collaboration {
   factureValidee        Boolean   @default(false)
   factureValideeAt      DateTime?
   
-  paidAt            DateTime?
+  marquePayeeAt     DateTime?   // Date à laquelle la marque (client) nous a payés
+  paidAt            DateTime?   // Date à laquelle nous avons payé le talent
   
   isLongTerme       Boolean   @default(false)
   
@@ -624,12 +628,42 @@ model Collaboration {
   cycles            CollabCycle[]
   documents         Document[]
   quotes            Quote[]
+  comments          CollaborationComment[]
   
   @@index([talentId])
   @@index([marqueId])
   @@index([statut])
   @@index([accountManagerId])
   @@map("collaborations")
+}
+
+// Commentaires sur les collaborations (conversation interne)
+model CollaborationComment {
+  id              String   @id @default(cuid())
+  collaborationId String
+  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  content         String   @db.Text
+  mentions        CollabCommentMention[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([collaborationId])
+  @@map("collaboration_comments")
+}
+
+model CollabCommentMention {
+  id          String   @id @default(cuid())
+  commentId   String
+  comment     CollaborationComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId      String
+  mentionedBy String
+  createdAt   DateTime @default(now())
+
+  @@unique([commentId, userId])
+  @@index([userId])
+  @@map("collab_comment_mentions")
 }
 
 // ============================================
@@ -870,11 +904,27 @@ model DocumentComment {
   userId      String
   user        User      @relation(fields: [userId], references: [id])
 
+  mentions    Mention[]
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([documentId])
   @@index([quoteId])
+}
+
+// Mentions @user dans les commentaires (pour notifications)
+model Mention {
+  id          String   @id @default(cuid())
+  commentId   String
+  comment     DocumentComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId      String   // Utilisateur mentionné
+  mentionedBy String   // Qui a mentionné (userId)
+  createdAt   DateTime @default(now())
+
+  @@unique([commentId, userId])
+  @@index([userId])
+  @@map("mentions")
 }
 
 // ============================================
@@ -902,6 +952,7 @@ model Notification {
   id            String           @id @default(cuid())
   
   userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   type          TypeNotification @default(GENERAL)
   
@@ -911,6 +962,8 @@ model Notification {
   lu            Boolean          @default(false)
   luAt          DateTime?
   
+  actorId       String?          // Qui a déclenché la notif (ex. qui a mentionné)
+  
   marqueId      String?
   talentId      String?
   collabId      String?
@@ -919,6 +972,7 @@ model Notification {
   
   @@index([userId])
   @@index([userId, lu])
+  @@index([userId, createdAt])
   @@index([type])
   @@map("notifications")
 }

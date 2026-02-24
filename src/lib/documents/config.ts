@@ -42,25 +42,29 @@ En cas de retard de paiement, application d'une indemnité forfaitaire pour frai
   },
 };
 
-// Mentions TVA selon le type de client
+// Mentions TVA selon le type de client (obligatoires sur facture / devis)
 export type TypeTVA = "FRANCE" | "EU_INTRACOM" | "EU_SANS_TVA" | "HORS_EU";
 
 export const MENTIONS_TVA: Record<TypeTVA, { tauxTVA: number; mention: string | null }> = {
+  // 🇫🇷 Client France : TVA à facturer (20 %), tu collectes la TVA
   FRANCE: {
     tauxTVA: 20,
-    mention: null,
+    mention: "TVA française normale",
   },
+  // 🇪🇺 Client UE avec n° TVA valide : autoliquidation (mention + n° TVA client ajouté à la génération)
   EU_INTRACOM: {
     tauxTVA: 0,
-    mention: "Autoliquidation de la TVA - Article 283-2 du CGI",
+    mention: "Autoliquidation – article 44 directive 2006/112/CE",
   },
+  // Client UE sans n° TVA : TVA française applicable
   EU_SANS_TVA: {
     tauxTVA: 20,
-    mention: null,
+    mention: "TVA française normale",
   },
+  // 🌍 Client hors UE : TVA non applicable
   HORS_EU: {
     tauxTVA: 0,
-    mention: "Exonération de TVA - Article 259 B du CGI",
+    mention: "TVA non applicable – article 259-1 du CGI",
   },
 };
 
@@ -176,6 +180,17 @@ export function getTypeTVA(pays: string, tvaIntracom: string | null): TypeTVA {
 
   // Hors EU
   return "HORS_EU";
+}
+
+/** Construit la mention TVA à enregistrer sur le document (devis/facture). Pour EU_INTRACOM, ajoute le n° TVA client. */
+export function getMentionTVA(typeTVA: TypeTVA, numeroTVAClient: string | null): string | null {
+  const config = MENTIONS_TVA[typeTVA];
+  const base = config.mention;
+  if (!base) return null;
+  if (typeTVA === "EU_INTRACOM" && numeroTVAClient?.trim()) {
+    return `${base} – N° TVA client : ${numeroTVAClient.trim()}`;
+  }
+  return base;
 }
 
 // CGV complètes

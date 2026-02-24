@@ -28,7 +28,7 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { datePaiement, referencePaiement, modePaiement } = body;
+    const { datePaiement, referencePaiement, modePaiement, collaborationId: bodyCollaborationId } = body;
 
     // Récupérer le document
     const document = await prisma.document.findUnique({
@@ -77,19 +77,36 @@ export async function POST(
       },
     });
 
-    // Si lié à une collaboration, mettre à jour son statut
-    if (document.collaborationId) {
+    // Récupérer la collaboration liée (document, relecture DB, ou envoyée par le front)
+    const docWithCollab = await prisma.document.findUnique({
+      where: { id },
+      select: { collaborationId: true },
+    });
+    let collaborationId =
+      docWithCollab?.collaborationId ?? document.collaborationId ?? bodyCollaborationId ?? null;
+    if (!collaborationId) {
+      const byDocId = await prisma.collaboration.findFirst({
+        where: { documents: { some: { id } } },
+        select: { id: true },
+      });
+      collaborationId = byDocId?.id ?? null;
+    }
+    if (collaborationId && !docWithCollab?.collaborationId) {
+      await prisma.document.update({
+        where: { id },
+        data: { collaborationId },
+      });
+    }
+
+    if (collaborationId) {
+      const dateMarquePayee = datePaiement ? new Date(datePaiement) : new Date();
       await prisma.collaboration.update({
-        where: { id: document.collaborationId },
-        data: { 
-          statut: "PAYE",
-          paidAt: new Date(),
-        },
+        where: { id: collaborationId },
+        data: { marquePayeeAt: dateMarquePayee },
       });
 
-      // Créer une notification pour le TM
       const collab = await prisma.collaboration.findUnique({
-        where: { id: document.collaborationId },
+        where: { id: collaborationId },
         include: { talent: true },
       });
 
@@ -100,8 +117,8 @@ export async function POST(
             type: "PAIEMENT_RECU",
             titre: "Paiement reçu",
             message: `Le paiement de la facture ${document.reference} a été reçu.`,
-            lien: `/collaborations/${document.collaborationId}`,
-            collabId: document.collaborationId,
+            lien: `/collaborations/${collaborationId}`,
+            collabId: collaborationId,
           },
         });
       }
@@ -115,6 +132,7 @@ export async function POST(
         statut: updatedDocument.statut,
         datePaiement: updatedDocument.datePaiement,
       },
+      collaborationId: collaborationId ?? undefined,
     });
   } catch (error) {
     console.error("Erreur marquage paiement:", error);

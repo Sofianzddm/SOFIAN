@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getTypeTVA, MENTIONS_TVA } from "@/lib/documents/config";
+import { getTypeTVA, getMentionTVA, MENTIONS_TVA } from "@/lib/documents/config";
 
 export async function PUT(
   request: NextRequest,
@@ -88,7 +88,8 @@ export async function PUT(
 
     const configTVA = MENTIONS_TVA[typeTVA as keyof typeof MENTIONS_TVA];
     const tauxTVA = configTVA.tauxTVA;
-    const mentionTVA = configTVA.mention;
+    const marque = document.collaboration?.marque;
+    const mentionTVA = getMentionTVA(typeTVA as import("@/lib/documents/config").TypeTVA, marque?.numeroTVA || null);
 
     // Recalculer les montants
     let montantHT = document.montantHT;

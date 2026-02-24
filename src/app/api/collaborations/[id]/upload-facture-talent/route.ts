@@ -139,7 +139,7 @@ export async function POST(
     // 11. Créer une notification pour le TM et ADMIN
     const notifications = [];
 
-    // Notification au manager du talent
+    // Notification au manager du talent (collabId pour permettre "Marquer conforme" depuis les notifs)
     if (collaboration.talent.manager) {
       notifications.push(
         prisma.notification.create({
@@ -149,12 +149,13 @@ export async function POST(
             titre: "📤 Facture talent reçue",
             message: `${collaboration.talent.prenom} ${collaboration.talent.nom} a uploadé sa facture pour la collaboration ${collaboration.reference} (${collaboration.marque.nom})`,
             lien: `/collaborations/${id}`,
+            collabId: id,
           },
         })
       );
     }
 
-    // Notification aux ADMIN (ex: Maud)
+    // Notification aux ADMIN (ex: Maud) — collabId pour afficher le bouton "Marquer conforme"
     const admins = await prisma.user.findMany({
       where: { 
         role: "ADMIN",
@@ -172,6 +173,7 @@ export async function POST(
             titre: "📤 Facture talent reçue",
             message: `${collaboration.talent.prenom} ${collaboration.talent.nom} a uploadé sa facture pour ${collaboration.reference} (${collaboration.marque.nom})`,
             lien: `/collaborations/${id}`,
+            collabId: id,
           },
         })
       );

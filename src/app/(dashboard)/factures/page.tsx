@@ -954,14 +954,16 @@ export default function FacturesPage() {
                     {bulkActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     Envoyer
                   </button>
-                  <button
-                    onClick={handleBulkMarquerPaye}
-                    disabled={bulkActionLoading}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-medium disabled:opacity-50"
-                  >
-                    {bulkActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    Marquer payé
-                  </button>
+                  {role === "ADMIN" && (
+                    <button
+                      onClick={handleBulkMarquerPaye}
+                      disabled={bulkActionLoading}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-medium disabled:opacity-50"
+                    >
+                      {bulkActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      Marquer payé
+                    </button>
+                  )}
                 </>
               ) : (
                 <button

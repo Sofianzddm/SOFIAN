@@ -52,6 +52,12 @@ export async function GET(
           },
           orderBy: { createdAt: "desc" },
         },
+        comments: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            user: { select: { id: true, prenom: true, nom: true } },
+          },
+        },
       },
     });
 
@@ -59,7 +65,13 @@ export async function GET(
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
-    return NextResponse.json(collaboration);
+    // S'assurer que marquePayeeAt et paidAt sont bien envoyés au front (paiements)
+    const payload = {
+      ...collaboration,
+      marquePayeeAt: collaboration.marquePayeeAt != null ? collaboration.marquePayeeAt : null,
+      paidAt: collaboration.paidAt != null ? collaboration.paidAt : null,
+    };
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Erreur GET collaboration:", error);
     return NextResponse.json({ message: "Erreur" }, { status: 500 });
@@ -81,11 +93,11 @@ export async function PATCH(
     const { id } = await params;
     const data = await request.json();
 
-    // Vérifier les permissions pour le statut "PAYE"
-    if (data.statut === "PAYE") {
+    // Vérifier les permissions pour le statut "PAYE" et marquePayeeAt (ADMIN uniquement)
+    if (data.statut === "PAYE" || data.marquePayeeAt !== undefined) {
       if (userRole !== "ADMIN") {
-        return NextResponse.json({ 
-          error: "Seuls les ADMIN peuvent marquer une collaboration comme payée" 
+        return NextResponse.json({
+          error: "Seuls les ADMIN peuvent enregistrer les paiements (marque ou talent)",
         }, { status: 403 });
       }
     }
@@ -101,6 +113,7 @@ export async function PATCH(
     if (data.lienPublication !== undefined) updateData.lienPublication = data.lienPublication;
     if (data.datePublication !== undefined) updateData.datePublication = new Date(data.datePublication);
     if (data.statut === "PAYE") updateData.paidAt = new Date();
+    if (data.marquePayeeAt !== undefined) updateData.marquePayeeAt = data.marquePayeeAt ? new Date(data.marquePayeeAt) : null;
 
     const collaboration = await prisma.collaboration.update({
       where: { id: id },
@@ -148,6 +161,20 @@ export async function PATCH(
       },
     });
 
+    // Si on marque "marque a payé", mettre à jour la facture client liée (si elle existe)
+    if (data.marquePayeeAt) {
+      const facture = await prisma.document.findFirst({
+        where: { collaborationId: id, type: "FACTURE", statut: { not: "ANNULE" } },
+        orderBy: { createdAt: "desc" },
+      });
+      if (facture && facture.statut !== "PAYE") {
+        await prisma.document.update({
+          where: { id: facture.id },
+          data: { statut: "PAYE" as any, datePaiement: new Date() },
+        });
+      }
+    }
+
     // 🔔 NOTIFICATION : Si la collaboration passe en PUBLIE, notifier le talent
     if (data.statut === "PUBLIE" && collaboration.talent.userId) {
       try {
@@ -164,7 +191,24 @@ export async function PATCH(
         console.log(`✅ Notification envoyée au talent ${collaboration.talent.prenom} pour collab publiée`);
       } catch (notifError) {
         console.error("❌ Erreur création notification PUBLIE:", notifError);
-        // On ne bloque pas la mise à jour si la notification échoue
+      }
+    }
+
+    // 🔔 NOTIFICATION : Si on marque "Talent payé", notifier le talent
+    if (data.statut === "PAYE" && collaboration.talent.userId) {
+      try {
+        await prisma.notification.create({
+          data: {
+            userId: collaboration.talent.userId,
+            type: "PAIEMENT_RECU",
+            titre: "💰 Paiement reçu !",
+            message: `Votre collaboration ${collaboration.reference} avec ${collaboration.marque.nom} a été réglée.`,
+            lien: `/talent/collaborations`,
+            collabId: collaboration.id,
+          },
+        });
+      } catch (notifError) {
+        console.error("❌ Erreur création notification PAIEMENT_RECU:", notifError);
       }
     }
 

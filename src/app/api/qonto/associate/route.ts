@@ -112,32 +112,23 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Si la facture est liée à une collaboration, marquer la collab comme PAYÉE
-    if (document.collaboration) {
+    // Rapprochement = la marque nous a payés (marquePayeeAt) ; talent payé reste à faire à part
+    let collaborationUpdated: { id: string; reference: string } | null = null;
+    if (document.collaborationId && document.collaboration) {
       await prisma.collaboration.update({
-        where: { id: document.collaboration.id },
+        where: { id: document.collaborationId },
         data: {
-          statut: "PAYE",
-          paidAt: transaction.dateTransaction,
+          marquePayeeAt: transaction.dateTransaction,
         },
       });
-
-      // Notifier le talent (si existe)
-      if (document.collaboration.talent.userId) {
-        await prisma.notification.create({
-          data: {
-            userId: document.collaboration.talent.userId,
-            type: "PAIEMENT_RECU",
-            titre: "💰 Paiement reçu !",
-            message: `Votre collaboration ${document.collaboration.reference} avec ${document.collaboration.marque.nom} a été payée (${Number(transaction.montant).toFixed(2)}€)`,
-            lien: `/collaborations/${document.collaboration.id}`,
-            collabId: document.collaboration.id,
-          },
-        });
-      }
+      collaborationUpdated = {
+        id: document.collaboration.id,
+        reference: document.collaboration.reference,
+      };
+      // Pas de notification talent ici : on a seulement enregistré que la marque nous a payés
     }
 
-    console.log(`✅ Association réussie + facture et collab marquées comme PAYÉES`);
+    console.log(`✅ Association réussie : facture payée par la marque (marquePayeeAt)`);
 
     return NextResponse.json({
       success: true,
@@ -151,6 +142,7 @@ export async function POST(request: NextRequest) {
         reference: document.reference,
         statut: "PAYE",
       },
+      collaboration: collaborationUpdated,
     });
   } catch (error) {
     console.error("❌ Erreur POST /api/qonto/associate:", error);

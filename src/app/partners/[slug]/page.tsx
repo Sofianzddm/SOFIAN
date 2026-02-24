@@ -1889,11 +1889,17 @@ export default function PartnerTalentBookPage() {
                 </div>
                 <span className="text-[#F5EDE0]/50 text-xs sm:text-sm select-none" aria-hidden>×</span>
                 {partner?.logo ? (
-                  <div className="h-6 sm:h-7 md:h-8 flex items-center shrink-0 max-w-[120px] sm:max-w-[160px]">
-                    <img src={partner.logo} alt={partner.name} className="h-full w-auto object-contain object-center brightness-0 invert" />
+                  <div className="h-6 sm:h-7 md:h-8 flex items-center shrink-0 max-w-[120px] sm:max-w-[160px] bg-white/90 rounded-md px-3 py-1 shadow-sm">
+                    <img
+                      src={partner.logo}
+                      alt={partner.name}
+                      className="h-full w-auto object-contain object-center"
+                    />
                   </div>
                 ) : (
-                  <span className="text-[#F5EDE0]/90 text-xs sm:text-sm font-spectral-light truncate max-w-[140px] sm:max-w-none">{partner?.name}</span>
+                  <span className="text-[#F5EDE0]/90 text-xs sm:text-sm font-spectral-light truncate max-w-[140px] sm:max-w-none">
+                    {partner?.name}
+                  </span>
                 )}
               </div>
               {partner?.message && (

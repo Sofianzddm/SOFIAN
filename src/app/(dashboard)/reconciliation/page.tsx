@@ -114,12 +114,16 @@ export default function ReconciliationPage() {
         body: JSON.stringify({ transactionId, documentId: factureId }),
       });
 
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         await fetchData();
         setExpandedId(null);
+        const msg = data.collaboration
+          ? `Facture rapprochée. Marque marquée comme nous ayant payés (${data.collaboration.reference}). Pensez à « Nous avons payé le talent » une fois le talent réglé.`
+          : "Paiement associé avec succès.";
+        alert(msg);
       } else {
-        const error = await res.json();
-        alert(error.error || "Erreur lors de l'association");
+        alert(data.error || "Erreur lors de l'association");
       }
     } catch (error) {
       console.error("Erreur association:", error);

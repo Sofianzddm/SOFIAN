@@ -3,6 +3,12 @@
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
+import {
+  MentionTextarea,
+  renderCommentWithMentions,
+  type MentionableUser,
+} from "@/components/MentionTextarea";
 import {
   ArrowLeft,
   Loader2,
@@ -200,6 +206,8 @@ export default function FactureDetailPage() {
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentContent, setCommentContent] = useState("");
   const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
+  const { data: session } = useSession();
   const sendRef = useRef<HTMLDivElement>(null);
   const downloadRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -223,6 +231,21 @@ export default function FactureDetailPage() {
       setLoading(false);
     }
   }, [id]);
+
+  useEffect(() => {
+    const fetchMentionable = async () => {
+      try {
+        const r = await fetch("/api/users/mentionable");
+        if (r.ok) {
+          const data = await r.json();
+          setMentionableUsers(data);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    if (session?.user) fetchMentionable();
+  }, [session?.user]);
 
   useEffect(() => {
     fetchDoc();
@@ -276,7 +299,10 @@ export default function FactureDetailPage() {
       const r = await fetch(`/api/documents/${id}/payer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ datePaiement: new Date().toISOString() }),
+        body: JSON.stringify({
+          datePaiement: new Date().toISOString(),
+          ...(doc?.collaboration?.id && { collaborationId: doc.collaboration.id }),
+        }),
       });
       const data = await r.json();
       if (!r.ok) {
@@ -287,7 +313,7 @@ export default function FactureDetailPage() {
     } finally {
       setActionLoading(null);
     }
-  }, [id, fetchDoc]);
+  }, [id, doc, fetchDoc]);
 
   const handlePayerWithModal = useCallback(async () => {
     if (!id || !doc) return;
@@ -301,6 +327,7 @@ export default function FactureDetailPage() {
           datePaiement: paymentDate ? new Date(paymentDate).toISOString() : new Date().toISOString(),
           referencePaiement: paymentRef || undefined,
           modePaiement: paymentMode || undefined,
+          ...(doc?.collaboration?.id && { collaborationId: doc.collaboration.id }),
         }),
       });
       const data = await r.json();
@@ -506,7 +533,7 @@ export default function FactureDetailPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {!isCancelled && doc.statut !== "PAYE" && (
+              {!isCancelled && doc.statut !== "PAYE" && (session?.user as { role?: string })?.role === "ADMIN" && (
                 <button
                   type="button"
                   onClick={() => setPaymentModalOpen(true)}
@@ -637,7 +664,8 @@ export default function FactureDetailPage() {
                 {PIPELINE_STEPS.map((step, i) => {
                   const isDone = currentStepIndex > i;
                   const isActive = doc.statut === step.key;
-                  const isClickable = currentStepIndex < i;
+                  const isAdmin = (session?.user as { role?: string })?.role === "ADMIN";
+                  const isClickable = currentStepIndex < i && (step.key !== "PAYE" || isAdmin);
                   return (
                     <div key={step.key} className="flex items-center flex-1 min-w-0">
                       <button
@@ -1042,12 +1070,12 @@ export default function FactureDetailPage() {
             </div>
             {commentOpen && (
               <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-                <textarea
+                <MentionTextarea
                   value={commentContent}
-                  onChange={(e) => setCommentContent(e.target.value)}
-                  placeholder="Votre commentaire..."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none min-h-[80px]"
+                  onChange={setCommentContent}
+                  placeholder="Votre commentaire... (tapez @ pour mentionner)"
                   rows={3}
+                  mentionableUsers={mentionableUsers}
                 />
                 <div className="flex justify-end gap-2 mt-2">
                   <button
@@ -1080,7 +1108,25 @@ export default function FactureDetailPage() {
                         {c.user.prenom} {c.user.nom}
                         <span className="text-gray-400 font-normal ml-2">{formatRelative(c.createdAt)}</span>
                       </p>
-                      <p className="text-sm text-gray-600 mt-0.5">{c.content}</p>
+                      <p className="text-sm text-gray-600 mt-0.5">
+                        {renderCommentWithMentions(
+                          c.content,
+                          new Map([
+                            ...mentionableUsers.map((u) => [
+                              u.id,
+                              { firstName: u.firstName, lastName: u.lastName },
+                            ]),
+                            ...(doc.comments || []).map((c) => [
+                              c.user.id,
+                              {
+                                firstName: c.user.prenom,
+                                lastName: c.user.nom,
+                              },
+                            ]),
+                          ]),
+                          (session?.user as { id?: string })?.id
+                        )}
+                      </p>
                     </div>
                   </div>
                 ))

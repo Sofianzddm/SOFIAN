@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
-import { getTypeTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
+import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
 
 interface LigneInput {
   description: string;
@@ -42,6 +42,8 @@ export async function POST(request: NextRequest) {
       commentaires,
       dateDocument,
       delaiPaiementJours = 30,
+      pays: paysClient, // optionnel : pays du client pour la TVA (sinon pris sur la marque)
+      numeroTVA: numeroTVAClient,
     } = body;
 
     // Validation
@@ -94,10 +96,13 @@ export async function POST(request: NextRequest) {
     // Générer le numéro de document
     const reference = await genererNumeroDocument(type as "DEVIS" | "FACTURE" | "BON_DE_COMMANDE" | "AVOIR");
 
-    // Calculer la TVA selon le type de client
-    const typeTVA = getTypeTVA(marque.pays || "France", marque.numeroTVA || null);
+    // Calculer la TVA : pays/numeroTVA du client (soumis au devis) ou de la marque
+    const paysPourTVA = paysClient ?? marque.pays ?? "France";
+    const numeroTVAPourTVA = numeroTVAClient ?? marque.numeroTVA ?? null;
+    const typeTVA = getTypeTVA(paysPourTVA, numeroTVAPourTVA);
     const configTVA = MENTIONS_TVA[typeTVA];
     const tauxTVA = configTVA.tauxTVA;
+    const mentionTVA = getMentionTVA(typeTVA, numeroTVAPourTVA);
 
     // Calculer les lignes et totaux
     const lignesCalculees = lignes.map((ligne: LigneInput) => ({
@@ -145,8 +150,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Devis : créés directement en "Enregistré" (VALIDE) ; factures/BDC en brouillon
-    const statutInitial = type === "DEVIS" ? "VALIDE" : "BROUILLON";
+    // Devis et factures : créés directement en "Enregistré" (VALIDE) ; BDC en brouillon
+    const statutInitial = type === "BON_DE_COMMANDE" ? "BROUILLON" : "VALIDE";
 
     const document = await prisma.document.create({
       data: {
@@ -160,12 +165,12 @@ export async function POST(request: NextRequest) {
         montantTVA: montantTVA as any, // Cast pour Decimal
         montantTTC: montantTTC as any, // Cast pour Decimal
         typeTVA,
-        mentionTVA: configTVA.mention,
+        mentionTVA,
         lignes: lignesCalculees as any, // Cast pour Json
         dateDocument: dateDoc,
         dateEmission: now,
         dateEcheance,
-        dateValidation: type === "DEVIS" ? now : null,
+        dateValidation: statutInitial === "VALIDE" ? now : null,
         poClient: poClient || null,
         modePaiement: "Virement bancaire",
         notes: commentaires || AGENCE_CONFIG.conditionsPaiement,
@@ -173,12 +178,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    if (type === "DEVIS") {
+    if (statutInitial === "VALIDE") {
       await prisma.documentEvent.create({
         data: {
           documentId: document.id,
           type: "REGISTERED",
-          description: "Enregistrement (création devis)",
+          description: type === "DEVIS" ? "Enregistrement (création devis)" : "Enregistrement (création facture)",
           userId: user.id,
         },
       });

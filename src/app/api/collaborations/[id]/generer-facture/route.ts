@@ -6,9 +6,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { FactureTemplate } from "@/lib/documents/templates/FactureTemplate";
 import type { FactureData, LigneFacture } from "@/lib/documents/templates/FactureTemplate";
 import { createElement } from "react";
-import path from "path";
-import fs from "fs/promises";
-import { getTypeTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
+import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
 
 export async function POST(
   request: NextRequest,
@@ -120,7 +118,8 @@ export async function POST(
 
     // Régime TVA selon pays + n° TVA (France 20%, UE avec n° TVA 0% autoliquidation, etc.)
     const typeTVA = getTypeTVA(billing.pays, billing.numeroTVA || null);
-    const { tauxTVA: tauxTVAApplicable, mention: mentionTVA } = MENTIONS_TVA[typeTVA];
+    const { tauxTVA: tauxTVAApplicable } = MENTIONS_TVA[typeTVA];
+    const mentionTVA = getMentionTVA(typeTVA, billing.numeroTVA || null);
     const montantTVA = montantHT * (tauxTVAApplicable / 100);
     const montantTTC = montantHT + montantTVA;
     // Aligner les lignes sur le taux applicable
@@ -167,20 +166,10 @@ export async function POST(
       notes: notes || undefined,
     };
 
-    // Générer le PDF
+    // Générer le PDF (en mémoire uniquement : pas d'écriture disque pour compatibilité production / serverless)
     const pdfBuffer = await renderToBuffer(createElement(FactureTemplate, { data: factureData }) as any);
 
-    // Sauvegarder le fichier
-    const uploadDir = path.join(process.cwd(), "public/documents/factures");
-    await fs.mkdir(uploadDir, { recursive: true });
-
-    const filename = `${reference}.pdf`;
-    const filepath = path.join(uploadDir, filename);
-    await fs.writeFile(filepath, pdfBuffer);
-
-    const pdfUrl = `/documents/factures/${filename}`;
-
-    // Créer l'entrée Document dans la base (avec lignes pour que le PDF régénéré affiche les prestations)
+    // Créer l'entrée Document dans la base avec le PDF en base64 (servi via /api/documents/[id]/pdf)
     const document = await prisma.document.create({
       data: {
         type: "FACTURE",
@@ -203,12 +192,28 @@ export async function POST(
           totalHT: l.totalHT,
         })) as any,
         notes: notes || null,
-        fichierUrl: pdfUrl,
         pdfBase64: pdfBuffer.toString("base64"),
-        statut: "BROUILLON",
+        statut: "VALIDE",
+        dateValidation: new Date(),
         collaborationId: collab.id,
         createdById: user.id,
       },
+    });
+
+    await prisma.documentEvent.create({
+      data: {
+        documentId: document.id,
+        type: "REGISTERED",
+        description: "Enregistrement (création facture)",
+        userId: user.id,
+      },
+    });
+
+    // Lien de téléchargement via l'API (fonctionne en local et en production)
+    const pdfUrl = `/api/documents/${document.id}/pdf`;
+    await prisma.document.update({
+      where: { id: document.id },
+      data: { fichierUrl: pdfUrl },
     });
 
     // Mettre à jour la collaboration
@@ -221,7 +226,7 @@ export async function POST(
 
     return NextResponse.json({
       message: "Facture générée avec succès",
-      document,
+      document: { ...document, fichierUrl: pdfUrl },
       pdfUrl,
     });
   } catch (error) {

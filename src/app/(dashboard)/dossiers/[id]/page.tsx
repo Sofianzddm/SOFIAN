@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -84,6 +85,7 @@ interface DossierComplet {
 export default function DossierCompletPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const [dossier, setDossier] = useState<DossierComplet | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -436,8 +438,8 @@ export default function DossierCompletPage() {
                     Télécharger la facture
                   </a>
                   
-                  {/* Bouton "Marquer comme payé" */}
-                  {dossier.factureClient.statut !== "PAYE" && (
+                  {/* Bouton "Marquer comme payé" (ADMIN uniquement) */}
+                  {dossier.factureClient.statut !== "PAYE" && (session?.user as { role?: string })?.role === "ADMIN" && (
                     <button
                       onClick={() => marquerFacturePayee(dossier.factureClient!.id)}
                       disabled={markingAsPaid}

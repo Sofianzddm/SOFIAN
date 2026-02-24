@@ -16,7 +16,7 @@ export async function POST(
     }
 
     const params = await Promise.resolve(context.params);
-    const { id: documentId } = params;
+    const { id: collaborationId } = params;
     const body = await request.json();
     const { content } = body;
 
@@ -27,31 +27,31 @@ export async function POST(
       );
     }
 
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
+    const collaboration = await prisma.collaboration.findUnique({
+      where: { id: collaborationId },
+      select: { id: true, reference: true },
     });
 
-    if (!document) {
+    if (!collaboration) {
       return NextResponse.json(
-        { error: "Document non trouvé" },
+        { error: "Collaboration non trouvée" },
         { status: 404 }
       );
     }
 
     const currentUserId = (session.user as { id: string }).id;
 
-    const comment = await prisma.documentComment.create({
+    const comment = await prisma.collaborationComment.create({
       data: {
-        documentId,
+        collaborationId,
         content: content.trim(),
         userId: currentUserId,
       },
       include: {
-        user: { select: { id: true, prenom: true, nom: true, email: true } },
+        user: { select: { id: true, prenom: true, nom: true } },
       },
     });
 
-    // Parser les @[userId] et créer Mention + Notification pour chaque mentionné
     const mentionedIds = new Set<string>();
     let match: RegExpExecArray | null;
     while ((match = MENTION_REGEX.exec(content)) !== null) {
@@ -65,15 +65,11 @@ export async function POST(
         select: { prenom: true },
       });
       const actorName = actor?.prenom || "Quelqu'un";
-      const docLabel =
-        document.type === "FACTURE"
-          ? `la facture ${document.reference}`
-          : `le document ${document.reference}`;
-      const link = `/factures/${documentId}`;
+      const link = `/collaborations/${collaborationId}`;
 
       await prisma.$transaction([
         ...Array.from(mentionedIds).map((mentionedUserId) =>
-          prisma.mention.create({
+          prisma.collabCommentMention.create({
             data: {
               commentId: comment.id,
               userId: mentionedUserId,
@@ -87,7 +83,7 @@ export async function POST(
               userId: mentionedUserId,
               type: "MENTION",
               titre: `${actorName} vous a mentionné`,
-              message: `sur ${docLabel}`,
+              message: `sur la collaboration ${collaboration.reference}`,
               lien: link,
               actorId: currentUserId,
             },
@@ -98,7 +94,7 @@ export async function POST(
 
     return NextResponse.json(comment);
   } catch (error) {
-    console.error("Erreur création commentaire:", error);
+    console.error("Erreur création commentaire collab:", error);
     return NextResponse.json(
       { error: "Erreur lors de l'ajout du commentaire" },
       { status: 500 }

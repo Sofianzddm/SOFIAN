@@ -108,7 +108,7 @@ export default function DashboardPage() {
 // ADMIN DASHBOARD — Pro, épuré
 // ============================================
 function AdminDashboard({ data }: { data: any }) {
-  const { stats, pipeline, topTalents, topMarques, tmPerformance, facturesRelance, negociationsSansReponse = [] } = data;
+  const { stats, pipeline, topTalents, facturesTalentAValider = [], tmPerformance, facturesRelance, negociationsSansReponse = [] } = data;
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -262,10 +262,10 @@ function AdminDashboard({ data }: { data: any }) {
         </div>
       </div>
 
-      {/* Top Talents & Top Marques — listes épurées */}
+      {/* Top Talents & Factures talent à valider */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <TopList title="Top Talents" subtitle="Par chiffre d'affaires" items={topTalents} href="/talents" icon={<Award className="w-5 h-5 text-slate-500" />} />
-        <TopList title="Top Marques" subtitle="Clients les plus actifs" items={topMarques} href="/marques" icon={<Building2 className="w-5 h-5 text-slate-500" />} />
+        <FactureTalentAValiderList items={facturesTalentAValider} />
       </div>
 
       {/* Performance TM — tableau sobre */}
@@ -948,6 +948,50 @@ function PipelineRow({ statut, count }: { statut: string; count: number }) {
         <span className="text-sm font-medium text-slate-700">{c.label}</span>
       </div>
       <span className="text-sm font-semibold text-slate-900 tabular-nums">{count}</span>
+    </div>
+  );
+}
+
+function FactureTalentAValiderList({ items }: { items: { id: string; reference: string; talent: string; marque: string; factureTalentRecueAt: string | null }[] }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div className="flex items-center gap-3">
+          <FileText className="w-5 h-5 text-violet-500" />
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Factures talent à valider</h2>
+            <p className="text-sm text-slate-500">
+              {items.length === 0 ? "Aucune en attente" : `${items.length} à valider`}
+            </p>
+          </div>
+        </div>
+        {items.length > 0 && (
+          <Link href="/collaborations" className="text-sm font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1">
+            Voir tout <ChevronRight className="w-4 h-4" />
+          </Link>
+        )}
+      </div>
+      <div className="divide-y divide-slate-100">
+        {items.length === 0 ? (
+          <div className="px-6 py-8 text-center text-sm text-slate-500">
+            Aucune facture talent en attente de validation
+          </div>
+        ) : (
+          items.slice(0, 5).map((item) => (
+            <Link
+              key={item.id}
+              href={`/collaborations/${item.id}`}
+              className="flex items-center justify-between gap-4 px-6 py-3 hover:bg-slate-50/80 transition-colors"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-slate-900 truncate">{item.reference}</p>
+                <p className="text-xs text-slate-500 truncate">{item.talent} · {item.marque}</p>
+              </div>
+              <ArrowUpRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
+            </Link>
+          ))
+        )}
+      </div>
     </div>
   );
 }

@@ -13,6 +13,8 @@ import {
   ChevronRight,
   X,
   SlidersHorizontal,
+  Eye,
+  Download,
 } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -48,6 +50,7 @@ export default function TalentCollaborationsPage() {
   const [showFilters, setShowFilters] = useState(false);
 
   const [uploadingCollabId, setUploadingCollabId] = useState<string | null>(null);
+  const [facturePreviewUrl, setFacturePreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -346,28 +349,46 @@ export default function TalentCollaborationsPage() {
 
                     {collab.factureTalentUrl && (
                       <div
-                        className="mt-4 flex items-center justify-between rounded-lg bg-emerald-50/80 p-4 ring-1 ring-emerald-200/60"
+                        className="mt-4 flex items-center justify-between gap-3 rounded-lg bg-emerald-50/80 p-4 ring-1 ring-emerald-200/60"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
                             <FileText className="h-4 w-4 text-emerald-600" />
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <p className="font-medium text-emerald-900">Facture envoyée</p>
                             <p className="text-sm text-emerald-700">
-                              {collab.factureValidee ? "Validation en cours" : "En attente"}
+                              {collab.factureValidee ? "Validée et enregistrée" : "En attente de validation"}
                             </p>
                           </div>
                         </div>
-                        <a
-                          href={collab.factureTalentUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm font-medium text-emerald-600 hover:text-emerald-700"
-                        >
-                          Voir →
-                        </a>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setFacturePreviewUrl(collab.factureTalentUrl);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-100/80 rounded-lg hover:bg-emerald-100 transition-colors"
+                            title="Voir la facture"
+                          >
+                            <Eye className="h-4 w-4" />
+                            Voir
+                          </button>
+                          <a
+                            href={collab.factureTalentUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download
+                            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-100/80 rounded-lg hover:bg-emerald-100 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Download className="h-4 w-4" />
+                            Télécharger
+                          </a>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -379,6 +400,42 @@ export default function TalentCollaborationsPage() {
       )}
 
       {/* Modal upload */}
+      {/* Modal aperçu facture talent */}
+      {facturePreviewUrl && (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-white">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50 shrink-0">
+            <span className="text-sm font-medium text-slate-700">Aperçu de ta facture</span>
+            <div className="flex items-center gap-2">
+              <a
+                href={facturePreviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+              >
+                <Download className="h-4 w-4" />
+                Télécharger
+              </a>
+              <button
+                type="button"
+                onClick={() => setFacturePreviewUrl(null)}
+                className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
+                aria-label="Fermer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 w-full">
+            <iframe
+              src={facturePreviewUrl}
+              title="Aperçu facture"
+              className="w-full h-full border-0"
+            />
+          </div>
+        </div>
+      )}
+
       {uploadingCollabId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">
