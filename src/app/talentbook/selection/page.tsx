@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { formatPercent } from "@/lib/format";
 
 // Helper pour générer un visitor ID anonyme
 function getVisitorId(): string {
@@ -276,7 +277,7 @@ function SelectionCard({
                   {formatFollowers(talent.stats.igFollowers)}
                 </span>
                 <span className="text-xs opacity-60">
-                  • {talent.stats.igEngagement?.toFixed(1)}%
+                  • {formatPercent(talent.stats.igEngagement, 1)}%
                 </span>
               </a>
             )}
@@ -293,7 +294,7 @@ function SelectionCard({
                   {formatFollowers(talent.stats.ttFollowers)}
                 </span>
                 <span className="text-xs opacity-60">
-                  • {talent.stats.ttEngagement?.toFixed(1)}%
+                  • {formatPercent(talent.stats.ttEngagement, 1)}%
                 </span>
               </a>
             )}

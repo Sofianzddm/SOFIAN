@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { formatPercent } from "@/lib/format";
 
 // Types
 interface TalentStats {
@@ -166,13 +167,15 @@ function SelectionCard({
             {talent.stats?.igFollowers != null && (
               <span className="flex items-center gap-2 px-4 py-2 bg-[#F5EDE0] rounded-xl font-switzer text-sm text-[#220101]">
                 IG {formatFollowers(talent.stats.igFollowers)}
-                {talent.stats.igEngagement != null && ` • ${talent.stats.igEngagement.toFixed(1)}%`}
+                {talent.stats.igEngagement != null &&
+                  ` • ${formatPercent(talent.stats.igEngagement, 1)}%`}
               </span>
             )}
             {talent.stats?.ttFollowers != null && (
               <span className="flex items-center gap-2 px-4 py-2 bg-[#F5EDE0] rounded-xl font-switzer text-sm text-[#220101]">
                 TT {formatFollowers(talent.stats.ttFollowers)}
-                {talent.stats.ttEngagement != null && ` • ${talent.stats.ttEngagement.toFixed(1)}%`}
+                {talent.stats.ttEngagement != null &&
+                  ` • ${formatPercent(talent.stats.ttEngagement, 1)}%`}
               </span>
             )}
           </div>

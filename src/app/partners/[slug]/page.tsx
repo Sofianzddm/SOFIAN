@@ -15,6 +15,7 @@ import {
   Heart,
   ExternalLink,
 } from "lucide-react";
+import { formatPercent } from "@/lib/format";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
 function getVisitorId(): string {
@@ -457,12 +458,14 @@ function TalentCard({
                 </span>
                 {talent.stats.igFollowersEvol !== null && talent.stats.igFollowersEvol > 0 && (
                   <span className="text-[11px] font-switzer text-[#4a5d23] bg-[#E5F2B5] px-2 py-0.5 rounded">
-                    ▲ {talent.stats.igFollowersEvol.toFixed(2).replace(".", ",")}%
+                    ▲ {formatPercent(talent.stats.igFollowersEvol, 2)}%
                   </span>
                 )}
               </div>
               <span className="font-switzer text-[#220101] text-xs sm:text-sm">
-                {talent.stats.igEngagement?.toFixed(2).replace(".", ",") || "—"}%
+                {talent.stats.igEngagement != null
+                  ? `${formatPercent(talent.stats.igEngagement, 2)}%`
+                  : "—"}
               </span>
             </div>
           )}
@@ -484,12 +487,14 @@ function TalentCard({
                 </span>
                 {talent.stats.ttFollowersEvol !== null && talent.stats.ttFollowersEvol > 0 && (
                   <span className="text-[11px] font-switzer text-[#4a5d23] bg-[#E5F2B5] px-2 py-0.5 rounded">
-                    ▲ {talent.stats.ttFollowersEvol.toFixed(2).replace(".", ",")}%
+                    ▲ {formatPercent(talent.stats.ttFollowersEvol, 2)}%
                   </span>
                 )}
               </div>
               <span className="font-switzer text-[#220101] text-xs sm:text-sm">
-                {talent.stats.ttEngagement?.toFixed(2).replace(".", ",") || "—"}%
+                {talent.stats.ttEngagement != null
+                  ? `${formatPercent(talent.stats.ttEngagement, 2)}%`
+                  : "—"}
               </span>
             </div>
           )}
@@ -775,7 +780,7 @@ function TalentModal({
                             {stats?.igFollowersEvol !== null && stats.igFollowersEvol > 0 && (
                               <span className="text-xs flex items-center gap-1">
                                 <TrendingUp className="w-3 h-3" />
-                                {stats.igFollowersEvol.toFixed(1)}%
+                            {formatPercent(stats.igFollowersEvol, 1)}%
                               </span>
                             )}
                           </div>
@@ -788,11 +793,15 @@ function TalentModal({
                             {stats?.igEngagementEvol !== null && stats.igEngagementEvol > 0 && (
                               <span className="text-[10px] sm:text-xs flex items-center gap-1">
                                 <TrendingUp className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                                {stats.igEngagementEvol.toFixed(1)}pts
+                            {formatPercent(stats.igEngagementEvol, 1)}pts
                               </span>
                             )}
                           </div>
-                          <p className="text-lg sm:text-2xl font-bold">{stats?.igEngagement?.toFixed(2) || "—"}%</p>
+                          <p className="text-lg sm:text-2xl font-bold">
+                            {stats?.igEngagement != null
+                              ? `${formatPercent(stats.igEngagement, 2)}%`
+                              : "—"}
+                          </p>
                           <p className="text-[10px] sm:text-xs text-white/80">Engagement</p>
                         </div>
                         <div className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
@@ -867,7 +876,7 @@ function TalentModal({
                             {stats?.ttFollowersEvol !== null && stats.ttFollowersEvol > 0 && (
                               <span className="text-xs flex items-center gap-1">
                                 <TrendingUp className="w-3 h-3" />
-                                {stats.ttFollowersEvol.toFixed(1)}%
+                            {formatPercent(stats.ttFollowersEvol, 1)}%
                               </span>
                             )}
                           </div>
@@ -880,11 +889,15 @@ function TalentModal({
                             {stats?.ttEngagementEvol !== null && stats.ttEngagementEvol > 0 && (
                               <span className="text-xs flex items-center gap-1">
                                 <TrendingUp className="w-3 h-3" />
-                                {stats.ttEngagementEvol.toFixed(1)}pts
+                            {formatPercent(stats.ttEngagementEvol, 1)}pts
                               </span>
                             )}
                           </div>
-                          <p className="text-lg sm:text-2xl font-bold">{stats?.ttEngagement?.toFixed(2) || "—"}%</p>
+                          <p className="text-lg sm:text-2xl font-bold">
+                            {stats?.ttEngagement != null
+                              ? `${formatPercent(stats.ttEngagement, 2)}%`
+                              : "—"}
+                          </p>
                           <p className="text-[10px] sm:text-xs text-white/80">Engagement</p>
                         </div>
                         <div className="bg-gradient-to-br from-teal-500 to-emerald-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">

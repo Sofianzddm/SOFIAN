@@ -327,25 +327,27 @@ export default function EditTalentPage() {
     slot: "views30d" | "views7d" | "linkClicks30d",
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    const files = Array.from(fileList);
 
     setStoryScreensError(null);
     setStoryScreensUploading(true);
 
     try {
-      const file = files[0];
-
-      if (!file.type.startsWith("image/")) {
-        throw new Error("Seules les images sont autorisées.");
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        throw new Error("Chaque image doit faire moins de 5 Mo.");
-      }
-
       const formData = new FormData();
       formData.append("slot", slot);
-      formData.append("files", file);
+
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) {
+          throw new Error("Seules les images sont autorisées.");
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          throw new Error("Chaque image doit faire moins de 5 Mo.");
+        }
+        formData.append("files", file);
+      }
 
       const res = await fetch(`/api/talents/${params.id}/story-screenshots`, {
         method: "POST",
@@ -1052,6 +1054,7 @@ export default function EditTalentPage() {
                     <input
                       type="file"
                       accept="image/*"
+                      multiple
                       onChange={(e) => handleStoryScreensUpload("views30d", e)}
                       className="block w-full text-sm text-gray-600
                                  file:mr-3 file:py-2 file:px-4
@@ -1081,6 +1084,7 @@ export default function EditTalentPage() {
                     <input
                       type="file"
                       accept="image/*"
+                      multiple
                       onChange={(e) => handleStoryScreensUpload("views7d", e)}
                       className="block w-full text-sm text-gray-600
                                  file:mr-3 file:py-2 file:px-4
@@ -1110,6 +1114,7 @@ export default function EditTalentPage() {
                     <input
                       type="file"
                       accept="image/*"
+                      multiple
                       onChange={(e) => handleStoryScreensUpload("linkClicks30d", e)}
                       className="block w-full text-sm text-gray-600
                                  file:mr-3 file:py-2 file:px-4
@@ -1135,7 +1140,7 @@ export default function EditTalentPage() {
                     )}
                   </div>
                   <p className="text-[11px] text-gray-400">
-                    Poids max recommandé : 5 Mo par image.
+                    Vous pouvez sélectionner plusieurs images à la fois (5 Mo max par image).
                   </p>
                 </div>
                 {storyScreensError && (

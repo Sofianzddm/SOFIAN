@@ -37,6 +37,7 @@ import {
   Check,
   X,
 } from "lucide-react";
+import { formatPercent } from "@/lib/format";
 
 interface TalentDetail {
   id: string;
@@ -701,7 +702,7 @@ export default function TalentDetailPage() {
                     />
                     <StatCard 
                       label="Engagement" 
-                      value={`${stats?.igEngagement || 0}%`} 
+                      value={`${formatPercent(stats?.igEngagement, 2)}%`} 
                       evolution={stats?.igEngagementEvol}
                       evolutionSuffix=" pts"
                       gradient="from-purple-500 to-indigo-500"
@@ -784,7 +785,7 @@ export default function TalentDetailPage() {
                     />
                     <StatCard 
                       label="Engagement" 
-                      value={`${stats?.ttEngagement || 0}%`} 
+                      value={`${formatPercent(stats?.ttEngagement, 2)}%`} 
                       evolution={stats?.ttEngagementEvol}
                       evolutionSuffix=" pts"
                       gradient="from-cyan-500 to-blue-500"
