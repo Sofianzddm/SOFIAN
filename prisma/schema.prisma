@@ -332,6 +332,12 @@ model TalentStats {
   
   ytAbonnes             Int?
   ytAbonnesEvol         Decimal?
+
+  // Stories / vues lien – saisis manuellement par le TM
+  storyViews30d         Int?
+  storyViews7d          Int?
+  storyLinkClicks30d    Int?
+  storyScreenshots      Json?
   
   lastUpdate    DateTime  @default(now())
   createdAt     DateTime  @default(now())

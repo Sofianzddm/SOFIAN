@@ -667,13 +667,15 @@ function TMDashboard({ data }: { data: any }) {
       {stats.bilansRetard > 0 && (
         <div className="relative overflow-hidden bg-gradient-to-r from-red-500 to-rose-600 rounded-2xl p-5 text-white shadow-lg">
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="relative flex items-start gap-4">
+            <div className="relative flex items-start gap-4">
             <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div className="flex-1">
               <h3 className="font-bold text-lg">⚠️ {stats.bilansRetard} talent(s) à mettre à jour</h3>
-              <p className="text-white/80 text-sm mt-1">Les stats doivent être actualisées tous les 30 jours</p>
+              <p className="text-white/80 text-sm mt-1">
+                Les stats (followers / engagement) et les vues stories doivent être actualisées tous les 30 jours
+              </p>
               <div className="flex flex-wrap gap-2 mt-4">
                 {talents?.filter((t: any) => t.bilanRetard).map((t: any) => (
                   <Link 

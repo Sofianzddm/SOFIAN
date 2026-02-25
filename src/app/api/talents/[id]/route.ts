@@ -193,6 +193,12 @@ export async function PUT(
     if (data.ytAbonnes !== undefined) rawStatsData.ytAbonnes = data.ytAbonnes;
     if (data.ytAbonnesEvol !== undefined) rawStatsData.ytAbonnesEvol = data.ytAbonnesEvol;
 
+    // Stories (vues / clics / screenshots)
+    if (data.storyViews30d !== undefined) rawStatsData.storyViews30d = data.storyViews30d;
+    if (data.storyViews7d !== undefined) rawStatsData.storyViews7d = data.storyViews7d;
+    if (data.storyLinkClicks30d !== undefined) rawStatsData.storyLinkClicks30d = data.storyLinkClicks30d;
+    if (data.storyScreenshots !== undefined) rawStatsData.storyScreenshots = data.storyScreenshots;
+
     // ========== CHAMPS TARIFS (raw) ==========
     if (data.tarifStory !== undefined) rawTarifsData.tarifStory = data.tarifStory;
     if (data.tarifStoryConcours !== undefined) rawTarifsData.tarifStoryConcours = data.tarifStoryConcours;
@@ -213,7 +219,7 @@ export async function PUT(
     const parsedStatsData: any = {};
     
     // Int fields (parseInt)
-    const intFields = ['igFollowers', 'ttFollowers', 'ytAbonnes'];
+    const intFields = ['igFollowers', 'ttFollowers', 'ytAbonnes', 'storyViews30d', 'storyViews7d', 'storyLinkClicks30d'];
     intFields.forEach(field => {
       if (field in rawStatsData) {
         const val = rawStatsData[field];
@@ -243,6 +249,7 @@ export async function PUT(
     // String fields
     if ('igLocAutre' in rawStatsData) parsedStatsData.igLocAutre = rawStatsData.igLocAutre || null;
     if ('ttLocAutre' in rawStatsData) parsedStatsData.ttLocAutre = rawStatsData.ttLocAutre || null;
+    if ('storyScreenshots' in rawStatsData) parsedStatsData.storyScreenshots = rawStatsData.storyScreenshots || null;
 
     // Si des stats sont fournies, inclure l'upsert et forcer lastUpdate pour que le dashboard TM ne marque plus "à mettre à jour"
     if (Object.keys(parsedStatsData).length > 0) {

@@ -88,6 +88,12 @@ interface TalentDetail {
     ttLocFrance: number | null;
     ytAbonnes: number | null;
     ytAbonnesEvol: number | null;
+    // Stories / clicks stats
+    storyViews30d: number | null;
+    storyViews7d: number | null;
+    storyLinkClicks30d: number | null;
+    // Screenshots JSON blob
+    storyScreenshots?: unknown;
     lastUpdate: string | null;
   } | null;
   tarifs?: {
@@ -317,6 +323,21 @@ export default function TalentDetailPage() {
   }
 
   const stats = talent.stats;
+  const rawStoryScreens = stats?.storyScreenshots as any;
+  let storyScreens30d: string[] = [];
+  let storyScreens7d: string[] = [];
+  let storyScreensClicks30d: string[] = [];
+
+  if (Array.isArray(rawStoryScreens)) {
+    // Ancien format: toutes les images dans un seul tableau → on les met en 30j
+    storyScreens30d = rawStoryScreens.filter((u: any) => typeof u === "string");
+  } else if (rawStoryScreens && typeof rawStoryScreens === "object") {
+    storyScreens30d = (rawStoryScreens.views30d || []).filter((u: any) => typeof u === "string");
+    storyScreens7d = (rawStoryScreens.views7d || []).filter((u: any) => typeof u === "string");
+    storyScreensClicks30d = (rawStoryScreens.linkClicks30d || []).filter(
+      (u: any) => typeof u === "string"
+    );
+  }
   const tarifs = talent.tarifs;
   const hasInstagram = talent.instagram && stats?.igFollowers;
   const hasTiktok = talent.tiktok && stats?.ttFollowers;
@@ -930,6 +951,150 @@ export default function TalentDetailPage() {
             </div>
           </div>
 
+        {/* Stories (interne) + Manager & Info */}
+        <div className="space-y-6">
+          {/* Stories – bloc interne TM */}
+          {(stats?.storyViews30d ||
+            stats?.storyViews7d ||
+            stats?.storyLinkClicks30d ||
+            storyScreens30d.length > 0 ||
+            storyScreens7d.length > 0 ||
+            storyScreensClicks30d.length > 0) && (
+            <div className="bg-gradient-to-br from-amber-50 via-white to-amber-50 rounded-3xl shadow-xl shadow-amber-100/80 p-8 border border-amber-100">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-amber-100 rounded-xl">
+                  <BarChart3 className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-glowup-licorice">Performances Stories (interne)</h2>
+                  <p className="text-sm text-gray-500">
+                    Vues max stories (30j / 7j) + clics lien (30j) avec screenshots à l’appui.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                <div className="bg-white/80 rounded-2xl p-4 text-center border border-amber-100 shadow-sm">
+                  <p className="text-xs text-amber-700 mb-1">Vues max stories (30j)</p>
+                  <p className="text-xl font-bold text-amber-900">
+                    {stats?.storyViews30d != null ? stats.storyViews30d.toLocaleString("fr-FR") : "-"}
+                  </p>
+                </div>
+                <div className="bg-white/80 rounded-2xl p-4 text-center border border-amber-100 shadow-sm">
+                  <p className="text-xs text-amber-700 mb-1">Vues max stories (7j)</p>
+                  <p className="text-xl font-bold text-amber-900">
+                    {stats?.storyViews7d != null ? stats.storyViews7d.toLocaleString("fr-FR") : "-"}
+                  </p>
+                </div>
+                <div className="bg-white/80 rounded-2xl p-4 text-center border border-amber-100 shadow-sm">
+                  <p className="text-xs text-amber-700 mb-1">Clics sur lien max (30j)</p>
+                  <p className="text-xl font-bold text-amber-900">
+                    {stats?.storyLinkClicks30d != null ? stats.storyLinkClicks30d.toLocaleString("fr-FR") : "-"}
+                  </p>
+                </div>
+              </div>
+
+              {(storyScreens30d.length > 0 ||
+                storyScreens7d.length > 0 ||
+                storyScreensClicks30d.length > 0) && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-semibold text-amber-900 tracking-wide uppercase">
+                      Screenshots (internes)
+                    </p>
+                    <p className="text-[11px] text-amber-700">
+                      Cliquez sur une vignette pour ouvrir le screen en grand.
+                    </p>
+                  </div>
+                  {storyScreens30d.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-amber-700 mb-1">Stories – 30 derniers jours</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {storyScreens30d.map((url, idx) => (
+                          <a
+                            key={`30d-${idx}`}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group relative block rounded-2xl overflow-hidden border border-amber-100 bg-amber-50 shadow-sm hover:shadow-md transition-shadow"
+                          >
+                            <img
+                              src={url}
+                              alt={`Stories 30j screenshot ${idx + 1}`}
+                              className="w-full h-36 object-cover group-hover:scale-105 transition-transform duration-300"
+                            />
+                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="absolute bottom-2 left-2 right-2 text-[11px] text-white flex items-center justify-between">
+                                <span>Voir le screen</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </div>
+                            </div>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {storyScreens7d.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-amber-700 mb-1">Stories – 7 derniers jours</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {storyScreens7d.map((url, idx) => (
+                          <a
+                            key={`7d-${idx}`}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group relative block rounded-2xl overflow-hidden border border-amber-100 bg-amber-50 shadow-sm hover:shadow-md transition-shadow"
+                          >
+                            <img
+                              src={url}
+                              alt={`Stories 7j screenshot ${idx + 1}`}
+                              className="w-full h-36 object-cover group-hover:scale-105 transition-transform duration-300"
+                            />
+                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="absolute bottom-2 left-2 right-2 text-[11px] text-white flex items-center justify-between">
+                                <span>Voir le screen</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </div>
+                            </div>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {storyScreensClicks30d.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-amber-700 mb-1">Clics sur lien – 30 derniers jours</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {storyScreensClicks30d.map((url, idx) => (
+                          <a
+                            key={`clicks-${idx}`}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group relative block rounded-2xl overflow-hidden border border-amber-100 bg-amber-50 shadow-sm hover:shadow-md transition-shadow"
+                          >
+                            <img
+                              src={url}
+                              alt={`Clics lien 30j screenshot ${idx + 1}`}
+                              className="w-full h-36 object-cover group-hover:scale-105 transition-transform duration-300"
+                            />
+                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="absolute bottom-2 left-2 right-2 text-[11px] text-white flex items-center justify-between">
+                                <span>Voir le screen</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </div>
+                            </div>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Manager & Info */}
           <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-8 border border-gray-100">
             <div className="flex items-center gap-3 mb-6">
@@ -967,6 +1132,7 @@ export default function TalentDetailPage() {
             </div>
           </div>
         </div>
+        </div>
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 pt-4">
@@ -994,14 +1160,23 @@ export default function TalentDetailPage() {
 // COMPONENTS
 // ============================================
 
-function StatCard({ label, value, evolution, evolutionSuffix = "%", gradient, icon }: {
-  label: string;
-  value: string;
-  evolution?: number | null;
-  evolutionSuffix?: string;
-  gradient: string;
-  icon: React.ReactNode;
-}) {
+function StatCard(
+  {
+    label,
+    value,
+    evolution,
+    evolutionSuffix = "%", 
+    gradient,
+    icon,
+  }: {
+    label: string;
+    value: string;
+    evolution?: number | null;
+    evolutionSuffix?: string;
+    gradient: string;
+    icon: React.ReactNode;
+  }
+) {
   return (
     <div className={`relative overflow-hidden bg-gradient-to-br ${gradient} rounded-2xl p-5 text-white shadow-lg`}>
       <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
@@ -1022,7 +1197,19 @@ function StatCard({ label, value, evolution, evolutionSuffix = "%", gradient, ic
   );
 }
 
-function GenderBar({ label, value, color, emoji }: { label: string; value: number; color: string; emoji: string }) {
+function GenderBar(
+  {
+    label,
+    value,
+    color,
+    emoji,
+  }: {
+    label: string;
+    value: number;
+    color: string;
+    emoji: string;
+  }
+) {
   return (
     <div>
       <div className="flex justify-between items-center mb-2">
@@ -1042,7 +1229,15 @@ function GenderBar({ label, value, color, emoji }: { label: string; value: numbe
   );
 }
 
-function AgeBar({ label, value }: { label: string; value: number }) {
+function AgeBar(
+  {
+    label,
+    value,
+  }: {
+    label: string;
+    value: number;
+  }
+) {
   const maxValue = 60; // Pour une meilleure visualisation
   const width = Math.min((value / maxValue) * 100, 100);
   
@@ -1060,13 +1255,21 @@ function AgeBar({ label, value }: { label: string; value: number }) {
   );
 }
 
-function TarifCard({ icon, label, price, color, highlight = false }: {
-  icon: React.ReactNode;
-  label: string;
-  price: number;
-  color: string;
-  highlight?: boolean;
-}) {
+function TarifCard(
+  {
+    icon,
+    label,
+    price,
+    color,
+    highlight = false,
+  }: {
+    icon: React.ReactNode;
+    label: string;
+    price: number;
+    color: string;
+    highlight?: boolean;
+  }
+) {
   const colorClasses: Record<string, { bg: string; text: string; icon: string }> = {
     pink: { bg: "bg-pink-50", text: "text-pink-600", icon: "bg-pink-100" },
     purple: { bg: "bg-purple-50", text: "text-purple-600", icon: "bg-purple-100" },

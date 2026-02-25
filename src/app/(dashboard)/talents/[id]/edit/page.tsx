@@ -36,6 +36,17 @@ export default function EditTalentPage() {
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [managers, setManagers] = useState<{ id: string; prenom: string; nom: string }[]>([]);
   const [talentUsers, setTalentUsers] = useState<{ id: string; prenom: string; nom: string; email: string }[]>([]);
+  const [storyScreensUploading, setStoryScreensUploading] = useState(false);
+  const [storyScreensError, setStoryScreensError] = useState<string | null>(null);
+  const [storyScreens, setStoryScreens] = useState<{
+    views30d: string | null;
+    views7d: string | null;
+    linkClicks30d: string | null;
+  }>({
+    views30d: null,
+    views7d: null,
+    linkClicks30d: null,
+  });
 
   const [formData, setFormData] = useState({
     // Infos de base
@@ -113,6 +124,11 @@ export default function EditTalentPage() {
     ttAge35_44: "",
     ttAge45Plus: "",
     ttLocFrance: "",
+
+    // Stories (vues / clics / screenshots)
+    storyViews30d: "",
+    storyViews7d: "",
+    storyLinkClicks30d: "",
     
     // Tarifs
     tarifStory: "",
@@ -257,6 +273,10 @@ export default function EditTalentPage() {
           ttAge35_44: talent.stats?.ttAge35_44?.toString() || "",
           ttAge45Plus: talent.stats?.ttAge45Plus?.toString() || "",
           ttLocFrance: talent.stats?.ttLocFrance?.toString() || "",
+          // Stories
+          storyViews30d: talent.stats?.storyViews30d?.toString() || "",
+          storyViews7d: talent.stats?.storyViews7d?.toString() || "",
+          storyLinkClicks30d: talent.stats?.storyLinkClicks30d?.toString() || "",
           // Tarifs
           tarifStory: talent.tarifs?.tarifStory?.toString() || "",
           tarifStoryConcours: talent.tarifs?.tarifStoryConcours?.toString() || "",
@@ -271,11 +291,163 @@ export default function EditTalentPage() {
           tarifShooting: talent.tarifs?.tarifShooting?.toString() || "",
           tarifAmbassadeur: talent.tarifs?.tarifAmbassadeur?.toString() || "",
         });
+
+        // Stories screenshots (pour aperçus)
+        const rawScreens = talent.stats?.storyScreenshots;
+        let views30d: string | null = null;
+        let views7d: string | null = null;
+        let linkClicks30d: string | null = null;
+
+        if (Array.isArray(rawScreens)) {
+          // Ancien format: tableau simple → on l'affiche comme 30j
+          views30d = rawScreens.find((u: any) => typeof u === "string") || null;
+        } else if (rawScreens && typeof rawScreens === "object") {
+          if (Array.isArray(rawScreens.views30d)) {
+            views30d = rawScreens.views30d.find((u: any) => typeof u === "string") || null;
+          }
+          if (Array.isArray(rawScreens.views7d)) {
+            views7d = rawScreens.views7d.find((u: any) => typeof u === "string") || null;
+          }
+          if (Array.isArray(rawScreens.linkClicks30d)) {
+            linkClicks30d =
+              rawScreens.linkClicks30d.find((u: any) => typeof u === "string") || null;
+          }
+        }
+
+        setStoryScreens({ views30d, views7d, linkClicks30d });
       }
     } catch (error) {
       console.error("Erreur:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleStoryScreensUpload = async (
+    slot: "views30d" | "views7d" | "linkClicks30d",
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setStoryScreensError(null);
+    setStoryScreensUploading(true);
+
+    try {
+      const uploadedUrls: string[] = [];
+
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) {
+          setStoryScreensError("Seules les images sont autorisées.");
+          continue;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          setStoryScreensError("Chaque image doit faire moins de 5 Mo.");
+          continue;
+        }
+
+        // 1. Signature Cloudinary
+        const signatureRes = await fetch("/api/upload/signature", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ talentId: params.id }),
+        });
+        if (!signatureRes.ok) {
+          throw new Error("Erreur de signature Cloudinary");
+        }
+        const { signature, timestamp, folder, publicId, cloudName, apiKey } = await signatureRes.json();
+
+        // 2. Upload direct vers Cloudinary
+        const formDataCloud = new FormData();
+        formDataCloud.append("file", file);
+        formDataCloud.append("signature", signature);
+        formDataCloud.append("timestamp", timestamp.toString());
+        formDataCloud.append("folder", folder);
+        formDataCloud.append("public_id", `${publicId}-story-${file.name}`);
+        formDataCloud.append("api_key", apiKey);
+
+        const cloudinaryRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: "POST",
+            body: formDataCloud,
+          }
+        );
+
+        if (!cloudinaryRes.ok) {
+          throw new Error("Erreur upload Cloudinary");
+        }
+
+        const cloudinaryData = await cloudinaryRes.json();
+        if (cloudinaryData.secure_url) {
+          uploadedUrls.push(cloudinaryData.secure_url as string);
+        }
+      }
+
+      if (uploadedUrls.length === 0) {
+        throw new Error("Aucun screenshot valide uploadé.");
+      }
+
+      // 3. Récupérer l'état actuel pour merger les screenshots
+      const talentRes = await fetch(`/api/talents/${params.id}`);
+      if (!talentRes.ok) {
+        throw new Error("Impossible de récupérer le talent");
+      }
+      const talent = await talentRes.json();
+
+      const existing = talent.stats?.storyScreenshots;
+      let base: {
+        views30d: string[];
+        views7d: string[];
+        linkClicks30d: string[];
+      } = { views30d: [], views7d: [], linkClicks30d: [] };
+
+      if (Array.isArray(existing)) {
+        // Ancien format: simple tableau → on le mappe sur views30d
+        base.views30d = existing.filter((u: any) => typeof u === "string");
+      } else if (existing && typeof existing === "object") {
+        base.views30d = (existing.views30d || []).filter((u: any) => typeof u === "string");
+        base.views7d = (existing.views7d || []).filter((u: any) => typeof u === "string");
+        base.linkClicks30d = (existing.linkClicks30d || []).filter(
+          (u: any) => typeof u === "string"
+        );
+      }
+
+      // Ajouter / remplacer les URLs dans le bon slot (on garde la dernière série comme référence)
+      if (slot === "views30d") {
+        base.views30d = uploadedUrls;
+      } else if (slot === "views7d") {
+        base.views7d = uploadedUrls;
+      } else if (slot === "linkClicks30d") {
+        base.linkClicks30d = uploadedUrls;
+      }
+
+      // 4. Sauvegarder les URLs dans TalentStats.storyScreenshots via l'API talents
+      const res = await fetch(`/api/talents/${params.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storyScreenshots: base }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Erreur lors de l'enregistrement des screenshots");
+      }
+
+      // Mettre à jour l'aperçu local avec la première image de chaque slot
+      setStoryScreens({
+        views30d: base.views30d[0] || null,
+        views7d: base.views7d[0] || null,
+        linkClicks30d: base.linkClicks30d[0] || null,
+      });
+
+      setStoryScreensError(null);
+    } catch (error: any) {
+      console.error("Erreur upload screenshots stories:", error);
+      setStoryScreensError(error.message || "Erreur lors de l'upload des screenshots");
+    } finally {
+      setStoryScreensUploading(false);
+      e.target.value = "";
     }
   };
 
@@ -733,7 +905,9 @@ export default function EditTalentPage() {
                 <span className="text-2xl">📊</span>
                 <div>
                   <p className="font-medium text-glowup-licorice">Mise à jour des statistiques</p>
-                  <p className="text-sm text-glowup-licorice/70">Mettez à jour les stats Instagram et TikTok de votre talent.</p>
+                  <p className="text-sm text-glowup-licorice/70">
+                    Mettez à jour les stats Instagram / TikTok et uploadez les vues stories + clics lien (tous les 30 jours).
+                  </p>
                 </div>
               </div>
             )}
@@ -865,6 +1039,163 @@ export default function EditTalentPage() {
                 </div>
               </div>
             )}
+
+            {/* Stories / vues & clics lien */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-amber-100 rounded-lg">
+                  <BarChart3 className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-glowup-licorice">Performances Stories</h2>
+                  <p className="text-sm text-gray-500">
+                    Renseignez les vues moyennes + clics lien, et uploadez les screenshots.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-4">
+                <div>
+                  <label className={labelClass}>Vues max stories (30 derniers jours)</label>
+                  <input
+                    type="number"
+                    name="storyViews30d"
+                    value={formData.storyViews30d}
+                    onChange={handleChange}
+                    className={inputClass}
+                    placeholder="Ex : 18 500"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Vues max stories (7 derniers jours)</label>
+                  <input
+                    type="number"
+                    name="storyViews7d"
+                    value={formData.storyViews7d}
+                    onChange={handleChange}
+                    className={inputClass}
+                    placeholder="Ex : 21 300"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Clics sur lien max (30 derniers jours)</label>
+                  <input
+                    type="number"
+                    name="storyLinkClicks30d"
+                    value={formData.storyLinkClicks30d}
+                    onChange={handleChange}
+                    className={inputClass}
+                    placeholder="Ex : 430"
+                  />
+                </div>
+              </div>
+
+              {/* Uploader screenshots – simple input, les URLs seront gérées côté backend plus tard si besoin */}
+              <div>
+                <label className={labelClass}>Captures d’écran des stats stories</label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Ajoutez les screenshots des vues stories (30j / 7j) et des clics lien (30j). Ils seront visibles en interne sur la fiche talent.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs font-medium text-amber-800 mb-1">Screens – Vues stories (30j)</p>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleStoryScreensUpload("views30d", e)}
+                      className="block w-full text-sm text-gray-600
+                                 file:mr-3 file:py-2 file:px-4
+                                 file:rounded-lg file:border-0
+                                 file:text-sm file:font-semibold
+                                 file:bg-glowup-licorice file:text-white
+                                 hover:file:bg-glowup-licorice/90"
+                      disabled={storyScreensUploading}
+                    />
+                    {storyScreens.views30d && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <div className="w-20 h-20 rounded-xl overflow-hidden border border-amber-100 bg-amber-50">
+                          <img
+                            src={storyScreens.views30d}
+                            alt="Stories 30j"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Aperçu actuel (remplacé si vous uploadez un nouveau fichier).
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-amber-800 mb-1">Screens – Vues stories (7j)</p>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleStoryScreensUpload("views7d", e)}
+                      className="block w-full text-sm text-gray-600
+                                 file:mr-3 file:py-2 file:px-4
+                                 file:rounded-lg file:border-0
+                                 file:text-sm file:font-semibold
+                                 file:bg-glowup-licorice file:text-white
+                                 hover:file:bg-glowup-licorice/90"
+                      disabled={storyScreensUploading}
+                    />
+                    {storyScreens.views7d && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <div className="w-20 h-20 rounded-xl overflow-hidden border border-amber-100 bg-amber-50">
+                          <img
+                            src={storyScreens.views7d}
+                            alt="Stories 7j"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Aperçu actuel (remplacé si vous uploadez un nouveau fichier).
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-amber-800 mb-1">Screens – Clics sur lien (30j)</p>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleStoryScreensUpload("linkClicks30d", e)}
+                      className="block w-full text-sm text-gray-600
+                                 file:mr-3 file:py-2 file:px-4
+                                 file:rounded-lg file:border-0
+                                 file:text-sm file:font-semibold
+                                 file:bg-glowup-licorice file:text-white
+                                 hover:file:bg-glowup-licorice/90"
+                      disabled={storyScreensUploading}
+                    />
+                    {storyScreens.linkClicks30d && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <div className="w-20 h-20 rounded-xl overflow-hidden border border-amber-100 bg-amber-50">
+                          <img
+                            src={storyScreens.linkClicks30d}
+                            alt="Clics lien 30j"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Aperçu actuel (remplacé si vous uploadez un nouveau fichier).
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Poids max recommandé : 5 Mo par image.
+                  </p>
+                </div>
+                {storyScreensError && (
+                  <p className="text-xs text-red-500 mt-1">{storyScreensError}</p>
+                )}
+                {storyScreensUploading && (
+                  <p className="text-xs text-gray-500 mt-1">Upload en cours...</p>
+                )}
+              </div>
+            </div>
 
             {!formData.instagram && !formData.tiktok && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
