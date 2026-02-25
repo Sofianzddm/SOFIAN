@@ -4,11 +4,38 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
-  Users, Building2, Handshake, FileText, Loader2, Euro,
-  AlertTriangle, CheckCircle, Clock, Target, Zap, ChevronRight,
-  Plus, Sparkles, RefreshCw, Instagram, TrendingUp, Calendar,
-  ArrowUpRight, MoreHorizontal, Play, Camera, Video, TrendingDown,
-  Activity, BarChart3, PieChart, DollarSign, Percent, Award,
+  Users,
+  Building2,
+  Handshake,
+  FileText,
+  Loader2,
+  Euro,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Target,
+  Zap,
+  ChevronRight,
+  Plus,
+  Sparkles,
+  RefreshCw,
+  Instagram,
+  TrendingUp,
+  Calendar,
+  ArrowUpRight,
+  MoreHorizontal,
+  Play,
+  Camera,
+  Video,
+  TrendingDown,
+  Activity,
+  BarChart3,
+  PieChart,
+  DollarSign,
+  Percent,
+  Award,
+  Lock,
+  Music2,
 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -85,7 +112,7 @@ export default function DashboardPage() {
           </h1>
           <p className="text-slate-500 text-sm mt-1">{getWelcomeMessage(role)}</p>
         </div>
-        {(role === "ADMIN" || role === "TM") && (
+        {role === "ADMIN" && (
           <Link
             href="/collaborations/new"
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition-colors text-sm"
@@ -93,6 +120,16 @@ export default function DashboardPage() {
             <Plus className="w-4 h-4" />
             Nouvelle collaboration
           </Link>
+        )}
+        {role === "TM" && (
+          <button
+            type="button"
+            disabled
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-400 text-sm font-medium cursor-not-allowed"
+          >
+            <Lock className="w-4 h-4" />
+            Nouvelle collaboration
+          </button>
         )}
       </div>
 
@@ -677,7 +714,10 @@ function TMDashboard({ data }: { data: any }) {
                 Les stats (followers / engagement) et les vues stories doivent être actualisées tous les 30 jours
               </p>
               <div className="flex flex-wrap gap-2 mt-4">
-                {talents?.filter((t: any) => t.bilanRetard).map((t: any) => (
+                {talents?.filter((t: any) => t.bilanRetard).map((t: any) => {
+                  const jours = typeof t.joursDepuisBilan === "number" ? t.joursDepuisBilan : 0;
+                  const joursAffiches = Math.min(jours, 45);
+                  return (
                   <Link 
                     key={t.id} 
                     href={`/talents/${t.id}/stats`}
@@ -685,9 +725,9 @@ function TMDashboard({ data }: { data: any }) {
                   >
                     <Clock className="w-4 h-4" />
                     {t.nom}
-                    <span className="px-2 py-0.5 bg-white/20 rounded-full text-xs">{t.joursDepuisBilan}j</span>
+                    <span className="px-2 py-0.5 bg-white/20 rounded-full text-xs">{joursAffiches}j</span>
                   </Link>
-                ))}
+                )})}
               </div>
             </div>
           </div>
@@ -754,11 +794,21 @@ function TMDashboard({ data }: { data: any }) {
                       <p className="font-bold text-glowup-licorice text-lg truncate group-hover:text-glowup-rose transition-colors">
                         {t.nom}
                       </p>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className="inline-flex items-center gap-1 text-sm text-gray-500">
-                          <Instagram className="w-4 h-4" />
-                          {formatFollowers(t.followers)}
-                        </span>
+                      <div className="flex flex-wrap items-center gap-3 mt-1">
+                        {t.followersIg > 0 && (
+                          <span className="inline-flex items-center gap-1 text-sm text-gray-500">
+                            <Instagram className="w-4 h-4" />
+                            {formatFollowers(t.followersIg)}
+                            <span className="text-[11px] text-gray-400 ml-0.5">IG</span>
+                          </span>
+                        )}
+                        {t.followersTt > 0 && (
+                          <span className="inline-flex items-center gap-1 text-sm text-gray-500">
+                            <Music2 className="w-4 h-4" />
+                            {formatFollowers(t.followersTt)}
+                            <span className="text-[11px] text-gray-400 ml-0.5">TT</span>
+                          </span>
+                        )}
                         <span className="inline-flex items-center gap-1 text-sm text-gray-500">
                           <Handshake className="w-4 h-4" />
                           {t.collabs} collabs
@@ -769,18 +819,24 @@ function TMDashboard({ data }: { data: any }) {
                     {/* Status / Action */}
                     <div className="flex flex-col items-end gap-2">
                       {t.bilanRetard ? (
-                        <>
-                          <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-xl text-xs font-bold">
-                            ⏰ {t.joursDepuisBilan}j
-                          </span>
-                          <Link 
-                            href={`/talents/${t.id}/stats`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-xs text-red-600 hover:underline font-medium"
-                          >
-                            Mettre à jour →
-                          </Link>
-                        </>
+                        (() => {
+                          const jours = typeof t.joursDepuisBilan === "number" ? t.joursDepuisBilan : 0;
+                          const joursAffiches = Math.min(jours, 45);
+                          return (
+                            <>
+                              <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-xl text-xs font-bold">
+                                ⏰ {joursAffiches}j
+                              </span>
+                              <Link 
+                                href={`/talents/${t.id}/stats`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-xs text-red-600 hover:underline font-medium"
+                              >
+                                Mettre à jour →
+                              </Link>
+                            </>
+                          );
+                        })()
                       ) : (
                         <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold">
                           ✓ À jour
@@ -801,12 +857,15 @@ function TMDashboard({ data }: { data: any }) {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-glowup-licorice">Négociations</h2>
-              <Link 
-                href="/negociations/new" 
-                className="p-2 bg-glowup-rose/10 text-glowup-rose rounded-xl hover:bg-glowup-rose/20 transition-colors"
+              {/* Bouton verrouillé pour TM */}
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-1 px-2 py-2 rounded-xl bg-gray-50 text-gray-300 cursor-not-allowed"
               >
-                <Plus className="w-4 h-4" />
-              </Link>
+                <Target className="w-4 h-4" />
+                <Lock className="w-3 h-3" />
+              </button>
             </div>
             
             {!negociations || negociations.length === 0 ? (
@@ -815,12 +874,9 @@ function TMDashboard({ data }: { data: any }) {
                   <Target className="w-7 h-7 text-amber-400" />
                 </div>
                 <p className="text-gray-500 text-sm">Aucune négo en cours</p>
-                <Link 
-                  href="/negociations/new" 
-                  className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-gradient-to-r from-amber-400 to-orange-500 text-white rounded-xl text-sm font-medium hover:shadow-lg hover:shadow-orange-200 transition-all"
-                >
-                  <Plus className="w-4 h-4" /> Créer
-                </Link>
+                <p className="text-[11px] text-gray-400 mt-1 flex items-center justify-center gap-1">
+                  <Lock className="w-3 h-3" /> Création de négo bientôt disponible
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -884,20 +940,21 @@ function TMDashboard({ data }: { data: any }) {
                 <Users className="w-5 h-5 text-glowup-rose" />
                 <span className="text-xs text-gray-600 group-hover:text-glowup-licorice">Talents</span>
               </Link>
-              <Link 
-                href="/negociations/new" 
-                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-amber-50 hover:bg-amber-100 transition-colors group"
-              >
-                <Target className="w-5 h-5 text-amber-500" />
-                <span className="text-xs text-gray-600 group-hover:text-glowup-licorice">Négo</span>
-              </Link>
-              <Link 
-                href="/collaborations" 
-                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-blue-50 hover:bg-blue-100 transition-colors group"
-              >
-                <Handshake className="w-5 h-5 text-blue-500" />
-                <span className="text-xs text-gray-600 group-hover:text-glowup-licorice">Collabs</span>
-              </Link>
+              {/* Boutons verrouillés pour TM : Négo & Collabs */}
+              <div className="flex flex-col items-center gap-1 p-3 rounded-xl bg-gray-50 text-gray-300 cursor-not-allowed">
+                <div className="flex items-center gap-1">
+                  <Target className="w-5 h-5" />
+                  <Lock className="w-3 h-3" />
+                </div>
+                <span className="text-xs">Négo</span>
+              </div>
+              <div className="flex flex-col items-center gap-1 p-3 rounded-xl bg-gray-50 text-gray-300 cursor-not-allowed">
+                <div className="flex items-center gap-1">
+                  <Handshake className="w-5 h-5" />
+                  <Lock className="w-3 h-3" />
+                </div>
+                <span className="text-xs">Collabs</span>
+              </div>
             </div>
           </div>
         </div>

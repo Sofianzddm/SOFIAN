@@ -1002,34 +1002,47 @@ export default function TalentDetailPage() {
                     <p className="text-xs font-semibold text-amber-900 tracking-wide uppercase">
                       Screenshots (internes)
                     </p>
-                    <p className="text-[11px] text-amber-700">
-                      Cliquez sur une vignette pour ouvrir le screen en grand.
-                    </p>
+                    <div className="flex flex-col items-end gap-1">
+                      <p className="text-[11px] text-amber-700">
+                        Cliquez sur une vignette pour ouvrir le screen en grand.
+                      </p>
+                      <p className="text-[11px] text-amber-700">
+                        Ou utilisez le bouton « Télécharger » sous chaque screen.
+                      </p>
+                    </div>
                   </div>
                   {storyScreens30d.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-[11px] text-amber-700 mb-1">Stories – 30 derniers jours</p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {storyScreens30d.map((url, idx) => (
-                          <a
-                            key={`30d-${idx}`}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="group relative block rounded-2xl overflow-hidden border border-amber-100 bg-amber-50 shadow-sm hover:shadow-md transition-shadow"
-                          >
-                            <img
-                              src={url}
-                              alt={`Stories 30j screenshot ${idx + 1}`}
-                              className="w-full h-36 object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                              <div className="absolute bottom-2 left-2 right-2 text-[11px] text-white flex items-center justify-between">
-                                <span>Voir le screen</span>
-                                <ExternalLink className="w-3 h-3" />
+                          <div key={`30d-${idx}`} className="space-y-1">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group relative block w-full max-w-[150px] pb-[177%] mx-auto rounded-[1.5rem] overflow-hidden border border-amber-100 bg-black shadow-sm hover:shadow-md transition-shadow"
+                            >
+                              <img
+                                src={url}
+                                alt={`Stories 30j screenshot ${idx + 1}`}
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="absolute bottom-2 left-2 right-2 text-[11px] text-white flex items-center justify-between">
+                                  <span>Voir le screen</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </div>
                               </div>
-                            </div>
-                          </a>
+                            </a>
+                            <a
+                              href={url}
+                              download={`stories-30j-${idx + 1}.jpg`}
+                              className="inline-flex items-center justify-center px-2 py-1 rounded-full border border-amber-200 bg-white text-[10px] font-medium text-amber-800 hover:bg-amber-50 transition-colors"
+                            >
+                              Télécharger
+                            </a>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -1039,25 +1052,33 @@ export default function TalentDetailPage() {
                       <p className="text-[11px] text-amber-700 mb-1">Stories – 7 derniers jours</p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {storyScreens7d.map((url, idx) => (
-                          <a
-                            key={`7d-${idx}`}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="group relative block rounded-2xl overflow-hidden border border-amber-100 bg-amber-50 shadow-sm hover:shadow-md transition-shadow"
-                          >
-                            <img
-                              src={url}
-                              alt={`Stories 7j screenshot ${idx + 1}`}
-                              className="w-full h-36 object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                              <div className="absolute bottom-2 left-2 right-2 text-[11px] text-white flex items-center justify-between">
-                                <span>Voir le screen</span>
-                                <ExternalLink className="w-3 h-3" />
+                          <div key={`7d-${idx}`} className="space-y-1">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group relative block w-full max-w-[150px] pb-[177%] mx-auto rounded-[1.5rem] overflow-hidden border border-amber-100 bg-black shadow-sm hover:shadow-md transition-shadow"
+                            >
+                              <img
+                                src={url}
+                                alt={`Stories 7j screenshot ${idx + 1}`}
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="absolute bottom-2 left-2 right-2 text-[11px] text-white flex items-center justify-between">
+                                  <span>Voir le screen</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </div>
                               </div>
-                            </div>
-                          </a>
+                            </a>
+                            <a
+                              href={url}
+                              download={`stories-7j-${idx + 1}.jpg`}
+                              className="inline-flex items-center justify-center px-2 py-1 rounded-full border border-amber-200 bg-white text-[10px] font-medium text-amber-800 hover:bg-amber-50 transition-colors"
+                            >
+                              Télécharger
+                            </a>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -1067,25 +1088,33 @@ export default function TalentDetailPage() {
                       <p className="text-[11px] text-amber-700 mb-1">Clics sur lien – 30 derniers jours</p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {storyScreensClicks30d.map((url, idx) => (
-                          <a
-                            key={`clicks-${idx}`}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="group relative block rounded-2xl overflow-hidden border border-amber-100 bg-amber-50 shadow-sm hover:shadow-md transition-shadow"
-                          >
-                            <img
-                              src={url}
-                              alt={`Clics lien 30j screenshot ${idx + 1}`}
-                              className="w-full h-36 object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                              <div className="absolute bottom-2 left-2 right-2 text-[11px] text-white flex items-center justify-between">
-                                <span>Voir le screen</span>
-                                <ExternalLink className="w-3 h-3" />
+                          <div key={`clicks-${idx}`} className="space-y-1">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group relative block w-full max-w-[150px] pb-[177%] mx-auto rounded-[1.5rem] overflow-hidden border border-amber-100 bg-black shadow-sm hover:shadow-md transition-shadow"
+                            >
+                              <img
+                                src={url}
+                                alt={`Clics lien 30j screenshot ${idx + 1}`}
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="absolute bottom-2 left-2 right-2 text-[11px] text-white flex items-center justify-between">
+                                  <span>Voir le screen</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </div>
                               </div>
-                            </div>
-                          </a>
+                            </a>
+                            <a
+                              href={url}
+                              download={`clics-lien-30j-${idx + 1}.jpg`}
+                              className="inline-flex items-center justify-center px-2 py-1 rounded-full border border-amber-200 bg-white text-[10px] font-medium text-amber-800 hover:bg-amber-50 transition-colors"
+                            >
+                              Télécharger
+                            </a>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -1136,20 +1165,43 @@ export default function TalentDetailPage() {
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 pt-4">
-          <Link
-            href={`/collaborations/new?talent=${talent.id}`}
-            className="flex-1 flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-glowup-licorice to-gray-800 text-white font-bold rounded-2xl hover:shadow-xl hover:shadow-gray-300/50 transition-all hover:scale-[1.02]"
-          >
-            <Heart className="w-6 h-6" />
-            Nouvelle collaboration
-          </Link>
-          <Link
-            href={`/negociations/new?talent=${talent.id}`}
-            className="flex-1 flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-glowup-rose to-pink-500 text-white font-bold rounded-2xl hover:shadow-xl hover:shadow-pink-300/50 transition-all hover:scale-[1.02]"
-          >
-            <Zap className="w-6 h-6" />
-            Nouvelle négociation
-          </Link>
+          {role === "TM" ? (
+            <>
+              <button
+                type="button"
+                disabled
+                className="flex-1 flex items-center justify-center gap-3 py-4 rounded-2xl border border-gray-200 bg-gray-50 text-gray-400 font-bold cursor-not-allowed"
+              >
+                <Heart className="w-6 h-6" />
+                Nouvelle collaboration
+              </button>
+              <button
+                type="button"
+                disabled
+                className="flex-1 flex items-center justify-center gap-3 py-4 rounded-2xl border border-gray-200 bg-gray-50 text-gray-400 font-bold cursor-not-allowed"
+              >
+                <Zap className="w-6 h-6" />
+                Nouvelle négociation
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                href={`/collaborations/new?talent=${talent.id}`}
+                className="flex-1 flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-glowup-licorice to-gray-800 text-white font-bold rounded-2xl hover:shadow-xl hover:shadow-gray-300/50 transition-all hover:scale-[1.02]"
+              >
+                <Heart className="w-6 h-6" />
+                Nouvelle collaboration
+              </Link>
+              <Link
+                href={`/negociations/new?talent=${talent.id}`}
+                className="flex-1 flex items-center justify-center gap-3 py-4 bg-gradient-to-r from-glowup-rose to-pink-500 text-white font-bold rounded-2xl hover:shadow-xl hover:shadow-pink-300/50 transition-all hover:scale-[1.02]"
+              >
+                <Zap className="w-6 h-6" />
+                Nouvelle négociation
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </div>

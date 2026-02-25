@@ -19,6 +19,7 @@ import {
   Banknote,
   UserCog,
   Gift,
+  Lock,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -132,9 +133,7 @@ export function Sidebar() {
   const userRole = (session?.user as { role?: string })?.role || "TALENT";
 
   // Filtrer les menus selon le rôle
-  const filteredMenuItems = menuItems.filter((item) => 
-    item.roles.includes(userRole)
-  );
+  const filteredMenuItems = menuItems.filter((item) => item.roles.includes(userRole));
 
   return (
     <aside
@@ -156,6 +155,24 @@ export function Sidebar() {
         {filteredMenuItems.map((item) => {
           const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
           const Icon = item.icon;
+          const isLockedForTM =
+            userRole === "TM" &&
+            ["Gifts", "Négociations", "Collaborations", "Notifications"].includes(item.label);
+
+          if (isLockedForTM) {
+            return (
+              <div
+                key={item.href}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 bg-gray-50 cursor-not-allowed opacity-70"
+              >
+                <div className="relative flex items-center">
+                  <Icon className="w-5 h-5 flex-shrink-0 text-gray-300" />
+                  <Lock className="w-3 h-3 text-gray-300 ml-1" />
+                </div>
+                {!collapsed && <span className="font-medium text-sm">{item.label}</span>}
+              </div>
+            );
+          }
 
           return (
             <Link
@@ -167,10 +184,12 @@ export function Sidebar() {
                   : "text-gray-600 hover:bg-glowup-lace hover:text-glowup-licorice"
               }`}
             >
-              <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-white" : "text-gray-400 group-hover:text-glowup-rose"}`} />
-              {!collapsed && (
-                <span className="font-medium text-sm">{item.label}</span>
-              )}
+              <Icon
+                className={`w-5 h-5 flex-shrink-0 ${
+                  isActive ? "text-white" : "text-gray-400 group-hover:text-glowup-rose"
+                }`}
+              />
+              {!collapsed && <span className="font-medium text-sm">{item.label}</span>}
             </Link>
           );
         })}

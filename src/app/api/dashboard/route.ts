@@ -538,11 +538,18 @@ export async function GET() {
           id: t.id,
           nom: `${t.prenom} ${t.nom}`,
           photo: t.photo,
-          followers: (t.stats?.igFollowers || 0) + (t.stats?.ttFollowers || 0),
+          followersIg: t.stats?.igFollowers || 0,
+          followersTt: t.stats?.ttFollowers || 0,
+          followersTotal: (t.stats?.igFollowers || 0) + (t.stats?.ttFollowers || 0),
           collabs: t._count.collaborations,
-          bilanRetard: !t.stats || new Date(t.stats.lastUpdate).getTime() < Date.now() - 30 * 24 * 60 * 60 * 1000,
+          bilanRetard:
+            !t.stats ||
+            new Date(t.stats.lastUpdate).getTime() < Date.now() - 30 * 24 * 60 * 60 * 1000,
           joursDepuisBilan: t.stats
-            ? Math.floor((Date.now() - new Date(t.stats.lastUpdate).getTime()) / (1000 * 60 * 60 * 24))
+            ? Math.floor(
+                (Date.now() - new Date(t.stats.lastUpdate).getTime()) /
+                  (1000 * 60 * 60 * 24),
+              )
             : 999,
         })),
         // ✅ CORRIGÉ: Mapper les vraies négociations

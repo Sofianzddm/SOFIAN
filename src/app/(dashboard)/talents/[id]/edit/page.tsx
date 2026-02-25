@@ -334,111 +334,37 @@ export default function EditTalentPage() {
     setStoryScreensUploading(true);
 
     try {
-      const uploadedUrls: string[] = [];
+      const file = files[0];
 
-      for (const file of Array.from(files)) {
-        if (!file.type.startsWith("image/")) {
-          setStoryScreensError("Seules les images sont autorisées.");
-          continue;
-        }
-        if (file.size > 5 * 1024 * 1024) {
-          setStoryScreensError("Chaque image doit faire moins de 5 Mo.");
-          continue;
-        }
-
-        // 1. Signature Cloudinary
-        const signatureRes = await fetch("/api/upload/signature", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ talentId: params.id }),
-        });
-        if (!signatureRes.ok) {
-          throw new Error("Erreur de signature Cloudinary");
-        }
-        const { signature, timestamp, folder, publicId, cloudName, apiKey } = await signatureRes.json();
-
-        // 2. Upload direct vers Cloudinary
-        const formDataCloud = new FormData();
-        formDataCloud.append("file", file);
-        formDataCloud.append("signature", signature);
-        formDataCloud.append("timestamp", timestamp.toString());
-        formDataCloud.append("folder", folder);
-        formDataCloud.append("public_id", `${publicId}-story-${file.name}`);
-        formDataCloud.append("api_key", apiKey);
-
-        const cloudinaryRes = await fetch(
-          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-          {
-            method: "POST",
-            body: formDataCloud,
-          }
-        );
-
-        if (!cloudinaryRes.ok) {
-          throw new Error("Erreur upload Cloudinary");
-        }
-
-        const cloudinaryData = await cloudinaryRes.json();
-        if (cloudinaryData.secure_url) {
-          uploadedUrls.push(cloudinaryData.secure_url as string);
-        }
+      if (!file.type.startsWith("image/")) {
+        throw new Error("Seules les images sont autorisées.");
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error("Chaque image doit faire moins de 5 Mo.");
       }
 
-      if (uploadedUrls.length === 0) {
-        throw new Error("Aucun screenshot valide uploadé.");
-      }
+      const formData = new FormData();
+      formData.append("slot", slot);
+      formData.append("files", file);
 
-      // 3. Récupérer l'état actuel pour merger les screenshots
-      const talentRes = await fetch(`/api/talents/${params.id}`);
-      if (!talentRes.ok) {
-        throw new Error("Impossible de récupérer le talent");
-      }
-      const talent = await talentRes.json();
-
-      const existing = talent.stats?.storyScreenshots;
-      let base: {
-        views30d: string[];
-        views7d: string[];
-        linkClicks30d: string[];
-      } = { views30d: [], views7d: [], linkClicks30d: [] };
-
-      if (Array.isArray(existing)) {
-        // Ancien format: simple tableau → on le mappe sur views30d
-        base.views30d = existing.filter((u: any) => typeof u === "string");
-      } else if (existing && typeof existing === "object") {
-        base.views30d = (existing.views30d || []).filter((u: any) => typeof u === "string");
-        base.views7d = (existing.views7d || []).filter((u: any) => typeof u === "string");
-        base.linkClicks30d = (existing.linkClicks30d || []).filter(
-          (u: any) => typeof u === "string"
-        );
-      }
-
-      // Ajouter / remplacer les URLs dans le bon slot (on garde la dernière série comme référence)
-      if (slot === "views30d") {
-        base.views30d = uploadedUrls;
-      } else if (slot === "views7d") {
-        base.views7d = uploadedUrls;
-      } else if (slot === "linkClicks30d") {
-        base.linkClicks30d = uploadedUrls;
-      }
-
-      // 4. Sauvegarder les URLs dans TalentStats.storyScreenshots via l'API talents
-      const res = await fetch(`/api/talents/${params.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storyScreenshots: base }),
+      const res = await fetch(`/api/talents/${params.id}/story-screenshots`, {
+        method: "POST",
+        body: formData,
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Erreur lors de l'enregistrement des screenshots");
+        const err = await res.json().catch(() => null);
+        throw new Error(
+          err?.error || "Erreur lors de l'upload des screenshots sur le serveur"
+        );
       }
 
-      // Mettre à jour l'aperçu local avec la première image de chaque slot
+      const data = await res.json();
+
       setStoryScreens({
-        views30d: base.views30d[0] || null,
-        views7d: base.views7d[0] || null,
-        linkClicks30d: base.linkClicks30d[0] || null,
+        views30d: (data.views30d && data.views30d[0]) || null,
+        views7d: (data.views7d && data.views7d[0]) || null,
+        linkClicks30d: (data.linkClicks30d && data.linkClicks30d[0]) || null,
       });
 
       setStoryScreensError(null);
@@ -900,6 +826,30 @@ export default function EditTalentPage() {
         {/* Step 4: Stats - TM + ADMIN */}
         {activeStep === 4 && canEditStats && (
           <div className="space-y-6">
+            {/* Mini bio éditable par le TM */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-glowup-rose/10 rounded-lg">
+                    <User className="w-5 h-5 text-glowup-rose" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-glowup-licorice">Bio publique</h2>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className={labelClass}>Présentation / Bio</label>
+                <textarea
+                  name="presentation"
+                  value={formData.presentation}
+                  onChange={handleChange}
+                  rows={4}
+                  className={inputClass}
+                  placeholder="Présente ton talent en quelques lignes : ton, thématiques, preuves sociales..."
+                />
+              </div>
+            </div>
             {userRole === "TM" && (
               <div className="bg-glowup-lace/50 border border-glowup-licorice/10 rounded-xl p-4 flex items-start gap-3">
                 <span className="text-2xl">📊</span>
