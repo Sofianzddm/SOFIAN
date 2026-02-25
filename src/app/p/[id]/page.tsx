@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
+import { formatPercent } from "@/lib/format";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
 function getVisitorId(): string {
