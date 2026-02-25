@@ -46,7 +46,10 @@ interface EntrepriseSearchResult {
 
 interface Livrable {
   id: string;
+  // Libellé libre du livrable (ce qui sera enregistré en base)
   typeContenu: string;
+  // Type préréglé (STORY, POST, ...) pour auto-remplir tarif & libellé, optionnel
+  presetType?: string;
   quantite: number;
   prixUnitaire: string;
   description: string;
@@ -105,7 +108,7 @@ export default function NewCollaborationPage() {
   });
 
   const [livrables, setLivrables] = useState<Livrable[]>([
-    { id: "1", typeContenu: "", quantite: 1, prixUnitaire: "", description: "" },
+    { id: "1", typeContenu: "", presetType: "", quantite: 1, prixUnitaire: "", description: "" },
   ]);
 
   // Calculs
@@ -202,7 +205,7 @@ export default function NewCollaborationPage() {
   const addLivrable = () => {
     setLivrables((prev) => [
       ...prev,
-      { id: Date.now().toString(), typeContenu: "", quantite: 1, prixUnitaire: "", description: "" },
+      { id: Date.now().toString(), typeContenu: "", presetType: "", quantite: 1, prixUnitaire: "", description: "" },
     ]);
   };
 
@@ -215,15 +218,30 @@ export default function NewCollaborationPage() {
     setLivrables((prev) =>
       prev.map((l) => {
         if (l.id !== id) return l;
-        const updated = { ...l, [field]: value };
-        
-        // Auto-fill prix si on change le type et qu'on a les tarifs
-        if (field === "typeContenu" && selectedTalent?.tarifs) {
-          const typeInfo = TYPES_CONTENU.find((t) => t.value === value);
-          if (typeInfo && selectedTalent.tarifs[typeInfo.tarifKey]) {
-            updated.prixUnitaire = selectedTalent.tarifs[typeInfo.tarifKey]!.toString();
-          }
+        return { ...l, [field]: value };
+      })
+    );
+  };
+
+  // Quand on choisit un type préréglé (Story, Post, etc.) :
+  // - on stocke la valeur technique dans presetType
+  // - on remplit le libellé libre typeContenu avec le label humain
+  // - on auto-remplit le prix si le talent a un tarif configuré
+  const handlePresetTypeChange = (id: string, presetValue: string) => {
+    setLivrables((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const typeInfo = TYPES_CONTENU.find((t) => t.value === presetValue);
+        const updated: Livrable = {
+          ...l,
+          presetType: presetValue || "",
+          typeContenu: typeInfo ? typeInfo.label : l.typeContenu,
+        };
+
+        if (typeInfo && selectedTalent?.tarifs && selectedTalent.tarifs[typeInfo.tarifKey]) {
+          updated.prixUnitaire = selectedTalent.tarifs[typeInfo.tarifKey]!.toString();
         }
+
         return updated;
       })
     );
@@ -601,19 +619,31 @@ export default function NewCollaborationPage() {
                   className="flex items-start gap-3 p-4 bg-gray-50 rounded-lg"
                 >
                   <div className="flex-1 grid grid-cols-12 gap-3">
-                    {/* Type */}
-                    <div className="col-span-4">
-                      <label className="block text-xs text-gray-500 mb-1">Type *</label>
-                      <select
-                        value={livrable.typeContenu}
-                        onChange={(e) => updateLivrable(livrable.id, "typeContenu", e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm"
-                      >
-                        <option value="">Sélectionner</option>
-                        {TYPES_CONTENU.map((type) => (
-                          <option key={type.value} value={type.value}>{type.label}</option>
-                        ))}
-                      </select>
+                    {/* Type préréglé + libellé libre */}
+                    <div className="col-span-4 space-y-2">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Type (préréglé)</label>
+                        <select
+                          value={livrable.presetType || ""}
+                          onChange={(e) => handlePresetTypeChange(livrable.id, e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm"
+                        >
+                          <option value="">Sélectionner</option>
+                          {TYPES_CONTENU.map((type) => (
+                            <option key={type.value} value={type.value}>{type.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Libellé du livrable *</label>
+                        <input
+                          type="text"
+                          value={livrable.typeContenu}
+                          onChange={(e) => updateLivrable(livrable.id, "typeContenu", e.target.value)}
+                          placeholder="Ex : 1x Story IG + 1x Post TikTok"
+                          className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                        />
+                      </div>
                     </div>
 
                     {/* Quantité */}
@@ -697,12 +727,11 @@ export default function NewCollaborationPage() {
             <div className="space-y-3">
               {/* Liste des livrables */}
               {livrables.filter((l) => l.typeContenu && l.prixUnitaire).map((l) => {
-                const type = TYPES_CONTENU.find((t) => t.value === l.typeContenu);
                 const total = (parseFloat(l.prixUnitaire) || 0) * l.quantite;
                 return (
                   <div key={l.id} className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">
-                      {l.quantite}x {type?.label || l.typeContenu}
+                      {l.quantite}x {l.typeContenu}
                     </span>
                     <span className="font-medium text-glowup-licorice">{formatMoney(total)}</span>
                   </div>
