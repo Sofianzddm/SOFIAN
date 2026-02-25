@@ -14,7 +14,7 @@ export const AGENCE_CONFIG = {
   rcs: "921 034 146 R.C.S. Aix-en-provence",
   ape: "70.21Z",
   telephone: "0785786266",
-  email: "glowupagencyfr@gmail.com",
+  email: "comptabilite@glowupagence.fr",
 
   // Coordonnées bancaires
   rib: {

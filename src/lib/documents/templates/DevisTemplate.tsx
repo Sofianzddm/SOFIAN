@@ -621,8 +621,8 @@ export function DevisTemplate({ data }: { data: DevisData }) {
           </Text>
         </View>
         
-        {/* Signature section */}
-        <View style={styles.signatureSection}>
+        {/* Signature section (non coupée entre deux pages) */}
+        <View style={styles.signatureSection} wrap={false}>
           <View style={styles.signatureBox}>
             <Text style={styles.signatureLabel}>Bon pour accord le :</Text>
             <Text style={styles.signatureText}>Signature du client</Text>

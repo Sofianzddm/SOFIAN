@@ -361,18 +361,23 @@ export default function CollabDetailPage() {
     setGeneratingDoc(true);
     setShowNotesModal(false);
     try {
-      const lignes = collab.livrables.map((l) => ({
-        description: `${l.quantite}x ${TYPE_LABELS[l.typeContenu] || l.typeContenu}${l.description ? ` - ${l.description}` : ""}`,
-        quantite: l.quantite, prixUnitaire: l.prixUnitaire,
-      }));
+      const lignes = collab.livrables.map((l) => {
+        const baseLabel = TYPE_LABELS[l.typeContenu] || l.typeContenu;
+        return {
+          description: `${l.quantite}x ${baseLabel}${l.description ? ` - ${l.description}` : ""}`,
+          quantite: l.quantite,
+          prixUnitaire: l.prixUnitaire,
+        };
+      });
       const res = await fetch("/api/documents/generate", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           type, 
           collaborationId: collab.id, 
-          lignes, 
+          lignes,
           titre: `${collab.talent.prenom} x ${collab.marque.nom}`,
-          commentaires: notes || undefined,
+          // Notes de la modale en priorité, sinon description globale de la collab
+          commentaires: notes || collab.description || undefined,
           pays: pays || undefined,
           numeroTVA: numeroTVA?.trim() || undefined,
         }),
