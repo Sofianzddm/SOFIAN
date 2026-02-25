@@ -702,7 +702,7 @@ export default function TalentDetailPage() {
                     />
                     <StatCard 
                       label="Engagement" 
-                      value={`${formatPercent(stats?.igEngagement, 2)}%`} 
+                      value={stats?.igEngagement != null ? `${formatPercent(stats.igEngagement, 2)}%` : "—"} 
                       evolution={stats?.igEngagementEvol}
                       evolutionSuffix=" pts"
                       gradient="from-purple-500 to-indigo-500"
@@ -710,7 +710,7 @@ export default function TalentDetailPage() {
                     />
                     <StatCard 
                       label="Audience FR" 
-                      value={`${stats?.igLocFrance || 0}%`} 
+                      value={stats?.igLocFrance != null ? `${formatPercent(stats.igLocFrance, 1)}%` : "—"} 
                       gradient="from-blue-500 to-cyan-500"
                       icon={<Globe className="w-6 h-6" />}
                     />
@@ -785,7 +785,7 @@ export default function TalentDetailPage() {
                     />
                     <StatCard 
                       label="Engagement" 
-                      value={`${formatPercent(stats?.ttEngagement, 2)}%`} 
+                      value={stats?.ttEngagement != null ? `${formatPercent(stats.ttEngagement, 2)}%` : "—"} 
                       evolution={stats?.ttEngagementEvol}
                       evolutionSuffix=" pts"
                       gradient="from-cyan-500 to-blue-500"
@@ -793,7 +793,7 @@ export default function TalentDetailPage() {
                     />
                     <StatCard 
                       label="Audience FR" 
-                      value={`${stats?.ttLocFrance || 0}%`} 
+                      value={stats?.ttLocFrance != null ? `${formatPercent(stats.ttLocFrance, 1)}%` : "—"} 
                       gradient="from-teal-500 to-emerald-500"
                       icon={<Globe className="w-6 h-6" />}
                     />
@@ -1270,7 +1270,7 @@ function GenderBar(
           <span className="text-xl">{emoji}</span>
           {label}
         </span>
-        <span className="font-bold text-glowup-licorice text-lg">{value}%</span>
+        <span className="font-bold text-glowup-licorice text-lg">{formatPercent(value, 1)}%</span>
       </div>
       <div className="h-4 bg-gray-100 rounded-full overflow-hidden">
         <div 
@@ -1303,7 +1303,7 @@ function AgeBar(
           style={{ width: `${width}%` }}
         />
       </div>
-      <span className="font-bold text-glowup-licorice w-12 text-right">{value}%</span>
+      <span className="font-bold text-glowup-licorice w-12 text-right">{formatPercent(value, 1)}%</span>
     </div>
   );
 }

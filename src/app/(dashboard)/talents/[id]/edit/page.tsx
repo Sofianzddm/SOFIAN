@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -18,6 +18,8 @@ import {
   BarChart3,
   Euro,
   AlertCircle,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { LISTE_PAYS } from "@/lib/pays";
 
@@ -39,14 +41,18 @@ export default function EditTalentPage() {
   const [storyScreensUploading, setStoryScreensUploading] = useState(false);
   const [storyScreensError, setStoryScreensError] = useState<string | null>(null);
   const [storyScreens, setStoryScreens] = useState<{
-    views30d: string | null;
-    views7d: string | null;
-    linkClicks30d: string | null;
+    views30d: string[];
+    views7d: string[];
+    linkClicks30d: string[];
   }>({
-    views30d: null,
-    views7d: null,
-    linkClicks30d: null,
+    views30d: [],
+    views7d: [],
+    linkClicks30d: [],
   });
+
+  const fileInputRef30 = useRef<HTMLInputElement>(null);
+  const fileInputRef7 = useRef<HTMLInputElement>(null);
+  const fileInputRefClicks = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     // Infos de base
@@ -292,25 +298,23 @@ export default function EditTalentPage() {
           tarifAmbassadeur: talent.tarifs?.tarifAmbassadeur?.toString() || "",
         });
 
-        // Stories screenshots (pour aperçus)
+        // Stories screenshots (pour aperçus) — tableaux complets
         const rawScreens = talent.stats?.storyScreenshots;
-        let views30d: string | null = null;
-        let views7d: string | null = null;
-        let linkClicks30d: string | null = null;
+        let views30d: string[] = [];
+        let views7d: string[] = [];
+        let linkClicks30d: string[] = [];
 
         if (Array.isArray(rawScreens)) {
-          // Ancien format: tableau simple → on l'affiche comme 30j
-          views30d = rawScreens.find((u: any) => typeof u === "string") || null;
+          views30d = rawScreens.filter((u: any) => typeof u === "string");
         } else if (rawScreens && typeof rawScreens === "object") {
           if (Array.isArray(rawScreens.views30d)) {
-            views30d = rawScreens.views30d.find((u: any) => typeof u === "string") || null;
+            views30d = rawScreens.views30d.filter((u: any) => typeof u === "string");
           }
           if (Array.isArray(rawScreens.views7d)) {
-            views7d = rawScreens.views7d.find((u: any) => typeof u === "string") || null;
+            views7d = rawScreens.views7d.filter((u: any) => typeof u === "string");
           }
           if (Array.isArray(rawScreens.linkClicks30d)) {
-            linkClicks30d =
-              rawScreens.linkClicks30d.find((u: any) => typeof u === "string") || null;
+            linkClicks30d = rawScreens.linkClicks30d.filter((u: any) => typeof u === "string");
           }
         }
 
@@ -364,9 +368,9 @@ export default function EditTalentPage() {
       const data = await res.json();
 
       setStoryScreens({
-        views30d: (data.views30d && data.views30d[0]) || null,
-        views7d: (data.views7d && data.views7d[0]) || null,
-        linkClicks30d: (data.linkClicks30d && data.linkClicks30d[0]) || null,
+        views30d: Array.isArray(data.views30d) ? data.views30d : [],
+        views7d: Array.isArray(data.views7d) ? data.views7d : [],
+        linkClicks30d: Array.isArray(data.linkClicks30d) ? data.linkClicks30d : [],
       });
 
       setStoryScreensError(null);
@@ -376,6 +380,34 @@ export default function EditTalentPage() {
     } finally {
       setStoryScreensUploading(false);
       e.target.value = "";
+    }
+  };
+
+  const handleStoryScreensRemove = async (
+    slot: "views30d" | "views7d" | "linkClicks30d",
+    urlToRemove: string
+  ) => {
+    const current = slot === "views30d" ? storyScreens.views30d : slot === "views7d" ? storyScreens.views7d : storyScreens.linkClicks30d;
+    const newUrls = current.filter((u) => u !== urlToRemove);
+    setStoryScreensError(null);
+    try {
+      const res = await fetch(`/api/talents/${params.id}/story-screenshots`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slot, urls: newUrls }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || "Erreur suppression");
+      }
+      const data = await res.json();
+      setStoryScreens({
+        views30d: Array.isArray(data.views30d) ? data.views30d : [],
+        views7d: Array.isArray(data.views7d) ? data.views7d : [],
+        linkClicks30d: Array.isArray(data.linkClicks30d) ? data.linkClicks30d : [],
+      });
+    } catch (error: any) {
+      setStoryScreensError(error.message || "Erreur lors de la suppression");
     }
   };
 
@@ -1052,92 +1084,107 @@ export default function EditTalentPage() {
                   <div>
                     <p className="text-xs font-medium text-amber-800 mb-1">Screens – Vues stories (30j)</p>
                     <input
+                      ref={fileInputRef30}
                       type="file"
                       accept="image/*"
                       multiple
                       onChange={(e) => handleStoryScreensUpload("views30d", e)}
-                      className="block w-full text-sm text-gray-600
-                                 file:mr-3 file:py-2 file:px-4
-                                 file:rounded-lg file:border-0
-                                 file:text-sm file:font-semibold
-                                 file:bg-glowup-licorice file:text-white
-                                 hover:file:bg-glowup-licorice/90"
-                      disabled={storyScreensUploading}
+                      className="hidden"
                     />
-                    {storyScreens.views30d && (
-                      <div className="mt-2 flex items-center gap-3">
-                        <div className="w-20 h-20 rounded-xl overflow-hidden border border-amber-100 bg-amber-50">
-                          <img
-                            src={storyScreens.views30d}
-                            alt="Stories 30j"
-                            className="w-full h-full object-cover"
-                          />
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {storyScreens.views30d.map((url, i) => (
+                        <div key={i} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-amber-100 bg-amber-50 shrink-0">
+                          <img src={url} alt={`Stories 30j ${i + 1}`} className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => handleStoryScreensRemove("views30d", url)}
+                            className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-6 h-6 text-white" />
+                          </button>
                         </div>
-                        <p className="text-xs text-gray-500">
-                          Aperçu actuel (remplacé si vous uploadez un nouveau fichier).
-                        </p>
-                      </div>
-                    )}
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef30.current?.click()}
+                        disabled={storyScreensUploading}
+                        className="w-20 h-20 rounded-xl border-2 border-dashed border-amber-200 bg-amber-50/50 flex items-center justify-center text-amber-600 hover:bg-amber-100 hover:border-amber-300 transition-colors shrink-0"
+                        title="Ajouter des photos"
+                      >
+                        <Plus className="w-8 h-8" />
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-amber-800 mb-1">Screens – Vues stories (7j)</p>
                     <input
+                      ref={fileInputRef7}
                       type="file"
                       accept="image/*"
                       multiple
                       onChange={(e) => handleStoryScreensUpload("views7d", e)}
-                      className="block w-full text-sm text-gray-600
-                                 file:mr-3 file:py-2 file:px-4
-                                 file:rounded-lg file:border-0
-                                 file:text-sm file:font-semibold
-                                 file:bg-glowup-licorice file:text-white
-                                 hover:file:bg-glowup-licorice/90"
-                      disabled={storyScreensUploading}
+                      className="hidden"
                     />
-                    {storyScreens.views7d && (
-                      <div className="mt-2 flex items-center gap-3">
-                        <div className="w-20 h-20 rounded-xl overflow-hidden border border-amber-100 bg-amber-50">
-                          <img
-                            src={storyScreens.views7d}
-                            alt="Stories 7j"
-                            className="w-full h-full object-cover"
-                          />
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {storyScreens.views7d.map((url, i) => (
+                        <div key={i} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-amber-100 bg-amber-50 shrink-0">
+                          <img src={url} alt={`Stories 7j ${i + 1}`} className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => handleStoryScreensRemove("views7d", url)}
+                            className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-6 h-6 text-white" />
+                          </button>
                         </div>
-                        <p className="text-xs text-gray-500">
-                          Aperçu actuel (remplacé si vous uploadez un nouveau fichier).
-                        </p>
-                      </div>
-                    )}
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef7.current?.click()}
+                        disabled={storyScreensUploading}
+                        className="w-20 h-20 rounded-xl border-2 border-dashed border-amber-200 bg-amber-50/50 flex items-center justify-center text-amber-600 hover:bg-amber-100 hover:border-amber-300 transition-colors shrink-0"
+                        title="Ajouter des photos"
+                      >
+                        <Plus className="w-8 h-8" />
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-amber-800 mb-1">Screens – Clics sur lien (30j)</p>
                     <input
+                      ref={fileInputRefClicks}
                       type="file"
                       accept="image/*"
                       multiple
                       onChange={(e) => handleStoryScreensUpload("linkClicks30d", e)}
-                      className="block w-full text-sm text-gray-600
-                                 file:mr-3 file:py-2 file:px-4
-                                 file:rounded-lg file:border-0
-                                 file:text-sm file:font-semibold
-                                 file:bg-glowup-licorice file:text-white
-                                 hover:file:bg-glowup-licorice/90"
-                      disabled={storyScreensUploading}
+                      className="hidden"
                     />
-                    {storyScreens.linkClicks30d && (
-                      <div className="mt-2 flex items-center gap-3">
-                        <div className="w-20 h-20 rounded-xl overflow-hidden border border-amber-100 bg-amber-50">
-                          <img
-                            src={storyScreens.linkClicks30d}
-                            alt="Clics lien 30j"
-                            className="w-full h-full object-cover"
-                          />
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {storyScreens.linkClicks30d.map((url, i) => (
+                        <div key={i} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-amber-100 bg-amber-50 shrink-0">
+                          <img src={url} alt={`Clics lien 30j ${i + 1}`} className="w-full h-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => handleStoryScreensRemove("linkClicks30d", url)}
+                            className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-6 h-6 text-white" />
+                          </button>
                         </div>
-                        <p className="text-xs text-gray-500">
-                          Aperçu actuel (remplacé si vous uploadez un nouveau fichier).
-                        </p>
-                      </div>
-                    )}
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRefClicks.current?.click()}
+                        disabled={storyScreensUploading}
+                        className="w-20 h-20 rounded-xl border-2 border-dashed border-amber-200 bg-amber-50/50 flex items-center justify-center text-amber-600 hover:bg-amber-100 hover:border-amber-300 transition-colors shrink-0"
+                        title="Ajouter des photos"
+                      >
+                        <Plus className="w-8 h-8" />
+                      </button>
+                    </div>
                   </div>
                   <p className="text-[11px] text-gray-400">
                     Vous pouvez sélectionner plusieurs images à la fois (5 Mo max par image).

@@ -532,7 +532,7 @@ function GenderBar({ label, value, color, emoji }: { label: string; value: numbe
           <span className="text-lg">{emoji}</span>
           {label}
         </span>
-        <span className="font-bold text-[#220101] text-base">{value}%</span>
+        <span className="font-bold text-[#220101] text-base">{formatPercent(value, 1)}%</span>
       </div>
       <div className="h-3 bg-[#220101]/10 rounded-full overflow-hidden">
         <div 
@@ -557,7 +557,7 @@ function AgeBar({ label, value }: { label: string; value: number }) {
           style={{ width: `${width}%` }}
         />
       </div>
-      <span className="font-bold text-[#220101] w-12 text-right text-sm">{value}%</span>
+      <span className="font-bold text-[#220101] w-12 text-right text-sm">{formatPercent(value, 1)}%</span>
     </div>
   );
 }
@@ -806,7 +806,7 @@ function TalentModal({
                         </div>
                         <div className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
                           <Globe className="w-4 h-4 sm:w-5 sm:h-5 mb-1 sm:mb-2" />
-                          <p className="text-lg sm:text-2xl font-bold">{stats?.igLocFrance || 0}%</p>
+                          <p className="text-lg sm:text-2xl font-bold">{formatPercent(stats?.igLocFrance, 1)}%</p>
                           <p className="text-[10px] sm:text-xs text-white/80">France</p>
                         </div>
                         <div className="bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
@@ -902,7 +902,7 @@ function TalentModal({
                         </div>
                         <div className="bg-gradient-to-br from-teal-500 to-emerald-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
                           <Globe className="w-4 h-4 sm:w-5 sm:h-5 mb-1 sm:mb-2" />
-                          <p className="text-lg sm:text-2xl font-bold">{stats?.ttLocFrance || 0}%</p>
+                          <p className="text-lg sm:text-2xl font-bold">{formatPercent(stats?.ttLocFrance, 1)}%</p>
                           <p className="text-[10px] sm:text-xs text-white/80">France</p>
                         </div>
                         <div className="bg-gradient-to-br from-orange-500 to-amber-500 rounded-lg sm:rounded-xl p-3 sm:p-4 text-white">
