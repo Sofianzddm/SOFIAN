@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { fetchBrandData } from "@/lib/brandfetch";
 import { updateContactPresskitUrl } from "@/lib/hubspot";
+import { formatBlocTalents } from "@/lib/presskit-bloc";
 
 /**
  * POST /api/presskit/generate
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
     const batchSize = 5;
     let completed = 0;
     let failed = 0;
+    const failedBrands: string[] = [];
 
     for (let i = 0; i < brands.length; i += batchSize) {
       const chunk = brands.slice(i, i + batchSize);
@@ -138,40 +140,94 @@ export async function POST(request: NextRequest) {
 
             console.log(`  🎭 ${talents.length} talents à associer`);
 
-            // 5. SUPPRIMER les anciens PressKitTalent de cette marque (pour éviter les doublons)
-            await prisma.pressKitTalent.deleteMany({
+            // 5. Mettre à jour les PressKitTalent en conservant les pitches existants
+            const existingPresskits = await prisma.pressKitTalent.findMany({
               where: { brandId: brand.id },
             });
-            console.log(`  🗑️  Anciens talents supprimés pour ${brandData.companyName}`);
+            const existingByTalentId = new Map(
+              existingPresskits.map((pkt) => [pkt.talentId, pkt])
+            );
+            const keptIds: string[] = [];
 
-            // 6. Créer les nouveaux PressKitTalent avec la sélection actuelle
             for (let order = 0; order < talents.length; order++) {
               const talent = talents[order];
+              const existing = existingByTalentId.get(talent.id);
 
-              await prisma.pressKitTalent.create({
-                data: {
-                  brandId: brand.id,
-                  talentId: talent.id,
-                  pitch: "", // Pas de pitch
-                  order,
-                },
-              });
+              if (existing) {
+                const updated = await prisma.pressKitTalent.update({
+                  where: { id: existing.id },
+                  data: { order },
+                });
+                keptIds.push(updated.id);
+              } else {
+                const created = await prisma.pressKitTalent.create({
+                  data: {
+                    brandId: brand.id,
+                    talentId: talent.id,
+                    pitch: "", // Nouveau talent : pas encore de pitch
+                    order,
+                  },
+                });
+                keptIds.push(created.id);
+              }
             }
 
-            console.log(`  ✅ ${talents.length} talents associés`);
+            // Supprimer les PressKitTalent qui ne font plus partie de la sélection
+            await prisma.pressKitTalent.deleteMany({
+              where: {
+                brandId: brand.id,
+                id: { notIn: keptIds },
+              },
+            });
 
-            // 5. HubSpot API → mettre à jour press_kit_url pour TOUS les contacts de cette marque
+            console.log(`  ✅ ${talents.length} talents associés (pitches conservés si existants)`);
+
+            // 5. Construire bloc_talents (HTML, noms cliquables Instagram) à partir des PressKitTalents
+            const brandWithTalents = await prisma.brand.findUnique({
+              where: { id: brand.id },
+              include: {
+                presskitTalents: {
+                  orderBy: { order: "asc" },
+                  include: {
+                    talent: { include: { stats: true } },
+                  },
+                },
+              },
+            });
+            const blocTalents =
+              brandWithTalents?.presskitTalents?.length ?
+              formatBlocTalents(
+                brandWithTalents.presskitTalents.map((pkt) => {
+                  const t = pkt.talent;
+                  const s = t.stats;
+                  return {
+                    prenom: t.prenom,
+                    pitch: pkt.pitch || "",
+                    instagramHandle: t.instagram?.replace(/^@/, "").trim() || null,
+                    igFollowers: s?.igFollowers ?? 0,
+                    ttFollowers: s?.ttFollowers ?? 0,
+                    ytAbonnes: s?.ytAbonnes ?? 0,
+                  };
+                }),
+                "html"
+              ) : undefined;
+
+            // 6. HubSpot API → mettre à jour press_kit_url ET bloc_talents pour TOUS les contacts
             const contactIds: string[] = [];
             if (brandData.contacts && Array.isArray(brandData.contacts)) {
               for (const contact of brandData.contacts) {
                 const presskitUrl = `https://app.glowupagence.fr/book/${slug}?cid=${contact.hubspotContactId}`;
-                await updateContactPresskitUrl(contact.hubspotContactId, presskitUrl);
+                await updateContactPresskitUrl(
+                  contact.hubspotContactId,
+                  presskitUrl,
+                  blocTalents ?? undefined
+                );
                 contactIds.push(contact.hubspotContactId);
               }
-              console.log(`  ✅ ${contactIds.length} contacts mis à jour`);
+              console.log(`  ✅ ${contactIds.length} contacts mis à jour (URL + bloc_talents)`);
             }
 
-            // 6. Créer BatchBrand
+            // 7. Créer BatchBrand
             await prisma.batchBrand.create({
               data: {
                 batchId: batch.id,
@@ -187,6 +243,9 @@ export async function POST(request: NextRequest) {
           } catch (error) {
             failed++;
             console.error(`  ❌ Erreur pour ${brandData.companyName}:`, error);
+            if (brandData.companyName) {
+              failedBrands.push(String(brandData.companyName));
+            }
 
             // Créer BatchBrand avec erreur
             try {
@@ -240,6 +299,7 @@ export async function POST(request: NextRequest) {
       total: brands.length,
       completed,
       failed,
+      failedBrands,
     });
   } catch (error) {
     console.error("❌ Erreur génération batch:", error);

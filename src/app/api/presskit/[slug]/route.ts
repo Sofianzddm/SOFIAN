@@ -68,6 +68,7 @@ export async function GET(
 
       return {
         id: talent.id,
+        pressKitTalentId: pkt.id,
         name: `${talent.prenom} ${talent.nom}`.trim(),
         prenom: talent.prenom,
         nom: talent.nom,
@@ -104,6 +105,8 @@ export async function GET(
     });
 
     return NextResponse.json({
+      brandId: brand.id,
+      slug: brand.slug,
       name: brand.name,
       niche: brand.niche || '',
       primaryColor: brand.primaryColor,

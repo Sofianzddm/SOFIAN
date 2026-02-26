@@ -104,29 +104,47 @@ export async function POST(request: NextRequest) {
 
     console.log(`  🎭 ${talents.length} talents à associer`);
 
-    // 5. SUPPRIMER les anciens PressKitTalent de cette marque
+    // 5. Mettre à jour les PressKitTalent en conservant les pitches existants
+    const existingPresskits = await prisma.pressKitTalent.findMany({
+      where: { brandId: brand.id },
+    });
+    const existingByTalentId = new Map(
+      existingPresskits.map((pkt) => [pkt.talentId, pkt])
+    );
+    const keptIds: string[] = [];
+
+    for (let order = 0; order < talents.length; order++) {
+      const talent = talents[order];
+      const existing = existingByTalentId.get(talent.id);
+
+      if (existing) {
+        const updated = await prisma.pressKitTalent.update({
+          where: { id: existing.id },
+          data: { order },
+        });
+        keptIds.push(updated.id);
+      } else {
+        const created = await prisma.pressKitTalent.create({
+          data: {
+            brandId: brand.id,
+            talentId: talent.id,
+            pitch: "", // Nouveau talent : pas encore de pitch
+            order,
+          },
+        });
+        keptIds.push(created.id);
+      }
+    }
+
+    // Supprimer les PressKitTalent qui ne font plus partie de la sélection
     await prisma.pressKitTalent.deleteMany({
       where: {
         brandId: brand.id,
+        id: { notIn: keptIds },
       },
     });
-    console.log(`  🗑️  Anciens talents supprimés`);
 
-    // 6. Créer les nouveaux PressKitTalent avec la sélection actuelle
-    for (let order = 0; order < talents.length; order++) {
-      const talent = talents[order];
-
-      await prisma.pressKitTalent.create({
-        data: {
-          brandId: brand.id,
-          talentId: talent.id,
-          pitch: "", // Pas de pitch
-          order,
-        },
-      });
-    }
-
-    console.log(`  ✅ ${talents.length} nouveaux talents associés`);
+    console.log(`  ✅ ${talents.length} talents associés (preview, pitches conservés si existants)`);
     console.log(`  ✅ Preview disponible sur /book/${slug}\n`);
 
     return NextResponse.json({

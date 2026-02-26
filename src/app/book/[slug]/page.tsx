@@ -413,6 +413,9 @@ export default function PressKitPage() {
     new Set(allTalents.flatMap(t => t.niches))
   ).sort();
 
+  // refParam depuis l'URL (?ref=) pour le tracking (persiste dans PageView)
+  const refParamRef = useRef<string | null>(null);
+
   // Fonction helper pour envoyer les events de tracking
   const sendTrackingEvent = (event: string, data?: any) => {
     if (!sessionIdRef.current) return;
@@ -425,6 +428,7 @@ export default function PressKitPage() {
         slug,
         sessionId: sessionIdRef.current,
         hubspotContactId: hubspotContactIdRef.current,
+        refParam: refParamRef.current,
         data,
       }),
     }).catch(err => console.error('Tracking error:', err));
@@ -478,10 +482,12 @@ export default function PressKitPage() {
     sessionStorage.setItem('presskit-session-id', sessionId);
     sessionIdRef.current = sessionId;
     
-    // Récupérer le hubspotContactId depuis l'URL (?cid=...)
+    // Récupérer cid et ref depuis l'URL (?cid=... & ?ref=...)
     const urlParams = new URLSearchParams(window.location.search);
     const hubspotContactId = urlParams.get('cid');
     hubspotContactIdRef.current = hubspotContactId;
+    const refParam = urlParams.get('ref');
+    refParamRef.current = refParam;
 
     // Temps de début
     const startTime = Date.now();
@@ -560,6 +566,7 @@ export default function PressKitPage() {
         slug,
         sessionId,
         hubspotContactId,
+        refParam,
         data: {
           durationSeconds,
           scrollDepthPercent: maxScrollDepth,

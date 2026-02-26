@@ -1238,6 +1238,7 @@ model PageView {
   brand              Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
   brandId            String
   hubspotContactId   String?
+  refParam           String?  // ?ref= du lien tracké (ex: marie-sephora)
   sessionId          String   // ID unique de session
   durationSeconds    Int      @default(0)
   scrollDepthPercent Int      @default(0)

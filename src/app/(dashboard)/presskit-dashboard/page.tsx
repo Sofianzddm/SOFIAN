@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Loader2, ChevronRight, ChevronLeft, Search, Check, X, Eye, AlertCircle } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Loader2, ChevronRight, ChevronLeft, Search, Check, X, Eye, AlertCircle, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
+import { formatBlocTalents, BLOC_EMOJIS, formatFollowers, type BlocFormat } from "@/lib/presskit-bloc";
 
 // ============================================
 // TYPES
@@ -48,6 +49,15 @@ interface CategorizedBrand extends BrandData {
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
+function pressKitSlugFromCompanyName(companyName: string): string {
+  return companyName
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 // Catégories disponibles avec leurs émojis
 const CATEGORIES = [
   { key: "MODE", label: "Mode", emoji: "👗" },
@@ -93,6 +103,14 @@ export default function PressKitDashboardV5() {
   // ÉTAPE 4 : Récap + ajustements
   const [searchRecap, setSearchRecap] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("Toutes");
+  const [isGeneratingAllBlocks, setIsGeneratingAllBlocks] = useState(false);
+  const [generateBlocksProgress, setGenerateBlocksProgress] = useState({
+    current: 0,
+    total: 0,
+  });
+
+  // Panel slide "Bloc email" (étape 4)
+  const [blocPanelSlug, setBlocPanelSlug] = useState<string | null>(null);
 
   // ÉTAPE 5 : Génération
   const [isGenerating, setIsGenerating] = useState(false);
@@ -447,6 +465,88 @@ export default function PressKitDashboardV5() {
     }
   }
 
+  // Générer tous les blocs email (pitches) pour toutes les marques prêtes
+  async function generateAllBlocks() {
+    const brandsReady = categorizedBrands.filter((b) => b.talentIds.length > 0);
+    if (brandsReady.length === 0) {
+      alert("Aucune marque avec talents sélectionnés pour générer les blocs.");
+      return;
+    }
+
+    setIsGeneratingAllBlocks(true);
+    setGenerateBlocksProgress({ current: 0, total: brandsReady.length });
+
+    const failed: string[] = [];
+    let current = 0;
+
+    for (const brand of brandsReady) {
+      const label = brand.customName || brand.companyName;
+      try {
+        // 1. S'assurer que le press kit et les PressKitTalent existent et sont synchro
+        const previewRes = await fetch("/api/presskit/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyName: label,
+            domain: brand.domain,
+            talentIds: brand.talentIds,
+            contacts: brand.contacts,
+          }),
+        });
+
+        if (!previewRes.ok) {
+          failed.push(label);
+        } else {
+          const previewData = await previewRes.json();
+          const slug =
+            previewData.slug ||
+            pressKitSlugFromCompanyName(label);
+
+          // 2. Récupérer l'id de la marque depuis l'API presskit
+          const presskitRes = await fetch(`/api/presskit/${slug}`);
+          if (!presskitRes.ok) {
+            failed.push(label);
+          } else {
+            const presskitJson = await presskitRes.json();
+            const brandId = presskitJson.brandId as string | undefined;
+            if (!brandId) {
+              failed.push(label);
+            } else {
+              // 3. Générer tous les pitches pour cette marque
+              const pitchesRes = await fetch("/api/presskit/generate-all-pitches", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ brandId }),
+              });
+              if (!pitchesRes.ok) {
+                failed.push(label);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Erreur génération bloc email pour la marque:", label, error);
+        failed.push(label);
+      } finally {
+        current += 1;
+        setGenerateBlocksProgress({ current, total: brandsReady.length });
+      }
+    }
+
+    setIsGeneratingAllBlocks(false);
+
+    if (failed.length > 0) {
+      alert(
+        `✅ Blocs générés pour ${brandsReady.length - failed.length} marque(s).\n` +
+          `❌ Erreur pour :\n- ${failed.join(
+            "\n- "
+          )}\n\nTu peux relancer plus tard pour celles qui ont échoué.`
+      );
+    } else {
+      alert(`✅ Blocs générés pour ${brandsReady.length} marques !`);
+    }
+  }
+
   // ============================================
   // ÉTAPE 5 : Génération
   // ============================================
@@ -477,8 +577,22 @@ export default function PressKitDashboardV5() {
 
       const data = await res.json();
 
-      if (data.success) {
-        alert(`✅ ${brandsReady.length} press kits générés et envoyés !`);
+      if (res.ok && data.success) {
+        const completed = data.completed ?? brandsReady.length;
+        const failed = data.failed ?? 0;
+        const failedBrands: string[] = data.failedBrands ?? [];
+
+        if (failed > 0) {
+          alert(
+            `✅ ${completed} press kits générés.\n❌ ${failed} marque(s) en erreur :\n- ${failedBrands.join(
+              "\n- "
+            )}\n\nTu peux relancer plus tard pour celles qui ont échoué.`
+          );
+        } else {
+          alert(`✅ ${completed} press kits générés et envoyés !`);
+        }
+
+        setGenerationProgress({ current: completed, total: data.total ?? brandsReady.length });
         // Reset
         setCurrentStep(1);
         setCategorizedBrands([]);
@@ -831,7 +945,7 @@ export default function PressKitDashboardV5() {
       {/* ============================================ */}
       {currentStep === 4 && (
         <div className="bg-white rounded-lg border p-6">
-          <div className="mb-4 flex gap-4">
+          <div className="mb-4 flex gap-4 items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
@@ -854,6 +968,29 @@ export default function PressKitDashboardV5() {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={generateAllBlocks}
+              disabled={
+                isGeneratingAllBlocks ||
+                !categorizedBrands.some((b) => b.talentIds.length > 0)
+              }
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm flex items-center gap-2"
+            >
+              {isGeneratingAllBlocks ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Génération blocs...
+                  {generateBlocksProgress.total > 0 && (
+                    <span className="text-xs">
+                      {generateBlocksProgress.current}/{generateBlocksProgress.total}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>Générer tous les blocs</>
+              )}
+            </button>
           </div>
 
           <div className="overflow-x-auto">
@@ -872,9 +1009,23 @@ export default function PressKitDashboardV5() {
                 {filteredRecap.map((brand) => {
                   const categoryInfo = CATEGORIES.find((c) => c.key === brand.category);
                   const talentsInfo = talents.filter((t) => brand.talentIds.includes(t.id));
+                  const brandSlug = pressKitSlugFromCompanyName(brand.customName || brand.companyName);
+                  const isPanelActive = blocPanelSlug === brandSlug;
 
                   return (
-                    <tr key={brand.domain} className="border-b hover:bg-gray-50">
+                    <tr
+                      key={brand.domain}
+                      className={`border-b hover:bg-gray-50 cursor-pointer ${isPanelActive ? "bg-blue-50" : ""}`}
+                      onClick={(e) => {
+                        if (
+                          brand.talentIds.length > 0 &&
+                          !(e.target as HTMLElement).closest("button") &&
+                          !(e.target as HTMLElement).closest("input")
+                        ) {
+                          setBlocPanelSlug(brandSlug);
+                        }
+                      }}
+                    >
                       <td className="py-3">
                         <div className="flex items-center gap-2">
                           <input
@@ -915,19 +1066,28 @@ export default function PressKitDashboardV5() {
                           : "—"}
                       </td>
                       <td className="py-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {brand.talentIds.length > 0 && (
-                            <button
-                              onClick={() => previewBrand(brand)}
-                              disabled={previewingBrand === brand.domain}
-                              className="px-3 py-1 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100 disabled:opacity-50 flex items-center gap-1"
-                            >
-                              {previewingBrand === brand.domain ? (
-                                <>⏳ Génération...</>
-                              ) : (
-                                <>👁 Preview</>
-                              )}
-                            </button>
+                            <>
+                              <button
+                                onClick={() => previewBrand(brand)}
+                                disabled={previewingBrand === brand.domain}
+                                className="px-3 py-1 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100 disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {previewingBrand === brand.domain ? (
+                                  <>⏳ Génération...</>
+                                ) : (
+                                  <>👁 Preview</>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setBlocPanelSlug(brandSlug)}
+                                className="px-3 py-1 text-sm bg-green-50 text-green-700 rounded hover:bg-green-100 flex items-center gap-1"
+                              >
+                                Bloc email
+                              </button>
+                            </>
                           )}
                           <button
                             onClick={() => openBrandEditor(brand)}
@@ -978,7 +1138,7 @@ export default function PressKitDashboardV5() {
               <li>• {categorizedBrands.filter((b) => b.talentIds.length > 0).length} marques avec talents sélectionnés</li>
               <li>• {contacts.length} contacts HubSpot seront mis à jour</li>
               <li>
-                • Le champ <code className="bg-white px-1 rounded">press_kit_url</code> sera mis à jour sur chaque contact
+                • Génération du press kit + mise à jour des champs <code className="bg-white px-1 rounded">press_kit_url</code> et <code className="bg-white px-1 rounded">bloc_talents</code> sur chaque contact
               </li>
               <li className="text-blue-600 font-medium mt-2">
                 💡 Vous pourrez ensuite enrouler les contacts dans une séquence depuis HubSpot
@@ -1265,6 +1425,535 @@ export default function PressKitDashboardV5() {
           </div>
         </div>
       )}
+
+      {/* Panel slide Bloc email (étape 4) */}
+      {mode === "hubspot" && currentStep === 4 && blocPanelSlug && (
+        <BlocEmailSlidePanel
+          slug={blocPanelSlug}
+          recapBrands={filteredRecap
+            .filter((b) => b.talentIds.length > 0)
+            .map((b) => ({
+              slug: pressKitSlugFromCompanyName(b.customName || b.companyName),
+              companyName: b.customName || b.companyName,
+              domain: b.domain,
+              talentIds: b.talentIds,
+              contacts: b.contacts,
+            }))}
+          onClose={() => setBlocPanelSlug(null)}
+          onSelectSlug={setBlocPanelSlug}
+        />
+      )}
     </div>
+  );
+}
+
+// ============================================
+// PANEL SLIDE BLOC EMAIL
+// ============================================
+
+type TalentBlocPanel = {
+  id: string;
+  pressKitTalentId: string;
+  prenom: string;
+  name: string;
+  pitch: string;
+  instagram: string | null;
+  followers: number;
+  ttFollowers: number;
+  ytAbonnes?: number | null;
+};
+
+type BrandDataPanel = {
+  brandId: string;
+  slug: string;
+  name: string;
+  talents: TalentBlocPanel[];
+};
+
+function BlocEmailSlidePanel({
+  slug,
+  recapBrands,
+  onClose,
+  onSelectSlug,
+}: {
+  slug: string;
+  recapBrands: {
+    slug: string;
+    companyName: string;
+    domain: string;
+    talentIds: string[];
+    contacts: { hubspotContactId: string; email: string }[];
+  }[];
+  onClose: () => void;
+  onSelectSlug: (slug: string) => void;
+}) {
+  const [data, setData] = useState<BrandDataPanel | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingPitches, setEditingPitches] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [regeneratingAll, setRegeneratingAll] = useState(false);
+  const [usePlainText, setUsePlainText] = useState(false);
+  const [panelMounted, setPanelMounted] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setPanelMounted(true));
+    return () => cancelAnimationFrame(t);
+  }, []);
+
+  const fetchBrand = useCallback(async (s: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const meta = recapBrands.find((b) => b.slug === s);
+      if (!meta) {
+        setError("Données de marque introuvables dans le récap.");
+        setData(null);
+        return;
+      }
+
+      // Toujours resynchroniser le presskit avec la sélection actuelle
+      const previewRes = await fetch("/api/presskit/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: meta.companyName,
+          domain: meta.domain,
+          talentIds: meta.talentIds,
+          contacts: meta.contacts,
+        }),
+      });
+
+      if (!previewRes.ok) {
+        setError("Erreur lors de la préparation du bloc email.");
+        setData(null);
+        return;
+      }
+
+      const previewJson = await previewRes.json();
+      const newSlug = previewJson.slug || s;
+
+      const res = await fetch(`/api/presskit/${newSlug}`);
+      if (!res.ok) {
+        setError("Press kit introuvable après génération.");
+        setData(null);
+        return;
+      }
+
+      const json = await res.json();
+
+      setData({
+        brandId: json.brandId,
+        slug: json.slug,
+        name: json.name,
+        talents: (json.talents || []).map((t: any) => ({
+          id: t.id,
+          pressKitTalentId: t.pressKitTalentId,
+          prenom: t.prenom,
+          name: t.name,
+          pitch: t.pitch || "",
+          instagram: t.instagram ?? null,
+          followers: t.followers ?? 0,
+          ttFollowers: t.ttFollowers ?? 0,
+          ytAbonnes: t.ytAbonnes ?? 0,
+        })),
+      });
+      setEditingPitches({});
+
+      if (newSlug !== s) {
+        onSelectSlug(newSlug);
+      }
+    } catch (e) {
+      console.error("Erreur fetchBrand panel bloc email:", e);
+      setError("Erreur réseau");
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [recapBrands, onSelectSlug]);
+
+  useEffect(() => {
+    fetchBrand(slug);
+  }, [slug, fetchBrand]);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (!data || e.target instanceof HTMLTextAreaElement) return;
+      const idx = recapBrands.findIndex((b) => b.slug === slug);
+      if (e.key === "ArrowLeft" || e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key === "ArrowUp" && idx > 0) {
+        e.preventDefault();
+        onSelectSlug(recapBrands[idx - 1].slug);
+      }
+      if (e.key === "ArrowDown" && idx >= 0 && idx < recapBrands.length - 1) {
+        e.preventDefault();
+        onSelectSlug(recapBrands[idx + 1].slug);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [slug, data, recapBrands, onClose, onSelectSlug]);
+
+  const handlePitchBlur = async (pressKitTalentId: string, value: string) => {
+    const current = data?.talents.find((t) => t.pressKitTalentId === pressKitTalentId)?.pitch ?? "";
+    if (value.trim() === current) return;
+    setSavingId(pressKitTalentId);
+    try {
+      const res = await fetch("/api/presskit/update-pitch", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pressKitTalentId, pitch: value.trim() }),
+      });
+      if (res.ok && data) {
+        setData({
+          ...data,
+          talents: data.talents.map((t) =>
+            t.pressKitTalentId === pressKitTalentId ? { ...t, pitch: value.trim() } : t
+          ),
+        });
+        setEditingPitches((p) => {
+          const next = { ...p };
+          delete next[pressKitTalentId];
+          return next;
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const saveDebounceRef = useRef<Record<string, any>>({});
+
+  const schedulePitchSave = (pressKitTalentId: string, value: string) => {
+    // Met à jour l'état local immédiatement pour la preview
+    setEditingPitches((p) => ({ ...p, [pressKitTalentId]: value }));
+
+    // Debounce la sauvegarde pour éviter de spam l'API
+    const timers = saveDebounceRef.current;
+    if (timers[pressKitTalentId]) {
+      clearTimeout(timers[pressKitTalentId]);
+    }
+    timers[pressKitTalentId] = setTimeout(() => {
+      handlePitchBlur(pressKitTalentId, value);
+    }, 500);
+  };
+
+  const handleRegenerateOne = async (talentId: string) => {
+    if (!data) return;
+    setRegeneratingId(talentId);
+    try {
+      const res = await fetch("/api/presskit/generate-pitch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId: data.brandId, talentId }),
+      });
+      const json = await res.json();
+      if (res.ok && json.pitch) {
+        setData({
+          ...data,
+          talents: data.talents.map((t) =>
+            t.id === talentId ? { ...t, pitch: json.pitch } : t
+          ),
+        });
+        setEditingPitches((p) => {
+          const next = { ...p };
+          const pkId = data.talents.find((t) => t.id === talentId)?.pressKitTalentId;
+          if (pkId) delete next[pkId];
+          return next;
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRegeneratingId(null);
+    }
+  };
+
+  const handleRegenerateAll = async () => {
+    if (!data) return;
+    setRegeneratingAll(true);
+    try {
+      const res = await fetch("/api/presskit/generate-all-pitches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId: data.brandId }),
+      });
+      const json = await res.json();
+      if (res.ok && Array.isArray(json.pitches)) {
+        setData({
+          ...data,
+          talents: data.talents.map((t, i) => {
+            const next = json.pitches[i];
+            // Si l'API n'a pas renvoyé de pitch ou une chaîne vide, on garde l'ancien
+            if (typeof next !== "string" || next.trim() === "") {
+              return { ...t };
+            }
+            return { ...t, pitch: next };
+          }),
+        });
+        setEditingPitches({});
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRegeneratingAll(false);
+    }
+  };
+
+  const moveTalent = async (index: number, direction: -1 | 1) => {
+    if (!data) return;
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= data.talents.length) return;
+
+    const newTalents = [...data.talents];
+    const [moved] = newTalents.splice(index, 1);
+    newTalents.splice(newIndex, 0, moved);
+
+    setData({ ...data, talents: newTalents });
+
+    try {
+      await fetch("/api/presskit/reorder-talents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId: data.brandId,
+          talentIds: newTalents.map((t) => t.id),
+        }),
+      });
+    } catch (e) {
+      console.error("Erreur reorder talents:", e);
+    }
+  };
+  const currentIndex = recapBrands.findIndex((b) => b.slug === slug);
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex >= 0 && currentIndex < recapBrands.length - 1;
+  const blocFormat: BlocFormat = usePlainText ? "plain" : "html";
+  const previewText = data
+    ? formatBlocTalents(
+        data.talents.map((t) => ({
+          prenom: t.prenom,
+          pitch: editingPitches[t.pressKitTalentId] ?? t.pitch,
+          instagramHandle: t.instagram?.replace(/^@/, "").trim() || null,
+          igFollowers: t.followers,
+          ttFollowers: t.ttFollowers,
+          ytAbonnes: t.ytAbonnes,
+        })),
+        blocFormat
+      )
+    : "";
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-50 flex"
+        aria-modal
+        role="dialog"
+      >
+        <div
+          className="flex-1 bg-black/30 transition-opacity"
+          onClick={onClose}
+          aria-hidden
+        />
+        <div
+          ref={panelRef}
+          className={`w-full max-w-[55%] min-w-[320px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
+            panelMounted ? "translate-x-0" : "translate-x-full"
+          }`}
+          style={{ boxShadow: "-4px 0 24px rgba(0,0,0,0.12)" }}
+        >
+          {/* Header */}
+            <div className="flex items-center justify-between gap-4 p-4 border-b shrink-0">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                aria-label="Fermer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => hasPrev && onSelectSlug(recapBrands[currentIndex - 1].slug)}
+                disabled={!hasPrev}
+                className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:pointer-events-none text-gray-600"
+                aria-label="Marque précédente"
+              >
+                <ChevronUp className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => hasNext && onSelectSlug(recapBrands[currentIndex + 1].slug)}
+                disabled={!hasNext}
+                className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:pointer-events-none text-gray-600"
+                aria-label="Marque suivante"
+              >
+                <ChevronDown className="w-5 h-5" />
+              </button>
+              <span className="text-sm text-gray-500">
+                {currentIndex >= 0 ? `${currentIndex + 1} / ${recapBrands.length}` : "—"}
+              </span>
+            </div>
+            <h2 className="text-lg font-semibold truncate flex-1 text-center">
+              {data?.name ?? slug}
+            </h2>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleRegenerateAll}
+                disabled={regeneratingAll || !data}
+                className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {regeneratingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Régénérer tout
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6">
+            {loading && (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+              </div>
+            )}
+            {error && (
+              <div className="py-4 text-amber-700 bg-amber-50 rounded-lg px-4">
+                {error}
+              </div>
+            )}
+            {!loading && data && (
+              <>
+                <label className="flex items-center gap-2 cursor-pointer mb-4">
+                  <input
+                    type="checkbox"
+                    checked={usePlainText}
+                    onChange={(e) => setUsePlainText(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-sm text-gray-700">Format texte brut</span>
+                </label>
+
+                <section className="mb-6">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Bloc Email (éditable)</h3>
+                  <div className="space-y-3">
+                    {data.talents.map((talent, index) => {
+                      const emoji = BLOC_EMOJIS[index % BLOC_EMOJIS.length];
+                      const pitchValue = editingPitches[talent.pressKitTalentId] ?? talent.pitch;
+                      const parts: string[] = [];
+                      if (talent.followers > 0) parts.push(`${formatFollowers(talent.followers)} sur Instagram`);
+                      if (talent.ttFollowers > 0) parts.push(`${formatFollowers(talent.ttFollowers)} sur TikTok`);
+                      if (Number(talent.ytAbonnes ?? 0) > 0) parts.push(`${formatFollowers(Number(talent.ytAbonnes))} sur YouTube`);
+                      const statsStr = parts.join(" · ");
+                      return (
+                        <div key={talent.id} className="border rounded-lg p-3 bg-gray-50/50">
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="flex flex-col mr-1">
+                                <button
+                                  type="button"
+                                  onClick={() => moveTalent(index, -1)}
+                                  disabled={index === 0}
+                                  className="p-0.5 rounded hover:bg-gray-100 disabled:opacity-30"
+                                >
+                                  <ChevronUp className="w-3 h-3 text-gray-500" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveTalent(index, 1)}
+                                  disabled={index === data.talents.length - 1}
+                                  className="p-0.5 rounded hover:bg-gray-100 disabled:opacity-30"
+                                >
+                                  <ChevronDown className="w-3 h-3 text-gray-500" />
+                                </button>
+                              </div>
+                              <span className="text-sm font-medium text-gray-700">
+                                {talent.prenom} — {statsStr || "—"}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRegenerateOne(talent.id)}
+                              disabled={regeneratingId === talent.id}
+                              className="text-xs text-blue-600 hover:underline flex items-center gap-1 disabled:opacity-50"
+                            >
+                              {regeneratingId === talent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                              Régénérer
+                            </button>
+                          </div>
+                          <textarea
+                            value={pitchValue}
+                            onChange={(e) => schedulePitchSave(talent.pressKitTalentId, e.target.value)}
+                            className="w-full px-2 py-1.5 border rounded text-sm min-h-[52px]"
+                            placeholder="Pitch..."
+                          />
+                          {savingId === talent.pressKitTalentId && (
+                            <p className="text-xs text-gray-500 mt-1">Enregistrement…</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <section className="mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Aperçu</h3>
+                  {blocFormat === "html" ? (
+                    <div
+                      className="bg-gray-50 border rounded-lg p-3 text-sm prose prose-sm max-w-none [&_a]:text-[#E1306C] [&_a]:underline [&_a]:font-bold"
+                      dangerouslySetInnerHTML={{
+                        __html: previewText
+                          ? previewText.split("\n\n").map((line) => `<p class="mb-1 last:mb-0">${line}</p>`).join("")
+                          : "<p class='text-gray-500'>(Aucun pitch)</p>",
+                      }}
+                    />
+                  ) : (
+                    <pre className="bg-gray-50 border rounded-lg p-3 text-xs whitespace-pre-wrap font-sans">
+                      {previewText || "(Aucun pitch)"}
+                    </pre>
+                  )}
+                </section>
+
+                <p className="text-sm text-gray-500 flex items-center gap-2">
+                  <span>HubSpot :</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+                    En attente
+                  </span>
+                  <span className="text-xs">(poussé à l’étape 5)</span>
+                </p>
+              </>
+            )}
+          </div>
+
+          {/* Footer nav */}
+          {!loading && data && recapBrands.length > 1 && (
+            <div className="p-4 border-t flex justify-between items-center bg-gray-50/50">
+              <button
+                type="button"
+                onClick={() => hasPrev && onSelectSlug(recapBrands[currentIndex - 1].slug)}
+                disabled={!hasPrev}
+                className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-100 disabled:opacity-40"
+              >
+                ← Précédent
+              </button>
+              <button
+                type="button"
+                onClick={() => hasNext && onSelectSlug(recapBrands[currentIndex + 1].slug)}
+                disabled={!hasNext}
+                className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-100 disabled:opacity-40"
+              >
+                Suivant →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }

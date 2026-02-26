@@ -257,11 +257,12 @@ export async function getContactsFromList(listId: string): Promise<HubSpotContac
 }
 
 /**
- * Mettre à jour le champ press_kit_url d'un contact HubSpot
+ * Mettre à jour press_kit_url et optionnellement bloc_talents sur un contact HubSpot (même appel API).
  */
 export async function updateContactPresskitUrl(
   contactId: string,
-  url: string
+  url: string,
+  blocTalents?: string
 ): Promise<boolean> {
   if (!HUBSPOT_API_KEY) {
     console.warn('❌ HUBSPOT_API_KEY not configured');
@@ -269,7 +270,13 @@ export async function updateContactPresskitUrl(
   }
 
   try {
-    // API v1 pour mettre à jour les propriétés d'un contact
+    const properties: { property: string; value: string }[] = [
+      { property: 'press_kit_url', value: url },
+    ];
+    if (blocTalents != null && blocTalents !== '') {
+      properties.push({ property: 'bloc_talents', value: blocTalents });
+    }
+
     const response = await fetch(
       `${HUBSPOT_BASE_URL}/contacts/v1/contact/vid/${contactId}/profile`,
       {
@@ -278,14 +285,7 @@ export async function updateContactPresskitUrl(
           'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          properties: [
-            {
-              property: 'press_kit_url',
-              value: url,
-            },
-          ],
-        }),
+        body: JSON.stringify({ properties }),
       }
     );
 
@@ -294,7 +294,7 @@ export async function updateContactPresskitUrl(
       return false;
     }
 
-    console.log(`  ✅ Contact ${contactId} mis à jour avec URL: ${url}`);
+    console.log(`  ✅ Contact ${contactId} mis à jour (URL + ${blocTalents != null ? 'bloc_talents' : ''})`);
     return true;
   } catch (error) {
     console.error('❌ HubSpot updateContactPresskitUrl error:', error);

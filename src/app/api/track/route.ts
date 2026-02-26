@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { notifyPressKitVisit } from "@/lib/notifications/presskit-visit";
 
 /**
  * POST /api/track
@@ -8,7 +9,7 @@ import prisma from "@/lib/prisma";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { event, slug, sessionId, hubspotContactId, data } = body;
+    const { event, slug, sessionId, hubspotContactId, refParam, data } = body;
 
     if (!event || !slug || !sessionId) {
       return NextResponse.json(
@@ -31,8 +32,7 @@ export async function POST(request: NextRequest) {
 
     // Traiter l'événement selon le type
     switch (event) {
-      case "view":
-        // Vérifier si une session existe déjà pour ce sessionId
+      case "view": {
         const existingSession = await prisma.pageView.findFirst({
           where: {
             brandId: brand.id,
@@ -41,7 +41,6 @@ export async function POST(request: NextRequest) {
         });
 
         if (!existingSession) {
-          // Compter les visites précédentes de ce contact
           const visitNumber = hubspotContactId
             ? await prisma.pageView.count({
                 where: {
@@ -51,11 +50,11 @@ export async function POST(request: NextRequest) {
               }) + 1
             : 1;
 
-          // Créer une nouvelle session
           await prisma.pageView.create({
             data: {
               brandId: brand.id,
               hubspotContactId,
+              refParam: refParam ?? null,
               sessionId,
               visitNumber,
               durationSeconds: 0,
@@ -68,23 +67,50 @@ export async function POST(request: NextRequest) {
           console.log(`📊 Nouvelle visite enregistrée: ${brand.name} (session ${sessionId})`);
         }
         break;
+      }
 
-      case "session_end":
-        // Mettre à jour la session avec les données finales
+      case "session_end": {
+        const durationSeconds = data?.durationSeconds || 0;
+        const talentsViewed = data?.talentsViewed || [];
+        const refValue = refParam ?? data?.refParam ?? null;
+
         await prisma.pageView.updateMany({
           where: {
             brandId: brand.id,
             sessionId,
           },
           data: {
-            durationSeconds: data?.durationSeconds || 0,
+            durationSeconds,
             scrollDepthPercent: data?.scrollDepthPercent || 0,
-            talentsViewed: data?.talentsViewed || [],
+            talentsViewed,
+            refParam: refValue,
           },
         });
 
-        console.log(`📊 Session terminée: ${brand.name} — ${data?.durationSeconds}s, scroll ${data?.scrollDepthPercent}%`);
+        console.log(`📊 Session terminée: ${brand.name} — ${durationSeconds}s, scroll ${data?.scrollDepthPercent}%`);
+
+        if (durationSeconds > 10) {
+          let talentNames: string[] = [];
+          if (talentsViewed.length > 0) {
+            const talents = await prisma.talent.findMany({
+              where: { id: { in: talentsViewed } },
+              select: { prenom: true, nom: true },
+            });
+            talentNames = talents.map((t) => `${t.prenom} ${t.nom}`);
+          }
+          try {
+            await notifyPressKitVisit({
+              refParam: refValue,
+              brandName: brand.name,
+              durationSeconds,
+              talentNames,
+            });
+          } catch (e) {
+            console.warn("Slack notification failed (non-blocking):", e);
+          }
+        }
         break;
+      }
 
       case "cta_click":
         // Marquer le CTA comme cliqué
