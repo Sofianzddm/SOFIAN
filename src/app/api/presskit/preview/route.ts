@@ -91,9 +91,9 @@ export async function POST(request: NextRequest) {
         primaryColor: brandfetchData.primaryColor,
         secondaryColor: brandfetchData.secondaryColor,
         description: customDescription || brandfetchData.description || "Marque",
-        ...(isManual
+        ...(isManual && customSubtitle
           ? {
-              niche: customSubtitle ?? null,
+              niche: customSubtitle,
             }
           : {}),
       },
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
         primaryColor: brandfetchData.primaryColor,
         secondaryColor: brandfetchData.secondaryColor,
         description: customDescription || brandfetchData.description || "Marque",
-        niche: isManual ? customSubtitle ?? null : null,
+        niche: isManual ? customSubtitle ?? "Press Kit" : "Press Kit",
       },
     });
 
