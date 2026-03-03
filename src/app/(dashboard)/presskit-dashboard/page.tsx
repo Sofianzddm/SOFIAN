@@ -371,6 +371,17 @@ export default function PressKitDashboardV5() {
     );
   }
 
+  function moveManualTalent(index: number, direction: -1 | 1) {
+    setManualSelectedTalents((prev) => {
+      const newIndex = index + direction;
+      if (newIndex < 0 || newIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(index, 1);
+      next.splice(newIndex, 0, moved);
+      return next;
+    });
+  }
+
   async function generateManualPresskit() {
     if (!manualBrandName.trim()) {
       setManualError("Merci d'indiquer un nom de marque.");
@@ -1273,6 +1284,47 @@ export default function PressKitDashboardV5() {
               {manualSelectedTalents.length > 1 ? "s" : ""} sélectionné
               {manualSelectedTalents.length > 1 ? "s" : ""}.
             </p>
+            {manualSelectedTalents.length > 0 && (
+              <div className="mt-3 border rounded-lg p-3 bg-gray-50">
+                <p className="text-xs font-medium text-gray-700 mb-2">
+                  Ordre d’affichage sur le lien press kit :
+                </p>
+                <div className="space-y-1">
+                  {manualSelectedTalents.map((id, index) => {
+                    const t = talents.find((talent) => talent.id === id);
+                    if (!t) return null;
+                    return (
+                      <div
+                        key={id}
+                        className="flex items-center justify-between text-xs bg-white rounded border px-2 py-1"
+                      >
+                        <span className="truncate">{t.name}</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => moveManualTalent(index, -1)}
+                            disabled={index === 0}
+                            className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"
+                            title="Monter"
+                          >
+                            <ChevronUp className="w-3 h-3 text-gray-500" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveManualTalent(index, 1)}
+                            disabled={index === manualSelectedTalents.length - 1}
+                            className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"
+                            title="Descendre"
+                          >
+                            <ChevronDown className="w-3 h-3 text-gray-500" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {manualError && (
