@@ -101,10 +101,17 @@ export async function POST(request: NextRequest) {
     console.log(`  ✅ Marque créée/mise à jour: ${brand.id}`);
 
     // 4. Récupérer les talents
-    const talents = await prisma.talent.findMany({
+    // ⚠️ Prisma ne garantit pas l'ordre de `findMany` pour un tableau d'IDs,
+    // on doit donc réordonner manuellement selon `talentIds` pour respecter
+    // l'ordre choisi (y compris en mode manuel).
+    const talentsRaw = await prisma.talent.findMany({
       where: { id: { in: talentIds } },
       include: { stats: true },
     });
+
+    const talents = talentsRaw.sort(
+      (a, b) => talentIds.indexOf(a.id) - talentIds.indexOf(b.id)
+    );
 
     console.log(`  🎭 ${talents.length} talents à associer`);
 
