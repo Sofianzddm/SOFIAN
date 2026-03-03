@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { companyName, domain, talentIds, contacts, description } = body;
+    const { companyName, domain, talentIds, contacts, description, subtitle } = body;
 
     if (!companyName || !talentIds || !Array.isArray(talentIds) || talentIds.length === 0) {
       return NextResponse.json(
@@ -26,6 +26,8 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`\n🔍 Génération preview pour: ${companyName}\n`);
+
+    const isManual = !contacts || !Array.isArray(contacts) || contacts.length === 0;
 
     // 1. Créer le slug
     const slug = companyName
@@ -76,6 +78,10 @@ export async function POST(request: NextRequest) {
       typeof description === "string" && description.trim() !== ""
         ? description.trim()
         : null;
+    const customSubtitle =
+      typeof subtitle === "string" && subtitle.trim() !== ""
+        ? subtitle.trim()
+        : null;
     const brand = await prisma.brand.upsert({
       where: { slug },
       update: {
@@ -85,16 +91,21 @@ export async function POST(request: NextRequest) {
         primaryColor: brandfetchData.primaryColor,
         secondaryColor: brandfetchData.secondaryColor,
         description: customDescription || brandfetchData.description || "Marque",
+        ...(isManual
+          ? {
+              niche: customSubtitle ?? null,
+            }
+          : {}),
       },
       create: {
         name: brandName,
         slug,
         domain: domain || null,
-        niche: "Press Kit",
         logo: brandfetchData.logo,
         primaryColor: brandfetchData.primaryColor,
         secondaryColor: brandfetchData.secondaryColor,
         description: customDescription || brandfetchData.description || "Marque",
+        niche: isManual ? customSubtitle ?? null : null,
       },
     });
 

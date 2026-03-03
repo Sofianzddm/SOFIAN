@@ -685,7 +685,9 @@ export default function PressKitPage() {
           )}
 
           <p className="text-[#220101]/50 text-sm md:text-base uppercase tracking-[0.15em] mb-4">
-            {t.personalizedSelection}
+            {brandData.niche && brandData.niche.trim().length > 0
+              ? brandData.niche
+              : t.personalizedSelection}
           </p>
           <h1 className="text-4xl md:text-6xl lg:text-7xl mb-6">
             <span className="font-spectral-medium-italic" style={{ color: brandColor }}>

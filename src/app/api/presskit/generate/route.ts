@@ -114,7 +114,6 @@ export async function POST(request: NextRequest) {
                 name: brandName,
                 slug,
                 domain: brandData.domain || null,
-                niche: "Press Kit", // Valeur par défaut pour les press kits
                 logo: brandfetchData.logo,
                 primaryColor: brandfetchData.primaryColor,
                 secondaryColor: brandfetchData.secondaryColor,

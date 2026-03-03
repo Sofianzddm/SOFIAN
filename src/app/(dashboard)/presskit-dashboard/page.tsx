@@ -474,6 +474,8 @@ export default function PressKitDashboardV5() {
           talentIds: manualSelectedTalents,
           contacts: [],
           description: manualDescription.trim() || null,
+          // On réutilise aussi manualDescription comme sous-titre si besoin
+          subtitle: manualDescription.trim() || null,
         }),
       });
 
