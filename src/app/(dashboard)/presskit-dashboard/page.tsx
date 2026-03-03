@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Loader2, ChevronRight, ChevronLeft, Search, Check, X, Eye, AlertCircle, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
+import { Loader2, ChevronRight, ChevronLeft, Search, Check, X, Eye, AlertCircle, RefreshCw, ChevronUp, ChevronDown, Upload } from "lucide-react";
 import { formatBlocTalents, BLOC_EMOJIS, formatFollowers, type BlocFormat } from "@/lib/presskit-bloc";
 
 // ============================================
@@ -127,6 +127,10 @@ export default function PressKitDashboardV5() {
   const [manualLoading, setManualLoading] = useState(false);
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [manualError, setManualError] = useState<string | null>(null);
+  const [manualDescription, setManualDescription] = useState("");
+  const [manualLogoPreview, setManualLogoPreview] = useState<string | null>(null);
+  const [manualLogoUrl, setManualLogoUrl] = useState("");
+  const [manualUploadingLogo, setManualUploadingLogo] = useState(false);
 
   // ============================================
   // ÉTAPE 1 : Charger les listes HubSpot
@@ -382,6 +386,70 @@ export default function PressKitDashboardV5() {
     });
   }
 
+  async function uploadManualLogoAfterCreation(brandId: string) {
+    if (typeof window === "undefined") return;
+
+    const pendingFile = (window as any).pendingPresskitLogoFile as File | undefined;
+
+    try {
+      // Cas 1 : fichier uploadé (Cloudinary)
+      if (pendingFile) {
+        const signatureRes = await fetch("/api/presskit/upload-logo/signature", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brandId }),
+        });
+
+        if (!signatureRes.ok) {
+          throw new Error("Erreur de signature pour le logo");
+        }
+
+        const { signature, timestamp, folder, publicId, cloudName, apiKey } = await signatureRes.json();
+
+        const uploadFormData = new FormData();
+        uploadFormData.append("file", pendingFile);
+        uploadFormData.append("signature", signature);
+        uploadFormData.append("timestamp", String(timestamp));
+        uploadFormData.append("folder", folder);
+        uploadFormData.append("public_id", publicId);
+        uploadFormData.append("api_key", apiKey);
+
+        const cloudinaryRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: "POST",
+            body: uploadFormData,
+          }
+        );
+
+        if (!cloudinaryRes.ok) {
+          throw new Error("Erreur upload Cloudinary");
+        }
+
+        const cloudinaryData = await cloudinaryRes.json();
+        const logoUrl = cloudinaryData.secure_url as string;
+
+        await fetch("/api/presskit/upload-logo/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brandId, logoUrl }),
+        });
+
+        delete (window as any).pendingPresskitLogoFile;
+      } else if (manualLogoUrl.trim()) {
+        // Cas 2 : URL manuelle
+        await fetch("/api/presskit/upload-logo/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brandId, logoUrl: manualLogoUrl.trim() }),
+        });
+      }
+    } catch (error) {
+      console.error("Erreur upload logo presskit manuel:", error);
+      // On ne bloque pas la génération du lien si le logo échoue
+    }
+  }
+
   async function generateManualPresskit() {
     if (!manualBrandName.trim()) {
       setManualError("Merci d'indiquer un nom de marque.");
@@ -405,6 +473,7 @@ export default function PressKitDashboardV5() {
           domain: manualDomain.trim() || null,
           talentIds: manualSelectedTalents,
           contacts: [],
+          description: manualDescription.trim() || null,
         }),
       });
 
@@ -418,6 +487,11 @@ export default function PressKitDashboardV5() {
       const base =
         typeof window !== "undefined" ? window.location.origin : "https://app.glowupagence.fr";
       setManualUrl(`${base}${data.url}`);
+
+      // Uploader le logo si besoin (fichier ou URL)
+      if (data.brandId) {
+        await uploadManualLogoAfterCreation(data.brandId as string);
+      }
     } catch (error) {
       console.error("Erreur génération manuelle:", error);
       setManualError("Erreur lors de la génération du lien.");
@@ -1237,6 +1311,103 @@ export default function PressKitDashboardV5() {
             </div>
           </div>
 
+          {/* Logo de la marque (même UX que partners) */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Logo de la marque</label>
+
+            {manualLogoPreview ? (
+              <div className="relative inline-block">
+                <div className="w-32 h-32 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden p-2">
+                  <img
+                    src={manualLogoPreview}
+                    alt="Logo preview"
+                    className="max-w-full max-h-full object-contain"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualLogoPreview(null);
+                    (window as any).pendingPresskitLogoFile = undefined;
+                  }}
+                  className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <label className="cursor-pointer">
+                  <div className="flex flex-col items-center gap-2">
+                    <Upload className="w-8 h-8 text-gray-400" />
+                    <span className="text-sm text-gray-600">
+                      Cliquez pour uploader un logo
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      PNG, JPG, WEBP (max 10MB)
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={manualUploadingLogo}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (!file.type.startsWith("image/")) {
+                        alert("Veuillez sélectionner une image");
+                        return;
+                      }
+                      if (file.size > 10 * 1024 * 1024) {
+                        alert("L'image ne doit pas dépasser 10MB");
+                        return;
+                      }
+                      setManualUploadingLogo(true);
+                      try {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setManualLogoPreview(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                        (window as any).pendingPresskitLogoFile = file;
+                        setManualLogoUrl("");
+                      } finally {
+                        setManualUploadingLogo(false);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            )}
+
+            {manualUploadingLogo && (
+              <div className="mt-2 flex items-center gap-2 text-sm text-blue-600">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Préparation du logo...
+              </div>
+            )}
+
+            <div className="mt-4">
+              <label className="block text-xs text-gray-500 mb-1">
+                Ou entrez une URL de logo (Cloudinary, site marque…)
+              </label>
+              <input
+                type="text"
+                value={manualLogoUrl}
+                onChange={(e) => {
+                  setManualLogoUrl(e.target.value);
+                  if (e.target.value) {
+                    setManualLogoPreview(e.target.value);
+                    (window as any).pendingPresskitLogoFile = undefined;
+                  }
+                }}
+                className="w-full px-4 py-2 border rounded-lg text-sm"
+                placeholder="https://..."
+              />
+            </div>
+          </div>
+
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-sm font-medium">
@@ -1325,6 +1496,20 @@ export default function PressKitDashboardV5() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Description personnalisée du book */}
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Description personnalisée (remplace “Nous avons sélectionné…”)
+            </label>
+            <textarea
+              rows={3}
+              value={manualDescription}
+              onChange={(e) => setManualDescription(e.target.value)}
+              className="w-full px-4 py-2 border rounded-lg text-sm"
+              placeholder="Ex : Une sélection de créateurs pensée sur-mesure pour vos prochains lancements social media..."
+            />
           </div>
 
           {manualError && (

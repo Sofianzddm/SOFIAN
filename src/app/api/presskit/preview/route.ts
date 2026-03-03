@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { companyName, domain, talentIds, contacts } = body;
+    const { companyName, domain, talentIds, contacts, description } = body;
 
     if (!companyName || !talentIds || !Array.isArray(talentIds) || talentIds.length === 0) {
       return NextResponse.json(
@@ -72,6 +72,10 @@ export async function POST(request: NextRequest) {
     console.log(`  📛 Nom final: "${brandName}" (source: ${companyName ? 'HubSpot company' : 'domaine'})`);
 
     // 4. Créer ou mettre à jour la marque
+    const customDescription =
+      typeof description === "string" && description.trim() !== ""
+        ? description.trim()
+        : null;
     const brand = await prisma.brand.upsert({
       where: { slug },
       update: {
@@ -80,7 +84,7 @@ export async function POST(request: NextRequest) {
         logo: brandfetchData.logo,
         primaryColor: brandfetchData.primaryColor,
         secondaryColor: brandfetchData.secondaryColor,
-        description: brandfetchData.description || "Marque",
+        description: customDescription || brandfetchData.description || "Marque",
       },
       create: {
         name: brandName,
@@ -90,7 +94,7 @@ export async function POST(request: NextRequest) {
         logo: brandfetchData.logo,
         primaryColor: brandfetchData.primaryColor,
         secondaryColor: brandfetchData.secondaryColor,
-        description: brandfetchData.description || "Marque",
+        description: customDescription || brandfetchData.description || "Marque",
       },
     });
 
@@ -151,6 +155,7 @@ export async function POST(request: NextRequest) {
       success: true,
       slug,
       url: `/book/${slug}`,
+      brandId: brand.id,
     });
   } catch (error) {
     console.error("❌ Erreur génération preview:", error);

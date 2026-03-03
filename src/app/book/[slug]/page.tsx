@@ -123,6 +123,7 @@ interface BrandData {
   talents?: TalentData[];
   primaryColor?: string | null;
   secondaryColor?: string | null;
+  description?: string | null;
 }
 
 // Logo Glow Up SVG
@@ -671,6 +672,18 @@ export default function PressKitPage() {
       {/* Hero */}
       <section className="border-b border-[#220101]/10 py-12 md:py-20">
         <div className="max-w-7xl mx-auto px-6 text-center">
+          {/* Logo marque (si dispo) */}
+          {brandData.logo && !logoError && (
+            <div className="mb-6 flex justify-center">
+              <img
+                src={brandData.logo}
+                alt={brandData.name}
+                className="h-16 md:h-20 object-contain"
+                onError={() => setLogoError(true)}
+              />
+            </div>
+          )}
+
           <p className="text-[#220101]/50 text-sm md:text-base uppercase tracking-[0.15em] mb-4">
             {t.personalizedSelection}
           </p>
@@ -688,10 +701,16 @@ export default function PressKitPage() {
           </div>
 
           <p className="text-[#220101]/70 text-lg md:text-xl max-w-3xl mx-auto leading-relaxed">
-            {t.weSelected} {brandData.talents?.length || 0} {t.creatorsFor}{' '}
-            <span className="font-medium" style={{ color: brandColor }}>
-              {brandData.name}
-            </span>
+            {brandData.description && brandData.description.trim().length > 0 ? (
+              brandData.description
+            ) : (
+              <>
+                {t.weSelected} {brandData.talents?.length || 0} {t.creatorsFor}{" "}
+                <span className="font-medium" style={{ color: brandColor }}>
+                  {brandData.name}
+                </span>
+              </>
+            )}
           </p>
         </div>
       </section>
