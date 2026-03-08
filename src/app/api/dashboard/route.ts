@@ -326,7 +326,6 @@ export async function GET(request: NextRequest) {
         performanceTM,
         dernieresMajPrix,
         talentsTarifsAReverifier,
-        demandesRevoirTarifs,
       ] = await Promise.all([
         prisma.talent.count(),
         prisma.talent.count({ where: { tarifs: null } }),
@@ -426,14 +425,20 @@ export async function GET(request: NextRequest) {
           orderBy: { prenom: "asc" },
           take: 20,
         }),
-        // Demandes des admins pour revoir les tarifs d'un talent (notifications REVOIR_TARIFS)
-        prisma.notification.findMany({
+      ]);
+
+      // Demandes des admins pour revoir les tarifs (requête séparée : REVOIR_TARIFS peut être absent en base si migration non appliquée)
+      let demandesRevoirTarifs: { id: string; titre: string; message: string; lien: string | null; createdAt: Date; lu: boolean }[] = [];
+      try {
+        demandesRevoirTarifs = await prisma.notification.findMany({
           where: { userId: user.id, type: "REVOIR_TARIFS" },
           orderBy: { createdAt: "desc" },
           take: 20,
           select: { id: true, titre: true, message: true, lien: true, createdAt: true, lu: true },
-        }),
-      ]);
+        });
+      } catch (err) {
+        console.error("Dashboard HEAD_OF_INFLUENCE: demandesRevoirTarifs", err);
+      }
 
       const caMois = (Number(caMoisAvec._sum.montantBrut) || 0) + (Number(caMoisSans._sum.montantBrut) || 0);
       const commissionMois = (Number(caMoisAvec._sum.commissionEuros) || 0) + (Number(caMoisSans._sum.commissionEuros) || 0);
