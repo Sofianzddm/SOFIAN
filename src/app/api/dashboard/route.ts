@@ -431,6 +431,21 @@ export async function GET(request: NextRequest) {
       const caAnnee = (Number(caAnneeAvec._sum.montantBrut) || 0) + (Number(caAnneeSans._sum.montantBrut) || 0);
       const commissionAnnee = (Number(caAnneeAvec._sum.commissionEuros) || 0) + (Number(caAnneeSans._sum.commissionEuros) || 0);
 
+      // Collabs EN_COURS par TM (pour Head of Influence)
+      const tmIds = performanceTM.map((tm) => tm.id);
+      const collabsEnCoursList =
+        tmIds.length > 0
+          ? await prisma.collaboration.findMany({
+              where: { statut: "EN_COURS", talent: { managerId: { in: tmIds } } },
+              select: { talent: { select: { managerId: true } } },
+            })
+          : [];
+      const collabsEnCoursByManager: Record<string, number> = {};
+      for (const c of collabsEnCoursList) {
+        const mid = c.talent?.managerId;
+        if (mid) collabsEnCoursByManager[mid] = (collabsEnCoursByManager[mid] || 0) + 1;
+      }
+
       // Exclure l'utilisateur "HORS TM" de la supervision TM (Head of Influence ne gère pas le HORS TM)
       const HORS_TM_NAME = "HORS TM";
       const performanceTMFiltered =
@@ -454,6 +469,7 @@ export async function GET(request: NextRequest) {
           nom: `${tm.prenom} ${tm.nom}`,
           talents: talents.length,
           ca,
+          collabsEnCours: collabsEnCoursByManager[tm.id] ?? 0,
           bilansRetard: talentsRetard.length,
           sansTarifs: talentsSansTarif.length,
           talentsDetail: talents.map((t) => ({

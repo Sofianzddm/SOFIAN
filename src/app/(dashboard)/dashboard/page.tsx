@@ -419,12 +419,12 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
   const commissionMois = stats?.commissionMois ?? 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Alerte rouge : tarifs à mettre à jour / vérifier (tous les 30j) */}
       {talentsTarifsAReverifier?.length > 0 && (
         <Link
           href="/talents"
-          className="block rounded-xl border-2 border-red-200 bg-red-50 p-4 ring-1 ring-red-200/60 hover:bg-red-100/80 transition-colors"
+          className="block rounded-2xl border border-red-200/80 bg-red-50/95 p-5 shadow-sm hover:shadow-md hover:bg-red-50 transition-all duration-200"
         >
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-red-500">
@@ -463,7 +463,7 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
       {negociationsSansReponse?.length > 0 && (
         <Link
           href="/negociations"
-          className="block rounded-xl border-2 border-amber-200 bg-amber-50 p-4 ring-1 ring-amber-200/60 hover:bg-amber-100/80 transition-colors"
+          className="block rounded-2xl border border-amber-200/80 bg-amber-50/95 p-5 shadow-sm hover:shadow-md hover:bg-amber-50 transition-all duration-200"
         >
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500">
@@ -552,8 +552,8 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
 
       {/* 2 colonnes : Dernière MAJ prix | Négociations en cours */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div className="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10">
                 <DollarSign className="h-5 w-5 text-violet-600" />
@@ -588,8 +588,8 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
             )}
           </div>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div className="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
                 <Target className="h-5 w-5 text-amber-600" />
@@ -642,29 +642,23 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
       {/* CA du pôle du mois — carte mise en avant */}
       <Link
         href="/finance"
-        className="block rounded-xl border border-slate-200 bg-slate-50/50 p-6 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all"
+        className="block rounded-2xl bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 p-6 shadow-sm hover:shadow-md transition-all duration-200"
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
-              <Euro className="h-5 w-5 text-emerald-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-500">C.A du pôle Influence (mois)</p>
-              <p className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{formatMoney(caMois)}</p>
-              <p className="text-sm text-slate-500 mt-1">Commission (HT) : {formatMoney(commissionMois)}</p>
-            </div>
-          </div>
-          <span className="text-sm font-medium text-slate-600 hover:text-slate-900">Voir la finance →</span>
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/15 mb-4">
+          <Euro className="h-6 w-6 text-emerald-600" />
         </div>
+        <p className="text-xs font-medium text-emerald-700/80 uppercase tracking-wider">C.A du pôle (mois)</p>
+        <p className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{formatMoney(caMois)}</p>
+        <p className="text-sm text-slate-500 mt-2">Commission HT : {formatMoney(commissionMois)}</p>
+        <span className="inline-flex items-center gap-1 mt-4 text-sm font-medium text-emerald-700">Voir la finance →</span>
       </Link>
 
-      {/* Supervision TM (sauf HORS TM) — même style que HeadOf */}
-      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      {/* Supervision TM (sauf HORS TM) — avec collabs en cours par TM */}
+      <div className="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-sm">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
           <h3 className="font-semibold text-slate-900">Supervision TM</h3>
-          <Link href="/talents" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-            Voir les talents
+          <Link href="/collaborations" className="text-sm font-medium text-slate-500 hover:text-slate-700">
+            Voir les collabs
           </Link>
         </div>
         {!tmBilans?.length ? (
@@ -672,29 +666,40 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
         ) : (
           <div className="divide-y divide-slate-100">
             {tmBilans.slice(0, 6).map((tm: any) => (
-              <div key={tm.id} className="flex items-center justify-between gap-4 px-6 py-4">
-                <div className="min-w-0">
+              <div key={tm.id} className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-slate-50/50 transition-colors">
+                <div className="min-w-0 flex-1">
                   <p className="font-medium text-slate-900 truncate">{tm.nom}</p>
-                  <p className="text-sm text-slate-500">
-                    {tm.talents} talents · {formatMoney(tm.ca)}
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-slate-500">
+                    <span>{tm.talents} talent{tm.talents > 1 ? "s" : ""}</span>
+                    <span>·</span>
+                    <span className="font-medium text-slate-600 tabular-nums">{formatMoney(tm.ca)}</span>
+                    {(tm.collabsEnCours ?? 0) > 0 && (
+                      <>
+                        <span>·</span>
+                        <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                          <Handshake className="h-3.5 w-3.5 text-slate-500" />
+                          {tm.collabsEnCours} en cours
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2 justify-end">
                   {tm.bilansRetard > 0 && (
                     <span
-                      className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700"
+                      className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-700"
                       title="Stats non mises à jour depuis 30 jours"
                     >
-                      <Clock className="h-3 w-3" /> {tm.bilansRetard} talent{tm.bilansRetard > 1 ? "s" : ""} à mettre à jour
+                      <Clock className="h-3 w-3" /> {tm.bilansRetard} à mettre à jour
                     </span>
                   )}
                   {tm.sansTarifs > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-orange-50 px-2 py-1 text-xs font-medium text-orange-700">
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-orange-50 px-2 py-1 text-xs font-medium text-orange-700">
                       <AlertTriangle className="h-3 w-3" /> {tm.sansTarifs} sans tarifs
                     </span>
                   )}
                   {tm.bilansRetard === 0 && tm.sansTarifs === 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
                       <CheckCircle className="h-3 w-3" /> OK
                     </span>
                   )}
@@ -705,30 +710,18 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
         )}
       </div>
 
-      {/* Quick actions */}
-      <div className="flex flex-wrap gap-3">
-        <Link
-          href="/talents"
-          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-        >
+      {/* Quick actions — pills */}
+      <div className="flex flex-wrap gap-2">
+        <Link href="/talents" className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 shadow-sm transition-all">
           <Users className="h-4 w-4" /> Talents
         </Link>
-        <Link
-          href="/negociations"
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
+        <Link href="/negociations" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all">
           <Target className="h-4 w-4" /> Négociations
         </Link>
-        <Link
-          href="/collaborations"
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
+        <Link href="/collaborations" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all">
           <Handshake className="h-4 w-4" /> Collaborations
         </Link>
-        <Link
-          href="/gifts"
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
+        <Link href="/gifts" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all">
           <TrendingUp className="h-4 w-4" /> Gifts
         </Link>
       </div>
