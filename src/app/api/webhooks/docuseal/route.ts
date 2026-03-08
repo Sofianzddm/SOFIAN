@@ -18,9 +18,22 @@ type DocuSealPayload = {
 };
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = (await request.json().catch(() => ({}))) as DocuSealPayload;
+  const body = (await request.json().catch(() => ({}))) as DocuSealPayload;
 
+  // Logger TOUT ce qui arrive
+  console.log("=== DOCUSEAL WEBHOOK ===");
+  console.log("event_type:", body.event_type ?? body.event_name ?? "(absent)");
+  console.log("body complet:", JSON.stringify(body, null, 2));
+
+  // Retourner 200 immédiatement pour éviter retry DocuSeal (traitement en arrière-plan)
+  processDocuSealWebhook(body).catch((err) =>
+    console.error("DocuSeal webhook processing error:", err)
+  );
+  return NextResponse.json({ received: true }, { status: 200 });
+}
+
+async function processDocuSealWebhook(body: DocuSealPayload) {
+  try {
     const eventType = body.event_type ?? body.event_name ?? "";
     const isFormCompleted = eventType === "form.completed";
     const isSubmissionCompleted =
@@ -28,7 +41,8 @@ export async function POST(request: NextRequest) {
     const isCompleted = isFormCompleted || isSubmissionCompleted;
 
     if (!isCompleted) {
-      return NextResponse.json({ received: true, ignored: true });
+      console.log("DocuSeal webhook: event ignoré", eventType);
+      return;
     }
 
     const submissionId =
@@ -46,7 +60,7 @@ export async function POST(request: NextRequest) {
 
     if (!submissionId) {
       console.warn("Webhook DocuSeal: submission id manquant", body);
-      return NextResponse.json({ received: true, error: "submission id manquant" }, { status: 400 });
+      return;
     }
 
     const document = await prisma.document.findFirst({
@@ -55,7 +69,8 @@ export async function POST(request: NextRequest) {
     });
 
     if (!document) {
-      return NextResponse.json({ received: true, not_found: true });
+      console.log("DocuSeal webhook: document non trouvé pour submissionId", submissionId);
+      return;
     }
 
     const systemUserId =
@@ -64,7 +79,7 @@ export async function POST(request: NextRequest) {
 
     if (!systemUserId) {
       console.error("Webhook DocuSeal: aucun userId pour DocumentEvent");
-      return NextResponse.json({ received: true, error: "config" }, { status: 500 });
+      return;
     }
 
     const documentUrl =
@@ -210,12 +225,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ received: true, updated: document.id });
+    console.log("DocuSeal webhook: traitement OK, document.id =", document.id);
   } catch (error) {
-    console.error("Erreur webhook DocuSeal:", error);
-    return NextResponse.json(
-      { error: "Erreur traitement webhook" },
-      { status: 500 }
-    );
+    console.error("Erreur webhook DocuSeal (traitement):", error);
   }
 }

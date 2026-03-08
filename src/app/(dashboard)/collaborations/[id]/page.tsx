@@ -238,6 +238,23 @@ export default function CollabDetailPage() {
     if (params.id) fetchMentionable();
   }, [params.id]);
 
+  const pendingSignatureDocs = (collab?.documents || []).filter(
+    (d) => d.type === "DEVIS" && d.signatureStatus === "PENDING"
+  );
+  const hasPendingSignature = pendingSignatureDocs.length > 0;
+
+  useEffect(() => {
+    if (!hasPendingSignature) return;
+    const docIds = pendingSignatureDocs.map((d) => d.id);
+    const interval = setInterval(async () => {
+      for (const docId of docIds) {
+        await fetch(`/api/documents/${docId}/check-signature-status`);
+      }
+      await fetchCollab();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [hasPendingSignature, pendingSignatureDocs.map((d) => d.id).join(",")]);
+
   const fetchCollab = async () => {
     try {
       const res = await fetch(`/api/collaborations/${params.id}`);

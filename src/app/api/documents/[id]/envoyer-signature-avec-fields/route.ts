@@ -126,6 +126,7 @@ export async function POST(
       send_email: false, // On n'utilise que l'email branded Glow Up via Resend
       submitters,
     };
+    console.log("DocuSeal body (submissions):", JSON.stringify(submissionPayload, null, 2));
 
     const res = await fetch(DOCUSEAL_SUBMISSIONS, {
       method: "POST",
@@ -146,6 +147,7 @@ export async function POST(
     }
 
     const data = await res.json();
+    console.log("DocuSeal response (submissions):", JSON.stringify(data, null, 2));
     const submissionList = Array.isArray(data) ? data : [];
     const submissionId =
       submissionList[0]?.submission_id != null

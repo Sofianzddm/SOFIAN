@@ -101,6 +101,7 @@ export async function POST(
     }
 
     // Créer un template DocuSeal (champs vides, l'utilisateur les placera dans le builder)
+    // POST /templates/pdf — pas de send_email ni submitters (ils sont dans envoyer-signature-avec-fields → /submissions)
     const templatePayload = {
       name: `Devis ${document.reference}`,
       documents: [
@@ -111,6 +112,7 @@ export async function POST(
         },
       ],
     };
+    console.log("DocuSeal body (templates/pdf):", JSON.stringify({ ...templatePayload, documents: [{ ...templatePayload.documents[0], file: "[base64…]" }] }, null, 2));
 
     const templateRes = await fetch(DOCUSEAL_TEMPLATES_PDF, {
       method: "POST",
@@ -131,6 +133,7 @@ export async function POST(
     }
 
     const templateData = (await templateRes.json()) as { id?: number; slug?: string };
+    console.log("DocuSeal response (templates/pdf):", JSON.stringify(templateData, null, 2));
     const templateId = templateData.id;
     const templateSlug = templateData.slug ?? "";
 
