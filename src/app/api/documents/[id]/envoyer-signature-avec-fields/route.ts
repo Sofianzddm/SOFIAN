@@ -1,10 +1,13 @@
 // POST /api/documents/[id]/envoyer-signature-avec-fields — Créer la submission DocuSeal puis envoyer email branded Resend
+import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
-import { getSignatureRequestHtml } from "@/lib/emails/templates";
+import { render } from "@react-email/render";
+import { SignatureRequestEmail } from "@/lib/emails/SignatureRequestEmail";
+import { getLogoDataUrl } from "@/lib/emails/getLogoDataUrl";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -182,6 +185,7 @@ export async function POST(
       const resend = new Resend(process.env.RESEND_API_KEY);
       const fromEmail = process.env.RESEND_FROM_EMAIL!.trim();
       const subject = `Devis ${document.reference} à signer — ${talentPrenom} × ${marqueNom}`;
+      const logoDataUrl = getLogoDataUrl();
 
       for (const submitter of submissionList as Array<{
         email?: string;
@@ -199,16 +203,19 @@ export async function POST(
           continue;
         }
         const signerName = (submitter.name as string)?.trim() || "Signataire";
-        const html = getSignatureRequestHtml({
-          signerName,
-          documentReference: document.reference,
-          talentPrenom,
-          talentNom,
-          marqueNom,
-          montantHT,
-          dateDocument,
-          signingUrl,
-        });
+        const talentNomFull = [talentPrenom, talentNom].filter(Boolean).join(" ") || talentNom;
+        const html = await render(
+          React.createElement(SignatureRequestEmail, {
+            signerName,
+            documentReference: document.reference,
+            talentNom: talentNomFull,
+            marqueNom,
+            montantHT: Number(montantHT) ?? 0,
+            dateDocument,
+            signingUrl,
+            logoDataUrl,
+          })
+        );
         await resend.emails.send({
           from: `Glow Up Agence <${fromEmail}>`,
           to: email,

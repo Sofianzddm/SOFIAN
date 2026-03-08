@@ -1,8 +1,11 @@
 // POST /api/webhooks/docuseal — Réception des événements DocuSeal (signature complétée, etc.)
+import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
-import { getSignatureCompletedHtml } from "@/lib/emails/templates";
+import { render } from "@react-email/render";
+import { SignatureCompletedEmail } from "@/lib/emails/SignatureCompletedEmail";
+import { getLogoDataUrl } from "@/lib/emails/getLogoDataUrl";
 
 type DocuSealPayload = {
   event_type?: string;
@@ -14,6 +17,7 @@ type DocuSealPayload = {
     id?: number;
     submission_id?: number;
     submitters?: Array<{ email?: string; name?: string }>;
+    documents?: Array<{ url?: string }>;
   };
   document_url?: string;
   documents?: Array<{ url?: string }>;
@@ -49,15 +53,127 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
       return;
     }
 
+    // ——— submission.completed : flow dédié (body.data.id, body.data.documents, body.data.submitters) ———
+    if (isSubmissionCompleted) {
+      const submissionId =
+        body.data?.id != null
+          ? String(body.data.id)
+          : body.submission?.id != null
+            ? String(body.submission.id)
+            : body.id != null
+              ? String(body.id)
+              : body.submission_id != null
+                ? String(body.submission_id)
+                : body.data?.submission_id != null
+                  ? String(body.data.submission_id)
+                  : null;
+
+      if (!submissionId) {
+        console.warn("Webhook DocuSeal: submission.completed sans id (body.data.id manquant)", body);
+        return;
+      }
+
+      try {
+        const document = await prisma.document.findFirst({
+          where: { signatureSubmissionId: submissionId },
+          include: {
+            collaboration: {
+              include: { talent: true, marque: true },
+            },
+          },
+        });
+
+        if (!document) {
+          console.log("Document non trouvé pour submission:", body.data?.id ?? submissionId);
+          return;
+        }
+
+        const signedDocumentUrl =
+          body.data?.documents?.[0]?.url ??
+          body.document_url?.trim() ??
+          body.documents?.[0]?.url?.trim();
+        const now = new Date();
+
+        await prisma.document.update({
+          where: { id: document.id },
+          data: {
+            signatureStatus: "SIGNED",
+            signatureSignedAt: now,
+            ...(signedDocumentUrl ? { signedDocumentUrl } : {}),
+            signaturesCount: 2,
+          },
+        });
+
+        const emails = (body.data?.submitters ?? body.submitters ?? [])
+          .map((s: { email?: string }) => s?.email?.trim())
+          .filter((e): e is string => !!e);
+        console.log("=== ENVOI EMAIL CONFIRMATION ===");
+        console.log("destinataires:", emails);
+
+        const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+        const resendKey = process.env.RESEND_API_KEY;
+        if (!resendKey || !fromEmail) {
+          console.warn("Webhook DocuSeal: RESEND_API_KEY ou RESEND_FROM_EMAIL manquant, email non envoyé");
+          return;
+        }
+        if (emails.length === 0) {
+          console.warn("Webhook DocuSeal: aucun destinataire (body.data.submitters vide), email non envoyé");
+          return;
+        }
+
+        const talent = document.collaboration?.talent;
+        const marque = document.collaboration?.marque;
+        const finalSignedUrl =
+          signedDocumentUrl ??
+          (document as { signedDocumentUrl?: string | null }).signedDocumentUrl ??
+          (document.collaborationId && process.env.NEXT_PUBLIC_BASE_URL
+            ? `${String(process.env.NEXT_PUBLIC_BASE_URL).replace(/\/$/, "")}/collaborations/${document.collaborationId}`
+            : "#");
+        const montantHT = Number((document as { montantHT?: unknown }).montantHT) ?? 0;
+        const logoDataUrl = getLogoDataUrl();
+        const talentNomFull = [talent?.prenom, talent?.nom].filter(Boolean).join(" ") || "";
+
+        const html = await render(
+          React.createElement(SignatureCompletedEmail, {
+            signerName: "équipe",
+            documentReference: document.reference,
+            talentNom: talentNomFull,
+            marqueNom: marque?.nom ?? "",
+            montantHT,
+            signedDocumentUrl: finalSignedUrl,
+            logoDataUrl,
+          })
+        );
+
+        const resend = new Resend(resendKey);
+        const sendResult = await resend.emails.send({
+          from: fromEmail.includes("<") ? fromEmail : `Glow Up Agence <${fromEmail}>`,
+          to: emails,
+          subject: `Devis ${document.reference} signé - ${talent?.prenom ?? ""} x ${marque?.nom ?? ""}`,
+          html,
+        });
+
+        if (sendResult.error) {
+          console.error("Webhook DocuSeal: Resend a retourné une erreur:", sendResult.error);
+        } else {
+          console.log("Webhook DocuSeal: email confirmation envoyé avec succès");
+        }
+      } catch (err) {
+        console.error("Webhook DocuSeal: erreur traitement submission.completed", err);
+      }
+      return;
+    }
+
+    // ——— form.completed : mise à jour compteur + DocumentEvent ———
     const submissionId =
       body.submission?.id != null
         ? String(body.submission.id)
-        : body.id != null
-          ? String(body.id)
-          : body.submission_id != null
-            ? String(body.submission_id)
-            : body.data?.id != null
-              ? String(body.data.id)
+        : body.data?.id != null
+          ? String(body.data.id)
+          : body.id != null
+            ? String(body.id)
+            : body.submission_id != null
+              ? String(body.submission_id)
               : body.data?.submission_id != null
                 ? String(body.data.submission_id)
                 : null;
@@ -88,143 +204,35 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
 
     const documentUrl =
       body.document_url?.trim() ||
+      body.data?.documents?.[0]?.url?.trim() ||
       (Array.isArray(body.documents) && body.documents[0]?.url ? body.documents[0].url.trim() : undefined);
-    const submitters = body.submitters ?? [];
+    const submitters = body.submitters ?? body.data?.submitters ?? [];
     const signerEmail =
       body.submitter?.email?.trim() ||
       (Array.isArray(submitters) && submitters.length > 0
-        ? submitters.find((s) => s.email)?.email?.trim()
+        ? submitters.find((s: { email?: string }) => s.email)?.email?.trim()
         : undefined);
 
     const now = new Date();
     const updateData: {
       signedDocumentUrl?: string;
-      signatureStatus?: string;
-      signatureSignedAt?: Date;
       signaturesCount?: number | { increment: number };
     } = {};
     if (documentUrl) updateData.signedDocumentUrl = documentUrl;
-    if (isSubmissionCompleted) {
-      updateData.signatureStatus = "SIGNED";
-      updateData.signatureSignedAt = now;
-      // Tous ont signé : forcer le compteur au total (DocuSeal n'envoie pas toujours un form.completed par signataire)
-      updateData.signaturesCount = document.signaturesTotal ?? 2;
-    } else if (isFormCompleted) {
-      updateData.signaturesCount = { increment: 1 };
-    }
+    updateData.signaturesCount = { increment: 1 };
 
-    if (Object.keys(updateData).length > 0) {
+    try {
       await prisma.document.update({
         where: { id: document.id },
         data: updateData,
       });
+    } catch (err) {
+      console.error("Webhook DocuSeal: erreur update document (form.completed)", err);
+      return;
     }
-
-    // Email "Devis signé" quand toutes les parties ont signé (Resend) — on envoie même si document_url absent du payload
-    if (isSubmissionCompleted) {
-      let signedDocumentUrl = documentUrl;
-      if (!signedDocumentUrl) {
-        const docAfter = await prisma.document.findUnique({
-          where: { id: document.id },
-          select: { signedDocumentUrl: true },
-        });
-        signedDocumentUrl = docAfter?.signedDocumentUrl ?? undefined;
-      }
-      if (!signedDocumentUrl) {
-        const key = process.env.DOCUSEAL_API_KEY;
-        if (key) {
-          try {
-            const r = await fetch(`https://api.docuseal.com/submissions/${submissionId}`, {
-              headers: { "X-Auth-Token": key },
-            });
-            if (r.ok) {
-              const sub = (await r.json()) as { combined_document_url?: string; documents?: Array<{ url?: string }> };
-              const url = sub.combined_document_url?.trim() || sub.documents?.[0]?.url?.trim();
-              if (url) {
-                await prisma.document.update({
-                  where: { id: document.id },
-                  data: { signedDocumentUrl: url },
-                });
-                signedDocumentUrl = url;
-              }
-            }
-          } catch (e) {
-            console.warn("Webhook DocuSeal: fetch submission pour URL signé", e);
-          }
-        }
-      }
-
-      const resendKey = process.env.RESEND_API_KEY;
-      const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
-      if (resendKey && fromEmail) {
-        const docFull = await prisma.document.findUnique({
-          where: { id: document.id },
-          select: {
-            reference: true,
-            montantHT: true,
-            signedDocumentUrl: true,
-            signatureSignedAt: true,
-            collaborationId: true,
-            collaboration: {
-              select: {
-                talent: { select: { prenom: true, nom: true } },
-                marque: { select: { nom: true } },
-              },
-            },
-            createdBy: { select: { email: true, prenom: true, nom: true } },
-          },
-        });
-        const creator = docFull?.createdBy;
-        const creatorEmail = creator?.email?.trim();
-        const submittersFromPayload = body.data?.submitters ?? body.submitters ?? [];
-        const signatoryEmails = (Array.isArray(submittersFromPayload) ? submittersFromPayload : [])
-          .map((s: { email?: string }) => s?.email?.trim())
-          .filter((e): e is string => !!e);
-        const emails = Array.from(new Set([...(creatorEmail ? [creatorEmail] : []), ...signatoryEmails]));
-        console.log("Envoi confirmation à:", emails);
-        if (docFull && emails.length > 0) {
-          const talent = docFull.collaboration?.talent;
-          const marque = docFull.collaboration?.marque;
-          const finalSignedUrl = signedDocumentUrl ?? docFull.signedDocumentUrl ?? (typeof process.env.NEXT_PUBLIC_BASE_URL === "string" && docFull.collaborationId ? `${process.env.NEXT_PUBLIC_BASE_URL.replace(/\/$/, "")}/collaborations/${docFull.collaborationId}` : "");
-          const signedAt = docFull.signatureSignedAt ?? now;
-          const recipientName = creator
-            ? [creator.prenom, creator.nom].filter(Boolean).join(" ") || "équipe"
-            : "équipe";
-          try {
-            const signedAtStr = signedAt.toLocaleDateString("fr-FR", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-            const html = getSignatureCompletedHtml({
-              recipientName,
-              documentReference: docFull.reference,
-              talentPrenom: talent?.prenom ?? "",
-              talentNom: talent?.nom ?? "",
-              marqueNom: marque?.nom ?? "",
-              montantHT: Number(docFull.montantHT) ?? 0,
-              signedAt: signedAtStr,
-              signedDocumentUrl: finalSignedUrl || "#",
-            });
-            const resend = new Resend(resendKey);
-            await resend.emails.send({
-              from: `Glow Up Agence <${fromEmail}>`,
-              to: emails,
-              subject: `Devis ${docFull.reference} signé — ${talent?.prenom ?? ""} ${talent?.nom ?? ""} × ${marque?.nom ?? ""}`,
-              html,
-            });
-          } catch (err) {
-            console.error("Webhook DocuSeal: envoi email devis signé échoué", err);
-          }
-        }
-      }
-    }
-
     // Un événement "Signé par [email]" par form.completed (un signataire a signé) ; pas d’event en double sur submission.completed
-    if (isFormCompleted) {
-      const eventDescription = signerEmail ? `Signé par ${signerEmail}` : "Document signé électroniquement";
+    const eventDescription = signerEmail ? `Signé par ${signerEmail}` : "Document signé électroniquement";
+    try {
       await prisma.documentEvent.create({
         data: {
           documentId: document.id,
@@ -233,9 +241,11 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
           userId: systemUserId,
         },
       });
+    } catch (err) {
+      console.error("Webhook DocuSeal: erreur création DocumentEvent", err);
     }
 
-    console.log("DocuSeal webhook: traitement OK, document.id =", document.id);
+    console.log("DocuSeal webhook: traitement form.completed OK, document.id =", document.id);
   } catch (error) {
     console.error("Erreur webhook DocuSeal (traitement):", error);
   }
