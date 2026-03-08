@@ -10,7 +10,11 @@ type DocuSealPayload = {
   submission?: { id?: number };
   id?: number;
   submission_id?: number;
-  data?: { id?: number; submission_id?: number };
+  data?: {
+    id?: number;
+    submission_id?: number;
+    submitters?: Array<{ email?: string; name?: string }>;
+  };
   document_url?: string;
   documents?: Array<{ url?: string }>;
   submitter?: { email?: string };
@@ -171,8 +175,14 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
           },
         });
         const creator = docFull?.createdBy;
-        const toEmail = creator?.email?.trim();
-        if (docFull && toEmail) {
+        const creatorEmail = creator?.email?.trim();
+        const submittersFromPayload = body.data?.submitters ?? body.submitters ?? [];
+        const signatoryEmails = (Array.isArray(submittersFromPayload) ? submittersFromPayload : [])
+          .map((s: { email?: string }) => s?.email?.trim())
+          .filter((e): e is string => !!e);
+        const emails = Array.from(new Set([...(creatorEmail ? [creatorEmail] : []), ...signatoryEmails]));
+        console.log("Envoi confirmation à:", emails);
+        if (docFull && emails.length > 0) {
           const talent = docFull.collaboration?.talent;
           const marque = docFull.collaboration?.marque;
           const finalSignedUrl = signedDocumentUrl ?? docFull.signedDocumentUrl ?? (typeof process.env.NEXT_PUBLIC_BASE_URL === "string" && docFull.collaborationId ? `${process.env.NEXT_PUBLIC_BASE_URL.replace(/\/$/, "")}/collaborations/${docFull.collaborationId}` : "");
@@ -201,7 +211,7 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
             const resend = new Resend(resendKey);
             await resend.emails.send({
               from: `Glow Up Agence <${fromEmail}>`,
-              to: toEmail,
+              to: emails,
               subject: `Devis ${docFull.reference} signé — ${talent?.prenom ?? ""} ${talent?.nom ?? ""} × ${marque?.nom ?? ""}`,
               html,
             });
