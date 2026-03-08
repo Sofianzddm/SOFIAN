@@ -503,7 +503,7 @@ export default function CollabDetailPage() {
       : "";
     setSignatureEmail(email);
     setSignatureSignerName(name);
-    setSignatureAgenceEmail(process.env.NEXT_PUBLIC_AGENCE_EMAIL || "contrat@gloupagence.fr");
+    setSignatureAgenceEmail(process.env.NEXT_PUBLIC_AGENCE_EMAIL || "contrat@glowupagence.fr");
     setSignatureAgenceName(process.env.NEXT_PUBLIC_AGENCE_NOM || "Sofian Zeddam");
     setShowSignatureModal(true);
   };

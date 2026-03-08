@@ -13,6 +13,8 @@ import {
   Text,
 } from "@react-email/components";
 
+const LOGO_URL = "https://app.glowupagence.fr/Logo.png";
+
 const COLORS = {
   header: "#1A1110",
   accent: "#C08B8B",
@@ -32,7 +34,6 @@ export interface SignatureRequestEmailProps {
   montantHT: number;
   dateDocument: string;
   signingUrl: string;
-  logoDataUrl?: string;
 }
 
 export function SignatureRequestEmail({
@@ -43,7 +44,6 @@ export function SignatureRequestEmail({
   montantHT,
   dateDocument,
   signingUrl,
-  logoDataUrl,
 }: SignatureRequestEmailProps) {
   const montantStr = `${montantHT} €`;
   return (
@@ -53,9 +53,7 @@ export function SignatureRequestEmail({
       <Body style={body}>
         <Container style={container}>
           <Section style={headerSection}>
-            {logoDataUrl ? (
-              <Img src={logoDataUrl} alt="Glow Up" width={200} height={36} style={logo} />
-            ) : null}
+            <Img src={LOGO_URL} alt="Glow Up" width={180} height={32} style={logo} />
             <Text style={headerSubtitle}>Agence d&apos;influence</Text>
           </Section>
 

@@ -5,7 +5,6 @@ import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { SignatureCompletedEmail } from "@/lib/emails/SignatureCompletedEmail";
-import { getLogoDataUrl } from "@/lib/emails/getLogoDataUrl";
 
 type DocuSealPayload = {
   event_type?: string;
@@ -130,7 +129,6 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
             ? `${String(process.env.NEXT_PUBLIC_BASE_URL).replace(/\/$/, "")}/collaborations/${document.collaborationId}`
             : "#");
         const montantHT = Number((document as { montantHT?: unknown }).montantHT) ?? 0;
-        const logoDataUrl = getLogoDataUrl();
         const talentNomFull = [talent?.prenom, talent?.nom].filter(Boolean).join(" ") || "";
 
         const html = await render(
@@ -141,7 +139,6 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
             marqueNom: marque?.nom ?? "",
             montantHT,
             signedDocumentUrl: finalSignedUrl,
-            logoDataUrl,
           })
         );
 
