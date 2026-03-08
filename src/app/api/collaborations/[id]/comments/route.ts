@@ -1,9 +1,15 @@
+import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Resend } from "resend";
+import { render } from "@react-email/render";
+import { MentionEmail } from "@/lib/emails/MentionEmail";
 
 const MENTION_REGEX = /@\[([a-z0-9]+)\]/gi;
+
+const MESSAGE_PREVIEW_MAX_LEN = 280;
 
 export async function POST(
   request: NextRequest,
@@ -62,10 +68,12 @@ export async function POST(
     if (mentionedIds.size > 0) {
       const actor = await prisma.user.findUnique({
         where: { id: currentUserId },
-        select: { prenom: true },
+        select: { prenom: true, nom: true },
       });
-      const actorName = actor?.prenom || "Quelqu'un";
+      const actorName = actor ? `${actor.prenom} ${actor.nom}`.trim() : "Quelqu'un";
       const link = `/collaborations/${collaborationId}`;
+      const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
+      const contextUrl = baseUrl ? `${baseUrl}${link.startsWith("/") ? "" : "/"}${link}` : link;
 
       await prisma.$transaction([
         ...Array.from(mentionedIds).map((mentionedUserId) =>
@@ -82,7 +90,7 @@ export async function POST(
             data: {
               userId: mentionedUserId,
               type: "MENTION",
-              titre: `${actorName} vous a mentionné`,
+              titre: `${actor?.prenom ?? "Quelqu'un"} vous a mentionné`,
               message: `sur la collaboration ${collaboration.reference}`,
               lien: link,
               actorId: currentUserId,
@@ -90,6 +98,44 @@ export async function POST(
           })
         ),
       ]);
+
+      // Email de mention via Resend
+      const resendKey = process.env.RESEND_API_KEY;
+      const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+      if (resendKey && fromEmail) {
+        const mentionedUsers = await prisma.user.findMany({
+          where: { id: { in: Array.from(mentionedIds) } },
+          select: { id: true, email: true, prenom: true },
+        });
+        const messagePreview =
+          content.length > MESSAGE_PREVIEW_MAX_LEN
+            ? content.slice(0, MESSAGE_PREVIEW_MAX_LEN) + "…"
+            : content;
+        const resend = new Resend(resendKey);
+        for (const u of mentionedUsers) {
+          const mentionnedName = u.prenom?.trim() || "vous";
+          try {
+            const html = await render(
+              React.createElement(MentionEmail, {
+                mentionnedName,
+                mentionnedByName: actorName,
+                contextType: "collaboration",
+                contextReference: collaboration.reference,
+                messageContent: messagePreview,
+                contextUrl,
+              })
+            );
+            await resend.emails.send({
+              from: fromEmail.includes("<") ? fromEmail : `Glow Up Agence <${fromEmail}>`,
+              to: u.email,
+              subject: `[Mention] ${actorName} vous a mentionné dans ${collaboration.reference}`,
+              html,
+            });
+          } catch (err) {
+            console.error("Erreur envoi email mention collaboration:", u.email, err);
+          }
+        }
+      }
     }
 
     return NextResponse.json(comment);
