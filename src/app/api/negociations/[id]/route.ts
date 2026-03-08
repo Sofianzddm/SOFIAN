@@ -86,7 +86,7 @@ export async function PUT(
     // Vérifier les permissions
     const canEdit =
       session.user.id === negoActuelle.tmId ||
-      ["ADMIN", "HEAD_OF"].includes(session.user.role || "");
+      ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(session.user.role || "");
 
     if (!canEdit) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
@@ -143,6 +143,49 @@ export async function PUT(
         },
       });
 
+      // 2b. Si une collaboration est déjà liée (contre-proposition ou ajout de livrables), recalculer montantBrut + sync livrables collab
+      if (negoActuelle.collaborationId) {
+        const livrablesApres = updated.livrables;
+        const newMontantBrut = livrablesApres.reduce(
+          (sum, l) =>
+            sum +
+            Number(l.prixFinal ?? l.prixSouhaite ?? l.prixDemande ?? 0) * Number(l.quantite ?? 1),
+          0
+        );
+        const collab = await tx.collaboration.findUnique({
+          where: { id: negoActuelle.collaborationId },
+          select: { commissionPercent: true },
+        });
+        if (collab) {
+          const commissionPercent = Number(collab.commissionPercent ?? 0);
+          const commissionEuros = (Number(newMontantBrut) * commissionPercent) / 100;
+          const montantNet = Number(newMontantBrut) - commissionEuros;
+          await tx.collaboration.update({
+            where: { id: negoActuelle.collaborationId },
+            data: {
+              montantBrut: newMontantBrut,
+              commissionEuros,
+              montantNet,
+            },
+          });
+          // Synchroniser les livrables de la collaboration avec ceux de la négo (même liste, mêmes prix)
+          await tx.collabLivrable.deleteMany({
+            where: { collaborationId: negoActuelle.collaborationId },
+          });
+          if (livrablesApres.length > 0) {
+            await tx.collabLivrable.createMany({
+              data: livrablesApres.map((l) => ({
+                collaborationId: negoActuelle.collaborationId!,
+                typeContenu: l.typeContenu,
+                quantite: l.quantite ?? 1,
+                prixUnitaire: Number(l.prixFinal ?? l.prixSouhaite ?? l.prixDemande ?? 0),
+                description: l.description ?? null,
+              })),
+            });
+          }
+        }
+      }
+
       // 3. Créer notification et commentaire si nécessaire
       if (resetRefus) {
         // 🔄 Si la négo était refusée, ajouter un commentaire de réouverture
@@ -157,10 +200,10 @@ export async function PUT(
       }
 
       if (shouldNotify) {
-        // Trouver tous les HEAD_OF et ADMIN
+        // Trouver tous les HEAD_OF, Head of Influence et ADMIN
         const validateurs = await tx.user.findMany({
           where: {
-            role: { in: ["HEAD_OF", "ADMIN"] },
+            role: { in: ["HEAD_OF", "HEAD_OF_INFLUENCE", "ADMIN"] },
             actif: true,
           },
         });

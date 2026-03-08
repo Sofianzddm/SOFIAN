@@ -64,7 +64,7 @@ export default function NegociationsPage() {
   const [tms, setTms] = useState<{ id: string; prenom: string; nom: string }[]>([]);
 
   const isAdmin = session?.user?.role === "ADMIN";
-  const isHeadOf = session?.user?.role === "HEAD_OF";
+  const isHeadOf = session?.user?.role === "HEAD_OF" || session?.user?.role === "HEAD_OF_INFLUENCE";
   const canSeeAll = isAdmin || isHeadOf;
 
   useEffect(() => {

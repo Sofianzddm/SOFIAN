@@ -41,7 +41,7 @@ export async function POST(
       select: { statut: true },
     });
 
-    if (nego?.statut === "EN_ATTENTE" && (session.user.role === "HEAD_OF" || session.user.role === "ADMIN")) {
+    if (nego?.statut === "EN_ATTENTE" && (session.user.role === "HEAD_OF" || session.user.role === "HEAD_OF_INFLUENCE" || session.user.role === "ADMIN")) {
       await prisma.negociation.update({
         where: { id: id },
         data: { statut: "EN_DISCUSSION" },

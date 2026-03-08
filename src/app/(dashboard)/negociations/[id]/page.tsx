@@ -45,6 +45,8 @@ interface NegoDetail {
     nom: string;
     photo: string | null;
     tarifs?: Record<string, number | null> | null;
+    commissionInbound?: number | null;
+    commissionOutbound?: number | null;
   };
   marque: { id: string; nom: string; secteur: string | null } | null;
   nomMarqueSaisi?: string | null;
@@ -106,9 +108,12 @@ export default function NegociationDetailPage() {
   const [showRefusModal, setShowRefusModal] = useState(false);
   const [raisonRefus, setRaisonRefus] = useState("");
   const commentsEndRef = useRef<HTMLDivElement>(null);
+  const [isEditingContrePropo, setIsEditingContrePropo] = useState(false);
+  const [draftPrixFinal, setDraftPrixFinal] = useState<Record<string, string>>({});
+  const [savingContrePropo, setSavingContrePropo] = useState(false);
 
   const isAdmin = session?.user?.role === "ADMIN";
-  const isHeadOf = session?.user?.role === "HEAD_OF";
+  const isHeadOf = session?.user?.role === "HEAD_OF" || session?.user?.role === "HEAD_OF_INFLUENCE";
   const canValidate = isAdmin || isHeadOf;
   const canEdit = nego?.statut !== "VALIDEE";
   const isOwner = session?.user?.id === nego?.tm.id;
@@ -177,6 +182,68 @@ export default function NegociationDetailPage() {
     }
   };
 
+  const startContrePropo = () => {
+    if (!nego) return;
+    const draft: Record<string, string> = {};
+    nego.livrables.forEach((l) => {
+      draft[l.id] = l.prixFinal != null && l.prixFinal > 0 ? String(l.prixFinal) : "";
+    });
+    setDraftPrixFinal(draft);
+    setIsEditingContrePropo(true);
+  };
+
+  const cancelContrePropo = () => {
+    setIsEditingContrePropo(false);
+    setDraftPrixFinal({});
+  };
+
+  const saveContrePropo = async () => {
+    if (!nego) return;
+    setSavingContrePropo(true);
+    try {
+      const livrables = nego.livrables.map((l: { id: string; typeContenu: string; quantite: number; prixDemande: number | null; prixSouhaite: number | null; prixFinal: number | null; description?: string | null }) => ({
+        typeContenu: l.typeContenu,
+        quantite: l.quantite,
+        prixDemande: l.prixDemande,
+        prixSouhaite: l.prixSouhaite,
+        prixFinal: draftPrixFinal[l.id] !== undefined && draftPrixFinal[l.id].trim() !== "" ? parseFloat(draftPrixFinal[l.id]) : null,
+        description: (l as { description?: string | null }).description ?? null,
+      }));
+      const body = {
+        talentId: nego.talent.id,
+        marqueId: nego.marque?.id ?? null,
+        nomMarqueSaisi: nego.nomMarqueSaisi ?? "",
+        contactMarque: nego.contactMarque ?? "",
+        emailContact: nego.emailContact ?? "",
+        source: nego.source,
+        brief: nego.brief ?? "",
+        budgetMarque: nego.budgetMarque ?? null,
+        budgetSouhaite: nego.budgetSouhaite ?? null,
+        budgetFinal: nego.budgetFinal ?? null,
+        dateDeadline: nego.dateDeadline ? nego.dateDeadline.slice(0, 10) : "",
+        livrables,
+      };
+      const res = await fetch(`/api/negociations/${params.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setIsEditingContrePropo(false);
+        setDraftPrixFinal({});
+        fetchNego();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erreur lors de l'enregistrement");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l'enregistrement");
+    } finally {
+      setSavingContrePropo(false);
+    }
+  };
+
   const handleValidation = async (action: "valider" | "refuser") => {
     setValidating(true);
     try {
@@ -236,6 +303,24 @@ export default function NegociationDetailPage() {
   }
 
   const isDeadlinePassed = nego.dateDeadline && new Date(nego.dateDeadline) < new Date();
+
+  // Sommes calculées à partir des livrables (recalcul en temps réel quand le Head of saisit les prix accord)
+  const getAccordValue = (l: (typeof nego.livrables)[0]) => {
+    if (isEditingContrePropo && draftPrixFinal[l.id] !== undefined && String(draftPrixFinal[l.id]).trim() !== "") {
+      const n = parseFloat(String(draftPrixFinal[l.id]));
+      return Number.isNaN(n) ? 0 : n;
+    }
+    return Number(l.prixFinal) || 0;
+  };
+  const sumBudgetMarqueLivrables = nego.livrables.reduce(
+    (sum, l) => sum + (Number(l.prixDemande) || 0) * (l.quantite || 1),
+    0
+  );
+  const sumBudgetAccord = nego.livrables.reduce(
+    (sum, l) => sum + getAccordValue(l) * (l.quantite || 1),
+    0
+  );
+  const budgetFinalCalculated = sumBudgetAccord;
 
   return (
     <div className="space-y-6">
@@ -371,6 +456,15 @@ export default function NegociationDetailPage() {
         <div className="rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-4">Actions</p>
           <div className="flex flex-wrap gap-3">
+            {isHeadOf && !isEditingContrePropo && (
+              <button
+                type="button"
+                onClick={startContrePropo}
+                className="inline-flex items-center gap-2 rounded-lg border-2 border-blue-300 bg-blue-50 px-5 py-2.5 text-sm font-medium text-blue-800 hover:bg-blue-100 transition-colors"
+              >
+                <Pencil className="h-4 w-4" /> Faire une contre-proposition
+              </button>
+            )}
             <button
               onClick={() => handleValidation("valider")}
               disabled={validating}
@@ -386,6 +480,11 @@ export default function NegociationDetailPage() {
               <XCircle className="h-4 w-4" /> Refuser
             </button>
           </div>
+          {isHeadOf && !isEditingContrePropo && (
+            <p className="text-xs text-slate-500 mt-3">
+              Saisissez les montants accordés (Prix final) par livrable dans le tableau ci-dessous, puis enregistrez.
+            </p>
+          )}
         </div>
       )}
 
@@ -459,37 +558,105 @@ export default function NegociationDetailPage() {
           </div>
 
           {/* Livrables */}
-          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
-            <div className="border-b border-slate-100 px-6 py-4 flex items-center gap-2">
-              <Package className="h-5 w-5 text-slate-500" />
-              <h2 className="font-semibold text-slate-900">Livrables</h2>
+          <div className={`rounded-xl border overflow-hidden ring-1 transition-colors ${isEditingContrePropo ? "border-blue-300 ring-blue-200/60 bg-blue-50/30" : "border-slate-200 bg-white ring-slate-200/60"}`}>
+            <div className="border-b border-slate-100 px-6 py-4 flex items-center justify-between gap-2 flex-wrap bg-white">
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-slate-500" />
+                <h2 className="font-semibold text-slate-900">Livrables</h2>
+                {isEditingContrePropo && (
+                  <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded">Contre-proposition</span>
+                )}
+              </div>
+              {isHeadOf && canEdit && !isEditingContrePropo && (
+                <button
+                  type="button"
+                  onClick={startContrePropo}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Saisir ma contre-proposition
+                </button>
+              )}
             </div>
-            <div className="divide-y divide-slate-100">
-              {nego.livrables.map((l) => {
-                const notrePrix = getNotrePrix(l.typeContenu, nego.talent.tarifs);
-                return (
-                  <div key={l.id} className="flex items-center justify-between gap-4 px-6 py-4">
-                    <div className="flex items-center gap-4">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-sm font-semibold text-slate-700">
-                        {l.quantite}
-                      </span>
-                      <span className="font-medium text-slate-900">{TYPE_LABELS[l.typeContenu] || l.typeContenu}</span>
-                    </div>
-                    <div className="flex items-center gap-6 text-sm">
-                      {notrePrix != null && (
-                        <span className="text-slate-500">{formatMoney(notrePrix)}</span>
-                      )}
-                      <span className="font-medium text-slate-700">{formatMoney(l.prixDemande ?? 0)}</span>
-                      {(l.prixSouhaite != null || l.prixFinal != null) && (
-                        <span className="font-semibold text-emerald-600">
-                          {formatMoney(Number(l.prixFinal ?? l.prixSouhaite ?? 0))}
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wider text-slate-500">
+                  <th className="text-left py-3 px-6">Type</th>
+                  <th className="text-center py-3 px-2 w-14">Qté</th>
+                  <th className="text-right py-3 px-4">Grille</th>
+                  <th className="text-right py-3 px-4">Marque</th>
+                  <th className="text-right py-3 px-6">Accord</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {nego.livrables.map((l) => {
+                  const notrePrix = getNotrePrix(l.typeContenu, nego.talent.tarifs);
+                  const hasFinal = !isEditingContrePropo && (l.prixFinal != null && l.prixFinal > 0);
+                  return (
+                    <tr key={l.id} className="text-sm">
+                      <td className="py-3 px-6 font-medium text-slate-900">{TYPE_LABELS[l.typeContenu] || l.typeContenu}</td>
+                      <td className="py-3 px-2 text-center">
+                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-sm font-semibold text-slate-700">
+                          {l.quantite}
                         </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                      </td>
+                      <td className="py-3 px-4 text-right text-slate-500 tabular-nums">{notrePrix != null ? formatMoney(notrePrix) : "—"}</td>
+                      <td className="py-3 px-4 text-right text-slate-600 tabular-nums">{formatMoney(l.prixDemande ?? 0)}</td>
+                      <td className="py-3 px-6 text-right">
+                        {isEditingContrePropo ? (
+                          <div className="flex items-center justify-end gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={draftPrixFinal[l.id] ?? (l.prixFinal != null && l.prixFinal > 0 ? l.prixFinal : "")}
+                              onChange={(e) => setDraftPrixFinal((prev) => ({ ...prev, [l.id]: e.target.value }))}
+                              placeholder="—"
+                              className="w-24 px-2 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-sm font-medium text-slate-900 tabular-nums focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                            />
+                            <span className="text-xs text-slate-400">€</span>
+                          </div>
+                        ) : (l.prixSouhaite != null || l.prixFinal != null) ? (
+                          <span className={`tabular-nums ${hasFinal ? "font-semibold text-blue-700" : "text-slate-700"}`}>
+                            {formatMoney(Number(l.prixFinal ?? l.prixSouhaite ?? 0))}
+                            {hasFinal && <span className="ml-1 text-xs font-normal text-blue-600">(accord)</span>}
+                          </span>
+                        ) : isHeadOf && canEdit ? (
+                          <button type="button" onClick={startContrePropo} className="text-slate-400 hover:text-blue-600 text-xs">saisir</button>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {isEditingContrePropo && (
+              <p className="px-6 py-2 text-xs text-blue-700 bg-blue-50/80 border-t border-blue-100">
+                Renseignez la colonne Accord puis enregistrez.
+              </p>
+            )}
+            {isEditingContrePropo && (
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={saveContrePropo}
+                  disabled={savingContrePropo}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingContrePropo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+                  Enregistrer la contre-propo
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelContrePropo}
+                  disabled={savingContrePropo}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Annuler
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Brief */}
@@ -506,10 +673,15 @@ export default function NegociationDetailPage() {
 
           {/* Discussion */}
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
-            <div className="border-b border-slate-100 px-6 py-4 flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-slate-500" />
-              <h2 className="font-semibold text-slate-900">Discussion</h2>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{nego.commentaires.length}</span>
+            <div className="border-b border-slate-100 px-6 py-4">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-slate-500" />
+                <h2 className="font-semibold text-slate-900">Discussion</h2>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{nego.commentaires.length}</span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1.5">
+                Trace des échanges avec la marque. Si la marque revient avec un nouveau prix, le TM met à jour les montants via <strong>Modifier</strong>.
+              </p>
             </div>
             <div className="max-h-80 overflow-y-auto p-4 space-y-4">
               {nego.commentaires.length === 0 ? (
@@ -517,7 +689,7 @@ export default function NegociationDetailPage() {
               ) : (
                 nego.commentaires.map((c) => {
                   const isMe = c.user.id === session?.user?.id;
-                  const isHead = c.user.role === "HEAD_OF" || c.user.role === "ADMIN";
+                  const isHead = c.user.role === "HEAD_OF" || c.user.role === "HEAD_OF_INFLUENCE" || c.user.role === "ADMIN";
                   return (
                     <div key={c.id} className={`flex gap-3 ${isMe ? "flex-row-reverse" : ""}`}>
                       <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
@@ -572,18 +744,79 @@ export default function NegociationDetailPage() {
             <div className="p-6 space-y-4">
               <div>
                 <p className="text-xs font-medium text-slate-500">Budget marque (HT)</p>
-                <p className="text-xl font-semibold text-slate-900 tabular-nums">{formatMoney(nego.budgetMarque)}</p>
+                <p className="text-xl font-semibold text-slate-900 tabular-nums">{formatMoney(sumBudgetMarqueLivrables)}</p>
               </div>
-              <div className="pt-4 border-t border-slate-100">
+              <div className="pt-2 border-t border-slate-100">
                 <p className="text-xs font-medium text-slate-500">Budget souhaité (HT)</p>
-                <p className="text-xl font-bold text-slate-900 tabular-nums">{formatMoney(nego.budgetSouhaite)}</p>
+                <p className="text-xl font-bold text-slate-900 tabular-nums">{formatMoney(nego.budgetSouhaite ?? 0)}</p>
               </div>
-              {nego.budgetFinal != null && (
-                <div className="pt-4 border-t border-slate-100 rounded-lg bg-emerald-50 p-4 -mx-2 -mb-2">
-                  <p className="text-xs font-medium text-emerald-700">Budget final (HT)</p>
-                  <p className="text-xl font-bold text-emerald-700 tabular-nums">{formatMoney(nego.budgetFinal)}</p>
+              {/* Barre de progression : budget marque (somme livrables) vs budget souhaité */}
+              {typeof nego.budgetSouhaite === "number" && nego.budgetSouhaite > 0 && (
+                <div className="pt-3">
+                  <div className="h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-slate-400 transition-all"
+                      style={{
+                        width: `${Math.min(100, (sumBudgetMarqueLivrables / nego.budgetSouhaite) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1 tabular-nums">
+                    {Math.round(Math.min(100, (sumBudgetMarqueLivrables / nego.budgetSouhaite) * 100))}% de la cible
+                  </p>
                 </div>
               )}
+              {/* Indicateur d'écart */}
+              {typeof nego.budgetSouhaite === "number" && nego.budgetSouhaite > 0 && (
+                <div className="pt-2">
+                  {sumBudgetMarqueLivrables >= nego.budgetSouhaite ? (
+                    <p className="text-sm font-medium text-emerald-600 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" /> Budget OK ✓
+                    </p>
+                  ) : (
+                    <p className="text-sm font-medium text-red-600">
+                      Écart : {formatMoney(nego.budgetSouhaite - sumBudgetMarqueLivrables)} (la marque est à{" "}
+                      {Math.round((sumBudgetMarqueLivrables / nego.budgetSouhaite) * 100)}% de notre cible)
+                    </p>
+                  )}
+                </div>
+              )}
+              {/* Budget final (HT) : somme des prix accord des livrables, recalcul en temps réel */}
+              <div className="pt-4 border-t border-slate-100 rounded-lg bg-emerald-50 p-4 -mx-2">
+                <p className="text-xs font-medium text-emerald-700">Budget final (HT)</p>
+                <p className="text-xl font-bold text-emerald-700 tabular-nums">{formatMoney(budgetFinalCalculated)}</p>
+              </div>
+              {/* Deux scénarios : somme budget marque par livrable / somme accord par livrable */}
+              {(() => {
+                const pct = nego.source === "INBOUND"
+                  ? Number(nego.talent?.commissionInbound ?? 0)
+                  : Number(nego.talent?.commissionOutbound ?? 0);
+                const budgetMarque = sumBudgetMarqueLivrables;
+                const budgetCible = sumBudgetAccord;
+                if (budgetMarque <= 0 && budgetCible <= 0) return null;
+                const commissionMarque = budgetMarque * (pct / 100);
+                const netMarque = budgetMarque - commissionMarque;
+                const commissionCible = budgetCible * (pct / 100);
+                const netCible = budgetCible - commissionCible;
+                return (
+                  <div className="pt-4 border-t border-slate-100 space-y-3">
+                    {budgetMarque > 0 && (
+                      <div className="rounded-lg bg-red-50 border border-red-100 p-3">
+                        <p className="text-xs font-medium text-red-800 mb-1.5">Si on accepte le budget marque :</p>
+                        <p className="text-xs text-red-700">Commission {pct}% → {formatMoney(commissionMarque)}</p>
+                        <p className="text-xs font-medium text-red-800">Net talent → {formatMoney(netMarque)}</p>
+                      </div>
+                    )}
+                    {budgetCible > 0 && (
+                      <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3">
+                        <p className="text-xs font-medium text-emerald-800 mb-1.5">Si on obtient notre cible :</p>
+                        <p className="text-xs text-emerald-700">Commission {pct}% → {formatMoney(commissionCible)}</p>
+                        <p className="text-xs font-medium text-emerald-800">Net talent → {formatMoney(netCible)}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 

@@ -61,6 +61,7 @@ export default function EditNegociationPage() {
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
   const isTM = userRole === "TM";
+  const isHeadOfInfluence = userRole === "HEAD_OF" || userRole === "HEAD_OF_INFLUENCE";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -284,11 +285,34 @@ export default function EditNegociationPage() {
             <ArrowLeft className="w-5 h-5 text-gray-500" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-glowup-licorice">Modifier la négociation</h1>
-            <p className="text-gray-500 text-sm">Mise à jour des informations</p>
+            <h1 className="text-2xl font-bold text-glowup-licorice">
+              {isHeadOfInfluence ? "Contre-proposition" : "Modifier la négociation"}
+            </h1>
+            <p className="text-gray-500 text-sm">
+              {isHeadOfInfluence ? "Fixez les montants accordés par livrable (colonne Prix final), puis enregistrez." : "Mise à jour des informations"}
+            </p>
           </div>
         </div>
       </div>
+
+      {/* Bandeau contre-proposition — Head of Influence */}
+      {isHeadOfInfluence && (
+        <div className="rounded-xl border-2 border-blue-300 bg-blue-50 p-4">
+          <p className="font-semibold text-blue-900 text-sm">Contre-proposition (Head of Influence)</p>
+          <p className="text-xs text-blue-800 mt-0.5">
+            Le TM a saisi la <strong>proposition initiale</strong> (Prix marque, Prix souhaité). Vous fixez ici le <strong>Prix final (accord)</strong> par livrable — c’est votre contre-proposition. Ces montants seront utilisés à la validation pour créer la collaboration. Enregistrez puis revenez sur la négociation pour valider.
+          </p>
+        </div>
+      )}
+
+      {/* Rappel pour le TM : qui remplit quoi */}
+      {!isHeadOfInfluence && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-700">
+            Vous modifiez <strong>votre proposition</strong> (Prix marque, Prix souhaité). La colonne <strong>« Final € »</strong> est réservée à la Head of Influence pour sa contre-proposition avant validation.
+          </p>
+        </div>
+      )}
 
       {/* Avertissement REFUSEE */}
       {negoStatut === "REFUSEE" && (
@@ -303,16 +327,18 @@ export default function EditNegociationPage() {
         </div>
       )}
 
-      {/* Avertissement */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-        <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="font-medium text-blue-900 text-sm">💡 Bon à savoir</p>
-          <p className="text-xs text-blue-700 mt-1">
-            Les modifications seront notifiées aux responsables si la négociation est déjà soumise.
-          </p>
+      {/* Avertissement — masqué pour Head of Influence (déjà expliqué au-dessus) */}
+      {!isHeadOfInfluence && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-slate-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-slate-800 text-sm">Modifier la proposition</p>
+            <p className="text-xs text-slate-600 mt-0.5">
+              Vous pouvez mettre à jour le budget marque et les montants à tout moment tant que la négo n’est pas validée. Si la marque revient avec un nouveau prix, modifiez les champs ici et résumez l’échange dans la <strong>Discussion</strong> de la fiche négo.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         {/* Talent & Marque */}
@@ -495,6 +521,15 @@ export default function EditNegociationPage() {
             </button>
           </div>
 
+          {isHeadOfInfluence ? (
+            <p className="mb-3 text-xs text-blue-700">
+              Renseignez uniquement la colonne <strong>Prix final €</strong> (votre accord par livrable). Les autres colonnes viennent de la proposition du TM.
+            </p>
+          ) : (
+            <p className="mb-3 text-xs text-slate-500">
+              Proposition TM : Prix marque (ce qu’ils proposent), Prix souhaité (votre cible). <strong>Prix final</strong> = à remplir par la Head of Influence (contre-propo.).
+            </p>
+          )}
           {formData.livrables.length === 0 ? (
             <div className="text-center py-8 text-gray-400">
               <Package className="w-12 h-12 mx-auto mb-2 opacity-30" />
@@ -550,18 +585,18 @@ export default function EditNegociationPage() {
                           <p className="text-[10px] text-gray-400 mt-0.5">Grille DB</p>
                         </div>
                         <div className="col-span-2">
-                          <label className="block text-xs text-gray-500 mb-1">Prix marque € HT</label>
+                          <label className="block text-xs text-gray-500 mb-1">Prix marque € HT <span className="text-slate-400">(TM)</span></label>
                           <input
                             type="number"
                             min="0"
                             value={livrable.prixDemande || ""}
                             onChange={(e) => updateLivrable(livrable.id, "prixDemande", e.target.value)}
-                            placeholder="Proposé"
+                            placeholder="Proposé par la marque"
                             className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm"
                           />
                         </div>
                         <div className="col-span-2">
-                          <label className="block text-xs text-gray-500 mb-1">Prix souhaité € HT</label>
+                          <label className="block text-xs text-gray-500 mb-1">Prix souhaité € HT <span className="text-slate-400">(TM)</span></label>
                           <input
                             type="number"
                             min="0"
@@ -587,15 +622,23 @@ export default function EditNegociationPage() {
                           )}
                         </div>
                         <div className="col-span-1">
-                          <label className="block text-xs text-gray-500 mb-1">Final €</label>
+                          <label className="block text-xs text-gray-500 mb-1" title="Contre-proposition Head of : montant accordé à la validation">
+                            Prix final € <span className="text-blue-600">(Head of)</span>
+                          </label>
                           <input
                             type="number"
                             min="0"
                             value={livrable.prixFinal || ""}
                             onChange={(e) => updateLivrable(livrable.id, "prixFinal", e.target.value)}
-                            placeholder="—"
-                            className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-blue-50"
+                            placeholder={isHeadOfInfluence ? "Votre accord" : "—"}
+                            className="w-full px-2 py-2 rounded-lg border border-blue-200 text-sm bg-blue-50 focus:ring-2 focus:ring-blue-200"
                           />
+                          {isHeadOfInfluence && (
+                            <p className="text-[10px] text-blue-600 mt-0.5">Votre contre-propo.</p>
+                          )}
+                          {!isHeadOfInfluence && (
+                            <p className="text-[10px] text-slate-400 mt-0.5">Rempli par Head of</p>
+                          )}
                         </div>
                       </div>
                       <div>

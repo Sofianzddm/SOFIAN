@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
     serverActions: {
       allowedOrigins: ["localhost:3000"],
     },
+    // Racine du projet pour Turbopack (évite "couldn't find Next.js package" si lancé avec --turbo)
+    turbo: {
+      root: ".",
+    },
   },
   // Images autorisées
   images: {

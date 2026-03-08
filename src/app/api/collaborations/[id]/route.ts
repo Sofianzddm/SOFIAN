@@ -34,6 +34,7 @@ export async function GET(
             pays: true,
             siret: true,
             numeroTVA: true,
+            contacts: { orderBy: { principal: "desc" }, select: { id: true, email: true, nom: true, prenom: true, principal: true } },
           },
         },
         livrables: {
@@ -49,6 +50,18 @@ export async function GET(
             dateEmission: true,
             avoirRef: true,
             factureRef: true,
+            signatureStatus: true,
+            signatureSubmissionId: true,
+            signatureSentAt: true,
+            signatureSignedAt: true,
+            signatureSignerEmail: true,
+            signedDocumentUrl: true,
+            signaturesCount: true,
+            signaturesTotal: true,
+            events: {
+              where: { type: "SIGNED" },
+              select: { id: true },
+            },
           },
           orderBy: { createdAt: "desc" },
         },
@@ -228,12 +241,28 @@ export async function PUT(
     const { id } = await params;
     const data = await request.json();
 
+    const livrables = Array.isArray(data.livrables) ? data.livrables : [];
+    // Recalculer montantBrut côté serveur à partir des livrables (évite incohérence négo / ajout livrable)
+    const montantBrut = livrables.reduce(
+      (sum: number, l: any) =>
+        sum + (parseFloat(l.prixUnitaire) || 0) * (Number(l.quantite) || 1),
+      0
+    );
+
+    const existing = await prisma.collaboration.findUnique({
+      where: { id },
+      select: { commissionPercent: true },
+    });
+    const commissionPercent = existing ? Number(existing.commissionPercent ?? 0) : parseFloat(data.commissionPercent) || 0;
+    const commissionEuros = (montantBrut * commissionPercent) / 100;
+    const montantNet = montantBrut - commissionEuros;
+
     // Supprimer les anciens livrables
     await prisma.collabLivrable.deleteMany({
       where: { collaborationId: id },
     });
 
-    // Mettre à jour la collaboration
+    // Mettre à jour la collaboration avec montants recalculés
     const collaboration = await prisma.collaboration.update({
       where: { id: id },
       data: {
@@ -241,13 +270,13 @@ export async function PUT(
         marqueId: data.marqueId,
         source: data.source,
         description: data.description || null,
-        montantBrut: parseFloat(data.montantBrut),
-        commissionPercent: parseFloat(data.commissionPercent),
-        commissionEuros: parseFloat(data.commissionEuros),
-        montantNet: parseFloat(data.montantNet),
+        montantBrut,
+        commissionPercent,
+        commissionEuros,
+        montantNet,
         isLongTerme: data.isLongTerme || false,
         livrables: {
-          create: data.livrables.map((l: any) => ({
+          create: livrables.map((l: any) => ({
             typeContenu: l.typeContenu,
             quantite: l.quantite || 1,
             prixUnitaire: parseFloat(l.prixUnitaire) || 0,

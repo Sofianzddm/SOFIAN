@@ -15,8 +15,8 @@ export async function POST(
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
     }
 
-    // Seuls Head Of et Admin peuvent valider
-    if (!["HEAD_OF", "ADMIN"].includes(session.user.role)) {
+    // Seuls Head Of, Head of Influence et Admin peuvent valider
+    if (!["HEAD_OF", "HEAD_OF_INFLUENCE", "ADMIN"].includes(session.user.role)) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 403 });
     }
 
@@ -79,10 +79,15 @@ export async function POST(
     }
     const marqueIdFinal = marqueIdToUse as string;
 
-    // Calculer les montants
-    const montantBrut = nego.budgetFinal || nego.budgetSouhaite || nego.budgetMarque || 0;
-    const commissionPercent = nego.source === "INBOUND" 
-      ? Number(nego.talent.commissionInbound) 
+    // Montant brut = somme (prix accord par livrable × quantité), pas negociation.budgetFinal
+    const montantBrut = nego.livrables.reduce(
+      (sum, l) =>
+        sum +
+        Number(l.prixFinal ?? l.prixSouhaite ?? l.prixDemande ?? 0) * Number(l.quantite ?? 1),
+      0
+    );
+    const commissionPercent = nego.source === "INBOUND"
+      ? Number(nego.talent.commissionInbound)
       : Number(nego.talent.commissionOutbound);
     const commissionEuros = (Number(montantBrut) * commissionPercent) / 100;
     const montantNet = Number(montantBrut) - commissionEuros;

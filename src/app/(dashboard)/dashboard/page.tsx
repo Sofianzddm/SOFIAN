@@ -135,7 +135,7 @@ export default function DashboardPage() {
 
       {/* Dashboard par rôle */}
       {role === "ADMIN" && <AdminDashboard data={data} />}
-      {role === "HEAD_OF" && <HeadOfDashboard data={data} />}
+      {(role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE") && <HeadOfDashboard data={data} role={role} />}
       {role === "TM" && <TMDashboard data={data} />}
     </div>
   );
@@ -403,9 +403,11 @@ function AdminDashboard({ data }: { data: any }) {
 
 // ============================================
 // HEAD_OF DASHBOARD - Épuré, négos en premier
+// HEAD_OF_INFLUENCE : supervise les TM (bloc Supervision TM affiché), mais pas le "HORS TM" (KPI global "Talent(s) à mettre à jour" masqué)
 // ============================================
-function HeadOfDashboard({ data }: { data: any }) {
+function HeadOfDashboard({ data, role }: { data: any; role?: string }) {
   const { stats, negociations = [], negociationsSansReponse = [], tmBilans = [] } = data;
+  const isHeadOfInfluence = role === "HEAD_OF_INFLUENCE";
 
   const negoStatutLabel: Record<string, string> = {
     BROUILLON: "Brouillon",
@@ -543,24 +545,26 @@ function HeadOfDashboard({ data }: { data: any }) {
           <p className="text-xs text-slate-400 mt-2">À valider</p>
         </Link>
 
-        <Link href="/talents" className="group rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all">
-          <div className="flex items-center justify-between mb-3">
-            <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stats.talentsAvecBilanRetard > 0 ? "bg-red-500/10" : "bg-slate-100"}`}>
-              <Clock className={`h-4 w-4 ${stats.talentsAvecBilanRetard > 0 ? "text-red-600" : "text-slate-400"}`} />
+        {/* KPI "Talent(s) à mettre à jour" = HORS TM : visible pour HEAD_OF, masqué pour HEAD_OF_INFLUENCE (elle ne gère pas le HORS TM) */}
+        {!isHeadOfInfluence && (
+          <Link href="/talents" className="group rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all">
+            <div className="flex items-center justify-between mb-3">
+              <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stats.talentsAvecBilanRetard > 0 ? "bg-red-500/10" : "bg-slate-100"}`}>
+                <Clock className={`h-4 w-4 ${stats.talentsAvecBilanRetard > 0 ? "text-red-600" : "text-slate-400"}`} />
+              </div>
+              {stats.talentsAvecBilanRetard > 0 && (
+                <span className="rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700" title="Stats non mises à jour depuis 30 jours">À mettre à jour</span>
+              )}
             </div>
-            {stats.talentsAvecBilanRetard > 0 && (
-              <span className="rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Retard</span>
-            )}
-          </div>
-          <p className="text-2xl font-bold text-slate-900 tabular-nums">{stats.talentsAvecBilanRetard}</p>
-          <p className="text-sm text-slate-500 mt-0.5">Bilans en retard</p>
-          <p className="text-xs text-slate-400 mt-2">À mettre à jour</p>
-        </Link>
+            <p className="text-2xl font-bold text-slate-900 tabular-nums">{stats.talentsAvecBilanRetard}</p>
+            <p className="text-sm text-slate-500 mt-0.5">Talent(s) à mettre à jour</p>
+            <p className="text-xs text-slate-400 mt-2">Stats non actualisées depuis 30 jours</p>
+          </Link>
+        )}
       </div>
 
-      {/* 3. CA ANNUEL + SUPERVISION TM - 2 colonnes */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* CA Annuel */}
+      {/* 3. CA ANNUEL + SUPERVISION TM — Head of Influence supervise les TM, donc bloc affiché pour les deux */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Link href="/finance" className="rounded-xl border border-slate-200 bg-slate-50/50 p-6 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all block">
           <p className="text-sm font-medium text-slate-500">CA Pôle Influence (HT)</p>
           <p className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">{formatMoney(stats.caAnnee)}</p>
@@ -568,7 +572,6 @@ function HeadOfDashboard({ data }: { data: any }) {
           <p className="text-xs text-slate-400 mt-1">Commission (HT): {formatMoney(stats.commissionAnnee)}</p>
         </Link>
 
-        {/* Supervision TM */}
         <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
             <h3 className="font-semibold text-slate-900">Supervision TM</h3>
@@ -586,8 +589,8 @@ function HeadOfDashboard({ data }: { data: any }) {
                   </div>
                   <div className="flex flex-wrap gap-2 justify-end">
                     {tm.bilansRetard > 0 && (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
-                        <Clock className="h-3 w-3" /> {tm.bilansRetard} retard
+                      <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700" title="Talent(s) dont les stats n'ont pas été mises à jour depuis 30 jours">
+                        <Clock className="h-3 w-3" /> {tm.bilansRetard} talent{tm.bilansRetard > 1 ? "s" : ""} à mettre à jour
                       </span>
                     )}
                     {tm.sansTarifs > 0 && (
@@ -1143,7 +1146,10 @@ function getWelcomeMessage(role: string) {
   const messages: Record<string, string> = {
     ADMIN: "Vue globale de l'agence",
     HEAD_OF: "Supervision du pôle Influence",
+    HEAD_OF_INFLUENCE: "Supervision du pôle Influence",
+    HEAD_OF_SALES: "Supervision du pôle Sales",
     TM: "Gérez vos talents et négociations",
+    CM: "Suivi des collaborations et gifts",
     TALENT: "Votre espace personnel",
   };
   return messages[role] || "Bienvenue";

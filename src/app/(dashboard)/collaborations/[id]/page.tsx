@@ -33,6 +33,7 @@ import {
   Search,
   Sparkles,
   MessageSquare,
+  FileSignature,
 } from "lucide-react";
 import {
   MentionTextarea,
@@ -58,6 +59,15 @@ interface DocumentInfo {
   dateEmission: string | null;
   avoirRef: string | null;
   factureRef: string | null;
+  signatureStatus?: string | null;
+  signatureSubmissionId?: string | null;
+  signatureSentAt?: string | null;
+  signatureSignedAt?: string | null;
+  signatureSignerEmail?: string | null;
+  signedDocumentUrl?: string | null;
+  signaturesCount?: number;
+  signaturesTotal?: number;
+  events?: { id: string }[];
 }
 
 interface CollabDetail {
@@ -94,6 +104,8 @@ interface CollabDetail {
     pays?: string;
     siret?: string;
     numeroTVA?: string;
+    email?: string | null;
+    contacts?: Array< { id: string; email: string | null; nom: string; prenom: string | null; principal: boolean } >;
   };
   documents?: DocumentInfo[];
   comments?: Array<{
@@ -167,6 +179,13 @@ export default function CollabDetailPage() {
   const [pendingGenerateType, setPendingGenerateType] = useState<"DEVIS" | "FACTURE" | null>(null);
   const [showEditDocModal, setShowEditDocModal] = useState(false);
   const [editingDoc, setEditingDoc] = useState<DocumentInfo | null>(null);
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [signatureDoc, setSignatureDoc] = useState<DocumentInfo | null>(null);
+  const [signatureEmail, setSignatureEmail] = useState("");
+  const [signatureSignerName, setSignatureSignerName] = useState("");
+  const [signatureAgenceEmail, setSignatureAgenceEmail] = useState("");
+  const [signatureAgenceName, setSignatureAgenceName] = useState("");
+  const [signatureSending, setSignatureSending] = useState(false);
   const [editFormData, setEditFormData] = useState<{
     titre: string;
     commentaires: string;
@@ -446,6 +465,64 @@ export default function CollabDetailPage() {
     } catch (error) {
       console.error("❌ Erreur:", error);
       alert("Erreur lors du chargement du document");
+    }
+  };
+
+  const openSignatureModal = (doc: DocumentInfo) => {
+    setSignatureDoc(doc);
+    const contacts = collab?.marque?.contacts ?? [];
+    const contactPrincipal = contacts.find((c) => c.principal);
+    const email = (
+      contactPrincipal?.email?.trim() ??
+      contacts[0]?.email?.trim() ??
+      (collab?.marque as { email?: string | null })?.email?.trim() ??
+      ""
+    );
+    const contactPourNom = contactPrincipal ?? contacts[0];
+    const name = contactPourNom
+      ? `${contactPourNom.prenom ?? ""} ${contactPourNom.nom ?? ""}`.trim()
+      : "";
+    setSignatureEmail(email);
+    setSignatureSignerName(name);
+    setSignatureAgenceEmail(process.env.NEXT_PUBLIC_AGENCE_EMAIL || "contrat@gloupagence.fr");
+    setSignatureAgenceName(process.env.NEXT_PUBLIC_AGENCE_NOM || "Sofian Zeddam");
+    setShowSignatureModal(true);
+  };
+
+  const handleSendSignature = async () => {
+    if (!signatureDoc || !signatureEmail.trim() || !signatureAgenceEmail.trim()) return;
+    setSignatureSending(true);
+    try {
+      const res = await fetch(`/api/documents/${signatureDoc.id}/envoyer-signature`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: signatureEmail.trim(),
+          signerName: signatureSignerName.trim() || "Signataire",
+          agenceEmail: signatureAgenceEmail.trim(),
+          agenceName: signatureAgenceName.trim() || "Agence",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success && data.templateId != null) {
+        setShowSignatureModal(false);
+        setSignatureDoc(null);
+        const q = new URLSearchParams({
+          templateId: String(data.templateId),
+          email: signatureEmail.trim(),
+          name: signatureSignerName.trim() || "Signataire",
+          agenceEmail: signatureAgenceEmail.trim(),
+          agenceName: signatureAgenceName.trim() || "Agence",
+        });
+        router.push(`/documents/${signatureDoc.id}/signature-builder?${q.toString()}`);
+      } else {
+        alert(data.error || "Erreur lors de la préparation de la signature");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de la préparation de la signature");
+    } finally {
+      setSignatureSending(false);
     }
   };
 
@@ -1076,21 +1153,31 @@ export default function CollabDetailPage() {
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          {isAnnule ? (
-                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-red-50 text-red-500">Annulé</span>
-                          ) : doc.statut === "PAYE" ? (
-                            isAdmin ? (
-                              <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-green-50 text-green-600">Payé</span>
-                            ) : (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {isAnnule ? (
+                              <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-red-50 text-red-500">Annulé</span>
+                            ) : doc.statut === "PAYE" ? (
+                              isAdmin ? (
+                                <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-green-50 text-green-600">Payé</span>
+                              ) : (
+                                <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600">Facturé</span>
+                              )
+                            ) : doc.statut === "FACTURE" || doc.statut === "ENVOYE" ? (
                               <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600">Facturé</span>
-                            )
-                          ) : doc.statut === "FACTURE" || doc.statut === "ENVOYE" ? (
-                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600">Facturé</span>
-                          ) : doc.statut === "VALIDE" ? (
-                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600">Enregistré</span>
-                          ) : (
-                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500">Brouillon</span>
-                          )}
+                            ) : doc.statut === "VALIDE" ? (
+                              <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600">Enregistré</span>
+                            ) : (
+                              <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500">Brouillon</span>
+                            )}
+                            {doc.type === "DEVIS" && doc.signatureStatus === "PENDING" && (
+                              <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700">
+                                {(doc.signaturesCount ?? 0) > 0 ? `${doc.signaturesCount ?? 0}/${doc.signaturesTotal ?? 2} signé` : "En attente de signature"}
+                              </span>
+                            )}
+                            {doc.type === "DEVIS" && doc.signatureStatus === "SIGNED" && (
+                              <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700">Signé ✓</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-right">
                           <span className={`font-semibold ${isAvoir ? "text-orange-600" : "text-glowup-licorice"}`}>
@@ -1107,6 +1194,27 @@ export default function CollabDetailPage() {
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
+                            )}
+                            {doc.type === "DEVIS" && (doc.statut === "VALIDE" || doc.statut === "ENVOYE") && !doc.signatureSubmissionId && doc.signatureStatus !== "PENDING" && doc.signatureStatus !== "SIGNED" && (
+                              <button
+                                type="button"
+                                onClick={() => openSignatureModal(doc)}
+                                className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                title="Envoyer pour signature"
+                              >
+                                <FileSignature className="w-4 h-4" />
+                              </button>
+                            )}
+                            {doc.type === "DEVIS" && doc.signedDocumentUrl && (
+                              <a
+                                href={doc.signedDocumentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
+                                title="Voir signé"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </a>
                             )}
                             <a 
                               href={`/api/documents/${doc.id}/pdf`} 
@@ -1304,38 +1412,45 @@ export default function CollabDetailPage() {
             </div>
           )}
 
-          {/* Montants */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden border-l-4 border-l-emerald-500/50">
-            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-emerald-50/50 to-white">
-              <h3 className="font-semibold text-glowup-licorice text-sm uppercase tracking-wider">Répartition</h3>
-            </div>
-            <div className="p-5 space-y-5">
-              <div>
-                <div className="flex justify-between items-baseline mb-2">
-                  <span className="text-sm text-gray-500 font-medium">Total brut HT</span>
-                  <span className="text-xl font-bold text-glowup-licorice">{formatMoney(collab.montantBrut)}</span>
+          {/* Montants — recalculés depuis la somme des livrables pour cohérence */}
+          {(() => {
+            const montantBrut = collab.livrables.reduce((sum, l) => sum + Number(l.prixUnitaire) * Number(l.quantite), 0);
+            const commissionEuros = montantBrut * (Number(collab.commissionPercent) / 100);
+            const montantNet = montantBrut - commissionEuros;
+            return (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden border-l-4 border-l-emerald-500/50">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-emerald-50/50 to-white">
+                  <h3 className="font-semibold text-glowup-licorice text-sm uppercase tracking-wider">Répartition</h3>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-glowup-licorice rounded-full" style={{ width: "100%" }} />
+                <div className="p-5 space-y-5">
+                  <div>
+                    <div className="flex justify-between items-baseline mb-2">
+                      <span className="text-sm text-gray-500 font-medium">Total brut HT</span>
+                      <span className="text-xl font-bold text-glowup-licorice">{formatMoney(montantBrut)}</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-glowup-licorice rounded-full" style={{ width: "100%" }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-baseline mb-2">
+                      <span className="text-sm text-gray-500 font-medium">Commission ({collab.commissionPercent}%)</span>
+                      <span className="text-lg font-bold text-glowup-rose">{formatMoney(commissionEuros)}</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-glowup-rose to-glowup-old rounded-full" style={{ width: `${collab.commissionPercent}%` }} />
+                    </div>
+                  </div>
+                  <div className="pt-4 mt-2 border-t border-gray-100">
+                    <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-xl p-5 text-center border border-emerald-100">
+                      <p className="text-xs text-emerald-600 font-semibold uppercase tracking-wider mb-1">Net talent (HT)</p>
+                      <p className="text-2xl font-bold text-emerald-700">{formatMoney(montantNet)}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="flex justify-between items-baseline mb-2">
-                  <span className="text-sm text-gray-500 font-medium">Commission ({collab.commissionPercent}%)</span>
-                  <span className="text-lg font-bold text-glowup-rose">{formatMoney(collab.commissionEuros)}</span>
-                </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-glowup-rose to-glowup-old rounded-full" style={{ width: `${collab.commissionPercent}%` }} />
-                </div>
-              </div>
-              <div className="pt-4 mt-2 border-t border-gray-100">
-                <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-xl p-5 text-center border border-emerald-100">
-                  <p className="text-xs text-emerald-600 font-semibold uppercase tracking-wider mb-1">Net talent (HT)</p>
-                  <p className="text-2xl font-bold text-emerald-700">{formatMoney(collab.montantNet)}</p>
-                </div>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Timeline */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden border-l-4 border-l-blue-400/50">
@@ -1344,33 +1459,82 @@ export default function CollabDetailPage() {
             </div>
             <div className="p-5">
               <div className="relative space-y-0">
-                {STATUTS.filter(s => !["PERDU"].includes(s.value)).map((statut, index, arr) => {
-                  const currentIdx = STATUTS.findIndex(s => s.value === collab.statut);
-                  const thisIdx = STATUTS.findIndex(s => s.value === statut.value);
-                  const isPast = currentIdx >= thisIdx;
-                  const isCurrent = statut.value === collab.statut;
-                  const Icon = statut.icon;
-                  const isLast = index === arr.length - 1;
-                  
-                  return (
-                    <div key={statut.value} className="relative flex gap-4">
-                      {!isLast && (
-                        <div className={`absolute left-[17px] top-11 bottom-0 w-0.5 min-h-[28px] ${isPast ? "bg-emerald-200" : "bg-gray-100"}`} />
-                      )}
-                      <div className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
-                        isCurrent ? `${statut.color} text-white shadow-md ring-2 ring-white` : isPast ? "bg-emerald-100 text-emerald-600" : "bg-gray-100 text-gray-400"
-                      }`}>
-                        {isPast && !isCurrent ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
+                {(() => {
+                  const statutsOrder = STATUTS.filter(s => s.value !== "PERDU");
+                  const steps: Array<{ value: string; label: string; icon: typeof Clock; color: string; kind: "statut" | "signature" }> = [];
+                  statutsOrder.forEach((s) => {
+                    steps.push({ ...s, kind: "statut" });
+                    if (s.value === "GAGNE") {
+                      steps.push({ value: "__SIGNATURE__", label: "En cours de signature", icon: FileSignature, color: "bg-indigo-500", kind: "signature" });
+                    }
+                  });
+                  const devisDoc = collab.documents?.find((d) => d.type === "DEVIS");
+                  const signatureSent = !!devisDoc?.signatureSubmissionId;
+                  const sigCount = devisDoc?.signaturesCount ?? 0;
+                  const sigTotal = devisDoc?.signaturesTotal ?? 2;
+                  const allSigned = sigTotal > 0 && sigCount >= sigTotal;
+                  const currentStatutIdx = statutsOrder.findIndex((s) => s.value === collab.statut);
+
+                  return steps.map((step, index, arr) => {
+                    const isLast = index === arr.length - 1;
+                    const isSignatureStep = step.kind === "signature";
+                    const isPast = isSignatureStep
+                      ? allSigned
+                      : currentStatutIdx >= statutsOrder.findIndex((s) => s.value === step.value);
+                    const isCurrent = isSignatureStep
+                      ? signatureSent && !allSigned
+                      : step.value === collab.statut;
+                    const Icon = step.icon;
+                    const signatureSubtitle =
+                      isSignatureStep && signatureSent
+                        ? allSigned
+                          ? `${sigTotal}/${sigTotal} signé ✓`
+                          : `${sigCount}/${sigTotal} signé`
+                        : null;
+
+                    return (
+                      <div key={step.value} className="relative flex gap-4">
+                        {!isLast && (
+                          <div className={`absolute left-[17px] top-11 bottom-0 w-0.5 min-h-[28px] ${isPast ? "bg-emerald-200" : "bg-gray-100"}`} />
+                        )}
+                        <div
+                          className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
+                            isSignatureStep && !signatureSent
+                              ? "bg-gray-100 text-gray-400"
+                              : isCurrent
+                                ? `${step.color} text-white shadow-md ring-2 ring-white`
+                                : isPast
+                                  ? "bg-emerald-100 text-emerald-600"
+                                  : "bg-gray-100 text-gray-400"
+                          }`}
+                        >
+                          {isPast && !isCurrent ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
+                        </div>
+                        <div className={`pb-8 ${isLast ? "pb-0" : ""}`}>
+                          <p
+                            className={`text-sm font-medium ${
+                              isSignatureStep && !signatureSent
+                                ? "text-gray-400"
+                                : isCurrent
+                                  ? "text-glowup-licorice"
+                                  : isPast
+                                    ? "text-gray-700"
+                                    : "text-gray-400"
+                            }`}
+                          >
+                            {step.label}
+                          </p>
+                          {isCurrent && !isSignatureStep && <p className="text-xs text-gray-500 mt-0.5">Étape actuelle</p>}
+                          {signatureSubtitle && (
+                            <p className={`text-xs mt-0.5 ${allSigned ? "text-emerald-600 font-medium" : "text-gray-500"}`}>
+                              {signatureSubtitle}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <div className={`pb-8 ${isLast ? "pb-0" : ""}`}>
-                        <p className={`text-sm font-medium ${isCurrent ? "text-glowup-licorice" : isPast ? "text-gray-700" : "text-gray-400"}`}>
-                          {statut.label}
-                        </p>
-                        {isCurrent && <p className="text-xs text-gray-500 mt-0.5">Étape actuelle</p>}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             </div>
           </div>
@@ -2025,6 +2189,92 @@ export default function CollabDetailPage() {
                     Enregistrer et régénérer
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Envoi signature électronique DocuSeal */}
+      {showSignatureModal && signatureDoc && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center">
+                <FileSignature className="w-7 h-7 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-glowup-licorice">Envoyer pour signature électronique</h3>
+                <p className="text-sm text-gray-500">{signatureDoc.reference}</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              En 3 étapes : 1) Ici — Saisissez l’email client et l’email agence. 2) Builder — Placez les champs (signature, date, texte) sur le PDF. 3) Envoyer — DocuSeal envoie le document aux deux emails. Vous pouvez modifier l’email et le nom avant d’envoyer.
+            </p>
+            <div className="space-y-5 mb-6">
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Signataire 1 (Client)</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Email *</label>
+                  <input
+                    type="email"
+                    value={signatureEmail}
+                    onChange={(e) => setSignatureEmail(e.target.value)}
+                    placeholder="contact@marque.com"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom</label>
+                  <input
+                    type="text"
+                    value={signatureSignerName}
+                    onChange={(e) => setSignatureSignerName(e.target.value)}
+                    placeholder="Jean Dupont"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm bg-white"
+                  />
+                </div>
+              </div>
+              <div className="space-y-3 pt-3 border-t border-slate-100">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Signataire 2 (Agence)</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Email *</label>
+                  <input
+                    type="email"
+                    value={signatureAgenceEmail}
+                    onChange={(e) => setSignatureAgenceEmail(e.target.value)}
+                    placeholder="patron@agence.com"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom</label>
+                  <input
+                    type="text"
+                    value={signatureAgenceName}
+                    onChange={(e) => setSignatureAgenceName(e.target.value)}
+                    placeholder="Sofian Zeddam"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-4">
+              <button
+                type="button"
+                onClick={() => { setShowSignatureModal(false); setSignatureDoc(null); }}
+                className="flex-1 px-6 py-3.5 text-gray-600 bg-gray-100 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleSendSignature}
+                disabled={!signatureEmail.trim() || !signatureAgenceEmail.trim() || signatureSending}
+                className="flex-1 px-6 py-3.5 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {signatureSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSignature className="w-4 h-4" />}
+                {signatureSending ? "Ouverture..." : "Placer les champs et continuer"}
               </button>
             </div>
           </div>

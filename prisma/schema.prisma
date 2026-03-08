@@ -134,6 +134,7 @@ enum DocumentEventType {
   CREATED
   REGISTERED
   SENT
+  SIGNED
   VIEWED
   PAYMENT
   STATUS_CHANGE
@@ -776,6 +777,16 @@ model Document {
   
   notes         String?   @db.Text
   
+  // Signature électronique DocuSeal
+  signatureStatus         String?   // PENDING, SIGNED, DECLINED
+  signatureSubmissionId   String?   // ID DocuSeal
+  signatureSentAt         DateTime?
+  signatureSignedAt       DateTime?
+  signatureSignerEmail    String?
+  signedDocumentUrl      String?   // URL du PDF signé (DocuSeal)
+  signaturesCount        Int       @default(0)  // nb de signatures reçues
+  signaturesTotal        Int       @default(2) // nb total de signataires
+
   createdById   String?
   createdBy     User?     @relation("DocumentCreateur", fields: [createdById], references: [id])
   

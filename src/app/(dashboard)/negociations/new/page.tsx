@@ -21,6 +21,7 @@ import {
   Calendar,
   Mail,
   Send,
+  AlertTriangle,
 } from "lucide-react";
 interface Talent {
   id: string;
@@ -410,6 +411,12 @@ export default function NewNegociationPage() {
                 <Plus className="w-4 h-4" /> Ajouter
               </button>
             </div>
+            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-medium text-slate-700">Votre proposition (TM)</p>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Vous saisissez la <strong>proposition initiale</strong> : prix marque (ce qu’ils proposent) et prix souhaité (votre cible). La Head of Influence pourra ensuite saisir sa <strong>contre-proposition</strong> (Prix final accordé) avant de valider.
+              </p>
+            </div>
 
             <div className="space-y-6">
               {livrables.map((livrable) => (
@@ -443,7 +450,10 @@ export default function NewNegociationPage() {
                     </div>
                     <div className="col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Notre prix €</label>
-                      <div className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-gray-100 text-gray-700 font-medium">
+                      <div
+                        className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-gray-100 text-gray-700 font-medium"
+                        title={livrable.typeContenu && getTarifRecommande(livrable.typeContenu) == null ? "Aucun tarif défini dans la grille pour ce type" : undefined}
+                      >
                         {livrable.typeContenu
                           ? (getTarifRecommande(livrable.typeContenu) != null
                               ? formatMoney(getTarifRecommande(livrable.typeContenu)!)
@@ -465,29 +475,48 @@ export default function NewNegociationPage() {
                     </div>
                     <div className="col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Prix souhaité € HT</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={livrable.prixSouhaite}
-                        onChange={(e) => updateLivrable(livrable.id, "prixSouhaite", e.target.value)}
-                        placeholder="Cible"
-                        className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-green-50"
-                      />
-                      {livrable.typeContenu && getTarifRecommande(livrable.typeContenu) != null && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateLivrable(
-                              livrable.id,
-                              "prixSouhaite",
-                              getTarifRecommande(livrable.typeContenu)!.toString()
-                            )
-                          }
-                          className="text-[10px] text-blue-600 hover:underline mt-0.5"
-                        >
-                          → Grille
-                        </button>
-                      )}
+                      {(() => {
+                        const notrePrix = getTarifRecommande(livrable.typeContenu);
+                        const prixSouhaiteNum = parseFloat(livrable.prixSouhaite) || 0;
+                        const sousGrille = notrePrix != null && prixSouhaiteNum > 0 && prixSouhaiteNum < notrePrix;
+                        const egalGrille = notrePrix != null && Math.abs(prixSouhaiteNum - notrePrix) < 0.01;
+                        const inputBg = sousGrille ? "bg-orange-50 border-orange-300" : egalGrille ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200";
+                        return (
+                          <>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                value={livrable.prixSouhaite}
+                                onChange={(e) => updateLivrable(livrable.id, "prixSouhaite", e.target.value)}
+                                placeholder="Votre cible de négociation"
+                                className={`w-full px-2 py-2 rounded-lg border text-sm ${inputBg} ${sousGrille ? "text-orange-800" : ""}`}
+                              />
+                              {sousGrille && (
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-500" title="Prix inférieur à la grille">
+                                  <AlertTriangle className="w-4 h-4" />
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-0.5">Modifiez si vous acceptez un prix inférieur à la grille</p>
+                            {livrable.typeContenu && getTarifRecommande(livrable.typeContenu) != null && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateLivrable(
+                                    livrable.id,
+                                    "prixSouhaite",
+                                    getTarifRecommande(livrable.typeContenu)!.toString()
+                                  )
+                                }
+                                className="text-[10px] text-blue-600 hover:underline mt-0.5"
+                              >
+                                → Grille
+                              </button>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                     <div className="col-span-1 flex items-end">
                       <button
@@ -525,7 +554,7 @@ export default function NewNegociationPage() {
                   <p className="text-lg font-semibold text-glowup-licorice">{formatMoney(totalDemande)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-gray-500">Total prix souhaité</p>
+                  <p className="text-xs text-gray-500">Total cible négo</p>
                   <p className="text-lg font-bold text-green-600">{formatMoney(totalSouhaite)}</p>
                 </div>
               </div>

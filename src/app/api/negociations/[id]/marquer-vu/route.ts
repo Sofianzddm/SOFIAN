@@ -14,8 +14,8 @@ export async function POST(
       return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
     }
 
-    // Vérifier que c'est un HEAD_OF ou ADMIN
-    if (!["HEAD_OF", "ADMIN"].includes(session.user.role || "")) {
+    // Vérifier que c'est un HEAD_OF, Head of Influence ou ADMIN
+    if (!["HEAD_OF", "HEAD_OF_INFLUENCE", "ADMIN"].includes(session.user.role || "")) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
     }
 

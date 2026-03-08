@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
+    "@docuseal/react": "^1.0.71",
     "@hubspot/api-client": "^13.4.0",
     "@prisma/client": "^6.1.0",
     "@react-pdf/renderer": "^4.3.2",
@@ -24,6 +25,7 @@
     "date-fns": "^4.1.0",
     "exceljs": "^4.4.0",
     "html2canvas": "^1.4.1",
+    "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.468.0",
     "nanoid": "^5.1.6",
@@ -35,11 +37,13 @@
     "react-dom": "^19.0.0",
     "react-easy-crop": "^5.5.6",
     "recharts": "^3.7.0",
+    "resend": "^6.9.3",
     "tailwind-merge": "^2.6.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

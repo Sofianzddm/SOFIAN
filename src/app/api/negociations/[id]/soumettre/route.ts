@@ -67,10 +67,10 @@ export async function POST(
         },
       });
 
-      // Notifier tous les HEAD_OF et ADMIN
+      // Notifier tous les HEAD_OF, Head of Influence et ADMIN
       const validateurs = await tx.user.findMany({
         where: {
-          role: { in: ["HEAD_OF", "ADMIN"] },
+          role: { in: ["HEAD_OF", "HEAD_OF_INFLUENCE", "ADMIN"] },
           actif: true,
         },
       });

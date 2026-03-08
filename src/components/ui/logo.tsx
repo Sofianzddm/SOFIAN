@@ -1,9 +1,10 @@
 interface GlowUpLogoProps {
   className?: string;
   variant?: "light" | "dark";
+  style?: React.CSSProperties;
 }
 
-export function GlowUpLogo({ className = "", variant = "dark" }: GlowUpLogoProps) {
+export function GlowUpLogo({ className = "", variant = "dark", style }: GlowUpLogoProps) {
   const fillColor = variant === "light" ? "#F5EDE0" : "#220101";
   
   return (
@@ -12,6 +13,7 @@ export function GlowUpLogo({ className = "", variant = "dark" }: GlowUpLogoProps
       fill="none" 
       xmlns="http://www.w3.org/2000/svg" 
       className={className}
+      style={style}
     >
       <path d="M211.638 134.51L212.167 188.968C160.631 212.839 104.647 183.284 102 110.903C99.1152 35.534 183.5 2.91218 245.81 90.2298L246.604 89.9918L237.657 45.7118C168.783 9.62689 68.3574 36.7236 68.3574 123.301C68.3574 214.848 190.356 241.469 248.192 167.581V107.387H198.456C203.988 114.842 211.664 125.31 211.664 134.51H211.638Z" fill={fillColor}/>
       <path d="M309.47 197.401V32.9962H272.915V207.129H410.134L410.478 173.529C390.414 189.47 350.709 197.401 320.746 197.401H309.443H309.47Z" fill={fillColor}/>

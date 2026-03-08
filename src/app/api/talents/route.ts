@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
           },
         },
         stats: true, // Inclure TOUTES les stats pour le sélecteur
+        tarifs: true, // Grille tarifaire pour "Notre prix" dans les livrables (négociations)
         _count: {
           select: {
             collaborations: true,

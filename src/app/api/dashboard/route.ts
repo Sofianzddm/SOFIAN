@@ -310,9 +310,9 @@ export async function GET() {
     }
 
     // ============================================
-    // HEAD_OF - Pôle Influence
+    // HEAD_OF / HEAD_OF_INFLUENCE - Pôle Influence (même dashboard)
     // ============================================
-    if (role === "HEAD_OF") {
+    if (role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE") {
       const [
         totalTalents,
         talentsSansTarifs,
@@ -438,7 +438,7 @@ export async function GET() {
       });
 
       return NextResponse.json({
-        role: "HEAD_OF",
+        role,
         stats: {
           totalTalents,
           talentsSansTarifs,
@@ -563,52 +563,6 @@ export async function GET() {
           montant: Number(n.budgetFinal || n.budgetSouhaite || n.budgetMarque) || 0,
           createdAt: n.createdAt,
         })),
-      });
-    }
-
-    // ============================================
-    // HEAD_OF_INFLUENCE - Dashboard Influence
-    // ============================================
-    if (role === "HEAD_OF_INFLUENCE") {
-      const [
-        totalTalents,
-        collabsEnCours,
-        negosEnCours,
-        caMois,
-        caAnnee,
-      ] = await Promise.all([
-        prisma.talent.count(),
-        prisma.collaboration.count({ where: { statut: "EN_COURS" } }),
-        prisma.negociation.count({ 
-          where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } } 
-        }),
-        prisma.collaboration.aggregate({
-          _sum: { montantBrut: true, commissionEuros: true },
-          where: {
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfMonth },
-          },
-        }),
-        prisma.collaboration.aggregate({
-          _sum: { montantBrut: true, commissionEuros: true },
-          where: {
-            statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
-            createdAt: { gte: startOfYear },
-          },
-        }),
-      ]);
-
-      return NextResponse.json({
-        role: "HEAD_OF_INFLUENCE",
-        stats: {
-          totalTalents,
-          collabsEnCours,
-          collabsNego: negosEnCours,
-          caMois: Number(caMois._sum.montantBrut) || 0,
-          commissionMois: Number(caMois._sum.commissionEuros) || 0,
-          caAnnee: Number(caAnnee._sum.montantBrut) || 0,
-          commissionAnnee: Number(caAnnee._sum.commissionEuros) || 0,
-        },
       });
     }
 
