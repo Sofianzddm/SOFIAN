@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
-import { renderSignatureRequestEmail } from "@/lib/emails/signature-request";
+import { getSignatureRequestHtml } from "@/lib/emails/templates";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -172,7 +172,7 @@ export async function POST(
         const signingUrl =
           submitter.embed_src ?? `${DOCUSEAL_SIGNING_BASE}/${submitter.slug ?? ""}`;
         const signerName = (submitter.name as string)?.trim() || "Signataire";
-        const html = renderSignatureRequestEmail({
+        const html = getSignatureRequestHtml({
           signerName,
           documentReference: document.reference,
           talentPrenom,

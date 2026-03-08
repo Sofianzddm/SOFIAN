@@ -1,5 +1,4 @@
 import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { GlowUpLogo } from "@/components/ui/logo";
 
 const COLORS = {
@@ -159,15 +158,3 @@ export function SignatureRequestEmail({
   );
 }
 
-export function renderSignatureRequestEmail(props: SignatureRequestEmailProps): string {
-  const body = renderToStaticMarkup(React.createElement(SignatureRequestEmail, props));
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Devis à signer</title>
-</head>
-<body style="margin:0;padding:0">${body}</body>
-</html>`;
-}

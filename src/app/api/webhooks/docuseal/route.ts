@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
-import { renderSignatureCompletedEmail } from "@/lib/emails/signature-completed";
+import { getSignatureCompletedHtml } from "@/lib/emails/templates";
 
 type DocuSealPayload = {
   event_type?: string;
@@ -70,11 +70,12 @@ export async function POST(request: NextRequest) {
     const documentUrl =
       body.document_url?.trim() ||
       (Array.isArray(body.documents) && body.documents[0]?.url ? body.documents[0].url.trim() : undefined);
+    const submitters = body.submitters ?? [];
     const signerEmail =
       body.submitter?.email?.trim() ||
-      (Array.isArray(body.submitters) && body.submitters.length > 0)
-        ? body.submitters.find((s) => s.email)?.email?.trim()
-        : undefined;
+      (Array.isArray(submitters) && submitters.length > 0
+        ? submitters.find((s) => s.email)?.email?.trim()
+        : undefined);
 
     const now = new Date();
     const updateData: {
@@ -128,30 +129,33 @@ export async function POST(request: NextRequest) {
           const marque = docFull.collaboration?.marque;
           const signedUrl = docFull.signedDocumentUrl ?? documentUrl;
           const signedAt = docFull.signatureSignedAt ?? now;
-          const recipientName =
-            [creator.prenom, creator.nom].filter(Boolean).join(" ") || "équipe";
+          const recipientName = creator
+            ? [creator.prenom, creator.nom].filter(Boolean).join(" ") || "équipe"
+            : "équipe";
           try {
+            const signedAtStr = signedAt.toLocaleDateString("fr-FR", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            const html = getSignatureCompletedHtml({
+              recipientName,
+              documentReference: docFull.reference,
+              talentPrenom: talent?.prenom ?? "",
+              talentNom: talent?.nom ?? "",
+              marqueNom: marque?.nom ?? "",
+              montantHT: Number(docFull.montantHT) ?? 0,
+              signedAt: signedAtStr,
+              signedDocumentUrl: signedUrl,
+            });
             const resend = new Resend(resendKey);
             await resend.emails.send({
               from: `Glow Up Agence <${fromEmail}>`,
               to: toEmail,
               subject: `Devis ${docFull.reference} signé — ${talent?.prenom ?? ""} ${talent?.nom ?? ""} × ${marque?.nom ?? ""}`,
-              html: renderSignatureCompletedEmail({
-                recipientName,
-                documentReference: docFull.reference,
-                talentPrenom: talent?.prenom ?? "",
-                talentNom: talent?.nom ?? "",
-                marqueNom: marque?.nom ?? "",
-                montantHT: Number(docFull.montantHT) ?? 0,
-                signedAt: signedAt.toLocaleDateString("fr-FR", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }),
-                signedDocumentUrl: signedUrl,
-              }),
+              html,
             });
           } catch (err) {
             console.error("Webhook DocuSeal: envoi email devis signé échoué", err);
