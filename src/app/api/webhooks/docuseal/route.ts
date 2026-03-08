@@ -16,8 +16,9 @@ type DocuSealPayload = {
     id?: number;
     submission_id?: number;
     submission?: { id?: number };
-    submitters?: Array<{ email?: string; name?: string }>;
+    submitters?: Array<{ email?: string; name?: string; role?: string }>;
     documents?: Array<{ url?: string }>;
+    audit_log_url?: string;
   };
   document_url?: string;
   documents?: Array<{ url?: string }>;
@@ -126,17 +127,20 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
             : "#");
         const montantHT = Number((document as { montantHT?: unknown }).montantHT) ?? 0;
         const talentNomFull = [talent?.prenom, talent?.nom].filter(Boolean).join(" ") || "";
+        const clientSubmitter = body.data?.submitters?.find((s) => s.role === "Client");
+        const signerName = clientSubmitter?.name?.trim() ?? "vous";
 
         let html: string;
         try {
           html = await render(
             React.createElement(SignatureCompletedEmail, {
-              signerName: "équipe",
+              signerName,
               documentReference: document.reference,
               talentNom: talentNomFull,
               marqueNom: marque?.nom ?? "",
               montantHT,
               signedDocumentUrl: finalSignedUrl,
+              auditLogUrl: body.data?.audit_log_url ?? undefined,
             })
           );
           console.log("HTML généré, longueur:", html.length);

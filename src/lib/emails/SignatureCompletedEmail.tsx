@@ -34,6 +34,7 @@ export interface SignatureCompletedEmailProps {
   marqueNom: string;
   montantHT: number;
   signedDocumentUrl: string;
+  auditLogUrl?: string;
 }
 
 export function SignatureCompletedEmail({
@@ -43,6 +44,7 @@ export function SignatureCompletedEmail({
   marqueNom,
   montantHT,
   signedDocumentUrl,
+  auditLogUrl,
 }: SignatureCompletedEmailProps) {
   const montantStr = `${montantHT} €`;
   return (
@@ -53,7 +55,6 @@ export function SignatureCompletedEmail({
         <Container style={container}>
           <Section style={headerSection}>
             <Img src={LOGO_URL} alt="Glow Up" width={180} height={32} style={logo} />
-            <Text style={headerSubtitle}>Agence d&apos;influence</Text>
           </Section>
 
           <Section style={cardSection}>
@@ -74,6 +75,11 @@ export function SignatureCompletedEmail({
               <Button style={button} href={signedDocumentUrl}>
                 📥 Voir le document signé
               </Button>
+              {auditLogUrl ? (
+                <Button href={auditLogUrl} style={buttonSecondary}>
+                  📋 Voir le journal d&apos;audit
+                </Button>
+              ) : null}
             </Section>
           </Section>
 
@@ -114,14 +120,7 @@ const headerSection = {
 const logo = {
   display: "block",
   margin: "0 auto",
-};
-
-const headerSubtitle = {
-  color: COLORS.lace,
-  fontSize: "13px",
-  margin: "14px 0 0",
-  opacity: 0.9,
-  letterSpacing: "0.05em",
+  filter: "brightness(0) invert(1)",
 };
 
 const cardSection = {
@@ -183,6 +182,18 @@ const button = {
   fontSize: "16px",
   textDecoration: "none",
   boxShadow: "0 2px 12px rgba(176,111,112,0.35)",
+};
+
+const buttonSecondary = {
+  background: "#F5EBE0",
+  color: "#1A1110",
+  border: "1px solid #C08B8B",
+  padding: "12px 32px",
+  borderRadius: "8px",
+  marginTop: "12px",
+  fontSize: "16px",
+  fontWeight: 600,
+  textDecoration: "none",
 };
 
 const hr = {

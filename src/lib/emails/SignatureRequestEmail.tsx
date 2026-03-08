@@ -54,7 +54,6 @@ export function SignatureRequestEmail({
         <Container style={container}>
           <Section style={headerSection}>
             <Img src={LOGO_URL} alt="Glow Up" width={180} height={32} style={logo} />
-            <Text style={headerSubtitle}>Agence d&apos;influence</Text>
           </Section>
 
           <Section style={cardSection}>
@@ -116,14 +115,7 @@ const headerSection = {
 const logo = {
   display: "block",
   margin: "0 auto",
-};
-
-const headerSubtitle = {
-  color: COLORS.lace,
-  fontSize: "13px",
-  margin: "14px 0 0",
-  opacity: 0.9,
-  letterSpacing: "0.05em",
+  filter: "brightness(0) invert(1)",
 };
 
 const cardSection = {
