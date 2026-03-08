@@ -15,6 +15,7 @@ type DocuSealPayload = {
   data?: {
     id?: number;
     submission_id?: number;
+    submission?: { id?: number };
     submitters?: Array<{ email?: string; name?: string }>;
     documents?: Array<{ url?: string }>;
   };
@@ -27,7 +28,7 @@ type DocuSealPayload = {
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as DocuSealPayload;
 
-  // Logger TOUT ce qui arrive
+  console.log("WEBHOOK RECU", body.event_type ?? body.event_name ?? "(absent)");
   console.log("=== DOCUSEAL WEBHOOK ===");
   console.log("event_type:", body.event_type ?? body.event_name ?? "(absent)");
   console.log("body complet:", JSON.stringify(body, null, 2));
@@ -52,23 +53,14 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
       return;
     }
 
-    // ——— submission.completed : flow dédié (body.data.id, body.data.documents, body.data.submitters) ———
+    // ——— submission.completed : flow dédié (body.data.id = ID submission DocuSeal = signatureSubmissionId en DB) ———
     if (isSubmissionCompleted) {
+      // Ne pas utiliser body.data.submitters[].id (ID signataire) — uniquement body.data.id (ID submission)
       const submissionId =
-        body.data?.id != null
-          ? String(body.data.id)
-          : body.submission?.id != null
-            ? String(body.submission.id)
-            : body.id != null
-              ? String(body.id)
-              : body.submission_id != null
-                ? String(body.submission_id)
-                : body.data?.submission_id != null
-                  ? String(body.data.submission_id)
-                  : null;
+        body.data?.id != null ? String(body.data.id) : null;
 
       if (!submissionId) {
-        console.warn("Webhook DocuSeal: submission.completed sans id (body.data.id manquant)", body);
+        console.warn("Webhook DocuSeal: submission.completed sans body.data.id (requis pour signatureSubmissionId)", body);
         return;
       }
 
@@ -86,6 +78,7 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
           console.log("Document non trouvé pour submission:", body.data?.id ?? submissionId);
           return;
         }
+        console.log("DOCUMENT TROUVE", document.id);
 
         const signedDocumentUrl =
           body.data?.documents?.[0]?.url ??
@@ -102,6 +95,7 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
             signaturesCount: 2,
           },
         });
+        console.log("DOCUMENT MIS A JOUR");
 
         const emails = (body.data?.submitters ?? body.submitters ?? [])
           .map((s: { email?: string }) => s?.email?.trim())
@@ -112,7 +106,9 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
         const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
         const resendKey = process.env.RESEND_API_KEY;
         if (!resendKey || !fromEmail) {
-          console.warn("Webhook DocuSeal: RESEND_API_KEY ou RESEND_FROM_EMAIL manquant, email non envoyé");
+          console.warn(
+            "Webhook DocuSeal: RESEND_API_KEY ou RESEND_FROM_EMAIL manquant (vérifier Vercel → Settings → Environment Variables), email non envoyé"
+          );
           return;
         }
         if (emails.length === 0) {
@@ -131,16 +127,23 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
         const montantHT = Number((document as { montantHT?: unknown }).montantHT) ?? 0;
         const talentNomFull = [talent?.prenom, talent?.nom].filter(Boolean).join(" ") || "";
 
-        const html = await render(
-          React.createElement(SignatureCompletedEmail, {
-            signerName: "équipe",
-            documentReference: document.reference,
-            talentNom: talentNomFull,
-            marqueNom: marque?.nom ?? "",
-            montantHT,
-            signedDocumentUrl: finalSignedUrl,
-          })
-        );
+        let html: string;
+        try {
+          html = await render(
+            React.createElement(SignatureCompletedEmail, {
+              signerName: "équipe",
+              documentReference: document.reference,
+              talentNom: talentNomFull,
+              marqueNom: marque?.nom ?? "",
+              montantHT,
+              signedDocumentUrl: finalSignedUrl,
+            })
+          );
+          console.log("HTML généré, longueur:", html.length);
+        } catch (err) {
+          console.error("Erreur render React Email:", err);
+          throw err;
+        }
 
         const resend = new Resend(resendKey);
         const sendResult = await resend.emails.send({
@@ -153,6 +156,7 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
         if (sendResult.error) {
           console.error("Webhook DocuSeal: Resend a retourné une erreur:", sendResult.error);
         } else {
+          console.log("EMAIL ENVOYE");
           console.log("Webhook DocuSeal: email confirmation envoyé avec succès");
         }
       } catch (err) {
@@ -161,22 +165,12 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
       return;
     }
 
-    // ——— form.completed : mise à jour compteur + DocumentEvent ———
-    const submissionId =
-      body.submission?.id != null
-        ? String(body.submission.id)
-        : body.data?.id != null
-          ? String(body.data.id)
-          : body.id != null
-            ? String(body.id)
-            : body.submission_id != null
-              ? String(body.submission_id)
-              : body.data?.submission_id != null
-                ? String(body.data.submission_id)
-                : null;
+    // ——— form.completed / form.started / form.viewed : body.data.id = ID submitter ❌, body.data.submission_id = ID submission ✅ ———
+    const submissionIdRaw = body.data?.submission_id ?? body.data?.submission?.id;
+    const submissionId = submissionIdRaw != null ? String(submissionIdRaw) : null;
 
     if (!submissionId) {
-      console.warn("Webhook DocuSeal: submission id manquant", body);
+      console.warn("Webhook DocuSeal: submission id manquant (body.data.submission_id ou body.data.submission.id)", body);
       return;
     }
 
