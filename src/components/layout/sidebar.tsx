@@ -21,7 +21,7 @@ import {
   Gift,
   Lock,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // Définition des accès par rôle
 const menuItems = [
@@ -128,9 +128,17 @@ export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(false);
+  const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
 
-  // Récupérer le rôle de l'utilisateur
-  const userRole = (session?.user as { role?: string })?.role || "TALENT";
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => data?.role && setEffectiveRole(data.role))
+      .catch(() => {});
+  }, []);
+
+  // Rôle effectif (prise en compte de l'impersonation admin)
+  const userRole = effectiveRole ?? (session?.user as { role?: string })?.role ?? "TALENT";
 
   // Filtrer les menus selon le rôle
   const filteredMenuItems = menuItems.filter((item) => item.roles.includes(userRole));

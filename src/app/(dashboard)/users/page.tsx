@@ -15,6 +15,7 @@ import {
   Shield,
   Users,
   Loader2,
+  UserCircle,
 } from "lucide-react";
 
 interface User {
@@ -100,6 +101,26 @@ export default function UsersPage() {
     } catch (error) {
       console.error("Erreur:", error);
       alert("❌ Erreur lors de l'opération");
+    }
+  }
+
+  async function impersonateUser(userId: string) {
+    if (!confirm("Se connecter en tant que cet utilisateur ? Vous verrez l'application avec ses droits et données.")) return;
+    try {
+      const res = await fetch("/api/auth/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      if (res.ok) {
+        window.location.href = "/dashboard";
+      } else {
+        const data = await res.json();
+        alert(data.error || "Erreur lors de l'impersonation");
+      }
+    } catch (error) {
+      console.error("Erreur impersonate:", error);
+      alert("Erreur lors de l'impersonation");
     }
   }
 
@@ -315,6 +336,17 @@ export default function UsersPage() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center gap-2">
+                      {/* Se faire passer pour - ADMIN uniquement */}
+                      {isAdmin && user.id !== session?.user?.id && user.actif && (
+                        <button
+                          onClick={() => impersonateUser(user.id)}
+                          className="p-2 text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                          title="Se faire passer pour"
+                        >
+                          <UserCircle className="w-4 h-4" />
+                        </button>
+                      )}
+
                       {/* Modifier */}
                       <Link
                         href={`/users/${user.id}/edit`}

@@ -1,10 +1,19 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, Bell } from "lucide-react";
+import { LogOut, Bell, UserX } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SearchBar } from "@/components/SearchBar";
+
+interface AuthMe {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  impersonating?: boolean;
+  realUser?: { id: string; name?: string; email?: string; role?: string };
+}
 
 interface NotificationItem {
   id: string;
@@ -24,7 +33,15 @@ export function Header() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
+  const [authMe, setAuthMe] = useState<AuthMe | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setAuthMe(data))
+      .catch(() => setAuthMe(null));
+  }, []);
 
   const handleLogout = () => {
     signOut({ callbackUrl: "/login" });
@@ -123,8 +140,39 @@ export function Header() {
   };
 
   const list = notifications.slice(0, 8);
+  const isImpersonating = authMe?.impersonating === true;
+
+  const stopImpersonate = useCallback(async () => {
+    try {
+      await fetch("/api/auth/stop-impersonate", { method: "POST" });
+      window.location.href = "/users";
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
 
   return (
+    <>
+      {isImpersonating && (
+        <div className="h-9 bg-violet-100 text-violet-800 flex items-center justify-center gap-3 text-sm px-4">
+          <UserX className="w-4 h-4" />
+          <span>
+            Connecté en tant que <strong>{authMe?.name}</strong>
+            {authMe?.realUser?.name && (
+              <span className="text-violet-600 ml-1">
+                (admin : {authMe.realUser.name})
+              </span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={stopImpersonate}
+            className="underline font-medium hover:no-underline"
+          >
+            Arrêter l&apos;impersonation
+          </button>
+        </div>
+      )}
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
       <div className="flex-1 max-w-xl">
         <SearchBar />
@@ -232,13 +280,13 @@ export function Header() {
 
         <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-glowup-rose to-glowup-rose-dark flex items-center justify-center text-white font-semibold text-sm">
-            {session?.user?.name?.charAt(0) || "U"}
+            {(authMe?.name ?? session?.user?.name)?.charAt(0) || "U"}
           </div>
           <div className="hidden sm:block">
             <p className="text-sm font-medium text-glowup-licorice">
-              {session?.user?.name}
+              {authMe?.name ?? session?.user?.name}
             </p>
-            <p className="text-xs text-gray-500">{session?.user?.role}</p>
+            <p className="text-xs text-gray-500">{authMe?.role ?? (session?.user as { role?: string })?.role}</p>
           </div>
           <button
             onClick={handleLogout}
@@ -250,5 +298,6 @@ export function Header() {
         </div>
       </div>
     </header>
+    </>
   );
 }

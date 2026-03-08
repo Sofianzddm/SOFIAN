@@ -61,7 +61,7 @@ export default function EditNegociationPage() {
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role;
   const isTM = userRole === "TM";
-  const isHeadOfInfluence = userRole === "HEAD_OF" || userRole === "HEAD_OF_INFLUENCE";
+  const isHeadOfInfluence = userRole === "HEAD_OF" || userRole === "HEAD_OF_INFLUENCE" || userRole === "ADMIN";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

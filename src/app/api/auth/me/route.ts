@@ -1,10 +1,9 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getAppSession } from "@/lib/getAppSession";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getAppSession(request);
 
     if (!session?.user) {
       return NextResponse.json(
@@ -18,6 +17,8 @@ export async function GET() {
       name: session.user.name,
       email: session.user.email,
       role: session.user.role,
+      impersonating: session.impersonating ?? false,
+      realUser: session.realUser ?? undefined,
     });
   } catch (error) {
     console.error("Erreur GET auth/me:", error);

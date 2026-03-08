@@ -119,7 +119,7 @@ export default function NegociationDetailPage() {
   const [savingContrePropo, setSavingContrePropo] = useState(false);
 
   const isAdmin = session?.user?.role === "ADMIN";
-  const isHeadOf = session?.user?.role === "HEAD_OF" || session?.user?.role === "HEAD_OF_INFLUENCE";
+  const isHeadOf = session?.user?.role === "HEAD_OF" || session?.user?.role === "HEAD_OF_INFLUENCE" || session?.user?.role === "ADMIN";
   const canValidate = isAdmin || isHeadOf;
   const canEdit = nego?.statut !== "VALIDEE";
   const isOwner = session?.user?.id === nego?.tm.id;
@@ -129,13 +129,19 @@ export default function NegociationDetailPage() {
   }, [params.id]);
 
   useEffect(() => {
-    fetch("/api/users/mentionable")
-      .then((r) => r.ok ? r.json() : [])
-      .then((list: { id: string; firstName: string; lastName: string; role: string }[]) =>
-        setMentionableUsers(list.map((u) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, role: u.role })))
-      )
-      .catch(() => setMentionableUsers([]));
-  }, []);
+    const fetchMentionable = async () => {
+      try {
+        const r = await fetch("/api/users/mentionable");
+        if (r.ok) {
+          const data = await r.json();
+          setMentionableUsers(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        setMentionableUsers([]);
+      }
+    };
+    if (params.id) fetchMentionable();
+  }, [params.id]);
 
   useEffect(() => {
     if (nego && canValidate && nego.modifiedSinceReview) marquerVu();
@@ -737,24 +743,22 @@ export default function NegociationDetailPage() {
               <div ref={commentsEndRef} />
             </div>
             {!["VALIDEE", "REFUSEE"].includes(nego.statut) && (
-              <div className="border-t border-slate-100 p-4">
-                <div className="flex gap-2 items-end">
-                  <div className="flex-1 min-w-0">
-                    <MentionTextarea
-                      value={newComment}
-                      onChange={setNewComment}
-                      placeholder="Écrire un message... (tapez @ pour mentionner)"
-                      rows={2}
-                      mentionableUsers={mentionableUsers}
-                      className="border-slate-200 focus:ring-slate-200"
-                    />
-                  </div>
+              <div className="border-t border-slate-100 p-4 bg-slate-50/50">
+                <MentionTextarea
+                  value={newComment}
+                  onChange={setNewComment}
+                  placeholder="Votre commentaire... (tapez @ pour mentionner)"
+                  rows={3}
+                  mentionableUsers={mentionableUsers}
+                />
+                <div className="flex justify-end gap-2 mt-2">
                   <button
                     onClick={handleComment}
                     disabled={commenting || !newComment.trim()}
-                    className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 shrink-0 h-[80px]"
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
                   >
                     {commenting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Envoyer
                   </button>
                 </div>
               </div>
