@@ -5,8 +5,13 @@ import { getToken } from "next-auth/jwt";
 /**
  * Middleware de sécurisation : les routes "outils internes" ne sont accessibles qu'aux utilisateurs connectés.
  * Les routes non matchées (/, /login, /partners/[slug], /book/*, etc.) restent publiques.
+ * Les webhooks externes (/api/webhooks/*) sont exclus : pas d'auth requise (DocuSeal, etc.).
  */
 export async function middleware(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/api/webhooks")) {
+    return NextResponse.next();
+  }
+
   const token = await getToken({
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
