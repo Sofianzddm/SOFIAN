@@ -22,6 +22,11 @@ import {
   ChevronRight,
   X,
 } from "lucide-react";
+import {
+  MentionTextarea,
+  renderCommentWithMentions,
+  type MentionableUser,
+} from "@/components/MentionTextarea";
 
 interface NegoDetail {
   id: string;
@@ -105,6 +110,7 @@ export default function NegociationDetailPage() {
   const [validating, setValidating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [newComment, setNewComment] = useState("");
+  const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
   const [showRefusModal, setShowRefusModal] = useState(false);
   const [raisonRefus, setRaisonRefus] = useState("");
   const commentsEndRef = useRef<HTMLDivElement>(null);
@@ -121,6 +127,15 @@ export default function NegociationDetailPage() {
   useEffect(() => {
     if (params.id) fetchNego();
   }, [params.id]);
+
+  useEffect(() => {
+    fetch("/api/users/mentionable")
+      .then((r) => r.ok ? r.json() : [])
+      .then((list: { id: string; firstName: string; lastName: string; role: string }[]) =>
+        setMentionableUsers(list.map((u) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, role: u.role })))
+      )
+      .catch(() => setMentionableUsers([]));
+  }, []);
 
   useEffect(() => {
     if (nego && canValidate && nego.modifiedSinceReview) marquerVu();
@@ -701,7 +716,17 @@ export default function NegociationDetailPage() {
                         <div className={`inline-block rounded-xl px-4 py-2.5 ${
                           isMe ? "bg-slate-900 text-white" : isHead ? "bg-slate-100 text-slate-900" : "bg-slate-50 text-slate-900"
                         }`}>
-                          <p className="text-sm">{c.contenu}</p>
+                          <p className="text-sm">
+                            {renderCommentWithMentions(
+                              c.contenu,
+                              new Map([
+                                ...mentionableUsers.map((u) => [u.id, { firstName: u.firstName, lastName: u.lastName }] as const),
+                                ...nego.commentaires.map((com) => [com.user.id, { firstName: com.user.prenom, lastName: com.user.nom }] as const),
+                              ]),
+                              (session?.user as { id?: string })?.id,
+                              { accentColor: "#C08B8B" }
+                            )}
+                          </p>
                         </div>
                         <p className="mt-1 text-xs text-slate-400">{c.user.prenom} · {new Date(c.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
                       </div>
@@ -713,19 +738,21 @@ export default function NegociationDetailPage() {
             </div>
             {!["VALIDEE", "REFUSEE"].includes(nego.statut) && (
               <div className="border-t border-slate-100 p-4">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleComment()}
-                    placeholder="Écrire un message..."
-                    className="flex-1 rounded-lg border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
-                  />
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1 min-w-0">
+                    <MentionTextarea
+                      value={newComment}
+                      onChange={setNewComment}
+                      placeholder="Écrire un message... (tapez @ pour mentionner)"
+                      rows={2}
+                      mentionableUsers={mentionableUsers}
+                      className="border-slate-200 focus:ring-slate-200"
+                    />
+                  </div>
                   <button
                     onClick={handleComment}
                     disabled={commenting || !newComment.trim()}
-                    className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                    className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 shrink-0 h-[80px]"
                   >
                     {commenting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </button>

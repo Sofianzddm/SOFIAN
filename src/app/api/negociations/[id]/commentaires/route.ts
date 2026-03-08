@@ -7,7 +7,8 @@ import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { MentionEmail } from "@/lib/emails/MentionEmail";
 
-const MENTION_REGEX = /@([a-zA-Z0-9._-]+)/g;
+// Format stocké en DB : @[userId] (comme collaborations)
+const MENTION_REGEX = /@\[([a-z0-9]+)\]/gi;
 const MESSAGE_PREVIEW_MAX_LEN = 280;
 
 // POST - Ajouter un commentaire
@@ -57,27 +58,14 @@ export async function POST(
       });
     }
 
-    // Extraire les @mentions et envoyer les emails
-    const mentionMatches = contenu.match(MENTION_REGEX) ?? [];
-    const mentionSlugs = [...new Set(mentionMatches.map((m) => m.replace("@", "").trim()).filter(Boolean))];
-    if (mentionSlugs.length > 0 && nego?.reference) {
+    // Extraire les @[userId] et envoyer les emails
+    const mentionedIds = [...new Set([...contenu.matchAll(MENTION_REGEX)].map((m) => m[1].trim()).filter(Boolean))].filter((id) => id !== currentUserId);
+    if (mentionedIds.length > 0 && nego?.reference) {
       const mentionedUsers = await prisma.user.findMany({
-        where: {
-          id: { not: currentUserId },
-          OR: mentionSlugs.flatMap((slug) => [
-            { email: { equals: slug, mode: "insensitive" as const } },
-            { prenom: { contains: slug, mode: "insensitive" as const } },
-            { nom: { contains: slug, mode: "insensitive" as const } },
-          ]),
-        },
+        where: { id: { in: mentionedIds } },
         select: { id: true, email: true, prenom: true },
       });
-      const seenIds = new Set<string>();
-      const toEmail = mentionedUsers.filter((u) => {
-        if (seenIds.has(u.id)) return false;
-        seenIds.add(u.id);
-        return true;
-      });
+      const toEmail = mentionedUsers;
 
       const resendKey = process.env.RESEND_API_KEY;
       const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();

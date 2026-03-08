@@ -230,13 +230,20 @@ export function MentionTextarea({
   );
 }
 
-// Parser le contenu avec @[userId] et afficher les mentions stylées
+export interface RenderCommentWithMentionsOptions {
+  /** Couleur accent pour les mentions (ex: #C08B8B). Sinon bleu/ambre par défaut. */
+  accentColor?: string;
+}
+
+// Parser le contenu avec @[userId] et afficher les mentions stylées (nom + couleur)
 export function renderCommentWithMentions(
   content: string,
   usersById: Map<string, { firstName: string; lastName: string }>,
-  currentUserId?: string | null
+  currentUserId?: string | null,
+  options?: RenderCommentWithMentionsOptions
 ): React.ReactNode {
   if (!content || typeof content !== "string") return content;
+  const accentColor = options?.accentColor;
   // Normaliser les crochets (fullwidth → ASCII) pour que le regex matche
   const normalized = content.replace(/\uFF3B/g, "[").replace(/\uFF3D/g, "]");
   const parts: React.ReactNode[] = [];
@@ -256,10 +263,13 @@ export function renderCommentWithMentions(
       <span
         key={`${match.index}-${userId}`}
         className={
-          isMe
-            ? "bg-amber-100 text-amber-700 rounded px-1 font-medium"
-            : "bg-blue-100 text-blue-700 rounded px-1 font-medium"
+          accentColor
+            ? "rounded px-1 font-medium"
+            : isMe
+              ? "bg-amber-100 text-amber-700 rounded px-1 font-medium"
+              : "bg-blue-100 text-blue-700 rounded px-1 font-medium"
         }
+        style={accentColor ? { color: accentColor } : undefined}
       >
         @{label}
       </span>
