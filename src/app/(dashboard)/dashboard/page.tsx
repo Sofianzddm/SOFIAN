@@ -135,7 +135,8 @@ export default function DashboardPage() {
 
       {/* Dashboard par rôle */}
       {role === "ADMIN" && <AdminDashboard data={data} />}
-      {(role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE") && <HeadOfDashboard data={data} role={role} />}
+      {role === "HEAD_OF_INFLUENCE" && <HeadOfInfluenceDashboard data={data} />}
+      {role === "HEAD_OF" && <HeadOfDashboard data={data} role={role} />}
       {role === "TM" && <TMDashboard data={data} />}
     </div>
   );
@@ -397,6 +398,169 @@ function AdminDashboard({ data }: { data: any }) {
       )}
 
       <QuickActions role="ADMIN" />
+    </div>
+  );
+}
+
+// ============================================
+// HEAD_OF_INFLUENCE DASHBOARD — 4 blocs : Dernière MAJ prix, Négos en cours, CA pôle du mois, Supervision TM (sauf HORS TM)
+// ============================================
+function HeadOfInfluenceDashboard({ data }: { data: any }) {
+  const { stats, negociations = [], tmBilans = [], dernieresMajPrix = [] } = data;
+  const negoStatutLabel: Record<string, string> = {
+    BROUILLON: "Brouillon",
+    EN_ATTENTE: "En attente",
+    EN_DISCUSSION: "En discussion",
+  };
+  const formatDate = (d: string) => new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+
+  return (
+    <div className="space-y-6">
+      {/* 1. Dernière mise à jour des prix */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10">
+              <DollarSign className="h-5 w-5 text-violet-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Dernière mise à jour des prix</h2>
+              <p className="text-sm text-slate-500">Tarifs talents mis à jour récemment</p>
+            </div>
+          </div>
+          <Link href="/talents" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
+            Voir les talents <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {dernieresMajPrix.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <DollarSign className="mx-auto h-12 w-12 text-slate-300" />
+              <p className="mt-3 text-sm font-medium text-slate-600">Aucun tarif enregistré</p>
+            </div>
+          ) : (
+            dernieresMajPrix.slice(0, 10).map((p: { talentId: string; talentNom: string; updatedAt: string }) => (
+              <Link
+                key={p.talentId}
+                href={`/talents/${p.talentId}`}
+                className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-slate-50/80 transition-colors"
+              >
+                <p className="font-medium text-slate-900 truncate">{p.talentNom}</p>
+                <span className="text-sm text-slate-500 flex-shrink-0">{formatDate(p.updatedAt)}</span>
+                <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0" />
+              </Link>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* 2. Négociations en cours */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
+              <Target className="h-5 w-5 text-amber-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Négociations en cours</h2>
+              <p className="text-sm text-slate-500">{stats?.collabsNego ?? 0} négo en attente</p>
+            </div>
+          </div>
+          <Link href="/negociations" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
+            Voir tout <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {!negociations?.length ? (
+            <div className="px-6 py-12 text-center">
+              <Target className="mx-auto h-12 w-12 text-slate-300" />
+              <p className="mt-3 text-sm font-medium text-slate-600">Aucune négociation en cours</p>
+            </div>
+          ) : (
+            negociations.slice(0, 8).map((n: any) => (
+              <Link
+                key={n.id}
+                href={`/negociations/${n.id}`}
+                className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-slate-50/80 transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-900 truncate">{n.talent} × {n.marque}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-xs text-slate-500">{n.reference}</span>
+                    {n.tm && <span className="text-xs text-slate-400">• {n.tm}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                    {negoStatutLabel[n.statut] || n.statut}
+                  </span>
+                  <span className="text-base font-semibold text-slate-900 tabular-nums">{formatMoney(n.montant)}</span>
+                  <ChevronRight className="h-4 w-4 text-slate-400" />
+                </div>
+              </Link>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* 3. C.A du pôle du mois */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
+              <Euro className="h-5 w-5 text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">C.A du pôle du mois</h2>
+              <p className="text-sm text-slate-500">Chiffre d&apos;affaires HT du pôle Influence</p>
+            </div>
+          </div>
+          <Link href="/finance" className="text-sm font-medium text-slate-600 hover:text-slate-900">Voir la finance</Link>
+        </div>
+        <div className="px-6 py-6">
+          <p className="text-3xl font-bold text-slate-900 tabular-nums">{formatMoney(stats?.caMois ?? 0)}</p>
+          <p className="text-sm text-slate-500 mt-1">Commission (HT) : {formatMoney(stats?.commissionMois ?? 0)}</p>
+        </div>
+      </div>
+
+      {/* 4. Supervision TM (sauf HORS TM) */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden ring-1 ring-slate-200/60">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-900">Supervision TM</h3>
+          <Link href="/talents" className="text-sm font-medium text-slate-600 hover:text-slate-900">Voir les talents</Link>
+        </div>
+        {!tmBilans?.length ? (
+          <div className="px-6 py-8 text-center text-sm text-slate-500">Aucun TM à superviser</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {tmBilans.slice(0, 6).map((tm: any) => (
+              <div key={tm.id} className="flex items-center justify-between gap-4 px-6 py-4">
+                <div className="min-w-0">
+                  <p className="font-medium text-slate-900 truncate">{tm.nom}</p>
+                  <p className="text-sm text-slate-500">{tm.talents} talents · {formatMoney(tm.ca)}</p>
+                </div>
+                <div className="flex flex-wrap gap-2 justify-end">
+                  {tm.bilansRetard > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+                      <Clock className="h-3 w-3" /> {tm.bilansRetard} à mettre à jour
+                    </span>
+                  )}
+                  {tm.sansTarifs > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-orange-50 px-2 py-1 text-xs font-medium text-orange-700">
+                      <AlertTriangle className="h-3 w-3" /> {tm.sansTarifs} sans tarifs
+                    </span>
+                  )}
+                  {tm.bilansRetard === 0 && tm.sansTarifs === 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                      <CheckCircle className="h-3 w-3" /> OK
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

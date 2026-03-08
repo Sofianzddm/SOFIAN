@@ -35,7 +35,7 @@ const menuItems = [
     label: "Notifications",
     href: "/notifications",
     icon: Bell,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM", "TALENT"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "TM", "CM", "TALENT"],
   },
   {
     label: "Talents",
@@ -47,20 +47,19 @@ const menuItems = [
     label: "Utilisateurs",
     href: "/users",
     icon: UserCog,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"],
   },
   {
     label: "Marques",
     href: "/marques",
     icon: Building2,
-    // Masquée pour TM et Head of Influence
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"],
   },
   {
     label: "Partenaires",
     href: "/partners",
     icon: Building2,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "CM"],
   },
   {
     label: "Collaborations",
@@ -78,7 +77,7 @@ const menuItems = [
     label: "Gifts",
     href: "/gifts",
     icon: Gift,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "CM"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"],
   },
   {
     label: "Account Manager",
@@ -90,7 +89,7 @@ const menuItems = [
     label: "Factures",
     href: "/factures",
     icon: FileText,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"], // HEAD_OF en lecture seule
+    roles: ["ADMIN", "HEAD_OF"],
   },
   {
     label: "Finance",
@@ -114,7 +113,7 @@ const menuItems = [
     label: "HubSpot",
     href: "/presskit-dashboard",
     icon: FileText,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"], // BizDev + Sales
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"],
   },
   {
     label: "Paramètres",

@@ -324,6 +324,7 @@ export async function GET(request: NextRequest) {
         caAnneeAvec,
         caAnneeSans,
         performanceTM,
+        dernieresMajPrix,
       ] = await Promise.all([
         prisma.talent.count(),
         prisma.talent.count({ where: { tarifs: null } }),
@@ -402,6 +403,14 @@ export async function GET(request: NextRequest) {
             },
           },
         }),
+        // Dernière mise à jour des prix (tarifs) — pour Head of Influence
+        prisma.talentTarifs.findMany({
+          orderBy: { updatedAt: "desc" },
+          take: 15,
+          include: {
+            talent: { select: { id: true, prenom: true, nom: true } },
+          },
+        }),
       ]);
 
       const caMois = (Number(caMoisAvec._sum.montantBrut) || 0) + (Number(caMoisSans._sum.montantBrut) || 0);
@@ -409,7 +418,14 @@ export async function GET(request: NextRequest) {
       const caAnnee = (Number(caAnneeAvec._sum.montantBrut) || 0) + (Number(caAnneeSans._sum.montantBrut) || 0);
       const commissionAnnee = (Number(caAnneeAvec._sum.commissionEuros) || 0) + (Number(caAnneeSans._sum.commissionEuros) || 0);
 
-      const tmBilans = performanceTM.map((tm) => {
+      // Exclure l'utilisateur "HORS TM" de la supervision TM (Head of Influence ne gère pas le HORS TM)
+      const HORS_TM_NAME = "HORS TM";
+      const performanceTMFiltered =
+        role === "HEAD_OF_INFLUENCE"
+          ? performanceTM.filter((tm) => `${(tm.prenom || "").trim()} ${(tm.nom || "").trim()}`.toUpperCase() !== HORS_TM_NAME)
+          : performanceTM;
+
+      const tmBilans = performanceTMFiltered.map((tm) => {
         const talents = tm.talentsGeres;
         const collabs = talents.flatMap((t) => t.collaborations);
         const ca = collabs
@@ -471,6 +487,11 @@ export async function GET(request: NextRequest) {
           };
         }),
         tmBilans,
+        dernieresMajPrix: dernieresMajPrix.map((t) => ({
+          talentId: t.talent.id,
+          talentNom: `${t.talent.prenom} ${t.talent.nom}`,
+          updatedAt: t.updatedAt,
+        })),
       });
     }
 
