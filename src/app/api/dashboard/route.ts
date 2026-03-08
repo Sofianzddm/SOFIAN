@@ -406,8 +406,9 @@ export async function GET(request: NextRequest) {
           },
         }),
         // Dernière mise à jour des prix (tarifs) — pour Head of Influence
+        // Plus anciennes MAJ en premier (à revoir en priorité)
         prisma.talentTarifs.findMany({
-          orderBy: { updatedAt: "desc" },
+          orderBy: { updatedAt: "asc" },
           take: 15,
           include: {
             talent: { select: { id: true, prenom: true, nom: true } },
