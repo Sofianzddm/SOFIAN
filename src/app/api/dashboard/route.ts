@@ -325,6 +325,7 @@ export async function GET(request: NextRequest) {
         caAnneeSans,
         performanceTM,
         dernieresMajPrix,
+        talentsTarifsAReverifier,
       ] = await Promise.all([
         prisma.talent.count(),
         prisma.talent.count({ where: { tarifs: null } }),
@@ -411,6 +412,18 @@ export async function GET(request: NextRequest) {
             talent: { select: { id: true, prenom: true, nom: true } },
           },
         }),
+        // Talents dont les tarifs sont à mettre à jour / vérifier (tous les 30j) : sans tarifs OU MAJ > 30j
+        prisma.talent.findMany({
+          where: {
+            OR: [
+              { tarifs: null },
+              { tarifs: { updatedAt: { lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } } },
+            ],
+          },
+          select: { id: true, prenom: true, nom: true, tarifs: { select: { updatedAt: true } } },
+          orderBy: { prenom: "asc" },
+          take: 20,
+        }),
       ]);
 
       const caMois = (Number(caMoisAvec._sum.montantBrut) || 0) + (Number(caMoisSans._sum.montantBrut) || 0);
@@ -491,6 +504,12 @@ export async function GET(request: NextRequest) {
           talentId: t.talent.id,
           talentNom: `${t.talent.prenom} ${t.talent.nom}`,
           updatedAt: t.updatedAt,
+        })),
+        talentsTarifsAReverifier: talentsTarifsAReverifier.map((t) => ({
+          id: t.id,
+          nom: `${t.prenom} ${t.nom}`,
+          sansTarifs: !t.tarifs,
+          updatedAt: t.tarifs?.updatedAt ?? null,
         })),
       });
     }

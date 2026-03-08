@@ -59,10 +59,10 @@ export default function TalentsPage() {
   const role = user?.role || "";
   
   // Permissions basées sur le rôle
-  const canAddTalent = role === "ADMIN" || role === "HEAD_OF";
-  const canEditTalent = role === "ADMIN" || role === "HEAD_OF";
+  const canAddTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
+  const canEditTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canDeleteTalent = role === "ADMIN";
-  const canArchiveTalent = role === "ADMIN" || role === "HEAD_OF";
+  const canArchiveTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canReorderBook =
     role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
 

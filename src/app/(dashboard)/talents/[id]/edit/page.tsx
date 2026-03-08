@@ -154,7 +154,7 @@ export default function EditTalentPage() {
   // Permissions par rôle
   const canEditInfos = userRole === "ADMIN";
   const canEditStats = userRole === "ADMIN" || userRole === "TM";
-  const canEditTarifs = userRole === "ADMIN" || userRole === "HEAD_OF";
+  const canEditTarifs = userRole === "ADMIN" || userRole === "HEAD_OF" || userRole === "HEAD_OF_INFLUENCE";
 
   // Steps disponibles selon le rôle
   const getAvailableSteps = () => {
@@ -495,7 +495,7 @@ export default function EditTalentPage() {
 
   const getPageTitle = () => {
     if (userRole === "TM") return "Mettre à jour les statistiques";
-    if (userRole === "HEAD_OF") return "Mettre à jour les tarifs";
+    if (userRole === "HEAD_OF" || userRole === "HEAD_OF_INFLUENCE") return "Mettre à jour les tarifs";
     return "Modifier le talent";
   };
 
@@ -523,9 +523,10 @@ export default function EditTalentPage() {
         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
           userRole === "ADMIN" ? "bg-purple-100 text-purple-700" :
           userRole === "HEAD_OF" ? "bg-blue-100 text-blue-700" :
+          userRole === "HEAD_OF_INFLUENCE" ? "bg-blue-100 text-blue-700" :
           "bg-glowup-lace text-glowup-licorice"
         }`}>
-          {userRole === "ADMIN" ? "Admin" : userRole === "HEAD_OF" ? "Head Of" : "Talent Manager"}
+          {userRole === "ADMIN" ? "Admin" : userRole === "HEAD_OF" ? "Head Of" : userRole === "HEAD_OF_INFLUENCE" ? "Head of Influence" : "Talent Manager"}
         </span>
       </div>
 
@@ -1210,7 +1211,7 @@ export default function EditTalentPage() {
         {/* Step 5: Tarifs - HEAD_OF + ADMIN */}
         {activeStep === 5 && canEditTarifs && (
           <div className="space-y-6">
-            {userRole === "HEAD_OF" && (
+            {(userRole === "HEAD_OF" || userRole === "HEAD_OF_INFLUENCE") && (
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
                 <span className="text-2xl">💰</span>
                 <div>
