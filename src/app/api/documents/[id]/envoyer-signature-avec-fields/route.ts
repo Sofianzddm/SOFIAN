@@ -149,22 +149,22 @@ export async function POST(
     }
 
     const data = await res.json();
-    console.log("DocuSeal response (submissions):", JSON.stringify(data, null, 2));
+    console.log("DocuSeal response complète:", JSON.stringify(data, null, 2));
     const submissionList = Array.isArray(data) ? data : [];
+    // Réponse = [{ id: 8166222 (submitter), submission_id: 6177141 (submission) }, ...]
+    // signatureSubmissionId doit être l'ID submission (submission_id), jamais response[0].id
+    const first = submissionList[0] as { id?: number; submission_id?: number } | undefined;
     const submissionId =
-      submissionList[0]?.submission_id != null
-        ? String(submissionList[0].submission_id)
-        : typeof data === "object" && data !== null && "id" in data
-          ? String((data as { id: number }).id)
-          : "";
+      first?.submission_id != null ? String(first.submission_id) : "";
 
     if (!submissionId) {
-      console.error("DocuSeal response missing submission id:", data);
+      console.error("DocuSeal response missing submission_id (ne pas utiliser .id = submitter):", data);
       return NextResponse.json(
         { error: "Réponse DocuSeal invalide" },
         { status: 502 }
       );
     }
+    console.log("ID sauvegardé en DB signatureSubmissionId:", submissionId, "(submission_id, pas .id submitter)");
 
     const talent = document.collaboration?.talent;
     const marque = document.collaboration?.marque;
@@ -224,6 +224,7 @@ export async function POST(
 
     const now = new Date();
 
+    // submissionId = response[0].submission_id (ID submission, ex. 6177141), pas response[0].id (ID submitter)
     await prisma.document.update({
       where: { id },
       data: {
