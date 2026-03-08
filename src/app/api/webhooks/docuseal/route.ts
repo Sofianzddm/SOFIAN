@@ -101,8 +101,40 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Email "Devis signé" quand toutes les parties ont signé (Resend)
-    if (isSubmissionCompleted && documentUrl) {
+    // Email "Devis signé" quand toutes les parties ont signé (Resend) — on envoie même si document_url absent du payload
+    if (isSubmissionCompleted) {
+      let signedDocumentUrl = documentUrl;
+      if (!signedDocumentUrl) {
+        const docAfter = await prisma.document.findUnique({
+          where: { id: document.id },
+          select: { signedDocumentUrl: true },
+        });
+        signedDocumentUrl = docAfter?.signedDocumentUrl ?? undefined;
+      }
+      if (!signedDocumentUrl) {
+        const key = process.env.DOCUSEAL_API_KEY;
+        if (key) {
+          try {
+            const r = await fetch(`https://api.docuseal.com/submissions/${submissionId}`, {
+              headers: { "X-Auth-Token": key },
+            });
+            if (r.ok) {
+              const sub = (await r.json()) as { combined_document_url?: string; documents?: Array<{ url?: string }> };
+              const url = sub.combined_document_url?.trim() || sub.documents?.[0]?.url?.trim();
+              if (url) {
+                await prisma.document.update({
+                  where: { id: document.id },
+                  data: { signedDocumentUrl: url },
+                });
+                signedDocumentUrl = url;
+              }
+            }
+          } catch (e) {
+            console.warn("Webhook DocuSeal: fetch submission pour URL signé", e);
+          }
+        }
+      }
+
       const resendKey = process.env.RESEND_API_KEY;
       const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
       if (resendKey && fromEmail) {
@@ -113,6 +145,7 @@ export async function POST(request: NextRequest) {
             montantHT: true,
             signedDocumentUrl: true,
             signatureSignedAt: true,
+            collaborationId: true,
             collaboration: {
               select: {
                 talent: { select: { prenom: true, nom: true } },
@@ -127,7 +160,7 @@ export async function POST(request: NextRequest) {
         if (docFull && toEmail) {
           const talent = docFull.collaboration?.talent;
           const marque = docFull.collaboration?.marque;
-          const signedUrl = docFull.signedDocumentUrl ?? documentUrl;
+          const finalSignedUrl = signedDocumentUrl ?? docFull.signedDocumentUrl ?? (typeof process.env.NEXT_PUBLIC_BASE_URL === "string" && docFull.collaborationId ? `${process.env.NEXT_PUBLIC_BASE_URL.replace(/\/$/, "")}/collaborations/${docFull.collaborationId}` : "");
           const signedAt = docFull.signatureSignedAt ?? now;
           const recipientName = creator
             ? [creator.prenom, creator.nom].filter(Boolean).join(" ") || "équipe"
@@ -148,7 +181,7 @@ export async function POST(request: NextRequest) {
               marqueNom: marque?.nom ?? "",
               montantHT: Number(docFull.montantHT) ?? 0,
               signedAt: signedAtStr,
-              signedDocumentUrl: signedUrl,
+              signedDocumentUrl: finalSignedUrl || "#",
             });
             const resend = new Resend(resendKey);
             await resend.emails.send({

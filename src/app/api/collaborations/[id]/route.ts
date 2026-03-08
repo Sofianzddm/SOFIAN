@@ -46,6 +46,7 @@ export async function GET(
             reference: true,
             type: true,
             statut: true,
+            montantHT: true,
             montantTTC: true,
             dateEmission: true,
             avoirRef: true,

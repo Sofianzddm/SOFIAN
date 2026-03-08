@@ -9,6 +9,21 @@ import { getSignatureRequestHtml } from "@/lib/emails/templates";
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
 
+/** Récupère l'URL de signature propre à chaque submitter (réponse DocuSeal) */
+function getSubmitterSigningUrl(s: {
+  embed_src?: string | null;
+  url?: string | null;
+  submission_url?: string | null;
+  slug?: string | null;
+}): string | null {
+  const raw =
+    s.embed_src?.trim() ||
+    s.url?.trim() ||
+    s.submission_url?.trim() ||
+    (s.slug?.trim() ? `${DOCUSEAL_SIGNING_BASE}/${s.slug.trim()}` : "");
+  return raw && raw.startsWith("http") ? raw : null;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -108,7 +123,7 @@ export async function POST(
     const useResend = !!(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL);
     const submissionPayload = {
       template_id: templateId,
-      send_email: !useResend,
+      send_email: false, // On n'utilise que l'email branded Glow Up via Resend
       submitters,
     };
 
@@ -166,11 +181,21 @@ export async function POST(
       const fromEmail = process.env.RESEND_FROM_EMAIL!.trim();
       const subject = `Devis ${document.reference} à signer — ${talentPrenom} × ${marqueNom}`;
 
-      for (const submitter of submissionList as Array<{ email?: string; name?: string; slug?: string; embed_src?: string }>) {
+      for (const submitter of submissionList as Array<{
+        email?: string;
+        name?: string;
+        slug?: string;
+        embed_src?: string;
+        url?: string;
+        submission_url?: string;
+      }>) {
         const email = submitter.email?.trim();
         if (!email) continue;
-        const signingUrl =
-          submitter.embed_src ?? `${DOCUSEAL_SIGNING_BASE}/${submitter.slug ?? ""}`;
+        const signingUrl = getSubmitterSigningUrl(submitter);
+        if (!signingUrl) {
+          console.warn("DocuSeal submitter sans signing_url, email ignoré:", email);
+          continue;
+        }
         const signerName = (submitter.name as string)?.trim() || "Signataire";
         const html = getSignatureRequestHtml({
           signerName,

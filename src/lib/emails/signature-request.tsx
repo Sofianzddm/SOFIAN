@@ -141,7 +141,7 @@ export function SignatureRequestEmail({
       >
         <p style={{ margin: "0 0 4px", fontWeight: 600 }}>Glow Up Agence</p>
         <p style={{ margin: "0 0 4px", color: COLORS.footerText }}>
-          5 Avenue Jean Moulin, Paris
+          1330 avenue Jean-René Guillibert Gautier de La Lauzière, 13290 Aix-en-Provence
         </p>
         <p style={{ margin: "0 0 4px", color: COLORS.footerText }}>
           SIRET : 92103414600024

@@ -34,6 +34,7 @@ import {
   Sparkles,
   MessageSquare,
   FileSignature,
+  RefreshCw,
 } from "lucide-react";
 import {
   MentionTextarea,
@@ -186,6 +187,7 @@ export default function CollabDetailPage() {
   const [signatureAgenceEmail, setSignatureAgenceEmail] = useState("");
   const [signatureAgenceName, setSignatureAgenceName] = useState("");
   const [signatureSending, setSignatureSending] = useState(false);
+  const [checkingSignatureDocId, setCheckingSignatureDocId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<{
     titre: string;
     commentaires: string;
@@ -523,6 +525,24 @@ export default function CollabDetailPage() {
       alert("Erreur lors de la préparation de la signature");
     } finally {
       setSignatureSending(false);
+    }
+  };
+
+  const handleCheckSignatureStatus = async (docId: string) => {
+    setCheckingSignatureDocId(docId);
+    try {
+      const res = await fetch(`/api/documents/${docId}/check-signature-status`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        await fetchCollab();
+      } else {
+        alert(data.error || "Erreur lors de la vérification");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de la vérification");
+    } finally {
+      setCheckingSignatureDocId(null);
     }
   };
 
@@ -1203,6 +1223,21 @@ export default function CollabDetailPage() {
                                 title="Envoyer pour signature"
                               >
                                 <FileSignature className="w-4 h-4" />
+                              </button>
+                            )}
+                            {doc.type === "DEVIS" && doc.signatureStatus === "PENDING" && doc.signatureSubmissionId && (
+                              <button
+                                type="button"
+                                onClick={() => handleCheckSignatureStatus(doc.id)}
+                                disabled={checkingSignatureDocId === doc.id}
+                                className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all"
+                                title="Vérifier le statut de signature"
+                              >
+                                {checkingSignatureDocId === doc.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="w-4 h-4" />
+                                )}
                               </button>
                             )}
                             {doc.type === "DEVIS" && doc.signedDocumentUrl && (

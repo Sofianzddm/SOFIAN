@@ -65,6 +65,8 @@ interface DossierComplet {
     montantHT: number;
     montantTTC: number;
     dateEmission: string | null;
+    signatureStatus?: string | null;
+    signedDocumentUrl?: string | null;
   } | null;
   
   factureClient: {
@@ -114,7 +116,37 @@ export default function DossierCompletPage() {
         return;
       }
       
-      setDossier(data);
+      // Dériver devis / factureClient depuis documents pour la vue dossier
+      const documents = data.documents ?? [];
+      const devisDoc = documents.find((d: { type: string }) => d.type === "DEVIS");
+      const factureDoc = documents.find((d: { type: string }) => d.type === "FACTURE");
+      setDossier({
+        ...data,
+        devis: devisDoc
+          ? {
+              id: devisDoc.id,
+              reference: devisDoc.reference,
+              statut: devisDoc.statut,
+              montantHT: devisDoc.montantHT,
+              montantTTC: devisDoc.montantTTC,
+              dateEmission: devisDoc.dateEmission ?? null,
+              signatureStatus: devisDoc.signatureStatus ?? null,
+              signedDocumentUrl: devisDoc.signedDocumentUrl ?? null,
+            }
+          : null,
+        factureClient: factureDoc
+          ? {
+              id: factureDoc.id,
+              reference: factureDoc.reference,
+              statut: factureDoc.statut,
+              montantHT: factureDoc.montantHT,
+              montantTTC: factureDoc.montantTTC,
+              dateEmission: factureDoc.dateEmission ?? null,
+              dateEcheance: factureDoc.dateEcheance ?? null,
+              datePaiement: factureDoc.datePaiement ?? null,
+            }
+          : null,
+      });
     } catch (error) {
       console.error("Erreur:", error);
       setError("Erreur lors du chargement du dossier");
@@ -332,9 +364,16 @@ export default function DossierCompletPage() {
               <div className="flex-1">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-xl font-bold text-gray-900">2. Devis</h3>
-                  <span className={`px-3 py-1 rounded-full text-sm font-semibold border ${getStatutColor(dossier.devis.statut)}`}>
-                    {dossier.devis.statut}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {dossier.devis.signatureStatus === "SIGNED" && (
+                      <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Signé ✓
+                      </span>
+                    )}
+                    <span className={`px-3 py-1 rounded-full text-sm font-semibold border ${getStatutColor(dossier.devis.statut)}`}>
+                      {dossier.devis.statut}
+                    </span>
+                  </div>
                 </div>
                 <div className="space-y-2 text-sm text-gray-600 mb-4">
                   <p>Référence: <span className="font-mono font-semibold">{dossier.devis.reference}</span></p>
@@ -344,14 +383,28 @@ export default function DossierCompletPage() {
                     <p>Émis le: <span className="font-semibold">{formatDate(dossier.devis.dateEmission)}</span></p>
                   )}
                 </div>
-                <a
-                  href={`/api/documents/${dossier.devis.id}/pdf`}
-                  target="_blank"
-                  className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium"
-                >
-                  <Download className="w-4 h-4" />
-                  Télécharger le devis
-                </a>
+                <div className="flex flex-wrap items-center gap-3">
+                  <a
+                    href={`/api/documents/${dossier.devis.id}/pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    <Download className="w-4 h-4" />
+                    Télécharger PDF
+                  </a>
+                  {dossier.devis.signedDocumentUrl && (
+                    <a
+                      href={dossier.devis.signedDocumentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-emerald-600 hover:text-emerald-700 font-medium"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Voir le devis signé
+                    </a>
+                  )}
+                </div>
               </div>
             </div>
           </div>
