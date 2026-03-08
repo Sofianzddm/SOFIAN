@@ -36,6 +36,7 @@ import {
   Upload,
   Check,
   X,
+  Send,
 } from "lucide-react";
 import { formatPercent } from "@/lib/format";
 
@@ -143,6 +144,7 @@ export default function TalentDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [demanderTarifsLoading, setDemanderTarifsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const user = session?.user as { id: string; role: string } | undefined;
@@ -188,6 +190,25 @@ export default function TalentDetailPage() {
       }
     } catch (error) {
       console.error("Erreur:", error);
+    }
+  };
+
+  const handleDemanderRevoirTarifs = async () => {
+    if (role !== "ADMIN" || !talent?.id) return;
+    setDemanderTarifsLoading(true);
+    try {
+      const res = await fetch(`/api/talents/${talent.id}/demander-revoir-tarifs`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        alert(data.message ?? "Demande envoyée à Manon.");
+      } else {
+        alert(data.error ?? "Erreur lors de l'envoi de la demande.");
+      }
+    } catch (error) {
+      console.error("Erreur:", error);
+      alert("Erreur lors de l'envoi de la demande.");
+    } finally {
+      setDemanderTarifsLoading(false);
     }
   };
 
@@ -392,6 +413,17 @@ export default function TalentDetailPage() {
               >
                 <Pencil className="w-5 h-5" />
               </Link>
+            )}
+            {role === "ADMIN" && (
+              <button
+                type="button"
+                onClick={handleDemanderRevoirTarifs}
+                disabled={demanderTarifsLoading}
+                className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105 disabled:opacity-50"
+                title="Demander à Manon de revoir les tarifs"
+              >
+                {demanderTarifsLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+              </button>
             )}
             {canDeleteTalent && (
               <button 

@@ -326,6 +326,7 @@ export async function GET(request: NextRequest) {
         performanceTM,
         dernieresMajPrix,
         talentsTarifsAReverifier,
+        demandesRevoirTarifs,
       ] = await Promise.all([
         prisma.talent.count(),
         prisma.talent.count({ where: { tarifs: null } }),
@@ -423,6 +424,13 @@ export async function GET(request: NextRequest) {
           select: { id: true, prenom: true, nom: true, tarifs: { select: { updatedAt: true } } },
           orderBy: { prenom: "asc" },
           take: 20,
+        }),
+        // Demandes des admins pour revoir les tarifs d'un talent (notifications REVOIR_TARIFS)
+        prisma.notification.findMany({
+          where: { userId: user.id, type: "REVOIR_TARIFS" },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          select: { id: true, titre: true, message: true, lien: true, createdAt: true, lu: true },
         }),
       ]);
 
@@ -526,6 +534,14 @@ export async function GET(request: NextRequest) {
           nom: `${t.prenom} ${t.nom}`,
           sansTarifs: !t.tarifs,
           updatedAt: t.tarifs?.updatedAt ?? null,
+        })),
+        demandesRevoirTarifs: demandesRevoirTarifs.map((n) => ({
+          id: n.id,
+          titre: n.titre,
+          message: n.message,
+          lien: n.lien,
+          createdAt: n.createdAt,
+          lu: n.lu,
         })),
       });
     }

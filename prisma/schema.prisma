@@ -163,6 +163,7 @@ enum TypeNotification {
   COLLAB_GAGNEE
   PAIEMENT_RECU
   MENTION
+  REVOIR_TARIFS
   GENERAL
 }
 

@@ -36,6 +36,7 @@ import {
   Award,
   Lock,
   Music2,
+  Send,
 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -406,7 +407,7 @@ function AdminDashboard({ data }: { data: any }) {
 // HEAD_OF_INFLUENCE DASHBOARD — 4 essentiels, même niveau de finition que HeadOf
 // ============================================
 function HeadOfInfluenceDashboard({ data }: { data: any }) {
-  const { stats, negociations = [], negociationsSansReponse = [], tmBilans = [], dernieresMajPrix = [], talentsTarifsAReverifier = [] } = data;
+  const { stats, negociations = [], negociationsSansReponse = [], tmBilans = [], dernieresMajPrix = [], talentsTarifsAReverifier = [], demandesRevoirTarifs = [] } = data;
   const negoStatutLabel: Record<string, string> = {
     BROUILLON: "Brouillon",
     EN_ATTENTE: "En attente",
@@ -457,6 +458,44 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
             <ChevronRight className="h-5 w-5 flex-shrink-0 text-red-600" />
           </div>
         </Link>
+      )}
+
+      {/* Demandes des admins : revoir les tarifs d'un talent */}
+      {demandesRevoirTarifs?.length > 0 && (
+        <div className="rounded-2xl border border-violet-200/80 bg-violet-50/95 p-5 shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-violet-500">
+              <Send className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-violet-900">
+                Demandes de revoir les tarifs
+              </h3>
+              <p className="text-sm text-violet-800">
+                Un admin vous a demandé de revoir les tarifs des talents suivants
+              </p>
+            </div>
+          </div>
+          <ul className="space-y-2">
+            {demandesRevoirTarifs.map((d: { id: string; titre: string; message: string; lien: string; createdAt: string }) => (
+              <li key={d.id}>
+                <Link
+                  href={d.lien || "/talents"}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-violet-100 bg-white px-4 py-3 hover:bg-violet-50/50 hover:border-violet-200 transition-all"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-slate-900">{d.titre}</p>
+                    <p className="text-sm text-slate-600 truncate">{d.message}</p>
+                  </div>
+                  <span className="text-xs text-slate-500 flex-shrink-0">
+                    {formatDate(d.createdAt)}
+                  </span>
+                  <ChevronRight className="h-5 w-5 text-violet-500 flex-shrink-0" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* Alerte : négos sans réponse client 5+ jours */}
