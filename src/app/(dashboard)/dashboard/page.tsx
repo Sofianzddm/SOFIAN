@@ -1376,21 +1376,20 @@ function TMDashboard({ data }: { data: any }) {
                 <Users className="w-5 h-5 text-glowup-rose" />
                 <span className="text-xs text-gray-600 group-hover:text-glowup-licorice">Talents</span>
               </Link>
-              {/* Boutons verrouillés pour TM : Négo & Collabs */}
-              <div className="flex flex-col items-center gap-1 p-3 rounded-xl bg-gray-50 text-gray-300 cursor-not-allowed">
-                <div className="flex items-center gap-1">
-                  <Target className="w-5 h-5" />
-                  <Lock className="w-3 h-3" />
-                </div>
-                <span className="text-xs">Négo</span>
-              </div>
-              <div className="flex flex-col items-center gap-1 p-3 rounded-xl bg-gray-50 text-gray-300 cursor-not-allowed">
-                <div className="flex items-center gap-1">
-                  <Handshake className="w-5 h-5" />
-                  <Lock className="w-3 h-3" />
-                </div>
-                <span className="text-xs">Collabs</span>
-              </div>
+              <Link 
+                href="/negociations" 
+                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-glowup-rose/5 hover:bg-glowup-rose/10 transition-colors group"
+              >
+                <Target className="w-5 h-5 text-glowup-rose" />
+                <span className="text-xs text-gray-600 group-hover:text-glowup-licorice">Négo</span>
+              </Link>
+              <Link 
+                href="/collaborations" 
+                className="flex flex-col items-center gap-2 p-3 rounded-xl bg-glowup-rose/5 hover:bg-glowup-rose/10 transition-colors group"
+              >
+                <Handshake className="w-5 h-5 text-glowup-rose" />
+                <span className="text-xs text-gray-600 group-hover:text-glowup-licorice">Collabs</span>
+              </Link>
             </div>
           </div>
         </div>
