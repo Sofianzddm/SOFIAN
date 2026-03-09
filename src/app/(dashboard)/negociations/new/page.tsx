@@ -65,7 +65,9 @@ export default function NewNegociationPage() {
   const searchParams = useSearchParams();
   const { data: session } = useSession();
   const user = session?.user as { role?: string } | undefined;
-  const isTM = user?.role === "TM";
+  const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
+  const role = effectiveRole ?? user?.role ?? "";
+  const isTM = role === "TM";
 
   const [loading, setLoading] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
@@ -93,6 +95,22 @@ export default function NewNegociationPage() {
 
   useEffect(() => {
     fetchTalents();
+  }, []);
+
+  // Rôle effectif (via /api/auth/me) pour gérer l'impersonation admin → TM
+  useEffect(() => {
+    const fetchMe = async () => {
+      try {
+        const r = await fetch("/api/auth/me");
+        if (r.ok) {
+          const data = await r.json();
+          setEffectiveRole(data.role ?? null);
+        }
+      } catch {
+        setEffectiveRole(null);
+      }
+    };
+    fetchMe();
   }, []);
 
   // TM ne gère que les entrants → forcer INBOUND

@@ -72,8 +72,10 @@ export async function POST(
       });
       const actorName = actor ? `${actor.prenom} ${actor.nom}`.trim() : "Quelqu'un";
       const link = `/collaborations/${collaborationId}`;
-      const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
-      const contextUrl = baseUrl ? `${baseUrl}${link.startsWith("/") ? "" : "/"}${link}` : link;
+      // URL absolue pour les emails (fallback sur app.glowupagence.fr si NEXT_PUBLIC_BASE_URL manquant)
+      const rawBase = (process.env.NEXT_PUBLIC_BASE_URL || "https://app.glowupagence.fr").trim();
+      const baseUrl = rawBase.replace(/\/$/, "");
+      const contextUrl = `${baseUrl}${link}`;
 
       await prisma.$transaction([
         ...Array.from(mentionedIds).map((mentionedUserId) =>

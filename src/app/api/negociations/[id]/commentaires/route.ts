@@ -75,9 +75,11 @@ export async function POST(
           select: { prenom: true, nom: true },
         });
         const actorName = actor ? `${actor.prenom} ${actor.nom}`.trim() : "Quelqu'un";
-        const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
         const link = `/negociations/${id}`;
-        const contextUrl = baseUrl ? `${baseUrl}${link}` : link;
+        // URL absolue pour les emails (fallback sur app.glowupagence.fr si NEXT_PUBLIC_BASE_URL manquant)
+        const rawBase = (process.env.NEXT_PUBLIC_BASE_URL || "https://app.glowupagence.fr").trim();
+        const baseUrl = rawBase.replace(/\/$/, "");
+        const contextUrl = `${baseUrl}${link}`;
         const messagePreview =
           contenu.length > MESSAGE_PREVIEW_MAX_LEN
             ? contenu.slice(0, MESSAGE_PREVIEW_MAX_LEN) + "…"
