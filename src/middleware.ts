@@ -65,5 +65,7 @@ export const config = {
     "/archives",
     "/talent",
     "/talent/:path*",
+    "/objectifs",
+    "/objectifs/:path*",
   ],
 };

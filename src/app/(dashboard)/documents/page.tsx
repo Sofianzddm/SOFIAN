@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import {
   FileText,
   Download,
@@ -57,6 +58,7 @@ const STATUT_CONFIG: Record<string, { label: string; color: string }> = {
 };
 
 export default function DocumentsPage() {
+  const { data: session } = useSession();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -68,6 +70,7 @@ export default function DocumentsPage() {
   const [showReplaceModal, setShowReplaceModal] = useState(false);
   const [selectedFacture, setSelectedFacture] = useState<Document | null>(null);
   const [replacing, setReplacing] = useState(false);
+  const isAdmin = (session?.user as { role?: string })?.role === "ADMIN";
 
   useEffect(() => {
     fetchDocuments();
@@ -301,7 +304,7 @@ export default function DocumentsPage() {
               <option value="ALL">Tous statuts</option>
               <option value="BROUILLON">Brouillon</option>
               <option value="ENVOYE">Facturé</option>
-              <option value="PAYE">Payé</option>
+              {isAdmin && <option value="PAYE">Payé</option>}
               <option value="ANNULE">Annulé</option>
             </select>
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />

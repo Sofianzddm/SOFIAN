@@ -27,14 +27,30 @@ const TYPES_CONTENU = [
   { value: "POST", label: "Post" },
   { value: "POST_CONCOURS", label: "Post Concours" },
   { value: "POST_COMMUN", label: "Post Commun" },
+  { value: "POST_CROSSPOST", label: "IG Post Crosspost" },
   { value: "REEL", label: "Reel" },
+  { value: "REEL_CROSSPOST", label: "IG Réel Crosspost" },
+  { value: "REEL_CONCOURS", label: "IG Réel Jeu Concours" },
   { value: "TIKTOK_VIDEO", label: "Vidéo TikTok" },
+  { value: "TIKTOK_VIDEO_CONCOURS", label: "TikTok Jeu Concours" },
   { value: "YOUTUBE_VIDEO", label: "Vidéo YouTube" },
   { value: "YOUTUBE_SHORT", label: "YouTube Short" },
+  { value: "SNAPCHAT_STORY", label: "Snapchat Story" },
+  { value: "SNAPCHAT_SPOTLIGHT", label: "Snapchat Spotlight" },
   { value: "EVENT", label: "Event" },
   { value: "SHOOTING", label: "Shooting" },
   { value: "AMBASSADEUR", label: "Ambassadeur" },
 ];
+
+const TYPE_TO_TARIF_KEY: Record<string, string> = {
+  STORY: "tarifStory", STORY_CONCOURS: "tarifStoryConcours", POST: "tarifPost",
+  POST_CONCOURS: "tarifPostConcours", POST_COMMUN: "tarifPostCommun", POST_CROSSPOST: "tarifPostCrosspost",
+  REEL: "tarifReel", REEL_CROSSPOST: "tarifReelCrosspost", REEL_CONCOURS: "tarifReelConcours",
+  TIKTOK_VIDEO: "tarifTiktokVideo", TIKTOK_VIDEO_CONCOURS: "tarifTiktokConcours",
+  YOUTUBE_VIDEO: "tarifYoutubeVideo", YOUTUBE_SHORT: "tarifYoutubeShort",
+  SNAPCHAT_STORY: "tarifSnapchatStory", SNAPCHAT_SPOTLIGHT: "tarifSnapchatSpotlight",
+  EVENT: "tarifEvent", SHOOTING: "tarifShooting", AMBASSADEUR: "tarifAmbassadeur",
+};
 
 interface Talent {
   id: string;
@@ -182,6 +198,9 @@ export default function EditNegociationPage() {
     const selectedTalent = talents.find((t) => t.id === formData.talentId);
     if (!selectedTalent?.tarifs) return null;
 
+    const explicitKey = TYPE_TO_TARIF_KEY[typeContenu];
+    if (explicitKey && selectedTalent.tarifs[explicitKey] != null) return Number(selectedTalent.tarifs[explicitKey]);
+
     const normalized = typeContenu
       .toLowerCase()
       .normalize("NFD")
@@ -196,7 +215,7 @@ export default function EditNegociationPage() {
         .replace(/\s+/g, "");
 
       if (normalized.includes(typeNormalized) || typeNormalized.includes(normalized)) {
-        const tarifKey = `tarif${type.value.charAt(0) + type.value.slice(1).toLowerCase().replace(/_./g, (m) => m[1].toUpperCase())}`;
+        const tarifKey = TYPE_TO_TARIF_KEY[type.value] ?? `tarif${type.value.charAt(0) + type.value.slice(1).toLowerCase().replace(/_./g, (m) => m[1].toUpperCase())}`;
         const tarif = selectedTalent.tarifs[tarifKey];
         if (tarif) return Number(tarif);
       }

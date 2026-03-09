@@ -1,8 +1,7 @@
 // src/app/api/documents/[id]/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(
@@ -10,7 +9,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
@@ -72,7 +71,19 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(document);
+    // Infos confidentielles : seul l'admin voit "Payé" (marque nous a réglé) et les infos de paiement
+    const isAdmin = (session.user as { role?: string }).role === "ADMIN";
+    const payload = isAdmin
+      ? document
+      : {
+          ...document,
+          statut: document.statut === "PAYE" ? "ENVOYE" : document.statut,
+          datePaiement: null,
+          referencePaiement: null,
+          modePaiement: null,
+        };
+
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Erreur récupération document:", error);
     return NextResponse.json(

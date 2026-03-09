@@ -641,7 +641,7 @@ export default function FacturesPage() {
                     <option value="VALIDE">Enregistré</option>
                     <option value="BROUILLON">Brouillon</option>
                     <option value="ENVOYE">Envoyé</option>
-                    <option value="PAYE">Payé</option>
+                    {role === "ADMIN" && <option value="PAYE">Payé</option>}
                     <option value="EN_RETARD">En retard</option>
                     <option value="ANNULE">Annulé</option>
                   </>

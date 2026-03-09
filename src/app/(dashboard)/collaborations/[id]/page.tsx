@@ -139,9 +139,12 @@ const WORKFLOW = {
 
 const TYPE_LABELS: Record<string, string> = {
   STORY: "Story", STORY_CONCOURS: "Story Concours", POST: "Post",
-  POST_CONCOURS: "Post Concours", POST_COMMUN: "Post Commun", REEL: "Reel",
-  TIKTOK_VIDEO: "Vidéo TikTok", YOUTUBE_VIDEO: "Vidéo YouTube",
-  YOUTUBE_SHORT: "YouTube Short", EVENT: "Event", SHOOTING: "Shooting", AMBASSADEUR: "Ambassadeur",
+  POST_CONCOURS: "Post Concours", POST_COMMUN: "Post Commun",
+  POST_CROSSPOST: "IG Post Crosspost", REEL: "Reel", REEL_CROSSPOST: "IG Réel Crosspost", REEL_CONCOURS: "IG Réel Jeu Concours",
+  TIKTOK_VIDEO: "Vidéo TikTok", TIKTOK_VIDEO_CONCOURS: "TikTok Jeu Concours",
+  YOUTUBE_VIDEO: "Vidéo YouTube", YOUTUBE_SHORT: "YouTube Short",
+  SNAPCHAT_STORY: "Snapchat Story", SNAPCHAT_SPOTLIGHT: "Snapchat Spotlight",
+  EVENT: "Event", SHOOTING: "Shooting", AMBASSADEUR: "Ambassadeur",
 };
 
 export default function CollabDetailPage() {
@@ -220,8 +223,24 @@ export default function CollabDetailPage() {
   const [commentContent, setCommentContent] = useState("");
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
+  const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
 
   useEffect(() => { if (params.id) fetchCollab(); }, [params.id]);
+
+  useEffect(() => {
+    const fetchMe = async () => {
+      try {
+        const r = await fetch("/api/auth/me");
+        if (r.ok) {
+          const data = await r.json();
+          setEffectiveRole(data.role ?? null);
+        }
+      } catch {
+        setEffectiveRole(null);
+      }
+    };
+    fetchMe();
+  }, []);
 
   useEffect(() => {
     const fetchMentionable = async () => {
@@ -738,7 +757,8 @@ export default function CollabDetailPage() {
     );
   }
 
-  const isAdmin = (session?.user as { role?: string })?.role === "ADMIN";
+  // Rôle effectif (via /api/auth/me) pour cohérence avec le masquage backend — seul ADMIN voit les infos de paiement
+  const isAdmin = effectiveRole === "ADMIN";
   // Pour les non-ADMIN, on affiche "Facturé" au lieu de "Payé" (ils ne voient pas la suite des paiements)
   const displayStatut = isAdmin ? collab.statut : (collab.statut === "PAYE" ? "FACTURE_RECUE" : collab.statut);
   const statutInfo = getStatutInfo(displayStatut);
@@ -1094,18 +1114,32 @@ export default function CollabDetailPage() {
                     <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-glowup-rose transition-colors flex-shrink-0" />
                   </Link>
 
-                  <Link href={`/marques/${collab.marque.id}`} className="group flex items-center gap-4 p-4 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50/50 transition-all">
-                    <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center border border-gray-100">
-                      <Building2 className="w-5 h-5 text-gray-500" />
+                  {isAdmin ? (
+                    <Link href={`/marques/${collab.marque.id}`} className="group flex items-center gap-4 p-4 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50/50 transition-all">
+                      <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center border border-gray-100">
+                        <Building2 className="w-5 h-5 text-gray-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-glowup-licorice group-hover:text-gray-700 transition-colors">
+                          {collab.marque.nom}
+                        </p>
+                        <p className="text-xs text-gray-500 font-medium">{collab.marque.secteur || "Marque"}</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
+                    </Link>
+                  ) : (
+                    <div className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 bg-gray-50/30">
+                      <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center border border-gray-100">
+                        <Building2 className="w-5 h-5 text-gray-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-glowup-licorice">
+                          {collab.marque.nom}
+                        </p>
+                        <p className="text-xs text-gray-500 font-medium">{collab.marque.secteur || "Marque"}</p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-glowup-licorice group-hover:text-gray-700 transition-colors">
-                        {collab.marque.nom}
-                      </p>
-                      <p className="text-xs text-gray-500 font-medium">{collab.marque.secteur || "Marque"}</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
-                  </Link>
+                  )}
                 </div>
               </div>
             </div>
@@ -1512,7 +1546,10 @@ export default function CollabDetailPage() {
             <div className="p-5">
               <div className="relative space-y-0">
                 {(() => {
-                  const statutsOrder = STATUTS.filter(s => s.value !== "PERDU");
+                  // Pour les non-ADMIN, la timeline s'arrête à "Facturé" (pas d'étape Payé)
+                  const statutsOrder = STATUTS.filter(
+                    (s) => s.value !== "PERDU" && (s.value !== "PAYE" || isAdmin)
+                  );
                   const steps: Array<{ value: string; label: string; icon: typeof Clock; color: string; kind: "statut" | "signature" }> = [];
                   statutsOrder.forEach((s) => {
                     steps.push({ ...s, kind: "statut" });
@@ -1525,7 +1562,8 @@ export default function CollabDetailPage() {
                   const sigCount = devisDoc?.signaturesCount ?? 0;
                   const sigTotal = devisDoc?.signaturesTotal ?? 2;
                   const allSigned = sigTotal > 0 && sigCount >= sigTotal;
-                  const currentStatutIdx = statutsOrder.findIndex((s) => s.value === collab.statut);
+                  // displayStatut pour que les non-ADMIN voient "Facturé" comme étape actuelle quand la collab est en PAYE
+                  const currentStatutIdx = statutsOrder.findIndex((s) => s.value === displayStatut);
 
                   return steps.map((step, index, arr) => {
                     const isLast = index === arr.length - 1;
@@ -1535,7 +1573,7 @@ export default function CollabDetailPage() {
                       : currentStatutIdx >= statutsOrder.findIndex((s) => s.value === step.value);
                     const isCurrent = isSignatureStep
                       ? signatureSent && !allSigned
-                      : step.value === collab.statut;
+                      : step.value === displayStatut;
                     const Icon = step.icon;
                     const signatureSubtitle =
                       isSignatureStep && signatureSent

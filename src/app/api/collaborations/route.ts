@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
@@ -20,7 +19,7 @@ export async function GET(request: NextRequest) {
     // Si TM → voir uniquement SES collaborations (via ses talents), tous statuts sauf PERDU
     if (user.role === "TM") {
       const mesTalents = await prisma.talent.findMany({
-        where: { managerId: user.id },
+        where: { managerId: user.id, isArchived: false },
         select: { id: true },
       });
       where.talentId = { in: mesTalents.map((t) => t.id) };
@@ -49,7 +48,18 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(collaborations);
+    // Infos confidentielles : seul l'admin voit "Payé" et les dates de paiement
+    const isAdmin = user.role === "ADMIN";
+    const payload = isAdmin
+      ? collaborations
+      : collaborations.map((c) => ({
+          ...c,
+          statut: c.statut === "PAYE" ? "FACTURE_RECUE" : c.statut,
+          marquePayeeAt: undefined,
+          paidAt: undefined,
+        }));
+
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Erreur GET collaborations:", error);
     return NextResponse.json({ message: "Erreur" }, { status: 500 });

@@ -25,6 +25,7 @@ export async function GET() {
     }
 
     const talents = await prisma.talent.findMany({
+      where: { isArchived: false },
       select: {
         id: true,
         prenom: true,

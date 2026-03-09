@@ -657,48 +657,51 @@ export default function FactureDetailPage() {
             de {formatMoney(Number(doc.montantTTC))} TTC
           </p>
 
-          {/* Pipeline */}
+          {/* Pipeline — étape "Payé" visible uniquement pour les ADMIN (info confidentielle) */}
           {!isCancelled && (
             <div className="mt-6">
               <div className="flex items-center gap-0">
-                {PIPELINE_STEPS.map((step, i) => {
-                  const isDone = currentStepIndex > i;
-                  const isActive = doc.statut === step.key;
+                {(() => {
                   const isAdmin = (session?.user as { role?: string })?.role === "ADMIN";
-                  const isClickable = currentStepIndex < i && (step.key !== "PAYE" || isAdmin);
-                  return (
-                    <div key={step.key} className="flex items-center flex-1 min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => isClickable && handlePipelineStep(step.key)}
-                        disabled={!isClickable}
-                        className={`flex flex-col items-center gap-1 flex-1 py-2 ${isClickable ? "cursor-pointer" : "cursor-default"}`}
-                      >
-                        <span
-                          className={`w-4 h-4 rounded-full border-2 flex-shrink-0 transition-all ${
-                            isDone || isActive
-                              ? "bg-gradient-to-r from-[#1A1110] to-[#C08B8B] border-transparent"
-                              : "bg-white border-gray-300"
-                          } ${isActive ? "ring-2 ring-[#B6D5A8] ring-offset-2" : ""}`}
-                        />
-                        <span
-                          className={`text-xs truncate max-w-full ${
-                            isActive ? "font-bold text-[#1A1110]" : isDone ? "font-medium text-gray-900" : "text-gray-400"
-                          }`}
+                  const steps = isAdmin ? PIPELINE_STEPS : PIPELINE_STEPS.filter((s) => s.key !== "PAYE");
+                  return steps.map((step, i) => {
+                    const isDone = currentStepIndex > i;
+                    const isActive = doc.statut === step.key;
+                    const isClickable = currentStepIndex < i && (step.key !== "PAYE" || isAdmin);
+                    return (
+                      <div key={step.key} className="flex items-center flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => isClickable && handlePipelineStep(step.key)}
+                          disabled={!isClickable}
+                          className={`flex flex-col items-center gap-1 flex-1 py-2 ${isClickable ? "cursor-pointer" : "cursor-default"}`}
                         >
-                          {step.label}
-                        </span>
-                      </button>
-                      {i < PIPELINE_STEPS.length - 1 && (
+                          <span
+                            className={`w-4 h-4 rounded-full border-2 flex-shrink-0 transition-all ${
+                              isDone || isActive
+                                ? "bg-gradient-to-r from-[#1A1110] to-[#C08B8B] border-transparent"
+                                : "bg-white border-gray-300"
+                            } ${isActive ? "ring-2 ring-[#B6D5A8] ring-offset-2" : ""}`}
+                          />
+                          <span
+                            className={`text-xs truncate max-w-full ${
+                              isActive ? "font-bold text-[#1A1110]" : isDone ? "font-medium text-gray-900" : "text-gray-400"
+                            }`}
+                          >
+                            {step.label}
+                          </span>
+                        </button>
+                        {i < steps.length - 1 && (
                         <div
                           className={`flex-1 h-0.5 min-w-[20px] mx-1 ${
                             currentStepIndex > i ? "bg-gradient-to-r from-[#1A1110] to-[#C08B8B]" : "bg-gray-200"
                           }`}
                         />
-                      )}
-                    </div>
-                  );
-                })}
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
           )}

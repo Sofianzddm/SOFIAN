@@ -548,14 +548,6 @@ export default function FacturerPage() {
               </div>
             </div>
 
-            {/* Info */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <p className="text-sm text-blue-800">
-                <strong>ℹ️ Info :</strong> La facture sera générée au nom du talent (
-                {collaboration.talent?.prenom} {collaboration.talent?.nom}).
-              </p>
-            </div>
-
             {/* Actions */}
             <div className="space-y-3">
               <button

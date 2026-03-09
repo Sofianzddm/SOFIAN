@@ -687,7 +687,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
         <View style={styles.cgvClause}>
           <Text style={styles.cgvClauseTitle}>**Clause n° 4 : Modalités de paiement**</Text>
           <Text style={styles.cgvClauseText}>
-            Le règlement des commandes s'effectue uniquement par virement bancaire. Les règlements seront effectués selon les conditions suivantes : paiement sous X jours suivant la réception de la facture (mentionné en bas de page sur la première page du devis).
+            Le règlement des commandes s'effectue uniquement par virement bancaire. Les règlements seront effectués selon les conditions suivantes : paiement sous 30 jours suivant la réception de la facture, sauf accord contractuel spécifique mentionné sur le devis.
           </Text>
         </View>
         
@@ -744,7 +744,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
         <View style={styles.cgvClause}>
           <Text style={styles.cgvClauseTitle}>**Clause n° 10: Tribunal compétent**</Text>
           <Text style={styles.cgvClauseText}>
-            Tout litige relatif à l'interprétation et à l'exécution des présentes conditions générales de vente est soumis au droit français. À défaut de résolution amiable, le litige sera porté devant le Tribunal de commerce de Lyon.
+            Tout litige relatif à l'interprétation et à l'exécution des présentes conditions générales de vente est soumis au droit français. À défaut de résolution amiable, le litige sera porté devant le Tribunal de commerce d'Aix-en-Provence.
           </Text>
         </View>
         

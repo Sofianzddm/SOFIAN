@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
           let talentNames: string[] = [];
           if (talentsViewed.length > 0) {
             const talents = await prisma.talent.findMany({
-              where: { id: { in: talentsViewed } },
+              where: { id: { in: talentsViewed }, isArchived: false },
               select: { prenom: true, nom: true },
             });
             talentNames = talents.map((t) => `${t.prenom} ${t.nom}`);

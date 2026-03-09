@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
     const talents = await prisma.talent.findMany({
       where: {
         id: { in: talentIds },
+        isArchived: false,
       },
       include: {
         stats: true,

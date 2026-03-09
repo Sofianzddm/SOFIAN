@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   TrendingUp,
   TrendingDown,
@@ -117,6 +118,7 @@ const COLORS = {
 const PIE_COLORS = [COLORS.green, COLORS.blue, COLORS.purple, COLORS.amber, COLORS.rose];
 
 export default function FinancePage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [stats, setStats] = useState<FinanceStats | null>(null);
@@ -194,9 +196,25 @@ export default function FinancePage() {
     }
   };
 
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+
+  // Accès réservé aux ADMIN : redirection si autre rôle
   useEffect(() => {
-    fetchData();
-  }, [periodeType, dateDebut, dateFin, poleFilter]);
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me: { role?: string } | null) => {
+        if (me?.role === "ADMIN") {
+          setIsAdmin(true);
+        } else {
+          router.replace("/dashboard");
+        }
+      })
+      .catch(() => router.replace("/dashboard"));
+  }, [router]);
+
+  useEffect(() => {
+    if (isAdmin) fetchData();
+  }, [isAdmin, periodeType, dateDebut, dateFin, poleFilter]);
 
   const formatMoney = (value: number) => {
     return new Intl.NumberFormat("fr-FR", {
@@ -272,7 +290,7 @@ export default function FinancePage() {
     setShowDatePicker(false);
   };
 
-  if (loading) {
+  if (loading || isAdmin === null) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Loader2 className="w-8 h-8 animate-spin text-glowup-rose" />

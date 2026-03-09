@@ -147,10 +147,16 @@ export default function NewTalentPage() {
     tarifPost: "",
     tarifPostConcours: "",
     tarifPostCommun: "",
+    tarifPostCrosspost: "",
     tarifReel: "",
+    tarifReelCrosspost: "",
+    tarifReelConcours: "",
     tarifTiktokVideo: "",
+    tarifTiktokConcours: "",
     tarifYoutubeVideo: "",
     tarifYoutubeShort: "",
+    tarifSnapchatStory: "",
+    tarifSnapchatSpotlight: "",
     tarifEvent: "",
     tarifShooting: "",
     tarifAmbassadeur: "",
@@ -1358,7 +1364,10 @@ export default function NewTalentPage() {
                         { name: "tarifPost", label: "Post *", required: true },
                         { name: "tarifPostConcours", label: "Post Concours" },
                         { name: "tarifPostCommun", label: "Post Commun" },
+                        { name: "tarifPostCrosspost", label: "Post Crosspost" },
                         { name: "tarifReel", label: "Reel *", required: true },
+                        { name: "tarifReelCrosspost", label: "Réel Crosspost" },
+                        { name: "tarifReelConcours", label: "Réel Jeu Concours" },
                       ].map((tarif) => (
                         <div key={tarif.name}>
                           <label className="block text-sm text-gray-600 mb-1.5">
@@ -1400,26 +1409,44 @@ export default function NewTalentPage() {
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       <div>
-                        <label className="block text-sm text-gray-600 mb-1.5">
-                          Vidéo TikTok *
-                        </label>
+                        <label className="block text-sm text-gray-600 mb-1.5">Vidéo TikTok *</label>
                         <div className="relative">
-                          <input
-                            type="number"
-                            name="tarifTiktokVideo"
-                            value={formData.tarifTiktokVideo}
-                            onChange={handleChange}
-                            placeholder="0"
-                            className="w-full px-4 py-2.5 rounded-xl border border-gray-800/20 focus:outline-none focus:border-gray-800 focus:ring-2 focus:ring-gray-800/20 pr-10"
-                          />
-                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
-                            €
-                          </span>
+                          <input type="number" name="tarifTiktokVideo" value={formData.tarifTiktokVideo} onChange={handleChange} placeholder="0" className="w-full px-4 py-2.5 rounded-xl border border-gray-800/20 focus:outline-none focus:border-gray-800 focus:ring-2 focus:ring-gray-800/20 pr-10" />
+                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1.5">TikTok Jeu Concours</label>
+                        <div className="relative">
+                          <input type="number" name="tarifTiktokConcours" value={formData.tarifTiktokConcours} onChange={handleChange} placeholder="0" className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-gray-400 pr-10" />
+                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
                         </div>
                       </div>
                     </div>
                   </div>
                 )}
+
+                {/* Tarifs internes (Snapchat) - non affichés sur le book */}
+                <div className="bg-white rounded-2xl shadow-sm border border-amber-100 p-6">
+                  <p className="text-xs font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded w-fit mb-4">Interne uniquement</p>
+                  <h2 className="text-lg font-semibold text-glowup-licorice mb-4">Snapchat (non affichés sur le book)</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1.5">Snapchat Story</label>
+                      <div className="relative">
+                        <input type="number" name="tarifSnapchatStory" value={formData.tarifSnapchatStory} onChange={handleChange} placeholder="0" className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-gray-400 pr-10" />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1.5">Snapchat Spotlight</label>
+                      <div className="relative">
+                        <input type="number" name="tarifSnapchatSpotlight" value={formData.tarifSnapchatSpotlight} onChange={handleChange} placeholder="0" className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-gray-400 pr-10" />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 {/* YouTube Tarifs */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">

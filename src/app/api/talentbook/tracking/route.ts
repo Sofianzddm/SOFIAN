@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
       .filter((id): id is string => id !== null);
     
     const talents = await prisma.talent.findMany({
-      where: { id: { in: talentIds } },
+      where: { id: { in: talentIds }, isArchived: false },
       select: { id: true, prenom: true, nom: true, photo: true },
     });
 
@@ -332,7 +332,7 @@ export async function GET(request: NextRequest) {
     );
     
     const talentsInfo = await prisma.talent.findMany({
-      where: { id: { in: allTalentIds } },
+      where: { id: { in: allTalentIds }, isArchived: false },
       select: { id: true, prenom: true, nom: true, photo: true },
     });
     

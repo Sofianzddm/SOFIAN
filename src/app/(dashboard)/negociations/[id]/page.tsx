@@ -79,12 +79,17 @@ const TYPE_LABELS: Record<string, string> = {
   YOUTUBE_VIDEO: "YouTube", YOUTUBE_SHORT: "Short", EVENT: "Event",
   SHOOTING: "Shooting", AMBASSADEUR: "Ambassadeur", STORY_CONCOURS: "Story Concours",
   POST_CONCOURS: "Post Concours", POST_COMMUN: "Post Commun",
+  POST_CROSSPOST: "IG Post Crosspost", REEL_CROSSPOST: "IG Réel Crosspost", REEL_CONCOURS: "IG Réel Jeu Concours",
+  TIKTOK_VIDEO_CONCOURS: "TikTok Jeu Concours", SNAPCHAT_STORY: "Snapchat Story", SNAPCHAT_SPOTLIGHT: "Snapchat Spotlight",
 };
 
 const TYPE_TO_TARIF_KEY: Record<string, string> = {
   STORY: "tarifStory", STORY_CONCOURS: "tarifStoryConcours", POST: "tarifPost",
-  POST_CONCOURS: "tarifPostConcours", POST_COMMUN: "tarifPostCommun", REEL: "tarifReel",
-  TIKTOK_VIDEO: "tarifTiktokVideo", YOUTUBE_VIDEO: "tarifYoutubeVideo", YOUTUBE_SHORT: "tarifYoutubeShort",
+  POST_CONCOURS: "tarifPostConcours", POST_COMMUN: "tarifPostCommun", POST_CROSSPOST: "tarifPostCrosspost",
+  REEL: "tarifReel", REEL_CROSSPOST: "tarifReelCrosspost", REEL_CONCOURS: "tarifReelConcours",
+  TIKTOK_VIDEO: "tarifTiktokVideo", TIKTOK_VIDEO_CONCOURS: "tarifTiktokConcours",
+  YOUTUBE_VIDEO: "tarifYoutubeVideo", YOUTUBE_SHORT: "tarifYoutubeShort",
+  SNAPCHAT_STORY: "tarifSnapchatStory", SNAPCHAT_SPOTLIGHT: "tarifSnapchatSpotlight",
   EVENT: "tarifEvent", SHOOTING: "tarifShooting", AMBASSADEUR: "tarifAmbassadeur",
 };
 
@@ -539,10 +544,7 @@ export default function NegociationDetailPage() {
                   <ChevronRight className="h-5 w-5 text-slate-400 ml-auto" />
                 </Link>
                 {nego.marque ? (
-                  <Link
-                    href={`/marques/${nego.marque.id}`}
-                    className="flex items-center gap-4 rounded-xl border border-slate-200 p-4 hover:border-slate-300 hover:bg-slate-50/50 transition-colors"
-                  >
+                  <div className="flex items-center gap-4 rounded-xl border border-slate-200 p-4 bg-slate-50/50">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-100">
                       <Building2 className="h-6 w-6 text-slate-500" />
                     </div>
@@ -550,8 +552,7 @@ export default function NegociationDetailPage() {
                       <p className="font-semibold text-slate-900">{nego.marque.nom}</p>
                       <p className="text-sm text-slate-500">{nego.marque.secteur || "Marque"}</p>
                     </div>
-                    <ChevronRight className="h-5 w-5 text-slate-400 ml-auto" />
-                  </Link>
+                  </div>
                 ) : (
                   <div className="flex items-center gap-4 rounded-xl border border-slate-200 p-4 bg-slate-50/50">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-200">

@@ -104,10 +104,16 @@ interface TalentDetail {
     tarifPost: number | null;
     tarifPostConcours: number | null;
     tarifPostCommun: number | null;
+    tarifPostCrosspost: number | null;
     tarifReel: number | null;
+    tarifReelCrosspost: number | null;
+    tarifReelConcours: number | null;
     tarifTiktokVideo: number | null;
+    tarifTiktokConcours: number | null;
     tarifYoutubeVideo: number | null;
     tarifYoutubeShort: number | null;
+    tarifSnapchatStory: number | null;
+    tarifSnapchatSpotlight: number | null;
     tarifEvent: number | null;
     tarifShooting: number | null;
     tarifAmbassadeur: number | null;
@@ -928,6 +934,20 @@ export default function TalentDetailPage() {
               {/* TikTok Tarifs */}
               {hasTiktok && tarifs.tarifTiktokVideo && (
                 <TarifCard icon={<Music2 />} label="Vidéo TikTok" price={tarifs.tarifTiktokVideo} color="gray" />
+              )}
+              {hasTiktok && tarifs.tarifTiktokConcours && (
+                <TarifCard icon={<Music2 />} label="TikTok Jeu Concours" price={tarifs.tarifTiktokConcours} color="gray" />
+              )}
+
+              {/* Tarifs internes (non affichés sur le book) */}
+              {(tarifs.tarifPostCrosspost || tarifs.tarifReelCrosspost || tarifs.tarifReelConcours || tarifs.tarifSnapchatStory || tarifs.tarifSnapchatSpotlight) && (
+                <>
+                  {tarifs.tarifPostCrosspost && <TarifCard icon={<Camera />} label="IG Post Crosspost" price={tarifs.tarifPostCrosspost} color="slate" />}
+                  {tarifs.tarifReelCrosspost && <TarifCard icon={<Play />} label="IG Réel Crosspost" price={tarifs.tarifReelCrosspost} color="slate" />}
+                  {tarifs.tarifReelConcours && <TarifCard icon={<Star />} label="IG Réel Jeu Concours" price={tarifs.tarifReelConcours} color="slate" />}
+                  {tarifs.tarifSnapchatStory && <TarifCard icon={<Camera />} label="Snapchat Story" price={tarifs.tarifSnapchatStory} color="slate" />}
+                  {tarifs.tarifSnapchatSpotlight && <TarifCard icon={<Play />} label="Snapchat Spotlight" price={tarifs.tarifSnapchatSpotlight} color="slate" />}
+                </>
               )}
 
               {/* Other Tarifs */}

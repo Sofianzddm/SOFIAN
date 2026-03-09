@@ -22,8 +22,9 @@ export async function GET() {
       );
     }
 
-    // Récupérer tous les talents avec leurs documents
+    // Récupérer tous les talents (non archivés) avec leurs documents
     const talents = await prisma.talent.findMany({
+      where: { isArchived: false },
       include: {
         collaborations: {
           include: {

@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
     const talentsPromise = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "CM"].includes(userRole)
       ? prisma.talent.findMany({
           where: {
+            isArchived: false,
             OR: [
               { prenom: { contains: query, mode: "insensitive" } },
               { nom: { contains: query, mode: "insensitive" } },

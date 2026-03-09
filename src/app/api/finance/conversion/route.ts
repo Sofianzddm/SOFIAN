@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
     }
 
-    if (session.user.role !== "ADMIN") {
+    if ((session.user as { role?: string }).role !== "ADMIN") {
       return NextResponse.json(
         { error: "Accès réservé aux administrateurs" },
         { status: 403 }

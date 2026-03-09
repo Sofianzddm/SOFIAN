@@ -12,7 +12,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const user = session.user as { role: string };
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF"].includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour modifier l'ordre du book" },
         { status: 403 }

@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
 
     // Récupérer tous les talents avec leurs collaborations
     const talents = await prisma.talent.findMany({
+      where: { isArchived: false },
       select: {
         id: true,
         prenom: true,

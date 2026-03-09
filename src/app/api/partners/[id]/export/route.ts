@@ -23,8 +23,8 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // ⚠️ TOUJOURS afficher TOUS les talents (le champ actif n'existe pas dans le modèle Talent)
     const talentsList = await prisma.talent.findMany({
+      where: { isArchived: false },
       include: { stats: true, tarifs: true },
       orderBy: { prenom: "asc" },
     });

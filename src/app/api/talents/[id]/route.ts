@@ -125,6 +125,7 @@ export async function PUT(
     if (data.instagram !== undefined) talentData.instagram = data.instagram || null;
     if (data.tiktok !== undefined) talentData.tiktok = data.tiktok || null;
     if (data.youtube !== undefined) talentData.youtube = data.youtube || null;
+    if (data.snapchat !== undefined) talentData.snapchat = data.snapchat || null;
     if (data.niches !== undefined) talentData.niches = data.niches;
     if (data.selectedClients !== undefined) talentData.selectedClients = data.selectedClients;
     if (data.bio !== undefined) talentData.bio = data.bio || null;
@@ -148,7 +149,15 @@ export async function PUT(
     if (data.dateNaissance !== undefined) talentData.dateNaissance = data.dateNaissance ? new Date(data.dateNaissance) : null;
     if (data.dateArrivee !== undefined) talentData.dateArrivee = data.dateArrivee ? new Date(data.dateArrivee) : null;
     if (data.isArchived !== undefined) talentData.isArchived = !!data.isArchived;
-    if (data.managerId !== undefined) talentData.managerId = data.managerId;
+    if (data.managerId !== undefined) talentData.manager = { connect: { id: data.managerId } };
+    if (data.moyenneVuesStory !== undefined) {
+      const v = data.moyenneVuesStory;
+      talentData.moyenneVuesStory = (v === "" || v === null || v === undefined) ? null : parseInt(String(v), 10);
+    }
+    if (data.moyenneVuesSnap !== undefined) {
+      const v = data.moyenneVuesSnap;
+      talentData.moyenneVuesSnap = (v === "" || v === null || v === undefined) ? null : parseInt(String(v), 10);
+    }
 
     // Commissions (nombres)
     if (data.commissionInbound !== undefined) {
@@ -205,10 +214,16 @@ export async function PUT(
     if (data.tarifPost !== undefined) rawTarifsData.tarifPost = data.tarifPost;
     if (data.tarifPostConcours !== undefined) rawTarifsData.tarifPostConcours = data.tarifPostConcours;
     if (data.tarifPostCommun !== undefined) rawTarifsData.tarifPostCommun = data.tarifPostCommun;
+    if (data.tarifPostCrosspost !== undefined) rawTarifsData.tarifPostCrosspost = data.tarifPostCrosspost;
     if (data.tarifReel !== undefined) rawTarifsData.tarifReel = data.tarifReel;
+    if (data.tarifReelCrosspost !== undefined) rawTarifsData.tarifReelCrosspost = data.tarifReelCrosspost;
+    if (data.tarifReelConcours !== undefined) rawTarifsData.tarifReelConcours = data.tarifReelConcours;
     if (data.tarifTiktokVideo !== undefined) rawTarifsData.tarifTiktokVideo = data.tarifTiktokVideo;
+    if (data.tarifTiktokConcours !== undefined) rawTarifsData.tarifTiktokConcours = data.tarifTiktokConcours;
     if (data.tarifYoutubeVideo !== undefined) rawTarifsData.tarifYoutubeVideo = data.tarifYoutubeVideo;
     if (data.tarifYoutubeShort !== undefined) rawTarifsData.tarifYoutubeShort = data.tarifYoutubeShort;
+    if (data.tarifSnapchatStory !== undefined) rawTarifsData.tarifSnapchatStory = data.tarifSnapchatStory;
+    if (data.tarifSnapchatSpotlight !== undefined) rawTarifsData.tarifSnapchatSpotlight = data.tarifSnapchatSpotlight;
     if (data.tarifEvent !== undefined) rawTarifsData.tarifEvent = data.tarifEvent;
     if (data.tarifShooting !== undefined) rawTarifsData.tarifShooting = data.tarifShooting;
     if (data.tarifAmbassadeur !== undefined) rawTarifsData.tarifAmbassadeur = data.tarifAmbassadeur;
@@ -273,10 +288,16 @@ export async function PUT(
         "tarifPost",
         "tarifPostConcours",
         "tarifPostCommun",
+        "tarifPostCrosspost",
         "tarifReel",
+        "tarifReelCrosspost",
+        "tarifReelConcours",
         "tarifTiktokVideo",
+        "tarifTiktokConcours",
         "tarifYoutubeVideo",
         "tarifYoutubeShort",
+        "tarifSnapchatStory",
+        "tarifSnapchatSpotlight",
         "tarifEvent",
         "tarifShooting",
         "tarifAmbassadeur",
@@ -303,7 +324,7 @@ export async function PUT(
     // Liaison compte utilisateur (rôle TALENT) ↔ fiche Talent : 1 user = 1 talent max
     if (data.userId !== undefined) {
       const newUserId = data.userId === "" || data.userId == null ? null : data.userId;
-      talentData.userId = newUserId;
+      talentData.user = newUserId ? { connect: { id: newUserId } } : { disconnect: true };
       if (newUserId) {
         await prisma.talent.updateMany({
           where: { userId: newUserId, id: { not: id } },

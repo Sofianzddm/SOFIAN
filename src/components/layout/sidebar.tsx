@@ -20,6 +20,7 @@ import {
   UserCog,
   Gift,
   Lock,
+  Target,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -95,7 +96,13 @@ const menuItems = [
     label: "Finance",
     href: "/finance",
     icon: DollarSign,
-    roles: ["ADMIN"], // ADMIN uniquement
+    roles: ["ADMIN"],
+  },
+  {
+    label: "Objectifs",
+    href: "/objectifs",
+    icon: Target,
+    roles: ["ADMIN"],
   },
   {
     label: "Réconciliation",

@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
         negociationsSansReponse,
         facturesTalentAValider,
       ] = await Promise.all([
-        prisma.talent.count(),
+        prisma.talent.count({ where: { isArchived: false } }),
         prisma.marque.count(),
         prisma.collaboration.count({ where: { statut: "EN_COURS" } }),
         // ✅ CORRIGÉ: Compter les vraies négociations
@@ -215,7 +215,7 @@ export async function GET(request: NextRequest) {
       // Enrichir données
       const talentIds = topTalents.map((t) => t.talentId);
       const talents = await prisma.talent.findMany({
-        where: { id: { in: talentIds } },
+        where: { id: { in: talentIds }, isArchived: false },
         select: { id: true, prenom: true, nom: true },
       });
       const talentsMap = Object.fromEntries(talents.map((t) => [t.id, t]));
@@ -327,10 +327,11 @@ export async function GET(request: NextRequest) {
         dernieresMajPrix,
         talentsTarifsAReverifier,
       ] = await Promise.all([
-        prisma.talent.count(),
-        prisma.talent.count({ where: { tarifs: null } }),
+        prisma.talent.count({ where: { isArchived: false } }),
+        prisma.talent.count({ where: { isArchived: false, tarifs: null } }),
         prisma.talent.count({
           where: {
+            isArchived: false,
             OR: [
               { stats: null },
               { stats: { lastUpdate: { lte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } } },
@@ -385,6 +386,7 @@ export async function GET(request: NextRequest) {
             prenom: true,
             nom: true,
             talentsGeres: {
+              where: { isArchived: false },
               select: {
                 id: true,
                 prenom: true,
@@ -404,28 +406,44 @@ export async function GET(request: NextRequest) {
             },
           },
         }),
-        // Dernière mise à jour des prix (tarifs) — pour Head of Influence
-        // Plus anciennes MAJ en premier (à revoir en priorité)
+        // Dernière mise à jour des prix (tarifs) — pour Head of Influence (managerId pour exclure HORS TM)
         prisma.talentTarifs.findMany({
+          where: { talent: { isArchived: false } },
           orderBy: { updatedAt: "asc" },
-          take: 15,
+          take: 20,
           include: {
-            talent: { select: { id: true, prenom: true, nom: true } },
+            talent: { select: { id: true, prenom: true, nom: true, managerId: true } },
           },
         }),
-        // Talents dont les tarifs sont à mettre à jour / vérifier (tous les 30j) : sans tarifs OU MAJ > 30j
+        // Talents dont les tarifs sont à mettre à jour / vérifier (tous les 30j)
         prisma.talent.findMany({
           where: {
+            isArchived: false,
             OR: [
               { tarifs: null },
               { tarifs: { updatedAt: { lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } } },
             ],
           },
-          select: { id: true, prenom: true, nom: true, tarifs: { select: { updatedAt: true } } },
+          select: { id: true, prenom: true, nom: true, managerId: true, tarifs: { select: { updatedAt: true } } },
           orderBy: { prenom: "asc" },
-          take: 20,
+          take: 25,
         }),
       ]);
+
+      // Head of Influence : exclure les talents du TM "HORS TM" des listes tarifs
+      const HORS_TM_NAME = "HORS TM";
+      const horsTmUser = performanceTM.find(
+        (tm) => `${(tm.prenom || "").trim()} ${(tm.nom || "").trim()}`.toUpperCase() === HORS_TM_NAME
+      );
+      const horsTmId = horsTmUser?.id ?? null;
+      const dernieresMajPrixFiltered =
+        role === "HEAD_OF_INFLUENCE" && horsTmId
+          ? dernieresMajPrix.filter((t: { talent: { managerId: string } }) => t.talent.managerId !== horsTmId)
+          : dernieresMajPrix;
+      const talentsTarifsAReverifierFiltered =
+        role === "HEAD_OF_INFLUENCE" && horsTmId
+          ? talentsTarifsAReverifier.filter((t: { managerId: string }) => t.managerId !== horsTmId)
+          : talentsTarifsAReverifier;
 
       // Demandes des admins pour revoir les tarifs (requête séparée : REVOIR_TARIFS peut être absent en base si migration non appliquée)
       let demandesRevoirTarifs: { id: string; titre: string; message: string; lien: string | null; createdAt: Date; lu: boolean }[] = [];
@@ -440,17 +458,39 @@ export async function GET(request: NextRequest) {
         console.error("Dashboard HEAD_OF_INFLUENCE: demandesRevoirTarifs", err);
       }
 
+      // Objectifs assignés au Head of / Head of Influence
+      let objectifs: { id: string; titre: string; description: string | null; valeurCible: number | null; valeurActuelle: number | null; dateLimite: string | null; createur: string }[] = [];
+      try {
+        const list = await prisma.objectif.findMany({
+          where: { userId: user.id },
+          orderBy: { createdAt: "desc" },
+          take: 15,
+          include: { createur: { select: { prenom: true, nom: true } } },
+        });
+        objectifs = list.map((o) => ({
+          id: o.id,
+          titre: o.titre,
+          description: o.description,
+          valeurCible: o.valeurCible,
+          valeurActuelle: o.valeurActuelle,
+          dateLimite: o.dateLimite?.toISOString() ?? null,
+          createur: `${o.createur.prenom} ${o.createur.nom}`.trim(),
+        }));
+      } catch (err) {
+        console.error("Dashboard: objectifs", err);
+      }
+
       const caMois = (Number(caMoisAvec._sum.montantBrut) || 0) + (Number(caMoisSans._sum.montantBrut) || 0);
       const commissionMois = (Number(caMoisAvec._sum.commissionEuros) || 0) + (Number(caMoisSans._sum.commissionEuros) || 0);
       const caAnnee = (Number(caAnneeAvec._sum.montantBrut) || 0) + (Number(caAnneeSans._sum.montantBrut) || 0);
       const commissionAnnee = (Number(caAnneeAvec._sum.commissionEuros) || 0) + (Number(caAnneeSans._sum.commissionEuros) || 0);
 
-      // Collabs EN_COURS par TM (pour Head of Influence)
+      // Collabs EN_COURS par TM (pour Head of Influence) — uniquement talents non archivés
       const tmIds = performanceTM.map((tm) => tm.id);
       const collabsEnCoursList =
         tmIds.length > 0
           ? await prisma.collaboration.findMany({
-              where: { statut: "EN_COURS", talent: { managerId: { in: tmIds } } },
+              where: { statut: "EN_COURS", talent: { managerId: { in: tmIds }, isArchived: false } },
               select: { talent: { select: { managerId: true } } },
             })
           : [];
@@ -461,7 +501,6 @@ export async function GET(request: NextRequest) {
       }
 
       // Exclure l'utilisateur "HORS TM" de la supervision TM (Head of Influence ne gère pas le HORS TM)
-      const HORS_TM_NAME = "HORS TM";
       const performanceTMFiltered =
         role === "HEAD_OF_INFLUENCE"
           ? performanceTM.filter((tm) => `${(tm.prenom || "").trim()} ${(tm.nom || "").trim()}`.toUpperCase() !== HORS_TM_NAME)
@@ -473,6 +512,9 @@ export async function GET(request: NextRequest) {
         const ca = collabs
           .filter((c) => ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"].includes(c.statut))
           .reduce((sum, c) => sum + Number(c.montantBrut), 0);
+        const collabsValidees = collabs.filter((c) =>
+          ["PUBLIE", "FACTURE_RECUE", "PAYE"].includes(c.statut)
+        ).length;
         const talentsRetard = talents.filter(
           (t) => !t.stats || new Date(t.stats.lastUpdate).getTime() < Date.now() - 30 * 24 * 60 * 60 * 1000
         );
@@ -484,6 +526,7 @@ export async function GET(request: NextRequest) {
           talents: talents.length,
           ca,
           collabsEnCours: collabsEnCoursByManager[tm.id] ?? 0,
+          collabsValidees,
           bilansRetard: talentsRetard.length,
           sansTarifs: talentsSansTarif.length,
           talentsDetail: talents.map((t) => ({
@@ -530,12 +573,12 @@ export async function GET(request: NextRequest) {
           };
         }),
         tmBilans,
-        dernieresMajPrix: dernieresMajPrix.map((t) => ({
+        dernieresMajPrix: dernieresMajPrixFiltered.map((t: { talent: { id: string; prenom: string; nom: string }; updatedAt: Date }) => ({
           talentId: t.talent.id,
           talentNom: `${t.talent.prenom} ${t.talent.nom}`,
           updatedAt: t.updatedAt,
         })),
-        talentsTarifsAReverifier: talentsTarifsAReverifier.map((t) => ({
+        talentsTarifsAReverifier: talentsTarifsAReverifierFiltered.map((t: { id: string; prenom: string; nom: string; tarifs: { updatedAt: Date } | null }) => ({
           id: t.id,
           nom: `${t.prenom} ${t.nom}`,
           sansTarifs: !t.tarifs,
@@ -549,6 +592,7 @@ export async function GET(request: NextRequest) {
           createdAt: n.createdAt,
           lu: n.lu,
         })),
+        objectifs,
       });
     }
 
@@ -562,7 +606,7 @@ export async function GET(request: NextRequest) {
         mesCollabsEnCours,
       ] = await Promise.all([
         prisma.talent.findMany({
-          where: { managerId: user.id },
+          where: { managerId: user.id, isArchived: false },
           include: {
             stats: { select: { lastUpdate: true, igFollowers: true, ttFollowers: true } },
             tarifs: { select: { id: true } },

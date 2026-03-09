@@ -206,7 +206,9 @@ export default function CollaborationsPage() {
             className="px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm min-w-[140px]"
           >
             <option value="">Tous statuts</option>
-            {STATUTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            {STATUTS.filter((s) => s.value !== "PAYE" || userRole === "ADMIN").map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
           </select>
         </div>
       </div>

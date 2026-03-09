@@ -1,12 +1,11 @@
 // src/app/api/factures/route.ts
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
@@ -89,9 +88,10 @@ export async function GET() {
       orderBy: { updatedAt: "desc" },
     });
 
+    const isAdmin = (session.user as { role?: string }).role === "ADMIN";
     const facturesTalents = collabsAvecFacture.map((c) => {
       let statut = "EN_ATTENTE";
-      if (c.paidAt) {
+      if (isAdmin && c.paidAt) {
         statut = "PAYE";
       } else if (c.factureTalentRecueAt) {
         statut = "A_PAYER";
@@ -105,7 +105,7 @@ export async function GET() {
         montantNet: Number(c.montantNet),
         factureTalentUrl: c.factureTalentUrl,
         factureTalentRecueAt: c.factureTalentRecueAt,
-        paidAt: c.paidAt,
+        paidAt: isAdmin ? c.paidAt : null,
         statut,
       };
     });
@@ -247,27 +247,21 @@ export async function GET() {
     }
 
     // ============================================
-    // RESPONSE
+    // RESPONSE — masquer infos de paiement pour non-ADMIN (marque nous a réglé / talent payé)
     // ============================================
+    const maskStatutDoc = (statut: string) => (isAdmin ? statut : statut === "PAYE" ? "ENVOYE" : statut);
+    const statsPayload = isAdmin
+      ? { entreesMois, sortiesMois, caNetMois, entreesAnnee, sortiesAnnee, caNetAnnee, evolMois, facturesEnRetard, facturesEnAttente, talentsAPayer }
+      : { entreesMois: 0, sortiesMois: 0, caNetMois: 0, entreesAnnee: 0, sortiesAnnee: 0, caNetAnnee: 0, evolMois: 0, facturesEnRetard, facturesEnAttente, talentsAPayer: 0 };
+
     return NextResponse.json({
-      stats: {
-        entreesMois,
-        sortiesMois,
-        caNetMois,
-        entreesAnnee,
-        sortiesAnnee,
-        caNetAnnee,
-        evolMois,
-        facturesEnRetard,
-        facturesEnAttente,
-        talentsAPayer,
-      },
+      stats: statsPayload,
       // Liste complète pour la page factures (toutes les factures, avec collaboration optionnelle)
       documents: documents.map((d) => ({
         id: d.id,
         reference: d.reference,
         type: d.type,
-        statut: d.statut,
+        statut: maskStatutDoc(d.statut),
         montantHT: Number(d.montantHT),
         montantTTC: Number(d.montantTTC),
         dateEmission: d.dateEmission,
@@ -286,23 +280,26 @@ export async function GET() {
       // Filtrer les factures sans collaboration (au cas où)
       facturesMarques: facturesMarques
         .filter((f) => f.collaboration !== null)
-        .map((f) => ({
-          id: f.id,
-          reference: f.reference,
-          collaboration: {
-            id: f.collaborationId,
-            reference: f.collaboration!.reference,
-            talent: f.collaboration!.talent,
-            marque: f.collaboration!.marque,
-          },
-          montantHT: Number(f.montantHT),
-          montantTTC: Number(f.montantTTC),
-          statut: f.dateEcheance && new Date(f.dateEcheance) < now && f.statut === "ENVOYE" ? "EN_RETARD" : f.statut,
-          dateEmission: f.dateEmission,
-          dateEcheance: f.dateEcheance,
-        })),
+        .map((f) => {
+          const baseStatut = maskStatutDoc(f.statut);
+          return {
+            id: f.id,
+            reference: f.reference,
+            collaboration: {
+              id: f.collaborationId,
+              reference: f.collaboration!.reference,
+              talent: f.collaboration!.talent,
+              marque: f.collaboration!.marque,
+            },
+            montantHT: Number(f.montantHT),
+            montantTTC: Number(f.montantTTC),
+            statut: f.dateEcheance && new Date(f.dateEcheance) < now && baseStatut === "ENVOYE" ? "EN_RETARD" : baseStatut,
+            dateEmission: f.dateEmission,
+            dateEcheance: f.dateEcheance,
+          };
+        }),
       facturesTalents,
-      monthlyData,
+      monthlyData: isAdmin ? monthlyData : monthlyData.map((m) => ({ ...m, entrees: 0, sorties: 0, net: 0 })),
       // Devis pour l'onglet Devis (même source que les factures, même auth)
       devis: devisDocuments.map((d) => ({
         id: d.id,

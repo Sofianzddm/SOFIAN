@@ -26,6 +26,36 @@ import { LISTE_PAYS } from "@/lib/pays";
 const NICHES = ["Fashion", "Beauty", "Lifestyle", "Food", "Travel", "Sport", "Gaming", "Tech", "Family", "Music", "Art", "Business"];
 const FORMES_JURIDIQUES = ["Auto-entrepreneur", "SASU", "EURL", "SARL", "SAS", "Autre"];
 
+/** Talents de référence pour l'interpolation des tarifs (base: followers Instagram) */
+const REFERENCE_TALENTS = [
+  { followers: 95900, reel: 2700, story: 1200, post: 2300, tiktokVideo: 3600 },
+  { followers: 104000, reel: 3100, story: 1600, post: 2800, tiktokVideo: 4000 },
+  { followers: 322000, reel: 4500, story: 1800, post: 3800, tiktokVideo: 5500 },
+  { followers: 345000, reel: 5500, story: 2000, post: 4800, tiktokVideo: 3500 },
+  { followers: 433000, reel: 7100, story: 5000, post: 6500, tiktokVideo: 7000 },
+  { followers: 554000, reel: 8900, story: 4800, post: 8400, tiktokVideo: 8000 },
+].sort((a, b) => a.followers - b.followers);
+
+function roundTo100(n: number): number {
+  return Math.round(n / 100) * 100;
+}
+
+function interpolate(
+  followersCount: number,
+  ref: typeof REFERENCE_TALENTS,
+  field: "reel" | "story" | "post" | "tiktokVideo"
+): number {
+  if (ref.length === 0) return 0;
+  if (followersCount <= ref[0].followers) return ref[0][field];
+  if (followersCount >= ref[ref.length - 1].followers) return ref[ref.length - 1][field];
+  let i = 0;
+  while (i < ref.length - 1 && ref[i + 1].followers < followersCount) i++;
+  const a = ref[i];
+  const b = ref[i + 1];
+  const t = (followersCount - a.followers) / (b.followers - a.followers);
+  return a[field] + t * (b[field] - a[field]);
+}
+
 type UserRole = "ADMIN" | "HEAD_OF" | "HEAD_OF_INFLUENCE" | "TM";
 
 export default function EditTalentPage() {
@@ -49,6 +79,8 @@ export default function EditTalentPage() {
     views7d: [],
     linkClicks30d: [],
   });
+  /** Champs tarifs remplis par "Suggérer les tarifs" (pour afficher le badge Suggéré) */
+  const [suggestedTarifFields, setSuggestedTarifFields] = useState<Set<string>>(new Set());
 
   const fileInputRef30 = useRef<HTMLInputElement>(null);
   const fileInputRef7 = useRef<HTMLInputElement>(null);
@@ -102,6 +134,7 @@ export default function EditTalentPage() {
     instagram: "",
     tiktok: "",
     youtube: "",
+    snapchat: "",
     
     // Stats Instagram
     igFollowers: "",
@@ -135,6 +168,10 @@ export default function EditTalentPage() {
     storyViews30d: "",
     storyViews7d: "",
     storyLinkClicks30d: "",
+
+    // Calculateur CPM Story / Snap
+    moyenneVuesStory: "",
+    moyenneVuesSnap: "",
     
     // Tarifs
     tarifStory: "",
@@ -142,10 +179,16 @@ export default function EditTalentPage() {
     tarifPost: "",
     tarifPostConcours: "",
     tarifPostCommun: "",
+    tarifPostCrosspost: "",
     tarifReel: "",
+    tarifReelCrosspost: "",
+    tarifReelConcours: "",
     tarifTiktokVideo: "",
+    tarifTiktokConcours: "",
     tarifYoutubeVideo: "",
     tarifYoutubeShort: "",
+    tarifSnapchatStory: "",
+    tarifSnapchatSpotlight: "",
     tarifEvent: "",
     tarifShooting: "",
     tarifAmbassadeur: "",
@@ -253,6 +296,7 @@ export default function EditTalentPage() {
           instagram: talent.instagram || "",
           tiktok: talent.tiktok || "",
           youtube: talent.youtube || "",
+          snapchat: (talent as { snapchat?: string | null }).snapchat || "",
           // Stats Instagram
           igFollowers: talent.stats?.igFollowers?.toString() || "",
           igFollowersEvol: talent.stats?.igFollowersEvol?.toString() || "",
@@ -283,16 +327,24 @@ export default function EditTalentPage() {
           storyViews30d: talent.stats?.storyViews30d?.toString() || "",
           storyViews7d: talent.stats?.storyViews7d?.toString() || "",
           storyLinkClicks30d: talent.stats?.storyLinkClicks30d?.toString() || "",
+          moyenneVuesStory: (talent as { moyenneVuesStory?: number | null }).moyenneVuesStory?.toString() || "",
+          moyenneVuesSnap: (talent as { moyenneVuesSnap?: number | null }).moyenneVuesSnap?.toString() || "",
           // Tarifs
           tarifStory: talent.tarifs?.tarifStory?.toString() || "",
           tarifStoryConcours: talent.tarifs?.tarifStoryConcours?.toString() || "",
           tarifPost: talent.tarifs?.tarifPost?.toString() || "",
           tarifPostConcours: talent.tarifs?.tarifPostConcours?.toString() || "",
           tarifPostCommun: talent.tarifs?.tarifPostCommun?.toString() || "",
+          tarifPostCrosspost: talent.tarifs?.tarifPostCrosspost?.toString() || "",
           tarifReel: talent.tarifs?.tarifReel?.toString() || "",
+          tarifReelCrosspost: talent.tarifs?.tarifReelCrosspost?.toString() || "",
+          tarifReelConcours: talent.tarifs?.tarifReelConcours?.toString() || "",
           tarifTiktokVideo: talent.tarifs?.tarifTiktokVideo?.toString() || "",
+          tarifTiktokConcours: talent.tarifs?.tarifTiktokConcours?.toString() || "",
           tarifYoutubeVideo: talent.tarifs?.tarifYoutubeVideo?.toString() || "",
           tarifYoutubeShort: talent.tarifs?.tarifYoutubeShort?.toString() || "",
+          tarifSnapchatStory: talent.tarifs?.tarifSnapchatStory?.toString() || "",
+          tarifSnapchatSpotlight: talent.tarifs?.tarifSnapchatSpotlight?.toString() || "",
           tarifEvent: talent.tarifs?.tarifEvent?.toString() || "",
           tarifShooting: talent.tarifs?.tarifShooting?.toString() || "",
           tarifAmbassadeur: talent.tarifs?.tarifAmbassadeur?.toString() || "",
@@ -422,7 +474,49 @@ export default function EditTalentPage() {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const name = e.target.name;
+    setFormData({ ...formData, [name]: e.target.value });
+    if (name.startsWith("tarif")) {
+      setSuggestedTarifFields((prev) => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
+    }
+  };
+
+  const suggestTarifs = () => {
+    const followers = parseInt(String(formData.igFollowers || "").replace(/\s/g, ""), 10);
+    if (!Number.isFinite(followers) || followers <= 0) {
+      alert("Renseignez d’abord les followers Instagram du talent (étape Stats) pour pouvoir suggérer les tarifs.");
+      return;
+    }
+    const story = roundTo100(interpolate(followers, REFERENCE_TALENTS, "story"));
+    const reel = roundTo100(interpolate(followers, REFERENCE_TALENTS, "reel"));
+    const post = roundTo100(interpolate(followers, REFERENCE_TALENTS, "post"));
+    const tiktokVideo = roundTo100(interpolate(followers, REFERENCE_TALENTS, "tiktokVideo"));
+    const tarifStoryConcours = roundTo100(story * 1.3);
+    const tarifReelCrosspost = roundTo100(reel * 1.1);
+    const tarifReelConcours = roundTo100(reel * 1.2);
+    const tarifPostCrosspost = roundTo100(post * 1.1);
+    const tarifPostConcours = roundTo100(post * 1.2);
+    const tarifTiktokConcours = roundTo100(tiktokVideo * 1.1);
+
+    const suggested: Record<string, string> = {
+      tarifStory: String(story),
+      tarifStoryConcours: String(tarifStoryConcours),
+      tarifPost: String(post),
+      tarifPostConcours: String(tarifPostConcours),
+      tarifPostCrosspost: String(tarifPostCrosspost),
+      tarifReel: String(reel),
+      tarifReelCrosspost: String(tarifReelCrosspost),
+      tarifReelConcours: String(tarifReelConcours),
+      tarifTiktokVideo: String(tiktokVideo),
+      tarifTiktokConcours: String(tarifTiktokConcours),
+    };
+
+    setFormData((prev) => ({ ...prev, ...suggested }));
+    setSuggestedTarifFields(new Set(Object.keys(suggested)));
   };
 
   const toggleNiche = (niche: string) => {
@@ -855,6 +949,16 @@ export default function EditTalentPage() {
               </div>
               <input type="url" name="youtube" value={formData.youtube} onChange={handleChange} placeholder="https://youtube.com/@channel" className={inputClass} />
             </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-yellow-400 rounded-lg">
+                  <span className="text-lg font-bold text-white">S</span>
+                </div>
+                <h2 className="text-lg font-semibold text-glowup-licorice">Snapchat</h2>
+              </div>
+              <input type="text" name="snapchat" value={formData.snapchat} onChange={handleChange} placeholder="@username ou lien" className={inputClass} />
+            </div>
           </div>
         )}
 
@@ -1221,6 +1325,74 @@ export default function EditTalentPage() {
               </div>
             )}
 
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <p className="text-sm text-gray-500">
+                Basé sur les followers Instagram du talent (étape Stats). Vous pouvez ajuster les valeurs puis sauvegarder.
+              </p>
+              <button
+                type="button"
+                onClick={suggestTarifs}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium shadow-sm hover:from-amber-600 hover:to-orange-600 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 transition-all"
+              >
+                ✨ Suggérer les tarifs
+              </button>
+            </div>
+
+            {/* Calculateur CPM Story */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-lg font-semibold text-glowup-licorice mb-4">Calculateur CPM Story</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Le prix suggéré est calculé à partir des vues moyennes story. Cliquez sur « Appliquer » pour remplir le champ Story dans la grille.
+              </p>
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="min-w-[200px]">
+                  <label className={labelClass}>Vues moyennes story</label>
+                  <input
+                    type="number"
+                    name="moyenneVuesStory"
+                    value={formData.moyenneVuesStory}
+                    onChange={handleChange}
+                    placeholder="45000"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-gray-700">
+                    Prix suggéré Story :{" "}
+                    {(() => {
+                      const vues = parseInt(String(formData.moyenneVuesStory).replace(/\s/g, ""), 10);
+                      if (!Number.isFinite(vues) || vues <= 0) return "—";
+                      const prix = Math.round((vues / 1000) * 52);
+                      return `${prix.toLocaleString("fr-FR")} € HT`;
+                    })()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const vues = parseInt(String(formData.moyenneVuesStory).replace(/\s/g, ""), 10);
+                      if (!Number.isFinite(vues) || vues <= 0) return;
+                      const prixStory = (vues / 1000) * 52;
+                      const arrondi = (val: number) => Math.round(val / 100) * 100;
+                      setFormData((prev) => ({
+                        ...prev,
+                        tarifStory: String(arrondi(prixStory)),
+                        tarifPost: String(arrondi(prixStory + 150)),
+                      }));
+                      setSuggestedTarifFields((prev) => {
+                        const next = new Set(prev);
+                        next.delete("tarifStory");
+                        next.delete("tarifPost");
+                        return next;
+                      });
+                    }}
+                    className="px-4 py-2 rounded-xl bg-gray-800 text-white text-sm font-medium hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                  >
+                    Appliquer
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Instagram Tarifs */}
             {formData.instagram && (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
@@ -1237,10 +1409,18 @@ export default function EditTalentPage() {
                     { name: "tarifPost", label: "Post €" },
                     { name: "tarifPostConcours", label: "Post Concours €" },
                     { name: "tarifPostCommun", label: "Post Commun €" },
+                    { name: "tarifPostCrosspost", label: "Post Crosspost €" },
                     { name: "tarifReel", label: "Reel €" },
+                    { name: "tarifReelCrosspost", label: "Réel Crosspost €" },
+                    { name: "tarifReelConcours", label: "Réel Jeu Concours €" },
                   ].map((tarif) => (
                     <div key={tarif.name}>
-                      <label className={labelClass}>{tarif.label}</label>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <label className={labelClass}>{tarif.label}</label>
+                        {suggestedTarifFields.has(tarif.name) && (
+                          <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">Suggéré</span>
+                        )}
+                      </div>
                       <div className="relative">
                         <input type="number" name={tarif.name} value={(formData as any)[tarif.name]} onChange={handleChange} className={`${inputClass} pr-10`} />
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
@@ -1260,14 +1440,114 @@ export default function EditTalentPage() {
                   </div>
                   <h2 className="text-lg font-semibold text-glowup-licorice">Tarifs TikTok</h2>
                 </div>
-                <div>
-                  <label className={labelClass}>Vidéo TikTok €</label>
-                  <div className="relative">
-                    <input type="number" name="tarifTiktokVideo" value={formData.tarifTiktokVideo} onChange={handleChange} className={`${inputClass} pr-10`} />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <label className={labelClass}>Vidéo TikTok €</label>
+                      {suggestedTarifFields.has("tarifTiktokVideo") && (
+                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">Suggéré</span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input type="number" name="tarifTiktokVideo" value={formData.tarifTiktokVideo} onChange={handleChange} className={`${inputClass} pr-10`} />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <label className={labelClass}>TikTok Jeu Concours €</label>
+                      {suggestedTarifFields.has("tarifTiktokConcours") && (
+                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">Suggéré</span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input type="number" name="tarifTiktokConcours" value={formData.tarifTiktokConcours} onChange={handleChange} className={`${inputClass} pr-10`} />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
+                    </div>
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Calculateur CPM Snap Vidéo — affiché seulement si le talent a Snapchat */}
+            {formData.snapchat && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-lg font-semibold text-glowup-licorice mb-4">Calculateur CPM Snap Vidéo</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Le prix suggéré est calculé à partir des vues moyennes Snap. Cliquez sur « Appliquer » pour remplir le champ Snapchat Spotlight dans la grille.
+              </p>
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="min-w-[200px]">
+                  <label className={labelClass}>Vues moyennes snap</label>
+                  <input
+                    type="number"
+                    name="moyenneVuesSnap"
+                    value={formData.moyenneVuesSnap}
+                    onChange={handleChange}
+                    placeholder="25000"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-gray-700">
+                    Prix suggéré Snap Vidéo :{" "}
+                    {(() => {
+                      const vues = parseInt(String(formData.moyenneVuesSnap).replace(/\s/g, ""), 10);
+                      if (!Number.isFinite(vues) || vues <= 0) return "—";
+                      const prix = Math.round((vues / 1000) * 35);
+                      return `${prix.toLocaleString("fr-FR")} € HT`;
+                    })()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const vues = parseInt(String(formData.moyenneVuesSnap).replace(/\s/g, ""), 10);
+                      if (!Number.isFinite(vues) || vues <= 0) return;
+                      const prix = Math.round((vues / 1000) * 35);
+                      setFormData((prev) => ({ ...prev, tarifSnapchatSpotlight: String(prix) }));
+                      setSuggestedTarifFields((prev) => {
+                        const next = new Set(prev);
+                        next.delete("tarifSnapchatSpotlight");
+                        return next;
+                      });
+                    }}
+                    className="px-4 py-2 rounded-xl bg-gray-800 text-white text-sm font-medium hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                  >
+                    Appliquer
+                  </button>
+                </div>
+              </div>
+            </div>
+            )}
+
+            {/* Tarifs Snap (internes) — affichés seulement si le talent a Snapchat */}
+            {formData.snapchat && (
+            <div className="bg-white rounded-2xl shadow-sm border border-amber-100 p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded">Interne uniquement</span>
+                <h2 className="text-lg font-semibold text-glowup-licorice">Tarifs Snapchat (non affichés sur le book)</h2>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">Ces tarifs sont visibles uniquement en interne (dashboard, négos, collabs).</p>
+              <div className="grid md:grid-cols-2 gap-4">
+                {[
+                  { name: "tarifSnapchatStory", label: "Snapchat Story €" },
+                  { name: "tarifSnapchatSpotlight", label: "Snapchat Spotlight €" },
+                ].map((tarif) => (
+                  <div key={tarif.name}>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <label className={labelClass}>{tarif.label}</label>
+                      {suggestedTarifFields.has(tarif.name) && (
+                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">Suggéré</span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input type="number" name={tarif.name} value={(formData as any)[tarif.name]} onChange={handleChange} className={`${inputClass} pr-10`} />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">€</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             )}
 
             {/* Autres */}

@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     // on doit donc réordonner manuellement selon `talentIds` pour respecter
     // l'ordre choisi (y compris en mode manuel).
     const talentsRaw = await prisma.talent.findMany({
-      where: { id: { in: talentIds } },
+      where: { id: { in: talentIds }, isArchived: false },
       include: { stats: true },
     });
 

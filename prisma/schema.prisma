@@ -38,10 +38,16 @@ enum TypeContenu {
   POST
   POST_CONCOURS
   POST_COMMUN
+  POST_CROSSPOST
   REEL
+  REEL_CROSSPOST
+  REEL_CONCOURS
   TIKTOK_VIDEO
+  TIKTOK_VIDEO_CONCOURS
   YOUTUBE_VIDEO
   YOUTUBE_SHORT
+  SNAPCHAT_STORY
+  SNAPCHAT_SPOTLIGHT
   EVENT
   SHOOTING
   AMBASSADEUR
@@ -206,7 +212,9 @@ model User {
   documentComments      DocumentComment[]
   collaborationComments CollaborationComment[]
   notifications         Notification[]
-  
+  objectifsRecus       Objectif[]     @relation("ObjectifsRecus")
+  objectifsCrees       Objectif[]     @relation("ObjectifsCrees")
+
   @@map("users")
 }
 
@@ -246,6 +254,7 @@ model Talent {
   instagram     String?
   tiktok        String?
   youtube       String?
+  snapchat      String?
   
   niches        String[]
   selectedClients String[]
@@ -278,6 +287,8 @@ model Talent {
   updatedAt     DateTime  @updatedAt
   isArchived    Boolean   @default(false)
   orderBook     Int       @default(0)   // Ordre d'affichage dans le talent book (plus petit = plus haut)
+  moyenneVuesStory Int?   // Vues moyennes story (pour calculateur CPM)
+  moyenneVuesSnap  Int?   // Vues moyennes Snap (pour calculateur CPM Snap Vidéo)
 
   stats         TalentStats?
   tarifs        TalentTarifs?
@@ -358,22 +369,28 @@ model TalentTarifs {
   talentId      String    @unique
   talent        Talent    @relation(fields: [talentId], references: [id], onDelete: Cascade)
   
-  tarifStory          Decimal?
-  tarifStoryConcours  Decimal?
-  tarifPost           Decimal?
-  tarifPostConcours   Decimal?
-  tarifPostCommun     Decimal?
-  tarifReel           Decimal?
-  tarifTiktokVideo    Decimal?
-  tarifYoutubeVideo   Decimal?
-  tarifYoutubeShort   Decimal?
-  tarifEvent          Decimal?
-  tarifShooting       Decimal?
-  tarifAmbassadeur    Decimal?
-  
+  tarifStory            Decimal?
+  tarifStoryConcours    Decimal?
+  tarifPost             Decimal?
+  tarifPostConcours     Decimal?
+  tarifPostCommun       Decimal?
+  tarifPostCrosspost    Decimal?
+  tarifReel             Decimal?
+  tarifReelCrosspost    Decimal?
+  tarifReelConcours     Decimal?
+  tarifTiktokVideo      Decimal?
+  tarifTiktokConcours   Decimal?
+  tarifYoutubeVideo     Decimal?
+  tarifYoutubeShort     Decimal?
+  tarifSnapchatStory    Decimal?
+  tarifSnapchatSpotlight Decimal?
+  tarifEvent            Decimal?
+  tarifShooting         Decimal?
+  tarifAmbassadeur      Decimal?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  
+
   @@map("talent_tarifs")
 }
 
@@ -993,6 +1010,28 @@ model Notification {
   @@index([userId, createdAt])
   @@index([type])
   @@map("notifications")
+}
+
+// ============================================
+// OBJECTIFS (admin → Head of Influence / Head of)
+// ============================================
+
+model Objectif {
+  id             String    @id @default(cuid())
+  userId         String    // Bénéficiaire (ex. Head of Influence)
+  user           User      @relation("ObjectifsRecus", fields: [userId], references: [id], onDelete: Cascade)
+  createurId     String    // Admin qui a créé l'objectif
+  createur       User      @relation("ObjectifsCrees", fields: [createurId], references: [id], onDelete: Cascade)
+  titre          String
+  description    String?
+  valeurCible    Int?      // Ex. 5 pour "recruter 5 talents"
+  valeurActuelle Int?      // Progression (optionnel, peut être mis à jour)
+  dateLimite     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("objectifs")
 }
 
 // ============================================

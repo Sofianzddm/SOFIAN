@@ -29,7 +29,8 @@ export async function GET(request: NextRequest) {
     }
     
     if (role) {
-      where.role = role;
+      const roles = role.split(",").map((r) => r.trim()).filter(Boolean);
+      where.role = roles.length > 1 ? { in: roles } : role;
     }
 
     const users = await prisma.user.findMany({

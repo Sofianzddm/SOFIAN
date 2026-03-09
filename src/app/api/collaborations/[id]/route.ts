@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 
 // GET - Détail d'une collaboration
@@ -9,7 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
@@ -79,12 +80,26 @@ export async function GET(
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
-    // S'assurer que marquePayeeAt et paidAt sont bien envoyés au front (paiements)
-    const payload = {
-      ...collaboration,
-      marquePayeeAt: collaboration.marquePayeeAt != null ? collaboration.marquePayeeAt : null,
-      paidAt: collaboration.paidAt != null ? collaboration.paidAt : null,
-    };
+    const isAdmin = (session.user as { role?: string }).role === "ADMIN";
+    // Infos confidentielles : seul l'admin sait si la marque nous a réglé ou si on a payé le talent
+    const payload = isAdmin
+      ? {
+          ...collaboration,
+          marquePayeeAt: collaboration.marquePayeeAt ?? null,
+          paidAt: collaboration.paidAt ?? null,
+        }
+      : {
+          ...collaboration,
+          statut: collaboration.statut === "PAYE" ? "FACTURE_RECUE" : collaboration.statut,
+          marquePayeeAt: null,
+          paidAt: null,
+          documents: (collaboration.documents || []).map((d: { statut: string; datePaiement?: unknown; referencePaiement?: unknown; modePaiement?: unknown; [k: string]: unknown }) => ({
+            ...d,
+            statut: d.statut === "PAYE" ? "ENVOYE" : d.statut,
+            ...(d.statut === "PAYE" ? { datePaiement: null, referencePaiement: null, modePaiement: null } : {}),
+          })),
+        };
+
     return NextResponse.json(payload);
   } catch (error) {
     console.error("Erreur GET collaboration:", error);

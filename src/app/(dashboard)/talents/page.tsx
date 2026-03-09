@@ -53,18 +53,33 @@ export default function TalentsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterNiche, setFilterNiche] = useState("");
+  const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
 
-  // Récupérer le rôle de l'utilisateur
+  // Rôle effectif (via /api/auth/me) pour cohérence avec impersonation
   const user = session?.user as { id: string; role: string; name: string } | undefined;
-  const role = user?.role || "";
-  
-  // Permissions basées sur le rôle
+  const role = effectiveRole ?? user?.role ?? "";
+
+  useEffect(() => {
+    const fetchMe = async () => {
+      try {
+        const r = await fetch("/api/auth/me");
+        if (r.ok) {
+          const data = await r.json();
+          setEffectiveRole(data.role ?? null);
+        }
+      } catch {
+        setEffectiveRole(null);
+      }
+    };
+    fetchMe();
+  }, []);
+
+  // Permissions basées sur le rôle effectif
   const canAddTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canEditTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canDeleteTalent = role === "ADMIN";
   const canArchiveTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
-  const canReorderBook =
-    role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
+  const canReorderBook = role === "ADMIN" || role === "HEAD_OF";
 
   const [showBookOrderModal, setShowBookOrderModal] = useState(false);
   const [bookOrderList, setBookOrderList] = useState<Talent[]>([]);
@@ -137,7 +152,7 @@ export default function TalentsPage() {
         </div>
         
         <div className="flex items-center gap-2">
-          {/* Ordre du book - ADMIN, HEAD_OF, HEAD_OF_INFLUENCE */}
+          {/* Ordre du book - ADMIN et HEAD_OF uniquement (pas Head of Influence) */}
           {canReorderBook && (
             <button
               type="button"
