@@ -75,6 +75,12 @@ const menuItems = [
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"],
   },
   {
+    label: "Prospection",
+    href: "/prospection",
+    icon: Target,
+    roles: ["ADMIN", "HEAD_OF_INFLUENCE", "TM"],
+  },
+  {
     label: "Gifts",
     href: "/gifts",
     icon: Gift,

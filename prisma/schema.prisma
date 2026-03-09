@@ -87,6 +87,23 @@ enum StatutProspection {
   STAND_BY
 }
 
+// Statut des contacts dans les fichiers de prospection
+enum StatutProspectionContact {
+  EN_ATTENTE
+  CONTACTE
+  EN_NEGOC
+  GAGNE
+  PERDU
+}
+
+enum StatutAction {
+  A_FAIRE
+  EN_ATTENTE
+  GAGNE
+  PERDU
+  ANNULE
+}
+
 enum StatutDocument {
   BROUILLON
   ENVOYE
@@ -215,6 +232,11 @@ model User {
   objectifsRecus       Objectif[]     @relation("ObjectifsRecus")
   objectifsCrees       Objectif[]     @relation("ObjectifsCrees")
 
+  fichiersProspection  FichierProspection[]
+
+  prospectionCommentaires ProspectionCommentaire[]
+  prospectionHistoriques  ProspectionHistorique[]
+
   @@map("users")
 }
 
@@ -301,6 +323,7 @@ model Talent {
   agencyProjects AgencyProjectTalent[]
   partnerTarifOverrides PartnerTarifOverride[]
   quotes        Quote[]
+  prospectionContacts ProspectionContact[]
   
   @@map("talents")
 }
@@ -487,6 +510,96 @@ model Prospection {
   @@index([marqueId])
   @@index([statut])
   @@map("prospections")
+}
+
+// ============================================
+// FICHIERS DE PROSPECTION
+// ============================================
+
+model FichierProspection {
+  id        String   @id @default(cuid())
+  titre     String
+  mois      Int
+  annee     Int
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  contacts  ProspectionContact[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("fichiers_prospection")
+}
+
+model ProspectionContact {
+  id           String   @id @default(cuid())
+
+  fichierId    String
+  fichier      FichierProspection @relation(fields: [fichierId], references: [id], onDelete: Cascade)
+
+  talentId     String?
+  talent       Talent?  @relation(fields: [talentId], references: [id])
+
+  nomOpportunite  String
+  prenom          String?
+  nom             String?
+  email           String?
+  statut          StatutProspectionContact @default(EN_ATTENTE)
+  notes           String?   @db.Text
+
+  // Prochaine action (rappels type NoCRM)
+  prochainStatut   StatutAction?
+  prochainDate     DateTime?
+  actionPrevue     String?   @db.Text
+  derniereFait     String?   @db.Text
+  actionUpdatedAt  DateTime?
+
+  commentaires    ProspectionCommentaire[]
+  historique      ProspectionHistorique[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fichierId])
+  @@index([talentId])
+  @@index([prochainDate])
+  @@map("prospection_contacts")
+}
+
+model ProspectionCommentaire {
+  id         String   @id @default(cuid())
+
+  contactId  String
+  contact    ProspectionContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  auteurId   String
+  auteur     User     @relation(fields: [auteurId], references: [id])
+
+  contenu    String
+  createdAt  DateTime @default(now())
+
+  @@index([contactId])
+  @@map("prospection_commentaires")
+}
+
+model ProspectionHistorique {
+  id         String   @id @default(cuid())
+
+  contactId  String
+  contact    ProspectionContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  auteurId   String
+  auteur     User     @relation(fields: [auteurId], references: [id])
+
+  type       String   // "CREATION", "STATUT_CHANGE", "COMMENTAIRE"
+  detail     String   // ex: "Statut changé : EN_ATTENTE → EN_NEGOC"
+  createdAt  DateTime @default(now())
+
+  @@index([contactId])
+  @@map("prospection_historique")
 }
 
 // ============================================
