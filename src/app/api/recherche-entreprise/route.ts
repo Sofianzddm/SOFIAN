@@ -38,14 +38,51 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const url = `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(query.trim())}&per_page=10&page=1`;
+    const url = `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(
+      query.trim()
+    )}&per_page=10&page=1`;
 
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "GlowUp-Platform/1.0 (recherche-entreprises)",
-      },
-    });
+    // Petit retry automatique si l'API renvoie 429 (rate-limit)
+    let response: Response | null = null;
+    const maxAttempts = 3;
+    const baseDelayMs = 400;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      response = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "GlowUp-Platform/1.0 (recherche-entreprises)",
+        },
+      });
+
+      if (response.status !== 429) {
+        break;
+      }
+
+      // Dernier essai → on sort de la boucle et gère plus bas
+      if (attempt === maxAttempts) {
+        break;
+      }
+
+      // Attendre un peu avant de réessayer (backoff linéaire simple)
+      const delay = baseDelayMs * attempt;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+
+    if (!response) {
+      throw new Error("API Recherche d'entreprises: aucune réponse");
+    }
+
+    // Gestion propre du rate limiting de l'API publique après retries
+    if (response.status === 429) {
+      return NextResponse.json(
+        {
+          error:
+            "L'API publique de recherche d'entreprises est temporairement saturée (trop de requêtes). Réessaie dans quelques secondes.",
+        },
+        { status: 429 }
+      );
+    }
 
     if (!response.ok) {
       const errText = await response.text();
