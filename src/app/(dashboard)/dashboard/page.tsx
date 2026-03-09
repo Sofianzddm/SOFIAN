@@ -617,12 +617,12 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
                 <DollarSign className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-base font-semibold text-slate-900">Tarifs les plus anciens</h2>
-                <p className="text-xs text-slate-500">À revoir en priorité</p>
+                <h2 className="text-base font-semibold text-slate-900">Dernière MAJ des prix</h2>
+                <p className="text-xs text-slate-500">Tarifs talents mis à jour récemment</p>
               </div>
             </div>
             <Link href="/talents" className="inline-flex items-center gap-1 text-sm font-medium text-violet-600 hover:text-violet-700">
-              Voir <ChevronRight className="h-4 w-4" />
+              Voir les talents <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
           <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">

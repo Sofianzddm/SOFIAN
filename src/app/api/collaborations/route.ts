@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
 // POST - Créer une collaboration avec livrables
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }

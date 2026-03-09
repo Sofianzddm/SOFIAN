@@ -32,8 +32,10 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const data: { valeurActuelle?: number; titre?: string; description?: string | null; valeurCible?: number | null; dateLimite?: Date | null } = {};
-    if (typeof body.valeurActuelle !== "undefined") data.valeurActuelle = body.valeurActuelle != null ? Number(body.valeurActuelle) : null;
+    const data: { valeurActuelle?: number | null; titre?: string; description?: string | null; valeurCible?: number | null; dateLimite?: Date | null } = {};
+    if (typeof body.valeurActuelle !== "undefined") {
+      data.valeurActuelle = body.valeurActuelle != null ? Number(body.valeurActuelle) : null;
+    }
     if (isAdmin) {
       if (typeof body.titre === "string") data.titre = body.titre.trim();
       if (body.description !== undefined) data.description = body.description ? String(body.description).trim() : null;
