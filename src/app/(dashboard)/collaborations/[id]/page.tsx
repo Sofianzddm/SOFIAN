@@ -180,6 +180,7 @@ export default function CollabDetailPage() {
   const [notesDevis, setNotesDevis] = useState("");
   const [paysDevis, setPaysDevis] = useState("France");
   const [numeroTVADevis, setNumeroTVADevis] = useState("");
+  const [delaiPaiementJours, setDelaiPaiementJours] = useState<number>(30);
   const [pendingGenerateType, setPendingGenerateType] = useState<"DEVIS" | "FACTURE" | null>(null);
   const [showEditDocModal, setShowEditDocModal] = useState(false);
   const [editingDoc, setEditingDoc] = useState<DocumentInfo | null>(null);
@@ -411,7 +412,8 @@ export default function CollabDetailPage() {
     skipCheck = false,
     notes?: string,
     pays?: string,
-    numeroTVA?: string
+    numeroTVA?: string,
+    delai?: number
   ) => {
     if (!collab) return;
     if (!skipCheck && !checkMarqueInfos(type)) { setPendingDocType(type); initMarqueForm(); setShowCompleteMarqueModal(true); return; }
@@ -427,16 +429,18 @@ export default function CollabDetailPage() {
         };
       });
       const res = await fetch("/api/documents/generate", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          type, 
-          collaborationId: collab.id, 
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          collaborationId: collab.id,
           lignes,
           titre: `${collab.talent.prenom} x ${collab.marque.nom}`,
           // Notes de la modale en priorité, sinon description globale de la collab
           commentaires: notes || collab.description || undefined,
           pays: pays || undefined,
           numeroTVA: numeroTVA?.trim() || undefined,
+          delaiPaiementJours: delai,
         }),
       });
       if (res.ok) { const data = await res.json(); window.open(`/api/documents/${data.document.id}/pdf`, "_blank"); fetchCollab(); }
@@ -1832,7 +1836,7 @@ export default function CollabDetailPage() {
               </div>
             </div>
 
-            <div className="mb-6">
+              <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-3">
                 Notes / Commentaires
               </label>
@@ -1862,6 +1866,29 @@ export default function CollabDetailPage() {
                   </p>
                 </div>
               </div>
+
+              {/* Délai de paiement (en jours) */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Délai de paiement (en jours)
+                </label>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={delaiPaiementJours}
+                    onChange={(e) => setDelaiPaiementJours(Number(e.target.value) || 30)}
+                    className="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-glowup-rose/20 focus:border-glowup-rose text-sm"
+                  >
+                    {[15, 30, 45, 60].map((d) => (
+                      <option key={d} value={d}>
+                        {d} jours
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-gray-500">
+                    Calculé fin de mois à partir de la date du document
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-4">
@@ -1877,7 +1904,16 @@ export default function CollabDetailPage() {
                 Annuler
               </button>
               <button
-                onClick={() => generateDocument(pendingGenerateType, false, notesDevis || undefined, paysDevis, numeroTVADevis)}
+                onClick={() =>
+                  generateDocument(
+                    pendingGenerateType,
+                    false,
+                    notesDevis || undefined,
+                    paysDevis,
+                    numeroTVADevis,
+                    delaiPaiementJours
+                  )
+                }
                 disabled={generatingDoc}
                 className={`flex-1 px-6 py-3.5 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-2 ${
                   pendingGenerateType === "DEVIS"

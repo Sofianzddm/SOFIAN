@@ -450,7 +450,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
               <Text style={styles.documentRef}>N°{data.reference}</Text>
               <Text style={styles.documentDate}>DATE : {formatDate(data.dateDocument)}</Text>
               <Text style={styles.documentDate}>
-                DATE D'ÉCHÉANCE : {formatDate(data.dateEcheance)} (30 JOURS)
+                DATE D'ÉCHÉANCE : {formatDate(data.dateEcheance)}
               </Text>
             </View>
             
@@ -613,11 +613,13 @@ export function DevisTemplate({ data }: { data: DevisData }) {
           }}>
             Mode de paiement : {data.modePaiement}
           </Text>
-          <Text style={{
-            fontSize: 8,
-            color: "#333333"
-          }}>
-            Échéance : {formatDate(data.dateEcheance)} (30 jours fin du mois)
+          <Text
+            style={{
+              fontSize: 8,
+              color: "#333333",
+            }}
+          >
+            Échéance : {formatDate(data.dateEcheance)}
           </Text>
         </View>
         
