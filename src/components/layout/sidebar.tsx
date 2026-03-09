@@ -169,6 +169,22 @@ export function Sidebar() {
         {filteredMenuItems.map((item) => {
           const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
           const Icon = item.icon;
+          const isLockedForTM = userRole === "TM" && item.label === "Gifts";
+
+          if (isLockedForTM) {
+            return (
+              <div
+                key={item.href}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 bg-gray-50 cursor-not-allowed opacity-70"
+              >
+                <div className="relative flex items-center">
+                  <Icon className="w-5 h-5 flex-shrink-0 text-gray-300" />
+                  <Lock className="w-3 h-3 text-gray-300 ml-1" />
+                </div>
+                {!collapsed && <span className="font-medium text-sm">{item.label}</span>}
+              </div>
+            );
+          }
           return (
             <Link
               key={item.href}
