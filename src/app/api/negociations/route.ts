@@ -70,6 +70,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await request.json();
+    const isTM = session.user.role === "TM";
 
     if (!data.talentId) {
       return NextResponse.json({ message: "Talent obligatoire" }, { status: 400 });
@@ -91,6 +92,9 @@ export async function POST(request: NextRequest) {
 
     const nomMarqueSaisi = data.nomMarqueSaisi ? String(data.nomMarqueSaisi).trim() : null;
     const marqueId = data.marqueId || null;
+    // TM ne gère que les entrants → forcer INBOUND côté serveur
+    const source: "INBOUND" | "OUTBOUND" =
+      isTM ? "INBOUND" : data.source === "OUTBOUND" ? "OUTBOUND" : "INBOUND";
 
     // Créer la négociation (marqueId optionnel si nomMarqueSaisi fourni)
     const negociation = await prisma.negociation.create({
@@ -102,7 +106,7 @@ export async function POST(request: NextRequest) {
         nomMarqueSaisi: nomMarqueSaisi || null,
         contactMarque: data.contactMarque || null,
         emailContact: data.emailContact || null,
-        source: data.source || "INBOUND",
+        source,
         brief: data.brief || null,
         budgetMarque: data.budgetMarque ? parseFloat(data.budgetMarque) : null,
         budgetSouhaite: data.budgetSouhaite ? parseFloat(data.budgetSouhaite) : null,

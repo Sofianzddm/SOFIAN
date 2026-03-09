@@ -68,6 +68,7 @@ export async function PUT(
 
     const { id } = await params;
     const data = await request.json();
+    const isTM = session.user.role === "TM";
 
     // Récupérer la négociation actuelle
     const negoActuelle = await prisma.negociation.findUnique({
@@ -116,7 +117,8 @@ export async function PUT(
           nomMarqueSaisi: nomMarqueSaisi ?? undefined,
           contactMarque: data.contactMarque || null,
           emailContact: data.emailContact || null,
-          source: data.source,
+          // TM ne gère que les entrants → forcer INBOUND côté serveur
+          source: isTM ? "INBOUND" : data.source || negoActuelle.source,
           brief: data.brief || null,
           budgetMarque: data.budgetMarque ? parseFloat(data.budgetMarque) : null,
           budgetSouhaite: data.budgetSouhaite ? parseFloat(data.budgetSouhaite) : null,
