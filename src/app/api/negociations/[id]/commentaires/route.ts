@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { MentionEmail } from "@/lib/emails/MentionEmail";
+import { NewNegociationEmail } from "@/lib/emails/NewNegociationEmail";
 
 // Format stocké en DB : @[userId] (comme collaborations)
 const MENTION_REGEX = /@\[([a-z0-9]+)\]/gi;
@@ -48,7 +49,14 @@ export async function POST(
     // Mettre à jour le statut si c'est le Head Of qui commente et que c'est en attente
     const nego = await prisma.negociation.findUnique({
       where: { id: id },
-      select: { statut: true, reference: true },
+      select: {
+        statut: true,
+        reference: true,
+        source: true,
+        tm: { select: { prenom: true, nom: true } },
+        talent: { select: { prenom: true, nom: true } },
+        marque: { select: { nom: true } },
+      },
     });
 
     if (nego?.statut === "EN_ATTENTE" && (session.user.role === "HEAD_OF" || session.user.role === "HEAD_OF_INFLUENCE" || session.user.role === "ADMIN")) {
@@ -110,6 +118,92 @@ export async function POST(
           }
         }
       }
+    }
+
+    // Email auto au Head of Influence à chaque nouveau commentaire
+    try {
+      if (nego?.reference) {
+        const heads = await prisma.user.findMany({
+          where: {
+            actif: true,
+            role: "HEAD_OF_INFLUENCE",
+          },
+          select: {
+            id: true,
+            email: true,
+            prenom: true,
+            nom: true,
+          },
+        });
+
+        const resendKey = process.env.RESEND_API_KEY;
+        const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+
+        if (heads.length > 0 && resendKey && fromEmail) {
+          const resend = new Resend(resendKey);
+
+          const tmName =
+            nego.tm?.prenom || nego.tm?.nom
+              ? `${nego.tm?.prenom ?? ""} ${nego.tm?.nom ?? ""}`.trim()
+              : "Un TM";
+          const talentName =
+            nego.talent?.prenom || nego.talent?.nom
+              ? `${nego.talent?.prenom ?? ""} ${
+                  nego.talent?.nom ?? ""
+                }`.trim()
+              : "—";
+          const marqueName = nego.marque?.nom || "—";
+          const brief = contenu.length > MESSAGE_PREVIEW_MAX_LEN
+            ? contenu.slice(0, MESSAGE_PREVIEW_MAX_LEN) + "…"
+            : contenu;
+
+          const link = `/negociations/${id}`;
+          const rawBase =
+            (process.env.NEXT_PUBLIC_BASE_URL ||
+              "https://app.glowupagence.fr").trim();
+          const baseUrl = rawBase.replace(/\/$/, "");
+          const url = `${baseUrl}${link}`;
+
+          for (const head of heads) {
+            if (!head.email) continue;
+            const headName = head.prenom?.trim() || "Head of Influence";
+            try {
+              const html = await render(
+                React.createElement(NewNegociationEmail, {
+                  headName,
+                  reference: nego.reference,
+                  talentName,
+                  marqueName,
+                  tmName,
+                  source: nego.source,
+                  brief,
+                  url,
+                })
+              );
+
+              await resend.emails.send({
+                from: fromEmail.includes("<")
+                  ? fromEmail
+                  : `Glow Up Agence <${fromEmail}>`,
+                to: head.email,
+                subject: `[NÉGO] Nouveau commentaire sur ${nego.reference}`,
+                html,
+              });
+            } catch (err) {
+              console.error(
+                "Erreur envoi email nouveau commentaire négociation:",
+                head.email,
+                err
+              );
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error(
+        "Erreur lors des notifications email Head of (comment):",
+        err
+      );
     }
 
     return NextResponse.json(commentaire, { status: 201 });

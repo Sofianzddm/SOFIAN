@@ -1,8 +1,11 @@
+import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { Resend } from "resend";
+import { render } from "@react-email/render";
+import { NewNegociationEmail } from "@/lib/emails/NewNegociationEmail";
 
 // GET - Liste des négociations (filtrée par rôle)
 export async function GET(request: NextRequest) {
@@ -150,7 +153,6 @@ export async function POST(request: NextRequest) {
       const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
 
       if (heads.length > 0 && resendKey && fromEmail) {
-        const resend = new Resend(resendKey);
         const tmName = `${negociation.tm.prenom} ${negociation.tm.nom}`.trim();
         const talentName = negociation.talent
           ? `${negociation.talent.prenom} ${negociation.talent.nom}`.trim()
@@ -166,28 +168,23 @@ export async function POST(request: NextRequest) {
         const url = `${baseUrl}${link}`;
 
         const subject = `[NÉGO] Nouvelle négociation ${negociation.reference}`;
-
-        const html = `
-          <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color:#1A1110;">
-            <h2>Nouvelle négociation créée</h2>
-            <p><strong>Référence :</strong> ${negociation.reference}</p>
-            <p><strong>Talent :</strong> ${talentName}</p>
-            <p><strong>Marque :</strong> ${marqueName}</p>
-            <p><strong>Créée par :</strong> ${tmName}</p>
-            <p><strong>Source :</strong> ${negociation.source}</p>
-            <p><strong>Brief :</strong><br/>${brief.replace(/\n/g, "<br/>")}</p>
-            <p style="margin-top:16px;">
-              <a href="${url}" style="display:inline-block;padding:10px 18px;border-radius:999px;background:#C8F285;color:#1A1110;text-decoration:none;font-weight:600;">
-                Ouvrir la négociation
-              </a>
-            </p>
-          </div>
-        `;
+        const resend = new Resend(resendKey);
 
         for (const head of heads) {
           if (!head.email) continue;
-          const toName = head.prenom ? `${head.prenom}` : "Head of Influence";
           try {
+            const html = await render(
+              React.createElement(NewNegociationEmail, {
+                headName: head.prenom?.trim() || "Head of Influence",
+                reference: negociation.reference,
+                talentName,
+                marqueName,
+                tmName,
+                source: negociation.source,
+                brief,
+                url,
+              })
+            );
             await resend.emails.send({
               from: fromEmail.includes("<")
                 ? fromEmail
