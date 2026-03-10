@@ -92,55 +92,34 @@ export async function POST(
     const commissionEuros = (Number(montantBrut) * commissionPercent) / 100;
     const montantNet = Number(montantBrut) - commissionEuros;
 
-    // Synchroniser le compteur avec les collaborations existantes
     const year = new Date().getFullYear();
-    const lastCollab = await prisma.collaboration.findFirst({
-      where: {
-        reference: {
-          startsWith: `COL-${year}-`,
-        },
-      },
-      orderBy: {
-        reference: 'desc',
-      },
-      select: {
-        reference: true,
-      },
-    });
-
-    // Extraire le numéro de la dernière collaboration
-    let nextNumero = 1;
-    if (lastCollab) {
-      const match = lastCollab.reference.match(/COL-\d{4}-(\d{4})/);
-      if (match) {
-        nextNumero = parseInt(match[1], 10) + 1;
-      }
-    }
-
-    // Mettre à jour le compteur si nécessaire
-    await prisma.compteur.upsert({
-      where: { type_annee: { type: "COLLAB", annee: year } },
-      update: { 
-        dernierNumero: {
-          set: Math.max(nextNumero, 1)
-        }
-      },
-      create: { type: "COLLAB", annee: year, dernierNumero: nextNumero },
-    });
-
-    console.log(`🔄 Compteur synchronisé, prochain numéro: ${nextNumero}`);
 
     // Créer la collaboration dans une transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Générer la référence avec le compteur synchronisé
-      const compteur = await tx.compteur.upsert({
-        where: { type_annee: { type: "COLLAB", annee: year } },
-        update: { dernierNumero: { increment: 1 } },
-        create: { type: "COLLAB", annee: year, dernierNumero: 1 },
+      // Générer la prochaine référence à partir des collaborations existantes
+      const last = await tx.collaboration.findFirst({
+        where: {
+          reference: {
+            startsWith: `COL-${year}-`,
+          },
+        },
+        orderBy: {
+          reference: "desc",
+        },
+        select: {
+          reference: true,
+        },
       });
-      const reference = `COL-${year}-${String(compteur.dernierNumero).padStart(4, "0")}`;
-      
-      console.log(`🆕 Création collaboration: ${reference}`);
+
+      let nextNumero = 1;
+      if (last?.reference) {
+        const match = last.reference.match(/COL-\d{4}-(\d{4})/);
+        if (match) {
+          nextNumero = parseInt(match[1], 10) + 1;
+        }
+      }
+
+      const reference = `COL-${year}-${String(nextNumero).padStart(4, "0")}`;
 
       // Créer la collaboration avec les livrables
       const collaboration = await tx.collaboration.create({
