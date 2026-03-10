@@ -31,6 +31,7 @@ export async function POST(
     }
 
     const currentUserId = (session.user as { id: string }).id;
+    const currentUserRole = (session.user as { role?: string }).role ?? "";
 
     // Créer le commentaire
     const commentaire = await prisma.negoCommentaire.create({
@@ -121,8 +122,9 @@ export async function POST(
     }
 
     // Email auto au Head of Influence à chaque nouveau commentaire
+    // ⚠️ Uniquement si le commentaire vient d'un TM (pas quand la Head of commente elle-même)
     try {
-      if (nego?.reference) {
+      if (nego?.reference && currentUserRole === "TM") {
         const heads = await prisma.user.findMany({
           where: {
             actif: true,
@@ -178,6 +180,7 @@ export async function POST(
                   source: nego.source,
                   brief,
                   url,
+                  variant: "comment",
                 })
               );
 

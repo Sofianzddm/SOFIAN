@@ -34,6 +34,7 @@ export interface NewNegociationEmailProps {
   source: string;
   brief: string;
   url: string;
+  variant?: "created" | "comment";
 }
 
 export function NewNegociationEmail({
@@ -45,8 +46,12 @@ export function NewNegociationEmail({
   source,
   brief,
   url,
+  variant = "created",
 }: NewNegociationEmailProps) {
-  const preview = `Nouvelle négociation ${reference} créée par ${tmName}`;
+  const isComment = variant === "comment";
+  const preview = isComment
+    ? `Nouveau commentaire sur la négociation ${reference}`
+    : `Nouvelle négociation ${reference} créée par ${tmName}`;
 
   return (
     <Html lang="fr">
@@ -60,9 +65,18 @@ export function NewNegociationEmail({
 
           <Section style={cardSection}>
             <Text style={greeting}>Bonjour {headName || "Head of Influence"},</Text>
-            <Text style={paragraph}>
-              <strong>{tmName}</strong> vient de créer une nouvelle négociation&nbsp;:
-            </Text>
+            {isComment ? (
+              <>
+                <Text style={paragraph}>
+                  <strong>{tmName}</strong> a laissé un nouveau commentaire sur la
+                  négociation suivante&nbsp;:
+                </Text>
+              </>
+            ) : (
+              <Text style={paragraph}>
+                <strong>{tmName}</strong> vient de créer une nouvelle négociation&nbsp;:
+              </Text>
+            )}
 
             <Section style={infoBox}>
               <Text style={infoLabel}>Détails de la négociation</Text>
@@ -78,10 +92,24 @@ export function NewNegociationEmail({
               <Text style={infoRow}>
                 <strong>Source :</strong> {source === "INBOUND" ? "Inbound (entrant)" : "Outbound (sortant)"}
               </Text>
-              <Text style={{ ...infoRow, marginTop: 12 }}>
-                <strong>Brief :</strong>
-              </Text>
-              <Text style={messagePreview}>{brief}</Text>
+              {isComment ? (
+                <>
+                  <Text style={{ ...infoRow, marginTop: 12 }}>
+                    <strong>Dernier message :</strong>
+                  </Text>
+                  <div style={bubbleWrapper}>
+                    <Text style={bubbleAuthor}>{tmName}</Text>
+                    <Text style={bubbleContent}>{brief}</Text>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Text style={{ ...infoRow, marginTop: 12 }}>
+                    <strong>Brief :</strong>
+                  </Text>
+                  <Text style={messagePreview}>{brief}</Text>
+                </>
+              )}
             </Section>
 
             <Section style={buttonSection}>
@@ -187,6 +215,27 @@ const messagePreview = {
   maxHeight: "140px",
   overflow: "hidden",
 };
+
+const bubbleWrapper = {
+  marginTop: "8px",
+  padding: "10px 12px",
+  borderRadius: "12px",
+  backgroundColor: "#F5EBE0",
+} as const;
+
+const bubbleAuthor = {
+  fontSize: "12px",
+  fontWeight: 600,
+  margin: "0 0 4px",
+  color: COLORS.accent,
+} as const;
+
+const bubbleContent = {
+  fontSize: "14px",
+  margin: 0,
+  color: COLORS.text,
+  whiteSpace: "pre-wrap" as const,
+} as const;
 
 const buttonSection = {
   textAlign: "center" as const,

@@ -183,6 +183,7 @@ export async function POST(request: NextRequest) {
                 source: negociation.source,
                 brief,
                 url,
+                variant: "created",
               })
             );
             await resend.emails.send({
