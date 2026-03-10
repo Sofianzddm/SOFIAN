@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
+import { generateCollabReference } from "@/lib/generateCollabReference";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -109,32 +110,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Générer la référence en se basant sur la dernière collaboration existante
-    const year = new Date().getFullYear();
-    const lastCollab = await prisma.collaboration.findFirst({
-      where: {
-        reference: {
-          startsWith: `COL-${year}-`,
-        },
-      },
-      orderBy: {
-        reference: 'desc',
-      },
-      select: {
-        reference: true,
-      },
-    });
-
-    // Extraire le numéro de la dernière collaboration
-    let nextNumero = 1;
-    if (lastCollab) {
-      const match = lastCollab.reference.match(/COL-\d{4}-(\d{4})/);
-      if (match) {
-        nextNumero = parseInt(match[1], 10) + 1;
-      }
-    }
-
-    const reference = `COL-${year}-${String(nextNumero).padStart(4, "0")}`;
+    // Générer une référence unique via le compteur centralisé
+    const reference = await generateCollabReference();
     console.log(`🆕 Création collaboration manuelle: ${reference}`);
 
     // Créer la collaboration avec les livrables

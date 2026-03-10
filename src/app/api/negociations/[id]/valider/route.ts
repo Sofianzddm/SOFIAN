@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { generateCollabReference } from "@/lib/generateCollabReference";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -92,34 +93,10 @@ export async function POST(
     const commissionEuros = (Number(montantBrut) * commissionPercent) / 100;
     const montantNet = Number(montantBrut) - commissionEuros;
 
-    const year = new Date().getFullYear();
-
     // Créer la collaboration dans une transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Générer la prochaine référence à partir des collaborations existantes
-      const last = await tx.collaboration.findFirst({
-        where: {
-          reference: {
-            startsWith: `COL-${year}-`,
-          },
-        },
-        orderBy: {
-          reference: "desc",
-        },
-        select: {
-          reference: true,
-        },
-      });
-
-      let nextNumero = 1;
-      if (last?.reference) {
-        const match = last.reference.match(/COL-\d{4}-(\d{4})/);
-        if (match) {
-          nextNumero = parseInt(match[1], 10) + 1;
-        }
-      }
-
-      const reference = `COL-${year}-${String(nextNumero).padStart(4, "0")}`;
+      // Générer la référence via la fonction centralisée (compteur + max existant)
+      const reference = await generateCollabReference();
 
       // Créer la collaboration avec les livrables
       const collaboration = await tx.collaboration.create({
