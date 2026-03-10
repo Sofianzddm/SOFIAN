@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { Resend } from "resend";
 
 // GET - Liste des négociations (filtrée par rôle)
 export async function GET(request: NextRequest) {
@@ -129,6 +130,80 @@ export async function POST(request: NextRequest) {
         livrables: true,
       },
     });
+
+    // Notifier les Head of Influence par email
+    try {
+      const heads = await prisma.user.findMany({
+        where: {
+          actif: true,
+          role: "HEAD_OF_INFLUENCE",
+        },
+        select: {
+          id: true,
+          email: true,
+          prenom: true,
+          nom: true,
+        },
+      });
+
+      const resendKey = process.env.RESEND_API_KEY;
+      const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+
+      if (heads.length > 0 && resendKey && fromEmail) {
+        const resend = new Resend(resendKey);
+        const tmName = `${negociation.tm.prenom} ${negociation.tm.nom}`.trim();
+        const talentName = negociation.talent
+          ? `${negociation.talent.prenom} ${negociation.talent.nom}`.trim()
+          : "—";
+        const marqueName = negociation.marque?.nom || negociation.nomMarqueSaisi || "—";
+        const brief =
+          (data.brief && String(data.brief).trim().slice(0, 280)) || "Aucun brief renseigné.";
+
+        const link = `/negociations/${negociation.id}`;
+        const rawBase =
+          (process.env.NEXT_PUBLIC_BASE_URL || "https://app.glowupagence.fr").trim();
+        const baseUrl = rawBase.replace(/\/$/, "");
+        const url = `${baseUrl}${link}`;
+
+        const subject = `[NÉGO] Nouvelle négociation ${negociation.reference}`;
+
+        const html = `
+          <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color:#1A1110;">
+            <h2>Nouvelle négociation créée</h2>
+            <p><strong>Référence :</strong> ${negociation.reference}</p>
+            <p><strong>Talent :</strong> ${talentName}</p>
+            <p><strong>Marque :</strong> ${marqueName}</p>
+            <p><strong>Créée par :</strong> ${tmName}</p>
+            <p><strong>Source :</strong> ${negociation.source}</p>
+            <p><strong>Brief :</strong><br/>${brief.replace(/\n/g, "<br/>")}</p>
+            <p style="margin-top:16px;">
+              <a href="${url}" style="display:inline-block;padding:10px 18px;border-radius:999px;background:#C8F285;color:#1A1110;text-decoration:none;font-weight:600;">
+                Ouvrir la négociation
+              </a>
+            </p>
+          </div>
+        `;
+
+        for (const head of heads) {
+          if (!head.email) continue;
+          const toName = head.prenom ? `${head.prenom}` : "Head of Influence";
+          try {
+            await resend.emails.send({
+              from: fromEmail.includes("<")
+                ? fromEmail
+                : `Glow Up Agence <${fromEmail}>`,
+              to: head.email,
+              subject,
+              html,
+            });
+          } catch (err) {
+            console.error("Erreur envoi email nouvelle négo:", head.email, err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Erreur lors des notifications email Head of:", err);
+    }
 
     return NextResponse.json(negociation, { status: 201 });
   } catch (error) {
