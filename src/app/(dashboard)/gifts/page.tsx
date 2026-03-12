@@ -4,9 +4,24 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
-  Gift, Plus, Loader2, AlertTriangle, Package, Clock,
-  CheckCircle, XCircle, Filter, Search, ChevronRight, Truck,
-  User, Calendar, TrendingUp, Building2, MessageSquare,
+  Gift,
+  Plus,
+  Loader2,
+  AlertTriangle,
+  Package,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Filter,
+  Search,
+  ChevronRight,
+  Truck,
+  User,
+  Calendar,
+  TrendingUp,
+  Building2,
+  MessageSquare,
+  DollarSign,
 } from "lucide-react";
 
 export default function GiftsPage() {
@@ -20,6 +35,11 @@ export default function GiftsPage() {
   const user = session?.user as { role?: string };
   const isTM = user?.role === "TM";
   const isAM = user?.role === "CM" || user?.role === "ADMIN";
+  const canCreate =
+    !!user?.role &&
+    ["TM", "CM", "ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(
+      user.role
+    );
 
   useEffect(() => {
     fetchDemandes();
@@ -92,10 +112,10 @@ export default function GiftsPage() {
                 : "Gérez toutes les demandes de gifts des Talent Managers."}
             </p>
           </div>
-          {isTM && (
+          {canCreate && (
             <Link
               href="/gifts/new"
-              className="flex items-center gap-2 px-6 py-3 bg-white text-glowup-licorice rounded-xl font-semibold hover:bg-white/90 transition-all hover:scale-105 shadow-lg"
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all hover:scale-105"
             >
               <Plus className="w-5 h-5" />
               Nouvelle demande
@@ -233,6 +253,51 @@ function StatCard({ label, value, icon, gradient }: any) {
 }
 
 function DemandeCard({ demande, isAM }: any) {
+  const villeLivraison = demande.adresseLivraison
+    ? demande.adresseLivraison
+        .split("\n")
+        .map((l: string) => l.trim())
+        .filter(Boolean)
+        .pop()
+    : null;
+
+  const formatValeurEstimee = (val: any) => {
+    if (!val) return null;
+    const n = typeof val === "number" ? val : parseFloat(val);
+    if (Number.isNaN(n)) return null;
+    return `~${n.toLocaleString("fr-FR")}€`;
+  };
+
+  const formatContrepartie = () => {
+    const type = demande.contrepartieType as string | null;
+    const delai = demande.contrepartieDelai as number | null;
+    const notes = demande.contrepartieNotes as string | null;
+
+    if (!type && !notes) return null;
+
+    const labels: Record<string, string> = {
+      STORY: "Story",
+      POST_FEED: "Post feed",
+      REEL_TIKTOK: "Reel / TikTok",
+      MENTION_STORY: "Mention story",
+      CHOIX_TALENT: "Au choix du talent",
+      AUCUNE: "Aucune contrepartie",
+    };
+
+    const baseLabel = type ? labels[type] || type : "Contrepartie";
+    const withDelai =
+      delai && delai > 0 ? `${baseLabel} dans ${delai}j` : baseLabel;
+
+    if (notes) {
+      return `${withDelai} • ${notes}`;
+    }
+
+    return withDelai;
+  };
+
+  const contrepartieLabel = formatContrepartie();
+  const valeurEstimeeLabel = formatValeurEstimee(demande.valeurEstimee);
+
   return (
     <Link
       href={`/gifts/${demande.id}`}
@@ -256,13 +321,19 @@ function DemandeCard({ demande, isAM }: any) {
                 <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold uppercase">
                   {demande.typeGift}
                 </span>
+                {contrepartieLabel && (
+                  <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-medium inline-flex items-center gap-1">
+                    <Gift className="w-3.5 h-3.5" />
+                    {`Contrepartie : ${contrepartieLabel}`}
+                  </span>
+                )}
               </div>
               <p className="text-gray-600 line-clamp-2">{demande.description}</p>
             </div>
           </div>
 
-          {/* Infos */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-gray-100">
+          {/* Infos principales */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-gray-100">
             {/* Talent */}
             <div className="flex items-center gap-2">
               <User className="w-4 h-4 text-gray-400" />
@@ -274,7 +345,7 @@ function DemandeCard({ demande, isAM }: any) {
               </div>
             </div>
 
-            {/* TM */}
+            {/* TM (visible pour AM / admin) */}
             {isAM && (
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-gray-400" />
@@ -287,16 +358,29 @@ function DemandeCard({ demande, isAM }: any) {
               </div>
             )}
 
-            {/* Marque */}
-            {demande.marque && (
-              <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-gray-400" />
-                <div className="min-w-0">
-                  <p className="text-xs text-gray-500">Marque</p>
-                  <p className="font-semibold text-sm truncate">{demande.marque.nom}</p>
-                </div>
+            {/* Account Manager */}
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 text-gray-400" />
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500">Account Manager</p>
+                <p className="font-semibold text-sm truncate">
+                  {demande.accountManager
+                    ? `${demande.accountManager.prenom} ${demande.accountManager.nom}`
+                    : "Non assigné"}
+                </p>
               </div>
-            )}
+            </div>
+
+            {/* Marque */}
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-gray-400" />
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500">Marque</p>
+                <p className="font-semibold text-sm truncate">
+                  {demande.marque?.nom || "Aucune marque spécifique"}
+                </p>
+              </div>
+            </div>
 
             {/* Date */}
             <div className="flex items-center gap-2">
@@ -308,7 +392,120 @@ function DemandeCard({ demande, isAM }: any) {
                 </p>
               </div>
             </div>
+
+            {/* Valeur estimée */}
+            {valeurEstimeeLabel && (
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-gray-400" />
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-500">Valeur estimée</p>
+                  <p className="font-semibold text-sm truncate">
+                    {valeurEstimeeLabel}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Bloc spécifique hôtel */}
+          {demande.typeGift === "HOTEL" && (
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Destination */}
+              {demande.destination && (
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-gray-400" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500">Destination</p>
+                    <p className="font-semibold text-sm truncate">
+                      {demande.destination}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Dates */}
+              {(demande.dateArrivee || demande.dateDepart) && (
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-gray-400" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500">Séjour</p>
+                    <p className="font-semibold text-sm truncate">
+                      {demande.dateArrivee &&
+                        `Du ${new Date(
+                          demande.dateArrivee
+                        ).toLocaleDateString("fr-FR")}`}
+                      {demande.dateDepart &&
+                        ` au ${new Date(
+                          demande.dateDepart
+                        ).toLocaleDateString("fr-FR")}`}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Nombre de personnes */}
+              {demande.nombrePersonnes && (
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-gray-400" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500">Personnes</p>
+                    <p className="font-semibold text-sm truncate">
+                      {demande.nombrePersonnes}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Catégorie */}
+              {demande.categorie && (
+                <div className="flex items-center gap-2">
+                  <Gift className="w-4 h-4 text-gray-400" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500">Catégorie</p>
+                    <p className="font-semibold text-sm truncate">
+                      {demande.categorie}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Bloc pour autres types : date souhaitée + ville livraison */}
+          {demande.typeGift !== "HOTEL" &&
+            (demande.datesouhaitee || villeLivraison) && (
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                {demande.datesouhaitee && (
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-gray-400" />
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-500">
+                        Date de réception souhaitée
+                      </p>
+                      <p className="font-semibold text-sm truncate">
+                        {new Date(
+                          demande.datesouhaitee
+                        ).toLocaleDateString("fr-FR")}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {villeLivraison && (
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-gray-400" />
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-500">
+                        Ville de livraison
+                      </p>
+                      <p className="font-semibold text-sm truncate">
+                        {villeLivraison}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
           {/* Dernier commentaire */}
           {demande.commentaires && demande.commentaires.length > 0 && (

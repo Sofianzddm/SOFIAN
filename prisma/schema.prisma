@@ -1286,6 +1286,34 @@ model DemandeGift {
   datesouhaitee     DateTime?     // Date souhaitée de réception
   adresseLivraison  String?       @db.Text
   notesInternes     String?       @db.Text
+
+  // Informations hébergement (pour typeGift = "HOTEL")
+  destination        String?       // Ville / pays
+  dateArrivee        DateTime?     // Check-in
+  dateDepart         DateTime?     // Check-out
+  nombrePersonnes    Int?          // Nombre de personnes
+  typeHebergement    String?       // HOTEL, APPARTEMENT, VILLA, AUTRE
+  categorie          String?       // 3*, 4*, 5*, LUXE
+  demandesSpeciales  String?       @db.Text  // Suite, vue mer, petit-déj inclus, etc.
+
+  // Contrepartie (renseignée par l'AM quand la marque accepte)
+  contrepartieType   String?       // AUCUNE, STORY, POST_FEED, REEL_TIKTOK, MENTION_STORY, CHOIX_TALENT
+  contrepartieDelai  Int?          // Délai en jours après réception pour poster
+  contrepartieNotes  String?       @db.Text  // Précisions libres
+  contreparties      Json?         @default("[]")
+
+  // Infos retour marque (pour PRODUIT / GIFT classique)
+  contactMarqueNom     String?     // Nom du contact chez la marque
+  contactMarqueEmail   String?     // Email du contact
+  dateExpeditionPrevue DateTime?   // Date d'expédition estimée
+
+  // Infos retour hôtel (pour HOTEL)
+  numeroReservation  String?       // Numéro de confirmation de résa
+  nomReservation     String?       // Nom sous lequel la résa est faite
+  adresseHotel       String?       @db.Text
+  contactSurPlace    String?       // Qui demander à l'accueil
+  horaireCheckIn     String?       // Ex: "À partir de 15h"
+  horaireCheckOut    String?       // Ex: "Avant 12h"
   
   // Suivi
   datePriseEnCharge DateTime?     // Quand l'AM a pris en charge

@@ -15,12 +15,11 @@ export default function NewGiftPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [talents, setTalents] = useState<any[]>([]);
-  const [marques, setMarques] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   const [formData, setFormData] = useState({
     talentId: "",
-    marqueId: "",
+    marqueNom: "",
     typeGift: "PRODUIT",
     description: "",
     justification: "",
@@ -28,38 +27,38 @@ export default function NewGiftPage() {
     priorite: "NORMALE",
     dateSouhaitee: "",
     adresseLivraison: "",
+    // Champs hébergement (HOTEL)
+    destination: "",
+    dateArrivee: "",
+    dateDepart: "",
+    nombrePersonnes: "",
+    typeHebergement: "",
+    categorie: "",
+    demandesSpeciales: "",
   });
 
   const user = session?.user as { role?: string; id?: string };
 
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoadingData(true);
+        // Récupère les talents filtrés côté API selon le rôle
+        const talentsRes = await fetch("/api/gifts?mode=talents");
+
+        if (talentsRes.ok) {
+          const talentsData = await talentsRes.json();
+          setTalents(talentsData);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingData(false);
+      }
+    };
+
     fetchData();
   }, []);
-
-  const fetchData = async () => {
-    try {
-      setLoadingData(true);
-      const [talentsRes, marquesRes] = await Promise.all([
-        fetch("/api/talents"),
-        fetch("/api/marques"),
-      ]);
-
-      if (talentsRes.ok) {
-        const talentsData = await talentsRes.json();
-        // Filtrer uniquement les talents gérés par ce TM
-        setTalents(talentsData);
-      }
-
-      if (marquesRes.ok) {
-        const marquesData = await marquesRes.json();
-        setMarques(marquesData);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingData(false);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,13 +72,45 @@ export default function NewGiftPage() {
       setLoading(true);
       setError(null);
 
+      const {
+        marqueNom,
+        destination,
+        dateArrivee,
+        dateDepart,
+        nombrePersonnes,
+        typeHebergement,
+        categorie,
+        demandesSpeciales,
+        ...rest
+      } = formData;
+
+      let justification = rest.justification;
+      if (marqueNom) {
+        justification = justification
+          ? `${justification}\n\nMarque souhaitée : ${marqueNom}`
+          : `Marque souhaitée : ${marqueNom}`;
+      }
+
+      const payload: any = {
+        ...rest,
+        justification,
+        statut: "EN_ATTENTE", // Soumise directement
+      };
+
+      if (rest.typeGift === "HOTEL") {
+        payload.destination = destination || null;
+        payload.dateArrivee = dateArrivee || null;
+        payload.dateDepart = dateDepart || null;
+        payload.nombrePersonnes = nombrePersonnes || null;
+        payload.typeHebergement = typeHebergement || null;
+        payload.categorie = categorie || null;
+        payload.demandesSpeciales = demandesSpeciales || null;
+      }
+
       const res = await fetch("/api/gifts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...formData,
-          statut: "EN_ATTENTE", // Soumise directement
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -113,15 +144,15 @@ export default function NewGiftPage() {
     }
   };
 
-  if (user?.role !== "TM") {
+  if (!user?.role || !["TM", "ADMIN"].includes(user.role)) {
     return (
       <div className="max-w-2xl mx-auto py-12 text-center">
         <AlertTriangle className="w-16 h-16 text-orange-500 mx-auto mb-4" />
         <h2 className="text-2xl font-bold text-glowup-licorice mb-2">
-          Accès réservé aux Talent Managers
+          Accès réservé aux Talent Managers et Admin
         </h2>
         <p className="text-gray-600 mb-6">
-          Seuls les Talent Managers peuvent créer des demandes de gifts.
+          Seuls les Talent Managers et Admin peuvent créer des demandes de gifts.
         </p>
         <Link
           href="/gifts"
@@ -223,6 +254,7 @@ export default function NewGiftPage() {
                 <option value="PRODUIT">Produit</option>
                 <option value="EXPERIENCE">Expérience</option>
                 <option value="SERVICE">Service</option>
+                <option value="HOTEL">Hôtel</option>
                 <option value="AUTRE">Autre</option>
               </select>
             </div>
@@ -252,61 +284,198 @@ export default function NewGiftPage() {
               </label>
               <div className="relative">
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <select
-                  name="marqueId"
-                  value={formData.marqueId}
+                <input
+                  type="text"
+                  name="marqueNom"
+                  value={formData.marqueNom}
                   onChange={handleChange}
-                  disabled={loadingData}
+                  placeholder="Aucune marque spécifique"
                   className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                >
-                  <option value="">Aucune marque spécifique</option>
-                  {marques.map((marque) => (
-                    <option key={marque.id} value={marque.id}>
-                      {marque.nom}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
               <p className="text-xs text-gray-500 mt-1">
                 Si vous connaissez déjà la marque auprès de laquelle demander le gift
               </p>
             </div>
 
-            {/* Description */}
+            {/* Détails hébergement (HOTEL uniquement) */}
+            {formData.typeGift === "HOTEL" && (
+              <>
+                <div className="md:col-span-2 border border-purple-100 rounded-2xl p-6 bg-purple-50/40 space-y-4">
+                  <h3 className="text-sm font-bold text-glowup-licorice mb-2">
+                    Détails hébergement
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Destination */}
+                    <div>
+                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
+                        Destination
+                      </label>
+                      <input
+                        type="text"
+                        name="destination"
+                        value={formData.destination}
+                        onChange={handleChange}
+                        placeholder="Ville / pays"
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                      />
+                    </div>
+
+                    {/* Nombre de personnes */}
+                    <div>
+                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
+                        Nombre de personnes
+                      </label>
+                      <input
+                        type="number"
+                        name="nombrePersonnes"
+                        value={formData.nombrePersonnes}
+                        onChange={handleChange}
+                        min={1}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                      />
+                    </div>
+
+                    {/* Date d'arrivée */}
+                    <div>
+                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
+                        Date d'arrivée
+                      </label>
+                      <div className="relative">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input
+                          type="date"
+                          name="dateArrivee"
+                          value={formData.dateArrivee}
+                          onChange={handleChange}
+                          className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Date de départ */}
+                    <div>
+                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
+                        Date de départ
+                      </label>
+                      <div className="relative">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input
+                          type="date"
+                          name="dateDepart"
+                          value={formData.dateDepart}
+                          onChange={handleChange}
+                          className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Type d'hébergement */}
+                    <div>
+                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
+                        Type d'hébergement
+                      </label>
+                      <select
+                        name="typeHebergement"
+                        value={formData.typeHebergement}
+                        onChange={handleChange}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                      >
+                        <option value="">Sélectionner</option>
+                        <option value="HOTEL">Hôtel</option>
+                        <option value="APPARTEMENT">Appartement</option>
+                        <option value="VILLA">Villa</option>
+                        <option value="AUTRE">Autre</option>
+                      </select>
+                    </div>
+
+                    {/* Catégorie */}
+                    <div>
+                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
+                        Catégorie
+                      </label>
+                      <select
+                        name="categorie"
+                        value={formData.categorie}
+                        onChange={handleChange}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                      >
+                        <option value="">Sélectionner</option>
+                        <option value="3*">3★</option>
+                        <option value="4*">4★</option>
+                        <option value="5*">5★</option>
+                        <option value="LUXE">Luxe</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Demandes spéciales */}
+                  <div>
+                    <label className="block text-sm font-semibold text-glowup-licorice mb-2">
+                      Demandes spéciales
+                    </label>
+                    <textarea
+                      name="demandesSpeciales"
+                      value={formData.demandesSpeciales}
+                      onChange={handleChange}
+                      rows={3}
+                      placeholder="Suite, vue mer, petit-déjeuner inclus, late check-out..."
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Description / Informations complémentaires */}
             <div className="md:col-span-2">
               <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                Description du gift <span className="text-red-500">*</span>
+                {formData.typeGift === "HOTEL"
+                  ? "Informations complémentaires"
+                  : "Description du gift"}{" "}
+                {formData.typeGift === "HOTEL" ? "" : <span className="text-red-500">*</span>}
               </label>
               <textarea
                 name="description"
                 value={formData.description}
                 onChange={handleChange}
-                required
                 rows={4}
-                placeholder="Décrivez précisément le produit/service demandé..."
+                placeholder={
+                  formData.typeGift === "HOTEL"
+                    ? "Informations complémentaires sur l'hôtel, le séjour, etc. (optionnel)"
+                    : "Décrivez précisément le produit/service demandé..."
+                }
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
+                {...(formData.typeGift === "HOTEL" ? {} : { required: true })}
               />
             </div>
 
-            {/* Justification */}
+            {/* Justification / Contexte */}
             <div className="md:col-span-2">
               <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                Justification
+                {formData.typeGift === "HOTEL"
+                  ? "Contexte / pourquoi cet hôtel ?"
+                  : "Justification"}
               </label>
               <textarea
                 name="justification"
                 value={formData.justification}
                 onChange={handleChange}
                 rows={3}
-                placeholder="Pourquoi ce gift est important ? Quel est le contexte ?"
+                placeholder={
+                  formData.typeGift === "HOTEL"
+                    ? "Pourquoi cet hôtel ? Quel est le contexte du séjour ?"
+                    : "Pourquoi ce gift est important ? Quel est le contexte ?"
+                }
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
               />
             </div>
 
-            {/* Valeur estimée */}
+            {/* Valeur / Budget estimé */}
             <div>
               <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                Valeur estimée (€)
+                {formData.typeGift === "HOTEL" ? "Budget estimé (€)" : "Valeur estimée (€)"}
               </label>
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -324,42 +493,46 @@ export default function NewGiftPage() {
             </div>
 
             {/* Date souhaitée */}
-            <div>
-              <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                Date de réception souhaitée
-              </label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="date"
-                  name="dateSouhaitee"
-                  value={formData.dateSouhaitee}
-                  onChange={handleChange}
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                />
+            {formData.typeGift !== "HOTEL" && (
+              <div>
+                <label className="block text-sm font-semibold text-glowup-licorice mb-2">
+                  Date de réception souhaitée
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="date"
+                    name="dateSouhaitee"
+                    value={formData.dateSouhaitee}
+                    onChange={handleChange}
+                    className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Adresse de livraison */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                Adresse de livraison
-              </label>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <textarea
-                  name="adresseLivraison"
-                  value={formData.adresseLivraison}
-                  onChange={handleChange}
-                  rows={3}
-                  placeholder="Adresse complète de livraison..."
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
-                />
+            {formData.typeGift !== "HOTEL" && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-glowup-licorice mb-2">
+                  Adresse de livraison
+                </label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                  <textarea
+                    name="adresseLivraison"
+                    value={formData.adresseLivraison}
+                    onChange={handleChange}
+                    rows={3}
+                    placeholder="Adresse complète de livraison..."
+                    className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  L'adresse du talent sera pré-remplie automatiquement
+                </p>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                L'adresse du talent sera pré-remplie automatiquement
-              </p>
-            </div>
+            )}
           </div>
         </div>
 

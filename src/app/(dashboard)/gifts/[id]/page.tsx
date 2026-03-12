@@ -5,11 +5,38 @@ import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
-  Gift, ArrowLeft, Loader2, AlertCircle, User, Building2,
-  Package, Calendar, MapPin, DollarSign, MessageSquare, Send,
-  Clock, CheckCircle, XCircle, Truck, TrendingUp, Edit, Save,
-  X, AlertTriangle, Phone, Mail, FileText, ArrowRight,
+  Gift,
+  ArrowLeft,
+  Loader2,
+  AlertCircle,
+  User,
+  Building2,
+  Package,
+  Calendar,
+  MapPin,
+  DollarSign,
+  MessageSquare,
+  Send,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Truck,
+  TrendingUp,
+  Edit,
+  Save,
+  X,
+  AlertTriangle,
+  Phone,
+  Mail,
+  FileText,
+  ArrowRight,
+  Plus,
 } from "lucide-react";
+import {
+  MentionTextarea,
+  type MentionableUser,
+  renderCommentWithMentions,
+} from "@/components/MentionTextarea";
 
 export default function GiftDetailPage() {
   const router = useRouter();
@@ -22,14 +49,35 @@ export default function GiftDetailPage() {
   const [sending, setSending] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState<any>({});
+  const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
 
   const user = session?.user as { id?: string; role?: string };
   const isAM = user?.role === "CM" || user?.role === "ADMIN";
   const isTM = user?.role === "TM";
+  const isHotelAcceptedOrBeyond = !!demande &&
+    demande.typeGift === "HOTEL" &&
+    (demande.statut === "ACCEPTE" ||
+      demande.statut === "ENVOYE" ||
+      demande.statut === "RECU");
 
   useEffect(() => {
     fetchDemande();
   }, [params.id]);
+
+  useEffect(() => {
+    const fetchMentionable = async () => {
+      try {
+        const res = await fetch("/api/users/mentionable");
+        if (res.ok) {
+          const data = await res.json();
+          setMentionableUsers(data);
+        }
+      } catch {
+        // silencieux
+      }
+    };
+    fetchMentionable();
+  }, []);
 
   const fetchDemande = async () => {
     try {
@@ -43,6 +91,21 @@ export default function GiftDetailPage() {
         priorite: data.priorite,
         numeroSuivi: data.numeroSuivi || "",
         notesInternes: data.notesInternes || "",
+        // Contreparties (nouveau système JSON)
+        contreparties: Array.isArray(data.contreparties)
+          ? data.contreparties
+          : [],
+        // Retour marque
+        contactMarqueNom: data.contactMarqueNom || "",
+        contactMarqueEmail: data.contactMarqueEmail || "",
+        dateExpeditionPrevue: data.dateExpeditionPrevue || "",
+        // Retour hôtel
+        numeroReservation: data.numeroReservation || "",
+        nomReservation: data.nomReservation || "",
+        adresseHotel: data.adresseHotel || "",
+        contactSurPlace: data.contactSurPlace || "",
+        horaireCheckIn: data.horaireCheckIn || "",
+        horaireCheckOut: data.horaireCheckOut || "",
       });
     } catch (err) {
       console.error(err);
@@ -179,7 +242,106 @@ export default function GiftDetailPage() {
         <div className="lg:col-span-2 space-y-6">
           {/* Workflow - Account Manager uniquement */}
           {isAM && demande.statut !== "ANNULE" && demande.statut !== "REFUSE" && demande.statut !== "RECU" && (
-            <WorkflowPanel demande={demande} onUpdate={handleUpdateStatut} onPrendreEnCharge={handlePrendreEnCharge} />
+            <WorkflowPanel
+              demande={demande}
+              onUpdate={handleUpdateStatut}
+              onPrendreEnCharge={handlePrendreEnCharge}
+            />
+          )}
+
+          {/* Vue lecture seule pour TM : statut + timeline simple */}
+          {!isAM && isTM && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-lg font-bold text-glowup-licorice mb-4 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-purple-600" />
+                Suivi de la demande
+              </h2>
+              <div className="space-y-4">
+                {/* Statut actuel */}
+                <div className="flex items-center gap-3">
+                  <p className="text-sm font-semibold text-gray-500">Statut actuel</p>
+                  <StatutBadge statut={demande.statut} />
+                </div>
+
+                {/* Timeline simple basée sur les dates de suivi */}
+                <div className="space-y-2">
+                  {demande.datePriseEnCharge && (
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                      <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      <span>
+                        Prise en charge le{" "}
+                        {new Date(demande.datePriseEnCharge).toLocaleDateString("fr-FR", {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  {demande.dateContactMarque && (
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                      <Mail className="w-4 h-4 text-blue-500" />
+                      <span>
+                        Marque contactée le{" "}
+                        {new Date(demande.dateContactMarque).toLocaleDateString("fr-FR", {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  {demande.dateReponseMarque && (
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                      <MessageSquare className="w-4 h-4 text-purple-500" />
+                      <span>
+                        Réponse de la marque le{" "}
+                        {new Date(demande.dateReponseMarque).toLocaleDateString("fr-FR", {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  {demande.dateEnvoi && (
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                      <Truck className="w-4 h-4 text-indigo-500" />
+                      <span>
+                        Gift envoyé le{" "}
+                        {new Date(demande.dateEnvoi).toLocaleDateString("fr-FR", {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  {demande.dateReception && (
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                      <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      <span>
+                        Gift reçu le{" "}
+                        {new Date(demande.dateReception).toLocaleDateString("fr-FR", {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  {!demande.datePriseEnCharge &&
+                    !demande.dateContactMarque &&
+                    !demande.dateReponseMarque &&
+                    !demande.dateEnvoi &&
+                    !demande.dateReception && (
+                      <p className="text-sm text-gray-500">
+                        Aucune étape de suivi enregistrée pour le moment.
+                      </p>
+                    )}
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Détails de la demande */}
@@ -249,9 +411,98 @@ export default function GiftDetailPage() {
                   <div className="flex items-center gap-2">
                     <Calendar className="w-5 h-5 text-gray-400" />
                     <p className="text-gray-700 font-semibold">
-                      {new Date(demande.datesouhaitee).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                      {new Date(demande.datesouhaitee).toLocaleDateString("fr-FR", {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      })}
                     </p>
                   </div>
+                </div>
+              )}
+
+              {/* Détails hébergement (HOTEL) */}
+              {demande.typeGift === "HOTEL" && (
+                <div className="border border-purple-100 rounded-2xl p-6 bg-purple-50/40 space-y-4">
+                  <h3 className="text-sm font-bold text-glowup-licorice mb-2 flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-purple-600" />
+                    Détails hébergement
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {demande.destination && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 mb-1">Destination</p>
+                        <p className="text-sm text-gray-800">{demande.destination}</p>
+                      </div>
+                    )}
+
+                    {demande.nombrePersonnes && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 mb-1">Nombre de personnes</p>
+                        <p className="text-sm text-gray-800">{demande.nombrePersonnes}</p>
+                      </div>
+                    )}
+
+                    {demande.dateArrivee && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 mb-1">Date d'arrivée</p>
+                        <p className="text-sm text-gray-800">
+                          {new Date(demande.dateArrivee).toLocaleDateString("fr-FR", {
+                            day: "numeric",
+                            month: "long",
+                            year: "numeric",
+                          })}
+                        </p>
+                      </div>
+                    )}
+
+                    {demande.dateDepart && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 mb-1">Date de départ</p>
+                        <p className="text-sm text-gray-800">
+                          {new Date(demande.dateDepart).toLocaleDateString("fr-FR", {
+                            day: "numeric",
+                            month: "long",
+                            year: "numeric",
+                          })}
+                        </p>
+                      </div>
+                    )}
+
+                    {demande.typeHebergement && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 mb-1">Type d'hébergement</p>
+                        <p className="text-sm text-gray-800">
+                          {demande.typeHebergement === "HOTEL"
+                            ? "Hôtel"
+                            : demande.typeHebergement === "APPARTEMENT"
+                            ? "Appartement"
+                            : demande.typeHebergement === "VILLA"
+                            ? "Villa"
+                            : demande.typeHebergement}
+                        </p>
+                      </div>
+                    )}
+
+                    {demande.categorie && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 mb-1">Catégorie</p>
+                        <p className="text-sm text-gray-800">
+                          {demande.categorie === "LUXE" ? "Luxe" : demande.categorie}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {demande.demandesSpeciales && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 mb-1">Demandes spéciales</p>
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                        {demande.demandesSpeciales}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -295,13 +546,15 @@ export default function GiftDetailPage() {
                     />
                   </div>
 
-                  <button
-                    onClick={handleSaveEdit}
-                    className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all"
-                  >
-                    <Save className="w-5 h-5" />
-                    Enregistrer les modifications
-                  </button>
+                  {!isHotelAcceptedOrBeyond && (
+                    <button
+                      onClick={handleSaveEdit}
+                      className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all"
+                    >
+                      <Save className="w-5 h-5" />
+                      Enregistrer les modifications
+                    </button>
+                  )}
                 </>
               )}
 
@@ -329,46 +582,561 @@ export default function GiftDetailPage() {
             </div>
           </div>
 
+          {/* Informations de réservation (AM/ADMIN) */}
+          {isAM && isHotelAcceptedOrBeyond && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-glowup-licorice flex items-center gap-2">
+                  <span className="text-lg">🏨</span>
+                  Informations de réservation
+                </h2>
+                {demande.statut !== "ANNULE" && (
+                  <div className="flex items-center gap-3">
+                    {editing && (
+                      <button
+                        type="button"
+                        onClick={() => setEditing(false)}
+                        className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl transition-colors text-sm font-semibold"
+                      >
+                        <X className="w-4 h-4" />
+                        Annuler
+                      </button>
+                    )}
+                    {!editing && (
+                      <button
+                        type="button"
+                        onClick={() => setEditing(true)}
+                        className="flex items-center gap-2 px-4 py-2 text-purple-600 hover:bg-purple-50 rounded-xl transition-colors text-sm font-semibold"
+                      >
+                        <Edit className="w-4 h-4" />
+                        Modifier
+                      </button>
+                    )}
+                    {editing && (
+                      <button
+                        type="button"
+                        onClick={handleSaveEdit}
+                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all text-sm"
+                      >
+                        <Save className="w-4 h-4" />
+                        Sauvegarder
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-6">
+                {/* Numéro de réservation & Nom réservation */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-500 mb-1">
+                      Numéro de réservation
+                    </p>
+                    {editing ? (
+                      <input
+                        type="text"
+                        value={editData.numeroReservation}
+                        onChange={(e) =>
+                          setEditData({
+                            ...editData,
+                            numeroReservation: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                        placeholder="Ex : ABC123456"
+                      />
+                    ) : (
+                      <p className="text-sm text-gray-800">
+                        {demande.numeroReservation || (
+                          <span className="text-gray-400">Non renseigné</span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-semibold text-gray-500 mb-1">
+                      Nom de la réservation
+                    </p>
+                    {editing ? (
+                      <input
+                        type="text"
+                        value={editData.nomReservation}
+                        onChange={(e) =>
+                          setEditData({
+                            ...editData,
+                            nomReservation: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                        placeholder="Nom sous lequel la réservation est faite"
+                      />
+                    ) : (
+                      <p className="text-sm text-gray-800">
+                        {demande.nomReservation || (
+                          <span className="text-gray-400">Non renseigné</span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Adresse + contact sur place */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-500 mb-1">
+                      Adresse de l'hôtel
+                    </p>
+                    {editing ? (
+                      <textarea
+                        value={editData.adresseHotel}
+                        onChange={(e) =>
+                          setEditData({
+                            ...editData,
+                            adresseHotel: e.target.value,
+                          })
+                        }
+                        rows={4}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
+                        placeholder="Adresse complète de l'hôtel..."
+                      />
+                    ) : (
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                        {demande.adresseHotel || (
+                          <span className="text-gray-400">Non renseigné</span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-500 mb-1">
+                        Contact sur place / accueil
+                      </p>
+                      {editing ? (
+                        <input
+                          type="text"
+                          value={editData.contactSurPlace}
+                          onChange={(e) =>
+                            setEditData({
+                              ...editData,
+                              contactSurPlace: e.target.value,
+                            })
+                          }
+                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                          placeholder="Nom / service à demander à l'accueil"
+                        />
+                      ) : (
+                        <p className="text-sm text-gray-800">
+                          {demande.contactSurPlace || (
+                            <span className="text-gray-400">Non renseigné</span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-500 mb-1">
+                          Horaire check-in
+                        </p>
+                        {editing ? (
+                          <input
+                            type="text"
+                            value={editData.horaireCheckIn}
+                            onChange={(e) =>
+                              setEditData({
+                                ...editData,
+                                horaireCheckIn: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                            placeholder="Ex : À partir de 15h"
+                          />
+                        ) : (
+                          <p className="text-sm text-gray-800">
+                            {demande.horaireCheckIn || (
+                              <span className="text-gray-400">
+                                Non renseigné
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="text-sm font-semibold text-gray-500 mb-1">
+                          Horaire check-out
+                        </p>
+                        {editing ? (
+                          <input
+                            type="text"
+                            value={editData.horaireCheckOut}
+                            onChange={(e) =>
+                              setEditData({
+                                ...editData,
+                                horaireCheckOut: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                            placeholder="Ex : Avant 12h"
+                          />
+                        ) : (
+                          <p className="text-sm text-gray-800">
+                            {demande.horaireCheckOut || (
+                              <span className="text-gray-400">
+                                Non renseigné
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Séparateur */}
+                <div className="h-px bg-gray-100" />
+
+                {/* Contreparties attendues (multi-lignes) */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-glowup-licorice">
+                    Contreparties attendues
+                  </h3>
+
+                  {editing ? (
+                    <div className="space-y-3">
+                      {(editData.contreparties || []).map(
+                        (c: any, index: number) => (
+                          <div
+                            key={index}
+                            className="flex flex-col md:flex-row gap-3 items-stretch md:items-center"
+                          >
+                            <select
+                              value={c.type || "STORY"}
+                              onChange={(e) => {
+                                const next = [...(editData.contreparties || [])];
+                                next[index] = {
+                                  ...next[index],
+                                  type: e.target.value,
+                                };
+                                setEditData({
+                                  ...editData,
+                                  contreparties: next,
+                                });
+                              }}
+                              className="w-full md:w-1/2 px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                            >
+                              <option value="STORY">Story</option>
+                              <option value="POST_FEED">Post feed</option>
+                              <option value="REEL_TIKTOK">Reel / TikTok</option>
+                              <option value="MENTION_STORY">
+                                Mention story
+                              </option>
+                              <option value="CHOIX_TALENT">
+                                Au choix du talent
+                              </option>
+                            </select>
+
+                            <div className="flex items-center gap-2 md:w-1/3">
+                              <input
+                                type="number"
+                                min={0}
+                                value={
+                                  c.delai === undefined || c.delai === null
+                                    ? ""
+                                    : c.delai
+                                }
+                                onChange={(e) => {
+                                  const value =
+                                    e.target.value === ""
+                                      ? null
+                                      : Number(e.target.value);
+                                  const next = [
+                                    ...(editData.contreparties || []),
+                                  ];
+                                  next[index] = {
+                                    ...next[index],
+                                    delai: value,
+                                  };
+                                  setEditData({
+                                    ...editData,
+                                    contreparties: next,
+                                  });
+                                }}
+                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                                placeholder="Jours"
+                              />
+                              <span className="text-sm text-gray-500">
+                                j
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = [
+                                  ...(editData.contreparties || []),
+                                ];
+                                next.splice(index, 1);
+                                setEditData({
+                                  ...editData,
+                                  contreparties: next,
+                                });
+                              }}
+                              className="inline-flex items-center justify-center px-3 py-2 rounded-xl border border-gray-200 text-gray-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Array.isArray(editData.contreparties)
+                            ? [...editData.contreparties]
+                            : [];
+                          next.push({ type: "STORY", delai: 7 });
+                          setEditData({
+                            ...editData,
+                            contreparties: next,
+                          });
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-purple-600 hover:bg-purple-50 rounded-xl text-sm font-semibold transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Ajouter une contrepartie
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {Array.isArray(demande.contreparties) &&
+                      demande.contreparties.length > 0 ? (
+                        (demande.contreparties as any[]).map(
+                          (c: any, index: number) => {
+                            const labels: Record<string, string> = {
+                              STORY: "Story",
+                              POST_FEED: "Post feed",
+                              REEL_TIKTOK: "Reel / TikTok",
+                              MENTION_STORY: "Mention story",
+                              CHOIX_TALENT: "Au choix du talent",
+                            };
+                            const label =
+                              labels[c.type] || c.type || "Contrepartie";
+                            const suffix =
+                              c.delai != null && c.delai !== ""
+                                ? ` dans ${c.delai}j`
+                                : "";
+                            return (
+                              <span
+                                key={index}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold"
+                              >
+                                {label}
+                                {suffix}
+                              </span>
+                            );
+                          }
+                        )
+                      ) : (
+                        <span className="text-sm text-gray-400">
+                          Aucune contrepartie renseignée
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Informations de réservation (Vue TM lecture seule) */}
+          {isTM &&
+            isHotelAcceptedOrBeyond &&
+            (demande.numeroReservation ||
+              demande.nomReservation ||
+              demande.adresseHotel ||
+              demande.contactSurPlace ||
+              demande.horaireCheckIn ||
+              demande.horaireCheckOut ||
+              (Array.isArray(demande.contreparties) &&
+                demande.contreparties.length > 0)) && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+                <h2 className="text-xl font-bold text-glowup-licorice mb-4 flex items-center gap-2">
+                  <span className="text-lg">🏨</span>
+                  Informations de réservation
+                </h2>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {demande.numeroReservation && (
+                      <div>
+                        <p className="text-sm font-semibold text-gray-500 mb-1">
+                          Numéro de réservation
+                        </p>
+                        <p className="text-sm text-gray-800">
+                          {demande.numeroReservation}
+                        </p>
+                      </div>
+                    )}
+
+                    {demande.nomReservation && (
+                      <div>
+                        <p className="text-sm font-semibold text-gray-500 mb-1">
+                          Nom de la réservation
+                        </p>
+                        <p className="text-sm text-gray-800">
+                          {demande.nomReservation}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {demande.adresseHotel && (
+                    <div>
+                      <p className="text-sm font-semibold text-gray-500 mb-1">
+                        Adresse de l'hôtel
+                      </p>
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                        {demande.adresseHotel}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {demande.contactSurPlace && (
+                      <div>
+                        <p className="text-sm font-semibold text-gray-500 mb-1">
+                          Contact sur place / accueil
+                        </p>
+                        <p className="text-sm text-gray-800">
+                          {demande.contactSurPlace}
+                        </p>
+                      </div>
+                    )}
+
+                    {(demande.horaireCheckIn || demande.horaireCheckOut) && (
+                      <div className="grid grid-cols-1 gap-3">
+                        {demande.horaireCheckIn && (
+                          <div>
+                            <p className="text-sm font-semibold text-gray-500 mb-1">
+                              Horaire check-in
+                            </p>
+                            <p className="text-sm text-gray-800">
+                              {demande.horaireCheckIn}
+                            </p>
+                          </div>
+                        )}
+                        {demande.horaireCheckOut && (
+                          <div>
+                            <p className="text-sm font-semibold text-gray-500 mb-1">
+                              Horaire check-out
+                            </p>
+                            <p className="text-sm text-gray-800">
+                              {demande.horaireCheckOut}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {Array.isArray(demande.contreparties) &&
+                    demande.contreparties.length > 0 && (
+                      <div className="pt-2 border-t border-gray-100 mt-2">
+                        <p className="text-sm font-semibold text-gray-500 mb-1">
+                          Contreparties attendues
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {(demande.contreparties as any[]).map(
+                            (c: any, index: number) => {
+                              const labels: Record<string, string> = {
+                                STORY: "Story",
+                                POST_FEED: "Post feed",
+                                REEL_TIKTOK: "Reel / TikTok",
+                                MENTION_STORY: "Mention story",
+                                CHOIX_TALENT: "Au choix du talent",
+                              };
+                              const label =
+                                labels[c.type] || c.type || "Contrepartie";
+                              const suffix =
+                                c.delai != null && c.delai !== ""
+                                  ? ` dans ${c.delai}j`
+                                  : "";
+                              return (
+                                <span
+                                  key={index}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold"
+                                >
+                                  {label}
+                                  {suffix}
+                                </span>
+                              );
+                            }
+                          )}
+                        </div>
+                      </div>
+                    )}
+                </div>
+              </div>
+            )}
+
           {/* Commentaires */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 md:p-10 space-y-6">
             <h2 className="text-xl font-bold text-glowup-licorice mb-6 flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-purple-600" />
               Discussion ({demande.commentaires?.length || 0})
             </h2>
 
             {/* Liste des commentaires */}
-            <div className="space-y-4 mb-6">
+            <div className="space-y-5 mb-8">
               {demande.commentaires && demande.commentaires.length > 0 ? (
                 demande.commentaires.map((comment: any) => (
-                  <CommentCard key={comment.id} comment={comment} />
+                  <CommentCard
+                    key={comment.id}
+                    comment={comment}
+                    mentionableUsers={mentionableUsers}
+                  />
                 ))
               ) : (
-                <p className="text-gray-500 text-center py-8">Aucun commentaire pour le moment</p>
+                <p className="text-gray-500 text-center py-8">
+                  Aucun commentaire pour le moment
+                </p>
               )}
             </div>
 
-            {/* Formulaire de commentaire */}
+            {/* Formulaire de commentaire avec mentions */}
             {demande.statut !== "ANNULE" && (
-              <form onSubmit={handleSendComment} className="border-t border-gray-100 pt-6">
-                <div className="flex gap-3">
-                  <textarea
+              <form
+                onSubmit={handleSendComment}
+                className="border-t border-gray-100 pt-6"
+              >
+                <div className="space-y-3">
+                  <MentionTextarea
                     value={commentaire}
-                    onChange={(e) => setCommentaire(e.target.value)}
-                    placeholder="Ajouter un commentaire..."
+                    onChange={setCommentaire}
+                    placeholder="Ajouter un commentaire... (tapez @ pour mentionner)"
                     rows={3}
-                    className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
+                    mentionableUsers={mentionableUsers}
+                    className="w-full min-h-[100px] border-gray-200 focus:ring-2 focus:ring-purple-500/20 resize-y"
                   />
-                  <button
-                    type="submit"
-                    disabled={sending || !commentaire.trim()}
-                    className="self-end px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {sending ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <Send className="w-5 h-5" />
-                    )}
-                  </button>
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={sending || !commentaire.trim()}
+                      className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {sending ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Send className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </form>
             )}
@@ -692,19 +1460,44 @@ function getWorkflowSteps(currentStatut: string) {
   };
 }
 
-function CommentCard({ comment }: any) {
-  const isSystem = comment.auteur.role === "CM" || comment.auteur.role === "ADMIN";
+function CommentCard({
+  comment,
+  mentionableUsers,
+}: {
+  comment: any;
+  mentionableUsers: MentionableUser[];
+}) {
+  const isSystem =
+    comment.auteur.role === "CM" || comment.auteur.role === "ADMIN";
+
+  const usersById = new Map<
+    string,
+    { firstName: string; lastName: string }
+  >();
+  for (const u of mentionableUsers || []) {
+    usersById.set(u.id, { firstName: u.firstName, lastName: u.lastName });
+  }
   
   return (
-    <div className={`p-4 rounded-xl ${isSystem ? "bg-blue-50 border border-blue-200" : "bg-gray-50"}`}>
-      <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold ${
-          isSystem ? "bg-gradient-to-br from-blue-500 to-indigo-600" : "bg-gradient-to-br from-gray-400 to-gray-600"
-        }`}>
+    <div
+      className={`p-5 md:p-6 rounded-2xl ${
+        isSystem
+          ? "bg-blue-50 border border-blue-200"
+          : "bg-gray-50 border border-gray-100"
+      }`}
+    >
+      <div className="flex items-start gap-4">
+        <div
+          className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold ${
+            isSystem
+              ? "bg-gradient-to-br from-blue-500 to-indigo-600"
+              : "bg-gradient-to-br from-gray-400 to-gray-600"
+          }`}
+        >
           {comment.auteur.prenom[0]}{comment.auteur.nom[0]}
         </div>
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1.5">
             <p className="font-bold text-glowup-licorice">
               {comment.auteur.prenom} {comment.auteur.nom}
             </p>
@@ -722,7 +1515,14 @@ function CommentCard({ comment }: any) {
               })}
             </span>
           </div>
-          <p className="text-gray-700 whitespace-pre-wrap">{comment.contenu}</p>
+          <p className="text-gray-700 whitespace-pre-wrap">
+            {renderCommentWithMentions(
+              comment.contenu,
+              usersById,
+              undefined,
+              { accentColor: "#C08B8B" }
+            )}
+          </p>
         </div>
       </div>
     </div>

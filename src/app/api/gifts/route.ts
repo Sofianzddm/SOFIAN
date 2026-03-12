@@ -3,7 +3,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-// GET /api/gifts - Liste des demandes de gifts
+// GET /api/gifts
+// - Liste des demandes de gifts (mode normal)
+// - Liste des talents filtrés pour le formulaire (mode=talents)
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -15,18 +17,55 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const statut = searchParams.get("statut");
     const talentId = searchParams.get("talentId");
+    const mode = searchParams.get("mode");
+
+    // Mode spécial: récupération des talents filtrés pour le formulaire de création
+    if (mode === "talents") {
+      if (!["TM", "ADMIN"].includes(user.role)) {
+        return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+      }
+
+      const whereTalent: any = { isArchived: false };
+      if (user.role === "TM") {
+        // TM : uniquement ses talents
+        whereTalent.managerId = user.id;
+      }
+
+      const talents = await prisma.talent.findMany({
+        where: whereTalent,
+        select: {
+          id: true,
+          prenom: true,
+          nom: true,
+          instagram: true,
+          adresse: true,
+          codePostal: true,
+          ville: true,
+          pays: true,
+        },
+        orderBy: [
+          { prenom: "asc" },
+          { nom: "asc" },
+        ],
+      });
+
+      return NextResponse.json(talents);
+    }
+
+    // Mode par défaut : liste des demandes de gifts
+    const { role, id } = user;
 
     // Construction de la requête selon le rôle
     let where: any = {};
 
-    if (user.role === "TM") {
+    if (role === "TM") {
       // TM voit uniquement ses demandes
-      where.tmId = user.id;
-    } else if (user.role === "CM") {
+      where.tmId = id;
+    } else if (role === "CM") {
       // Account Manager (CM) voit toutes les demandes
       // Optionnel : filtrer celles qui lui sont assignées
       // where.accountManagerId = user.id;
-    } else if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(user.role)) {
+    } else if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(role)) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
@@ -114,10 +153,10 @@ export async function POST(req: NextRequest) {
 
     const user = session.user as { id: string; role: string };
 
-    // Seuls les TM peuvent créer des demandes
-    if (user.role !== "TM") {
+    // Seuls les TM et ADMIN peuvent créer des demandes
+    if (!["TM", "ADMIN"].includes(user.role)) {
       return NextResponse.json(
-        { error: "Seuls les Talent Managers peuvent créer des demandes de gifts" },
+        { error: "Seuls les Talent Managers et Admin peuvent créer des demandes de gifts" },
         { status: 403 }
       );
     }
@@ -134,6 +173,14 @@ export async function POST(req: NextRequest) {
       dateSouhaitee,
       adresseLivraison,
       statut,
+      // Champs hébergement
+      destination,
+      dateArrivee,
+      dateDepart,
+      nombrePersonnes,
+      typeHebergement,
+      categorie,
+      demandesSpeciales,
     } = body;
 
     // Validation
@@ -144,19 +191,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Vérifier que le TM gère bien ce talent
-    const talent = await prisma.talent.findFirst({
-      where: {
-        id: talentId,
-        managerId: user.id,
-      },
-    });
+    // Vérifier que le TM gère bien ce talent (sauf pour les ADMIN)
+    let talent;
+    if (user.role === "TM") {
+      talent = await prisma.talent.findFirst({
+        where: {
+          id: talentId,
+          managerId: user.id,
+        },
+      });
 
-    if (!talent) {
-      return NextResponse.json(
-        { error: "Vous ne gérez pas ce talent" },
-        { status: 403 }
-      );
+      if (!talent) {
+        return NextResponse.json(
+          { error: "Vous ne gérez pas ce talent" },
+          { status: 403 }
+        );
+      }
+    } else {
+      // Pour les ADMIN, vérifier simplement que le talent existe
+      talent = await prisma.talent.findUnique({
+        where: { id: talentId },
+      });
+
+      if (!talent) {
+        return NextResponse.json(
+          { error: "Talent introuvable" },
+          { status: 404 }
+        );
+      }
     }
 
     // Générer la référence
@@ -183,7 +245,7 @@ export async function POST(req: NextRequest) {
       data: {
         reference,
         talentId,
-        tmId: user.id,
+        tmId: user.role === "TM" ? user.id : talent.managerId ?? user.id,
         marqueId: marqueId || null,
         typeGift,
         description,
@@ -193,6 +255,14 @@ export async function POST(req: NextRequest) {
         datesouhaitee: dateSouhaitee ? new Date(dateSouhaitee) : null,
         adresseLivraison: adresseLivraison || null,
         statut: statut || "EN_ATTENTE", // Par défaut EN_ATTENTE (soumise)
+        // Hébergement (HOTEL)
+        destination: destination || null,
+        dateArrivee: dateArrivee ? new Date(dateArrivee) : null,
+        dateDepart: dateDepart ? new Date(dateDepart) : null,
+        nombrePersonnes: nombrePersonnes ? parseInt(nombrePersonnes, 10) : null,
+        typeHebergement: typeHebergement || null,
+        categorie: categorie || null,
+        demandesSpeciales: demandesSpeciales || null,
       },
       include: {
         talent: {
@@ -209,8 +279,37 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Créer une notification pour les Account Managers
-    // TODO: Implémenter le système de notifications
+    // Créer des notifications pour les AM + ADMIN (CM exclu, hors auteur)
+    try {
+      const destinataires = await prisma.user.findMany({
+        where: {
+          role: { in: ["HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "ADMIN"] },
+          actif: true,
+          id: { not: user.id }, // ne pas notifier l'auteur
+        },
+        select: { id: true },
+      });
+
+      const talentName = `${demande.talent.prenom} ${demande.talent.nom}`.trim();
+      const message = `Nouvelle demande de gift ${demande.reference} pour ${talentName} — ${typeGift}`;
+
+      for (const dest of destinataires) {
+        await prisma.notification.create({
+          data: {
+            userId: dest.id,
+            type: "GENERAL",
+            titre: "Nouvelle demande de gift",
+            message,
+            lien: `/gifts/${demande.id}`,
+            actorId: user.id,
+            talentId: talentId,
+            marqueId: marqueId || null,
+          },
+        });
+      }
+    } catch (notifError) {
+      console.error("Erreur création notifications gifts (création):", notifError);
+    }
 
     return NextResponse.json(demande, { status: 201 });
   } catch (error) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import type { Role } from "@prisma/client";
 
 // GET /api/gifts/[id] - Détails d'une demande
 export async function GET(
@@ -129,6 +130,8 @@ export async function PATCH(
       );
     }
 
+    const ancienStatut = demande.statut;
+
     // Vérifier les droits
     const canEdit =
       user.role === "ADMIN" ||
@@ -150,6 +153,19 @@ export async function PATCH(
     if (body.dateSouhaitee !== undefined) updateData.datesouhaitee = body.dateSouhaitee ? new Date(body.dateSouhaitee) : null;
     if (body.adresseLivraison !== undefined) updateData.adresseLivraison = body.adresseLivraison;
     if (body.notesInternes !== undefined) updateData.notesInternes = body.notesInternes;
+    // Hébergement (HOTEL)
+    if (body.destination !== undefined) updateData.destination = body.destination;
+    if (body.dateArrivee !== undefined) updateData.dateArrivee = body.dateArrivee ? new Date(body.dateArrivee) : null;
+    if (body.dateDepart !== undefined) updateData.dateDepart = body.dateDepart ? new Date(body.dateDepart) : null;
+    if (body.nombrePersonnes !== undefined) {
+      updateData.nombrePersonnes =
+        body.nombrePersonnes === null || body.nombrePersonnes === ""
+          ? null
+          : parseInt(body.nombrePersonnes, 10);
+    }
+    if (body.typeHebergement !== undefined) updateData.typeHebergement = body.typeHebergement;
+    if (body.categorie !== undefined) updateData.categorie = body.categorie;
+    if (body.demandesSpeciales !== undefined) updateData.demandesSpeciales = body.demandesSpeciales;
 
     // Champs modifiables uniquement par AM
     if (user.role === "CM" || user.role === "ADMIN") {
@@ -183,6 +199,7 @@ export async function PATCH(
       if (body.numeroSuivi !== undefined) updateData.numeroSuivi = body.numeroSuivi;
       if (body.dateEnvoi !== undefined) updateData.dateEnvoi = body.dateEnvoi ? new Date(body.dateEnvoi) : null;
       if (body.dateReception !== undefined) updateData.dateReception = body.dateReception ? new Date(body.dateReception) : null;
+      if (body.contreparties !== undefined) updateData.contreparties = body.contreparties;
     }
 
     const demandeUpdated = await prisma.demandeGift.update({
@@ -208,6 +225,87 @@ export async function PATCH(
         },
       },
     });
+
+    // Notifications de changement de statut
+    try {
+      if (body.statut && body.statut !== ancienStatut) {
+        const nouveauStatut = body.statut as string;
+        const ref = demandeUpdated.reference;
+        const talentName = demandeUpdated.talent
+          ? `${demandeUpdated.talent.prenom} ${demandeUpdated.talent.nom}`.trim()
+          : "";
+
+        // Notifier la TM pour certains statuts (hors EN_ATTENTE)
+        if (nouveauStatut !== "EN_ATTENTE" && demande.tmId && demande.tmId !== user.id) {
+          let messageTM: string | null = null;
+          if (nouveauStatut === "ATTENTE_MARQUE") {
+            messageTM = "Un Account Manager a contacté la marque pour " + ref;
+          } else if (nouveauStatut === "ACCEPTE") {
+            messageTM = `🎉 La marque a accepté ta demande ${ref} pour ${talentName}`;
+          } else if (nouveauStatut === "REFUSE") {
+            messageTM = `La marque a refusé la demande ${ref} pour ${talentName}`;
+          } else if (nouveauStatut === "ENVOYE") {
+            messageTM = `Le gift ${ref} a été envoyé à ${talentName}`;
+          } else if (nouveauStatut === "RECU") {
+            messageTM = `✅ ${talentName} a bien reçu le gift ${ref}`;
+          } else if (nouveauStatut === "ANNULE") {
+            messageTM = `La demande ${ref} a été annulée`;
+          }
+
+          if (messageTM) {
+            await prisma.notification.create({
+              data: {
+                userId: demande.tmId,
+                type: "GENERAL",
+                titre: "Mise à jour de ta demande de gift",
+                message: messageTM,
+                lien: `/gifts/${id}`,
+                actorId: user.id,
+                talentId: demande.talentId,
+                marqueId: demande.marqueId,
+              },
+            });
+          }
+        }
+
+        // EN_ATTENTE → notifier tous les AM + ADMIN (CM exclu, pas la TM)
+        if (nouveauStatut === "EN_ATTENTE") {
+          const staffRoles: Role[] = [
+            "HEAD_OF",
+            "HEAD_OF_INFLUENCE",
+            "HEAD_OF_SALES",
+            "ADMIN",
+          ];
+          const destinataires = await prisma.user.findMany({
+            where: {
+              role: { in: staffRoles },
+              actif: true,
+              id: { not: user.id },
+            },
+            select: { id: true },
+          });
+
+          const message = `Nouvelle demande de gift ${ref} en attente de prise en charge`;
+
+          for (const dest of destinataires) {
+            await prisma.notification.create({
+              data: {
+                userId: dest.id,
+                type: "GENERAL",
+                titre: "Demande de gift en attente",
+                message,
+                lien: `/gifts/${id}`,
+                actorId: user.id,
+                talentId: demande.talentId,
+                marqueId: demande.marqueId,
+              },
+            });
+          }
+        }
+      }
+    } catch (notifError) {
+      console.error("Erreur notifications statut gift:", notifError);
+    }
 
     return NextResponse.json(demandeUpdated);
   } catch (error) {

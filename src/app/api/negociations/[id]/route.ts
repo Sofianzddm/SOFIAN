@@ -9,6 +9,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+    }
+
     const { id } = await params;
     const negociation = await prisma.negociation.findUnique({
       where: { id: id },
@@ -46,6 +51,14 @@ export async function GET(
 
     if (!negociation) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
+
+    // Sécurité : un TM ne peut voir que ses propres négociations
+    if (
+      session.user.role === "TM" &&
+      negociation.tmId !== session.user.id
+    ) {
+      return NextResponse.json({ message: "Accès refusé" }, { status: 403 });
     }
 
     return NextResponse.json(negociation);

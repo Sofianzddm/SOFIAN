@@ -87,6 +87,38 @@ export async function POST(
       },
     });
 
+    // Notification : informer la TM que la demande est prise en charge
+    try {
+      if (demande.tmId && demande.tmId !== user.id) {
+        const tmUser = await prisma.user.findUnique({
+          where: { id: demande.tmId },
+          select: { id: true },
+        });
+
+        if (tmUser) {
+          const amName =
+            demandeUpdated.accountManager?.prenom && demandeUpdated.accountManager?.nom
+              ? `${demandeUpdated.accountManager.prenom} ${demandeUpdated.accountManager.nom}`.trim()
+              : "Un Account Manager";
+
+          await prisma.notification.create({
+            data: {
+              userId: tmUser.id,
+              type: "GENERAL",
+              titre: "Demande de gift prise en charge",
+              message: `${amName} a pris en charge ta demande ${demande.reference}`,
+              lien: `/gifts/${id}`,
+              actorId: user.id,
+              talentId: demande.talentId,
+              marqueId: demande.marqueId,
+            },
+          });
+        }
+      }
+    } catch (notifError) {
+      console.error("Erreur création notification prise en charge gift:", notifError);
+    }
+
     return NextResponse.json(demandeUpdated);
   } catch (error) {
     console.error("Erreur POST /api/gifts/[id]/prendre-en-charge:", error);
