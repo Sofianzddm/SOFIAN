@@ -1,7 +1,11 @@
+import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Resend } from "resend";
+import { render } from "@react-email/render";
+import { GiftPriseEnChargeEmail } from "@/emails/GiftPriseEnChargeEmail";
 
 // POST /api/gifts/[id]/prendre-en-charge - Account Manager prend en charge la demande
 export async function POST(
@@ -92,12 +96,13 @@ export async function POST(
       if (demande.tmId && demande.tmId !== user.id) {
         const tmUser = await prisma.user.findUnique({
           where: { id: demande.tmId },
-          select: { id: true },
+          select: { id: true, email: true, prenom: true, nom: true },
         });
 
         if (tmUser) {
           const amName =
-            demandeUpdated.accountManager?.prenom && demandeUpdated.accountManager?.nom
+            demandeUpdated.accountManager?.prenom &&
+            demandeUpdated.accountManager?.nom
               ? `${demandeUpdated.accountManager.prenom} ${demandeUpdated.accountManager.nom}`.trim()
               : "Un Account Manager";
 
@@ -113,10 +118,63 @@ export async function POST(
               marqueId: demande.marqueId,
             },
           });
+
+          // Email transactionnel à la TM (prise en charge)
+          const resendKey = process.env.RESEND_API_KEY;
+          const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+          if (resendKey && fromEmail && tmUser.email) {
+            try {
+              const resend = new Resend(resendKey);
+              const link = `/gifts/${id}`;
+              const rawBase =
+                (process.env.NEXT_PUBLIC_BASE_URL ||
+                  "https://app.glowupagence.fr")?.trim() || "";
+              const baseUrl = rawBase.replace(/\/$/, "");
+              const url = `${baseUrl}${link}`;
+
+              const tmName =
+                tmUser.prenom && tmUser.nom
+                  ? `${tmUser.prenom} ${tmUser.nom}`.trim()
+                  : "Talent Manager";
+              const talentName = `${demande.talent.prenom} ${demande.talent.nom}`.trim();
+              const typeGift = demande.typeGift;
+
+              const baseSubject = `✅ Ta demande ${demande.reference} a été prise en charge`;
+              const urgentPrefix =
+                demande.priorite === "URGENTE" ? "🚨 URGENT — " : "";
+              const subject = `${urgentPrefix}${baseSubject}`;
+
+              const html = await render(
+                React.createElement(GiftPriseEnChargeEmail, {
+                  tmName,
+                  amName,
+                  reference: demande.reference,
+                  talentName,
+                  typeGift,
+                  url,
+                })
+              );
+
+              await resend.emails.send({
+                from: fromEmail.includes("<")
+                  ? fromEmail
+                  : `Glow Up Agence <${fromEmail}>`,
+                to: tmUser.email,
+                subject,
+                html,
+              });
+            } catch (err) {
+              console.error(
+                "Erreur envoi email prise en charge gift:",
+                tmUser.email,
+                err
+              );
+            }
+          }
         }
       }
     } catch (notifError) {
-      console.error("Erreur création notification prise en charge gift:", notifError);
+      console.error("Erreur création notification/email prise en charge gift:", notifError);
     }
 
     return NextResponse.json(demandeUpdated);

@@ -1,8 +1,12 @@
+import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@prisma/client";
+import { Resend } from "resend";
+import { render } from "@react-email/render";
+import { GiftStatutEmail } from "@/emails/GiftStatutEmail";
 
 // GET /api/gifts/[id] - Détails d'une demande
 export async function GET(
@@ -265,6 +269,113 @@ export async function PATCH(
                 marqueId: demande.marqueId,
               },
             });
+
+            // Email transactionnel pour la TM sur certains statuts
+            const resendKey = process.env.RESEND_API_KEY;
+            const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+            const shouldEmail =
+              nouveauStatut === "ACCEPTE" ||
+              nouveauStatut === "REFUSE" ||
+              nouveauStatut === "ENVOYE" ||
+              nouveauStatut === "RECU";
+
+            if (resendKey && fromEmail && shouldEmail) {
+              try {
+                const tmUser = await prisma.user.findUnique({
+                  where: { id: demande.tmId },
+                  select: { email: true, prenom: true, nom: true },
+                });
+                if (tmUser?.email) {
+                  const resend = new Resend(resendKey);
+                  const link = `/gifts/${id}`;
+                  const rawBase =
+                    (process.env.NEXT_PUBLIC_BASE_URL ||
+                      "https://app.glowupagence.fr")?.trim() || "";
+                  const baseUrl = rawBase.replace(/\/$/, "");
+                  const url = `${baseUrl}${link}`;
+
+                  const tmName =
+                    tmUser.prenom && tmUser.nom
+                      ? `${tmUser.prenom} ${tmUser.nom}`.trim()
+                      : "Talent Manager";
+
+                  let statutMessage = messageTM;
+                  // Ajuster légèrement pour l'email si besoin
+                  if (nouveauStatut === "ACCEPTE") {
+                    statutMessage = `🎉 La marque a accepté ta demande ${ref} pour ${talentName}`;
+                  } else if (nouveauStatut === "REFUSE") {
+                    statutMessage = `La marque a refusé la demande ${ref} pour ${talentName}`;
+                  } else if (nouveauStatut === "ENVOYE") {
+                    statutMessage = `Le gift ${ref} a été envoyé à ${talentName}`;
+                  } else if (nouveauStatut === "RECU") {
+                    statutMessage = `✅ ${talentName} a bien reçu le gift ${ref}`;
+                  }
+
+                  const isHotel = demandeUpdated.typeGift === "HOTEL";
+                  let hotelReservationSummary: string | null = null;
+                  if (
+                    isHotel &&
+                    (demandeUpdated.numeroReservation ||
+                      demandeUpdated.nomReservation ||
+                      demandeUpdated.adresseHotel)
+                  ) {
+                    const parts: string[] = [];
+                    if (demandeUpdated.numeroReservation) {
+                      parts.push(`Réservation n° ${demandeUpdated.numeroReservation}`);
+                    }
+                    if (demandeUpdated.nomReservation) {
+                      parts.push(`au nom de ${demandeUpdated.nomReservation}`);
+                    }
+                    if (demandeUpdated.adresseHotel) {
+                      parts.push(demandeUpdated.adresseHotel);
+                    }
+                    hotelReservationSummary = parts.join(" • ");
+                  }
+
+                  const trackingNumber =
+                    nouveauStatut === "ENVOYE" && demandeUpdated.numeroSuivi
+                      ? demandeUpdated.numeroSuivi
+                      : null;
+
+                  const baseSubjectMap: Record<string, string> = {
+                    ACCEPTE: `🎉 Gift accepté — ${ref}`,
+                    REFUSE: `Gift refusé — ${ref}`,
+                    ENVOYE: `📦 Gift en route — ${ref}`,
+                    RECU: `✅ Gift reçu — ${ref}`,
+                  };
+                  const baseSubject =
+                    baseSubjectMap[nouveauStatut] || `Mise à jour de ta demande ${ref}`;
+                  const urgentPrefix =
+                    demandeUpdated.priorite === "URGENTE" ? "🚨 URGENT — " : "";
+                  const subject = `${urgentPrefix}${baseSubject}`;
+
+                  const html = await render(
+                    React.createElement(GiftStatutEmail, {
+                      tmName,
+                      reference: ref,
+                      talentName,
+                      statut: nouveauStatut as any,
+                      statutMessage,
+                      url,
+                      isHotel,
+                      hotelReservationSummary,
+                      trackingNumber,
+                    })
+                  );
+
+                  await resend.emails.send({
+                    from: fromEmail.includes("<")
+                      ? fromEmail
+                      : `Glow Up Agence <${fromEmail}>`,
+                    to: tmUser.email,
+                    subject,
+                    html,
+                  });
+                }
+              } catch (err) {
+                console.error("Erreur envoi email statut gift:", err);
+              }
+            }
           }
         }
 

@@ -1,7 +1,12 @@
+import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Resend } from "resend";
+import { render } from "@react-email/render";
+import type { Role } from "@prisma/client";
+import { GiftNouvelleDemandeEmail } from "@/emails/GiftNouvelleDemandeEmail";
 
 // GET /api/gifts
 // - Liste des demandes de gifts (mode normal)
@@ -281,13 +286,19 @@ export async function POST(req: NextRequest) {
 
     // Créer des notifications pour les AM + ADMIN (CM exclu, hors auteur)
     try {
+      const staffRoles: Role[] = [
+        "HEAD_OF",
+        "HEAD_OF_INFLUENCE",
+        "HEAD_OF_SALES",
+        "ADMIN",
+      ];
       const destinataires = await prisma.user.findMany({
         where: {
-          role: { in: ["HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "ADMIN"] },
+          role: { in: staffRoles },
           actif: true,
           id: { not: user.id }, // ne pas notifier l'auteur
         },
-        select: { id: true },
+        select: { id: true, prenom: true, email: true },
       });
 
       const talentName = `${demande.talent.prenom} ${demande.talent.nom}`.trim();
@@ -307,8 +318,109 @@ export async function POST(req: NextRequest) {
           },
         });
       }
+
+      // Emails transactionnels pour nouvelle demande (AM + ADMIN)
+      const resendKey = process.env.RESEND_API_KEY;
+      const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+      if (resendKey && fromEmail) {
+        const resend = new Resend(resendKey);
+        const link = `/gifts/${demande.id}`;
+        const rawBase =
+          (process.env.NEXT_PUBLIC_BASE_URL ||
+            "https://app.glowupagence.fr")?.trim() || "";
+        const baseUrl = rawBase.replace(/\/$/, "");
+        const url = `${baseUrl}${link}`;
+
+        const isHotel = typeGift === "HOTEL";
+        const hotelDestination = demande.destination || null;
+        let hotelDatesLabel: string | null = null;
+        if (demande.dateArrivee || demande.dateDepart) {
+          const parts: string[] = [];
+          if (demande.dateArrivee) {
+            parts.push(
+              `du ${new Date(demande.dateArrivee).toLocaleDateString("fr-FR", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}`
+            );
+          }
+          if (demande.dateDepart) {
+            parts.push(
+              `au ${new Date(demande.dateDepart).toLocaleDateString("fr-FR", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}`
+            );
+          }
+          hotelDatesLabel = parts.join(" ");
+        }
+
+        let dateSouhaiteeLabel: string | null = null;
+        if (demande.datesouhaitee) {
+          dateSouhaiteeLabel = new Date(
+            demande.datesouhaitee
+          ).toLocaleDateString("fr-FR", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          });
+        }
+        const creatorName =
+          (session.user as any)?.prenom && (session.user as any)?.nom
+            ? `${(session.user as any).prenom} ${(session.user as any).nom}`.trim()
+            : "Talent Manager";
+
+        const baseSubject = `🎁 Nouvelle demande de gift ${demande.reference} — ${talentName}`;
+        const urgentPrefix =
+          demande.priorite === "URGENTE" ? "🚨 URGENT — " : "";
+        const subject = `${urgentPrefix}${baseSubject}`;
+
+        for (const dest of destinataires) {
+          if (!dest.email) continue;
+          if (!dest.prenom && !dest.email) continue;
+          try {
+            const recipientName = dest.prenom?.trim() || "Glow Up";
+            const html = await render(
+              React.createElement(GiftNouvelleDemandeEmail, {
+                recipientName,
+                reference: demande.reference,
+                talentName,
+                typeGift,
+                priorite: demande.priorite || "NORMALE",
+                tmName: creatorName,
+                url,
+                isHotel,
+                hotelDestination,
+                hotelDatesLabel,
+                hotelCategorie: demande.categorie || null,
+                description: demande.description,
+                dateSouhaiteeLabel,
+              })
+            );
+            await resend.emails.send({
+              from: fromEmail.includes("<")
+                ? fromEmail
+                : `Glow Up Agence <${fromEmail}>`,
+              to: dest.email,
+              subject,
+              html,
+            });
+          } catch (err) {
+            console.error(
+              "Erreur envoi email nouvelle demande gift:",
+              dest.email,
+              err
+            );
+          }
+        }
+      }
     } catch (notifError) {
-      console.error("Erreur création notifications gifts (création):", notifError);
+      console.error(
+        "Erreur création notifications/emails gifts (création):",
+        notifError
+      );
     }
 
     return NextResponse.json(demande, { status: 201 });
