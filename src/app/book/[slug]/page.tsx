@@ -672,48 +672,11 @@ export default function PressKitPage() {
       {/* Hero */}
       <section className="border-b border-[#220101]/10 py-12 md:py-20">
         <div className="max-w-7xl mx-auto px-6 text-center">
-          {/* Logo marque (si dispo) */}
-          {brandData.logo && !logoError && (
-            <div className="mb-6 flex justify-center">
-              <img
-                src={brandData.logo}
-                alt={brandData.name}
-                className="h-16 md:h-20 object-contain"
-                onError={() => setLogoError(true)}
-              />
-            </div>
-          )}
-
-          <p className="text-[#220101]/50 text-sm md:text-base uppercase tracking-[0.15em] mb-4">
-            {brandData.niche && brandData.niche.trim().length > 0
-              ? brandData.niche
-              : t.personalizedSelection}
-          </p>
-          <h1 className="text-4xl md:text-6xl lg:text-7xl mb-6">
+          <h1 className="text-4xl md:text-6xl lg:text-7xl">
             <span className="font-spectral-medium-italic" style={{ color: brandColor }}>
               {brandData.name}
             </span>
           </h1>
-          
-          {/* Ligne décorative avec couleur marque */}
-          <div className="flex items-center justify-center gap-4 mb-8">
-            <div className="h-[1px] w-24 bg-[#220101]/20"></div>
-            <div className="h-[2px] w-16" style={{ backgroundColor: brandColor }}></div>
-            <div className="h-[1px] w-24 bg-[#220101]/20"></div>
-          </div>
-
-          <p className="text-[#220101]/70 text-lg md:text-xl max-w-3xl mx-auto leading-relaxed">
-            {brandData.description && brandData.description.trim().length > 0 ? (
-              brandData.description
-            ) : (
-              <>
-                {t.weSelected} {brandData.talents?.length || 0} {t.creatorsFor}{" "}
-                <span className="font-medium" style={{ color: brandColor }}>
-                  {brandData.name}
-                </span>
-              </>
-            )}
-          </p>
         </div>
       </section>
 
