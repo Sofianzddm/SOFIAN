@@ -35,6 +35,12 @@ export interface GiftStatutEmailProps {
   url: string;
   isHotel: boolean;
   hotelReservationSummary?: string | null;
+  hotelNumeroReservation?: string | null;
+  hotelNomReservation?: string | null;
+  hotelAdresse?: string | null;
+  hotelContact?: string | null;
+  hotelCheckIn?: string | null;
+  hotelCheckOut?: string | null;
   trackingNumber?: string | null;
 }
 
@@ -47,6 +53,12 @@ export function GiftStatutEmail({
   url,
   isHotel,
   hotelReservationSummary,
+  hotelNumeroReservation,
+  hotelNomReservation,
+  hotelAdresse,
+  hotelContact,
+  hotelCheckIn,
+  hotelCheckOut,
   trackingNumber,
 }: GiftStatutEmailProps) {
   const preview = `${reference} · ${statutMessage}`;
@@ -77,12 +89,52 @@ export function GiftStatutEmail({
                 <strong>Statut :</strong> {statut}
               </Text>
 
-              {isHotel && hotelReservationSummary && (
+              {isHotel && (hotelReservationSummary ||
+                hotelNumeroReservation ||
+                hotelNomReservation ||
+                hotelAdresse ||
+                hotelContact ||
+                hotelCheckIn ||
+                hotelCheckOut) && (
                 <>
                   <Text style={{ ...infoRow, marginTop: 10 }}>
                     <strong>Informations de réservation :</strong>
                   </Text>
-                  <Text style={infoRow}>{hotelReservationSummary}</Text>
+                  {hotelReservationSummary && (
+                    <Text style={infoRow}>{hotelReservationSummary}</Text>
+                  )}
+                  {hotelNumeroReservation && (
+                    <Text style={infoRow}>
+                      <strong>Numéro de réservation :</strong>{" "}
+                      {hotelNumeroReservation}
+                    </Text>
+                  )}
+                  {hotelNomReservation && (
+                    <Text style={infoRow}>
+                      <strong>Nom de la réservation :</strong>{" "}
+                      {hotelNomReservation}
+                    </Text>
+                  )}
+                  {hotelAdresse && (
+                    <Text style={infoRow}>
+                      <strong>Adresse de l'hôtel :</strong> {hotelAdresse}
+                    </Text>
+                  )}
+                  {hotelContact && (
+                    <Text style={infoRow}>
+                      <strong>Contact sur place :</strong> {hotelContact}
+                    </Text>
+                  )}
+                  {hotelCheckIn && (
+                    <Text style={infoRow}>
+                      <strong>Horaire check-in :</strong> {hotelCheckIn}
+                    </Text>
+                  )}
+                  {hotelCheckOut && (
+                    <Text style={infoRow}>
+                      <strong>Horaire check-out :</strong> {hotelCheckOut}
+                    </Text>
+                  )}
                 </>
               )}
 

@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
         const baseUrl = rawBase.replace(/\/$/, "");
         const url = `${baseUrl}${link}`;
 
-        const subject = `[NÉGO] Nouvelle négociation ${negociation.reference}`;
+        const subject = `[NÉGO] Nouvelle négociation ${marqueName}`;
         const resend = new Resend(resendKey);
 
         for (const head of heads) {

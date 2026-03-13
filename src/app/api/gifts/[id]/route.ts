@@ -171,7 +171,7 @@ export async function PATCH(
     if (body.categorie !== undefined) updateData.categorie = body.categorie;
     if (body.demandesSpeciales !== undefined) updateData.demandesSpeciales = body.demandesSpeciales;
 
-    // Champs modifiables uniquement par AM
+    // Champs modifiables uniquement par AM (Account Manager / Admin)
     if (user.role === "CM" || user.role === "ADMIN") {
       if (body.statut !== undefined) {
         updateData.statut = body.statut;
@@ -204,6 +204,30 @@ export async function PATCH(
       if (body.dateEnvoi !== undefined) updateData.dateEnvoi = body.dateEnvoi ? new Date(body.dateEnvoi) : null;
       if (body.dateReception !== undefined) updateData.dateReception = body.dateReception ? new Date(body.dateReception) : null;
       if (body.contreparties !== undefined) updateData.contreparties = body.contreparties;
+
+      // Infos retour marque (produit / gift classique)
+      if (body.contactMarqueNom !== undefined)
+        updateData.contactMarqueNom = body.contactMarqueNom;
+      if (body.contactMarqueEmail !== undefined)
+        updateData.contactMarqueEmail = body.contactMarqueEmail;
+      if (body.dateExpeditionPrevue !== undefined)
+        updateData.dateExpeditionPrevue = body.dateExpeditionPrevue
+          ? new Date(body.dateExpeditionPrevue)
+          : null;
+
+      // Informations de réservation (HOTEL)
+      if (body.numeroReservation !== undefined)
+        updateData.numeroReservation = body.numeroReservation;
+      if (body.nomReservation !== undefined)
+        updateData.nomReservation = body.nomReservation;
+      if (body.adresseHotel !== undefined)
+        updateData.adresseHotel = body.adresseHotel;
+      if (body.contactSurPlace !== undefined)
+        updateData.contactSurPlace = body.contactSurPlace;
+      if (body.horaireCheckIn !== undefined)
+        updateData.horaireCheckIn = body.horaireCheckIn;
+      if (body.horaireCheckOut !== undefined)
+        updateData.horaireCheckOut = body.horaireCheckOut;
     }
 
     const demandeUpdated = await prisma.demandeGift.update({

@@ -54,6 +54,7 @@ export async function POST(
         statut: true,
         reference: true,
         source: true,
+        nomMarqueSaisi: true,
         tm: { select: { prenom: true, nom: true } },
         talent: { select: { prenom: true, nom: true } },
         marque: { select: { nom: true } },
@@ -150,11 +151,10 @@ export async function POST(
               : "Un TM";
           const talentName =
             nego.talent?.prenom || nego.talent?.nom
-              ? `${nego.talent?.prenom ?? ""} ${
-                  nego.talent?.nom ?? ""
-                }`.trim()
+              ? `${nego.talent?.prenom ?? ""} ${nego.talent?.nom ?? ""}`.trim()
               : "—";
-          const marqueName = nego.marque?.nom || "—";
+          const marqueName =
+            nego.marque?.nom || nego.nomMarqueSaisi || "—";
           const brief = contenu.length > MESSAGE_PREVIEW_MAX_LEN
             ? contenu.slice(0, MESSAGE_PREVIEW_MAX_LEN) + "…"
             : contenu;
@@ -189,7 +189,7 @@ export async function POST(
                   ? fromEmail
                   : `Glow Up Agence <${fromEmail}>`,
                 to: head.email,
-                subject: `[NÉGO] Nouveau commentaire sur ${nego.reference}`,
+                subject: `[NÉGO] Nouveau commentaire sur ${marqueName}`,
                 html,
               });
             } catch (err) {

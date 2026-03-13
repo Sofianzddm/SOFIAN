@@ -1345,7 +1345,7 @@ export default function GiftDetailPage() {
 
 // Composants utilitaires
 function WorkflowPanel({ demande, onUpdate, onPrendreEnCharge }: any) {
-  const workflow = getWorkflowSteps(demande.statut);
+  const workflow = getWorkflowSteps(demande.statut, demande.typeGift);
   
   return (
     <div className="bg-white rounded-2xl shadow-sm border-2 border-purple-200 p-8">
@@ -1441,15 +1441,86 @@ function WorkflowStep({ step, isActive, isCompleted, onSelect, canSelect }: any)
   );
 }
 
-function getWorkflowSteps(currentStatut: string) {
-  const allSteps = [
-    { statut: "EN_ATTENTE", label: "En attente", description: "Demande soumise, en attente de prise en charge", icon: Clock },
-    { statut: "EN_COURS", label: "En cours de traitement", description: "Account Manager traite la demande", icon: TrendingUp },
-    { statut: "ATTENTE_MARQUE", label: "Marque contactée", description: "En attente de la réponse de la marque", icon: Building2 },
-    { statut: "ACCEPTE", label: "Accepté par la marque", description: "La marque accepte d'envoyer le gift", icon: CheckCircle },
-    { statut: "ENVOYE", label: "Gift envoyé", description: "Le gift a été expédié au talent", icon: Truck },
-    { statut: "RECU", label: "Gift reçu", description: "Le talent a reçu le gift", icon: Package },
-  ];
+function getWorkflowSteps(currentStatut: string, typeGift: string) {
+  const isHotel = typeGift === "HOTEL";
+
+  const allSteps = isHotel
+    ? [
+        {
+          statut: "EN_ATTENTE",
+          label: "En attente",
+          description: "Demande soumise",
+          icon: Clock,
+        },
+        {
+          statut: "EN_COURS",
+          label: "En cours de traitement",
+          description: "Account Manager traite la demande",
+          icon: TrendingUp,
+        },
+        {
+          statut: "ATTENTE_MARQUE",
+          label: "Marque contactée",
+          description: "En attente de la réponse de l'hôtel",
+          icon: Building2,
+        },
+        {
+          statut: "ACCEPTE",
+          label: "Accepté par l'hôtel",
+          description: "L'hôtel confirme la réservation",
+          icon: CheckCircle,
+        },
+        {
+          statut: "ENVOYE",
+          label: "Réservation confirmée",
+          description: "Les informations de réservation ont été transmises au talent",
+          icon: Truck,
+        },
+        {
+          statut: "RECU",
+          label: "Séjour effectué",
+          description: "Le talent a bien effectué son séjour",
+          icon: Package,
+        },
+      ]
+    : [
+        {
+          statut: "EN_ATTENTE",
+          label: "En attente",
+          description: "Demande soumise, en attente de prise en charge",
+          icon: Clock,
+        },
+        {
+          statut: "EN_COURS",
+          label: "En cours de traitement",
+          description: "Account Manager traite la demande",
+          icon: TrendingUp,
+        },
+        {
+          statut: "ATTENTE_MARQUE",
+          label: "Marque contactée",
+          description: "En attente de la réponse de la marque",
+          icon: Building2,
+        },
+        {
+          statut: "ACCEPTE",
+          label: "Accepté par la marque",
+          description: "La marque accepte d'envoyer le gift",
+          icon: CheckCircle,
+        },
+        {
+          statut: "ENVOYE",
+          label: "Gift envoyé",
+          description: "Le gift a été expédié au talent",
+          icon: Truck,
+        },
+        {
+          statut: "RECU",
+          label: "Gift reçu",
+          description: "Le talent a reçu le gift",
+          icon: Package,
+        },
+      ];
 
   const currentIndex = allSteps.findIndex((s) => s.statut === currentStatut);
   const completedSteps = allSteps.slice(0, currentIndex).map((s) => s.statut);
