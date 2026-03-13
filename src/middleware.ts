@@ -8,7 +8,17 @@ import { getToken } from "next-auth/jwt";
  * Les webhooks externes (/api/webhooks/*) sont exclus : pas d'auth requise (DocuSeal, etc.).
  */
 export async function middleware(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith("/api/webhooks")) {
+  const { pathname } = request.nextUrl;
+
+  // Webhooks externes : pas d'auth
+  if (pathname.startsWith("/api/webhooks")) {
+    return NextResponse.next();
+  }
+
+  // Catalogues partenaires publics : /partners/[slug] et /partners/[slug]/selection
+  // Ex : /partners/woo-paris, /partners/woo-paris/selection
+  const publicPartnerPage = /^\/partners\/[^/]+(\/selection)?$/.test(pathname);
+  if (publicPartnerPage) {
     return NextResponse.next();
   }
 
