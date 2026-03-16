@@ -32,7 +32,15 @@ interface Negociation {
   createdAt: string;
   lastModifiedAt?: string;
   tm: { id: string; prenom: string; nom: string };
-  talent: { id: string; prenom: string; nom: string; photo: string | null };
+  talent: {
+    id: string;
+    prenom: string;
+    nom: string;
+    photo: string | null;
+    managerId?: string;
+    manager?: { prenom: string; nom: string } | null;
+    delegations?: { actif: boolean }[];
+  };
   marque: { id: string; nom: string; secteur: string | null } | null;
   nomMarqueSaisi?: string | null;
   livrables: { typeContenu: string; quantite: number }[];
@@ -292,11 +300,17 @@ export default function NegociationsPage() {
                       </span>
                     )}
                   </div>
-                  <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-slate-900 truncate">
                         {nego.talent.prenom} {nego.talent.nom} × {nego.nomMarqueSaisi || nego.marque?.nom || "—"}
                       </span>
+                      {nego.talent.delegations?.some((d) => d.actif) &&
+                        nego.talent.manager && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-[#F5EBE0] text-[#C08B8B] border border-[#C08B8B] font-medium">
+                            Relai · {nego.talent.manager.prenom} {nego.talent.manager.nom}
+                          </span>
+                        )}
                       <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${statut.className}`}>
                         {statut.label}
                       </span>

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Plus,
@@ -45,6 +46,14 @@ interface Talent {
   _count: {
     collaborations: number;
   };
+  delegations?: {
+    tmOrigine: {
+      prenom: string;
+      nom: string;
+    };
+    tmRelaiId: string;
+    actif: boolean;
+  }[];
 }
 
 export default function TalentsPage() {
@@ -58,6 +67,7 @@ export default function TalentsPage() {
   // Rôle effectif (via /api/auth/me) pour cohérence avec impersonation
   const user = session?.user as { id: string; role: string; name: string } | undefined;
   const role = effectiveRole ?? user?.role ?? "";
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     const fetchMe = async () => {
@@ -114,14 +124,39 @@ export default function TalentsPage() {
     }
   };
 
+  const isTm = (role === "TM" || role === "HEAD_OF_INFLUENCE") && !!user?.id;
+  const activeTabFromQuery = searchParams.get("tab") === "delegation" ? "delegation" : "mine";
+  const [activeTab, setActiveTab] = useState<"mine" | "delegation">(activeTabFromQuery);
+
+  useEffect(() => {
+    setActiveTab(activeTabFromQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabFromQuery]);
+
+  const isTalentDeleguePourMoi = (talent: Talent) => {
+    if (!isTm || !user?.id || !talent.delegations) return false;
+    return talent.delegations.some(
+      (d) => d.actif && d.tmRelaiId === user.id
+    );
+  };
+
   const filteredTalents = talents.filter((talent) => {
     const matchSearch =
       `${talent.prenom} ${talent.nom}`.toLowerCase().includes(search.toLowerCase()) ||
       talent.email.toLowerCase().includes(search.toLowerCase());
     const matchNiche = !filterNiche || talent.niches.includes(filterNiche);
-    return matchSearch && matchNiche;
+    if (!matchSearch || !matchNiche) return false;
+
+    if (!isTm) return true;
+
+    if (activeTab === "mine") {
+      return !isTalentDeleguePourMoi(talent);
+    }
+    // delegation tab
+    return isTalentDeleguePourMoi(talent);
   });
 
+  const delegationTalents = talents.filter((t) => isTalentDeleguePourMoi(t));
   const allNiches = [...new Set(talents.flatMap((t) => t.niches))];
 
   const formatFollowers = (count: number | null) => {
@@ -133,13 +168,29 @@ export default function TalentsPage() {
 
   // Titre dynamique selon le rôle
   const getPageTitle = () => {
-    if (role === "TM") return "Mes talents";
+    if (role === "TM" || role === "HEAD_OF_INFLUENCE") return "Mes talents";
     return "Talents";
   };
 
   const getPageSubtitle = () => {
-    if (role === "TM") return `${talents.length} talent(s) sous ma gestion`;
+    if (role === "TM" || role === "HEAD_OF_INFLUENCE") {
+      return `${talents.length} talent(s) sous ma gestion ou en relai`;
+    }
     return `${talents.length} talents dans l'agence`;
+  };
+
+  const getDelegationBadge = (talent: Talent) => {
+    if ((role !== "TM" && role !== "HEAD_OF_INFLUENCE") || !user?.id || !talent.delegations) return null;
+    const activeDelegation = talent.delegations.find(
+      (d) => d.actif && d.tmRelaiId === user.id
+    );
+    if (!activeDelegation) return null;
+    const originName = `${activeDelegation.tmOrigine.prenom} ${activeDelegation.tmOrigine.nom}`.trim();
+    return (
+      <span className="inline-flex items-center text-xs px-2 py-0.5 rounded-full bg-[#F5EBE0] text-[#C08B8B] border border-[#C08B8B] font-medium mt-0.5">
+        Relai · {originName}
+      </span>
+    );
   };
 
   return (
@@ -176,6 +227,47 @@ export default function TalentsPage() {
         </div>
       </div>
 
+      {isTm && (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab("mine")}
+            className={`px-4 py-2 rounded-full text-sm font-medium border ${
+              activeTab === "mine"
+                ? "bg-[#1A1110] text-white border-[#1A1110]"
+                : "bg-transparent text-[#1A1110] border-[#1A1110]"
+            }`}
+          >
+            Mes talents ({talents.filter((t) => !isTalentDeleguePourMoi(t)).length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("delegation")}
+            className={`px-4 py-2 rounded-full text-sm font-medium border ${
+              activeTab === "delegation"
+                ? "bg-[#1A1110] text-white border-[#1A1110]"
+                : "bg-transparent text-[#1A1110] border-[#1A1110]"
+            }`}
+          >
+            En délégation ({talents.filter((t) => isTalentDeleguePourMoi(t)).length})
+          </button>
+        </div>
+      )}
+
+      {/* Header premium pour l'onglet En délégation */}
+      {activeTab === "delegation" && isTm && delegationTalents.length > 0 && (
+        <div
+          className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3"
+          style={{ background: "#F5EBE0", border: "1px solid #C08B8B" }}
+        >
+          <span className="text-lg">🎯</span>
+          <p className="text-sm" style={{ color: "#1A1110" }}>
+            <strong style={{ fontFamily: "Spectral, serif" }}>Relai en cours</strong>
+            {" "}— Ces talents te sont confiés temporairement. Traite-les exactement comme les tiens.
+          </p>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <div className="flex flex-col sm:flex-row gap-4">
@@ -210,12 +302,20 @@ export default function TalentsPage() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table / Etat vide selon onglet */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {loading ? (
           <div className="p-8 flex flex-col items-center justify-center text-gray-500">
             <Loader2 className="w-8 h-8 animate-spin text-glowup-rose mb-3" />
             <p>Chargement...</p>
+          </div>
+        ) : filteredTalents.length === 0 && isTm && activeTab === "delegation" ? (
+          <div className="text-center py-16 text-[#C08B8B]">
+            <p className="text-4xl mb-3">🤝</p>
+            <p className="font-medium text-[#1A1110]">Aucune délégation en cours</p>
+            <p className="text-sm mt-1">
+              Un admin peut te confier des talents d&apos;une TM absente depuis la page Délégations.
+            </p>
           </div>
         ) : filteredTalents.length === 0 ? (
           <div className="p-8 text-center">
@@ -258,7 +358,209 @@ export default function TalentsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredTalents.map((talent) => (
+              {activeTab === "delegation" && isTm
+                ? // Groupement par TM absente pour l'onglet délégation
+                  Object.entries(
+                    filteredTalents.reduce((acc, talent) => {
+                      const delegation = talent.delegations?.find(
+                        (d) => d.actif && d.tmRelaiId === user?.id
+                      );
+                      const key = delegation
+                        ? `${delegation.tmOrigine.prenom} ${delegation.tmOrigine.nom}`
+                        : "Autres";
+                      if (!acc[key]) acc[key] = [] as Talent[];
+                      acc[key].push(talent);
+                      return acc;
+                    }, {} as Record<string, Talent[]>)
+                  ).flatMap(([tmNom, groupTalents]) => (
+                    <React.Fragment key={tmNom}>
+                      <tr>
+                        <td colSpan={7}>
+                          <div className="flex items-center gap-3 py-3 px-4">
+                            <div
+                              className="flex-1 h-px"
+                              style={{ background: "#C08B8B", opacity: 0.3 }}
+                            />
+                            <span
+                              className="text-xs italic flex items-center gap-1.5"
+                              style={{ color: "#C08B8B", fontFamily: "Spectral, serif" }}
+                            >
+                              <span>🏖️</span> Talents de {tmNom}
+                            </span>
+                            <div
+                              className="flex-1 h-px"
+                              style={{ background: "#C08B8B", opacity: 0.3 }}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                      {groupTalents.map((talent) => (
+                        <tr
+                          key={talent.id}
+                          className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
+                        >
+                          {/* Talent info */}
+                          <td className="py-3 px-4">
+                            <Link
+                              href={`/talents/${talent.id}`}
+                              className="flex items-center gap-3 group"
+                            >
+                              <div className="w-10 h-10 rounded-full bg-glowup-lace flex items-center justify-center overflow-hidden">
+                                {talent.photo ? (
+                                  <img
+                                    src={talent.photo}
+                                    alt={talent.prenom}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <span className="text-sm font-semibold text-glowup-rose">
+                                    {talent.prenom.charAt(0)}
+                                    {talent.nom.charAt(0)}
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-medium text-glowup-licorice group-hover:text-glowup-rose transition-colors">
+                                  {talent.prenom} {talent.nom}
+                                </p>
+                                <p className="text-sm text-gray-500">{talent.email}</p>
+                                {getDelegationBadge(talent)}
+                              </div>
+                            </Link>
+                          </td>
+                          {/* Réseaux */}
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-3">
+                              {talent.instagram && (
+                                <div className="flex items-center gap-1 text-sm">
+                                  <Instagram className="w-4 h-4 text-pink-500" />
+                                  <span className="text-gray-600">
+                                    {formatFollowers(talent.stats?.igFollowers || null)}
+                                  </span>
+                                </div>
+                              )}
+                              {talent.tiktok && (
+                                <div className="flex items-center gap-1 text-sm">
+                                  <Music2 className="w-4 h-4 text-gray-800" />
+                                  <span className="text-gray-600">
+                                    {formatFollowers(talent.stats?.ttFollowers || null)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          {/* Niches */}
+                          <td className="py-3 px-4">
+                            <div className="flex flex-wrap gap-1">
+                              {talent.niches.slice(0, 2).map((niche) => (
+                                <span
+                                  key={niche}
+                                  className="px-2 py-0.5 text-xs rounded-full bg-glowup-lace text-glowup-licorice"
+                                >
+                                  {niche}
+                                </span>
+                              ))}
+                              {talent.niches.length > 2 && (
+                                <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-500">
+                                  +{talent.niches.length - 2}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          {/* Manager - masqué pour TM */}
+                          {role !== "TM" && (
+                            <td className="py-3 px-4">
+                              <span className="text-sm text-gray-600">
+                                {talent.manager.prenom} {talent.manager.nom.charAt(0)}.
+                              </span>
+                            </td>
+                          )}
+                          {/* Commission */}
+                          <td className="py-3 px-4">
+                            <div className="text-sm">
+                              <span className="text-gray-600">In: </span>
+                              <span className="font-medium text-glowup-licorice">
+                                {talent.commissionInbound}%
+                              </span>
+                              <span className="text-gray-400 mx-1">|</span>
+                              <span className="text-gray-600">Out: </span>
+                              <span className="font-medium text-glowup-licorice">
+                                {talent.commissionOutbound}%
+                              </span>
+                            </div>
+                          </td>
+                          {/* Collabs */}
+                          <td className="py-3 px-4">
+                            <span className="text-sm text-gray-600">
+                              {talent._count.collaborations}
+                            </span>
+                          </td>
+                          {/* Actions */}
+                          <td className="py-3 px-4">
+                            <div className="flex items-center justify-end gap-1">
+                              <Link
+                                href={`/talents/${talent.id}`}
+                                className="p-2 text-gray-400 hover:text-glowup-rose hover:bg-glowup-lace rounded-lg transition-colors"
+                                title="Voir"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Link>
+                              {canEditTalent && (
+                                <Link
+                                  href={`/talents/${talent.id}/edit`}
+                                  className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Modifier"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Link>
+                              )}
+                              {canArchiveTalent && (
+                                <button
+                                  className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                  title="Archiver (ne plus afficher le talent)"
+                                  onClick={async () => {
+                                    const confirmMessage = `Archiver ${talent.prenom} ${talent.nom} ?\n\nLe talent ne sera plus visible dans le dashboard, les partenaires, le talentbook…\nLes collaborations et négociations existantes seront conservées en historique.`;
+
+                                    if (!confirm(confirmMessage)) return;
+
+                                    try {
+                                      const res = await fetch(`/api/talents/${talent.id}`, {
+                                        method: "PUT",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ isArchived: true }),
+                                      });
+
+                                      const data = await res.json();
+
+                                      if (!res.ok) {
+                                        alert(
+                                          `❌ ${data.error || "Impossible d'archiver ce talent"}`
+                                        );
+                                        return;
+                                      }
+
+                                      alert(
+                                        `✅ ${talent.prenom} ${talent.nom} a été archivé (il n'apparaîtra plus nulle part).`
+                                      );
+                                      fetchTalents();
+                                    } catch (error) {
+                                      console.error("Erreur archivage:", error);
+                                      alert(
+                                        "❌ Erreur lors de l'archivage. Veuillez réessayer."
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <Archive className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))
+                : filteredTalents.map((talent) => (
                 <tr
                   key={talent.id}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
@@ -285,6 +587,7 @@ export default function TalentsPage() {
                           {talent.prenom} {talent.nom}
                         </p>
                         <p className="text-sm text-gray-500">{talent.email}</p>
+                        {getDelegationBadge(talent)}
                       </div>
                     </Link>
                   </td>

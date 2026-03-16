@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logDelegationActivite } from "@/lib/delegations";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { MentionEmail } from "@/lib/emails/MentionEmail";
@@ -35,7 +36,7 @@ export async function POST(
 
     const collaboration = await prisma.collaboration.findUnique({
       where: { id: collaborationId },
-      select: { id: true, reference: true },
+      select: { id: true, reference: true, talentId: true },
     });
 
     if (!collaboration) {
@@ -138,6 +139,23 @@ export async function POST(
           }
         }
       }
+    }
+
+    // Log d'activité de délégation (commentaire collab)
+    try {
+      if (collaboration.talentId) {
+        await logDelegationActivite({
+          talentId: collaboration.talentId,
+          auteurId: currentUserId,
+          type: "COMMENTAIRE_COLLAB",
+          entiteType: "COLLAB",
+          entiteId: collaboration.id,
+          entiteRef: collaboration.reference,
+          detail: "Commentaire ajouté",
+        });
+      }
+    } catch (e) {
+      console.error("Erreur logDelegationActivite COMMENTAIRE_COLLAB:", e);
     }
 
     return NextResponse.json(comment);

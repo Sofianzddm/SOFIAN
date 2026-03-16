@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { logDelegationActivite } from "@/lib/delegations";
+import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { NewNegociationEmail } from "@/lib/emails/NewNegociationEmail";
@@ -22,9 +24,12 @@ export async function GET(request: NextRequest) {
     // Construire le where selon le rôle
     const where: any = {};
 
-    // TM ne voit que ses négos
+    // TM : ne voir que les négos dont le talent est accessible
+    // (talents propres + talents délégués actifs), indépendamment du tmId.
     if (session.user.role === "TM") {
-      where.tmId = session.user.id;
+      const talentIds = await getTalentIdsAccessibles(session.user.id as string);
+      // Si aucun talent accessible, on force un IN vide pour ne rien retourner.
+      where.talentId = { in: talentIds.length > 0 ? talentIds : ["__none__"] };
     }
     // Head Of et Admin voient tout (possibilité de filtrer par TM)
     else if (tmId) {
@@ -42,7 +47,18 @@ export async function GET(request: NextRequest) {
           select: { id: true, prenom: true, nom: true },
         },
         talent: {
-          select: { id: true, prenom: true, nom: true, photo: true },
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            photo: true,
+            managerId: true,
+            manager: { select: { prenom: true, nom: true } },
+            delegations: {
+              where: { actif: true },
+              select: { actif: true },
+            },
+          },
         },
         marque: {
           select: { id: true, nom: true, secteur: true },
@@ -133,6 +149,17 @@ export async function POST(request: NextRequest) {
         livrables: true,
       },
     });
+
+    // Log d'activité de délégation (création négo)
+    logDelegationActivite({
+      talentId: negociation.talentId,
+      auteurId: session.user.id,
+      type: "NEGO_CREEE",
+      entiteType: "NEGO",
+      entiteId: negociation.id,
+      entiteRef: negociation.reference,
+      detail: "Nouvelle négociation créée",
+    }).catch(console.error);
 
     // Notifier les Head of Influence par email
     try {

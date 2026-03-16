@@ -49,6 +49,9 @@ interface NegoDetail {
     prenom: string;
     nom: string;
     photo: string | null;
+    managerId?: string;
+    manager?: { prenom: string; nom: string } | null;
+    delegations?: { actif: boolean }[];
     tarifs?: Record<string, number | null> | null;
     commissionInbound?: number | null;
     commissionOutbound?: number | null;
@@ -368,8 +371,16 @@ export default function NegociationDetailPage() {
                     <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600">Inbound</span>
                   )}
                 </div>
-                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-                  {nego.talent.prenom} {nego.talent.nom} × {nego.nomMarqueSaisi || nego.marque?.nom || "—"}
+                <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex flex-wrap items-center gap-2">
+                  <span>
+                    {nego.talent.prenom} {nego.talent.nom} × {nego.nomMarqueSaisi || nego.marque?.nom || "—"}
+                  </span>
+                  {nego.talent.delegations?.some((d) => d.actif) &&
+                    nego.talent.manager && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-[#F5EBE0] text-[#C08B8B] border border-[#C08B8B] font-medium">
+                        Relai · {nego.talent.manager.prenom} {nego.talent.manager.nom}
+                      </span>
+                    )}
                 </h1>
                 <p className="mt-1 text-sm text-slate-500">
                   Par {nego.tm.prenom} {nego.tm.nom} · {new Date(nego.createdAt).toLocaleDateString("fr-FR")}

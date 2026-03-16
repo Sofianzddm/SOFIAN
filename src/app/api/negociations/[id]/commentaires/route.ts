@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { logDelegationActivite } from "@/lib/delegations";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { MentionEmail } from "@/lib/emails/MentionEmail";
@@ -51,6 +52,8 @@ export async function POST(
     const nego = await prisma.negociation.findUnique({
       where: { id: id },
       select: {
+        id: true,
+        talentId: true,
         statut: true,
         reference: true,
         source: true,
@@ -120,6 +123,23 @@ export async function POST(
           }
         }
       }
+    }
+
+    // Log d'activité de délégation (commentaire négo)
+    try {
+      if (nego?.talentId) {
+        await logDelegationActivite({
+          talentId: nego.talentId,
+          auteurId: currentUserId,
+          type: "COMMENTAIRE_NEGO",
+          entiteType: "NEGO",
+          entiteId: nego.id,
+          entiteRef: nego.reference,
+          detail: "Commentaire ajouté",
+        });
+      }
+    } catch (e) {
+      console.error("Erreur logDelegationActivite COMMENTAIRE_NEGO:", e);
     }
 
     // Email auto au Head of Influence à chaque nouveau commentaire

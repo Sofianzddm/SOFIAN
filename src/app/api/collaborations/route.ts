@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { generateCollabReference } from "@/lib/generateCollabReference";
+import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -20,7 +21,20 @@ export async function GET(request: NextRequest) {
     // Si TM → voir uniquement SES collaborations (via ses talents), tous statuts sauf PERDU
     if (user.role === "TM") {
       const mesTalents = await prisma.talent.findMany({
-        where: { managerId: user.id, isArchived: false },
+        where: {
+          isArchived: false,
+          OR: [
+            { managerId: user.id },
+            {
+              delegations: {
+                some: {
+                  tmRelaiId: user.id,
+                  actif: true,
+                },
+              },
+            },
+          ],
+        },
         select: { id: true },
       });
       where.talentId = { in: mesTalents.map((t) => t.id) };
@@ -36,7 +50,18 @@ export async function GET(request: NextRequest) {
       where,
       include: {
         talent: {
-          select: { id: true, prenom: true, nom: true, photo: true },
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            photo: true,
+            managerId: true,
+            manager: { select: { prenom: true, nom: true } },
+            delegations: {
+              where: { actif: true },
+              select: { actif: true },
+            },
+          },
         },
         marque: {
           select: { id: true, nom: true },
@@ -79,6 +104,17 @@ export async function POST(request: NextRequest) {
 
     if (!data.talentId || !data.marqueId || !data.livrables?.length) {
       return NextResponse.json({ message: "Champs obligatoires manquants" }, { status: 400 });
+    }
+
+    // Vérification d'accès au talent : TM relai ou rôles libres uniquement
+    const user = session.user as { id: string; role?: string };
+    const role = user.role ?? "";
+    const rolesLibres = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"];
+    if (!rolesLibres.includes(role)) {
+      const talentIds = await getTalentIdsAccessibles(user.id);
+      if (!talentIds.includes(data.talentId)) {
+        return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+      }
     }
 
     // Validation facturation client : doit toujours être remplie pour toute création de collab (pour devis / facture)
@@ -143,6 +179,17 @@ export async function POST(request: NextRequest) {
         livrables: true,
       },
     });
+
+    // Log d'activité de délégation (création collab)
+    logDelegationActivite({
+      talentId: collaboration.talentId,
+      auteurId: session.user.id,
+      type: "COLLAB_CREEE",
+      entiteType: "COLLAB",
+      entiteId: collaboration.id,
+      entiteRef: collaboration.reference,
+      detail: "Nouvelle collaboration créée",
+    }).catch(console.error);
 
     return NextResponse.json(collaboration, { status: 201 });
   } catch (error) {

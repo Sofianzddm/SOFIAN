@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getDestinatairesNotification, logDelegationActivite } from "@/lib/delegations";
 import type { Role } from "@prisma/client";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
@@ -236,6 +237,7 @@ export async function PATCH(
       include: {
         talent: {
           select: {
+            id: true,
             prenom: true,
             nom: true,
           },
@@ -263,8 +265,31 @@ export async function PATCH(
           ? `${demandeUpdated.talent.prenom} ${demandeUpdated.talent.nom}`.trim()
           : "";
 
-        // Notifier la TM pour certains statuts (hors EN_ATTENTE)
-        if (nouveauStatut !== "EN_ATTENTE" && demande.tmId && demande.tmId !== user.id) {
+        // Log d'activité de délégation (statut gift)
+        try {
+          if (demandeUpdated.talent.id) {
+            await logDelegationActivite({
+              talentId: demandeUpdated.talent.id,
+              auteurId: user.id,
+              type: "STATUT_GIFT",
+              entiteType: "GIFT",
+              entiteId: demandeUpdated.id,
+              entiteRef: demandeUpdated.reference,
+              detail: `Statut : ${ancienStatut} → ${nouveauStatut}`,
+              ancienneValeur: ancienStatut,
+              nouvelleValeur: nouveauStatut,
+            });
+          }
+        } catch (e) {
+          console.error("Erreur logDelegationActivite STATUT_GIFT:", e);
+        }
+
+        // Notifier la TM (via délégation) pour certains statuts (hors EN_ATTENTE)
+        if (
+          nouveauStatut !== "EN_ATTENTE" &&
+          demande.tmId &&
+          demande.tmId !== user.id
+        ) {
           let messageTM: string | null = null;
           if (nouveauStatut === "ATTENTE_MARQUE") {
             messageTM = "Un Account Manager a contacté la marque pour " + ref;
@@ -280,19 +305,24 @@ export async function PATCH(
             messageTM = `La demande ${ref} a été annulée`;
           }
 
-          if (messageTM) {
-            await prisma.notification.create({
-              data: {
-                userId: demande.tmId,
-                type: "GENERAL",
-                titre: "Mise à jour de ta demande de gift",
-                message: messageTM,
-                lien: `/gifts/${id}`,
-                actorId: user.id,
-                talentId: demande.talentId,
-                marqueId: demande.marqueId,
-              },
-            });
+          if (messageTM && demande.talentId) {
+            const destinataires = await getDestinatairesNotification(demande.talentId);
+            await Promise.all(
+              destinataires.map((userId) =>
+                prisma.notification.create({
+                  data: {
+                    userId,
+                    type: "GENERAL",
+                    titre: "Mise à jour de ta demande de gift",
+                    message: messageTM,
+                    lien: `/gifts/${id}`,
+                    actorId: user.id,
+                    talentId: demande.talentId,
+                    marqueId: demande.marqueId,
+                  },
+                })
+              )
+            );
 
             // Email transactionnel pour la TM sur certains statuts
             const resendKey = process.env.RESEND_API_KEY;

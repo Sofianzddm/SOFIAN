@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
+import { logDelegationActivite } from "@/lib/delegations";
 
 // GET - Détail d'une collaboration
 export async function GET(
@@ -20,7 +21,19 @@ export async function GET(
       where: { id: id },
       include: {
         talent: {
-          select: { id: true, prenom: true, nom: true, email: true, photo: true },
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            email: true,
+            photo: true,
+            managerId: true,
+            manager: { select: { prenom: true, nom: true } },
+            delegations: {
+              where: { actif: true },
+              select: { actif: true },
+            },
+          },
         },
         marque: {
           select: { 
@@ -137,6 +150,7 @@ export async function PATCH(
 
     const updateData: any = {};
 
+    const ancienStatut: string | undefined = data.statut ? undefined : undefined;
     if (data.statut) updateData.statut = data.statut;
     if (data.raisonPerdu !== undefined) updateData.raisonPerdu = data.raisonPerdu;
     if (data.lienPublication !== undefined) updateData.lienPublication = data.lienPublication;
@@ -202,6 +216,25 @@ export async function PATCH(
           data: { statut: "PAYE" as any, datePaiement: new Date() },
         });
       }
+    }
+
+    // Log d'activité de délégation (statut collab)
+    try {
+      if (data.statut && collaboration.talent.id) {
+        await logDelegationActivite({
+          talentId: collaboration.talent.id,
+          auteurId: session.user.id,
+          type: "STATUT_COLLAB",
+          entiteType: "COLLAB",
+          entiteId: collaboration.id,
+          entiteRef: collaboration.reference,
+          detail: `Statut : ${data.ancienneStatut ?? ""} → ${data.statut}`,
+          ancienneValeur: data.ancienneStatut,
+          nouvelleValeur: data.statut,
+        });
+      }
+    } catch (e) {
+      console.error("Erreur logDelegationActivite STATUT_COLLAB:", e);
     }
 
     // 🔔 NOTIFICATION : Si la collaboration passe en PUBLIE, notifier le talent

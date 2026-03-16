@@ -32,8 +32,18 @@ export async function GET(req: NextRequest) {
 
       const whereTalent: any = { isArchived: false };
       if (user.role === "TM") {
-        // TM : uniquement ses talents
-        whereTalent.managerId = user.id;
+        // TM : ses talents directs + talents délégués
+        whereTalent.OR = [
+          { managerId: user.id },
+          {
+            delegations: {
+              some: {
+                tmRelaiId: user.id,
+                actif: true,
+              },
+            },
+          },
+        ];
       }
 
       const talents = await prisma.talent.findMany({
@@ -64,8 +74,20 @@ export async function GET(req: NextRequest) {
     let where: any = {};
 
     if (role === "TM") {
-      // TM voit uniquement ses demandes
-      where.tmId = id;
+      // TM voit ses demandes + celles des talents qui lui sont délégués
+      where.OR = [
+        { tmId: id },
+        {
+          talent: {
+            delegations: {
+              some: {
+                tmRelaiId: id,
+                actif: true,
+              },
+            },
+          },
+        },
+      ];
     } else if (role === "CM") {
       // Account Manager (CM) voit toutes les demandes
       // Optionnel : filtrer celles qui lui sont assignées

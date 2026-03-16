@@ -44,6 +44,9 @@ export default function DashboardPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [delegationsRecues, setDelegationsRecues] = useState<any[] | null>(null);
+  const [absences, setAbsences] = useState<any[]>([]);
+  const [showWelcomeToast, setShowWelcomeToast] = useState(false);
 
   useEffect(() => {
     fetchDashboard();
@@ -58,6 +61,42 @@ export default function DashboardPage() {
       }
       const json = await res.json();
       setData(json);
+
+      const role = json?.role;
+
+      // Bannière délégations reçues pour TM & Head of Influence
+      if (role === "TM" || role === "HEAD_OF_INFLUENCE") {
+        try {
+          const dRes = await fetch("/api/delegations/mes-delegations-recues");
+          if (dRes.ok) {
+            const dJson = await dRes.json();
+            setDelegationsRecues(dJson.delegations || []);
+          } else {
+            setDelegationsRecues([]);
+          }
+        } catch {
+          setDelegationsRecues([]);
+        }
+      } else {
+        setDelegationsRecues([]);
+      }
+
+      // Résumé des absences pour Admin / Head of Influence
+      if (role === "ADMIN" || role === "HEAD_OF_INFLUENCE") {
+        try {
+          const aRes = await fetch("/api/admin/delegations/resume");
+          if (aRes.ok) {
+            const aJson = await aRes.json();
+            setAbsences(aJson.absences || []);
+          } else {
+            setAbsences([]);
+          }
+        } catch {
+          setAbsences([]);
+        }
+      } else {
+        setAbsences([]);
+      }
     } catch (err) {
       console.error("Erreur:", err);
       setError("Erreur de chargement du dashboard");
@@ -65,6 +104,24 @@ export default function DashboardPage() {
       setLoading(false);
     }
   };
+
+  // Toast de bienvenue pour TM relai (1 fois par jour)
+  useEffect(() => {
+    if (!data || !Array.isArray(delegationsRecues)) return;
+    const role = data.role;
+    const delegationsCount = delegationsRecues.length;
+    if (role !== "TM" || delegationsCount === 0) return;
+
+    const todayKey = `relai_welcome_${new Date().toDateString()}`;
+    if (typeof window !== "undefined" && sessionStorage.getItem(todayKey)) return;
+
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(todayKey, "1");
+    }
+    setShowWelcomeToast(true);
+    const timeout = setTimeout(() => setShowWelcomeToast(false), 6000);
+    return () => clearTimeout(timeout);
+  }, [data, delegationsRecues]);
 
   if (loading) {
     return (
@@ -99,9 +156,27 @@ export default function DashboardPage() {
   }
 
   const role = data.role;
+  const delegationsCount = Array.isArray(delegationsRecues) ? delegationsRecues.length : 0;
+  const tmOrigineNames =
+    delegationsCount > 0 && Array.isArray(delegationsRecues)
+      ? Array.from(
+          new Set(
+            delegationsRecues.map(
+              (d: any) =>
+                `${d.tmOrigine?.prenom ?? ""} ${d.tmOrigine?.nom ?? ""}`.trim()
+            )
+          )
+        )
+      : [];
+  const tmOrigineLabel =
+    tmOrigineNames.length === 0
+      ? ""
+      : tmOrigineNames.length === 1
+      ? tmOrigineNames[0]
+      : `${tmOrigineNames[0]} et ${tmOrigineNames[1]}`;
 
   return (
-    <div className="space-y-8 pb-10">
+    <div className="space-y-8 pb-10 relative">
       {/* Welcome Header — pro, épuré */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -134,9 +209,158 @@ export default function DashboardPage() {
         )}
       </div>
 
+      {role === "TM" && delegationsCount > 0 && (
+        <div
+          className="relative overflow-hidden rounded-2xl mb-6"
+          style={{ background: "linear-gradient(135deg, #1A1110 0%, #2d1f1e 100%)" }}
+        >
+          {/* Texture subtile */}
+          <div
+            className="absolute inset-0 opacity-5"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle at 20% 50%, #C8F285 0%, transparent 50%), radial-gradient(circle at 80% 20%, #C08B8B 0%, transparent 40%)",
+            }}
+          />
+
+          <div className="relative px-6 py-5 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              {/* Icône animée */}
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: "rgba(200, 242, 133, 0.15)",
+                  border: "1px solid rgba(200, 242, 133, 0.3)",
+                }}
+              >
+                <span className="text-2xl animate-pulse">🔄</span>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className="text-xs font-semibold tracking-widest uppercase"
+                    style={{ color: "#C8F285", fontFamily: "Switzer, sans-serif" }}
+                  >
+                    Mode Relai Actif
+                  </span>
+                  {/* Pastille verte animée */}
+                  <span className="relative flex h-2 w-2">
+                    <span
+                      className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                      style={{ background: "#C8F285" }}
+                    />
+                    <span
+                      className="relative inline-flex rounded-full h-2 w-2"
+                      style={{ background: "#C8F285" }}
+                    />
+                  </span>
+                </div>
+
+                <p
+                  className="font-semibold text-white text-lg"
+                  style={{ fontFamily: "Spectral, serif" }}
+                >
+                  Tu assures le relai de {tmOrigineLabel || "plusieurs TMs"}
+                </p>
+
+                <p className="text-sm mt-0.5" style={{ color: "rgba(255,255,255,0.6)" }}>
+                  {delegationsCount} talent
+                  {delegationsCount > 1 ? "s" : ""} sous ta responsabilité temporaire
+                </p>
+              </div>
+            </div>
+
+            {/* Stats rapides inline */}
+            <div className="hidden md:flex items-center gap-6 mr-6">
+              <div className="text-center">
+                <p
+                  className="text-2xl font-bold text-white"
+                  style={{ fontFamily: "Spectral, serif" }}
+                >
+                  {delegationsCount}
+                </p>
+                <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                  Talents
+                </p>
+              </div>
+              {/* Séparateur */}
+              <div className="w-px h-8" style={{ background: "rgba(255,255,255,0.1)" }} />
+              <a
+                href="/talents?tab=delegation"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all hover:scale-105"
+                style={{
+                  background: "#C8F285",
+                  color: "#1A1110",
+                  fontFamily: "Switzer, sans-serif",
+                }}
+              >
+                Voir les talents →
+              </a>
+            </div>
+          </div>
+
+          {/* Barre de progression — talents couverts vs total */}
+          <div className="px-6 pb-4">
+            <div
+              className="flex items-center justify-between text-xs mb-1.5"
+              style={{ color: "rgba(255,255,255,0.4)" }}
+            >
+              <span>Couverture de l&apos;absence</span>
+              <span>
+                {delegationsCount} / {delegationsCount} talents couverts
+              </span>
+            </div>
+            <div
+              className="h-1 rounded-full w-full"
+              style={{ background: "rgba(255,255,255,0.1)" }}
+            >
+              <div
+                className="h-1 rounded-full transition-all duration-1000"
+                style={{
+                  width: "100%",
+                  background: "linear-gradient(90deg, #C8F285, #C08B8B)",
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast de bienvenue relai */}
+      {showWelcomeToast && role === "TM" && delegationsCount > 0 && (
+        <div
+          className="fixed bottom-6 right-6 z-50 rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-4 animate-slide-up max-w-sm"
+          style={{
+            background: "#1A1110",
+            border: "1px solid rgba(200,242,133,0.3)",
+          }}
+        >
+          <span className="text-2xl">👋</span>
+          <div>
+            <p
+              className="font-semibold text-white text-sm"
+              style={{ fontFamily: "Spectral, serif" }}
+            >
+              Bon courage {session?.user?.name?.split(" ")[0] || ""} !
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.6)" }}>
+              Tu gères {delegationsCount} talent
+              {delegationsCount > 1 ? "s" : ""} en plus aujourd&apos;hui 💪
+            </p>
+          </div>
+          <button
+            onClick={() => setShowWelcomeToast(false)}
+            className="ml-2 text-white opacity-40 hover:opacity-100 text-xs"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Dashboard par rôle */}
-      {role === "ADMIN" && <AdminDashboard data={data} />}
-      {role === "HEAD_OF_INFLUENCE" && <HeadOfInfluenceDashboard data={data} />}
+      {role === "ADMIN" && <AdminDashboard data={data} absences={absences} />}
+      {role === "HEAD_OF_INFLUENCE" && <HeadOfInfluenceDashboard data={data} absences={absences} />}
       {role === "HEAD_OF" && <HeadOfDashboard data={data} role={role} />}
       {role === "TM" && <TMDashboard data={data} />}
     </div>
@@ -146,7 +370,7 @@ export default function DashboardPage() {
 // ============================================
 // ADMIN DASHBOARD — Pro, épuré
 // ============================================
-function AdminDashboard({ data }: { data: any }) {
+function AdminDashboard({ data, absences }: { data: any; absences: any[] }) {
   const { stats, pipeline, topTalents, facturesTalentAValider = [], tmPerformance, facturesRelance, negociationsSansReponse = [] } = data;
 
   return (
@@ -230,6 +454,61 @@ function AdminDashboard({ data }: { data: any }) {
           <p className="text-xs text-slate-400 mt-2">{stats.collabsPublie > 0 ? "Action requise" : "À jour"}</p>
         </Link>
       </div>
+
+      {/* Absences en cours (ADMIN / HEAD_OF_INFLUENCE) */}
+      {absences && absences.length > 0 && (
+        <div className="rounded-2xl border border-gray-100 bg-white p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3
+              className="font-semibold text-[#1A1110]"
+              style={{ fontFamily: "Spectral, serif" }}
+            >
+              🏖️ Absences en cours
+            </h3>
+            <Link
+              href="/admin/delegations"
+              className="text-xs text-[#C08B8B] underline"
+            >
+              Gérer →
+            </Link>
+          </div>
+          <div className="space-y-3">
+            {absences.map((absence: any) => (
+              <div
+                key={absence.tmOrigine.id}
+                className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
+              >
+                <div className="flex items-center gap-2 min-w-[120px]">
+                  <div className="w-7 h-7 rounded-full bg-[#F5EBE0] flex items-center justify-center">
+                    <span className="text-xs font-semibold text-[#C08B8B]">
+                      {absence.tmOrigine.prenom.charAt(0)}
+                    </span>
+                  </div>
+                  <span className="text-sm	font-medium text-[#1A1110] truncate">
+                    {absence.tmOrigine.prenom}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-400 text-xs">
+                  <span className="bg-gray-100 rounded-full px-2 py-0.5 text-[#1A1110] font-medium">
+                    {absence.nbTalents} talent{absence.nbTalents > 1 ? "s" : ""}
+                  </span>
+                  <span>→</span>
+                </div>
+                <div className="flex flex-wrap gap-1 justify-end">
+                  {absence.relais.map((relai: any) => (
+                    <span
+                      key={relai.id}
+                      className="text-xs px-2 py-0.5 rounded-full bg-[#F5EBE0] text-[#C08B8B] border border-[#C08B8B] font-medium"
+                    >
+                      {relai.prenom} ({relai.count})
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Performance annuelle + Pipeline */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -406,8 +685,8 @@ function AdminDashboard({ data }: { data: any }) {
 // ============================================
 // HEAD_OF_INFLUENCE DASHBOARD — Vue sympa, lisible et rassurante
 // ============================================
-function HeadOfInfluenceDashboard({ data }: { data: any }) {
-  const { stats, negociations = [], negociationsSansReponse = [], tmBilans = [], dernieresMajPrix = [], talentsTarifsAReverifier = [], demandesRevoirTarifs = [], objectifs = [] } = data;
+function HeadOfInfluenceDashboard({ data, absences }: { data: any; absences: any[] }) {
+  const { stats, negociations = [], negociationsSansReponse = [], tmBilans = [], dernieresMajPrix = [], talentsTarifsAReverifier = [], demandesRevoirTarifs = [], objectifs = [], me } = data as any;
   const negoStatutLabel: Record<string, string> = {
     BROUILLON: "Brouillon",
     EN_ATTENTE: "En attente",
@@ -451,6 +730,65 @@ function HeadOfInfluenceDashboard({ data }: { data: any }) {
             <ChevronRight className="h-5 w-5 flex-shrink-0 text-rose-500 group-hover:translate-x-0.5 transition-transform" />
           </div>
         </Link>
+      )}
+
+      {/* Absences en cours */}
+      {absences && absences.length > 0 && (
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3
+              className="font-semibold text-[#1A1110]"
+              style={{ fontFamily: "Spectral, serif" }}
+            >
+              🏖️ Absences en cours
+            </h3>
+            <Link
+              href="/admin/delegations"
+              className="text-xs text-[#C08B8B] underline"
+            >
+              Gérer →
+            </Link>
+          </div>
+          <div className="space-y-3">
+            {absences.map((absence: any) => (
+              <div
+                key={absence.tmOrigine.id}
+                className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
+              >
+                <div className="flex items-center gap-2 min-w-[120px]">
+                  <div className="w-7 h-7 rounded-full bg-[#F5EBE0] flex items-center justify-center">
+                    <span className="text-xs font-semibold text-[#C08B8B]">
+                      {absence.tmOrigine.prenom.charAt(0)}
+                    </span>
+                  </div>
+                  <span className="text-sm font-medium text-[#1A1110] truncate">
+                    {absence.tmOrigine.prenom}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-400 text-xs">
+                  <span className="bg-gray-100 rounded-full px-2 py-0.5 text-[#1A1110] font-medium">
+                    {absence.nbTalents} talent{absence.nbTalents > 1 ? "s" : ""}
+                  </span>
+                  <span>→</span>
+                </div>
+                <div className="flex flex-wrap gap-1 justify-end">
+                  {absence.relais.map((relai: any) => (
+                    <span
+                      key={relai.id}
+                      className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
+                        me && relai.id === me.id
+                          ? "bg-[#C8F285] text-[#1A1110] border-[#C8F285]"
+                          : "bg-[#F5EBE0] text-[#C08B8B] border-[#C08B8B]"
+                      }`}
+                    >
+                      {relai.prenom} ({relai.count})
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Demandes des admins : revoir les tarifs */}

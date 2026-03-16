@@ -49,7 +49,7 @@ const roleColors: Record<string, string> = {
 };
 
 export default function UsersPage() {
-  const { data: session } = useSession();
+  const { data: session, update } = useSession();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -113,6 +113,17 @@ export default function UsersPage() {
         body: JSON.stringify({ userId }),
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        try {
+          // Mettre à jour la session NextAuth pour refléter l'utilisateur impersonné
+          await update?.({
+            impersonatedId: data.impersonatedId ?? userId,
+            impersonatedRole: data.impersonatedRole,
+            adminName: data.adminName,
+          } as any);
+        } catch {
+          // En cas d'échec, on continue quand même la redirection
+        }
         window.location.href = "/dashboard";
       } else {
         const data = await res.json();

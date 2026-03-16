@@ -144,16 +144,14 @@ export default function NewCollaborationPage() {
     try {
       const res = await fetch("/api/talents");
       const data = await res.json();
-      
-      // Si TM, filtrer pour ne montrer que SES talents
-      const filteredTalents = isTM 
-        ? data.filter((t: any) => t.manager?.id === user?.id)
-        : data;
-      
-      setTalents(filteredTalents);
+      const list: Talent[] = Array.isArray(data) ? data : (data.talents || []);
+
+      // Ne plus filtrer côté front par managerId : la route /api/talents
+      // renvoie déjà les talents accessibles (propres + délégués).
+      setTalents(list);
       const preselectedId = searchParams.get("talent");
       if (preselectedId) {
-        const talent = filteredTalents.find((t: Talent) => t.id === preselectedId);
+        const talent = list.find((t: Talent) => t.id === preselectedId);
         if (talent) setSelectedTalent(talent);
       }
     } catch (error) {

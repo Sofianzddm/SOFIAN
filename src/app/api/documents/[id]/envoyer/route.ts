@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getDestinatairesNotification } from "@/lib/delegations";
 import { StatutDocument } from "@prisma/client";
 
 /**
@@ -64,21 +65,28 @@ export async function POST(
       },
     });
 
-    // Si c'est une facture, notifier le TM
-    if (document.type === "FACTURE" && document.collaboration) {
-      const managerId = document.collaboration.talent.managerId;
-      
-      if (managerId) {
-        await prisma.notification.create({
-          data: {
-            userId: managerId,
-            type: "COLLAB_GAGNEE",
-            titre: "Facture envoyée",
-            message: `La facture ${document.reference} a été envoyée à ${document.collaboration.marque.nom}`,
-            lien: `/collaborations/${document.collaborationId}`,
-            collabId: document.collaborationId,
-          },
-        });
+    // Si c'est une facture liée à une collaboration, notifier le(s) TM(s) responsable(s) du talent (délégation comprise)
+    if (document.type === "FACTURE" && document.collaboration && document.collaboration.marque) {
+      const talentId = document.collaboration.talent.id;
+      const destinataires = await getDestinatairesNotification(talentId);
+
+      if (destinataires.length > 0) {
+        await Promise.all(
+          destinataires.map((userId) =>
+            prisma.notification.create({
+              data: {
+                userId,
+                type: "COLLAB_GAGNEE",
+                titre: "Facture envoyée",
+                message: `La facture ${document.reference} a été envoyée à ${document.collaboration!.marque!.nom}`,
+                lien: document.collaborationId
+                  ? `/collaborations/${document.collaborationId}`
+                  : undefined,
+                collabId: document.collaborationId ?? undefined,
+              },
+            })
+          )
+        );
       }
     }
 

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getDestinatairesNotification } from "@/lib/delegations";
 import { StatutDocument } from "@prisma/client";
 
 export async function POST(
@@ -110,17 +111,22 @@ export async function POST(
         include: { talent: true },
       });
 
-      if (collab?.talent.managerId) {
-        await prisma.notification.create({
-          data: {
-            userId: collab.talent.managerId,
-            type: "PAIEMENT_RECU",
-            titre: "Paiement reçu",
-            message: `Le paiement de la facture ${document.reference} a été reçu.`,
-            lien: `/collaborations/${collaborationId}`,
-            collabId: collaborationId,
-          },
-        });
+      if (collab?.talent?.id) {
+        const destinataires = await getDestinatairesNotification(collab.talent.id);
+        await Promise.all(
+          destinataires.map((userId) =>
+            prisma.notification.create({
+              data: {
+                userId,
+                type: "PAIEMENT_RECU",
+                titre: "Paiement reçu",
+                message: `Le paiement de la facture ${document.reference} a été reçu.`,
+                lien: `/collaborations/${collaborationId}`,
+                collabId: collaborationId,
+              },
+            })
+          )
+        );
       }
     }
 

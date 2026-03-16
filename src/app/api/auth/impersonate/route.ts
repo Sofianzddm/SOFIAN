@@ -25,14 +25,20 @@ export async function POST(request: NextRequest) {
 
     const targetUser = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, actif: true },
+      select: { id: true, actif: true, prenom: true, nom: true, role: true },
     });
     if (!targetUser || !targetUser.actif) {
       return NextResponse.json({ error: "Utilisateur introuvable ou inactif" }, { status: 404 });
     }
 
     const cookieName = getImpersonateCookieName();
-    const res = NextResponse.json({ ok: true });
+    const res = NextResponse.json({
+      ok: true,
+      // Données utiles pour éventuellement piloter useSession().update côté client
+      impersonatedId: targetUser.id,
+      impersonatedRole: targetUser.role,
+      adminName: `${(session.user as any).name ?? ""}`.trim(),
+    });
     res.cookies.set(cookieName, userId, {
       path: "/",
       httpOnly: true,

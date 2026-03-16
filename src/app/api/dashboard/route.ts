@@ -606,7 +606,20 @@ export async function GET(request: NextRequest) {
         mesCollabsEnCours,
       ] = await Promise.all([
         prisma.talent.findMany({
-          where: { managerId: user.id, isArchived: false },
+          where: {
+            isArchived: false,
+            OR: [
+              { managerId: user.id },
+              {
+                delegations: {
+                  some: {
+                    tmRelaiId: user.id,
+                    actif: true,
+                  },
+                },
+              },
+            ],
+          },
           include: {
             stats: { select: { lastUpdate: true, igFollowers: true, ttFollowers: true } },
             tarifs: { select: { id: true } },

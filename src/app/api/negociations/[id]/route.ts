@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -24,6 +25,11 @@ export async function GET(
         talent: {
           include: {
             tarifs: true,
+            manager: { select: { prenom: true, nom: true } },
+            delegations: {
+              where: { actif: true },
+              select: { actif: true },
+            },
           },
         },
         marque: {
@@ -53,11 +59,14 @@ export async function GET(
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
-    // Sécurité : un TM ne peut voir que ses propres négociations
-    if (
-      session.user.role === "TM" &&
-      negociation.tmId !== session.user.id
-    ) {
+    const role = (session.user as { role?: string }).role ?? "";
+    const talentIds = await getTalentIdsAccessibles(session.user.id as string);
+    const hasAccess =
+      negociation.tmId === session.user.id ||
+      talentIds.includes(negociation.talentId) ||
+      ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(role);
+
+    if (!hasAccess) {
       return NextResponse.json({ message: "Accès refusé" }, { status: 403 });
     }
 
@@ -107,7 +116,8 @@ export async function PUT(
     }
 
     // 🔄 Si la négo est REFUSEE, on la remet en BROUILLON
-    const newStatut = negoActuelle.statut === "REFUSEE" ? "BROUILLON" : negoActuelle.statut;
+    const ancienStatut = negoActuelle.statut;
+    const newStatut = ancienStatut === "REFUSEE" ? "BROUILLON" : ancienStatut;
     const resetRefus = negoActuelle.statut === "REFUSEE";
 
     // Déterminer si on doit notifier (modification après soumission)
@@ -248,6 +258,25 @@ export async function PUT(
 
       return updated;
     });
+
+    // Log d'activité de délégation (statut négo)
+    try {
+      if (negociation.talentId && ancienStatut !== negociation.statut) {
+        await logDelegationActivite({
+          talentId: negociation.talentId,
+          auteurId: session.user.id,
+          type: "STATUT_NEGO",
+          entiteType: "NEGO",
+          entiteId: negociation.id,
+          entiteRef: negociation.reference,
+          detail: `Statut : ${ancienStatut} → ${negociation.statut}`,
+          ancienneValeur: ancienStatut,
+          nouvelleValeur: negociation.statut,
+        });
+      }
+    } catch (e) {
+      console.error("Erreur logDelegationActivite STATUT_NEGO:", e);
+    }
 
     return NextResponse.json(negociation);
   } catch (error) {

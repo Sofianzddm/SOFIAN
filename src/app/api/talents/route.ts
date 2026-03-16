@@ -22,7 +22,20 @@ export async function GET(request: NextRequest) {
     let whereClause: any = { isArchived: false };
     
     if (user.role === "TM" && !isPresskit) {
-      whereClause = { ...whereClause, managerId: user.id };
+      whereClause = {
+        ...whereClause,
+        OR: [
+          { managerId: user.id },
+          {
+            delegations: {
+              some: {
+                tmRelaiId: user.id,
+                actif: true,
+              },
+            },
+          },
+        ],
+      };
     }
 
     const talents = await prisma.talent.findMany({
@@ -40,6 +53,16 @@ export async function GET(request: NextRequest) {
         _count: {
           select: {
             collaborations: true,
+          },
+        },
+        delegations: {
+          where: { actif: true },
+          select: {
+            actif: true,
+            tmRelaiId: true,
+            tmOrigine: {
+              select: { prenom: true, nom: true },
+            },
           },
         },
       },

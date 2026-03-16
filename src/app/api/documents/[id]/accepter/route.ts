@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getDestinatairesNotification } from "@/lib/delegations";
 import { StatutDocument } from "@prisma/client";
 
 /**
@@ -78,18 +79,25 @@ export async function POST(
         data: { statut: "GAGNE" },
       });
 
-      // Créer une notification pour le TM
-      if (document.collaboration?.talent.managerId) {
-        await prisma.notification.create({
-          data: {
-            userId: document.collaboration.talent.managerId,
-            type: "COLLAB_GAGNEE",
-            titre: "Devis accepté",
-            message: `Le devis ${document.reference} a été accepté par ${document.collaboration.marque.nom}`,
-            lien: `/collaborations/${document.collaborationId}`,
-            collabId: document.collaborationId,
-          },
-        });
+      // Créer une notification pour le(s) TM(s) via la délégation
+      if (document.collaboration?.talent?.id) {
+        const destinataires = await getDestinatairesNotification(
+          document.collaboration.talent.id
+        );
+        await Promise.all(
+          destinataires.map((userId) =>
+            prisma.notification.create({
+              data: {
+                userId,
+                type: "COLLAB_GAGNEE",
+                titre: "Devis accepté",
+                message: `Le devis ${document.reference} a été accepté par ${document.collaboration!.marque.nom}`,
+                lien: `/collaborations/${document.collaborationId}`,
+                collabId: document.collaborationId,
+              },
+            })
+          )
+        );
       }
     }
 

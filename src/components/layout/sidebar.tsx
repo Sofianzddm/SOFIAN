@@ -21,6 +21,7 @@ import {
   Gift,
   Lock,
   Target,
+  UserCheck,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -111,6 +112,12 @@ const menuItems = [
     roles: ["ADMIN"],
   },
   {
+    label: "Délégations",
+    href: "/admin/delegations",
+    icon: UserCheck,
+    roles: ["ADMIN", "HEAD_OF_INFLUENCE"],
+  },
+  {
     label: "Réconciliation",
     href: "/reconciliation",
     icon: Banknote,
@@ -136,11 +143,19 @@ const menuItems = [
   },
 ];
 
+function daysSince(dateStr: string): number {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(false);
   const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
+  const [hasAbsence, setHasAbsence] = useState(false);
+  const [hasMissingDelegations, setHasMissingDelegations] = useState(false);
+  const [delegationsRecues, setDelegationsRecues] = useState<any[]>([]);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -152,8 +167,86 @@ export function Sidebar() {
   // Rôle effectif (prise en compte de l'impersonation admin)
   const userRole = effectiveRole ?? (session?.user as { role?: string })?.role ?? "TALENT";
 
+  // Délégations reçues pour indicateur "Mode Relai"
+  useEffect(() => {
+    if (userRole !== "TM" && userRole !== "HEAD_OF_INFLUENCE") return;
+    const fetchDelegationsRecues = async () => {
+      try {
+        const res = await fetch("/api/delegations/mes-delegations-recues");
+        if (!res.ok) {
+          setDelegationsRecues([]);
+          return;
+        }
+        const json = await res.json();
+        setDelegationsRecues(json.delegations || []);
+      } catch {
+        setDelegationsRecues([]);
+      }
+    };
+    fetchDelegationsRecues();
+  }, [userRole]);
+
+  useEffect(() => {
+    if (userRole !== "TM" && userRole !== "HEAD_OF_INFLUENCE") return;
+    const fetchDelegations = async () => {
+      try {
+        const [delegRes, talentsRes] = await Promise.all([
+          fetch("/api/delegations/mes-delegations-emises"),
+          fetch("/api/talents"),
+        ]);
+        if (!delegRes.ok) {
+          setHasAbsence(false);
+          setHasMissingDelegations(false);
+          return;
+        }
+        const dJson = await delegRes.json();
+        const delegations = (dJson.delegations || []) as any[];
+        const hasAny = delegations.some((d: any) => {
+          if (d.actif) return true;
+          if (!d.updatedAt) return false;
+          return daysSince(d.updatedAt) <= 7;
+        });
+        setHasAbsence(hasAny);
+
+        if (!talentsRes.ok || !session?.user) {
+          setHasMissingDelegations(false);
+          return;
+        }
+        const tJson = await talentsRes.json();
+        const meId = (session.user as { id?: string }).id;
+        const talents = (Array.isArray(tJson) ? tJson : tJson.talents || []) as any[];
+        const talentsPropres = talents.filter(
+          (t) => t.managerId === meId && !t.isArchived
+        );
+        const delegTalentIds = new Set(delegations.map((d) => d.talent.id));
+        const nonDelegues = talentsPropres.filter(
+          (t: any) => !delegTalentIds.has(t.id)
+        );
+        setHasMissingDelegations(nonDelegues.length > 0);
+      } catch {
+        setHasAbsence(false);
+        setHasMissingDelegations(false);
+      }
+    };
+    fetchDelegations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRole]);
+
   // Filtrer les menus selon le rôle
-  const filteredMenuItems = menuItems.filter((item) => item.roles.includes(userRole));
+  const filteredMenuItems = menuItems
+    .filter((item) => item.roles.includes(userRole))
+    .concat(
+      (userRole === "TM" || userRole === "HEAD_OF_INFLUENCE") && hasAbsence
+        ? [
+            {
+              label: "Mon absence",
+              href: "/mon-absence",
+              icon: UserCog,
+              roles: ["TM", "HEAD_OF_INFLUENCE"],
+            } as (typeof menuItems)[number],
+          ]
+        : []
+    );
 
   return (
     <aside
@@ -169,6 +262,38 @@ export function Sidebar() {
           <GlowUpLogo className="h-8 w-auto" variant="dark" />
         )}
       </div>
+
+      {/* Indicateur permanent Mode Relai */}
+      {(userRole === "TM" || userRole === "HEAD_OF_INFLUENCE") &&
+        delegationsRecues.length > 0 && !collapsed && (
+          <div
+            className="mx-3 mt-3 mb-1 rounded-xl px-3 py-2.5"
+            style={{
+              background: "rgba(200,242,133,0.1)",
+              border: "1px solid rgba(200,242,133,0.2)",
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span
+                  className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                  style={{ background: "#C8F285" }}
+                />
+                <span
+                  className="relative inline-flex rounded-full h-2 w-2"
+                  style={{ background: "#C8F285" }}
+                />
+              </span>
+              <span
+                className="text-xs font-medium"
+                style={{ color: "#C8F285", fontFamily: "Switzer, sans-serif" }}
+              >
+                Mode Relai · {delegationsRecues.length} talent
+                {delegationsRecues.length > 1 ? "s" : ""}
+              </span>
+            </div>
+          </div>
+        )}
 
       {/* Menu */}
       <nav className="p-4 space-y-1">
@@ -191,7 +316,14 @@ export function Sidebar() {
                   isActive ? "text-white" : "text-gray-400 group-hover:text-glowup-rose"
                 }`}
               />
-              {!collapsed && <span className="font-medium text-sm">{item.label}</span>}
+              {!collapsed && (
+                <span className="font-medium text-sm flex items-center gap-2">
+                  {item.label}
+                  {item.href === "/mon-absence" && hasMissingDelegations && (
+                    <span className="inline-flex h-2 w-2 rounded-full bg-orange-400" />
+                  )}
+                </span>
+              )}
             </Link>
           );
         })}

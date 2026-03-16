@@ -93,7 +93,16 @@ interface CollabDetail {
   factureValideeAt: string | null;
   marquePayeeAt: string | null;
   paidAt: string | null;
-  talent: { id: string; prenom: string; nom: string; email: string; photo: string | null };
+  talent: {
+    id: string;
+    prenom: string;
+    nom: string;
+    email: string;
+    photo: string | null;
+    managerId?: string;
+    manager?: { prenom: string; nom: string } | null;
+    delegations?: { actif: boolean }[];
+  };
   marque: { 
     id: string; 
     nom: string; 
@@ -1110,8 +1119,16 @@ export default function CollabDetailPage() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-glowup-licorice group-hover:text-glowup-rose transition-colors">
-                        {collab.talent.prenom} {collab.talent.nom}
+                      <p className="font-semibold text-glowup-licorice group-hover:text-glowup-rose transition-colors flex flex-wrap items-center gap-2">
+                        <span>
+                          {collab.talent.prenom} {collab.talent.nom}
+                        </span>
+                        {collab.talent.delegations?.some((d) => d.actif) &&
+                          collab.talent.manager && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#F5EBE0] text-[#C08B8B] border border-[#C08B8B] font-medium">
+                              Relai · {collab.talent.manager.prenom} {collab.talent.manager.nom}
+                            </span>
+                          )}
                       </p>
                       <p className="text-xs text-gray-500 font-medium">Talent</p>
                     </div>

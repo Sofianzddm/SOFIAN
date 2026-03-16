@@ -237,6 +237,11 @@ model User {
   prospectionCommentaires ProspectionCommentaire[]
   prospectionHistoriques  ProspectionHistorique[]
 
+  delegationsEmises  DelegationTM[] @relation("DelegationsEmises")
+  delegationsRecues  DelegationTM[] @relation("DelegationsRecues")
+
+  delegationActivites DelegationActivite[]
+
   @@map("users")
 }
 
@@ -324,6 +329,9 @@ model Talent {
   partnerTarifOverrides PartnerTarifOverride[]
   quotes        Quote[]
   prospectionContacts ProspectionContact[]
+
+  delegations DelegationTM[]
+  delegationActivites DelegationActivite[]
   
   @@map("talents")
 }
@@ -1599,6 +1607,24 @@ model PartnerTarifOverride {
   @@map("partner_tarif_overrides")
 }
 
+model DelegationTM {
+  id           String   @id @default(cuid())
+  talentId     String
+  tmOrigineId  String
+  tmRelaiId    String
+  actif        Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  talent    Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  tmOrigine User   @relation("DelegationsEmises", fields: [tmOrigineId], references: [id], onDelete: Cascade)
+  tmRelai   User   @relation("DelegationsRecues", fields: [tmRelaiId], references: [id], onDelete: Cascade)
+
+  activites DelegationActivite[]
+
+  @@unique([talentId, tmRelaiId])
+}
+
 // ============================================
 // AGENCY PROJECTS (PORTFOLIO GLOW UP)
 // ============================================
@@ -1663,4 +1689,28 @@ model AgencyProjectTalent {
   @@index([projectId])
   @@index([talentId])
   @@map("agency_project_talents")
+}
+
+model DelegationActivite {
+  id             String   @id @default(cuid())
+  delegationId   String
+  talentId       String
+  auteurId       String
+  type           String
+  entiteType     String
+  entiteId       String
+  entiteRef      String?
+  detail         String?
+  ancienneValeur String?
+  nouvelleValeur String?
+  createdAt      DateTime @default(now())
+
+  delegation DelegationTM @relation(fields: [delegationId], references: [id], onDelete: Cascade)
+  talent     Talent       @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  auteur     User         @relation(fields: [auteurId], references: [id], onDelete: Cascade)
+
+  @@index([delegationId])
+  @@index([talentId])
+  @@index([auteurId])
+  @@map("delegation_activites")
 }

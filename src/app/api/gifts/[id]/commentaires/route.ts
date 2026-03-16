@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getDestinatairesNotification, logDelegationActivite } from "@/lib/delegations";
 import type { Role } from "@prisma/client";
 
 // POST /api/gifts/[id]/commentaires - Ajouter un commentaire
@@ -33,6 +34,7 @@ export async function POST(
       include: {
         talent: {
           select: {
+            id: true,
             prenom: true,
             nom: true,
           },
@@ -146,26 +148,49 @@ export async function POST(
         }
       }
 
-      // Auteur AM/ADMIN (staff) → notifier la TM, sauf commentaire interne
+      // Auteur AM/ADMIN (staff) → notifier la TM (via délégation), sauf commentaire interne
       if (
         staffRoles.includes(auteurRole as Role) &&
+        demande.talentId &&
         demande.tmId &&
         demande.tmId !== user.id
       ) {
         if (!interne) {
-          await prisma.notification.create({
-            data: {
-              userId: demande.tmId,
-              type: "GENERAL",
-              titre: "Nouveau commentaire sur ta demande de gift",
-              message: `${auteurNom} a commenté la demande ${ref}`,
-              lien,
-              actorId: user.id,
-              talentId: demande.talentId,
-              marqueId: demande.marqueId,
-            },
+          const destinataires = await getDestinatairesNotification(demande.talentId);
+          await Promise.all(
+            destinataires.map((userId) =>
+              prisma.notification.create({
+                data: {
+                  userId,
+                  type: "GENERAL",
+                  titre: "Nouveau commentaire sur ta demande de gift",
+                  message: `${auteurNom} a commenté la demande ${ref}`,
+                  lien,
+                  actorId: user.id,
+                  talentId: demande.talentId,
+                  marqueId: demande.marqueId,
+                },
+              })
+            )
+          );
+        }
+      }
+
+      // Log d'activité de délégation (commentaire gift)
+      try {
+        if (demande.talent.id) {
+          await logDelegationActivite({
+            talentId: demande.talent.id,
+            auteurId: user.id,
+            type: "COMMENTAIRE_GIFT",
+            entiteType: "GIFT",
+            entiteId: demande.id,
+            entiteRef: demande.reference,
+            detail: "Commentaire ajouté",
           });
         }
+      } catch (e) {
+        console.error("Erreur logDelegationActivite COMMENTAIRE_GIFT:", e);
       }
     } catch (notifError) {
       console.error("Erreur notifications commentaire gift:", notifError);

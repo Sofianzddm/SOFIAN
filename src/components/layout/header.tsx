@@ -27,7 +27,7 @@ interface NotificationItem {
 }
 
 export function Header() {
-  const { data: session } = useSession();
+  const { data: session, update } = useSession();
   const router = useRouter();
   const [countNonLues, setCountNonLues] = useState(0);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -145,11 +145,13 @@ export function Header() {
   const stopImpersonate = useCallback(async () => {
     try {
       await fetch("/api/auth/stop-impersonate", { method: "POST" });
+      // Nettoyer aussi le token NextAuth (fin d'impersonation)
+      await update?.({ stopImpersonation: true } as any);
       window.location.href = "/users";
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [update]);
 
   return (
     <>

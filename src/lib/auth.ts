@@ -48,18 +48,41 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
-        token.id = user.id;
-        token.role = user.role;
+        token.id = (user as any).id;
+        (token as any).role = (user as any).role;
       }
+
+      // Permettre la mise à jour du token via useSession().update()
+      if (trigger === "update" && (session as any)?.impersonatedId) {
+        (token as any).impersonatedId = (session as any).impersonatedId;
+        (token as any).impersonatedRole = (session as any).impersonatedRole;
+        (token as any).adminName = (session as any).adminName;
+      }
+      if (trigger === "update" && (session as any)?.stopImpersonation) {
+        delete (token as any).impersonatedId;
+        delete (token as any).impersonatedRole;
+        delete (token as any).adminName;
+      }
+
       return token;
     },
     async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as string;
-      }
+      if (!session.user) return session;
+
+      const t = token as any;
+
+      const effectiveId = t.impersonatedId ?? t.sub ?? t.id;
+      const effectiveRole = t.impersonatedRole ?? t.role;
+
+      session.user.id = effectiveId as string;
+      (session.user as any).role = effectiveRole as string | undefined;
+
+      // Garder une trace de l'admin réel pour le bandeau
+      (session.user as any).adminId = t.impersonatedId ? (t.sub ?? t.id) : undefined;
+      (session.user as any).adminName = t.impersonatedId ? t.adminName : undefined;
+
       return session;
     },
   },

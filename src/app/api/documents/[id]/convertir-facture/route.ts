@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getDestinatairesNotification } from "@/lib/delegations";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 
 /**
@@ -124,18 +125,25 @@ export async function POST(
         data: { statut: "EN_COURS" },
       });
 
-      // Créer une notification pour le TM
-      if (devis.collaboration?.talent.managerId) {
-        await prisma.notification.create({
-          data: {
-            userId: devis.collaboration.talent.managerId,
-            type: "COLLAB_GAGNEE",
-            titre: "Facture générée",
-            message: `La facture ${referenceFacture} a été générée depuis le devis ${devis.reference}`,
-            lien: `/collaborations/${devis.collaborationId}`,
-            collabId: devis.collaborationId,
-          },
-        });
+      // Créer une notification pour le(s) TM(s) via la délégation
+      if (devis.collaboration?.talent?.id) {
+        const destinataires = await getDestinatairesNotification(
+          devis.collaboration.talent.id
+        );
+        await Promise.all(
+          destinataires.map((userId) =>
+            prisma.notification.create({
+              data: {
+                userId,
+                type: "COLLAB_GAGNEE",
+                titre: "Facture générée",
+                message: `La facture ${referenceFacture} a été générée depuis le devis ${devis.reference}`,
+                lien: `/collaborations/${devis.collaborationId}`,
+                collabId: devis.collaborationId,
+              },
+            })
+          )
+        );
       }
     }
 
