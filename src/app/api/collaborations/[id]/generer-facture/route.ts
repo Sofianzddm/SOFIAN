@@ -7,6 +7,7 @@ import { FactureTemplate } from "@/lib/documents/templates/FactureTemplate";
 import type { FactureData, LigneFacture } from "@/lib/documents/templates/FactureTemplate";
 import { createElement } from "react";
 import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
+import { getTalentIdsAccessibles } from "@/lib/delegations";
 
 export async function POST(
   request: NextRequest,
@@ -73,12 +74,18 @@ export async function POST(
       );
     }
 
-    // Vérifier les permissions (TM ne peut facturer que ses talents)
-    if (user.role === "TM" && collab.talent.managerId !== user.id) {
-      return NextResponse.json(
-        { error: "Vous ne pouvez facturer que vos propres talents" },
-        { status: 403 }
-      );
+    // Vérifier les permissions (TM ne peut facturer que des talents auxquels elle a accès : propres + délégations)
+    if (user.role === "TM") {
+      const talentsAccessibles = await getTalentIdsAccessibles(user.id);
+      if (!talentsAccessibles.includes(collab.talent.id)) {
+        return NextResponse.json(
+          {
+            error:
+              "Vous ne pouvez facturer que des talents qui vous sont accessibles",
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // Générer la référence facture
