@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { TypeDocument, StatutDocument } from "@prisma/client";
+import { getTalentIdsAccessibles } from "@/lib/delegations";
 
 interface LigneInput {
   description: string;
@@ -22,10 +23,11 @@ export async function POST(request: NextRequest) {
 
     const user = session.user as { id: string; role: string };
 
-    // Seul ADMIN peut créer des avoirs
-    if (user.role !== "ADMIN") {
+    // ADMIN, HEAD_OF, HEAD_OF_INFLUENCE et TM peuvent créer des avoirs
+    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"];
+    if (!rolesAutorises.includes(user.role)) {
       return NextResponse.json(
-        { error: "Seul un administrateur peut créer un avoir" },
+        { error: "Vous n'avez pas les droits pour créer un avoir" },
         { status: 403 }
       );
     }
@@ -40,13 +42,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Récupérer la facture d'origine
+    // Récupérer la facture d'origine (avec collaboration pour retrouver le talent)
     const facture = await prisma.document.findUnique({
       where: { id: factureId },
+      include: {
+        collaboration: {
+          select: { talentId: true },
+        },
+      },
     });
 
     if (!facture) {
       return NextResponse.json({ error: "Facture non trouvée" }, { status: 404 });
+    }
+
+    // Pour une TM, vérifier que le talent de la collab fait partie de ses talents accessibles
+    if (user.role === "TM") {
+      const talentId = facture.collaboration?.talentId;
+      if (!talentId) {
+        return NextResponse.json(
+          { error: "Impossible de déterminer le talent associé à cette facture" },
+          { status: 403 }
+        );
+      }
+
+      const talentsAccessibles = await getTalentIdsAccessibles(user.id);
+      if (!talentsAccessibles.includes(talentId)) {
+        return NextResponse.json(
+          {
+            error:
+              "Vous ne pouvez créer un avoir que pour des talents qui vous sont accessibles",
+          },
+          { status: 403 }
+        );
+      }
     }
 
     if (facture.type !== "FACTURE") {

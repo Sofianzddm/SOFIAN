@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTypeTVA, getMentionTVA, MENTIONS_TVA } from "@/lib/documents/config";
+import { getTalentIdsAccessibles } from "@/lib/delegations";
 
 export async function PUT(
   request: NextRequest,
@@ -44,12 +45,40 @@ export async function PUT(
     }
 
     // Vérifier les permissions
-    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"];
+    const rolesAutorises = [
+      "ADMIN",
+      "HEAD_OF",
+      "HEAD_OF_INFLUENCE",
+      "HEAD_OF_SALES",
+      "TM",
+    ];
     if (!rolesAutorises.includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour modifier ce document" },
         { status: 403 }
       );
+    }
+
+    // Pour une TM, vérifier que le talent lié au document lui est accessible (talent propre ou en délégation)
+    if (user.role === "TM") {
+      const talentId = document.collaboration?.talent?.id;
+      if (!talentId) {
+        return NextResponse.json(
+          { error: "Impossible de déterminer le talent associé à ce document" },
+          { status: 403 }
+        );
+      }
+
+      const talentsAccessibles = await getTalentIdsAccessibles(user.id);
+      if (!talentsAccessibles.includes(talentId)) {
+        return NextResponse.json(
+          {
+            error:
+              "Vous ne pouvez modifier des documents que pour des talents qui vous sont accessibles",
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // Ne pas permettre la modification de documents validés/payés
