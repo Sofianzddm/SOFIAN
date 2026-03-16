@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
+import { getTalentIdsAccessibles } from "@/lib/delegations";
 
 interface LigneInput {
   description: string;
@@ -82,12 +83,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Vérifier que le TM ne peut créer que pour ses propres talents
-    if (user.role === "TM" && collaboration.talent.managerId !== user.id) {
-      return NextResponse.json(
-        { error: "Vous ne pouvez créer des factures que pour vos propres talents" },
-        { status: 403 }
-      );
+    // Vérifier que le TM ne peut créer que pour des talents auxquels il a accès (propre portefeuille + délégations)
+    if (user.role === "TM") {
+      const talentsAccessibles = await getTalentIdsAccessibles(user.id);
+      if (!talentsAccessibles.includes(collaboration.talent.id)) {
+        return NextResponse.json(
+          {
+            error:
+              "Vous ne pouvez créer des documents que pour des talents qui vous sont accessibles",
+          },
+          { status: 403 }
+        );
+      }
     }
 
     const marque = collaboration.marque;
