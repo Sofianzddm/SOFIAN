@@ -194,10 +194,14 @@ export default function NegociationDetailPage() {
     if (!newComment.trim()) return;
     setCommenting(true);
     try {
+      const contenuPourDB = newComment.replace(
+        /<span[^>]*data-id="([^"]+)"[^>]*data-label="([^"]+)"[^>]*>.*?<\/span>/g,
+        "@[$1]"
+      );
       const res = await fetch(`/api/negociations/${params.id}/commentaires`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contenu: newComment }),
+        body: JSON.stringify({ contenu: contenuPourDB }),
       });
       if (res.ok) {
         setNewComment("");
@@ -843,6 +847,10 @@ export default function NegociationDetailPage() {
                   value={newComment}
                   onChange={setNewComment}
                   placeholder="Votre message... (@ pour mentionner, toolbar pour formatage)"
+                  users={mentionableUsers.map((u) => ({
+                    id: u.id,
+                    name: `${u.firstName} ${u.lastName}`,
+                  }))}
                 />
                 <div className="flex justify-end gap-2 mt-2">
                   <button

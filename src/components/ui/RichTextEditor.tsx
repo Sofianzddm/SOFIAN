@@ -1,20 +1,30 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, ReactRenderer } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
+import Mention from "@tiptap/extension-mention";
+import tippy, { Instance as TippyInstance } from "tippy.js";
+import "tippy.js/dist/tippy.css";
+import MentionList from "./MentionList";
 
 interface RichTextEditorProps {
   value: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  users?: { id: string; name: string }[];
 }
 
-export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorProps) {
+export function RichTextEditor({
+  value,
+  onChange,
+  placeholder,
+  users = [],
+}: RichTextEditorProps) {
   const editor = useEditor({
     extensions: [
       Color.configure({ types: ["textStyle"] }),
@@ -22,6 +32,75 @@ export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorP
       Underline,
       TextAlign.configure({
         types: ["heading", "paragraph"],
+      }),
+      Mention.configure({
+        HTMLAttributes: { class: "mention" },
+        renderLabel: ({ node }) => `@${node.attrs.label}`,
+        suggestion: {
+          char: "@",
+          items: ({ query }) =>
+            (users || [])
+              .filter((u) =>
+                u.name.toLowerCase().includes(query.toLowerCase())
+              )
+              .slice(0, 8),
+          command: ({ editor, range, props }) => {
+            editor
+              .chain()
+              .focus()
+              .deleteRange(range)
+              .insertContent({
+                type: "mention",
+                attrs: {
+                  id: props.id,
+                  label: props.label,
+                },
+              })
+              .insertContent(" ")
+              .run();
+          },
+          render: () => {
+            let component: ReactRenderer | null = null;
+            let popup: TippyInstance[] | null = null;
+            return {
+              onStart: (props) => {
+                component = new ReactRenderer(MentionList, {
+                  props,
+                  editor: props.editor,
+                });
+                popup = tippy("body", {
+                  getReferenceClientRect: props.clientRect,
+                  appendTo: () => document.body,
+                  content: (component as any).element,
+                  showOnCreate: true,
+                  interactive: true,
+                  trigger: "manual",
+                  placement: "bottom-start",
+                });
+              },
+              onUpdate: (props) => {
+                if (!component || !popup) return;
+                component.updateProps(props);
+                popup[0].setProps({
+                  getReferenceClientRect: props.clientRect,
+                });
+              },
+              onKeyDown: (props) => {
+                if (!component || !popup) return false;
+                if (props.event.key === "Escape") {
+                  popup[0].hide();
+                  return true;
+                }
+                return (component.ref as any)?.onKeyDown(props);
+              },
+              onExit: () => {
+                if (!popup || !component) return;
+                popup[0].destroy();
+                component.destroy();
+              },
+            };
+          },
+        },
       }),
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },

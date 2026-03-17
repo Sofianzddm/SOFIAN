@@ -720,10 +720,16 @@ export default function CollabDetailPage() {
     if (!params.id || !commentContent.trim()) return;
     setCommentSubmitting(true);
     try {
+      const contentForDb = commentContent
+        .trim()
+        .replace(
+          /<span[^>]*data-id="([^"]+)"[^>]*data-label="([^"]+)"[^>]*>.*?<\/span>/g,
+          "@[$1]"
+        );
       const r = await fetch(`/api/collaborations/${params.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: commentContent.trim() }),
+        body: JSON.stringify({ content: contentForDb }),
       });
       if (!r.ok) {
         const d = await r.json();
@@ -1359,6 +1365,10 @@ export default function CollabDetailPage() {
                   value={commentContent}
                   onChange={setCommentContent}
                   placeholder="Votre commentaire... (@ pour mentionner, toolbar pour formatage)"
+                  users={mentionableUsers.map((u) => ({
+                    id: u.id,
+                    name: `${u.firstName} ${u.lastName}`,
+                  }))}
                 />
                 <div className="flex justify-end gap-2 mt-2">
                   <button
