@@ -51,6 +51,19 @@ export function MentionEmail({
         : "opportunité de prospection";
   const preview = `${mentionnedByName} vous a mentionné dans une conversation (${contextReference}).`;
 
+  const stripHtml = (html: string): string => {
+    return html
+      // Résoudre les mentions @[id] en libellé générique avant de stripper
+      .replace(/@\[([^\]]+)\]/g, "@mention")
+      // Supprimer toutes les balises HTML
+      .replace(/<[^>]+>/g, " ")
+      // Nettoyer les espaces multiples
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
+  const extrait = stripHtml(messageContent).substring(0, 200) + (messageContent ? "..." : "");
+
   return (
     <Html lang="fr">
       <Head />
@@ -69,7 +82,7 @@ export function MentionEmail({
 
             <Section style={infoBox}>
               <Text style={infoLabel}>Extrait du message :</Text>
-              <Text style={messagePreview}>{messageContent}</Text>
+              <Text style={messagePreview}>{extrait}</Text>
             </Section>
 
             <Section style={buttonSection}>

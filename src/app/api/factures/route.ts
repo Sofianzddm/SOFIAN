@@ -11,6 +11,9 @@ export async function GET(request: NextRequest) {
     }
 
     const now = new Date();
+    const user = session.user as { id: string; role?: string };
+    const isAdmin = user.role === "ADMIN";
+    const isHeadOfSales = user.role === "HEAD_OF_SALES";
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
@@ -20,7 +23,10 @@ export async function GET(request: NextRequest) {
     // FACTURES MARQUES (Documents de type FACTURE) + liste complète pour la page factures
     // ============================================
     const facturesMarques = await prisma.document.findMany({
-      where: { type: "FACTURE" },
+      where: {
+        type: "FACTURE",
+        ...(isHeadOfSales ? { createdById: user.id } : {}),
+      },
       include: {
         collaboration: {
           include: {
@@ -34,7 +40,10 @@ export async function GET(request: NextRequest) {
 
     // Liste complète des documents FACTURE pour la page liste (Collaboration n'a pas marqueContact, on met null)
     const documents = await prisma.document.findMany({
-      where: { type: "FACTURE" },
+      where: {
+        type: "FACTURE",
+        ...(isHeadOfSales ? { createdById: user.id } : {}),
+      },
       include: {
         collaboration: {
           select: {
@@ -52,7 +61,10 @@ export async function GET(request: NextRequest) {
     // DEVIS (documents type DEVIS) pour l'onglet Devis de la page factures
     // ============================================
     const devisDocuments = await prisma.document.findMany({
-      where: { type: "DEVIS" },
+      where: {
+        type: "DEVIS",
+        ...(isHeadOfSales ? { createdById: user.id } : {}),
+      },
       include: {
         collaboration: {
           select: {
@@ -88,7 +100,6 @@ export async function GET(request: NextRequest) {
       orderBy: { updatedAt: "desc" },
     });
 
-    const isAdmin = (session.user as { role?: string }).role === "ADMIN";
     const facturesTalents = collabsAvecFacture.map((c) => {
       let statut = "EN_ATTENTE";
       if (isAdmin && c.paidAt) {
@@ -267,6 +278,7 @@ export async function GET(request: NextRequest) {
         dateEmission: d.dateEmission,
         dateEcheance: d.dateEcheance,
         createdAt: d.createdAt,
+        clientNom: d.clientNom ?? null,
         collaboration: d.collaboration
           ? {
               id: d.collaboration.id,

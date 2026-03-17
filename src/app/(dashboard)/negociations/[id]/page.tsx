@@ -190,13 +190,22 @@ export default function NegociationDetailPage() {
     }
   };
 
+  const sanitizeRichContent = (html: string): string => {
+    return html
+      .replace(/background-color:[^;"']+;?/gi, "")
+      .replace(/color:[^;"']+;?/gi, "")
+      .replace(/style="(\s*;?\s*)*"/gi, "");
+  };
+
   const handleComment = async () => {
     if (!newComment.trim()) return;
     setCommenting(true);
     try {
-      const contenuPourDB = newComment.replace(
-        /<span[^>]*data-id="([^"]+)"[^>]*data-label="([^"]+)"[^>]*>.*?<\/span>/g,
-        "@[$1]"
+      const contenuPourDB = sanitizeRichContent(
+        newComment.replace(
+          /<span[^>]*data-id="([^"]+)"[^>]*data-label="([^"]+)"[^>]*>.*?<\/span>/g,
+          "@[$1]"
+        )
       );
       const res = await fetch(`/api/negociations/${params.id}/commentaires`, {
         method: "POST",
@@ -824,7 +833,7 @@ export default function NegociationDetailPage() {
                           }`}
                         >
                           <div
-                            className="text-sm leading-relaxed prose prose-sm max-w-none"
+                            className="message-content text-sm leading-relaxed prose prose-sm max-w-none"
                             dangerouslySetInnerHTML={{
                               __html: resolveMentionsToHtml(
                                 c.contenu,

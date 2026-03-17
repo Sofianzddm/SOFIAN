@@ -896,6 +896,12 @@ model Document {
   mentionTVA    String?
   
   lignes        Json?
+
+  // Factures libres (non liées à une collaboration)
+  clientNom     String?
+  clientEmail   String?
+  clientAdresse String?
+  clientPays    String?
   
   dateDocument  DateTime  @default(now())
   dateEmission  DateTime  @default(now())

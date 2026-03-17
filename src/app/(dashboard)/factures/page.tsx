@@ -70,8 +70,8 @@ interface QuoteStats {
   expire: number;
 }
 
-// Accès page Factures strictement réservé aux ADMIN
-const ROLES_FACTURES = ["ADMIN"];
+// Accès page Factures réservé aux ADMIN et HEAD_OF_SALES
+const ROLES_FACTURES = ["ADMIN", "HEAD_OF_SALES"];
 const QUOTE_STATUS_VALUES = ["DRAFT", "REGISTERED", "SENT", "VIEWED", "ACCEPTED", "DECLINED", "EXPIRED", "INVOICED", "CANCELLED"];
 // Mapping StatutDocument (Document DEVIS) → status affiché dans l’onglet Devis
 const DOC_STATUT_TO_QUOTE_STATUS: Record<string, string> = {
@@ -176,6 +176,7 @@ export default function FacturesPage() {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("factures-info-banner-closed") === "1";
   });
+  const role = (session?.user as { role?: string })?.role;
 
   // Sync URL with filters (build from state only to avoid loop: searchParams changes after replace)
   useEffect(() => {
@@ -195,8 +196,8 @@ export default function FacturesPage() {
 
   useEffect(() => {
     if (status === "loading") return;
-    const role = (session?.user as { role?: string })?.role;
-    if (role && !ROLES_FACTURES.includes(role)) {
+    const r = (session?.user as { role?: string })?.role;
+    if (r && !ROLES_FACTURES.includes(r)) {
       router.replace("/dashboard");
     }
   }, [session, status, router]);
@@ -466,7 +467,6 @@ export default function FacturesPage() {
     setBulkActionLoading(false);
   };
 
-  const role = (session?.user as { role?: string })?.role;
   const canAccess = role && ROLES_FACTURES.includes(role);
 
   if (status === "loading" || (status === "authenticated" && !canAccess)) {
@@ -515,7 +515,26 @@ export default function FacturesPage() {
             )}
           </div>
         </div>
-        <div className="relative" ref={dropdownNouveauRef}>
+        <div className="flex items-center gap-3">
+          {role && ["ADMIN", "HEAD_OF_SALES"].includes(role) && (
+            <Link
+              href="/factures/new"
+              className="inline-flex items-center gap-2 rounded-lg bg-[#1A1110] px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-black transition-colors"
+            >
+              <FileText className="w-4 h-4" />
+              Nouvelle facture libre
+            </Link>
+          )}
+          {role && ["ADMIN", "HEAD_OF_SALES"].includes(role) && (
+            <Link
+              href="/devis/new"
+              className="inline-flex items-center gap-2 rounded-lg bg-white border border-gray-200 px-4 py-2.5 text-sm font-medium text-[#1A1110] shadow-sm hover:bg-gray-50 transition-colors"
+            >
+              <FileText className="w-4 h-4 text-blue-500" />
+              Nouveau devis libre
+            </Link>
+          )}
+          <div className="relative" ref={dropdownNouveauRef}>
           <button
             type="button"
             onClick={() => setDropdownNouveauOpen((o) => !o)}
@@ -553,6 +572,7 @@ export default function FacturesPage() {
               </button>
             </div>
           )}
+          </div>
         </div>
       </div>
 
@@ -736,7 +756,7 @@ export default function FacturesPage() {
                       const isCancelled = doc.statut === "ANNULE";
                       const marqueId = doc.collaboration?.marque?.id;
                       const contact = doc.collaboration?.marqueContact;
-                      const marqueNom = doc.collaboration?.marque?.nom;
+                      const marqueNom = doc.collaboration?.marque?.nom ?? (doc as any).clientNom ?? "-";
                       return (
                         <tr
                           key={doc.id}
@@ -1063,7 +1083,7 @@ function ClientCell({
           <div>À l&apos;attention de {[contact.prenom, contact.nom].filter(Boolean).join(" ")}</div>
           <div className="text-gray-600">au nom et pour le compte de {marqueNom}</div>
         </>
-      ) : marqueNom ? (
+      ) : marqueNom && marqueNom !== "-" ? (
         <span className="font-semibold">{marqueNom}</span>
       ) : (
         "-"

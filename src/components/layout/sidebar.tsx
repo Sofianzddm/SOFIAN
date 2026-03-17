@@ -94,10 +94,10 @@ const menuItems = [
     roles: ["CM", "ADMIN"],
   },
   {
-    label: "Factures",
+    label: "Factures & Devis",
     href: "/factures",
     icon: FileText,
-    roles: ["ADMIN", "HEAD_OF"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"],
   },
   {
     label: "Finance",

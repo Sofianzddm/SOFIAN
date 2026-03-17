@@ -207,10 +207,22 @@ export default function FactureDetailPage() {
   const [commentContent, setCommentContent] = useState("");
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const sendRef = useRef<HTMLDivElement>(null);
   const downloadRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
+
+  const role = (session?.user as { role?: string })?.role;
+
+  if (status === "loading") {
+    return <div className="p-6 text-sm text-gray-500">Chargement...</div>;
+  }
+  if (!role || !["ADMIN", "HEAD_OF_SALES"].includes(role)) {
+    if (typeof window !== "undefined") {
+      router.replace("/dashboard");
+    }
+    return null;
+  }
 
   const fetchDoc = useCallback(async () => {
     if (!id) return;
@@ -469,8 +481,8 @@ export default function FactureDetailPage() {
   const currentStepIndex = PIPELINE_STEPS.findIndex((s) => s.key === doc.statut);
   const marque = doc.collaboration?.marque;
   const talent = doc.collaboration?.talent;
-  const clientName = marque?.nom ?? "—";
-  const talentName = talent ? `${talent.prenom} ${talent.nom}` : "—";
+  const clientName = marque?.nom ?? (doc as any).clientNom ?? "—";
+  const talentName = talent ? `${talent.prenom} ${talent.nom}` : null;
 
   // Historique : events ou dérivé
   const historyItems = (doc.events && doc.events.length > 0)
@@ -527,7 +539,11 @@ export default function FactureDetailPage() {
                   <StatutBadge statut={doc.statut} isLate={!!isLate} />
                 </div>
                 <p className="text-sm text-gray-500 mt-0.5">
-                  {doc.type} {isFacture && "• Facture marque"}
+                  {doc.type}{" "}
+                  {isFacture &&
+                    (marque
+                      ? "• Facture marque"
+                      : "• Facture libre")}
                 </p>
               </div>
             </div>
@@ -543,9 +559,13 @@ export default function FactureDetailPage() {
                   Entrer un paiement
                 </button>
               )}
-              <button type="button" className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" title="Modifier">
+              <Link
+                href={isFacture ? `/factures/new?edit=${doc.id}` : "#"}
+                className={`p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 ${!isFacture ? "pointer-events-none opacity-50" : ""}`}
+                title="Modifier"
+              >
                 <Pencil className="w-4 h-4" />
-              </button>
+              </Link>
 
               <div className="relative" ref={sendRef}>
                 <button
@@ -770,17 +790,19 @@ export default function FactureDetailPage() {
                     )}
                   </p>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase font-medium mb-0.5">Talent</p>
-                  <p className="font-semibold text-[#1A1110] flex items-center gap-1.5">
-                    <User className="w-4 h-4 text-gray-400" />
-                    {talent?.id ? (
-                      <Link href={`/talents/${talent.id}`} className="hover:underline">{talentName}</Link>
-                    ) : (
-                      talentName
-                    )}
-                  </p>
-                </div>
+                {talentName && (
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase font-medium mb-0.5">Talent</p>
+                    <p className="font-semibold text-[#1A1110] flex items-center gap-1.5">
+                      <User className="w-4 h-4 text-gray-400" />
+                      {talent?.id ? (
+                        <Link href={`/talents/${talent.id}`} className="hover:underline">{talentName}</Link>
+                      ) : (
+                        talentName
+                      )}
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="mt-4 pt-4 border-t border-gray-100">
                 <p className="text-xs text-gray-500 uppercase font-medium mb-0.5">Objet</p>
@@ -793,7 +815,7 @@ export default function FactureDetailPage() {
             </div>
 
             {/* Bloc Client */}
-            {marque && (
+            {marque ? (
               <div className="bg-[#FAFAFA] rounded-xl border border-gray-200 border-l-4 border-l-[#C08B8B] p-4">
                 <p className="text-xs text-gray-500 uppercase font-medium mb-2">Client</p>
                 <p className="font-semibold text-[#1A1110]">{marque.nom}</p>
@@ -805,6 +827,21 @@ export default function FactureDetailPage() {
                   </p>
                 )}
                 {marque.pays && <p className="text-sm text-gray-600">{marque.pays}</p>}
+              </div>
+            ) : (
+              <div className="bg-[#FAFAFA] rounded-xl border border-gray-200 border-l-4 border-l-[#C08B8B] p-4">
+                <p className="text-xs text-gray-500 uppercase font-medium mb-2">Client</p>
+                <p className="font-semibold text-[#1A1110]">{(doc as any).clientNom ?? "—"}</p>
+                {(doc as any).clientAdresse && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    {(doc as any).clientAdresse}
+                  </p>
+                )}
+                {(doc as any).clientEmail && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    {(doc as any).clientEmail}
+                  </p>
+                )}
               </div>
             )}
 

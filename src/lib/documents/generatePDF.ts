@@ -61,8 +61,9 @@ export function documentToPDFData(document: any): FactureData | DevisData {
     },
     
     client: {
-      nom: marque?.raisonSociale || marque?.nom || "",
-      adresse: marque?.adresseRue || undefined,
+      // Priorité aux factures libres (clientNom / clientAdresse), sinon fallback sur la marque de la collaboration
+      nom: document.clientNom || marque?.raisonSociale || marque?.nom || "",
+      adresse: document.clientAdresse || marque?.adresseRue || undefined,
       codePostal: marque?.codePostal || undefined,
       ville: marque?.ville || undefined,
       pays: marque?.pays || undefined,

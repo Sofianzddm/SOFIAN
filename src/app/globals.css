@@ -93,6 +93,22 @@ button:focus {
   color: #1A1110;
 }
 
+/* Reset de style pour le contenu riche dans les bulles de messages */
+.message-content * {
+  color: inherit !important;
+  background-color: transparent !important;
+}
+
+/* Les mentions gardent un léger badge, adapté au fond */
+.message-content .mention,
+.message-content .mention-chip {
+  background-color: rgba(245, 240, 192, 0.3) !important;
+  color: inherit !important;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-weight: 600;
+}
+
 @keyframes slideInLeft {
   from {
     opacity: 0;

@@ -716,16 +716,25 @@ export default function CollabDetailPage() {
     return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
   };
 
+  const sanitizeRichContent = (html: string): string => {
+    return html
+      .replace(/background-color:[^;"']+;?/gi, "")
+      .replace(/color:[^;"']+;?/gi, "")
+      .replace(/style="(\s*;?\s*)*"/gi, "");
+  };
+
   const handleAddComment = async () => {
     if (!params.id || !commentContent.trim()) return;
     setCommentSubmitting(true);
     try {
-      const contentForDb = commentContent
-        .trim()
-        .replace(
-          /<span[^>]*data-id="([^"]+)"[^>]*data-label="([^"]+)"[^>]*>.*?<\/span>/g,
-          "@[$1]"
-        );
+      const contentForDb = sanitizeRichContent(
+        commentContent
+          .trim()
+          .replace(
+            /<span[^>]*data-id="([^"]+)"[^>]*data-label="([^"]+)"[^>]*>.*?<\/span>/g,
+            "@[$1]"
+          )
+      );
       const r = await fetch(`/api/collaborations/${params.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1405,7 +1414,7 @@ export default function CollabDetailPage() {
                         <span className="text-gray-400 font-normal ml-2">{formatRelative(c.createdAt)}</span>
                       </p>
                       <div
-                        className="text-sm text-gray-600 mt-0.5 prose prose-sm max-w-none"
+                        className="message-content text-sm text-gray-600 mt-0.5 prose prose-sm max-w-none"
                         dangerouslySetInnerHTML={{
                           __html: c.content.replace(
                             /@\[([^\]]+)\]/g,
