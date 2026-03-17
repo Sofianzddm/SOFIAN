@@ -42,7 +42,7 @@ export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorP
 
   useEffect(() => {
     if (editor && value && editor.getHTML() !== value) {
-      editor.commands.setContent(value, false);
+      editor.commands.setContent(value);
     }
   }, [editor, value]);
 
