@@ -61,15 +61,16 @@ export function RichTextEditor({
           },
           render: () => {
             let component: ReactRenderer | null = null;
-            let popup: TippyInstance[] | null = null;
+            let popup: TippyInstance | null = null;
             return {
               onStart: (props) => {
                 component = new ReactRenderer(MentionList, {
                   props,
                   editor: props.editor,
                 });
-                popup = tippy("body", {
-                  getReferenceClientRect: props.clientRect,
+                popup = tippy(document.body, {
+                  getReferenceClientRect: () =>
+                    props.clientRect?.() || new DOMRect(0, 0, 0, 0),
                   appendTo: () => document.body,
                   content: (component as any).element,
                   showOnCreate: true,
@@ -81,21 +82,22 @@ export function RichTextEditor({
               onUpdate: (props) => {
                 if (!component || !popup) return;
                 component.updateProps(props);
-                popup[0].setProps({
-                  getReferenceClientRect: props.clientRect,
+                popup.setProps({
+                  getReferenceClientRect: () =>
+                    props.clientRect?.() || new DOMRect(0, 0, 0, 0),
                 });
               },
               onKeyDown: (props) => {
                 if (!component || !popup) return false;
                 if (props.event.key === "Escape") {
-                  popup[0].hide();
+                  popup.hide();
                   return true;
                 }
                 return (component.ref as any)?.onKeyDown(props);
               },
               onExit: () => {
                 if (!popup || !component) return;
-                popup[0].destroy();
+                popup.destroy();
                 component.destroy();
               },
             };
