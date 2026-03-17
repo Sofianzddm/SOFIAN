@@ -114,7 +114,14 @@ export default function NewCollaborationPage() {
   });
 
   const [livrables, setLivrables] = useState<Livrable[]>([
-    { id: "1", typeContenu: "", presetType: "", quantite: 1, prixUnitaire: "", description: "" },
+    {
+      id: "1",
+      typeContenu: "",
+      presetType: "",
+      quantite: 1,
+      prixUnitaire: searchParams.get("montantBrut") || "",
+      description: "",
+    },
   ]);
 
   // Calculs
@@ -153,6 +160,14 @@ export default function NewCollaborationPage() {
       if (preselectedId) {
         const talent = list.find((t: Talent) => t.id === preselectedId);
         if (talent) setSelectedTalent(talent);
+      }
+
+      const marqueFromQuery = searchParams.get("marque");
+      if (marqueFromQuery) {
+        setBillingData((prev) => ({
+          ...prev,
+          raisonSociale: marqueFromQuery,
+        }));
       }
     } catch (error) {
       console.error("Erreur:", error);

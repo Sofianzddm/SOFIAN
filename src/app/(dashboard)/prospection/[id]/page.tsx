@@ -1271,17 +1271,44 @@ export default function FichierProspectionPage() {
               >
                 Ignorer
               </button>
-              <button
-                type="button"
-                disabled={convertLoading}
-                onClick={handleConfirmConvert}
-                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#C8F285] text-xs font-medium text-[#1A1110] shadow-sm hover:shadow-md disabled:opacity-60"
-              >
-                {convertLoading && (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                )}
-                Créer la négociation →
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={convertLoading}
+                  onClick={handleConfirmConvert}
+                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  {convertLoading && (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  )}
+                  Créer la négociation →
+                </button>
+                <button
+                  type="button"
+                  disabled={convertLoading || !convertTalentId}
+                  onClick={() => {
+                    const talentId = convertTalentId;
+                    const marque = encodeURIComponent(
+                      extractMarqueNom(convertModal.nomOpportunite) || ""
+                    );
+                    const montant = encodeURIComponent(convertMontant || "");
+                    setConvertModal({
+                      open: false,
+                      contactId: null,
+                      nomOpportunite: "",
+                    });
+                    router.push(
+                      `/collaborations/new?talent=${talentId}${
+                        marque ? `&marque=${marque}` : ""
+                      }${montant ? `&montantBrut=${montant}` : ""}`
+                    );
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium text-[#1A1110] disabled:opacity-60"
+                  style={{ background: "#C8F285" }}
+                >
+                  Créer une collaboration
+                </button>
+              </div>
             </div>
           </div>
         </div>

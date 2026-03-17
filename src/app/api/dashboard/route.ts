@@ -640,7 +640,22 @@ export async function GET(request: NextRequest) {
           orderBy: { createdAt: "desc" },
         }),
         prisma.collaboration.count({
-          where: { statut: "EN_COURS", talent: { managerId: user.id } },
+          where: {
+            statut: "EN_COURS",
+            talent: {
+              OR: [
+                { managerId: user.id },
+                {
+                  delegations: {
+                    some: {
+                      tmRelaiId: user.id,
+                      actif: true,
+                    },
+                  },
+                },
+              ],
+            },
+          },
         }),
       ]);
 
