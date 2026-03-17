@@ -378,6 +378,18 @@ export default function NegociationDetailPage() {
     ));
   };
 
+  const resolveMentionsToHtml = (
+    content: string,
+    users: MentionableUser[]
+  ): string => {
+    if (!content) return "";
+    return content.replace(/@\[([^\]]+)\]/g, (match, userId) => {
+      const user = users.find((u) => u.id === userId);
+      const name = user ? `${user.firstName} ${user.lastName}` : "quelqu'un";
+      return `<span class="mention-chip">@${name}</span>`;
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4">
@@ -807,9 +819,15 @@ export default function NegociationDetailPage() {
                               : "bg-slate-50 text-slate-900"
                           }`}
                         >
-                          <p className="text-sm leading-relaxed">
-                            {renderFormattedComment(c.contenu)}
-                          </p>
+                          <div
+                            className="text-sm leading-relaxed prose prose-sm max-w-none"
+                            dangerouslySetInnerHTML={{
+                              __html: resolveMentionsToHtml(
+                                c.contenu,
+                                mentionableUsers
+                              ),
+                            }}
+                          />
                         </div>
                         <p className="mt-1 text-xs text-slate-400">{c.user.prenom} · {new Date(c.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
                       </div>

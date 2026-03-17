@@ -81,6 +81,18 @@ button:focus {
   }
 }
 
+/* ================================
+   MENTIONS DANS LES COMMENTAIRES
+   ================================ */
+
+.mention-chip {
+  background: #f5f0c0;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-weight: 500;
+  color: #1A1110;
+}
+
 @keyframes slideInLeft {
   from {
     opacity: 0;

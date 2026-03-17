@@ -1396,7 +1396,20 @@ export default function CollabDetailPage() {
                       </p>
                       <div
                         className="text-sm text-gray-600 mt-0.5 prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: c.content }}
+                        dangerouslySetInnerHTML={{
+                          __html: c.content.replace(
+                            /@\[([^\]]+)\]/g,
+                            (match, userId) => {
+                              const user = mentionableUsers.find(
+                                (u) => u.id === userId
+                              );
+                              const name = user
+                                ? `${user.firstName} ${user.lastName}`
+                                : "quelqu'un";
+                              return `<span class="mention-chip">@${name}</span>`;
+                            }
+                          ),
+                        }}
                       />
                     </div>
                   </div>
