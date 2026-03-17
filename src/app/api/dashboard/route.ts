@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
         facturesRelance,
         negociationsSansReponse,
         facturesTalentAValider,
+        caNegociation,
       ] = await Promise.all([
         prisma.talent.count({ where: { isArchived: false } }),
         prisma.marque.count(),
@@ -177,6 +178,13 @@ export async function GET(request: NextRequest) {
           orderBy: { factureTalentRecueAt: "desc" },
           take: 10,
         }),
+        prisma.negociation.aggregate({
+          _sum: { budgetFinal: true },
+          where: {
+            statut: { in: ["EN_ATTENTE", "EN_DISCUSSION"] },
+            lastModifiedAt: { gte: startOfMonth, lt: startOfNextMonth },
+          },
+        }),
       ]);
 
       // CA / commissions : date de référence = datePublication si présente, sinon createdAt
@@ -260,6 +268,7 @@ export async function GET(request: NextRequest) {
           caMois: caMoisBrut,
           caAnnee: caAnneeBrut,
           commissionMois,
+          caNegociation: Number(caNegociation._sum.budgetFinal) || 0,
         },
         pipeline: collabsParStatut.map((s) => ({ statut: s.statut, count: s._count })),
         topTalents: topTalents.map((t) => ({

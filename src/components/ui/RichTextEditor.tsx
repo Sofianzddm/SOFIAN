@@ -1,0 +1,222 @@
+"use client";
+
+import React, { useEffect } from "react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import TextAlign from "@tiptap/extension-text-align";
+import { TextStyle } from "@tiptap/extension-text-style";
+import Color from "@tiptap/extension-color";
+
+interface RichTextEditorProps {
+  value: string;
+  onChange: (html: string) => void;
+  placeholder?: string;
+}
+
+export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorProps) {
+  const editor = useEditor({
+    extensions: [
+      Color.configure({ types: ["textStyle"] }),
+      TextStyle,
+      Underline,
+      TextAlign.configure({
+        types: ["heading", "paragraph"],
+      }),
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+      }),
+    ],
+    content: value || "",
+    editorProps: {
+      attributes: {
+        class:
+          "prose prose-sm max-w-none min-h-[96px] px-3 py-2 text-sm focus:outline-none",
+      },
+    },
+    immediatelyRender: false,
+    onUpdate: ({ editor }) => {
+      onChange(editor.getHTML());
+    },
+  });
+
+  useEffect(() => {
+    if (editor && value && editor.getHTML() !== value) {
+      editor.commands.setContent(value, false);
+    }
+  }, [editor, value]);
+
+  if (!editor) return null;
+
+  const setColor = (color: string) => {
+    editor.chain().focus().setColor(color).run();
+  };
+
+  return (
+    <div className="border border-gray-200 rounded-lg bg-white">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-1 px-2 py-1.5 border-b border-gray-200 bg-[#F5EBE0] rounded-t-lg">
+        {/* Undo / Redo */}
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().undo().run()}
+          disabled={!editor.can().undo()}
+          className="px-1.5 py-0.5 text-xs rounded hover:bg-white disabled:opacity-40"
+        >
+          ↶
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().redo().run()}
+          disabled={!editor.can().redo()}
+          className="px-1.5 py-0.5 text-xs rounded hover:bg-white disabled:opacity-40"
+        >
+          ↷
+        </button>
+
+        <span className="w-px h-5 bg-gray-300 mx-1" />
+
+        {/* Font family (decorative) */}
+        <button
+          type="button"
+          className="px-2 py-0.5 text-[11px] rounded border border-transparent text-gray-700"
+        >
+          Sans Serif
+        </button>
+
+        {/* Font size (decorative) */}
+        <button
+          type="button"
+          className="px-2 py-0.5 text-[11px] rounded border border-transparent text-gray-700"
+        >
+          tT
+        </button>
+
+        <span className="w-px h-5 bg-gray-300 mx-1" />
+
+        {/* Bold / Italic / Underline */}
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleBold().run()}
+          className={`px-1.5 py-0.5 text-xs rounded hover:bg-white ${
+            editor.isActive("bold") ? "bg-white font-semibold" : ""
+          }`}
+        >
+          B
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          className={`px-1.5 py-0.5 text-xs rounded hover:bg-white ${
+            editor.isActive("italic") ? "bg-white italic" : ""
+          }`}
+        >
+          I
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleUnderline().run()}
+          className={`px-1.5 py-0.5 text-xs rounded hover:bg-white ${
+            editor.isActive("underline") ? "bg-white underline" : ""
+          }`}
+        >
+          U
+        </button>
+
+        <span className="w-px h-5 bg-gray-300 mx-1" />
+
+        {/* Text color */}
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-gray-700">A</span>
+          <input
+            type="color"
+            onChange={(e) => setColor(e.target.value)}
+            className="w-5 h-5 p-0 border border-gray-300 rounded cursor-pointer bg-transparent"
+          />
+        </div>
+
+        <span className="w-px h-5 bg-gray-300 mx-1" />
+
+        {/* Alignment */}
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().setTextAlign("left").run()}
+          className={`px-1.5 py-0.5 text-xs rounded hover:bg-white ${
+            editor.isActive({ textAlign: "left" }) ? "bg-white" : ""
+          }`}
+        >
+          ⬅
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().setTextAlign("center").run()}
+          className={`px-1.5 py-0.5 text-xs rounded hover:bg-white ${
+            editor.isActive({ textAlign: "center" }) ? "bg-white" : ""
+          }`}
+        >
+          ⬌
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().setTextAlign("right").run()}
+          className={`px-1.5 py-0.5 text-xs rounded hover:bg-white ${
+            editor.isActive({ textAlign: "right" }) ? "bg-white" : ""
+          }`}
+        >
+          ➡
+        </button>
+
+        <span className="w-px h-5 bg-gray-300 mx-1" />
+
+        {/* Lists */}
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          className={`px-1.5 py-0.5 text-xs rounded hover:bg-white ${
+            editor.isActive("bulletList") ? "bg-white" : ""
+          }`}
+        >
+          ••
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          className={`px-1.5 py-0.5 text-xs rounded hover:bg-white ${
+            editor.isActive("orderedList") ? "bg-white" : ""
+          }`}
+        >
+          1.
+        </button>
+
+        <span className="w-px h-5 bg-gray-300 mx-1" />
+
+        {/* Indent / Outdent */}
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().sinkListItem("listItem").run()}
+          className="px-1.5 py-0.5 text-xs rounded hover:bg-white"
+        >
+          ↳
+        </button>
+        <button
+          type="button"
+          onClick={() => editor.chain().focus().liftListItem("listItem").run()}
+          className="px-1.5 py-0.5 text-xs rounded hover:bg-white"
+        >
+          ↰
+        </button>
+      </div>
+
+      {/* Editor */}
+      <div className="px-2 py-1">
+        {placeholder && !value && editor.isEmpty && (
+          <div className="text-xs text-gray-400 px-3 pt-2 select-none pointer-events-none">
+            {placeholder}
+          </div>
+        )}
+        <EditorContent editor={editor} />
+      </div>
+    </div>
+  );
+}
+

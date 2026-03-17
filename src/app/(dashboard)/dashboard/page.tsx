@@ -417,6 +417,18 @@ function AdminDashboard({ data, absences }: { data: any; absences: any[] }) {
           <p className="text-xs text-slate-400 mt-2">Commission : {formatMoney(stats.commissionMois)}</p>
         </Link>
 
+        <Link href="/negociations" className="group rounded-xl border border-amber-100 bg-white p-6 shadow-sm hover:shadow-md hover:border-amber-200 transition-all">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
+              <Target className="h-5 w-5 text-amber-600" />
+            </div>
+            <span className="text-xs font-medium text-amber-500">Potentiel</span>
+          </div>
+          <p className="text-2xl font-bold text-amber-700 tabular-nums">{formatMoney(stats.caNegociation || 0)}</p>
+          <p className="text-sm text-slate-500 mt-0.5">En négociation (HT)</p>
+          <p className="text-xs text-amber-500 mt-2">Oppor. ouvertes ce mois</p>
+        </Link>
+
         <Link href="/negociations" className="group rounded-xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md hover:border-slate-300 transition-all">
           <div className="flex items-center justify-between mb-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">

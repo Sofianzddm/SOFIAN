@@ -70,7 +70,8 @@ interface QuoteStats {
   expire: number;
 }
 
-const ROLES_FACTURES = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"];
+// Accès page Factures strictement réservé aux ADMIN
+const ROLES_FACTURES = ["ADMIN"];
 const QUOTE_STATUS_VALUES = ["DRAFT", "REGISTERED", "SENT", "VIEWED", "ACCEPTED", "DECLINED", "EXPIRED", "INVOICED", "CANCELLED"];
 // Mapping StatutDocument (Document DEVIS) → status affiché dans l’onglet Devis
 const DOC_STATUT_TO_QUOTE_STATUS: Record<string, string> = {

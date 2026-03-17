@@ -580,11 +580,11 @@ export async function getPrevisionCA() {
 
   const caPrevi = 0; // TODO: Recalculer à partir des livrables
 
-  // Collabs gagnées mais pas encore payées
+  // Collabs en cours / publiées / facturées (CA en production)
   const collabsEnCours = await prisma.collaboration.findMany({
     where: {
       statut: {
-        in: ["GAGNE", "EN_COURS", "PUBLIE", "FACTURE_RECUE"],
+        in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE"],
       },
     },
     select: {

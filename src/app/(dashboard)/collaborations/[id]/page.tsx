@@ -36,11 +36,8 @@ import {
   FileSignature,
   RefreshCw,
 } from "lucide-react";
-import {
-  MentionTextarea,
-  renderCommentWithMentions,
-  type MentionableUser,
-} from "@/components/MentionTextarea";
+import { MentionTextarea, renderCommentWithMentions, type MentionableUser } from "@/components/MentionTextarea";
+import { RichTextEditor } from "@/components/ui/RichTextEditor";
 
 interface Livrable {
   id: string;
@@ -1358,17 +1355,18 @@ export default function CollabDetailPage() {
             </div>
             {commentOpen && (
               <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-                <MentionTextarea
+                <RichTextEditor
                   value={commentContent}
                   onChange={setCommentContent}
-                  placeholder="Votre commentaire... (tapez @ pour mentionner)"
-                  rows={3}
-                  mentionableUsers={mentionableUsers}
+                  placeholder="Votre commentaire... (@ pour mentionner, toolbar pour formatage)"
                 />
                 <div className="flex justify-end gap-2 mt-2">
                   <button
                     type="button"
-                    onClick={() => { setCommentOpen(false); setCommentContent(""); }}
+                    onClick={() => {
+                      setCommentOpen(false);
+                      setCommentContent("");
+                    }}
                     className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
                   >
                     Annuler
@@ -1396,26 +1394,10 @@ export default function CollabDetailPage() {
                         {c.user.prenom} {c.user.nom}
                         <span className="text-gray-400 font-normal ml-2">{formatRelative(c.createdAt)}</span>
                       </p>
-                      <p className="text-sm text-gray-600 mt-0.5">
-                        {renderCommentWithMentions(
-                          c.content,
-                          new Map<string, { firstName: string; lastName: string }>([
-                            ...mentionableUsers.map(
-                              (u): [string, { firstName: string; lastName: string }] => [
-                                u.id,
-                                { firstName: u.firstName, lastName: u.lastName },
-                              ]
-                            ),
-                            ...(collab.comments || []).map(
-                              (com): [string, { firstName: string; lastName: string }] => [
-                                com.user.id,
-                                { firstName: com.user.prenom, lastName: com.user.nom },
-                              ]
-                            ),
-                          ]),
-                          (session?.user as { id?: string })?.id
-                        )}
-                      </p>
+                      <div
+                        className="text-sm text-gray-600 mt-0.5 prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: c.content }}
+                      />
                     </div>
                   </div>
                 ))

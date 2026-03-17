@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
+import { getTalentIdsAccessibles } from "@/lib/delegations";
 
 export async function POST(
   request: NextRequest,
@@ -19,8 +20,9 @@ export async function POST(
 
     const user = session.user as { id: string; role: string };
 
-    // Seuls ADMIN et HEAD_OF peuvent créer des avoirs
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(user.role)) {
+    // ADMIN, HEAD_OF, HEAD_OF_INFLUENCE et TM peuvent créer des avoirs
+    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"];
+    if (!rolesAutorises.includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour créer un avoir" },
         { status: 403 }
@@ -29,14 +31,38 @@ export async function POST(
 
     // Récupérer la facture originale
     const facture = await prisma.document.findUnique({
-      where: { id: id },
+      where: { id },
       include: {
-        collaboration: true,
+        collaboration: {
+          select: { talentId: true },
+        },
       },
     });
 
     if (!facture) {
       return NextResponse.json({ error: "Facture non trouvée" }, { status: 404 });
+    }
+
+    // Pour une TM, vérifier que le talent de la collab fait partie de ses talents accessibles
+    if (user.role === "TM") {
+      const talentId = facture.collaboration?.talentId;
+      if (!talentId) {
+        return NextResponse.json(
+          { error: "Impossible de déterminer le talent associé à cette facture" },
+          { status: 403 }
+        );
+      }
+
+      const talentsAccessibles = await getTalentIdsAccessibles(user.id);
+      if (!talentsAccessibles.includes(talentId)) {
+        return NextResponse.json(
+          {
+            error:
+              "Vous ne pouvez créer un avoir que pour des talents qui vous sont accessibles",
+          },
+          { status: 403 }
+        );
+      }
     }
 
     if (facture.type !== "FACTURE") {

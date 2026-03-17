@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -22,11 +22,8 @@ import {
   ChevronRight,
   X,
 } from "lucide-react";
-import {
-  MentionTextarea,
-  renderCommentWithMentions,
-  type MentionableUser,
-} from "@/components/MentionTextarea";
+import { MentionTextarea, type MentionableUser } from "@/components/MentionTextarea";
+import { RichTextEditor } from "@/components/ui/RichTextEditor";
 
 interface NegoDetail {
   id: string;
@@ -310,6 +307,76 @@ export default function NegociationDetailPage() {
   };
 
   const statutConfig = nego ? (STATUTS[nego.statut] || { label: nego.statut, className: "bg-slate-100 text-slate-600" }) : null;
+
+  const renderFormattedComment = (text: string) => {
+    const renderInline = (line: string, keyPrefix: string) => {
+      const parts: React.ReactNode[] = [];
+      let remaining = line;
+      let index = 0;
+
+      const regex = /(\*\*([^*]+)\*\*|__([^_]+)__)/;
+
+      while (remaining.length > 0) {
+        const match = remaining.match(regex);
+        if (!match || match.index === undefined) {
+          if (remaining) {
+            parts.push(
+              <span key={`${keyPrefix}-t-${index}`}>{remaining}</span>
+            );
+          }
+          break;
+        }
+
+        if (match.index > 0) {
+          parts.push(
+            <span
+              key={`${keyPrefix}-t-${index}`}
+            >
+              {remaining.slice(0, match.index)}
+            </span>
+          );
+          index++;
+        }
+
+        const boldText = match[2];
+        const underlineText = match[3];
+
+        if (boldText) {
+          parts.push(
+            <strong
+              key={`${keyPrefix}-b-${index}`}
+              className="font-semibold"
+            >
+              {boldText}
+            </strong>
+          );
+        } else if (underlineText) {
+          parts.push(
+            <span
+              key={`${keyPrefix}-u-${index}`}
+              className="underline underline-offset-2"
+            >
+              {underlineText}
+            </span>
+          );
+        }
+
+        remaining = remaining.slice(match.index + match[0].length);
+        index++;
+      }
+
+      return parts;
+    };
+
+    const lines = text.split(/\r?\n/);
+
+    return lines.map((line, i) => (
+      <React.Fragment key={`l-${i}`}>
+        {renderInline(line, `l-${i}`)}
+        {i < lines.length - 1 && <br />}
+      </React.Fragment>
+    ));
+  };
 
   if (loading) {
     return (
@@ -731,19 +798,17 @@ export default function NegociationDetailPage() {
                         {c.user.prenom.charAt(0)}
                       </div>
                       <div className={`max-w-[75%] ${isMe ? "text-right" : ""}`}>
-                        <div className={`inline-block rounded-xl px-4 py-2.5 ${
-                          isMe ? "bg-slate-900 text-white" : isHead ? "bg-slate-100 text-slate-900" : "bg-slate-50 text-slate-900"
-                        }`}>
-                          <p className="text-sm">
-                            {renderCommentWithMentions(
-                              c.contenu,
-                              new Map([
-                                ...mentionableUsers.map((u) => [u.id, { firstName: u.firstName, lastName: u.lastName }] as const),
-                                ...nego.commentaires.map((com) => [com.user.id, { firstName: com.user.prenom, lastName: com.user.nom }] as const),
-                              ]),
-                              (session?.user as { id?: string })?.id,
-                              { accentColor: "#C08B8B" }
-                            )}
+                        <div
+                          className={`inline-block rounded-xl px-4 py-2.5 ${
+                            isMe
+                              ? "bg-slate-900 text-white"
+                              : isHead
+                              ? "bg-slate-100 text-slate-900"
+                              : "bg-slate-50 text-slate-900"
+                          }`}
+                        >
+                          <p className="text-sm leading-relaxed">
+                            {renderFormattedComment(c.contenu)}
                           </p>
                         </div>
                         <p className="mt-1 text-xs text-slate-400">{c.user.prenom} · {new Date(c.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
@@ -756,12 +821,10 @@ export default function NegociationDetailPage() {
             </div>
             {!["VALIDEE", "REFUSEE"].includes(nego.statut) && (
               <div className="border-t border-slate-100 p-4 bg-slate-50/50">
-                <MentionTextarea
+                <RichTextEditor
                   value={newComment}
                   onChange={setNewComment}
-                  placeholder="Votre commentaire... (tapez @ pour mentionner)"
-                  rows={3}
-                  mentionableUsers={mentionableUsers}
+                  placeholder="Votre message... (@ pour mentionner, toolbar pour formatage)"
                 />
                 <div className="flex justify-end gap-2 mt-2">
                   <button
