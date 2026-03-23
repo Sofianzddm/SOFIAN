@@ -48,6 +48,9 @@ interface CategorizedBrand extends BrandData {
 }
 
 type Step = 1 | 2 | 3 | 4 | 5;
+const CATEGORIZATION_BATCH_SIZE = 80;
+const CATEGORIZATION_CONCURRENCY = 3;
+const CATEGORIZATION_RETRIES = 2;
 
 function pressKitSlugFromCompanyName(companyName: string): string {
   return companyName
@@ -92,6 +95,11 @@ export default function PressKitDashboardV5() {
   const [brands, setBrands] = useState<BrandData[]>([]);
   const [categorizedBrands, setCategorizedBrands] = useState<CategorizedBrand[]>([]);
   const [loadingCategorization, setLoadingCategorization] = useState(false);
+  const [categorizationProgress, setCategorizationProgress] = useState({
+    current: 0,
+    total: 0,
+    failed: 0,
+  });
 
   // ÉTAPE 3 : Sélection des talents (catégorie / marque)
   const [talents, setTalents] = useState<Talent[]>([]);
@@ -259,27 +267,104 @@ export default function PressKitDashboardV5() {
   // ============================================
   async function categorizeBrands(brandsToCateg: BrandData[]) {
     setLoadingCategorization(true);
+    const totalBatches = Math.max(
+      1,
+      Math.ceil(brandsToCateg.length / CATEGORIZATION_BATCH_SIZE)
+    );
+    setCategorizationProgress({ current: 0, total: totalBatches, failed: 0 });
 
     try {
-      // Catégoriser avec Claude (sans descriptions Brandfetch pour simplifier)
-      const categRes = await fetch("/api/presskit/categorize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brands: brandsToCateg.map((b) => ({
-            name: b.companyName,
-            description: null, // Brandfetch sera appelé côté serveur lors de la génération
-          })),
-        }),
-      });
+      const chunks: Array<{
+        start: number;
+        brands: Array<{ name: string; description: string | null }>;
+      }> = [];
+      for (let start = 0; start < brandsToCateg.length; start += CATEGORIZATION_BATCH_SIZE) {
+        chunks.push({
+          start,
+          brands: brandsToCateg
+            .slice(start, start + CATEGORIZATION_BATCH_SIZE)
+            .map((b) => ({ name: b.companyName, description: null })),
+        });
+      }
 
-      const categData = await categRes.json();
-      const categories = categData.categories as Record<string, number[]>;
+      const merged: Record<string, number[]> = {};
+      let done = 0;
+      let failed = 0;
+
+      async function runChunk(chunk: { start: number; brands: Array<{ name: string; description: string | null }> }) {
+        for (let attempt = 0; attempt <= CATEGORIZATION_RETRIES; attempt++) {
+          try {
+            const categRes = await fetch("/api/presskit/categorize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ brands: chunk.brands }),
+            });
+            if (!categRes.ok) {
+              throw new Error(`API categorize status ${categRes.status}`);
+            }
+            const categData = await categRes.json();
+            const categories = (categData.categories || {}) as Record<string, number[]>;
+            for (const [category, indexes] of Object.entries(categories)) {
+              if (!merged[category]) merged[category] = [];
+              for (const idx of indexes || []) {
+                const n = Number(idx);
+                if (Number.isInteger(n) && n > 0) {
+                  const globalIndex = chunk.start + n;
+                  if (globalIndex >= 1 && globalIndex <= brandsToCateg.length) {
+                    merged[category].push(globalIndex);
+                  }
+                }
+              }
+            }
+            return;
+          } catch (error) {
+            if (attempt >= CATEGORIZATION_RETRIES) {
+              failed += 1;
+              if (!merged.AUTRE) merged.AUTRE = [];
+              for (let i = 0; i < chunk.brands.length; i++) {
+                merged.AUTRE.push(chunk.start + i + 1);
+              }
+              return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+          }
+        }
+      }
+
+      let pointer = 0;
+      async function worker() {
+        while (pointer < chunks.length) {
+          const index = pointer;
+          pointer += 1;
+          await runChunk(chunks[index]);
+          done += 1;
+          setCategorizationProgress({ current: done, total: totalBatches, failed });
+        }
+      }
+      await Promise.all(
+        Array.from({ length: Math.min(CATEGORIZATION_CONCURRENCY, chunks.length) }, () =>
+          worker()
+        )
+      );
+
+      // Déduplique: une marque dans une seule catégorie
+      const assigned = new Set<number>();
+      for (const category of Object.keys(merged)) {
+        merged[category] = Array.from(new Set(merged[category])).filter((i) => {
+          if (assigned.has(i)) return false;
+          assigned.add(i);
+          return true;
+        });
+      }
+      if (!merged.AUTRE) merged.AUTRE = [];
+      for (let i = 1; i <= brandsToCateg.length; i++) {
+        if (!assigned.has(i)) merged.AUTRE.push(i);
+      }
 
       // Associer chaque marque à sa catégorie
       const categorized: CategorizedBrand[] = brandsToCateg.map((brand, index) => {
         const category =
-          Object.keys(categories).find((cat) => categories[cat].includes(index + 1)) || "AUTRE";
+          Object.keys(merged).find((cat) => merged[cat].includes(index + 1)) || "AUTRE";
 
         return {
           ...brand,
@@ -855,6 +940,12 @@ export default function PressKitDashboardV5() {
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="w-12 h-12 animate-spin text-blue-600 mb-4" />
               <p className="text-gray-600">Catégorisation en cours...</p>
+              <p className="text-xs text-gray-500 mt-2">
+                Batch {categorizationProgress.current}/{categorizationProgress.total}
+                {categorizationProgress.failed > 0
+                  ? ` • ${categorizationProgress.failed} en échec (classés AUTRE)`
+                  : ""}
+              </p>
             </div>
           ) : (
             <>
