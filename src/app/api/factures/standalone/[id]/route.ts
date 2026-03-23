@@ -61,6 +61,7 @@ export async function PATCH(
       objet,
       dateDocument,
       conditionsReglement,
+      conditionsReglementLibre,
       modePaiement,
       lignes,
       notes,
@@ -72,6 +73,7 @@ export async function PATCH(
       objet?: string;
       dateDocument?: string;
       conditionsReglement?: string;
+      conditionsReglementLibre?: string;
       modePaiement?: string;
       lignes: LigneInput[];
       notes?: string;
@@ -124,14 +126,40 @@ export async function PATCH(
         ? "TVA non applicable – autoliquidation par le preneur"
         : "TVA non applicable – article 259-1 du CGI – Reverse charge applies";
 
+    const delaiMap: Record<string, number> = {
+      "0": 0,
+      "30": 30,
+      "45": 45,
+      "60": 60,
+    };
+    const extractedDelai = Number((conditionsReglementLibre || "").match(/(\d+)\s*jours?/i)?.[1]);
+    const delaiFromCustom = Number.isFinite(extractedDelai) && extractedDelai >= 0 ? extractedDelai : undefined;
+    const delai =
+      String(conditionsReglement) === "CUSTOM"
+        ? (delaiFromCustom ?? 30)
+        : (delaiMap[String(conditionsReglement)] ?? 30);
+
+    const conditionPaiementLabel =
+      String(conditionsReglement) === "CUSTOM" && conditionsReglementLibre?.trim()
+        ? conditionsReglementLibre.trim()
+        : delai === 0
+        ? "Paiement comptant à réception de la facture."
+        : `Paiement sous ${delai} jours fin de mois à réception de facture.`;
+
     const commentaireTVA =
       paysClient === "France"
-        ? `TVA ${tauxTVA}% — Paiement sous 30 jours fin de mois à réception de facture.`
+        ? `TVA ${tauxTVA}% — ${conditionPaiementLabel}`
         : paysClient === "UE"
-        ? "TVA non applicable – autoliquidation par le preneur — Paiement sous 30 jours fin de mois à réception de facture."
-        : "TVA non applicable – article 259-1 du CGI – Reverse charge applies — Paiement sous 30 jours fin de mois à réception de facture.";
+        ? `TVA non applicable – autoliquidation par le preneur — ${conditionPaiementLabel}`
+        : `TVA non applicable – article 259-1 du CGI – Reverse charge applies — ${conditionPaiementLabel}`;
 
     const dateDoc = dateDocument ? new Date(dateDocument) : existing.dateDocument;
+    const dateEcheance = new Date(dateDoc);
+    if (delai > 0) {
+      dateEcheance.setDate(dateEcheance.getDate() + delai);
+      dateEcheance.setMonth(dateEcheance.getMonth() + 1);
+      dateEcheance.setDate(0);
+    }
 
     const updated = await prisma.document.update({
       where: { id },
@@ -144,6 +172,7 @@ export async function PATCH(
         mentionTVA,
         lignes: lignesCalculees as any,
         dateDocument: dateDoc,
+        dateEcheance: delai > 0 ? dateEcheance : dateDoc,
         modePaiement: modePaiement ?? existing.modePaiement,
         notes: commentaireTVA,
         clientNom,

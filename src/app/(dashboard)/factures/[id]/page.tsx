@@ -146,6 +146,14 @@ function formatRelative(s: string) {
   return formatDate(s);
 }
 
+function paymentTermsLabelFromNotes(notes?: string | null) {
+  const text = notes || "";
+  if (/Paiement\s+comptant/i.test(text)) return "Comptant";
+  const match = text.match(/Paiement\s+sous\s+(\d+)\s+jours/i);
+  if (match?.[1]) return `${match[1]} jours fin de mois`;
+  return "30 jours fin de mois";
+}
+
 const STATUT_LABELS: Record<string, string> = {
   BROUILLON: "Brouillon",
   VALIDE: "Enregistré",
@@ -478,6 +486,7 @@ export default function FactureDetailPage() {
   const isCancelled = doc.statut === "ANNULE";
   const isFacture = String(doc.type).toUpperCase() === "FACTURE";
   const lignesArray = Array.isArray(doc.lignes) ? doc.lignes : [];
+  const paymentTermsLabel = paymentTermsLabelFromNotes(doc.notes);
   const currentStepIndex = PIPELINE_STEPS.findIndex((s) => s.key === doc.statut);
   const marque = doc.collaboration?.marque;
   const talent = doc.collaboration?.talent;
@@ -776,7 +785,7 @@ export default function FactureDetailPage() {
                     {formatDate(doc.dateEcheance)}
                   </p>
                   {doc.dateEcheance && (
-                    <p className="text-xs text-gray-400 mt-0.5">(30 jours fin de mois)</p>
+                    <p className="text-xs text-gray-400 mt-0.5">({paymentTermsLabel})</p>
                   )}
                 </div>
                 <div>
@@ -988,7 +997,7 @@ export default function FactureDetailPage() {
             <div className="mt-4 pt-4 border-t border-gray-100">
               <p className="text-sm font-semibold text-gray-900 mb-1">Commentaires</p>
               <p className="text-sm text-gray-600">
-                {doc.mentionTVA || "TVA 0%"} — Paiement sous 30 jours fin de mois à réception de facture.
+                {doc.notes || `${doc.mentionTVA || "TVA 0%"} — Paiement sous 30 jours fin de mois à réception de facture.`}
               </p>
             </div>
           </div>

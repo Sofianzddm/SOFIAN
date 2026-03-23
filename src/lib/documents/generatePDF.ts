@@ -6,6 +6,18 @@ import { DevisTemplate, DevisData } from "@/lib/documents/templates/DevisTemplat
 import { createElement } from "react";
 import { AGENCE_CONFIG } from "./config";
 
+function extractConditionsPaiementLabel(notes?: string | null): string {
+  const text = notes || "";
+  if (/Paiement\s+comptant/i.test(text)) {
+    return "Paiement comptant à réception de la facture.";
+  }
+  const match = text.match(/Paiement\s+sous\s+(\d+)\s+jours/i);
+  if (match?.[1]) {
+    return `Paiement sous ${match[1]} jours fin de mois à réception de facture.`;
+  }
+  return "Paiement sous 30 jours fin de mois à réception de facture.";
+}
+
 /**
  * Génère un PDF de document (facture, devis, avoir) côté serveur
  * @param data Données du document
@@ -108,5 +120,6 @@ export function documentToPDFData(document: any): FactureData | DevisData {
       bic: AGENCE_CONFIG.rib.bic,
     },
     notes: document.notes || undefined,
+    conditionsPaiementLabel: extractConditionsPaiementLabel(document.notes),
   } as FactureData;
 }

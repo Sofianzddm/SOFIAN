@@ -37,7 +37,8 @@ export async function POST(request: NextRequest) {
       clientAdresse,
       objet,
       dateDocument,
-      conditionsReglement, // "30", "60", "0"
+      conditionsReglement, // "30", "45", "60", "0"
+      conditionsReglementLibre,
       modePaiement = "Virement",
       lignes,
       notes,
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest) {
       objet?: string;
       dateDocument?: string;
       conditionsReglement?: string;
+      conditionsReglementLibre?: string;
       modePaiement?: string;
       lignes: LigneInput[];
       notes?: string;
@@ -65,7 +67,18 @@ export async function POST(request: NextRequest) {
     const reference = await genererNumeroDocument("FACTURE");
 
     const dateDoc = dateDocument ? new Date(dateDocument) : new Date();
-    const delai = conditionsReglement === "60" ? 60 : conditionsReglement === "0" ? 0 : 30;
+    const delaiMap: Record<string, number> = {
+      "0": 0,
+      "30": 30,
+      "45": 45,
+      "60": 60,
+    };
+    const extractedDelai = Number((conditionsReglementLibre || "").match(/(\d+)\s*jours?/i)?.[1]);
+    const delaiFromCustom = Number.isFinite(extractedDelai) && extractedDelai >= 0 ? extractedDelai : undefined;
+    const delai =
+      String(conditionsReglement) === "CUSTOM"
+        ? (delaiFromCustom ?? 30)
+        : (delaiMap[String(conditionsReglement)] ?? 30);
 
     const dateEcheance = new Date(dateDoc);
     if (delai > 0) {
@@ -112,12 +125,19 @@ export async function POST(request: NextRequest) {
         ? "TVA non applicable – autoliquidation par le preneur"
         : "TVA non applicable – article 259-1 du CGI – Reverse charge applies";
 
+    const conditionPaiementLabel =
+      String(conditionsReglement) === "CUSTOM" && conditionsReglementLibre?.trim()
+        ? conditionsReglementLibre.trim()
+        : delai === 0
+        ? "Paiement comptant à réception de la facture."
+        : `Paiement sous ${delai} jours fin de mois à réception de facture.`;
+
     const commentaireTVA =
       paysClient === "France"
-        ? `TVA ${tauxTVA}% — Paiement sous 30 jours fin de mois à réception de facture.`
+        ? `TVA ${tauxTVA}% — ${conditionPaiementLabel}`
         : paysClient === "UE"
-        ? "TVA non applicable – autoliquidation par le preneur — Paiement sous 30 jours fin de mois à réception de facture."
-        : "TVA non applicable – article 259-1 du CGI – Reverse charge applies — Paiement sous 30 jours fin de mois à réception de facture.";
+        ? `TVA non applicable – autoliquidation par le preneur — ${conditionPaiementLabel}`
+        : `TVA non applicable – article 259-1 du CGI – Reverse charge applies — ${conditionPaiementLabel}`;
 
     const now = new Date();
 

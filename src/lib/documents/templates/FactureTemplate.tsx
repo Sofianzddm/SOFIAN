@@ -340,6 +340,7 @@ interface FactureData {
   montantTTC: number;
   mentionTVA?: string | null;
   notes?: string;
+  conditionsPaiementLabel?: string;
 }
 
 const formatMoney = (amount: number) => {
@@ -550,7 +551,7 @@ export function FactureTemplate({ data }: { data: FactureData }) {
             {"\n"}
             Indemnité forfaitaire pour frais de recouvrement : 40€ (article D. 441-5 du code de commerce).
             {"\n"}
-            Paiement à effectuer sous 30 jours à réception de la facture.
+            {data.conditionsPaiementLabel || "Paiement sous 30 jours fin de mois à réception de facture."}
           </Text>
         </View>
         

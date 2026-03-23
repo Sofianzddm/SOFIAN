@@ -37,7 +37,8 @@ export default function NouvelleFactureLibrePage() {
   const [pays, setPays] = useState<"France" | "UE" | "Hors UE">("France");
   const [objet, setObjet] = useState("");
   const [dateDocument, setDateDocument] = useState(() => new Date().toISOString().slice(0, 10));
-  const [conditionsReglement, setConditionsReglement] = useState<"30" | "60" | "0">("30");
+  const [conditionsReglement, setConditionsReglement] = useState<"30" | "45" | "60" | "0" | "CUSTOM">("30");
+  const [conditionsReglementLibre, setConditionsReglementLibre] = useState("");
   const [modePaiement, setModePaiement] = useState("Virement");
   const [lignes, setLignes] = useState<LigneForm[]>([
     { description: "", quantite: 1, prixUnitaire: 0, tauxTVA: 20 },
@@ -70,6 +71,20 @@ export default function NouvelleFactureLibrePage() {
           setDateDocument(new Date(doc.dateDocument).toISOString().slice(0, 10));
         }
         setModePaiement(doc.modePaiement ?? "Virement");
+        const notes: string = doc.notes ?? "";
+        const paymentClause = notes.split("—").slice(1).join("—").trim();
+        if (/Paiement\s+comptant/i.test(notes)) {
+          setConditionsReglement("0");
+        } else if (/Paiement\s+sous\s+45\s+jours/i.test(notes)) {
+          setConditionsReglement("45");
+        } else if (/Paiement\s+sous\s+60\s+jours/i.test(notes)) {
+          setConditionsReglement("60");
+        } else if (paymentClause) {
+          setConditionsReglement("CUSTOM");
+          setConditionsReglementLibre(paymentClause);
+        } else {
+          setConditionsReglement("30");
+        }
         setNotes(doc.notes ?? "");
         if (Array.isArray(doc.lignes) && doc.lignes.length > 0) {
           setLignes(
@@ -202,6 +217,10 @@ export default function NouvelleFactureLibrePage() {
         objet: objet.trim() || undefined,
         dateDocument,
         conditionsReglement,
+        conditionsReglementLibre:
+          conditionsReglement === "CUSTOM"
+            ? conditionsReglementLibre.trim() || undefined
+            : undefined,
         modePaiement,
         lignes,
         notes: notes.trim() || undefined,
@@ -422,13 +441,24 @@ export default function NouvelleFactureLibrePage() {
               </label>
               <select
                 value={conditionsReglement}
-                onChange={(e) => setConditionsReglement(e.target.value as "30" | "60" | "0")}
+                onChange={(e) => setConditionsReglement(e.target.value as "30" | "45" | "60" | "0" | "CUSTOM")}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
               >
                 <option value="30">30 jours fin de mois</option>
+                <option value="45">45 jours fin de mois</option>
                 <option value="60">60 jours fin de mois</option>
                 <option value="0">Comptant</option>
+                <option value="CUSTOM">Texte libre</option>
               </select>
+              {conditionsReglement === "CUSTOM" && (
+                <textarea
+                  value={conditionsReglementLibre}
+                  onChange={(e) => setConditionsReglementLibre(e.target.value)}
+                  rows={3}
+                  className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
+                  placeholder="Ex : Paiement en 2 fois : 50% à la commande puis solde à 30 jours."
+                />
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
