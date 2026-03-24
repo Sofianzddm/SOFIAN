@@ -51,6 +51,7 @@ type Step = 1 | 2 | 3 | 4 | 5;
 const CATEGORIZATION_BATCH_SIZE = 80;
 const CATEGORIZATION_CONCURRENCY = 3;
 const CATEGORIZATION_RETRIES = 2;
+const GENERATION_REQUEST_CHUNK_SIZE = 30;
 
 function pressKitSlugFromCompanyName(companyName: string): string {
   return companyName
@@ -123,6 +124,12 @@ export default function PressKitDashboardV5() {
   // ÉTAPE 5 : Génération
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
+  const [lastGenerationBatchId, setLastGenerationBatchId] = useState<string | null>(null);
+  const [lastGenerationSummary, setLastGenerationSummary] = useState<{
+    completed: number;
+    failed: number;
+    total: number;
+  } | null>(null);
   
   // Preview
   const [previewingBrand, setPreviewingBrand] = useState<string | null>(null);
@@ -733,48 +740,116 @@ export default function PressKitDashboardV5() {
     setGenerationProgress({ current: 0, total: brandsReady.length });
 
     try {
-      const res = await fetch("/api/presskit/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          batchName: `${selectedListName} - ${new Date().toLocaleDateString("fr-FR")}`,
-          brands: brandsReady.map((brand) => ({
-            contacts: brand.contacts,
-            companyName: brand.customName || brand.companyName, // Utiliser le nom personnalisé si défini
-            domain: brand.domain,
-            talentIds: brand.talentIds,
-          })),
-        }),
-      });
+      const payloadBrands = brandsReady.map((brand) => ({
+        contacts: brand.contacts,
+        companyName: brand.customName || brand.companyName,
+        domain: brand.domain,
+        talentIds: brand.talentIds,
+      }));
+      const chunks: typeof payloadBrands[] = [];
+      for (let i = 0; i < payloadBrands.length; i += GENERATION_REQUEST_CHUNK_SIZE) {
+        chunks.push(payloadBrands.slice(i, i + GENERATION_REQUEST_CHUNK_SIZE));
+      }
 
-      const data = await res.json();
+      let totalCompleted = 0;
+      let totalFailed = 0;
+      const allFailedBrands: string[] = [];
+      let processed = 0;
+      let lastBatchId: string | null = null;
 
-      if (res.ok && data.success) {
-        const completed = data.completed ?? brandsReady.length;
-        const failed = data.failed ?? 0;
-        const failedBrands: string[] = data.failedBrands ?? [];
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const res = await fetch("/api/presskit/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            batchName: `${selectedListName} - ${new Date().toLocaleDateString("fr-FR")} (part ${i + 1}/${chunks.length})`,
+            brands: chunk,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        processed += chunk.length;
+        setGenerationProgress({ current: processed, total: brandsReady.length });
 
-        if (failed > 0) {
-          alert(
-            `✅ ${completed} press kits générés.\n❌ ${failed} marque(s) en erreur :\n- ${failedBrands.join(
-              "\n- "
-            )}\n\nTu peux relancer plus tard pour celles qui ont échoué.`
+        if (!res.ok || !data.success) {
+          totalFailed += chunk.length;
+          allFailedBrands.push(
+            ...chunk.map((b) => b.companyName)
           );
-        } else {
-          alert(`✅ ${completed} press kits générés et envoyés !`);
+          continue;
         }
 
-        setGenerationProgress({ current: completed, total: data.total ?? brandsReady.length });
-        // Reset
+        if (data.batchId) lastBatchId = String(data.batchId);
+        totalCompleted += Number(data.completed ?? 0);
+        totalFailed += Number(data.failed ?? 0);
+        const failedBrands: string[] = Array.isArray(data.failedBrands) ? data.failedBrands : [];
+        allFailedBrands.push(...failedBrands);
+      }
+
+      if (lastBatchId) {
+        setLastGenerationBatchId(lastBatchId);
+      }
+
+      setLastGenerationSummary({
+        completed: totalCompleted,
+        failed: totalFailed,
+        total: brandsReady.length,
+      });
+
+      if (totalFailed > 0) {
+        const failedPreview = allFailedBrands.slice(0, 30);
+        alert(
+          `✅ ${totalCompleted} press kits générés.\n❌ ${totalFailed} marque(s) en erreur :\n- ${failedPreview.join(
+            "\n- "
+          )}${allFailedBrands.length > 30 ? "\n... (liste tronquée)" : ""}\n\nTu peux relancer plus tard pour celles qui ont échoué.`
+        );
+      } else {
+        alert(`✅ ${totalCompleted} press kits générés et envoyés !`);
         setCurrentStep(1);
         setCategorizedBrands([]);
         setCategoryTalents({});
-      } else {
-        alert("❌ Erreur lors de la génération");
       }
     } catch (error) {
       console.error("Erreur génération:", error);
       alert("❌ Erreur lors de la génération");
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function retryFailedGeneration() {
+    if (!lastGenerationBatchId) return;
+    setIsGenerating(true);
+    try {
+      const res = await fetch("/api/presskit/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batchId: lastGenerationBatchId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert("❌ Erreur lors de la relance des marques en échec");
+        return;
+      }
+      const completed = data.completed ?? 0;
+      const failed = data.failed ?? 0;
+      const total = data.total ?? completed + failed;
+      setLastGenerationSummary({ completed, failed, total });
+      if (failed > 0) {
+        const failedBrands: string[] = data.failedBrands ?? [];
+        alert(
+          `Relance partielle : ${completed} réussies, ${failed} encore en erreur.\n- ${failedBrands.join(
+            "\n- "
+          )}`
+        );
+      } else {
+        alert("✅ Toutes les marques en erreur ont été relancées avec succès.");
+      }
+    } catch (error) {
+      console.error("Erreur relance batch:", error);
+      alert("❌ Erreur lors de la relance");
     } finally {
       setIsGenerating(false);
     }
@@ -1340,6 +1415,29 @@ export default function PressKitDashboardV5() {
                   }}
                 />
               </div>
+            </div>
+          )}
+
+          {lastGenerationBatchId && lastGenerationSummary && (
+            <div className="mb-6 p-4 border rounded-lg bg-amber-50">
+              <p className="text-sm font-medium text-amber-900">
+                Dernier batch: <code>{lastGenerationBatchId}</code>
+              </p>
+              <p className="text-sm text-amber-800 mt-1">
+                {lastGenerationSummary.completed}/{lastGenerationSummary.total} réussies
+                {" • "}
+                {lastGenerationSummary.failed} en erreur
+              </p>
+              {lastGenerationSummary.failed > 0 && (
+                <button
+                  type="button"
+                  onClick={retryFailedGeneration}
+                  disabled={isGenerating}
+                  className="mt-3 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 text-sm"
+                >
+                  Relancer uniquement les marques en erreur
+                </button>
+              )}
             </div>
           )}
 

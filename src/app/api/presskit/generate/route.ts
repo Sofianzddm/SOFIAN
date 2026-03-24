@@ -6,6 +6,232 @@ import { fetchBrandData } from "@/lib/brandfetch";
 import { updateContactPresskitUrl } from "@/lib/hubspot";
 import { formatBlocTalents } from "@/lib/presskit-bloc";
 
+type InputBrand = {
+  companyName: string;
+  domain?: string | null;
+  talentIds?: string[];
+  contacts?: Array<{ hubspotContactId: string; email?: string }>;
+};
+
+const STATUS = {
+  PENDING: "PENDING",
+  BRAND_READY: "BRAND_READY",
+  TALENTS_READY: "TALENTS_READY",
+  BLOC_READY: "BLOC_READY",
+  HUBSPOT_READY: "HUBSPOT_READY",
+  COMPLETED: "COMPLETED",
+  FAILED: "FAILED",
+} as const;
+
+function toSlug(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function upsertBatchBrand(args: {
+  batchId: string;
+  brandId: string;
+  status: string;
+  talentIds?: string[];
+  hubspotContactIds?: string[];
+  error?: string | null;
+}) {
+  const { batchId, brandId, status, talentIds = [], hubspotContactIds = [], error = null } = args;
+  await prisma.batchBrand.upsert({
+    where: {
+      batchId_brandId: { batchId, brandId },
+    },
+    update: {
+      status,
+      talentIds,
+      hubspotContactIds,
+      error,
+    },
+    create: {
+      batchId,
+      brandId,
+      status,
+      talentIds,
+      hubspotContactIds,
+      error,
+    },
+  });
+}
+
+async function processBrandForBatch(batchId: string, brandData: InputBrand) {
+  const companyName = String(brandData.companyName || "").trim();
+  const slug = toSlug(companyName);
+  const talentIds = Array.isArray(brandData.talentIds) ? brandData.talentIds : [];
+  const contacts = Array.isArray(brandData.contacts) ? brandData.contacts : [];
+  const contactIds = contacts.map((c) => c.hubspotContactId).filter(Boolean);
+
+  if (!companyName || !slug) {
+    throw new Error("Marque invalide (nom ou slug manquant)");
+  }
+
+  // 1) Brand upsert
+  let brandfetchData = {
+    name: null as string | null,
+    logo: null as string | null,
+    primaryColor: null as string | null,
+    secondaryColor: null as string | null,
+    description: null as string | null,
+  };
+  if (brandData.domain && brandData.domain.trim() !== "") {
+    brandfetchData = await fetchBrandData(brandData.domain);
+  }
+  const brandName =
+    companyName ||
+    brandData.domain
+      ?.replace(/^www\./, "")
+      ?.replace(/\.(com|fr|net|org)$/, "")
+      ?.replace(/-/g, " ")
+      ?.split(" ")
+      .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ") ||
+    "Marque";
+
+  const brand = await prisma.brand.upsert({
+    where: { slug },
+    update: {
+      name: brandName,
+      domain: brandData.domain || null,
+      logo: brandfetchData.logo,
+      primaryColor: brandfetchData.primaryColor,
+      secondaryColor: brandfetchData.secondaryColor,
+      description: brandfetchData.description || "Marque",
+    },
+    create: {
+      name: brandName,
+      slug,
+      domain: brandData.domain || null,
+      niche: "Press Kit",
+      logo: brandfetchData.logo,
+      primaryColor: brandfetchData.primaryColor,
+      secondaryColor: brandfetchData.secondaryColor,
+      description: brandfetchData.description || "Marque",
+    },
+  });
+
+  await upsertBatchBrand({
+    batchId,
+    brandId: brand.id,
+    status: STATUS.BRAND_READY,
+    talentIds,
+    hubspotContactIds: contactIds,
+  });
+
+  // 2) Talents
+  if (talentIds.length === 0) {
+    throw new Error("Aucun talent sélectionné");
+  }
+  const talents = await prisma.talent.findMany({
+    where: { id: { in: talentIds }, isArchived: false },
+    include: { stats: true },
+  });
+  const keptIds: string[] = [];
+  const existingPresskits = await prisma.pressKitTalent.findMany({
+    where: { brandId: brand.id },
+  });
+  const existingByTalentId = new Map(existingPresskits.map((pkt) => [pkt.talentId, pkt]));
+  for (let order = 0; order < talents.length; order++) {
+    const talent = talents[order];
+    const existing = existingByTalentId.get(talent.id);
+    if (existing) {
+      const updated = await prisma.pressKitTalent.update({
+        where: { id: existing.id },
+        data: { order },
+      });
+      keptIds.push(updated.id);
+    } else {
+      const created = await prisma.pressKitTalent.create({
+        data: {
+          brandId: brand.id,
+          talentId: talent.id,
+          pitch: "",
+          order,
+        },
+      });
+      keptIds.push(created.id);
+    }
+  }
+  await prisma.pressKitTalent.deleteMany({
+    where: {
+      brandId: brand.id,
+      id: { notIn: keptIds },
+    },
+  });
+  await upsertBatchBrand({
+    batchId,
+    brandId: brand.id,
+    status: STATUS.TALENTS_READY,
+    talentIds,
+    hubspotContactIds: contactIds,
+  });
+
+  // 3) Bloc talents
+  const brandWithTalents = await prisma.brand.findUnique({
+    where: { id: brand.id },
+    include: {
+      presskitTalents: {
+        orderBy: { order: "asc" },
+        include: { talent: { include: { stats: true } } },
+      },
+    },
+  });
+  const blocTalents =
+    brandWithTalents?.presskitTalents?.length
+      ? formatBlocTalents(
+          brandWithTalents.presskitTalents.map((pkt) => {
+            const t = pkt.talent;
+            const s = t.stats;
+            return {
+              prenom: t.prenom,
+              pitch: pkt.pitch || "",
+              instagramHandle: t.instagram?.replace(/^@/, "").trim() || null,
+              igFollowers: s?.igFollowers ?? 0,
+              ttFollowers: s?.ttFollowers ?? 0,
+              ytAbonnes: s?.ytAbonnes ?? 0,
+            };
+          }),
+          "html"
+        )
+      : undefined;
+
+  await upsertBatchBrand({
+    batchId,
+    brandId: brand.id,
+    status: STATUS.BLOC_READY,
+    talentIds,
+    hubspotContactIds: contactIds,
+  });
+
+  // 4) HubSpot contacts update
+  for (const contact of contacts) {
+    const presskitUrl = `https://app.glowupagence.fr/book/${slug}?cid=${contact.hubspotContactId}`;
+    await updateContactPresskitUrl(
+      contact.hubspotContactId,
+      presskitUrl,
+      blocTalents ?? undefined
+    );
+  }
+
+  await upsertBatchBrand({
+    batchId,
+    brandId: brand.id,
+    status: STATUS.COMPLETED,
+    talentIds,
+    hubspotContactIds: contactIds,
+    error: null,
+  });
+
+  return { brandId: brand.id, companyName, contactsUpdated: contactIds.length };
+}
+
 /**
  * POST /api/presskit/generate
  * Génère les press kits pour un batch de marques
@@ -18,27 +244,75 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { batchName, brands } = body;
+    const { batchName, brands, batchId: retryBatchId } = body as {
+      batchName?: string;
+      brands?: InputBrand[];
+      batchId?: string;
+    };
 
-    if (!batchName || !brands || !Array.isArray(brands)) {
+    if (!retryBatchId && (!batchName || !brands || !Array.isArray(brands))) {
       return NextResponse.json(
         { message: "Paramètres invalides" },
         { status: 400 }
       );
     }
 
-    console.log(`\n🚀 Démarrage génération batch: ${batchName} (${brands.length} marques)\n`);
+    let batch:
+      | { id: string; name: string; totalBrands: number }
+      | null = null;
+    let brandsToProcess: InputBrand[] = [];
 
-    // Créer le batch
-    const batch = await prisma.batch.create({
-      data: {
-        name: batchName,
-        status: "processing",
-        totalBrands: brands.length,
-      },
-    });
-
-    console.log(`✅ Batch créé: ${batch.id}\n`);
+    if (retryBatchId) {
+      const existingBatch = await prisma.batch.findUnique({
+        where: { id: retryBatchId },
+        include: {
+          brands: {
+            where: { status: { not: STATUS.COMPLETED } },
+            include: { brand: true },
+          },
+        },
+      });
+      if (!existingBatch) {
+        return NextResponse.json({ message: "Batch introuvable" }, { status: 404 });
+      }
+      batch = {
+        id: existingBatch.id,
+        name: existingBatch.name,
+        totalBrands: existingBatch.totalBrands,
+      };
+      brandsToProcess = existingBatch.brands.map((bb) => ({
+        companyName: bb.brand.name,
+        domain: bb.brand.domain,
+        talentIds: bb.talentIds || [],
+        contacts: (bb.hubspotContactIds || []).map((id) => ({
+          hubspotContactId: id,
+        })),
+      }));
+      await prisma.batch.update({
+        where: { id: batch.id },
+        data: {
+          status: "processing",
+        },
+      });
+      console.log(
+        `\n🔁 Reprise batch ${batch.id}: ${brandsToProcess.length} marques restantes\n`
+      );
+    } else {
+      const safeBrands = brands || [];
+      console.log(
+        `\n🚀 Démarrage génération batch: ${batchName} (${safeBrands.length} marques)\n`
+      );
+      const created = await prisma.batch.create({
+        data: {
+          name: String(batchName),
+          status: "processing",
+          totalBrands: safeBrands.length,
+        },
+      });
+      batch = { id: created.id, name: created.name, totalBrands: created.totalBrands };
+      brandsToProcess = safeBrands;
+      console.log(`✅ Batch créé: ${batch.id}\n`);
+    }
 
     // Traiter les marques par paquets de 5 en parallèle (rate limits)
     const batchSize = 5;
@@ -46,231 +320,42 @@ export async function POST(request: NextRequest) {
     let failed = 0;
     const failedBrands: string[] = [];
 
-    for (let i = 0; i < brands.length; i += batchSize) {
-      const chunk = brands.slice(i, i + batchSize);
+    for (let i = 0; i < brandsToProcess.length; i += batchSize) {
+      const chunk = brandsToProcess.slice(i, i + batchSize);
 
       await Promise.all(
-        chunk.map(async (brandData: any) => {
+        chunk.map(async (brandData) => {
           try {
             console.log(`\n🏢 Traitement: ${brandData.companyName}`);
-
-            // 1. Créer/update Brand dans la DB
-            // Normaliser le slug : supprimer les accents PUIS les caractères spéciaux
-            const slug = brandData.companyName
-              .toLowerCase()
-              .normalize("NFD")
-              .replace(/[\u0300-\u036f]/g, "") // Supprimer les accents (è → e)
-              .replace(/[^a-z0-9]+/g, "-")     // Remplacer espaces et caractères spéciaux par -
-              .replace(/^-+|-+$/g, "");         // Supprimer les tirets en début/fin
-
-            // 2. Brandfetch API → récupérer nom commercial, logo, couleurs, description
-            let brandfetchData: {
-              name: string | null;
-              logo: string | null;
-              primaryColor: string | null;
-              secondaryColor: string | null;
-              description: string | null;
-            } = {
-              name: null,
-              logo: null,
-              primaryColor: null,
-              secondaryColor: null,
-              description: null,
-            };
-            
-            if (brandData.domain && brandData.domain.trim() !== '') {
-              brandfetchData = await fetchBrandData(brandData.domain);
-            } else {
-              console.log(`  ⚠️  Pas de domaine, Brandfetch ignoré`);
-            }
-
-            // 3. Déterminer le nom de la marque (priorité)
-            // 1. HubSpot "company" (TOUJOURS prioritaire)
-            // 2. Domaine nettoyé en dernier recours (si company vide)
-            const brandName = brandData.companyName 
-              || brandData.domain
-                ?.replace(/^www\./, '')
-                ?.replace(/\.(com|fr|net|org)$/, '')
-                ?.replace(/-/g, ' ')
-                ?.split(' ')
-                .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
-                .join(' ')
-              || 'Marque';
-
-            console.log(`  📛 Nom final: "${brandName}" (source: ${brandData.companyName ? 'HubSpot company' : 'domaine'})`);
-
-            // 4. Créer ou mettre à jour la marque
-            const brand = await prisma.brand.upsert({
-              where: { slug },
-              update: {
-                name: brandName,
-                domain: brandData.domain || null,
-                logo: brandfetchData.logo,
-                primaryColor: brandfetchData.primaryColor,
-                secondaryColor: brandfetchData.secondaryColor,
-                description: brandfetchData.description || "Marque",
-              },
-              create: {
-                name: brandName,
-                slug,
-                domain: brandData.domain || null,
-                niche: "Press Kit",
-                logo: brandfetchData.logo,
-                primaryColor: brandfetchData.primaryColor,
-                secondaryColor: brandfetchData.secondaryColor,
-                description: brandfetchData.description || "Marque",
-              },
-            });
-
-            console.log(`  ✅ Marque créée/mise à jour: ${brand.id}`);
-
-            // 4. Pour chaque talent sélectionné
-            const talentIds = brandData.talentIds || [];
-            
-            if (talentIds.length === 0) {
-              console.log(`  ⚠️  Aucun talent sélectionné pour ${brandData.companyName}`);
-              failed++;
-              return;
-            }
-
-            const talents = await prisma.talent.findMany({
-              where: { id: { in: talentIds }, isArchived: false },
-              include: { stats: true },
-            });
-
-            console.log(`  🎭 ${talents.length} talents à associer`);
-
-            // 5. Mettre à jour les PressKitTalent en conservant les pitches existants
-            const existingPresskits = await prisma.pressKitTalent.findMany({
-              where: { brandId: brand.id },
-            });
-            const existingByTalentId = new Map(
-              existingPresskits.map((pkt) => [pkt.talentId, pkt])
-            );
-            const keptIds: string[] = [];
-
-            for (let order = 0; order < talents.length; order++) {
-              const talent = talents[order];
-              const existing = existingByTalentId.get(talent.id);
-
-              if (existing) {
-                const updated = await prisma.pressKitTalent.update({
-                  where: { id: existing.id },
-                  data: { order },
-                });
-                keptIds.push(updated.id);
-              } else {
-                const created = await prisma.pressKitTalent.create({
-                  data: {
-                    brandId: brand.id,
-                    talentId: talent.id,
-                    pitch: "", // Nouveau talent : pas encore de pitch
-                    order,
-                  },
-                });
-                keptIds.push(created.id);
-              }
-            }
-
-            // Supprimer les PressKitTalent qui ne font plus partie de la sélection
-            await prisma.pressKitTalent.deleteMany({
-              where: {
-                brandId: brand.id,
-                id: { notIn: keptIds },
-              },
-            });
-
-            console.log(`  ✅ ${talents.length} talents associés (pitches conservés si existants)`);
-
-            // 5. Construire bloc_talents (HTML, noms cliquables Instagram) à partir des PressKitTalents
-            const brandWithTalents = await prisma.brand.findUnique({
-              where: { id: brand.id },
-              include: {
-                presskitTalents: {
-                  orderBy: { order: "asc" },
-                  include: {
-                    talent: { include: { stats: true } },
-                  },
-                },
-              },
-            });
-            const blocTalents =
-              brandWithTalents?.presskitTalents?.length ?
-              formatBlocTalents(
-                brandWithTalents.presskitTalents.map((pkt) => {
-                  const t = pkt.talent;
-                  const s = t.stats;
-                  return {
-                    prenom: t.prenom,
-                    pitch: pkt.pitch || "",
-                    instagramHandle: t.instagram?.replace(/^@/, "").trim() || null,
-                    igFollowers: s?.igFollowers ?? 0,
-                    ttFollowers: s?.ttFollowers ?? 0,
-                    ytAbonnes: s?.ytAbonnes ?? 0,
-                  };
-                }),
-                "html"
-              ) : undefined;
-
-            // 6. HubSpot API → mettre à jour press_kit_url ET bloc_talents pour TOUS les contacts
-            const contactIds: string[] = [];
-            if (brandData.contacts && Array.isArray(brandData.contacts)) {
-              for (const contact of brandData.contacts) {
-                const presskitUrl = `https://app.glowupagence.fr/book/${slug}?cid=${contact.hubspotContactId}`;
-                await updateContactPresskitUrl(
-                  contact.hubspotContactId,
-                  presskitUrl,
-                  blocTalents ?? undefined
-                );
-                contactIds.push(contact.hubspotContactId);
-              }
-              console.log(`  ✅ ${contactIds.length} contacts mis à jour (URL + bloc_talents)`);
-            }
-
-            // 7. Créer BatchBrand
-            await prisma.batchBrand.create({
-              data: {
-                batchId: batch.id,
-                brandId: brand.id,
-                status: "completed",
-                hubspotContactIds: contactIds,
-                talentIds,
-              },
-            });
+            await processBrandForBatch(batch.id, brandData);
 
             completed++;
-            console.log(`  ✅ ${brandData.companyName} terminé (${completed}/${brands.length})\n`);
+            console.log(
+              `  ✅ ${brandData.companyName} terminé (${completed}/${brandsToProcess.length})\n`
+            );
           } catch (error) {
             failed++;
             console.error(`  ❌ Erreur pour ${brandData.companyName}:`, error);
             if (brandData.companyName) {
               failedBrands.push(String(brandData.companyName));
             }
-
-            // Créer BatchBrand avec erreur
             try {
-              const slug = brandData.companyName
-                .toLowerCase()
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .replace(/[^a-z0-9]+/g, "-")
-                .replace(/^-+|-+$/g, "");
-
+              const slug = toSlug(String(brandData.companyName || ""));
               const brand = await prisma.brand.findUnique({
                 where: { slug },
               });
-
               if (brand) {
-                const contactIds = brandData.contacts?.map((c: any) => c.hubspotContactId) || [];
-                await prisma.batchBrand.create({
-                  data: {
-                    batchId: batch.id,
-                    brandId: brand.id,
-                    status: "failed",
-                    error: error instanceof Error ? error.message : "Erreur inconnue",
-                    hubspotContactIds: contactIds,
-                    talentIds: brandData.talentIds || [],
-                  },
+                const contactIds =
+                  Array.isArray(brandData.contacts)
+                    ? brandData.contacts.map((c) => c.hubspotContactId).filter(Boolean)
+                    : [];
+                await upsertBatchBrand({
+                  batchId: batch.id,
+                  brandId: brand.id,
+                  status: STATUS.FAILED,
+                  error: error instanceof Error ? error.message : "Erreur inconnue",
+                  hubspotContactIds: contactIds,
+                  talentIds: brandData.talentIds || [],
                 });
               }
             } catch (e) {
@@ -285,9 +370,13 @@ export async function POST(request: NextRequest) {
     await prisma.batch.update({
       where: { id: batch.id },
       data: {
-        status: "completed",
-        completed,
-        failed,
+        status: failed > 0 ? "partial" : "completed",
+        completed: {
+          increment: completed,
+        },
+        failed: {
+          increment: failed,
+        },
       },
     });
 
@@ -296,7 +385,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       batchId: batch.id,
-      total: brands.length,
+      total: brandsToProcess.length,
       completed,
       failed,
       failedBrands,
