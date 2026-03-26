@@ -25,6 +25,13 @@ async function getSessionAndFichier(request: NextRequest, id: string) {
       },
       contacts: {
         orderBy: { createdAt: "asc" },
+        include: {
+          _count: {
+            select: {
+              commentaires: true,
+            },
+          },
+        },
       },
     },
   });
@@ -65,7 +72,10 @@ export async function GET(
         id: fichier.user.id,
         name: `${fichier.user.prenom} ${fichier.user.nom}`.trim(),
       },
-      contacts: fichier.contacts,
+      contacts: fichier.contacts.map((c: any) => ({
+        ...c,
+        commentCount: c._count?.commentaires || 0,
+      })),
     });
   } catch (error) {
     console.error("Erreur GET /api/prospection/[id]:", error);

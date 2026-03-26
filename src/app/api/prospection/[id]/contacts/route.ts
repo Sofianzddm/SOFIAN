@@ -47,6 +47,7 @@ export async function POST(
       prenom,
       nom,
       email,
+      montantBrut,
       statut,
       notes,
     } = body as {
@@ -54,6 +55,7 @@ export async function POST(
       prenom?: string;
       nom?: string;
       email?: string;
+      montantBrut?: number | string;
       statut?: string;
       notes?: string;
     };
@@ -71,6 +73,13 @@ export async function POST(
     if (typeof prenom === "string") data.prenom = prenom || null;
     if (typeof nom === "string") data.nom = nom || null;
     if (typeof email === "string") data.email = email || null;
+    if (typeof montantBrut !== "undefined") {
+      const value =
+        typeof montantBrut === "string"
+          ? parseFloat(montantBrut.replace(",", "."))
+          : Number(montantBrut);
+      data.montantBrut = Number.isFinite(value) ? value : 0;
+    }
     if (typeof notes === "string") data.notes = notes || null;
     if (typeof statut === "string") {
       data.statut = statut as any;

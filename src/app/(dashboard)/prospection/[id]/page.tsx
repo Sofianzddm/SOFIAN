@@ -37,6 +37,7 @@ type Contact = {
   prenom: string | null;
   nom: string | null;
   email: string | null;
+  montantBrut?: number | string | null;
   statut: StatutProspectionContact;
   notes: string | null;
    talentId?: string | null;
@@ -133,6 +134,28 @@ function formatRelativeDate(date: Date): string {
   if (diff === 1) return "1 jour";
   if (diff < 0) return `${Math.abs(diff)} jours de retard`;
   return `${diff} jours`;
+}
+
+function extractOpportunityAmount(contact: Contact): number {
+  const raw = contact.montantBrut ?? 0;
+  const parsed = typeof raw === "string" ? parseFloat(raw.replace(",", ".")) : Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function askWonAmount(initialValue?: number | string | null): number | null {
+  const defaultValue =
+    initialValue !== null && initialValue !== undefined ? String(initialValue) : "";
+  const entered = window.prompt(
+    "Montant HT gagné (€) :",
+    defaultValue
+  );
+  if (entered === null) return null;
+  const parsed = parseFloat(entered.replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    window.alert("Merci de saisir un montant valide supérieur à 0.");
+    return null;
+  }
+  return parsed;
 }
 
 function getActionIcon(contact: Contact) {
@@ -241,17 +264,42 @@ export default function FichierProspectionPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch(`/api/prospection/${params.id}`);
-        if (!res.ok) {
+        const [prospectionRes, talentsRes] = await Promise.all([
+          fetch(`/api/prospection/${params.id}`),
+          fetch("/api/talents"),
+        ]);
+
+        if (!prospectionRes.ok) {
           throw new Error("Erreur de chargement");
         }
-        const data = await res.json();
+
+        const data = await prospectionRes.json();
         setFichier({
           id: data.id,
           titre: data.titre,
           contacts: (data.contacts || []) as Contact[],
         });
         setTitleValue(data.titre);
+
+        // Déclenche un rappel email/notif si des actions sont à échéance.
+        // Fire-and-forget: ne doit jamais bloquer le chargement de la page.
+        fetch(`/api/prospection/${params.id}/rappels`, { method: "POST" }).catch(
+          () => undefined
+        );
+
+        if (talentsRes.ok) {
+          const talentsData = await talentsRes.json();
+          const list = (Array.isArray(talentsData) ? talentsData : talentsData.talents || []).map(
+            (t: any) => ({
+              id: t.id,
+              name: `${t.prenom ?? ""} ${t.nom ?? ""}`.trim(),
+            })
+          );
+          setTalents(list);
+          if (list.length > 0) {
+            setConvertTalentId((prev) => prev || list[0].id);
+          }
+        }
       } catch (e) {
         setToast({
           message: "Impossible de charger le fichier.",
@@ -280,10 +328,16 @@ export default function FichierProspectionPage() {
   }, []);
 
   const stats = useMemo(() => {
-    if (!fichier) return { total: 0, gagnes: 0 };
+    if (!fichier) return { total: 0, gagnes: 0, caGagne: 0, budgetEnCours: 0 };
     const total = fichier.contacts.length;
     const gagnes = fichier.contacts.filter((c) => c.statut === "GAGNE").length;
-    return { total, gagnes };
+    const caGagne = fichier.contacts
+      .filter((c) => c.statut === "GAGNE")
+      .reduce((sum, c) => sum + extractOpportunityAmount(c), 0);
+    const budgetEnCours = fichier.contacts
+      .filter((c) => ["EN_NEGOC", "EN_ATTENTE"].includes(c.statut))
+      .reduce((sum, c) => sum + extractOpportunityAmount(c), 0);
+    return { total, gagnes, caGagne, budgetEnCours };
   }, [fichier]);
 
   const handleTitleBlur = async () => {
@@ -321,10 +375,20 @@ export default function FichierProspectionPage() {
     if (!fichier) return;
     const previous = fichier.contacts.find((c) => c.id === contactId) || null;
     const payload: any = { [field]: value };
+    if (field === ("montantBrut" as keyof Contact)) {
+      const parsed = parseFloat(value.replace(",", "."));
+      payload.montantBrut = Number.isFinite(parsed) ? parsed : 0;
+    }
 
     // Si on passe le statut principal à GAGNÉ / PERDU, aligner aussi la prochaine action
     if (field === "statut") {
       if (value === "GAGNE") {
+        // Exiger un montant au moment du passage en gagné
+        const enteredAmount = askWonAmount(previous?.montantBrut);
+        if (enteredAmount === null) {
+          return;
+        }
+        payload.montantBrut = enteredAmount;
         payload.prochainStatut = "GAGNE";
         payload.prochainDate = null;
       } else if (value === "PERDU") {
@@ -589,6 +653,23 @@ export default function FichierProspectionPage() {
         type: "success",
       });
       setConvertModal({ open: false, contactId: null, nomOpportunite: "" });
+      setFichier((prev) =>
+        prev
+          ? {
+              ...prev,
+              contacts: prev.contacts.map((c) =>
+                c.id === convertModal.contactId
+                  ? { ...c, montantBrut: montant }
+                  : c
+              ),
+            }
+          : prev
+      );
+      setContactDetail((prev) =>
+        prev && prev.id === convertModal.contactId
+          ? { ...prev, montantBrut: montant }
+          : prev
+      );
       setConvertMontant("");
       setConvertNotes("");
       if (data.negociationId) {
@@ -757,6 +838,7 @@ export default function FichierProspectionPage() {
               <th className="px-3 py-2 text-left min-w-[120px]">Nom</th>
               <th className="px-3 py-2 text-left min-w-[200px]">E-mail</th>
               <th className="px-3 py-2 text-left min-w-[140px]">Statut</th>
+              <th className="px-3 py-2 text-left min-w-[130px]">Montant HT</th>
               <th className="px-3 py-2 text-center w-16">Actions</th>
             </tr>
           </thead>
@@ -802,15 +884,20 @@ export default function FichierProspectionPage() {
                     <button
                       type="button"
                       onClick={() => openContactModal(index)}
-                      className="inline-flex items-center justify-center rounded-full p-1.5"
+                      className="relative inline-flex items-center justify-center rounded-full p-1.5"
                     >
                       <MessageCircle
                         className={`w-4 h-4 ${
                           contact.commentCount && contact.commentCount > 0
-                            ? "text-blue-500"
+                            ? "text-[#C08B8B]"
                             : "text-gray-300"
                         }`}
                       />
+                      {contact.commentCount && contact.commentCount > 0 && (
+                        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                          {contact.commentCount > 9 ? "9+" : contact.commentCount}
+                        </span>
+                      )}
                     </button>
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-500 align-middle">
@@ -885,6 +972,24 @@ export default function FichierProspectionPage() {
                       }
                     />
                   </td>
+                  <td className="px-3 py-2 align-middle">
+                    <EditableInput
+                      value={
+                        contact.montantBrut !== null && contact.montantBrut !== undefined
+                          ? String(contact.montantBrut)
+                          : ""
+                      }
+                      placeholder="0"
+                      saving={savingCell === `${contact.id}-montantBrut`}
+                      onSave={(value) =>
+                        handleUpdateContact(
+                          contact.id,
+                          "montantBrut" as keyof Contact,
+                          value
+                        )
+                      }
+                    />
+                  </td>
                   <td className="px-3 py-2 text-center align-middle">
                     <button
                       type="button"
@@ -904,6 +1009,26 @@ export default function FichierProspectionPage() {
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="sticky bottom-0 border-t border-gray-200 bg-white px-4 py-3 flex items-center justify-between text-sm rounded-t-xl">
+        <span className="text-gray-500">
+          {stats.total} contacts · {stats.gagnes} gagnés
+        </span>
+        <div className="flex items-center gap-6">
+          <span>
+            CA gagné :
+            <span className="font-semibold text-green-600 ml-1">
+              {stats.caGagne.toLocaleString("fr-FR")} €
+            </span>
+          </span>
+          <span>
+            Budget en cours :
+            <span className="font-semibold text-amber-600 ml-1">
+              {stats.budgetEnCours.toLocaleString("fr-FR")} €
+            </span>
+          </span>
+        </div>
       </div>
 
       <div className="flex justify-between items-center">
@@ -1479,7 +1604,13 @@ function ActionButton({
       // Si on marque l'action comme Gagné / Perdu depuis le popover,
       // on aligne aussi le statut principal de l'opportunité
       if (statut === "GAGNE") {
+        const enteredAmount = askWonAmount(contact.montantBrut);
+        if (enteredAmount === null) {
+          setSaving(false);
+          return;
+        }
         body.statut = "GAGNE";
+        body.montantBrut = enteredAmount;
       } else if (statut === "PERDU") {
         body.statut = "PERDU";
       }

@@ -75,6 +75,13 @@ export async function POST(
       },
     });
 
+    await prisma.prospectionContact.update({
+      where: { id: contactId },
+      data: {
+        montantBrut: montantNumber,
+      },
+    });
+
     await prisma.prospectionHistorique.create({
       data: {
         contactId,

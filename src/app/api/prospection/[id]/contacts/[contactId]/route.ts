@@ -144,6 +144,7 @@ export async function PATCH(
       prenom,
       nom,
       email,
+      montantBrut,
       statut,
       notes,
       prochainStatut,
@@ -155,6 +156,7 @@ export async function PATCH(
       prenom?: string;
       nom?: string;
       email?: string;
+      montantBrut?: number | string;
       statut?: string;
       notes?: string;
       prochainStatut?: string | null;
@@ -177,11 +179,32 @@ export async function PATCH(
     if (typeof prenom === "string") data.prenom = prenom || null;
     if (typeof nom === "string") data.nom = nom || null;
     if (typeof email === "string") data.email = email || null;
+    if (typeof montantBrut !== "undefined") {
+      const value =
+        typeof montantBrut === "string"
+          ? parseFloat(montantBrut.replace(",", "."))
+          : Number(montantBrut);
+      data.montantBrut = Number.isFinite(value) ? value : 0;
+    }
     if (typeof notes === "string") data.notes = notes || null;
     let statutChange = false;
     let previousStatut: string | null = null;
     let newStatut: string | null = null;
     if (typeof statut === "string") {
+      if (statut === "GAGNE") {
+        const nextAmountRaw =
+          typeof montantBrut !== "undefined" ? montantBrut : (contact as any).montantBrut;
+        const nextAmount =
+          typeof nextAmountRaw === "string"
+            ? parseFloat(nextAmountRaw.replace(",", "."))
+            : Number(nextAmountRaw);
+        if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+          return NextResponse.json(
+            { error: "Montant brut obligatoire pour passer en GAGNÉ" },
+            { status: 400 }
+          );
+        }
+      }
       data.statut = statut as any;
       if (statut !== contact.statut) {
         statutChange = true;
@@ -293,11 +316,6 @@ export async function DELETE(
     if ("error" in result) return result.error;
 
     const { role } = result;
-
-    // HEAD_OF_INFLUENCE ne peut pas supprimer
-    if (role === "HEAD_OF_INFLUENCE") {
-      return NextResponse.json({ error: "Suppression non autorisée" }, { status: 403 });
-    }
 
     await prisma.prospectionContact.delete({
       where: { id: contactId },
