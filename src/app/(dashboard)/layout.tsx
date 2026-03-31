@@ -23,6 +23,12 @@ export default function DashboardLayout({
     if (status === "authenticated" && session?.user?.role === "TALENT") {
       router.push("/talent/dashboard");
     }
+    if (status === "authenticated" && session?.user?.role === "JURISTE") {
+      const p = typeof window !== "undefined" ? window.location.pathname : "";
+      if (p && !p.startsWith("/juriste")) {
+        router.replace("/juriste");
+      }
+    }
   }, [status, session, router]);
 
   if (status === "loading") {

@@ -24,6 +24,8 @@ enum Role {
   TM
   CM
   TALENT
+  JURISTE
+  STRATEGY_PLANNER
 }
 
 enum Departement {
@@ -188,6 +190,8 @@ enum TypeNotification {
   MENTION
   REVOIR_TARIFS
   GENERAL
+  CONTRAT_MARQUE_APPROUVE
+  CONTRAT_MARQUE_MODIFICATIONS
 }
 
 // ============================================
@@ -241,6 +245,9 @@ model User {
   delegationsRecues  DelegationTM[] @relation("DelegationsRecues")
 
   delegationActivites DelegationActivite[]
+
+  contratMarqueAnnotations     ContratMarqueAnnotation[]
+  contratMarqueCommentairesAuteur ContratMarqueCommentaire[] @relation("ContratMarqueCommentaireAuteur")
 
   @@map("users")
 }
@@ -332,6 +339,7 @@ model Talent {
 
   delegations DelegationTM[]
   delegationActivites DelegationActivite[]
+  participantsVilla ParticipantVilla[]
   
   @@map("talents")
 }
@@ -766,22 +774,101 @@ model Collaboration {
   isLongTerme       Boolean   @default(false)
   
   marqueNotifiee    Boolean   @default(false)
+
+  contratSubmissionId  String?
+  contratStatut        String  @default("NON_ENVOYE")
+  contratEnvoyeAt      DateTime?
+  contratTalentSigneAt DateTime?
+  contratSigneAt       DateTime?
   
+  contratMarquePdfUrl         String?
+  contratMarqueStatut         String   @default("AUCUN")
+  contratMarqueEnvoyeJuristeAt DateTime?
+  contratMarqueApprouveAt     DateTime?
+  contratMarqueSigneAt        DateTime?
+  contratMarqueMode           String?
+  /** Date du dépôt du PDF / scan officiellement signé (glisser-déposer « version finale signée »). */
+  contratMarquePdfOfficielSigneDeposeAt DateTime?
+
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
-  
+
   negociation       Negociation?
   
   cycles            CollabCycle[]
   documents         Document[]
   quotes            Quote[]
   comments          CollaborationComment[]
-  
+  contratMarqueCommentaires ContratMarqueCommentaire[]
+  contratMarqueAnnotations  ContratMarqueAnnotation[]
+  contratMarqueVersions     ContratMarqueVersion[]
+  contratMarqueVersionActuelle Int @default(0)
+
   @@index([talentId])
   @@index([marqueId])
   @@index([statut])
   @@index([accountManagerId])
   @@map("collaborations")
+}
+
+model ContratMarqueVersion {
+  id              String        @id @default(cuid())
+  collaborationId String
+  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  numero          Int
+  pdfUrl          String
+  statut          String        @default("EN_ATTENTE_JURISTE")
+  uploadedAt      DateTime      @default(now())
+  approuveAt      DateTime?
+  modifDemandeAt  DateTime?
+  annotations            ContratMarqueAnnotation[]
+  contratMarqueCommentaires ContratMarqueCommentaire[]
+
+  @@unique([collaborationId, numero])
+  @@index([collaborationId])
+  @@map("contratMarqueVersion")
+}
+
+model ContratMarqueCommentaire {
+  id              String   @id @default(cuid())
+  collaborationId String
+  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  versionId       String?
+  version         ContratMarqueVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  auteurId        String
+  auteurUser      User     @relation("ContratMarqueCommentaireAuteur", fields: [auteurId], references: [id])
+  auteur          String
+  auteurRole      String
+  contenu         String   @db.Text
+  createdAt       DateTime @default(now())
+
+  @@index([collaborationId])
+  @@index([auteurId])
+  @@index([versionId])
+  @@map("contrat_marque_commentaires")
+}
+
+model ContratMarqueAnnotation {
+  id              String        @id
+  collaborationId String
+  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  auteurId        String
+  auteur          User          @relation(fields: [auteurId], references: [id])
+  auteurNom       String
+  auteurRole      String
+  content         Json
+  position        Json
+  color           String        @default("#FFE28F")
+  type            String        @default("text")
+  resolved        Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  versionId       String?
+  version         ContratMarqueVersion? @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([collaborationId])
+  @@index([auteurId])
+  @@index([versionId])
+  @@map("contrat_marque_annotations")
 }
 
 // Commentaires sur les collaborations (conversation interne)
@@ -1720,4 +1807,66 @@ model DelegationActivite {
   @@index([talentId])
   @@index([auteurId])
   @@map("delegation_activites")
+}
+
+model ProjetEvenement {
+  id        String   @id @default(cuid())
+  nom       String
+  slug      String   @unique
+  dateDebut DateTime
+  dateFin   DateTime
+  lieu      String?
+  statut    String   @default("ACTIF")
+  createdAt DateTime @default(now())
+
+  opportunites OpportuniteMarque[]
+  participantsVilla ParticipantVilla[]
+}
+
+model OpportuniteMarque {
+  id             String          @id @default(cuid())
+  projetId       String
+  projet         ProjetEvenement @relation(fields: [projetId], references: [id])
+
+  nomMarque      String
+  secteur        String?
+  angleNote      String?
+  budgetEstime   Int?
+  typeActivation String?
+  dateActivation DateTime?
+  montantFinal   Int?
+  statutLivraison String @default("A_FAIRE")
+
+  // [{firstName, lastName, email, role}] — jamais exposé au STRATEGY_PLANNER
+  contacts       Json    @default("[]")
+  contactQualifie Boolean @default(false)
+
+  // A_QUALIFIER | IDENTIFIEE | CONTACTEE | EN_NEGO | SIGNEE | PERDUE
+  statut         String  @default("A_QUALIFIER")
+  talents        Json    @default("[]")
+
+  ownerId        String?
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([projetId])
+}
+
+model ParticipantVilla {
+  id          String         @id @default(cuid())
+  projetId    String
+  projet      ProjetEvenement @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  talentId    String
+  talent      Talent         @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  dateArrivee DateTime?
+  dateDepart  DateTime?
+  // PRESSENTI | CONFIRME | DESISTE
+  statut      String         @default("PRESSENTI")
+  notes       String?
+  createdAt   DateTime       @default(now())
+
+  @@unique([projetId, talentId])
+  @@index([projetId])
+  @@index([talentId])
 }

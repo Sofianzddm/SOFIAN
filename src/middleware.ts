@@ -33,6 +33,38 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  const t = token as { role?: string; impersonatedRole?: string };
+  const effectiveRole = t.impersonatedRole ?? t.role;
+
+  if (pathname.startsWith("/juriste") && effectiveRole !== "JURISTE") {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  if (effectiveRole === "JURISTE") {
+    const isJuristeArea = pathname.startsWith("/juriste");
+    const isCollabApi = pathname.startsWith("/api/collaborations/");
+    const isAuthApi = pathname.startsWith("/api/auth");
+    if (!isJuristeArea && !isCollabApi && !isAuthApi) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/juriste";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  // STRATEGY_PLANNER : accès limité à /strategy/*
+  if (effectiveRole === "STRATEGY_PLANNER" && !pathname.startsWith("/strategy")) {
+    return NextResponse.redirect(new URL("/strategy/projets/villa-cannes", request.url));
+  }
+  // Autres rôles : bloquer /strategy/* (sauf ADMIN)
+  if (
+    effectiveRole !== "STRATEGY_PLANNER" &&
+    effectiveRole !== "ADMIN" &&
+    pathname.startsWith("/strategy")
+  ) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
   return NextResponse.next();
 }
 
@@ -48,6 +80,10 @@ export const config = {
     // Collaborations & dossiers
     "/collaborations",
     "/collaborations/:path*",
+    "/juriste",
+    "/juriste/:path*",
+    "/strategy",
+    "/strategy/:path*",
     "/dossiers",
     "/dossiers/:path*",
     // Marques & partenaires

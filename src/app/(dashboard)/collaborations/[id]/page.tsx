@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { MentionTextarea, renderCommentWithMentions, type MentionableUser } from "@/components/MentionTextarea";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
+import ContratMarqueBloc from "@/components/collaboration/ContratMarqueBloc";
 
 interface Livrable {
   id: string;
@@ -90,12 +91,29 @@ interface CollabDetail {
   factureValideeAt: string | null;
   marquePayeeAt: string | null;
   paidAt: string | null;
+  contratSubmissionId?: string | null;
+  contratStatut?: string;
+  contratEnvoyeAt?: string | null;
+  contratTalentSigneAt?: string | null;
+  contratSigneAt?: string | null;
+  contratMarquePdfUrl?: string | null;
+  contratMarqueStatut?: string | null;
+  contratMarqueEnvoyeJuristeAt?: string | null;
+  contratMarqueApprouveAt?: string | null;
+  contratMarqueSigneAt?: string | null;
+  contratMarqueMode?: string | null;
   talent: {
     id: string;
     prenom: string;
     nom: string;
     email: string;
     photo: string | null;
+    raisonSociale?: string | null;
+    siret?: string | null;
+    adresse?: string | null;
+    codePostal?: string | null;
+    ville?: string | null;
+    pays?: string | null;
     managerId?: string;
     manager?: { prenom: string; nom: string } | null;
     delegations?: { actif: boolean }[];
@@ -120,6 +138,13 @@ interface CollabDetail {
     content: string;
     createdAt: string;
     user: { id: string; prenom: string; nom: string };
+  }>;
+  contratMarqueCommentaires?: Array<{
+    id: string;
+    auteur: string;
+    auteurRole: string;
+    contenu: string;
+    createdAt: string;
   }>;
 }
 
@@ -152,6 +177,30 @@ const TYPE_LABELS: Record<string, string> = {
   SNAPCHAT_STORY: "Snapchat Story", SNAPCHAT_SPOTLIGHT: "Snapchat Spotlight",
   EVENT: "Event", SHOOTING: "Shooting", AMBASSADEUR: "Ambassadeur",
 };
+
+function formatContratLivrablesText(livrables: Livrable[]): string {
+  return livrables
+    .map((l) => {
+      const label = TYPE_LABELS[l.typeContenu] || l.typeContenu;
+      const line = `${l.quantite}× ${label}`;
+      const desc = l.description?.trim();
+      return desc ? `${line} — ${desc}` : line;
+    })
+    .join("\n");
+}
+
+function formatContratDateFr(iso: string | null | undefined): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
 
 export default function CollabDetailPage() {
   const params = useParams();
@@ -231,6 +280,17 @@ export default function CollabDetailPage() {
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
   const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
+  const [contratSending, setContratSending] = useState(false);
+  const [showContratPreviewModal, setShowContratPreviewModal] = useState(false);
+  const [contratPreviewForm, setContratPreviewForm] = useState({
+    talent_nom: "",
+    societe_nom: "",
+    siret: "",
+    adresse_talent: "",
+    marque: "",
+    livrables: "",
+    montant_net_talent: "",
+  });
 
   useEffect(() => { if (params.id) fetchCollab(); }, [params.id]);
 
@@ -287,6 +347,53 @@ export default function CollabDetailPage() {
       if (res.ok) setCollab(await res.json());
     } catch (error) { console.error("Erreur:", error); }
     finally { setLoading(false); }
+  };
+
+  const openContratPreviewModal = () => {
+    if (!collab) return;
+    const t = collab.talent;
+    const adresse = [t.adresse, t.codePostal, t.ville, t.pays].filter(Boolean).join(", ");
+    setContratPreviewForm({
+      talent_nom: `${t.prenom} ${t.nom}`.trim(),
+      societe_nom: t.raisonSociale ?? "",
+      siret: t.siret ?? "",
+      adresse_talent: adresse,
+      marque: collab.marque.nom ?? "",
+      livrables: formatContratLivrablesText(collab.livrables),
+      montant_net_talent: String(collab.montantNet ?? ""),
+    });
+    setShowContratPreviewModal(true);
+  };
+
+  const confirmContratEnvoi = async () => {
+    if (!collab?.id) return;
+    setContratSending(true);
+    try {
+      const res = await fetch(`/api/collaborations/${collab.id}/contrat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          talent_nom: contratPreviewForm.talent_nom,
+          societe_nom: contratPreviewForm.societe_nom,
+          siret: contratPreviewForm.siret,
+          adresse_talent: contratPreviewForm.adresse_talent,
+          marque: contratPreviewForm.marque,
+          livrables: contratPreviewForm.livrables,
+          montant_net_talent: contratPreviewForm.montant_net_talent,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(typeof data.error === "string" ? data.error : "Erreur lors de l'envoi du contrat");
+        return;
+      }
+      setShowContratPreviewModal(false);
+      await fetchCollab();
+    } catch {
+      alert("Erreur réseau");
+    } finally {
+      setContratSending(false);
+    }
   };
 
   const handleDelete = async () => {
@@ -797,6 +904,14 @@ export default function CollabDetailPage() {
     (d: DocumentInfo) => d.type === "FACTURE" && (d.statut === "ANNULE" || d.avoirRef)
   );
   const existingDocs = collab.documents || [];
+  const roleForUi = effectiveRole ?? (session?.user as { role?: string })?.role ?? "";
+  const canSeeContratBloc = ["ADMIN", "TM", "HEAD_OF_INFLUENCE"].includes(roleForUi);
+  const canGenerateContrat = ["ADMIN", "TM"].includes(roleForUi);
+  const currentUserForContratMarque = {
+    id: (session?.user as { id?: string })?.id ?? "",
+    nom: (session?.user as { name?: string })?.name ?? "",
+    role: roleForUi,
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50/80 via-white to-gray-50/50">
@@ -1440,6 +1555,235 @@ export default function CollabDetailPage() {
               )}
             </div>
           </div>
+
+          {canSeeContratBloc && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50/60 to-white">
+                <h2 className="font-semibold text-glowup-licorice text-sm uppercase tracking-wider flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Contrat
+                </h2>
+              </div>
+              <div className="p-6">
+                {(() => {
+                  const statut = collab.contratStatut ?? "NON_ENVOYE";
+                  const docusealPublicBase = (process.env.NEXT_PUBLIC_DOCUSEAL_URL || "https://docuseal.com").replace(
+                    /\/$/,
+                    ""
+                  );
+                  const submissionUrl = collab.contratSubmissionId
+                    ? `${docusealPublicBase}/submissions/${collab.contratSubmissionId}`
+                    : "";
+                  const envoyeLabel = formatContratDateFr(collab.contratEnvoyeAt);
+                  const talentSigneLabel = formatContratDateFr(collab.contratTalentSigneAt);
+                  const signeCompletLabel = formatContratDateFr(collab.contratSigneAt);
+
+                  if (statut === "NON_ENVOYE") {
+                    return (
+                      <div className="space-y-4">
+                        <p className="text-sm text-gray-500">Aucun contrat envoyé pour le moment.</p>
+                        {canGenerateContrat ? (
+                          <button
+                            type="button"
+                            onClick={openContratPreviewModal}
+                            disabled={contratSending}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <FileText className="w-4 h-4" />
+                            Générer le contrat
+                          </button>
+                        ) : (
+                          <p className="text-sm text-gray-500">
+                            L&apos;envoi du contrat est réservé aux TM et administrateurs.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (statut === "EN_ATTENTE_TALENT") {
+                    return (
+                      <div className="space-y-5">
+                        <div className="space-y-0">
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 ring-4 ring-emerald-500/15" />
+                              <div className="w-px flex-1 min-h-[28px] bg-gray-200" />
+                            </div>
+                            <div className="pb-4 flex-1 min-w-0">
+                              <p className="text-sm font-medium text-glowup-licorice">Envoyé au talent</p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {envoyeLabel || "—"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                              <span className="w-2.5 h-2.5 rounded-full border-2 border-gray-300 bg-white shrink-0" />
+                              <div className="w-px flex-1 min-h-[28px] bg-gray-200" />
+                            </div>
+                            <div className="pb-4 flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-700">Signé par le talent</p>
+                              <p className="text-xs text-gray-500 mt-0.5">En attente de signature</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                              <span className="w-2.5 h-2.5 rounded-full border-2 border-gray-300 bg-white shrink-0" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-700">Signé par l&apos;agence</p>
+                              <p className="text-xs text-gray-400 mt-0.5">—</p>
+                            </div>
+                          </div>
+                        </div>
+                        {canGenerateContrat && (
+                          <button
+                            type="button"
+                            onClick={openContratPreviewModal}
+                            disabled={contratSending}
+                            className="text-xs font-medium text-gray-500 hover:text-glowup-licorice transition-colors disabled:opacity-50"
+                          >
+                            Renvoyer le lien
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (statut === "EN_ATTENTE_AGENCE") {
+                    return (
+                      <div className="space-y-4">
+                        <div className="space-y-0">
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <div className="w-px flex-1 min-h-[28px] bg-gray-200" />
+                            </div>
+                            <div className="pb-4 flex-1 min-w-0">
+                              <p className="text-sm font-medium text-glowup-licorice">Envoyé au talent</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{envoyeLabel || "—"}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <div className="w-px flex-1 min-h-[28px] bg-gray-200" />
+                            </div>
+                            <div className="pb-4 flex-1 min-w-0">
+                              <p className="text-sm font-medium text-glowup-licorice">Signé par le talent</p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {talentSigneLabel ? `Signé le ${talentSigneLabel}` : "Signé"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                              <span className="w-2.5 h-2.5 rounded-full border-2 border-amber-400 bg-amber-50 shrink-0" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800">Signé par l&apos;agence</p>
+                              <p className="text-xs text-amber-700/90 mt-0.5">En attente de votre signature</p>
+                            </div>
+                          </div>
+                        </div>
+                        {submissionUrl && (
+                          <a
+                            href={submissionUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700"
+                          >
+                            Signer maintenant
+                            <ArrowRight className="w-4 h-4" />
+                          </a>
+                        )}
+                        {canGenerateContrat && (
+                          <button
+                            type="button"
+                            onClick={openContratPreviewModal}
+                            disabled={contratSending}
+                            className="block text-xs font-medium text-gray-500 hover:text-glowup-licorice transition-colors disabled:opacity-50"
+                          >
+                            Renvoyer le lien
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (statut === "SIGNE" && submissionUrl) {
+                    return (
+                      <div className="space-y-5">
+                        <div className="space-y-0">
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <div className="w-px flex-1 min-h-[28px] bg-gray-200" />
+                            </div>
+                            <div className="pb-4 flex-1 min-w-0">
+                              <p className="text-sm font-medium text-glowup-licorice">Envoyé au talent</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{envoyeLabel || "—"}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <div className="w-px flex-1 min-h-[28px] bg-gray-200" />
+                            </div>
+                            <div className="pb-4 flex-1 min-w-0">
+                              <p className="text-sm font-medium text-glowup-licorice">Signé par le talent</p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {talentSigneLabel ? `Signé le ${talentSigneLabel}` : "—"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-glowup-licorice">Signé par l&apos;agence</p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {signeCompletLabel ? `Signé le ${signeCompletLabel}` : "—"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold px-3 py-1 w-fit">
+                            Contrat signé
+                          </span>
+                          <a
+                            href={submissionUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 w-fit"
+                          >
+                            Voir le contrat signé
+                            <ArrowRight className="w-4 h-4" />
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <p className="text-sm text-gray-500">
+                      Statut du contrat : {statut}
+                      {collab.contratSubmissionId ? ` (soumission ${collab.contratSubmissionId})` : ""}
+                    </p>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          <ContratMarqueBloc
+            collaboration={collab}
+            currentUser={currentUserForContratMarque}
+            onRefresh={fetchCollab}
+          />
         </div>
 
         {/* Sidebar */}
@@ -1668,6 +2012,101 @@ export default function CollabDetailPage() {
       </div>
 
       {/* Modals */}
+      {showContratPreviewModal && collab && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold text-glowup-licorice">Vérifier le contrat avant envoi</h3>
+            <p className="text-sm text-gray-500 mt-1 mb-6">
+              Ces informations seront intégrées au contrat envoyé au talent.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom complet du talent</label>
+                <input
+                  type="text"
+                  value={contratPreviewForm.talent_nom}
+                  onChange={(e) => setContratPreviewForm((p) => ({ ...p, talent_nom: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Société / raison sociale</label>
+                <input
+                  type="text"
+                  value={contratPreviewForm.societe_nom}
+                  onChange={(e) => setContratPreviewForm((p) => ({ ...p, societe_nom: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">SIRET</label>
+                <input
+                  type="text"
+                  value={contratPreviewForm.siret}
+                  onChange={(e) => setContratPreviewForm((p) => ({ ...p, siret: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Adresse</label>
+                <input
+                  type="text"
+                  value={contratPreviewForm.adresse_talent}
+                  onChange={(e) => setContratPreviewForm((p) => ({ ...p, adresse_talent: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Marque</label>
+                <input
+                  type="text"
+                  value={contratPreviewForm.marque}
+                  onChange={(e) => setContratPreviewForm((p) => ({ ...p, marque: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Livrables</label>
+                <textarea
+                  value={contratPreviewForm.livrables}
+                  onChange={(e) => setContratPreviewForm((p) => ({ ...p, livrables: e.target.value }))}
+                  rows={5}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 text-sm resize-y min-h-[100px]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Montant net talent (HT)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={contratPreviewForm.montant_net_talent}
+                  onChange={(e) => setContratPreviewForm((p) => ({ ...p, montant_net_talent: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-8">
+              <button
+                type="button"
+                onClick={() => setShowContratPreviewModal(false)}
+                disabled={contratSending}
+                className="flex-1 px-5 py-3 text-gray-600 bg-gray-100 rounded-xl font-semibold hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={confirmContratEnvoi}
+                disabled={contratSending}
+                className="flex-1 px-5 py-3 bg-glowup-green text-glowup-licorice rounded-xl font-semibold hover:bg-glowup-green/85 disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm shadow-glowup-green/30"
+              >
+                {contratSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                Confirmer et envoyer →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showCompleteMarqueModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">

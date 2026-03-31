@@ -76,7 +76,31 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
         });
 
         if (!document) {
-          console.log("Document non trouvé pour submission:", body.data?.id ?? submissionId);
+          const collabContrat = await prisma.collaboration.findFirst({
+            where: { contratSubmissionId: submissionId },
+          });
+          if (collabContrat) {
+            const now = new Date();
+            await prisma.collaboration.update({
+              where: { id: collabContrat.id },
+              data: {
+                contratStatut: "SIGNE",
+                contratSigneAt: now,
+                ...(collabContrat.contratTalentSigneAt == null
+                  ? { contratTalentSigneAt: now }
+                  : {}),
+              },
+            });
+            console.log(
+              "Collaboration contrat: submission.completed → SIGNE",
+              collabContrat.id
+            );
+          } else {
+            console.log(
+              "Document non trouvé pour submission:",
+              body.data?.id ?? submissionId
+            );
+          }
           return;
         }
         console.log("DOCUMENT TROUVE", document.id);
@@ -184,7 +208,54 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
     });
 
     if (!document) {
-      console.log("DocuSeal webhook: document non trouvé pour submissionId", submissionId);
+      const collabContrat = await prisma.collaboration.findFirst({
+        where: { contratSubmissionId: submissionId },
+      });
+      if (collabContrat) {
+        const submittersRaw = body.submitters ?? body.data?.submitters ?? [];
+        const submitters = submittersRaw as Array<{
+          completed_at?: string | null;
+          status?: string;
+        }>;
+        const completedCount = submitters.filter((s) => {
+          const hasCompletedAt = !!(s.completed_at && String(s.completed_at).trim());
+          return hasCompletedAt || s.status === "completed";
+        }).length;
+        const current = collabContrat.contratStatut;
+        let nextStatut = current;
+        if (completedCount >= 2) nextStatut = "SIGNE";
+        else if (completedCount === 1) nextStatut = "EN_ATTENTE_AGENCE";
+        else {
+          if (current === "EN_ATTENTE_TALENT") nextStatut = "EN_ATTENTE_AGENCE";
+          else if (current === "EN_ATTENTE_AGENCE") nextStatut = "SIGNE";
+        }
+        const now = new Date();
+        await prisma.collaboration.update({
+          where: { id: collabContrat.id },
+          data: {
+            contratStatut: nextStatut,
+            ...(nextStatut === "EN_ATTENTE_AGENCE" && !collabContrat.contratTalentSigneAt
+              ? { contratTalentSigneAt: now }
+              : {}),
+            ...(nextStatut === "SIGNE"
+              ? {
+                  contratSigneAt: now,
+                  ...(!collabContrat.contratTalentSigneAt ? { contratTalentSigneAt: now } : {}),
+                }
+              : {}),
+          },
+        });
+        console.log("Collaboration contrat: form.completed", {
+          submissionId,
+          completedCount,
+          nextStatut,
+        });
+      } else {
+        console.log(
+          "DocuSeal webhook: document non trouvé pour submissionId",
+          submissionId
+        );
+      }
       return;
     }
 

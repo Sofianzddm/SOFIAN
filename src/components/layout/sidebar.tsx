@@ -22,6 +22,8 @@ import {
   Lock,
   Target,
   UserCheck,
+  Scale,
+  Briefcase,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -232,21 +234,87 @@ export function Sidebar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRole]);
 
-  // Filtrer les menus selon le rôle
-  const filteredMenuItems = menuItems
-    .filter((item) => item.roles.includes(userRole))
-    .concat(
-      (userRole === "TM" || userRole === "HEAD_OF_INFLUENCE") && hasAbsence
-        ? [
-            {
-              label: "Mon absence",
-              href: "/mon-absence",
-              icon: UserCog,
-              roles: ["TM", "HEAD_OF_INFLUENCE"],
-            } as (typeof menuItems)[number],
-          ]
-        : []
+  // Espace juriste : menu réduit
+  if (userRole === "JURISTE") {
+    return (
+      <aside
+        className={`fixed left-0 top-0 h-screen bg-white border-r border-gray-200 transition-all duration-300 z-40 ${
+          collapsed ? "w-20" : "w-64"
+        }`}
+      >
+        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-100">
+          {collapsed ? (
+            <GlowUpIcon className="h-8 w-auto mx-auto" variant="dark" />
+          ) : (
+            <GlowUpLogo className="h-8 w-auto" variant="dark" />
+          )}
+        </div>
+        <nav className="p-4 space-y-1">
+          <Link
+            href="/juriste"
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
+              pathname === "/juriste" || pathname?.startsWith("/juriste/")
+                ? "bg-glowup-rose text-white"
+                : "text-gray-600 hover:bg-glowup-lace hover:text-glowup-licorice"
+            }`}
+          >
+            <Scale
+              className={`w-5 h-5 flex-shrink-0 ${
+                pathname === "/juriste" || pathname?.startsWith("/juriste/")
+                  ? "text-white"
+                  : "text-gray-400 group-hover:text-glowup-rose"
+              }`}
+            />
+            {!collapsed && <span className="font-medium text-sm">Contrats à relire</span>}
+          </Link>
+        </nav>
+        {!collapsed && (
+          <div className="absolute bottom-16 left-4 right-4">
+            <div className="px-3 py-2 bg-gray-50 rounded-lg">
+              <p className="text-xs text-gray-500">Connecté en tant que</p>
+              <p className="text-sm font-medium text-glowup-licorice">{getRoleName(userRole)}</p>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="absolute bottom-4 right-0 translate-x-1/2 bg-white border border-gray-200 rounded-full p-1.5 shadow-sm hover:bg-glowup-lace transition-colors"
+        >
+          {collapsed ? (
+            <ChevronRight className="w-4 h-4 text-gray-600" />
+          ) : (
+            <ChevronLeft className="w-4 h-4 text-gray-600" />
+          )}
+        </button>
+      </aside>
     );
+  }
+
+  // Filtrer les menus selon le rôle
+  const filteredMenuItems =
+    userRole === "STRATEGY_PLANNER"
+      ? [
+          {
+            label: "Villa Cannes 2026",
+            href: "/strategy/projets/villa-cannes",
+            icon: Briefcase,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+        ]
+      : menuItems
+          .filter((item) => item.roles.includes(userRole))
+          .concat(
+            (userRole === "TM" || userRole === "HEAD_OF_INFLUENCE") && hasAbsence
+              ? [
+                  {
+                    label: "Mon absence",
+                    href: "/mon-absence",
+                    icon: UserCog,
+                    roles: ["TM", "HEAD_OF_INFLUENCE"],
+                  } as (typeof menuItems)[number],
+                ]
+              : []
+          );
 
   return (
     <aside
@@ -364,6 +432,8 @@ function getRoleName(role: string): string {
     TM: "Talent Manager",
     CM: "Community Manager",
     TALENT: "Talent",
+    JURISTE: "Juriste",
+    STRATEGY_PLANNER: "Strategy Planner",
   };
   return roleNames[role] || role;
 }

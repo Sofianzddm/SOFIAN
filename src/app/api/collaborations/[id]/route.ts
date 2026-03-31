@@ -27,6 +27,12 @@ export async function GET(
             nom: true,
             email: true,
             photo: true,
+            raisonSociale: true,
+            siret: true,
+            adresse: true,
+            codePostal: true,
+            ville: true,
+            pays: true,
             managerId: true,
             manager: { select: { prenom: true, nom: true } },
             delegations: {
@@ -86,6 +92,31 @@ export async function GET(
             user: { select: { id: true, prenom: true, nom: true } },
           },
         },
+        contratMarqueCommentaires: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            auteur: true,
+            auteurRole: true,
+            contenu: true,
+            createdAt: true,
+          },
+        },
+        contratMarqueAnnotations: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            auteurId: true,
+            auteurNom: true,
+            auteurRole: true,
+            content: true,
+            position: true,
+            color: true,
+            type: true,
+            resolved: true,
+            createdAt: true,
+          },
+        },
       },
     });
 
@@ -93,7 +124,14 @@ export async function GET(
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
-    const isAdmin = (session.user as { role?: string }).role === "ADMIN";
+    const userRole = (session.user as { role?: string }).role;
+    if (userRole === "JURISTE") {
+      if (!collaboration.contratMarquePdfUrl) {
+        return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+      }
+    }
+
+    const isAdmin = userRole === "ADMIN";
     // Infos confidentielles : seul l'admin sait si la marque nous a réglé ou si on a payé le talent
     const payload = isAdmin
       ? {

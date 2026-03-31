@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { Prisma } from "@prisma/client";
 
 // GET - Liste des users (filtrable par rôle)
 export async function GET(request: NextRequest) {
@@ -129,6 +130,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(user, { status: 201 });
   } catch (error) {
     console.error("Erreur POST user:", error);
+
+    const isRoleEnumMismatch =
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2004" &&
+      String((error.meta as { database_error?: string } | undefined)?.database_error || "").includes(
+        "invalid input value for enum \"Role\": \"STRATEGY_PLANNER\""
+      );
+
+    const isRoleEnumMismatchUnknown =
+      error instanceof Prisma.PrismaClientUnknownRequestError &&
+      String(error.message).includes("invalid input value for enum \"Role\": \"STRATEGY_PLANNER\"");
+
+    if (isRoleEnumMismatch || isRoleEnumMismatchUnknown) {
+      return NextResponse.json(
+        {
+          error:
+            "Le role STRATEGY_PLANNER n'existe pas dans la base connectee. Execute ALTER TYPE \"Role\" ADD VALUE IF NOT EXISTS 'STRATEGY_PLANNER' sur cette base.",
+        },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       { error: "Erreur lors de la création de l'utilisateur" },
       { status: 500 }

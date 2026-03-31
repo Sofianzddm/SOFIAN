@@ -7,6 +7,14 @@ const nextConfig: NextConfig = {
       allowedOrigins: ["localhost:3000"],
     },
   },
+  async headers() {
+    return [
+      {
+        source: "/api/:path*",
+        headers: [{ key: "Access-Control-Allow-Origin", value: "*" }],
+      },
+    ];
+  },
   // Images autorisées (remotePatterns remplace domains, déprécié)
   images: {
     remotePatterns: [
