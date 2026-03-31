@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
-import { canAccessStrategy, sanitizeOpportuniteForRole } from "@/app/api/strategy/_utils";
+import { canAccessStrategy } from "@/app/api/strategy/_utils";
 
 export async function PATCH(
   request: NextRequest,
@@ -38,7 +38,7 @@ export async function PATCH(
       },
     });
 
-    return NextResponse.json({ opportunite: sanitizeOpportuniteForRole(role, opportunite) });
+    return NextResponse.json({ opportunite });
   } catch (error) {
     console.error("Erreur PATCH /api/strategy/opportunites/[id]/qualifier:", error);
     return NextResponse.json(

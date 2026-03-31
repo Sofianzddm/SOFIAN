@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
-import {
-  canAccessStrategy,
-  getOrCreateVillaProject,
-  sanitizeOpportuniteForRole,
-} from "@/app/api/strategy/_utils";
+import { canAccessStrategy, getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,9 +27,7 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({
-      opportunites: opportunites.map((o) => sanitizeOpportuniteForRole(role, o)),
-    });
+    return NextResponse.json({ opportunites });
   } catch (error) {
     console.error("Erreur GET /api/strategy/opportunites:", error);
     return NextResponse.json(
@@ -89,10 +83,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json(
-      { opportunite: sanitizeOpportuniteForRole(role, opportunite) },
-      { status: 201 }
-    );
+    return NextResponse.json({ opportunite }, { status: 201 });
   } catch (error) {
     console.error("Erreur POST /api/strategy/opportunites:", error);
     return NextResponse.json(

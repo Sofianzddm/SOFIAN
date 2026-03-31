@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState, useEffect } from "react";
+import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2, Plus, Lock } from "lucide-react";
 
@@ -79,6 +79,7 @@ type Opportunite = {
   talentsLabel?: string[];
   talentsMeta?: Array<{ id: string; name: string; photo?: string | null }>;
   updatedAt?: string;
+  contacts?: unknown;
 };
 
 type PlanningPayload = {
@@ -122,6 +123,27 @@ function formatMoney(v?: number | null) {
 
 function asArrayIds(v: unknown): string[] {
   return Array.isArray(v) ? v.map(String) : [];
+}
+
+function asContacts(v: unknown): Array<{
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  role?: string;
+}> {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((c) =>
+      typeof c === "object" && c
+        ? {
+            firstName: String((c as { firstName?: string }).firstName || ""),
+            lastName: String((c as { lastName?: string }).lastName || ""),
+            email: String((c as { email?: string }).email || ""),
+            role: String((c as { role?: string }).role || ""),
+          }
+        : null
+    )
+    .filter(Boolean) as Array<{ firstName?: string; lastName?: string; email?: string; role?: string }>;
 }
 
 function initials(name: string): string {
@@ -198,6 +220,31 @@ export function StrategyVillaCannesClient() {
   const [projetId, setProjetId] = useState<string>("");
   const [talentOptions, setTalentOptions] = useState<TalentOption[]>([]);
   const [selectedDeal, setSelectedDeal] = useState<Opportunite | null>(null);
+  const [selectedPipelineOpp, setSelectedPipelineOpp] = useState<Opportunite | null>(null);
+  const [selectedPipelineTalentIds, setSelectedPipelineTalentIds] = useState<string[]>([]);
+  const [dealModalOpp, setDealModalOpp] = useState<Opportunite | null>(null);
+  const [dealForm, setDealForm] = useState<{
+    montantFinal: string;
+    dateActivation: string;
+    typeActivation: string;
+    details: string;
+    talents: string[];
+  }>({
+    montantFinal: "",
+    dateActivation: "",
+    typeActivation: "",
+    details: "",
+    talents: [],
+  });
+  const [draggingOppId, setDraggingOppId] = useState<string | null>(null);
+  const [dropTargetStatus, setDropTargetStatus] = useState<string | null>(null);
+  const pipelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const pipelineDragRef = useRef<{
+    active: boolean;
+    moved: boolean;
+    startX: number;
+    startScrollLeft: number;
+  }>({ active: false, moved: false, startX: 0, startScrollLeft: 0 });
 
   const [showAddTalent, setShowAddTalent] = useState(false);
   const [showAddMarque, setShowAddMarque] = useState(false);
@@ -386,6 +433,34 @@ export function StrategyVillaCannesClient() {
     refreshAll();
   }
 
+  async function deleteOpportunite(id: string) {
+    const ok = window.confirm("Supprimer cette marque du pipeline ?");
+    if (!ok) return;
+    await fetch(`/api/strategy/opportunites/${id}`, { method: "DELETE" });
+    if (selectedPipelineOpp?.id === id) {
+      setSelectedPipelineOpp(null);
+    }
+    refreshAll();
+  }
+
+  async function savePipelineTalents() {
+    if (!selectedPipelineOpp) return;
+    await patchOpportunite(selectedPipelineOpp.id, { talents: selectedPipelineTalentIds });
+    setSelectedPipelineOpp((prev) =>
+      prev ? { ...prev, talents: selectedPipelineTalentIds } : prev
+    );
+  }
+
+  async function moveOpportuniteToStatus(opportuniteId: string, newStatus: string) {
+    const current = pipeline.find((o) => o.id === opportuniteId);
+    if (!current || current.statut === newStatus) return;
+    if (newStatus === "SIGNEE") {
+      openDealModal(current);
+      return;
+    }
+    await patchOpportunite(opportuniteId, { statut: newStatus });
+  }
+
   async function patchDeal(id: string, patch: Record<string, unknown>) {
     await fetch(`/api/strategy/deals/${id}`, {
       method: "PATCH",
@@ -393,6 +468,79 @@ export function StrategyVillaCannesClient() {
       body: JSON.stringify(patch),
     });
     refreshAll();
+  }
+
+  function onPipelineMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    const el = pipelineScrollRef.current;
+    if (!el) return;
+    pipelineDragRef.current.active = true;
+    pipelineDragRef.current.moved = false;
+    pipelineDragRef.current.startX = e.pageX;
+    pipelineDragRef.current.startScrollLeft = el.scrollLeft;
+  }
+
+  function onPipelineMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+    const el = pipelineScrollRef.current;
+    if (!el || !pipelineDragRef.current.active) return;
+    e.preventDefault();
+    const delta = e.pageX - pipelineDragRef.current.startX;
+    if (Math.abs(delta) > 4) {
+      pipelineDragRef.current.moved = true;
+    }
+    el.scrollLeft = pipelineDragRef.current.startScrollLeft - delta;
+  }
+
+  function onPipelineMouseUpOrLeave() {
+    pipelineDragRef.current.active = false;
+  }
+
+  function onPipelineCardClick(opportunite: Opportunite) {
+    // Si l'utilisateur a glissé, on n'ouvre pas la fiche (sinon sensation de "ça ne scroll pas").
+    if (pipelineDragRef.current.moved) {
+      pipelineDragRef.current.moved = false;
+      return;
+    }
+    setSelectedPipelineOpp(opportunite);
+    setSelectedPipelineTalentIds(asArrayIds(opportunite.talents));
+  }
+
+  function openDealModal(opportunite: Opportunite) {
+    setDealModalOpp(opportunite);
+    setDealForm({
+      montantFinal: opportunite.montantFinal ? String(opportunite.montantFinal) : "",
+      dateActivation: opportunite.dateActivation
+        ? new Date(opportunite.dateActivation).toISOString().slice(0, 10)
+        : "",
+      typeActivation: opportunite.typeActivation || "",
+      details: opportunite.angleNote || "",
+      talents: asArrayIds(opportunite.talents),
+    });
+  }
+
+  async function confirmSignedDeal() {
+    if (!dealModalOpp) return;
+    if (!dealForm.montantFinal || Number(dealForm.montantFinal) <= 0) {
+      window.alert("Merci de renseigner un prix signé valide.");
+      return;
+    }
+    if (dealForm.talents.length === 0) {
+      window.alert("Merci de sélectionner au moins un talent.");
+      return;
+    }
+    if (!dealForm.details.trim()) {
+      window.alert("Merci de renseigner les détails du deal.");
+      return;
+    }
+
+    await patchOpportunite(dealModalOpp.id, {
+      statut: "SIGNEE",
+      montantFinal: Number(dealForm.montantFinal),
+      dateActivation: dealForm.dateActivation || null,
+      typeActivation: dealForm.typeActivation || null,
+      angleNote: dealForm.details,
+      talents: dealForm.talents,
+    });
+    setDealModalOpp(null);
   }
 
   const planningDays = useMemo(() => {
@@ -548,12 +696,20 @@ export function StrategyVillaCannesClient() {
                       <p className="mt-2 line-clamp-2 text-xs text-gray-500">{o.angleNote}</p>
                     ) : null}
                     {isAdmin || role === "STRATEGY_PLANNER" ? (
-                      <button
-                        onClick={() => setQualifyTarget(o)}
-                        className="mt-2 text-xs font-medium text-glowup-rose"
-                      >
-                        Ajouter le contact -&gt;
-                      </button>
+                      <div className="mt-2 flex items-center gap-3">
+                        <button
+                          onClick={() => setQualifyTarget(o)}
+                          className="text-xs font-medium text-glowup-rose"
+                        >
+                          Ajouter le contact -&gt;
+                        </button>
+                        <button
+                          onClick={() => deleteOpportunite(o.id)}
+                          className="text-xs font-medium text-red-600"
+                        >
+                          Supprimer
+                        </button>
+                      </div>
                     ) : (
                       <p className="text-xs text-gray-500">En attente de qualification</p>
                     )}
@@ -587,9 +743,40 @@ export function StrategyVillaCannesClient() {
                   </span>
                 </div>
               </div>
-              <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+              <div
+                ref={pipelineScrollRef}
+                className="overflow-x-auto cursor-grab active:cursor-grabbing select-none"
+                onMouseDown={onPipelineMouseDown}
+                onMouseMove={onPipelineMouseMove}
+                onMouseUp={onPipelineMouseUpOrLeave}
+                onMouseLeave={onPipelineMouseUpOrLeave}
+              >
+                <div className="grid min-w-[1200px] grid-cols-5 gap-4">
                 {pipelineColumns.map((col) => (
-                  <div key={col.key} className={`rounded-xl border border-gray-200 p-3 bg-gray-50/40 ${col.key === "PERDUE" ? "opacity-60" : ""}`}>
+                  <div
+                    key={col.key}
+                    className={`rounded-xl border p-3 bg-gray-50/40 transition-colors ${
+                      col.key === "PERDUE" ? "opacity-60" : ""
+                    } ${
+                      dropTargetStatus === col.key
+                        ? "border-glowup-rose ring-2 ring-glowup-rose/20"
+                        : "border-gray-200"
+                    }`}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDropTargetStatus(col.key);
+                    }}
+                    onDragLeave={() => setDropTargetStatus((prev) => (prev === col.key ? null : prev))}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      const id = e.dataTransfer.getData("text/plain");
+                      setDropTargetStatus(null);
+                      setDraggingOppId(null);
+                      if (id) {
+                        await moveOpportuniteToStatus(id, col.key);
+                      }
+                    }}
+                  >
                     <p className="text-sm font-semibold mb-3">{col.label}</p>
                     <div className="space-y-3">
                       {pipeline.filter((o) => o.statut === col.key).map((o) => (
@@ -597,7 +784,18 @@ export function StrategyVillaCannesClient() {
                           key={o.id}
                           className={`rounded-xl border p-3 space-y-2 bg-white shadow-sm ${
                             isRelanceDue(o) ? "border-amber-300 bg-amber-50/40" : "border-gray-200"
-                          }`}
+                          } ${draggingOppId === o.id ? "opacity-60" : ""}`}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("text/plain", o.id);
+                            e.dataTransfer.effectAllowed = "move";
+                            setDraggingOppId(o.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggingOppId(null);
+                            setDropTargetStatus(null);
+                          }}
+                          onClick={() => onPipelineCardClick(o)}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm font-semibold">{o.nomMarque}</p>
@@ -629,7 +827,15 @@ export function StrategyVillaCannesClient() {
                           <select
                             className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
                             value={o.statut}
-                            onChange={(e) => patchOpportunite(o.id, { statut: e.target.value })}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              const next = e.target.value;
+                              if (next === "SIGNEE") {
+                                openDealModal(o);
+                                return;
+                              }
+                              patchOpportunite(o.id, { statut: next });
+                            }}
                           >
                             <option value="IDENTIFIEE">IDENTIFIEE</option>
                             <option value="CONTACTEE">CONTACTEE</option>
@@ -642,6 +848,7 @@ export function StrategyVillaCannesClient() {
                     </div>
                   </div>
                 ))}
+                </div>
               </div>
             </div>
           </div>
@@ -954,6 +1161,231 @@ export function StrategyVillaCannesClient() {
             <p className="text-sm text-gray-600">Montant: {formatMoney(selectedDeal.montantFinal ?? selectedDeal.budgetEstime)}</p>
             <div className="flex justify-end">
               <button className="px-3 py-2 rounded border" onClick={() => setSelectedDeal(null)}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedPipelineOpp && (
+        <div
+          className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4"
+          onClick={() => setSelectedPipelineOpp(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-xl border border-gray-200 bg-white p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold">{selectedPipelineOpp.nomMarque}</h3>
+                <p className="text-sm text-gray-500">{selectedPipelineOpp.secteur || "Secteur n/a"}</p>
+              </div>
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
+                {selectedPipelineOpp.statut}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="rounded-lg border border-gray-200 p-3">
+                <p className="text-xs text-gray-500 mb-1">Budget estimé</p>
+                <p className="text-sm font-medium">{formatMoney(selectedPipelineOpp.budgetEstime)}</p>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <p className="text-xs text-gray-500 mb-1">Type d'activation</p>
+                <p className="text-sm font-medium">{selectedPipelineOpp.typeActivation || "-"}</p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-3">
+              <p className="text-sm font-medium mb-2">Talents matchés</p>
+              <div className="flex flex-wrap gap-2">
+                {asArrayIds(selectedPipelineOpp.talents).map((id) => (
+                  <TalentChip
+                    key={id}
+                    name={talentNameById.get(id) || id}
+                    photo={talentPhotoById.get(id)}
+                  />
+                ))}
+                {asArrayIds(selectedPipelineOpp.talents).length === 0 ? (
+                  <span className="text-xs text-gray-400">Aucun talent matché</span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-sm font-medium">Modifier les talents</p>
+                <button
+                  className="text-xs font-medium text-glowup-rose"
+                  onClick={savePipelineTalents}
+                >
+                  Enregistrer
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-auto">
+                {talentOptions.map((t) => {
+                  const checked = selectedPipelineTalentIds.includes(t.id);
+                  return (
+                    <label
+                      key={t.id}
+                      className="flex items-center gap-2 rounded-lg border border-gray-100 px-2 py-1.5 hover:bg-gray-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setSelectedPipelineTalentIds((curr) =>
+                            e.target.checked
+                              ? [...curr, t.id]
+                              : curr.filter((id) => id !== t.id)
+                          )
+                        }
+                      />
+                      <TalentAvatar
+                        name={`${t.prenom} ${t.nom}`}
+                        photo={t.photo}
+                        className="h-6 w-6"
+                      />
+                      <span className="text-sm">
+                        {t.prenom} {t.nom}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-3">
+              <p className="text-sm font-medium mb-2">Contacts client</p>
+              <div className="space-y-2">
+                {asContacts(selectedPipelineOpp.contacts).map((c, idx) => (
+                  <div key={`${c.email || "contact"}-${idx}`} className="rounded-md border border-gray-100 px-2.5 py-2">
+                    <p className="text-sm font-medium">
+                      {[c.firstName, c.lastName].filter(Boolean).join(" ") || "Contact"}
+                    </p>
+                    <p className="text-xs text-gray-500">{c.email || "Email non renseigné"}</p>
+                    {c.role ? <p className="text-xs text-gray-500">{c.role}</p> : null}
+                  </div>
+                ))}
+                {asContacts(selectedPipelineOpp.contacts).length === 0 ? (
+                  <p className="text-xs text-gray-400">Aucun contact enregistré pour cette marque.</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <div className="flex items-center gap-2">
+                <button
+                  className="px-3 py-2 rounded border border-red-200 text-red-600"
+                  onClick={() => deleteOpportunite(selectedPipelineOpp.id)}
+                >
+                  Supprimer
+                </button>
+                <button className="px-3 py-2 rounded border" onClick={() => setSelectedPipelineOpp(null)}>
+                  Fermer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dealModalOpp && (
+        <div
+          className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4"
+          onClick={() => setDealModalOpp(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-xl border border-gray-200 bg-white p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold">
+              Finaliser le deal signé · {dealModalOpp.nomMarque}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500">Prix signé (EUR) *</label>
+                <input
+                  type="number"
+                  value={dealForm.montantFinal}
+                  onChange={(e) => setDealForm((s) => ({ ...s, montantFinal: e.target.value }))}
+                  className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Date d'activation</label>
+                <input
+                  type="date"
+                  value={dealForm.dateActivation}
+                  onChange={(e) => setDealForm((s) => ({ ...s, dateActivation: e.target.value }))}
+                  className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Type d'activation</label>
+              <input
+                type="text"
+                value={dealForm.typeActivation}
+                onChange={(e) => setDealForm((s) => ({ ...s, typeActivation: e.target.value }))}
+                className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Ex: Reel + Stories"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Détails du deal *</label>
+              <textarea
+                value={dealForm.details}
+                onChange={(e) => setDealForm((s) => ({ ...s, details: e.target.value }))}
+                className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm min-h-[90px]"
+                placeholder="Contexte, livrables, points clés..."
+              />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 mb-2">Talents sélectionnés *</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-44 overflow-auto">
+                {talentOptions.map((t) => {
+                  const checked = dealForm.talents.includes(t.id);
+                  return (
+                    <label
+                      key={t.id}
+                      className="flex items-center gap-2 rounded-lg border border-gray-100 px-2 py-1.5 hover:bg-gray-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setDealForm((s) => ({
+                            ...s,
+                            talents: e.target.checked
+                              ? [...s.talents, t.id]
+                              : s.talents.filter((id) => id !== t.id),
+                          }))
+                        }
+                      />
+                      <TalentAvatar
+                        name={`${t.prenom} ${t.nom}`}
+                        photo={t.photo}
+                        className="h-6 w-6"
+                      />
+                      <span className="text-sm">
+                        {t.prenom} {t.nom}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className="px-3 py-2 rounded border" onClick={() => setDealModalOpp(null)}>
+                Annuler
+              </button>
+              <button
+                className="px-3 py-2 rounded bg-glowup-rose text-white"
+                onClick={confirmSignedDeal}
+              >
+                Confirmer en signé
+              </button>
             </div>
           </div>
         </div>

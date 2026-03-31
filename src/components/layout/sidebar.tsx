@@ -365,6 +365,13 @@ export function Sidebar() {
 
       {/* Menu */}
       <nav className="p-4 space-y-1">
+        {userRole === "STRATEGY_PLANNER" && !collapsed && (
+          <div className="px-3 pt-1 pb-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Projet
+            </p>
+          </div>
+        )}
         {filteredMenuItems.map((item) => {
           const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
           const Icon = item.icon;
@@ -377,7 +384,7 @@ export function Sidebar() {
                 isActive
                   ? "bg-glowup-rose text-white"
                   : "text-gray-600 hover:bg-glowup-lace hover:text-glowup-licorice"
-              }`}
+              } ${userRole === "STRATEGY_PLANNER" && !collapsed ? "ml-3" : ""}`}
             >
               <Icon
                 className={`w-5 h-5 flex-shrink-0 ${
