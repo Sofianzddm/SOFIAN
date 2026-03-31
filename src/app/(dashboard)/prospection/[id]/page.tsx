@@ -182,7 +182,7 @@ function getActionIcon(contact: Contact) {
     if (!date || date <= now) {
       return {
         icon: "AlertCircle" as const,
-        color: "bg-red-500 text-white",
+        color: "bg-orange-500 text-white",
         label: "Rappel expiré",
       };
     }
