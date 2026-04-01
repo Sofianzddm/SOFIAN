@@ -812,17 +812,15 @@ export function StrategyVillaCannesClient() {
                           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                             Talents matchés
                           </p>
-                          <div className="flex flex-wrap gap-1">
-                            {asArrayIds(o.talents).map((id) => (
-                              <TalentChip
-                                key={id}
-                                name={talentNameById.get(id) || id}
-                                photo={talentPhotoById.get(id)}
-                              />
-                            ))}
-                            {asArrayIds(o.talents).length === 0 ? (
+                          <div className="flex items-center gap-2">
+                            {asArrayIds(o.talents).length > 0 ? (
+                              <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                                {asArrayIds(o.talents).length} talent
+                                {asArrayIds(o.talents).length > 1 ? "s" : ""}
+                              </span>
+                            ) : (
                               <span className="text-[11px] text-gray-400">Aucun talent</span>
-                            ) : null}
+                            )}
                           </div>
                           <select
                             className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
