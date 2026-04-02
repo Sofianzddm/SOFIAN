@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import TiptapUnderline from "@tiptap/extension-underline";
 import {
@@ -18,6 +18,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import EmailComposer from "./EmailComposer";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -898,13 +899,6 @@ export default function CastingComposer({
           {/* Colonne email */}
           <div className="w-full md:w-2/3 flex flex-col min-h-0 overflow-hidden">
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-              <h2
-                className="text-2xl font-semibold"
-                style={{ fontFamily: "Spectral, serif", color: LICORICE }}
-              >
-                {brandTitle}
-              </h2>
-
               <div className="flex flex-wrap gap-1.5">
                 {contact.contacts.map((c) => (
                   <span
@@ -921,375 +915,18 @@ export default function CastingComposer({
                 ))}
               </div>
 
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={runBrandResearch}
-                    disabled={isResearching}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-xl border transition-opacity disabled:opacity-60"
-                    style={{
-                      borderColor: OLD_ROSE,
-                      color: LICORICE,
-                      fontFamily: "Switzer, system-ui, sans-serif",
-                    }}
-                  >
-                    {isResearching ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                        Recherche automatique sur {contact.company || "la marque"}…
-                      </>
-                    ) : (
-                      <>🔍 Par recherche automatique</>
-                    )}
-                  </button>
-                  {brandResearch && (
-                    <button
-                      type="button"
-                      onClick={runBrandResearch}
-                      disabled={isResearching}
-                      className="text-sm px-2 py-1 rounded-lg hover:bg-black/5 transition-colors disabled:opacity-60"
-                      style={{ color: OLD_ROSE }}
-                    >
-                      🔄 Actualiser
-                    </button>
-                  )}
-                </div>
-                {brandResearch && (
-                  <div
-                    className="rounded-xl border p-4 space-y-3 text-sm"
-                    style={{
-                      borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
-                      color: LICORICE,
-                      fontFamily: "Switzer, system-ui, sans-serif",
-                    }}
-                  >
-                    <p>{brandResearch.recentCampaigns}</p>
-                    <p>{brandResearch.newProducts}</p>
-                    <p>{brandResearch.brandPositioning}</p>
-                    <p>{brandResearch.influenceStrategy}</p>
-                  </div>
-                )}
-              </div>
-
-              {previewMode === "edit" && (
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: LICORICE }}>
-                    Objet de l’email <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    ref={subjectInputRef}
-                    type="text"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    onFocus={() => setLastField("subject")}
-                    className="w-full rounded-xl border px-3 py-2 text-sm focus:ring-2 focus:ring-offset-0"
-                    style={{
-                      borderColor: OLD_ROSE,
-                      fontFamily: "Switzer, system-ui, sans-serif",
-                      color: LICORICE,
-                    }}
-                    placeholder="Objet…"
-                  />
-                </div>
-              )}
-
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="text-xs space-y-0.5" style={{ color: OLD_ROSE }}>
-                  <p className="font-medium" style={{ color: LICORICE }}>
-                    Variables dynamiques
-                  </p>
-                  <p>
-                    Cliquez sur un jeton : insertion au curseur dans{" "}
-                    <strong>{lastField === "subject" ? "l’objet" : "le corps"}</strong> (cliquez dans
-                    l’autre champ pour changer).
-                  </p>
-                </div>
-                <div
-                  className="inline-flex rounded-xl border p-0.5 shrink-0"
-                  style={{
-                    borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`,
-                    backgroundColor: "white",
-                  }}
-                  role="group"
-                  aria-label="Mode édition ou aperçu"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setPreviewMode("edit")}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                    style={{
-                      backgroundColor: previewMode === "edit" ? TEA_GREEN : "transparent",
-                      color: LICORICE,
-                    }}
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    Éditer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewMode("preview")}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                    style={{
-                      backgroundColor: previewMode === "preview" ? TEA_GREEN : "transparent",
-                      color: LICORICE,
-                    }}
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    Aperçu
-                  </button>
-                </div>
-              </div>
-
-              {previewMode === "edit" && (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    {VARIABLES_CONTACT_OWNER.map((v) => (
-                      <button
-                        key={v.token}
-                        type="button"
-                        onClick={() => insertVariable(v.token)}
-                        className="text-xs px-2 py-1.5 rounded-lg border font-mono transition-colors hover:opacity-90 text-left max-w-full"
-                        style={{
-                          borderColor: OLD_ROSE,
-                          backgroundColor: "white",
-                          color: LICORICE,
-                        }}
-                        title={`${v.label} — ${v.token}`}
-                      >
-                        <span className="block truncate">{v.token}</span>
-                        <span className="block text-[10px] font-sans opacity-80 font-normal normal-case">
-                          {v.label}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10px] uppercase tracking-wide" style={{ color: OLD_ROSE }}>
-                    Talents (optionnel)
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {VARIABLES_TALENTS.map((v) => (
-                      <button
-                        key={v.token}
-                        type="button"
-                        onClick={() => insertVariable(v.token)}
-                        className="text-xs px-2 py-1 rounded-lg border font-mono transition-colors hover:opacity-90"
-                        style={{
-                          borderColor: OLD_ROSE,
-                          backgroundColor: "white",
-                          color: LICORICE,
-                        }}
-                        title={v.label}
-                      >
-                        {v.token}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {previewMode === "preview" ? (
-                <div
-                  className="rounded-xl border p-4 space-y-4 bg-white"
-                  style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
-                >
-                  <p className="text-[11px] uppercase tracking-wide" style={{ color: OLD_ROSE }}>
-                    Rendu final (contact + talents sélectionnés)
-                  </p>
-                  <div>
-                    <p className="text-[10px] uppercase mb-1 opacity-70" style={{ color: LICORICE }}>
-                      Objet
-                    </p>
-                    <p className="text-sm font-semibold" style={{ color: LICORICE }}>
-                      {previewSubjectResolved || "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase mb-1 opacity-70" style={{ color: LICORICE }}>
-                      Corps
-                    </p>
-                    <div
-                      className="prose prose-sm max-w-none text-sm min-h-[200px] border-t pt-3"
-                      style={{
-                        fontFamily: "Switzer, system-ui, sans-serif",
-                        color: LICORICE,
-                      }}
-                      dangerouslySetInnerHTML={{ __html: previewBodyResolved || "<p></p>" }}
-                    />
-                  </div>
-                  <p className="text-[11px] leading-snug opacity-75" style={{ color: OLD_ROSE }}>
-                    Ce que vous voyez correspond au texte enregistré dans HubSpot : les variables{" "}
-                    <code className="font-mono text-[10px]">{"{{…}}"}</code> sont remplacées ici à
-                    titre d’aperçu avec les données ci-dessus.
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <div
-                    className="rounded-xl border overflow-hidden bg-white"
-                    style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
-                  >
-                    {editor && (
-                      <div
-                        className="flex flex-wrap items-center gap-1 px-2 py-1.5 border-b"
-                        style={{
-                          borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`,
-                          backgroundColor: OLD_LACE,
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => editor.chain().focus().toggleBold().run()}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("bold") ? "bg-white" : ""
-                          }`}
-                          aria-label="Gras"
-                        >
-                          <Bold className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => editor.chain().focus().toggleItalic().run()}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("italic") ? "bg-white" : ""
-                          }`}
-                          aria-label="Italique"
-                        >
-                          <Italic className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => editor.chain().focus().toggleUnderline().run()}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("underline") ? "bg-white" : ""
-                          }`}
-                          aria-label="Souligné"
-                        >
-                          <UnderlineIcon className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => editor.chain().focus().toggleBulletList().run()}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("bulletList") ? "bg-white" : ""
-                          }`}
-                          aria-label="Liste à puces"
-                        >
-                          <List className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("orderedList") ? "bg-white" : ""
-                          }`}
-                          aria-label="Liste numérotée"
-                        >
-                          <ListOrdered className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={setLink}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("link") ? "bg-white" : ""
-                          }`}
-                          aria-label="Lien"
-                        >
-                          <LinkIcon className="w-4 h-4" />
-                        </button>
-                        <span
-                          className="text-sm px-1 self-center select-none"
-                          style={{ color: OLD_ROSE }}
-                          aria-hidden
-                        >
-                          |
-                        </span>
-                        <button
-                          type="button"
-                          onClick={runGenerateEmail}
-                          disabled={
-                            isGenerating ||
-                            !brandResearch ||
-                            selectedTalents.length === 0
-                          }
-                          title={
-                            !brandResearch
-                              ? "Recherchez d'abord la marque"
-                              : selectedTalents.length === 0
-                                ? "Sélectionnez au moins un talent"
-                                : "Générer le corps et l’objet automatiquement"
-                          }
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-opacity disabled:opacity-50"
-                          style={{
-                            backgroundColor: "#C08B8B",
-                            color: "white",
-                            fontFamily: "Switzer, system-ui, sans-serif",
-                          }}
-                        >
-                          {isGenerating ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                              Rédaction en cours…
-                            </>
-                          ) : (
-                            <>✍️ Rédiger le mail automatiquement</>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                    {previewMode === "edit" &&
-                      brandResearch &&
-                      selectedTalents.length === 0 &&
-                      !isGenerating && (
-                        <p
-                          className="text-[11px] px-2 pb-1 pt-0.5 leading-snug"
-                          style={{ color: OLD_ROSE }}
-                        >
-                          Sélectionnez au moins un talent dans la colonne de gauche pour activer
-                          « Rédiger le mail automatiquement ».
-                        </p>
-                      )}
-                    <div className="relative">
-                      {editorEmpty && (
-                        <div
-                          className="absolute left-3 top-2 text-sm pointer-events-none text-gray-400 z-[1]"
-                          style={{ fontFamily: "Switzer, system-ui, sans-serif" }}
-                        >
-                          Rédigez votre email personnalisé…
-                        </div>
-                      )}
-                      <EditorContent editor={editor} />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <p className="text-xs font-medium mb-2" style={{ color: OLD_ROSE }}>
-                  Talents sélectionnés (résumé)
-                </p>
-                <div
-                  className="rounded-xl border px-3 py-2 text-sm min-h-[48px]"
-                  style={{
-                    borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
-                    color: LICORICE,
-                    fontFamily: "Switzer, system-ui, sans-serif",
-                  }}
-                >
-                  {selectedTalents.length === 0 ? (
-                    <span className="opacity-60">Aucun talent sélectionné.</span>
-                  ) : (
-                    <ul className="list-disc list-inside space-y-0.5">
-                      {selectedTalents.map((t) => (
-                        <li key={t.id}>
-                          {t.prenom} {t.nom}
-                          {(t.niches || [])[0] ? ` — ${(t.niches || [])[0]}` : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
+              <EmailComposer
+                subject={subject}
+                onSubjectChange={setSubject}
+                brandName={brandTitle}
+                brandResearch={brandResearch}
+                onBrandResearch={runBrandResearch}
+                isResearching={isResearching}
+                talentsSelected={selectedTalents}
+                isGenerating={isGenerating}
+                onGenerate={runGenerateEmail}
+                editor={editor}
+              />
             </div>
 
             <div
