@@ -82,6 +82,8 @@ type Opportunite = {
   contacts?: unknown;
 };
 
+type ClientLanguage = "FR" | "EN" | "";
+
 type PlanningPayload = {
   projet: { id: string; dateDebut: string; dateFin: string };
   participants: Array<{
@@ -205,6 +207,27 @@ function isRelanceDue(opportunite: Opportunite): boolean {
   return diffMs >= 72 * 60 * 60 * 1000;
 }
 
+function decodeClientLanguageFromAngleNote(angleNote?: string | null): {
+  language: ClientLanguage;
+  cleanNote: string;
+} {
+  const raw = (angleNote || "").trim();
+  const match = raw.match(/^\[CLIENT_LANG:(FR|EN)\]\s*/);
+  const language = (match?.[1] as ClientLanguage | undefined) || "";
+  const cleanNote = raw.replace(/^\[CLIENT_LANG:(FR|EN)\]\s*/, "");
+  return { language, cleanNote };
+}
+
+function encodeClientLanguageIntoAngleNote(
+  cleanNote?: string | null,
+  language?: ClientLanguage
+): string | null {
+  const note = (cleanNote || "").trim();
+  if (!language) return note || null;
+  const payload = `[CLIENT_LANG:${language}]`;
+  return note ? `${payload} ${note}` : payload;
+}
+
 export function StrategyVillaCannesClient() {
   const { data: session } = useSession();
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
@@ -265,6 +288,7 @@ export function StrategyVillaCannesClient() {
   const [newMarque, setNewMarque] = useState({
     nomMarque: "",
     secteur: "MODE",
+    clientLanguage: "FR" as ClientLanguage,
     angleNote: "",
     budgetEstime: "",
     talents: [] as string[],
@@ -396,14 +420,14 @@ export function StrategyVillaCannesClient() {
         projetSlug: "villa-cannes",
         nomMarque: newMarque.nomMarque,
         secteur: newMarque.secteur,
-        angleNote: newMarque.angleNote,
         budgetEstime: newMarque.budgetEstime ? Number(newMarque.budgetEstime) : null,
         talents: newMarque.talents,
+        angleNote: encodeClientLanguageIntoAngleNote(newMarque.angleNote, newMarque.clientLanguage),
       }),
     });
     if (res.ok) {
       setShowAddMarque(false);
-      setNewMarque({ nomMarque: "", secteur: "MODE", angleNote: "", budgetEstime: "", talents: [] });
+      setNewMarque({ nomMarque: "", secteur: "MODE", clientLanguage: "FR", angleNote: "", budgetEstime: "", talents: [] });
       refreshAll();
     }
   }
@@ -693,7 +717,12 @@ export function StrategyVillaCannesClient() {
                       ) : null}
                     </div>
                     {o.angleNote ? (
-                      <p className="mt-2 line-clamp-2 text-xs text-gray-500">{o.angleNote}</p>
+                      <p className="mt-2 line-clamp-2 text-xs text-gray-500">{decodeClientLanguageFromAngleNote(o.angleNote).cleanNote}</p>
+                    ) : null}
+                    {decodeClientLanguageFromAngleNote(o.angleNote).language ? (
+                      <span className="mt-2 inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                        Client {decodeClientLanguageFromAngleNote(o.angleNote).language === "FR" ? "français" : "anglais"}
+                      </span>
                     ) : null}
                     {isAdmin || role === "STRATEGY_PLANNER" ? (
                       <div className="mt-2 flex items-center gap-3">
@@ -1081,6 +1110,14 @@ export function StrategyVillaCannesClient() {
               <option value="FOOD">FOOD</option>
               <option value="TECH">TECH</option>
             </select>
+            <select
+              value={newMarque.clientLanguage}
+              onChange={(e) => setNewMarque((state) => ({ ...state, clientLanguage: e.target.value as ClientLanguage }))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="FR">Client français</option>
+              <option value="EN">Client anglais</option>
+            </select>
             <div>
               <p className="text-sm font-medium mb-2">Tous nos talents agence à matcher</p>
               <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto rounded-lg border border-gray-200 p-2">
@@ -1192,6 +1229,23 @@ export function StrategyVillaCannesClient() {
                 <p className="text-xs text-gray-500 mb-1">Type d'activation</p>
                 <p className="text-sm font-medium">{selectedPipelineOpp.typeActivation || "-"}</p>
               </div>
+            </div>
+            <div className="rounded-lg border border-gray-200 p-3">
+              <p className="text-xs text-gray-500 mb-1">Langue du client</p>
+              <select
+                value={decodeClientLanguageFromAngleNote(selectedPipelineOpp.angleNote).language || "FR"}
+                onChange={async (e) => {
+                  const language = e.target.value as ClientLanguage;
+                  const parsed = decodeClientLanguageFromAngleNote(selectedPipelineOpp.angleNote);
+                  const nextAngle = encodeClientLanguageIntoAngleNote(parsed.cleanNote, language);
+                  await patchOpportunite(selectedPipelineOpp.id, { angleNote: nextAngle });
+                  setSelectedPipelineOpp((prev) => (prev ? { ...prev, angleNote: nextAngle } : prev));
+                }}
+                className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value="FR">Client français</option>
+                <option value="EN">Client anglais</option>
+              </select>
             </div>
 
             <div className="rounded-lg border border-gray-200 p-3">
