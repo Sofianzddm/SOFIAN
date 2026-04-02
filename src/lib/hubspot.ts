@@ -21,6 +21,15 @@ export interface HubSpotContact {
   domain: string;
 }
 
+/** Propriétés HubSpot (contact) : casting_email_subject, casting_email_body, casting_status */
+export interface HubSpotContactCasting extends HubSpotContact {
+  castingEmailSubject: string;
+  castingEmailBody: string;
+  castingStatus: string;
+}
+
+export type CastingEmailStatus = "en_cours" | "pret";
+
 /**
  * Récupérer les listes de contacts depuis HubSpot (avec pagination)
  */
@@ -120,14 +129,26 @@ async function getCompanyName(companyId: string): Promise<string | null> {
   }
 }
 
-export async function getContactsFromList(listId: string): Promise<HubSpotContact[]> {
+const CASTING_HUBSPOT_PROPERTIES =
+  '&property=casting_email_subject&property=casting_email_body&property=casting_status' as const;
+
+export async function getContactsFromList(listId: string): Promise<HubSpotContact[]>;
+export async function getContactsFromList(
+  listId: string,
+  options: { includeCastingFields: true }
+): Promise<HubSpotContactCasting[]>;
+export async function getContactsFromList(
+  listId: string,
+  options?: { includeCastingFields?: boolean }
+): Promise<HubSpotContact[] | HubSpotContactCasting[]> {
+  const includeCasting = options?.includeCastingFields === true;
   if (!HUBSPOT_API_KEY) {
     console.warn('❌ HUBSPOT_API_KEY not configured');
     return [];
   }
 
   try {
-    const contacts: HubSpotContact[] = [];
+    const contacts: (HubSpotContact | HubSpotContactCasting)[] = [];
     let hasMore = true;
     let offset = 0;
     const limit = 100;
@@ -135,8 +156,9 @@ export async function getContactsFromList(listId: string): Promise<HubSpotContac
     while (hasMore) {
       // API v1 pour récupérer les contacts d'une liste avec propriétés spécifiques
       // Ajouter associatedcompanyid pour récupérer l'ID de la société associée
+      const castingQuery = includeCasting ? CASTING_HUBSPOT_PROPERTIES : '';
       const response = await fetch(
-        `${HUBSPOT_BASE_URL}/contacts/v1/lists/${listId}/contacts/all?count=${limit}&vidOffset=${offset}&property=firstname&property=lastname&property=email&property=company&property=associatedcompanyid&property=website`,
+        `${HUBSPOT_BASE_URL}/contacts/v1/lists/${listId}/contacts/all?count=${limit}&vidOffset=${offset}&property=firstname&property=lastname&property=email&property=company&property=associatedcompanyid&property=website${castingQuery}`,
         {
           headers: {
             'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
@@ -219,8 +241,7 @@ export async function getContactsFromList(listId: string): Promise<HubSpotContac
           companyName = (firstname || lastname ? `${firstname} ${lastname}`.trim() : '') || email || 'Contact sans nom';
         }
 
-        // Retourner le contact
-        return {
+        const base = {
           id: contact.vid?.toString() || '',
           firstname,
           lastname,
@@ -228,6 +249,15 @@ export async function getContactsFromList(listId: string): Promise<HubSpotContac
           companyName,
           domain,
         };
+        if (includeCasting) {
+          return {
+            ...base,
+            castingEmailSubject: properties.casting_email_subject?.value || '',
+            castingEmailBody: properties.casting_email_body?.value || '',
+            castingStatus: properties.casting_status?.value || '',
+          } satisfies HubSpotContactCasting;
+        }
+        return base;
       });
 
       // Attendre que tous les noms de sociétés soient récupérés
@@ -249,11 +279,19 @@ export async function getContactsFromList(listId: string): Promise<HubSpotContac
       });
     }
     
-    return contacts;
+    return includeCasting
+      ? (contacts as HubSpotContactCasting[])
+      : (contacts as HubSpotContact[]);
   } catch (error) {
     console.error('❌ HubSpot getContactsFromList error:', error);
     return [];
   }
+}
+
+export async function getContactsFromListWithCasting(
+  listId: string
+): Promise<HubSpotContactCasting[]> {
+  return getContactsFromList(listId, { includeCastingFields: true });
 }
 
 /**
@@ -298,6 +336,50 @@ export async function updateContactPresskitUrl(
     return true;
   } catch (error) {
     console.error('❌ HubSpot updateContactPresskitUrl error:', error);
+    return false;
+  }
+}
+
+/**
+ * Met à jour les champs casting sur un contact (propriétés HubSpot :
+ * casting_email_subject, casting_email_body, casting_status).
+ */
+export async function updateContactCastingEmail(
+  contactId: string,
+  payload: { subject: string; body: string; status: CastingEmailStatus }
+): Promise<boolean> {
+  if (!HUBSPOT_API_KEY) {
+    console.warn('❌ HUBSPOT_API_KEY not configured');
+    return false;
+  }
+
+  try {
+    const properties: { property: string; value: string }[] = [
+      { property: 'casting_email_subject', value: payload.subject },
+      { property: 'casting_email_body', value: payload.body },
+      { property: 'casting_status', value: payload.status },
+    ];
+
+    const response = await fetch(
+      `${HUBSPOT_BASE_URL}/contacts/v1/contact/vid/${contactId}/profile`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ properties }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`❌ HubSpot updateContactCastingEmail ${response.status}`);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('❌ HubSpot updateContactCastingEmail error:', error);
     return false;
   }
 }

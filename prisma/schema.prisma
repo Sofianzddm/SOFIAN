@@ -26,6 +26,7 @@ enum Role {
   TALENT
   JURISTE
   STRATEGY_PLANNER
+  CASTING_MANAGER
 }
 
 enum Departement {

@@ -363,6 +363,28 @@ export default function DashboardPage() {
       {role === "HEAD_OF_INFLUENCE" && <HeadOfInfluenceDashboard data={data} absences={absences} />}
       {role === "HEAD_OF" && <HeadOfDashboard data={data} role={role} />}
       {role === "TM" && <TMDashboard data={data} />}
+      {role === "CASTING_MANAGER" && <CastingManagerDashboard />}
+    </div>
+  );
+}
+
+function CastingManagerDashboard() {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm max-w-xl">
+      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-glowup-rose/15 text-glowup-rose mb-4">
+        <Send className="h-6 w-6" />
+      </div>
+      <h2 className="text-lg font-semibold text-slate-900">Casting Outreach</h2>
+      <p className="text-slate-600 text-sm mt-2 leading-relaxed">
+        Rédige et suis les emails de prospection casting par marque, à partir de tes listes HubSpot.
+      </p>
+      <Link
+        href="/casting-outreach"
+        className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 bg-glowup-rose text-white rounded-xl font-medium text-sm hover:bg-glowup-rose/90 transition-colors"
+      >
+        Ouvrir Casting Outreach
+        <ChevronRight className="w-4 h-4" />
+      </Link>
     </div>
   );
 }
@@ -1933,6 +1955,7 @@ function getWelcomeMessage(role: string) {
     TM: "Gérez vos talents et négociations",
     CM: "Suivi des collaborations et gifts",
     TALENT: "Votre espace personnel",
+    CASTING_MANAGER: "Prospection casting & HubSpot",
   };
   return messages[role] || "Bienvenue";
 }

@@ -786,6 +786,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // ============================================
+    // CASTING_MANAGER — HubSpot / emails casting
+    // ============================================
+    if (role === "CASTING_MANAGER") {
+      return NextResponse.json({
+        role: "CASTING_MANAGER",
+        stats: {},
+      });
+    }
+
     return NextResponse.json({ error: "Rôle non reconnu" }, { status: 400 });
   } catch (error) {
     console.error("Erreur dashboard:", error);
