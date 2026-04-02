@@ -26,6 +26,7 @@ enum Role {
   TALENT
   JURISTE
   STRATEGY_PLANNER
+  CASTING_MANAGER
 }
 
 enum Departement {
@@ -1288,6 +1289,28 @@ model AgenceSettings {
   updatedAt     DateTime  @updatedAt
   
   @@map("agence_settings")
+}
+
+model DemandeEntrante {
+  id         String   @id @default(cuid())
+  from       String
+  subject    String
+  body       String   @db.Text
+  date       DateTime
+  status     String   @default("a_traiter")
+  emailPret  String?  @db.Text
+  sujetPret  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model CastingListConfig {
+  id            String   @id @default(cuid())
+  hubspotListId  String   @unique
+  listName      String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 // ============================================

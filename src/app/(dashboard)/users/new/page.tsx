@@ -13,6 +13,11 @@ const roleOptions = [
   { value: "HEAD_OF_SALES", label: "Head of Sales", description: "Gestion du pôle Sales" },
   { value: "STRATEGY_PLANNER", label: "Strategy Planner", description: "Pilotage stratégique des projets /strategy" },
   { value: "TM", label: "Talent Manager", description: "Gestion des talents et négociations" },
+  {
+    value: "CASTING_MANAGER",
+    label: "Casting Manager",
+    description: "Prospection casting & listes HubSpot",
+  },
   { value: "CM", label: "Community Manager", description: "Gestion des contenus" },
   { value: "TALENT", label: "Talent", description: "Accès limité au portail talent" },
 ];

@@ -24,6 +24,7 @@ import {
   UserCheck,
   Scale,
   Briefcase,
+  Mail,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -33,7 +34,28 @@ const menuItems = [
     label: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM", "TALENT"],
+    roles: [
+      "ADMIN",
+      "HEAD_OF",
+      "HEAD_OF_INFLUENCE",
+      "HEAD_OF_SALES",
+      "TM",
+      "CM",
+      "TALENT",
+      "CASTING_MANAGER",
+    ],
+  },
+  {
+    label: "Casting Outreach",
+    href: "/casting-outreach",
+    icon: Mail,
+    roles: ["CASTING_MANAGER", "ADMIN"],
+  },
+  {
+    label: "Demandes Entrantes",
+    href: "/demandes-entrantes",
+    icon: Mail,
+    roles: ["CASTING_MANAGER", "ADMIN"],
   },
   {
     label: "Notifications",
@@ -45,7 +67,7 @@ const menuItems = [
     label: "Talents",
     href: "/talents",
     icon: Users,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "CM"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "CM", "CASTING_MANAGER"],
   },
   {
     label: "Utilisateurs",
@@ -441,6 +463,7 @@ function getRoleName(role: string): string {
     TALENT: "Talent",
     JURISTE: "Juriste",
     STRATEGY_PLANNER: "Strategy Planner",
+    CASTING_MANAGER: "Casting Manager",
   };
   return roleNames[role] || role;
 }

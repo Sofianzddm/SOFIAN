@@ -132,5 +132,9 @@ export const config = {
     "/talent/:path*",
     "/objectifs",
     "/objectifs/:path*",
+    "/casting-outreach",
+    "/casting-outreach/:path*",
+    "/demandes-entrantes",
+    "/demandes-entrantes/:path*",
   ],
 };
