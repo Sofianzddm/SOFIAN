@@ -571,9 +571,9 @@ export default function DemandeModal({
   if (!open || !demande) return null;
 
   return (
-    <div className="fixed inset-0 z-[120] bg-black/45 flex justify-end">
+    <div className="fixed inset-0 z-[120] bg-black/45 flex justify-end overflow-y-auto overscroll-contain">
       <div
-        className="w-full h-full bg-white shadow-2xl flex flex-col"
+        className="w-full min-h-[calc(100dvh-2rem)] bg-white shadow-2xl flex flex-col overflow-y-auto"
         style={{ fontFamily: "Switzer, system-ui, sans-serif", maxWidth: "100vw" }}
       >
         <div
@@ -588,9 +588,9 @@ export default function DemandeModal({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 flex-1 min-h-0">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-0">
           <div
-            className="border-r p-4 overflow-y-auto"
+            className="border-r p-4"
             style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 30%, transparent)` }}
           >
             <h3 className="text-lg font-semibold mb-3" style={{ color: LICORICE, fontFamily: "Spectral, serif" }}>
@@ -754,7 +754,7 @@ export default function DemandeModal({
 
           </div>
 
-          <div className="lg:col-span-2 p-4 flex flex-col min-h-0">
+          <div className="lg:col-span-2 p-4 pb-24 flex flex-col">
             <EmailComposer
               subject={subject}
               onSubjectChange={setSubject}
@@ -771,7 +771,7 @@ export default function DemandeModal({
         </div>
 
         <div
-          className="px-5 py-3 border-t flex items-center justify-end gap-2"
+          className="px-5 py-3 border-t flex items-center justify-end gap-2 sticky bottom-0 bg-white/95"
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
         >
           <button

@@ -718,13 +718,13 @@ export default function CastingComposer({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/45"
+      className="fixed inset-0 z-[100] flex items-start justify-center p-4 bg-black/45 overflow-y-auto overscroll-contain"
       role="dialog"
       aria-modal="true"
       aria-labelledby="casting-composer-title"
     >
       <div
-        className="w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
+        className="w-full max-w-6xl h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
         style={{ backgroundColor: OLD_LACE }}
       >
         <div
@@ -748,7 +748,7 @@ export default function CastingComposer({
           </button>
         </div>
 
-        <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="flex">
           {/* Colonne talents */}
           <div
             className="w-full md:w-1/3 flex flex-col border-r min-h-0 overflow-hidden"
@@ -897,8 +897,8 @@ export default function CastingComposer({
           </div>
 
           {/* Colonne email */}
-          <div className="w-full md:w-2/3 flex flex-col min-h-0 overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div className="w-full md:w-2/3 flex flex-col">
+            <div className="px-5 py-4 pb-24 space-y-4">
               <div className="flex flex-wrap gap-1.5">
                 {contact.contacts.map((c) => (
                   <span
@@ -930,7 +930,7 @@ export default function CastingComposer({
             </div>
 
             <div
-              className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t shrink-0 bg-white/60"
+              className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t shrink-0 bg-white/95 sticky bottom-0"
               style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
             >
               {brandColumn === "ready" && (

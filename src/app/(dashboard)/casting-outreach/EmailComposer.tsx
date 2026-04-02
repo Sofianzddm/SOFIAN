@@ -153,7 +153,7 @@ export default function EmailComposer({
             {isResearching ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                Recherche automatique sur {brandName || "la marque"}...
+                Analyse automatique en cours
               </>
             ) : (
               <>🔍 Par recherche automatique</>
