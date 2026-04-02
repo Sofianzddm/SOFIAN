@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import TiptapUnderline from "@tiptap/extension-underline";
 import {
   Bold,
   Italic,
+  Underline as UnderlineIcon,
   Link as LinkIcon,
   List,
   ListOrdered,
@@ -16,12 +18,24 @@ import {
   Pencil,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import type { HubSpotContactCasting } from "@/lib/hubspot";
+import EmailComposer from "./EmailComposer";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
 const TEA_GREEN = "#C8F285";
 const OLD_LACE = "#F5EBE0";
+
+type CastingRecipient = {
+  id: string;
+  firstname: string;
+  lastname: string;
+  email: string;
+};
+
+type CastingCompanyRecipients = {
+  company: string;
+  contacts: CastingRecipient[];
+};
 
 type PresskitTalent = {
   id: string;
@@ -29,6 +43,7 @@ type PresskitTalent = {
   nom: string;
   photo: string | null;
   niches: string[];
+  instagram?: string | null;
   igFollowers: number;
   igEngagement: number;
   ttFollowers: number;
@@ -74,7 +89,7 @@ const VARIABLES_TALENTS: { token: string; label: string }[] = [
 
 function applyTemplateVars(
   text: string,
-  contact: HubSpotContactCasting,
+  contact: { firstname: string; lastname: string; company: string; email: string },
   talentsOrdered: PresskitTalent[],
   ownerFirstName: string
 ): string {
@@ -82,7 +97,7 @@ function applyTemplateVars(
   const prenom = (contact.firstname || "").trim();
   const nom = (contact.lastname || "").trim();
   const nomComplet = `${prenom} ${nom}`.trim() || "—";
-  const marque = (contact.companyName || "").trim() || "—";
+  const marque = (contact.company || "").trim() || "—";
   const emailContact = (contact.email || "").trim() || "—";
   const owner = (ownerFirstName || "").trim() || "—";
 
@@ -144,9 +159,10 @@ function plainTextToEmailHtml(text: string): string {
 
 export interface CastingComposerProps {
   open: boolean;
-  contact: HubSpotContactCasting | null;
+  contact: CastingCompanyRecipients | null;
+  brandColumn?: "todo" | "progress" | "ready" | null;
   onClose: () => void;
-  onSaved: (status: "en_cours" | "pret") => void;
+  onSaved: (status: "en_cours" | "pret" | "reset") => void;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
 }
@@ -154,6 +170,7 @@ export interface CastingComposerProps {
 export default function CastingComposer({
   open,
   contact,
+  brandColumn,
   onClose,
   onSaved,
   onError,
@@ -164,6 +181,18 @@ export default function CastingComposer({
     () => firstNameFromSessionName(session?.user?.name),
     [session?.user?.name]
   );
+
+  const previewRecipient = useMemo(() => {
+    if (!contact) return null;
+    const c0 = contact.contacts[0];
+    if (!c0) return null;
+    return {
+      firstname: c0.firstname,
+      lastname: c0.lastname,
+      company: contact.company,
+      email: c0.email,
+    };
+  }, [contact]);
 
   const [subject, setSubject] = useState("");
   const [talents, setTalents] = useState<PresskitTalent[]>([]);
@@ -318,7 +347,7 @@ export default function CastingComposer({
   }, [talentDetail]);
 
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [StarterKit, TiptapUnderline],
     content: "",
     immediatelyRender: false,
     editorProps: {
@@ -368,21 +397,19 @@ export default function CastingComposer({
 
   useEffect(() => {
     if (!open || !contact || !editor) return;
-    setSubject(contact.castingEmailSubject || "");
+    // Un email est rédigé une seule fois pour la marque, donc on part d'une page "neuve".
+    setSubject("");
     setSelectedIds(new Set());
     setPreviewMode("edit");
     setLastField("body");
     setBrandResearch(null);
-    const html = contact.castingEmailBody?.trim()
-      ? contact.castingEmailBody
-      : "<p></p>";
-    editor.commands.setContent(html);
+    editor.commands.setContent("<p></p>");
     setEditorEmpty(editor.isEmpty);
     setBodyTick((n) => n + 1);
   }, [open, contact, editor]);
 
   const runBrandResearch = useCallback(async () => {
-    if (!contact?.companyName?.trim()) {
+    if (!contact?.company?.trim()) {
       onError("Nom de marque manquant pour la recherche.");
       return;
     }
@@ -392,7 +419,7 @@ export default function CastingComposer({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandName: contact.companyName }),
+        body: JSON.stringify({ brandName: contact.company }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -463,6 +490,9 @@ export default function CastingComposer({
           name: `${t.prenom} ${t.nom}`.trim(),
           niche: (t.niches || []).join(", ") || "—",
           followers,
+          igFollowers: typeof t.igFollowers === "number" ? t.igFollowers : 0,
+          ttFollowers: typeof t.ttFollowers === "number" ? t.ttFollowers : 0,
+          instagram: t.instagram ?? null,
           ...(typeof eng === "number" ? { engagementRate: eng } : {}),
         };
       });
@@ -471,7 +501,7 @@ export default function CastingComposer({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          brandName: contact.companyName,
+          brandName: contact.company,
           brandResearch,
           talents: talentsPayload,
         }),
@@ -498,14 +528,40 @@ export default function CastingComposer({
   }, [contact, brandResearch, selectedTalents, editor, onError, onSuccess]);
 
   const previewSubjectResolved = useMemo(() => {
-    if (!contact) return "";
-    return applyTemplateVars(subject, contact, selectedTalents, ownerFirstName);
-  }, [subject, contact, selectedTalents, ownerFirstName]);
+    if (!contact || !previewRecipient) return "";
+    return applyTemplateVars(subject, previewRecipient, selectedTalents, ownerFirstName);
+  }, [subject, contact, previewRecipient, selectedTalents, ownerFirstName]);
 
   const previewBodyResolved = useMemo(() => {
-    if (!contact || !editor) return "";
-    return applyTemplateVars(editor.getHTML(), contact, selectedTalents, ownerFirstName);
-  }, [contact, selectedTalents, editor, bodyTick, ownerFirstName]);
+    if (!contact || !editor || !previewRecipient) return "";
+    const previewBody = applyTemplateVars(
+      editor.getHTML(),
+      previewRecipient,
+      selectedTalents,
+      ownerFirstName
+    );
+    // TipTap génère du HTML (<p>, <br>) plutôt que des "\n".
+    // Pour l'aperçu, on veut respecter :
+    // - une nouvelle ligne : <br />
+    // - une ligne vide (paragraphe vide) : <br /><br />
+    const EMPTY_P = "__EMPTY_P__";
+    const P_SPLIT = "__P_SPLIT__";
+
+    return previewBody
+      // Paragraphes vides (souvent "<p><br></p>") → marqueur
+      .replace(/<p[^>]*>\s*(?:<br\s*\/?>)?\s*<\/p>/gi, EMPTY_P)
+      // Frontières </p><p> → marqueur
+      .replace(/<\/p>\s*<p[^>]*>/gi, P_SPLIT)
+      // Supprimer <p> restants
+      .replace(/<p[^>]*>/gi, "")
+      .replace(/<\/p>/gi, "")
+      // Marqueurs → retours
+      .replace(new RegExp(EMPTY_P, "g"), "<br /><br />")
+      .replace(new RegExp(P_SPLIT, "g"), "<br />")
+      // Normaliser les <br> / "\n"
+      .replace(/<br\s*\/?>/gi, "<br />")
+      .replace(/\n/g, "<br />");
+  }, [contact, selectedTalents, editor, bodyTick, ownerFirstName, previewRecipient]);
 
   const toggleTalent = (id: string) => {
     setSelectedIds((prev) => {
@@ -546,6 +602,22 @@ export default function CastingComposer({
     }
   }, []);
 
+  const insertTalentLink = useCallback(
+    (t: PresskitTalent) => {
+      if (!editor) return;
+      const instagramUrl = t.instagram ? `https://instagram.com/${t.instagram}` : null;
+      if (instagramUrl) {
+        editor.commands.insertContent(
+          `<a href="${instagramUrl}" target="_blank">${t.prenom} ${t.nom}</a> `
+        );
+      } else {
+        editor.commands.insertContent(`${t.prenom} ${t.nom} `);
+      }
+      setLastField("body");
+    },
+    [editor]
+  );
+
   const closeTalentDetail = () => {
     setTalentDetailOpen(false);
     setTalentDetail(null);
@@ -569,10 +641,7 @@ export default function CastingComposer({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contactId: contact.id,
-          firstname: contact.firstname,
-          lastname: contact.lastname,
-          company: contact.companyName,
+          contactIds: contact.contacts.map((c) => c.id),
           subject: sub,
           body: getBodyHtml(),
           status,
@@ -588,10 +657,41 @@ export default function CastingComposer({
       if (status === "en_cours") {
         onSuccess("Brouillon enregistré");
       } else {
-        const marque = contact.companyName || "la marque";
+        const marque = contact.company || "la marque";
         onSuccess(`Email prêt pour ${marque} ✓`);
         onClose();
       }
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : "Erreur inattendue.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetToTodo = async () => {
+    if (!contact) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/hubspot/casting", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactIds: contact.contacts.map((c) => c.id),
+          status: "",
+          subject: "",
+          body: "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Action impossible."
+        );
+      }
+      onSaved("reset");
+      onSuccess("Remis à traiter");
+      onClose();
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur inattendue.");
     } finally {
@@ -614,17 +714,17 @@ export default function CastingComposer({
 
   if (!open || !contact) return null;
 
-  const brandTitle = contact.companyName || "Marque";
+  const brandTitle = contact.company || "Marque";
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center p-4 bg-black/45 overflow-y-auto"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/45"
       role="dialog"
       aria-modal="true"
       aria-labelledby="casting-composer-title"
     >
       <div
-        className="w-full max-w-6xl h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
+        className="w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
         style={{ backgroundColor: OLD_LACE }}
       >
         <div
@@ -712,6 +812,19 @@ export default function CastingComposer({
                             <Eye className="w-3.5 h-3.5" />
                             Détail
                           </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              insertTalentLink(t);
+                            }}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg bg-white/90 border border-slate-200 hover:bg-white"
+                            style={{ color: LICORICE }}
+                            title="Insérer dans le mail"
+                          >
+                            ↳ Insérer
+                          </button>
                         </div>
                         <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-gray-200 shrink-0">
                           {t.photo ? (
@@ -786,378 +899,52 @@ export default function CastingComposer({
           {/* Colonne email */}
           <div className="w-full md:w-2/3 flex flex-col min-h-0 overflow-hidden">
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-              <h2
-                className="text-2xl font-semibold"
-                style={{ fontFamily: "Spectral, serif", color: LICORICE }}
-              >
-                {brandTitle}
-              </h2>
-
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={runBrandResearch}
-                    disabled={isResearching}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-xl border transition-opacity disabled:opacity-60"
-                    style={{
-                      borderColor: OLD_ROSE,
-                      color: LICORICE,
-                      fontFamily: "Switzer, system-ui, sans-serif",
-                    }}
+              <div className="flex flex-wrap gap-1.5">
+                {contact.contacts.map((c) => (
+                  <span
+                    key={c.id}
+                    className="inline-flex items-center gap-2 text-xs px-3 py-1 rounded-full"
+                    style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                    title={c.email}
                   >
-                    {isResearching ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                        Recherche automatique sur {contact.companyName || "la marque"}…
-                      </>
-                    ) : (
-                      <>🔍 Par recherche automatique</>
-                    )}
-                  </button>
-                  {brandResearch && (
-                    <button
-                      type="button"
-                      onClick={runBrandResearch}
-                      disabled={isResearching}
-                      className="text-sm px-2 py-1 rounded-lg hover:bg-black/5 transition-colors disabled:opacity-60"
-                      style={{ color: OLD_ROSE }}
-                    >
-                      🔄 Actualiser
-                    </button>
-                  )}
-                </div>
-                {brandResearch && (
-                  <div
-                    className="rounded-xl border p-4 space-y-3 text-sm"
-                    style={{
-                      borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
-                      color: LICORICE,
-                      fontFamily: "Switzer, system-ui, sans-serif",
-                    }}
-                  >
-                    <p>{brandResearch.recentCampaigns}</p>
-                    <p>{brandResearch.newProducts}</p>
-                    <p>{brandResearch.brandPositioning}</p>
-                    <p>{brandResearch.influenceStrategy}</p>
-                  </div>
-                )}
+                    <span style={{ fontWeight: 600 }}>
+                      {`${c.firstname} ${c.lastname}`.trim() || "—"}
+                    </span>
+                    <span className="opacity-80">{c.email || ""}</span>
+                  </span>
+                ))}
               </div>
 
-              {previewMode === "edit" && (
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: LICORICE }}>
-                    Objet de l’email <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    ref={subjectInputRef}
-                    type="text"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    onFocus={() => setLastField("subject")}
-                    className="w-full rounded-xl border px-3 py-2 text-sm focus:ring-2 focus:ring-offset-0"
-                    style={{
-                      borderColor: OLD_ROSE,
-                      fontFamily: "Switzer, system-ui, sans-serif",
-                      color: LICORICE,
-                    }}
-                    placeholder="Objet…"
-                  />
-                </div>
-              )}
-
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="text-xs space-y-0.5" style={{ color: OLD_ROSE }}>
-                  <p className="font-medium" style={{ color: LICORICE }}>
-                    Variables dynamiques
-                  </p>
-                  <p>
-                    Cliquez sur un jeton : insertion au curseur dans{" "}
-                    <strong>{lastField === "subject" ? "l’objet" : "le corps"}</strong> (cliquez dans
-                    l’autre champ pour changer).
-                  </p>
-                </div>
-                <div
-                  className="inline-flex rounded-xl border p-0.5 shrink-0"
-                  style={{
-                    borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`,
-                    backgroundColor: "white",
-                  }}
-                  role="group"
-                  aria-label="Mode édition ou aperçu"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setPreviewMode("edit")}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                    style={{
-                      backgroundColor: previewMode === "edit" ? TEA_GREEN : "transparent",
-                      color: LICORICE,
-                    }}
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    Éditer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewMode("preview")}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                    style={{
-                      backgroundColor: previewMode === "preview" ? TEA_GREEN : "transparent",
-                      color: LICORICE,
-                    }}
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    Aperçu
-                  </button>
-                </div>
-              </div>
-
-              {previewMode === "edit" && (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    {VARIABLES_CONTACT_OWNER.map((v) => (
-                      <button
-                        key={v.token}
-                        type="button"
-                        onClick={() => insertVariable(v.token)}
-                        className="text-xs px-2 py-1.5 rounded-lg border font-mono transition-colors hover:opacity-90 text-left max-w-full"
-                        style={{
-                          borderColor: OLD_ROSE,
-                          backgroundColor: "white",
-                          color: LICORICE,
-                        }}
-                        title={`${v.label} — ${v.token}`}
-                      >
-                        <span className="block truncate">{v.token}</span>
-                        <span className="block text-[10px] font-sans opacity-80 font-normal normal-case">
-                          {v.label}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10px] uppercase tracking-wide" style={{ color: OLD_ROSE }}>
-                    Talents (optionnel)
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {VARIABLES_TALENTS.map((v) => (
-                      <button
-                        key={v.token}
-                        type="button"
-                        onClick={() => insertVariable(v.token)}
-                        className="text-xs px-2 py-1 rounded-lg border font-mono transition-colors hover:opacity-90"
-                        style={{
-                          borderColor: OLD_ROSE,
-                          backgroundColor: "white",
-                          color: LICORICE,
-                        }}
-                        title={v.label}
-                      >
-                        {v.token}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {previewMode === "preview" ? (
-                <div
-                  className="rounded-xl border p-4 space-y-4 bg-white"
-                  style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
-                >
-                  <p className="text-[11px] uppercase tracking-wide" style={{ color: OLD_ROSE }}>
-                    Rendu final (contact + talents sélectionnés)
-                  </p>
-                  <div>
-                    <p className="text-[10px] uppercase mb-1 opacity-70" style={{ color: LICORICE }}>
-                      Objet
-                    </p>
-                    <p className="text-sm font-semibold" style={{ color: LICORICE }}>
-                      {previewSubjectResolved || "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase mb-1 opacity-70" style={{ color: LICORICE }}>
-                      Corps
-                    </p>
-                    <div
-                      className="prose prose-sm max-w-none text-sm min-h-[200px] border-t pt-3"
-                      style={{
-                        fontFamily: "Switzer, system-ui, sans-serif",
-                        color: LICORICE,
-                      }}
-                      dangerouslySetInnerHTML={{ __html: previewBodyResolved || "<p></p>" }}
-                    />
-                  </div>
-                  <p className="text-[11px] leading-snug opacity-75" style={{ color: OLD_ROSE }}>
-                    Ce que vous voyez correspond au texte enregistré dans HubSpot : les variables{" "}
-                    <code className="font-mono text-[10px]">{"{{…}}"}</code> sont remplacées ici à
-                    titre d’aperçu avec les données ci-dessus.
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <div
-                    className="rounded-xl border overflow-hidden bg-white"
-                    style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
-                  >
-                    {editor && (
-                      <div
-                        className="flex flex-wrap items-center gap-1 px-2 py-1.5 border-b"
-                        style={{
-                          borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`,
-                          backgroundColor: OLD_LACE,
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => editor.chain().focus().toggleBold().run()}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("bold") ? "bg-white" : ""
-                          }`}
-                          aria-label="Gras"
-                        >
-                          <Bold className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => editor.chain().focus().toggleItalic().run()}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("italic") ? "bg-white" : ""
-                          }`}
-                          aria-label="Italique"
-                        >
-                          <Italic className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => editor.chain().focus().toggleBulletList().run()}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("bulletList") ? "bg-white" : ""
-                          }`}
-                          aria-label="Liste à puces"
-                        >
-                          <List className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("orderedList") ? "bg-white" : ""
-                          }`}
-                          aria-label="Liste numérotée"
-                        >
-                          <ListOrdered className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={setLink}
-                          className={`p-1.5 rounded hover:bg-white/80 ${
-                            editor.isActive("link") ? "bg-white" : ""
-                          }`}
-                          aria-label="Lien"
-                        >
-                          <LinkIcon className="w-4 h-4" />
-                        </button>
-                        <span
-                          className="text-sm px-1 self-center select-none"
-                          style={{ color: OLD_ROSE }}
-                          aria-hidden
-                        >
-                          |
-                        </span>
-                        <button
-                          type="button"
-                          onClick={runGenerateEmail}
-                          disabled={
-                            isGenerating ||
-                            !brandResearch ||
-                            selectedTalents.length === 0
-                          }
-                          title={
-                            !brandResearch
-                              ? "Recherchez d'abord la marque"
-                              : selectedTalents.length === 0
-                                ? "Sélectionnez au moins un talent"
-                                : "Générer le corps et l’objet automatiquement"
-                          }
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-opacity disabled:opacity-50"
-                          style={{
-                            backgroundColor: "#C08B8B",
-                            color: "white",
-                            fontFamily: "Switzer, system-ui, sans-serif",
-                          }}
-                        >
-                          {isGenerating ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                              Rédaction en cours…
-                            </>
-                          ) : (
-                            <>✍️ Rédiger le mail automatiquement</>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                    {previewMode === "edit" &&
-                      brandResearch &&
-                      selectedTalents.length === 0 &&
-                      !isGenerating && (
-                        <p
-                          className="text-[11px] px-2 pb-1 pt-0.5 leading-snug"
-                          style={{ color: OLD_ROSE }}
-                        >
-                          Sélectionnez au moins un talent dans la colonne de gauche pour activer
-                          « Rédiger le mail automatiquement ».
-                        </p>
-                      )}
-                    <div className="relative">
-                      {editorEmpty && (
-                        <div
-                          className="absolute left-3 top-2 text-sm pointer-events-none text-gray-400 z-[1]"
-                          style={{ fontFamily: "Switzer, system-ui, sans-serif" }}
-                        >
-                          Rédigez votre email personnalisé…
-                        </div>
-                      )}
-                      <EditorContent editor={editor} />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <p className="text-xs font-medium mb-2" style={{ color: OLD_ROSE }}>
-                  Talents sélectionnés (résumé)
-                </p>
-                <div
-                  className="rounded-xl border px-3 py-2 text-sm min-h-[48px]"
-                  style={{
-                    borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
-                    color: LICORICE,
-                    fontFamily: "Switzer, system-ui, sans-serif",
-                  }}
-                >
-                  {selectedTalents.length === 0 ? (
-                    <span className="opacity-60">Aucun talent sélectionné.</span>
-                  ) : (
-                    <ul className="list-disc list-inside space-y-0.5">
-                      {selectedTalents.map((t) => (
-                        <li key={t.id}>
-                          {t.prenom} {t.nom}
-                          {(t.niches || [])[0] ? ` — ${(t.niches || [])[0]}` : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
+              <EmailComposer
+                subject={subject}
+                onSubjectChange={setSubject}
+                brandName={brandTitle}
+                brandResearch={brandResearch}
+                onBrandResearch={runBrandResearch}
+                isResearching={isResearching}
+                talentsSelected={selectedTalents}
+                isGenerating={isGenerating}
+                onGenerate={runGenerateEmail}
+                editor={editor}
+              />
             </div>
 
             <div
-              className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t shrink-0 bg-white/90 sticky bottom-0"
+              className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t shrink-0 bg-white/60"
               style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
             >
+              {brandColumn === "ready" && (
+                <button
+                  type="button"
+                  onClick={resetToTodo}
+                  disabled={saving}
+                  className="px-4 py-2 text-sm rounded-xl border transition-colors hover:bg-red-50 disabled:opacity-50"
+                  style={{ borderColor: "#FCA5A5", color: "#991B1B" }}
+                  title="Vide le statut et l’email sur tous les contacts"
+                >
+                  ↩️ Remettre à traiter
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onClose}

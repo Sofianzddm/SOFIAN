@@ -14,7 +14,10 @@ export interface TalentPayload {
   name: string;
   niche: string;
   followers: number;
+  igFollowers?: number;
+  ttFollowers?: number;
   engagementRate?: number;
+  instagram: string | null;
 }
 
 export interface GenerateEmailBody {
@@ -94,61 +97,89 @@ export async function POST(request: NextRequest) {
     const brandName = body.brandName.trim();
     const { newProducts, brandPositioning } = body.brandResearch;
 
+    function formatFollowersCompact(n: number): string {
+      if (!Number.isFinite(n) || n <= 0) return "0";
+      if (n >= 1_000_000) {
+        const v = (n / 1_000_000).toFixed(1).replace(/\.0$/, "").replace(".", ",");
+        return `${v}M`;
+      }
+      if (n >= 100_000) {
+        return `${Math.round(n / 1_000)}k`;
+      }
+      if (n >= 1_000) {
+        const v = (n / 1_000).toFixed(1).replace(/\.0$/, "").replace(".", ",");
+        return `${v}k`;
+      }
+      return String(Math.round(n));
+    }
+
     const talentsString = body.talents
       .map((t) => {
+        const instagramUrl = t.instagram ? `https://instagram.com/${t.instagram}` : null;
+        const ig = typeof t.igFollowers === "number" ? t.igFollowers : 0;
+        const tt = typeof t.ttFollowers === "number" ? t.ttFollowers : 0;
+        const statsParts: string[] = [];
+        if (tt > 0) statsParts.push(`${formatFollowersCompact(tt)} TikTok`);
+        if (ig > 0) statsParts.push(`${formatFollowersCompact(ig)} Insta`);
+        if (statsParts.length === 0 && typeof t.followers === "number" && t.followers > 0) {
+          statsParts.push(`${t.followers.toLocaleString("fr-FR")} abonnés`);
+        }
+        const stats = statsParts.join(", ");
         const eng =
           typeof t.engagementRate === "number" && !Number.isNaN(t.engagementRate)
             ? `, ${t.engagementRate}% engagement`
             : "";
-        return `- ${t.name} (${t.niche}, ${t.followers.toLocaleString("fr-FR")} abonnés${eng})`;
+        if (instagramUrl) {
+          return `- <a href='${instagramUrl}'>${t.name}</a> (${stats} – ${t.niche}${eng})`;
+        }
+        return `- ${t.name} (${stats} – ${t.niche}${eng})`;
       })
       .join("\n\n");
 
     const GROK_SYSTEM_PROMPT = `Tu es un copywriter senior chez Glow Up Agence, spécialisé dans les mails de prospection haut de gamme.
-
-Tu dois rédiger des mails extrêmement fluides, élégants et percutants.
-
-Ne jamais utiliser de Markdown (**, *, #, etc.). Utilise uniquement du texte brut sans aucune mise en forme.
+Tu dois rédiger des mails extrêmement fluides, élégants, percutants et chaleureux, avec un ton premium mais jamais corporate. Le ton doit être naturel, presque amical tout en restant élégant.
 
 CONTEXTE ACTUEL : avril 2026
 Marque : ${brandName}
 Nouveautés / collections à citer en priorité : ${newProducts}
 Positionnement : ${brandPositioning}
-Talents disponibles : ${talentsString}
+Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme Prénom Nom)
 
 VARIABLES HUBSPOT OBLIGATOIRES :
-- {{ contact.firstname }}
-- {{ contact.company }} (mettre en **gras** quand tu l'utilises)
-- {{ owner.firstname }}
+{{ contact.firstname }}
+{{ contact.company }} (mettre en gras uniquement quand tu l’utilises)
 
-STYLE EXACT À REPRODUIRE À CHAQUE FOIS (ne jamais dévier) :
-1. Commencer par : "Bonjour {{ contact.firstname }},"
-2. Première phrase : une variation fluide et naturelle autour de "On a immédiatement pensé à {{ contact.company }} en regardant nos talents."
-3. Citer précisément la nouveauté la plus récente ou la plus forte (phrase courte, élégante et impactante).
-4. Expliquer le fit de façon naturelle, précise et séduisante.
-5. Transition obligatoire vers les talents : "Ça nous a fait penser à quelques créateurs qui pourraient parfaitement correspondre à votre univers :"
-6. Lister les talents en format clair et aéré :
-   - Nom (nombre d'abonnés – Catégorie) → raison courte (10-15 mots max) mais très pertinente et intelligente
-7. Phrase de transition OBLIGATOIRE : "Ces profils apportent à la fois une belle notoriété, une vraie crédibilité [catégorie] et une capacité à créer du contenu vécu qui colle à votre direction actuelle."
-8. Phrase collaboration : "Nous serions ravis d'explorer une collaboration sur le long terme (campagnes saisonnières, prises de parole, ambassadrices…)."
-9. CTA exact : "Seriez-vous disponible pour un échange de 15 minutes dans les prochains jours ? Je suis dispo mardi ou mercredi après-midi."
-10. Clôture : "Belle journée," puis {{ owner.firstname }} Glow Up Agence
+STYLE À REPRODUIRE (structure recommandée mais fluide) :
+- Commencer OBLIGATOIREMENT par : "Bonjour {{ contact.firstname }},"
+- Première phrase : une variation naturelle et élégante autour de "On a immédiatement pensé à {{ contact.company }} en regardant nos talents." OU une accroche plus directe sur le produit si la marque est très lifestyle/organique (ex. pour VEJA : "En voyant le Jitsu sortir…").
+- Citer précisément la nouveauté la plus forte en commençant idéalement par "Votre" pour un ton personnel et direct. Phrase courte, élégante et impactante.
+- Expliquer le fit de façon naturelle, précise et séduisante (2-3 phrases max).
+- Transition : "Ça nous a fait penser à quelques créateurs qui pourraient parfaitement correspondre à votre univers :" (tu peux varier légèrement la formule si le ton de la marque le demande).
+- Lister les talents en format clair et aéré avec des tirets :
+  Prénom Nom (nombre d’abonnés instagram – Catégorie) → raison courte (10-15 mots max), très pertinente et intelligente
+- Phrase de transition adaptative : "Ces profils apportent à la fois une belle notoriété, une vraie crédibilité [catégorie] et une capacité à créer du contenu vécu qui colle à votre direction actuelle." → Remplace [catégorie] par le terme le plus pertinent (lifestyle, mode responsable, sport & mouvement, etc.).
+- Phrase collaboration : version chaleureuse et premium (ex. "On serait ravis d’explorer une collaboration avec vous et nos talents." ou "Ça pourrait vraiment donner de belles choses ensemble.").
+- Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
+- CTA : "Seriez-vous disponible pour un échange de 15 minutes dans les prochains jours ? Ou m'indiquer une direction de vos futures campagnes ?" (tu peux légèrement adapter si besoin).
+
+Clôture exacte : "Belle journée,"
 
 FORMATAGE OBLIGATOIRE :
-- Utilise **gras** Markdown pour le nom de la marque et les produits phares.
+- Utilise le gras uniquement pour le nom de la marque et les produits phares.
 - Aère bien la liste des talents avec des tirets.
-- Phrases courtes, rythmées, élégantes et directes. Ton chaleureux mais premium.
+- Phrases courtes, rythmées et élégantes. Ton chaleureux mais premium.
+- Le body du mail doit contenir des \\n pour les sauts de ligne.
 
 INTERDITS STRICTS :
 - Jamais mentionner la villa.
-- Jamais de ton corporate ou formel.
-- Jamais inventer de faits ou de campagnes.
+- Jamais de ton trop corporate ou formel.
+- Jamais inventer de faits, de campagnes ou de détails.
+- Jamais d’autres Markdown que les gras autorisés.
 
-Réponds UNIQUEMENT avec un JSON valide et rien d'autre :
-IMPORTANT : texte brut uniquement, zéro Markdown, zéro astérisque.
+Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
 {
   "subject": "titre court et premium",
-  "body": "le texte complet du mail avec \\n pour les sauts de ligne et **gras** Markdown"
+  "body": "le texte complet du mail avec \\n pour les sauts de ligne et gras Markdown"
 }
 `;
 

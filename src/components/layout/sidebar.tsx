@@ -53,6 +53,12 @@ const menuItems = [
     roles: ["CASTING_MANAGER", "ADMIN"],
   },
   {
+    label: "Demandes Entrantes",
+    href: "/demandes-entrantes",
+    icon: Mail,
+    roles: ["CASTING_MANAGER", "ADMIN"],
+  },
+  {
     label: "Notifications",
     href: "/notifications",
     icon: Bell,
@@ -62,7 +68,7 @@ const menuItems = [
     label: "Talents",
     href: "/talents",
     icon: Users,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "CM"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "CM", "CASTING_MANAGER"],
   },
   {
     label: "Utilisateurs",
@@ -105,6 +111,18 @@ const menuItems = [
     href: "/primes",
     icon: BadgeDollarSign,
     roles: ["HEAD_OF_INFLUENCE", "HEAD_OF"],
+  },
+  {
+    label: "Primes mensuels",
+    href: "/admin/primes",
+    icon: BadgeDollarSign,
+    roles: ["ADMIN"],
+  },
+  {
+    label: "Récap salaire",
+    href: "/admin/recap-salaire",
+    icon: BadgeDollarSign,
+    roles: ["ADMIN"],
   },
   {
     label: "Gifts",

@@ -28,7 +28,7 @@ export interface HubSpotContactCasting extends HubSpotContact {
   castingStatus: string;
 }
 
-export type CastingEmailStatus = "en_cours" | "pret";
+export type CastingEmailStatus = "" | "en_cours" | "pret";
 
 /**
  * Récupérer les listes de contacts depuis HubSpot (avec pagination)

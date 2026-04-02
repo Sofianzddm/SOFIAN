@@ -24,6 +24,26 @@ function columnFor(contact: HubSpotContactCasting): "todo" | "progress" | "ready
   return "progress";
 }
 
+function brandColumnFor(contacts: HubSpotContactCasting[]): "todo" | "progress" | "ready" {
+  // "Avancé" = si au moins un contact est "pret", alors la marque est "Prêt".
+  // Ensuite : s'il existe au moins un email non vide / en cours, alors "En cours".
+  // Sinon : "À traiter".
+  let hasProgress = false;
+  for (const c of contacts) {
+    const col = columnFor(c);
+    if (col === "ready") return "ready";
+    if (col === "progress") hasProgress = true;
+  }
+  return hasProgress ? "progress" : "todo";
+}
+
+function brandStatusLabel(contacts: HubSpotContactCasting[]): "Prêt" | "En cours" | "À traiter" {
+  const col = brandColumnFor(contacts);
+  if (col === "ready") return "Prêt";
+  if (col === "progress") return "En cours";
+  return "À traiter";
+}
+
 /** Clé stable pour fusionner les variantes d’écriture d’une même marque */
 function normalizeBrandKey(companyName: string): string {
   const t = companyName.trim();
@@ -94,7 +114,13 @@ export default function CastingOutreachPage() {
   const [listsError, setListsError] = useState<string | null>(null);
   const [contactsError, setContactsError] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [activeContact, setActiveContact] = useState<HubSpotContactCasting | null>(null);
+  const [activeBrand, setActiveBrand] = useState<{
+    company: string;
+    contacts: Array<Pick<HubSpotContactCasting, "id" | "firstname" | "lastname" | "email">>;
+  } | null>(null);
+  const [activeBrandColumn, setActiveBrandColumn] = useState<"todo" | "progress" | "ready" | null>(
+    null
+  );
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(
     null
   );
@@ -153,13 +179,12 @@ export default function CastingOutreachPage() {
     setLoadingLists(true);
     setListsError(null);
     try {
-      // Même endpoint que le module HubSpot (press kit / Head of Sales)
-      const res = await fetch("/api/hubspot/lists", { credentials: "include" });
+      const res = await fetch("/api/hubspot/casting/lists", { credentials: "include" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg =
-          typeof data.message === "string"
-            ? data.message
+          typeof data.error === "string"
+            ? data.error
             : "Impossible de charger les listes.";
         throw new Error(msg);
       }
@@ -225,19 +250,23 @@ export default function CastingOutreachPage() {
   }, [listId, loadContacts]);
 
   const columns = useMemo(() => {
-    const todo: HubSpotContactCasting[] = [];
-    const progress: HubSpotContactCasting[] = [];
-    const ready: HubSpotContactCasting[] = [];
-    for (const c of contacts) {
-      const col = columnFor(c);
-      if (col === "todo") todo.push(c);
-      else if (col === "progress") progress.push(c);
-      else ready.push(c);
+    // Important : une seule carte par marque.
+    // La marque est classée selon le statut le plus avancé parmi ses contacts.
+    const todo: BrandGroup[] = [];
+    const progress: BrandGroup[] = [];
+    const ready: BrandGroup[] = [];
+
+    const groups = groupContactsByBrand(contacts);
+    for (const g of groups) {
+      const col = brandColumnFor(g.contacts);
+      if (col === "todo") todo.push(g);
+      else if (col === "progress") progress.push(g);
+      else ready.push(g);
     }
     return {
-      todo: groupContactsByBrand(todo),
-      progress: groupContactsByBrand(progress),
-      ready: groupContactsByBrand(ready),
+      todo,
+      progress,
+      ready,
     };
   }, [contacts]);
 
@@ -443,8 +472,32 @@ export default function CastingOutreachPage() {
             hint="Sans corps d’email — regroupé par marque"
             groups={columns.todo}
             borderColor={COL_BORDER.todo}
-            onCompose={(c) => {
-              setActiveContact(c);
+            onComposeAll={(group) => {
+              setActiveBrand({
+                company: group.displayName,
+                contacts: group.contacts.map((c) => ({
+                  id: c.id,
+                  firstname: c.firstname,
+                  lastname: c.lastname,
+                  email: c.email,
+                })),
+              });
+              setActiveBrandColumn(brandColumnFor(group.contacts));
+              setComposerOpen(true);
+            }}
+            onComposeOne={(group, c) => {
+              setActiveBrand({
+                company: group.displayName,
+                contacts: [
+                  {
+                    id: c.id,
+                    firstname: c.firstname,
+                    lastname: c.lastname,
+                    email: c.email,
+                  },
+                ],
+              });
+              setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
           />
@@ -454,8 +507,32 @@ export default function CastingOutreachPage() {
             hint="Statut « en cours » — regroupé par marque"
             groups={columns.progress}
             borderColor={COL_BORDER.progress}
-            onCompose={(c) => {
-              setActiveContact(c);
+            onComposeAll={(group) => {
+              setActiveBrand({
+                company: group.displayName,
+                contacts: group.contacts.map((c) => ({
+                  id: c.id,
+                  firstname: c.firstname,
+                  lastname: c.lastname,
+                  email: c.email,
+                })),
+              });
+              setActiveBrandColumn(brandColumnFor(group.contacts));
+              setComposerOpen(true);
+            }}
+            onComposeOne={(group, c) => {
+              setActiveBrand({
+                company: group.displayName,
+                contacts: [
+                  {
+                    id: c.id,
+                    firstname: c.firstname,
+                    lastname: c.lastname,
+                    email: c.email,
+                  },
+                ],
+              });
+              setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
           />
@@ -465,8 +542,32 @@ export default function CastingOutreachPage() {
             hint="Statut « prêt » — regroupé par marque"
             groups={columns.ready}
             borderColor={COL_BORDER.ready}
-            onCompose={(c) => {
-              setActiveContact(c);
+            onComposeAll={(group) => {
+              setActiveBrand({
+                company: group.displayName,
+                contacts: group.contacts.map((c) => ({
+                  id: c.id,
+                  firstname: c.firstname,
+                  lastname: c.lastname,
+                  email: c.email,
+                })),
+              });
+              setActiveBrandColumn(brandColumnFor(group.contacts));
+              setComposerOpen(true);
+            }}
+            onComposeOne={(group, c) => {
+              setActiveBrand({
+                company: group.displayName,
+                contacts: [
+                  {
+                    id: c.id,
+                    firstname: c.firstname,
+                    lastname: c.lastname,
+                    email: c.email,
+                  },
+                ],
+              });
+              setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
           />
@@ -475,10 +576,12 @@ export default function CastingOutreachPage() {
 
       <CastingComposer
         open={composerOpen}
-        contact={activeContact}
+        contact={activeBrand}
+        brandColumn={activeBrandColumn}
         onClose={() => {
           setComposerOpen(false);
-          setActiveContact(null);
+          setActiveBrand(null);
+          setActiveBrandColumn(null);
         }}
         onSaved={() => {
           if (listId) loadContacts(listId);
@@ -496,14 +599,16 @@ function KanbanColumn({
   hint,
   groups,
   borderColor,
-  onCompose,
+  onComposeAll,
+  onComposeOne,
 }: {
   title: string;
   emoji: string;
   hint: string;
   groups: BrandGroup[];
   borderColor: string;
-  onCompose: (c: HubSpotContactCasting) => void;
+  onComposeAll: (group: BrandGroup) => void;
+  onComposeOne: (group: BrandGroup, contact: HubSpotContactCasting) => void;
 }) {
   const contactTotal = groups.reduce((n, g) => n + g.contacts.length, 0);
   return (
@@ -555,16 +660,61 @@ function KanbanColumn({
                 backgroundColor: "rgba(245, 235, 224, 0.6)",
               }}
             >
-              <p className="font-bold text-sm" style={{ color: LICORICE }}>
-                {group.displayName}
-              </p>
-              <p className="text-[11px] mt-0.5 opacity-75" style={{ color: OLD_ROSE }}>
-                {group.contacts.length} contact{group.contacts.length !== 1 ? "s" : ""}
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-bold text-sm truncate" style={{ color: LICORICE }}>
+                    {group.displayName}
+                  </p>
+                  <span
+                    className="text-[11px] font-medium px-2 py-0.5 rounded-full inline-flex items-center mt-0.5 opacity-90"
+                    style={{
+                      backgroundColor: "rgba(245, 235, 224, 0.85)",
+                      color: OLD_ROSE,
+                      border: `1px solid color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`,
+                    }}
+                    title="Nombre de contacts pour cette marque"
+                  >
+                    {group.contacts.length} contact{group.contacts.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <span
+                      className="text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0"
+                      style={{
+                        backgroundColor:
+                          brandColumnFor(group.contacts) === "ready"
+                            ? "rgba(200, 242, 133, 0.35)"
+                            : brandColumnFor(group.contacts) === "progress"
+                              ? "rgba(192, 139, 139, 0.18)"
+                              : "rgba(192, 139, 139, 0.12)",
+                        color: LICORICE,
+                        border: `1px solid ${
+                          brandColumnFor(group.contacts) === "ready"
+                            ? TEA_GREEN
+                            : `color-mix(in srgb, ${OLD_ROSE} 55%, transparent)`
+                        }`,
+                      }}
+                      title="Statut de la marque"
+                    >
+                      {brandStatusLabel(group.contacts)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onComposeAll(group)}
+                      className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                      style={{ backgroundColor: OLD_LACE, color: LICORICE }}
+                    >
+                      Rédiger pour tous
+                    </button>
+                  </div>
+              </div>
             </div>
             <ul className="divide-y" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 15%, transparent)` }}>
               {group.contacts.map((c) => (
-                <li key={c.id} className="px-3 py-2.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+                <li
+                  key={c.id}
+                  className="px-3 py-2.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between"
+                >
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium" style={{ color: LICORICE }}>
                       {`${c.firstname} ${c.lastname}`.trim() || "Sans nom"}
@@ -573,7 +723,7 @@ function KanbanColumn({
                   </div>
                   <button
                     type="button"
-                    onClick={() => onCompose(c)}
+                    onClick={() => onComposeOne(group, c)}
                     className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors shrink-0 self-end sm:self-center"
                     style={{ backgroundColor: OLD_LACE, color: LICORICE }}
                   >
