@@ -98,6 +98,42 @@ const COL_BORDER = {
   ready: "#1A1110",
 } as const;
 
+/** Brouillon HubSpot à rouvrir dans le compositeur (préfère un contact avec du corps, sinon objet, sinon le premier). */
+function pickInitialCastingDraft(contacts: HubSpotContactCasting[]): {
+  initialSubject: string;
+  initialBodyHtml: string;
+} {
+  const withBody = contacts.find((c) => (c.castingEmailBody || "").trim());
+  const withSubject = contacts.find((c) => (c.castingEmailSubject || "").trim());
+  const ref = withBody || withSubject || contacts[0];
+  if (!ref) {
+    return { initialSubject: "", initialBodyHtml: "" };
+  }
+  return {
+    initialSubject: (ref.castingEmailSubject || "").trim(),
+    initialBodyHtml: (ref.castingEmailBody || "").trim(),
+  };
+}
+
+function mapContactsForComposer(
+  contacts: HubSpotContactCasting[]
+): Array<Pick<HubSpotContactCasting, "id" | "firstname" | "lastname" | "email">> {
+  return contacts.map((c) => ({
+    id: c.id,
+    firstname: c.firstname,
+    lastname: c.lastname,
+    email: c.email,
+  }));
+}
+
+function composerStateForBrand(displayName: string, hubspotContacts: HubSpotContactCasting[]) {
+  return {
+    company: displayName,
+    contacts: mapContactsForComposer(hubspotContacts),
+    ...pickInitialCastingDraft(hubspotContacts),
+  };
+}
+
 export default function CastingOutreachPage() {
   const { data: session, status } = useSession();
 
@@ -117,6 +153,8 @@ export default function CastingOutreachPage() {
   const [activeBrand, setActiveBrand] = useState<{
     company: string;
     contacts: Array<Pick<HubSpotContactCasting, "id" | "firstname" | "lastname" | "email">>;
+    initialSubject?: string;
+    initialBodyHtml?: string;
   } | null>(null);
   const [activeBrandColumn, setActiveBrandColumn] = useState<"todo" | "progress" | "ready" | null>(
     null
@@ -473,30 +511,12 @@ export default function CastingOutreachPage() {
             groups={columns.todo}
             borderColor={COL_BORDER.todo}
             onComposeAll={(group) => {
-              setActiveBrand({
-                company: group.displayName,
-                contacts: group.contacts.map((c) => ({
-                  id: c.id,
-                  firstname: c.firstname,
-                  lastname: c.lastname,
-                  email: c.email,
-                })),
-              });
+              setActiveBrand(composerStateForBrand(group.displayName, group.contacts));
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
             onComposeOne={(group, c) => {
-              setActiveBrand({
-                company: group.displayName,
-                contacts: [
-                  {
-                    id: c.id,
-                    firstname: c.firstname,
-                    lastname: c.lastname,
-                    email: c.email,
-                  },
-                ],
-              });
+              setActiveBrand(composerStateForBrand(group.displayName, [c]));
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
@@ -508,30 +528,12 @@ export default function CastingOutreachPage() {
             groups={columns.progress}
             borderColor={COL_BORDER.progress}
             onComposeAll={(group) => {
-              setActiveBrand({
-                company: group.displayName,
-                contacts: group.contacts.map((c) => ({
-                  id: c.id,
-                  firstname: c.firstname,
-                  lastname: c.lastname,
-                  email: c.email,
-                })),
-              });
+              setActiveBrand(composerStateForBrand(group.displayName, group.contacts));
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
             onComposeOne={(group, c) => {
-              setActiveBrand({
-                company: group.displayName,
-                contacts: [
-                  {
-                    id: c.id,
-                    firstname: c.firstname,
-                    lastname: c.lastname,
-                    email: c.email,
-                  },
-                ],
-              });
+              setActiveBrand(composerStateForBrand(group.displayName, [c]));
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
@@ -543,30 +545,12 @@ export default function CastingOutreachPage() {
             groups={columns.ready}
             borderColor={COL_BORDER.ready}
             onComposeAll={(group) => {
-              setActiveBrand({
-                company: group.displayName,
-                contacts: group.contacts.map((c) => ({
-                  id: c.id,
-                  firstname: c.firstname,
-                  lastname: c.lastname,
-                  email: c.email,
-                })),
-              });
+              setActiveBrand(composerStateForBrand(group.displayName, group.contacts));
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
             onComposeOne={(group, c) => {
-              setActiveBrand({
-                company: group.displayName,
-                contacts: [
-                  {
-                    id: c.id,
-                    firstname: c.firstname,
-                    lastname: c.lastname,
-                    email: c.email,
-                  },
-                ],
-              });
+              setActiveBrand(composerStateForBrand(group.displayName, [c]));
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}

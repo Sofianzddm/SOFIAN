@@ -35,6 +35,9 @@ type CastingRecipient = {
 type CastingCompanyRecipients = {
   company: string;
   contacts: CastingRecipient[];
+  /** Repris depuis HubSpot (casting_email_*) pour éditer un brouillon existant */
+  initialSubject?: string;
+  initialBodyHtml?: string;
 };
 
 type PresskitTalent = {
@@ -152,6 +155,14 @@ function plainTextToEmailHtml(text: string): string {
     .filter((p) => p.length > 0)
     .map((p) => `<p style="margin:0;">${p.replace(/\n/g, "<br/>")}</p>`)
     .join("");
+}
+
+/** Corps stocké côté HubSpot → contenu éditable TipTap */
+function hubspotBodyToEditorHtml(raw: string | undefined): string {
+  const t = (raw ?? "").trim();
+  if (!t) return "<p></p>";
+  if (t.startsWith("<")) return t;
+  return plainTextToEmailHtml(t);
 }
 
 export interface CastingComposerProps {
@@ -394,14 +405,23 @@ export default function CastingComposer({
 
   useEffect(() => {
     if (!open || !contact || !editor) return;
-    // Un email est rédigé une seule fois pour la marque, donc on part d'une page "neuve".
-    setSubject("");
+    const sub = (contact.initialSubject ?? "").trim();
+    const bodyRaw = (contact.initialBodyHtml ?? "").trim();
+    const hasHubspotDraft = sub.length > 0 || bodyRaw.length > 0;
+
     setSelectedIds(new Set());
     setPreviewMode("edit");
     setLastField("body");
     setBrandResearch(null);
-    editor.commands.setContent("<p></p>");
-    setEditorEmpty(editor.isEmpty);
+
+    if (hasHubspotDraft) {
+      setSubject(sub);
+      editor.commands.setContent(hubspotBodyToEditorHtml(bodyRaw));
+    } else {
+      setSubject("");
+      editor.commands.setContent("<p></p>");
+    }
+    setEditorEmpty(!editor.getText().trim());
     setBodyTick((n) => n + 1);
   }, [open, contact, editor]);
 
