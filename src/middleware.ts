@@ -136,5 +136,8 @@ export const config = {
     "/casting-outreach/:path*",
     "/demandes-entrantes",
     "/demandes-entrantes/:path*",
+    // Prospection (fichiers leads) — même session que le reste du dashboard
+    "/prospection",
+    "/prospection/:path*",
   ],
 };

@@ -9,17 +9,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    // Liste sans filtre userId : les TM retrouvent tous les fichiers visibles côté équipe ;
-    // l'accès à la fiche d'un fichier reste contrôlé par GET /api/prospection/[id].
+    // Chargement sans include direct sur `user` : si un userId est orphelin (compte supprimé,
+    // données migrées), un include Prisma peut faire échouer toute la liste — on charge les users à part.
     const fichiers = await prisma.fichierProspection.findMany({
       include: {
-        user: {
-          select: {
-            id: true,
-            prenom: true,
-            nom: true,
-          },
-        },
         _count: {
           select: { contacts: true },
         },
@@ -31,21 +24,31 @@ export async function GET(request: NextRequest) {
       orderBy: { updatedAt: "desc" },
     });
 
-    const fichiersPayload = fichiers.map((f) => ({
-      id: f.id,
-      titre: f.titre,
-      mois: f.mois,
-      annee: f.annee,
-      createdAt: f.createdAt,
-      updatedAt: f.updatedAt,
-      user: {
-        id: f.user.id,
-        name: `${f.user.prenom} ${f.user.nom}`.trim(),
-        image: null as string | null,
-      },
-      _count: { contacts: f._count.contacts },
-      contactsGagnes: f.contacts.length,
-    }));
+    const userIds = [...new Set(fichiers.map((f) => f.userId))];
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, prenom: true, nom: true },
+    });
+    const userById = new Map(users.map((u) => [u.id, u]));
+
+    const fichiersPayload = fichiers.map((f) => {
+      const u = userById.get(f.userId);
+      return {
+        id: f.id,
+        titre: f.titre,
+        mois: f.mois,
+        annee: f.annee,
+        createdAt: f.createdAt,
+        updatedAt: f.updatedAt,
+        user: {
+          id: f.userId,
+          name: u ? `${u.prenom} ${u.nom}`.trim() : "Utilisateur inconnu",
+          image: null as string | null,
+        },
+        _count: { contacts: f._count.contacts },
+        contactsGagnes: f.contacts.length,
+      };
+    });
     return NextResponse.json({ fichiers: fichiersPayload });
   } catch (error) {
     console.error("Erreur GET /api/prospection:", error);
