@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 
-const ADMIN_ROLES = ["ADMIN", "HEAD_OF_INFLUENCE"] as const;
-
 export async function GET(request: NextRequest) {
   try {
     const session = await getAppSession(request);
@@ -11,17 +9,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    const userId = session.user.id;
-    const role = (session.user.role || "") as string;
-    const canSeeAll = ADMIN_ROLES.includes(role as (typeof ADMIN_ROLES)[number]);
-
     const fichiers = await prisma.fichierProspection.findMany({
-      where: canSeeAll ? {} : { userId },
       include: {
         user: {
           select: {
             id: true,
             prenom: true,
+            nom: true,
+          },
+        },
+        dossier: {
+          select: {
+            id: true,
             nom: true,
           },
         },
@@ -36,6 +35,10 @@ export async function GET(request: NextRequest) {
       orderBy: { updatedAt: "desc" },
     });
 
+    const dossiers = await prisma.dossierProspection.findMany({
+      orderBy: { createdAt: "asc" },
+    });
+
     const fichiersPayload = fichiers.map((f) => ({
       id: f.id,
       titre: f.titre,
@@ -43,6 +46,8 @@ export async function GET(request: NextRequest) {
       annee: f.annee,
       createdAt: f.createdAt,
       updatedAt: f.updatedAt,
+      dossierId: f.dossierId,
+      dossierNom: f.dossier?.nom ?? null,
       user: {
         id: f.user.id,
         name: `${f.user.prenom} ${f.user.nom}`.trim(),
@@ -52,7 +57,14 @@ export async function GET(request: NextRequest) {
       contactsGagnes: f.contacts.length,
     }));
 
-    return NextResponse.json({ fichiers: fichiersPayload });
+    const dossiersPayload = dossiers.map((d) => ({
+      id: d.id,
+      nom: d.nom,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+    }));
+
+    return NextResponse.json({ fichiers: fichiersPayload, dossiers: dossiersPayload });
   } catch (error) {
     console.error("Erreur GET /api/prospection:", error);
     return NextResponse.json(

@@ -4,7 +4,7 @@ import { xaiResponse } from "@/lib/xai";
 
 export const maxDuration = 120;
 
-const ALLOWED_ROLES = ["CASTING_MANAGER", "ADMIN"] as const;
+const ALLOWED_ROLES = ["CASTING_MANAGER", "STRATEGY_PLANNER", "ADMIN"] as const;
 
 /** Recherche web + X (posts / buzz) — Agent Tools API x.ai */
 const BRAND_RESEARCH_TOOLS = [{ type: "web_search" }, { type: "x_search" }] as const;

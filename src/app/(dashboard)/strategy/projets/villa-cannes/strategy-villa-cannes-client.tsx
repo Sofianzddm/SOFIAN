@@ -294,6 +294,58 @@ export function StrategyVillaCannesClient() {
     talents: [] as string[],
   });
 
+  const brandResearchInputRef = useRef<HTMLInputElement | null>(null);
+  const [brandResearchLoading, setBrandResearchLoading] = useState(false);
+  const [brandResearchError, setBrandResearchError] = useState<string | null>(null);
+  const [brandResearchResult, setBrandResearchResult] = useState<{
+    recentCampaigns: string;
+    newProducts: string;
+    brandPositioning: string;
+    influenceStrategy: string;
+  } | null>(null);
+
+  async function runBrandResearch() {
+    const name = (brandResearchInputRef.current?.value || "").trim();
+    if (!name) {
+      window.alert("Merci de saisir un nom de marque.");
+      return;
+    }
+    setBrandResearchLoading(true);
+    setBrandResearchError(null);
+    try {
+      const res = await fetch("/api/casting/brand-research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandName: name }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        const msg = typeof json.error === "string" && json.error ? json.error : "Erreur lors de la recherche marque.";
+        setBrandResearchError(msg);
+        setBrandResearchResult(null);
+        return;
+      }
+      const data = (await res.json()) as {
+        recentCampaigns?: string;
+        newProducts?: string;
+        brandPositioning?: string;
+        influenceStrategy?: string;
+      };
+      setBrandResearchResult({
+        recentCampaigns: data.recentCampaigns || "",
+        newProducts: data.newProducts || "",
+        brandPositioning: data.brandPositioning || "",
+        influenceStrategy: data.influenceStrategy || "",
+      });
+    } catch (e) {
+      console.error(e);
+      setBrandResearchError("Erreur réseau lors de l'appel à Grok.");
+      setBrandResearchResult(null);
+    } finally {
+      setBrandResearchLoading(false);
+    }
+  }
+
   async function refreshAll() {
     setLoading(true);
     try {
@@ -675,6 +727,71 @@ export function StrategyVillaCannesClient() {
             </div>
 
             <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+              <h3 className="text-base font-semibold mb-3">Recherche auto</h3>
+              <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-end">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    Nom de la marque
+                  </label>
+                  <input
+                    ref={brandResearchInputRef}
+                    placeholder='Ex: "Yves Saint Laurent Beauté"'
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={runBrandResearch}
+                  disabled={brandResearchLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-glowup-rose px-4 py-2 text-sm font-medium text-white shadow-sm hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {brandResearchLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Analyse en cours...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      Lancer l'analyse
+                    </>
+                  )}
+                </button>
+              </div>
+              {brandResearchError && (
+                <p className="mt-3 text-sm text-red-600">{brandResearchError}</p>
+              )}
+              {brandResearchResult && (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-700">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-1">
+                      Campagnes récentes
+                    </p>
+                    <p className="whitespace-pre-line">{brandResearchResult.recentCampaigns || "Aucune information disponible."}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-1">
+                      Dernières nouveautés produit
+                    </p>
+                    <p className="whitespace-pre-line">{brandResearchResult.newProducts || "Aucune information disponible."}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-1">
+                      Positionnement de la marque
+                    </p>
+                    <p className="whitespace-pre-line">{brandResearchResult.brandPositioning || "Aucune information disponible."}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-1">
+                      Stratégie influence actuelle
+                    </p>
+                    <p className="whitespace-pre-line">{brandResearchResult.influenceStrategy || "Aucune information disponible."}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-base font-semibold">À qualifier</h3>
                 <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">
@@ -993,7 +1110,46 @@ export function StrategyVillaCannesClient() {
       default:
         return null;
     }
-  }, [activeTab, deals, isAdmin, loading, opportunites, participantByTalentId, participants, planning, planningDays, pipeline, qualifies]);
+  }, [
+    activeTab,
+    brandResearchError,
+    brandResearchLoading,
+    brandResearchResult,
+    deals,
+    displayedQualifies,
+    filteredQualifies.length,
+    isAdmin,
+    kpis.caConfirme,
+    kpis.pipelineMarques,
+    kpis.talentsConfirmes,
+    kpis.talentsPressentis,
+    loading,
+    newMarque.clientLanguage,
+    newMarque.nomMarque,
+    newMarque.secteur,
+    newMarque.talents,
+    newTalent.dateArrivee,
+    newTalent.dateDepart,
+    newTalent.statut,
+    newTalent.talentId,
+    opportunites,
+    participantByTalentId,
+    participants,
+    pipeline,
+    planning,
+    planningDays,
+    qualifierSearch,
+    qualifierVisibleCount,
+    qualifies,
+    relancesDueCount,
+    role,
+    selectedPipelineTalentIds,
+    showAddMarque,
+    showAddTalent,
+    talentNameById,
+    talentOptions,
+    talentPhotoById,
+  ]);
 
   return (
     <div className="space-y-6">

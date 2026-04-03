@@ -542,13 +542,35 @@ model FichierProspection {
   userId    String
   user      User     @relation(fields: [userId], references: [id])
 
+  // Dossier optionnel de classement
+  dossierId String?
+  dossier   DossierProspection? @relation(fields: [dossierId], references: [id])
+
   contacts  ProspectionContact[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+  @@index([dossierId])
   @@map("fichiers_prospection")
+}
+
+model DossierProspection {
+  id        String   @id @default(cuid())
+  nom       String
+
+  // Propriétaire du dossier (HEAD/ADMIN peuvent voir tous)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  fichiers  FichierProspection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("dossiers_prospection")
 }
 
 model ProspectionContact {
