@@ -53,6 +53,9 @@ export default function ProspectionListPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [titre, setTitre] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +98,69 @@ export default function ProspectionListPage() {
     setTitre(defaultTitre);
     setError(null);
     setModalOpen(true);
+  };
+
+  const handleDuplicate = async (fichier: FichierProspection) => {
+    try {
+      setDuplicatingId(fichier.id);
+      setError(null);
+      const res = await fetch(`/api/prospection/${fichier.id}/duplicate`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          data.error || "Erreur lors de la duplication du fichier"
+        );
+      }
+      const duplicated = await res.json();
+      setFichiers((prev) => [
+        {
+          id: duplicated.id,
+          titre: duplicated.titre,
+          mois: duplicated.mois,
+          annee: duplicated.annee,
+          createdAt: duplicated.createdAt,
+          updatedAt: duplicated.updatedAt,
+          user: fichier.user,
+          _count: { contacts: 0 },
+          contactsGagnes: 0,
+        },
+        ...prev,
+      ]);
+      setMenuOpenId(null);
+    } catch (e: any) {
+      setError(e.message || "Erreur lors de la duplication");
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
+
+  const handleDelete = async (fichier: FichierProspection) => {
+    const confirmed = window.confirm(
+      `Supprimer le fichier "${fichier.titre}" et toutes ses opportunités ?`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(fichier.id);
+      setError(null);
+      const res = await fetch(`/api/prospection/${fichier.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          data.error || "Erreur lors de la suppression du fichier"
+        );
+      }
+      setFichiers((prev) => prev.filter((f) => f.id !== fichier.id));
+      setMenuOpenId(null);
+    } catch (e: any) {
+      setError(e.message || "Erreur lors de la suppression");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleCreate = async () => {
@@ -218,16 +284,53 @@ export default function ProspectionListPage() {
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                  >
-                    <MoreHorizontal className="w-4 h-4" />
-                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setMenuOpenId((current) =>
+                          current === fichier.id ? null : fichier.id
+                        );
+                      }}
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                    {menuOpenId === fichier.id && (
+                      <div
+                        className="absolute right-0 mt-1 w-44 rounded-xl border border-gray-100 bg-white shadow-lg z-10"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicate(fichier)}
+                          disabled={duplicatingId === fichier.id || deletingId === fichier.id}
+                          className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 rounded-t-xl disabled:opacity-60"
+                        >
+                          <span>Dupliquer ce fichier</span>
+                          {duplicatingId === fichier.id && (
+                            <span className="h-3 w-3 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(fichier)}
+                          disabled={deletingId === fichier.id || duplicatingId === fichier.id}
+                          className="w-full flex items-center justify-between px-3 py-2 text-xs text-red-600 hover:bg-red-50 rounded-b-xl disabled:opacity-60"
+                        >
+                          <span>Supprimer ce fichier</span>
+                          {deletingId === fichier.id && (
+                            <span className="h-3 w-3 rounded-full border-2 border-red-500 border-t-transparent animate-spin" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-4 flex items-center justify-between text-xs text-gray-500">
