@@ -79,14 +79,6 @@ const VARIABLES_CONTACT_OWNER: { token: string; label: string }[] = [
   { token: "{{ owner.firstname }}", label: "Prénom de la sales (expéditrice)" },
 ];
 
-const VARIABLES_TALENTS: { token: string; label: string }[] = [
-  { token: "{{talent_1}}", label: "Talent 1" },
-  { token: "{{talent_2}}", label: "Talent 2" },
-  { token: "{{talent_3}}", label: "Talent 3" },
-  { token: "{{talent_4}}", label: "Talent 4" },
-  { token: "{{talent_5}}", label: "Talent 5" },
-];
-
 function applyTemplateVars(
   text: string,
   contact: { firstname: string; lastname: string; company: string; email: string },
@@ -113,11 +105,16 @@ function applyTemplateVars(
   s = s.replace(/\{\{marque\}\}/gi, marque);
   s = s.replace(/\{\{email_contact\}\}/gi, emailContact);
 
-  for (let i = 0; i < 5; i++) {
-    const t = talentsOrdered[i];
-    const val = t ? `${t.prenom} ${t.nom}`.trim() : `[Talent ${i + 1} — à sélectionner]`;
-    s = s.replace(new RegExp(`\\{\\{talent_${i + 1}\\}\\}`, "gi"), val);
-  }
+  s = s.replace(/\{\{\s*talent_(\d+)\s*\}\}/gi, (_, numStr: string) => {
+    const n = parseInt(numStr, 10);
+    if (!Number.isFinite(n) || n < 1) {
+      return "[Talent — index invalide]";
+    }
+    const t = talentsOrdered[n - 1];
+    return t
+      ? `${t.prenom} ${t.nom}`.trim()
+      : `[Talent ${n} — à sélectionner]`;
+  });
   return s;
 }
 

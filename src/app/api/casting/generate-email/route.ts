@@ -31,6 +31,15 @@ export interface GenerateEmailBody {
   talents: TalentPayload[];
 }
 
+function normalizeForIncludes(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function tryParseEmailJson(raw: string): { subject: string; body: string } {
   const trimmed = raw.trim();
   const jsonSlice =
@@ -176,6 +185,10 @@ INTERDITS STRICTS :
 - Jamais inventer de faits, de campagnes ou de détails.
 - Jamais d’autres Markdown que les gras autorisés.
 
+Règle critique de complétude :
+- Tu dois mentionner TOUS les talents transmis dans "Talents disponibles" (aucun oubli).
+- Ne te limite pas à 4-5 profils : si 8 talents sont fournis, 8 doivent apparaître.
+
 Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
 {
   "subject": "titre court et premium",
@@ -200,6 +213,33 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
           { status: 500 }
         );
       }
+      const normalizedBody = normalizeForIncludes(parsed.body);
+      const missingTalents = body.talents.filter((t) => {
+        const name = normalizeForIncludes(t.name || "");
+        return name.length > 0 && !normalizedBody.includes(name);
+      });
+
+      if (missingTalents.length > 0) {
+        const missingBlock = missingTalents
+          .map((t) => {
+            const ig = typeof t.igFollowers === "number" ? t.igFollowers : 0;
+            const tt = typeof t.ttFollowers === "number" ? t.ttFollowers : 0;
+            const statsParts: string[] = [];
+            if (tt > 0) statsParts.push(`${formatFollowersCompact(tt)} TikTok`);
+            if (ig > 0) statsParts.push(`${formatFollowersCompact(ig)} Insta`);
+            if (statsParts.length === 0 && typeof t.followers === "number" && t.followers > 0) {
+              statsParts.push(`${formatFollowersCompact(t.followers)} audience`);
+            }
+            const stats = statsParts.join(", ");
+            const niche = t.niche || "créateur";
+            const tail = [stats, niche].filter(Boolean).join(" - ");
+            return `- ${t.name}${tail ? ` (${tail})` : ""}`;
+          })
+          .join("\n");
+
+        parsed.body = `${parsed.body.trim()}\n\nAutres profils à considérer :\n${missingBlock}`;
+      }
+
       return NextResponse.json(parsed);
     } catch {
       return NextResponse.json(

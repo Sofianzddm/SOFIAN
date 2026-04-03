@@ -18,12 +18,6 @@ export async function GET(request: NextRequest) {
             nom: true,
           },
         },
-        dossier: {
-          select: {
-            id: true,
-            nom: true,
-          },
-        },
         _count: {
           select: { contacts: true },
         },
@@ -35,10 +29,6 @@ export async function GET(request: NextRequest) {
       orderBy: { updatedAt: "desc" },
     });
 
-    const dossiers = await prisma.dossierProspection.findMany({
-      orderBy: { createdAt: "asc" },
-    });
-
     const fichiersPayload = fichiers.map((f) => ({
       id: f.id,
       titre: f.titre,
@@ -46,8 +36,6 @@ export async function GET(request: NextRequest) {
       annee: f.annee,
       createdAt: f.createdAt,
       updatedAt: f.updatedAt,
-      dossierId: f.dossierId,
-      dossierNom: f.dossier?.nom ?? null,
       user: {
         id: f.user.id,
         name: `${f.user.prenom} ${f.user.nom}`.trim(),
@@ -56,15 +44,7 @@ export async function GET(request: NextRequest) {
       _count: { contacts: f._count.contacts },
       contactsGagnes: f.contacts.length,
     }));
-
-    const dossiersPayload = dossiers.map((d) => ({
-      id: d.id,
-      nom: d.nom,
-      createdAt: d.createdAt,
-      updatedAt: d.updatedAt,
-    }));
-
-    return NextResponse.json({ fichiers: fichiersPayload, dossiers: dossiersPayload });
+    return NextResponse.json({ fichiers: fichiersPayload });
   } catch (error) {
     console.error("Erreur GET /api/prospection:", error);
     return NextResponse.json(

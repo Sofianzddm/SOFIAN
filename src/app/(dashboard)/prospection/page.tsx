@@ -19,8 +19,6 @@ type FichierProspection = {
   annee: number;
   createdAt: string;
   updatedAt: string;
-  dossierId?: string | null;
-  dossierNom?: string | null;
   user: {
     id: string;
     name: string;
@@ -30,13 +28,6 @@ type FichierProspection = {
     contacts: number;
   };
   contactsGagnes: number;
-};
-
-type DossierProspection = {
-  id: string;
-  nom: string;
-  createdAt: string;
-  updatedAt: string;
 };
 
 function formatDate(dateStr: string) {
@@ -59,15 +50,12 @@ function getProgressColor(percent: number) {
 export default function ProspectionListPage() {
   const { data: session } = useSession();
   const [fichiers, setFichiers] = useState<FichierProspection[]>([]);
-  const [dossiers, setDossiers] = useState<DossierProspection[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
   const [titre, setTitre] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -85,7 +73,6 @@ export default function ProspectionListPage() {
         }
         const data = await res.json();
         setFichiers(data.fichiers || []);
-        setDossiers(data.dossiers || []);
       } catch (e) {
         setError("Impossible de charger les fichiers de prospection.");
       } finally {
@@ -223,73 +210,6 @@ export default function ProspectionListPage() {
     }
   };
 
-  const handleCreateFolder = async () => {
-    const nom = newFolderName.trim();
-    if (!nom) return;
-    try {
-      setCreatingFolder(true);
-      setError(null);
-      const res = await fetch("/api/prospection/dossiers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nom }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Erreur lors de la création du dossier");
-      }
-      const created = await res.json();
-      setDossiers((prev) => [...prev, created]);
-      setNewFolderName("");
-    } catch (e: any) {
-      setError(e.message || "Erreur lors de la création du dossier");
-    } finally {
-      setCreatingFolder(false);
-    }
-  };
-
-  const handleMoveToFolder = async (
-    fichierId: string,
-    dossierId: string | null
-  ) => {
-    try {
-      const res = await fetch(`/api/prospection/${fichierId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dossierId }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Erreur lors du déplacement du fichier");
-      }
-      setFichiers((prev) =>
-        prev.map((f) =>
-          f.id === fichierId
-            ? {
-                ...f,
-                dossierId,
-                dossierNom:
-                  dossierId === null
-                    ? null
-                    : dossiers.find((d) => d.id === dossierId)?.nom || f.dossierNom,
-              }
-            : f
-        )
-      );
-    } catch (e: any) {
-      setError(e.message || "Erreur lors du déplacement du fichier");
-    }
-  };
-
-  const fichiersSansDossier = fichiers.filter((f) => !f.dossierId);
-  const fichiersParDossier: Record<string, FichierProspection[]> = {};
-  for (const f of fichiers) {
-    if (f.dossierId) {
-      fichiersParDossier[f.dossierId] = fichiersParDossier[f.dossierId] || [];
-      fichiersParDossier[f.dossierId].push(f);
-    }
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -304,31 +224,9 @@ export default function ProspectionListPage() {
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
           {isAdminOrHeadOfInfluence && (
-            <div className="flex items-center gap-2">
-              <span className="hidden sm:inline-flex text-xs text-gray-500">
-                Vue globale de l&apos;équipe
-              </span>
-              <div className="flex items-center gap-1 rounded-full bg-white border border-gray-200 px-2 py-1">
-                <input
-                  type="text"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  placeholder="Nom du dossier"
-                  className="bg-transparent text-xs px-1 py-0.5 outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={handleCreateFolder}
-                  disabled={creatingFolder || !newFolderName.trim()}
-                  className="inline-flex items-center gap-1 rounded-full bg-[#F5EBE0] px-2 py-1 text-[11px] font-medium text-[#1A1110] disabled:opacity-60"
-                >
-                  {creatingFolder && (
-                    <span className="h-3 w-3 rounded-full border-2 border-[#1A1110]/40 border-t-transparent animate-spin" />
-                  )}
-                  Créer un dossier
-                </button>
-              </div>
-            </div>
+            <span className="hidden sm:inline-flex text-xs text-gray-500">
+              Vue globale de l&apos;équipe
+            </span>
           )}
           <button
             onClick={openModal}
@@ -340,7 +238,7 @@ export default function ProspectionListPage() {
         </div>
       </div>
 
-      {/* Grilles : dossiers + fichiers hors dossier */}
+      {/* Grille fichiers */}
       {loading ? (
         <div className="py-10 text-center text-sm text-gray-500">
           Chargement des fichiers de prospection...
@@ -359,173 +257,8 @@ export default function ProspectionListPage() {
           </button>
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* Dossiers */}
-          {dossiers.length > 0 && (
-            <div className="space-y-3">
-              <h2 className="text-sm font-semibold text-[#1A1110]">
-                Dossiers
-              </h2>
-              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
-                {dossiers.map((dossier) => {
-                  const fichiersDuDossier = fichiersParDossier[dossier.id] || [];
-                  return (
-                    <div
-                      key={dossier.id}
-                      className="rounded-2xl border border-gray-100 bg-[#F5EBE0]/60 p-3 space-y-3"
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                      }}
-                      onDrop={(e) => {
-                        const fichierId = e.dataTransfer.getData("text/prospection-fichier-id");
-                        if (!fichierId) return;
-                        handleMoveToFolder(fichierId, dossier.id);
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#1A1110] line-clamp-1">
-                          {dossier.nom}
-                        </p>
-                        <span className="text-[11px] text-gray-500">
-                          {fichiersDuDossier.length} fichier
-                          {fichiersDuDossier.length > 1 ? "s" : ""}
-                        </span>
-                      </div>
-                      {fichiersDuDossier.length === 0 ? (
-                        <p className="text-[11px] text-gray-500 italic">
-                          Glissez un fichier ici pour le ranger.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {fichiersDuDossier.map((fichier) => {
-                            const total = fichier._count.contacts;
-                            const gagnes = fichier.contactsGagnes;
-                            const ratio =
-                              total > 0 ? Math.round((gagnes / total) * 100) : 0;
-                            const barColor = getProgressColor(ratio);
-                            return (
-                              <Link
-                                key={fichier.id}
-                                href={`/prospection/${fichier.id}`}
-                                draggable
-                                onDragStart={(e) => {
-                                  e.dataTransfer.setData(
-                                    "text/prospection-fichier-id",
-                                    fichier.id
-                                  );
-                                }}
-                                className="group relative rounded-xl border border-gray-100 bg-white p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-7 h-7 rounded-full bg-[#F5EBE0] flex items-center justify-center text-[#1A1110]">
-                                      <UserCircle2 className="w-4 h-4" />
-                                    </div>
-                                    <div>
-                                      <p className="text-xs font-semibold text-[#1A1110] line-clamp-2">
-                                        {fichier.titre}
-                                      </p>
-                                      <p className="text-[11px] text-gray-500">
-                                        {fichier.user.name || "Talent Manager"}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="relative">
-                                    <button
-                                      type="button"
-                                      className="p-1 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600"
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        setMenuOpenId((current) =>
-                                          current === fichier.id ? null : fichier.id
-                                        );
-                                      }}
-                                    >
-                                      <MoreHorizontal className="w-3 h-3" />
-                                    </button>
-                                    {menuOpenId === fichier.id && (
-                                      <div
-                                        className="absolute right-0 mt-1 w-44 rounded-xl border border-gray-100 bg-white shadow-lg z-10"
-                                        onClick={(e) => {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                        }}
-                                      >
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDuplicate(fichier)}
-                                          disabled={
-                                            duplicatingId === fichier.id ||
-                                            deletingId === fichier.id
-                                          }
-                                          className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 rounded-t-xl disabled:opacity-60"
-                                        >
-                                          <span>Dupliquer ce fichier</span>
-                                          {duplicatingId === fichier.id && (
-                                            <span className="h-3 w-3 rounded-full border-2 border-gray-400 border-t-transparent animate-spin" />
-                                          )}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDelete(fichier)}
-                                          disabled={
-                                            deletingId === fichier.id ||
-                                            duplicatingId === fichier.id
-                                          }
-                                          className="w-full flex items-center justify-between px-3 py-2 text-xs text-red-600 hover:bg-red-50 rounded-b-xl disabled:opacity-60"
-                                        >
-                                          <span>Supprimer ce fichier</span>
-                                          {deletingId === fichier.id && (
-                                            <span className="h-3 w-3 rounded-full border-2 border-red-500 border-t-transparent animate-spin" />
-                                          )}
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="mt-3">
-                                  <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
-                                    <div
-                                      className={`h-full ${barColor} transition-all`}
-                                      style={{ width: `${ratio}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Fichiers hors dossier */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[#1A1110]">
-                Fichiers non rangés
-              </h2>
-              <span className="text-[11px] text-gray-500">
-                Glissez un fichier sur un dossier pour le ranger.
-              </span>
-            </div>
-            <div
-              className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4"
-              onDragOver={(e) => {
-                e.preventDefault();
-              }}
-              onDrop={(e) => {
-                const fichierId = e.dataTransfer.getData("text/prospection-fichier-id");
-                if (!fichierId) return;
-                handleMoveToFolder(fichierId, null);
-              }}
-            >
-              {fichiersSansDossier.map((fichier) => {
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+          {fichiers.map((fichier) => {
             const total = fichier._count.contacts;
             const gagnes = fichier.contactsGagnes;
             const ratio = total > 0 ? Math.round((gagnes / total) * 100) : 0;
@@ -535,14 +268,7 @@ export default function ProspectionListPage() {
               <Link
                 key={fichier.id}
                 href={`/prospection/${fichier.id}`}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(
-                      "text/prospection-fichier-id",
-                      fichier.id
-                    );
-                  }}
-                  className="group relative rounded-2xl border border-gray-100 bg-white p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                className="group relative rounded-2xl border border-gray-100 bg-white p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -641,8 +367,6 @@ export default function ProspectionListPage() {
               </Link>
             );
           })}
-            </div>
-          </div>
         </div>
       )}
 

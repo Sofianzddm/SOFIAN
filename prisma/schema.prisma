@@ -238,6 +238,7 @@ model User {
   objectifsCrees       Objectif[]     @relation("ObjectifsCrees")
 
   fichiersProspection  FichierProspection[]
+  dossiersProspection  DossierProspection[]
 
   prospectionCommentaires ProspectionCommentaire[]
   prospectionHistoriques  ProspectionHistorique[]

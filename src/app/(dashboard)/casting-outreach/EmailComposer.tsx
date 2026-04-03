@@ -16,14 +16,6 @@ const VARIABLES_CONTACT_OWNER: { token: string; label: string }[] = [
   { token: "{{ owner.firstname }}", label: "Prenom de la sales" },
 ];
 
-const VARIABLES_TALENTS: { token: string; label: string }[] = [
-  { token: "{{talent_1}}", label: "Talent 1" },
-  { token: "{{talent_2}}", label: "Talent 2" },
-  { token: "{{talent_3}}", label: "Talent 3" },
-  { token: "{{talent_4}}", label: "Talent 4" },
-  { token: "{{talent_5}}", label: "Talent 5" },
-];
-
 export type BrandResearch = {
   recentCampaigns: string;
   newProducts: string;
@@ -67,6 +59,16 @@ export default function EmailComposer({
   const [lastField, setLastField] = useState<"subject" | "body">("body");
   const [bodyTick, setBodyTick] = useState(0);
   const subjectInputRef = useRef<HTMLInputElement>(null);
+  const [customTalentIndex, setCustomTalentIndex] = useState<string>("");
+
+  const talentTokensFromSelection = useMemo<
+    { token: string; label: string }[]
+  >(() => {
+    return talentsSelected.map((t, i) => {
+      const name = `${t.prenom || ""} ${t.nom || ""}`.trim() || `Talent ${i + 1}`;
+      return { token: `{{talent_${i + 1}}}`, label: name };
+    });
+  }, [talentsSelected]);
 
   useEffect(() => {
     if (!editor) return;
@@ -248,21 +250,57 @@ export default function EmailComposer({
             ))}
           </div>
           <p className="text-[10px] uppercase tracking-wide" style={{ color: OLD_ROSE }}>
-            Talents (optionnel)
+            Talents (optionnel) — ordre = sélection ; <code className="font-mono">{'{{talent_N}}'}</code> pour tout N
           </p>
-          <div className="flex flex-wrap gap-1.5">
-            {VARIABLES_TALENTS.map((v) => (
-              <button
-                key={v.token}
-                type="button"
-                onClick={() => insertVariable(v.token)}
-                className="text-xs px-2 py-1 rounded-lg border font-mono"
-                style={{ borderColor: OLD_ROSE, backgroundColor: "white", color: LICORICE }}
-                title={v.label}
-              >
-                {v.token}
-              </button>
-            ))}
+          <div className="max-h-40 overflow-y-auto flex flex-wrap gap-1.5 pr-1">
+            {talentTokensFromSelection.length === 0 ? (
+              <p className="text-[11px] font-sans normal-case opacity-80" style={{ color: OLD_ROSE }}>
+                Sélectionnez des talents à gauche pour insérer les jetons correspondants.
+              </p>
+            ) : (
+              talentTokensFromSelection.map((v) => (
+                <button
+                  key={v.token}
+                  type="button"
+                  onClick={() => insertVariable(v.token)}
+                  className="text-xs px-2 py-1 rounded-lg border font-mono text-left max-w-full"
+                  style={{ borderColor: OLD_ROSE, backgroundColor: "white", color: LICORICE }}
+                  title={v.label}
+                >
+                  <span className="block truncate">{v.token}</span>
+                  <span className="block text-[10px] font-sans opacity-80 font-normal normal-case truncate">
+                    {v.label}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+          <div className="flex flex-wrap items-end gap-2 pt-1">
+            <label className="flex flex-col gap-0.5 text-[10px] font-sans normal-case" style={{ color: OLD_ROSE }}>
+              Autre n°
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={customTalentIndex}
+                onChange={(e) => setCustomTalentIndex(e.target.value)}
+                placeholder="ex. 12"
+                className="w-20 rounded-lg border px-2 py-1 text-xs font-mono"
+                style={{ borderColor: OLD_ROSE, color: LICORICE }}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                const n = Number.parseInt(customTalentIndex.trim(), 10);
+                if (!Number.isFinite(n) || n < 1) return;
+                insertVariable(`{{talent_${n}}}`);
+              }}
+              className="text-xs px-2 py-1.5 rounded-lg border font-medium"
+              style={{ borderColor: OLD_ROSE, backgroundColor: OLD_LACE, color: LICORICE }}
+            >
+              Insérer {'{{talent_N}}'}
+            </button>
           </div>
         </div>
       )}
