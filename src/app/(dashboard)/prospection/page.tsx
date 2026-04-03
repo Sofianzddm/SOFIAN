@@ -68,13 +68,21 @@ export default function ProspectionListPage() {
       try {
         setLoading(true);
         const res = await fetch("/api/prospection", { credentials: "include" });
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error("Erreur de chargement");
+          const msg =
+            typeof data.error === "string" && data.error
+              ? data.error
+              : `Erreur ${res.status}`;
+          throw new Error(msg);
         }
-        const data = await res.json();
-        setFichiers(data.fichiers || []);
+        setFichiers(Array.isArray(data.fichiers) ? data.fichiers : []);
       } catch (e) {
-        setError("Impossible de charger les fichiers de prospection.");
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Impossible de charger les fichiers de prospection."
+        );
       } finally {
         setLoading(false);
       }

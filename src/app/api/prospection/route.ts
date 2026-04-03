@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 
-const SEE_ALL_PROSPECTION_ROLES = ["ADMIN", "HEAD_OF_INFLUENCE"] as const;
-
 export async function GET(request: NextRequest) {
   try {
     const session = await getAppSession(request);
@@ -11,17 +9,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    const role = (session.user.role || "") as string;
-    const userId = session.user.id;
-    // Aligné sur GET /api/prospection/[id] : les TM ne voient que leurs fichiers ;
-    // HEAD / admin voient toute l'équipe.
-    const where =
-      (SEE_ALL_PROSPECTION_ROLES as readonly string[]).includes(role)
-        ? {}
-        : { userId };
-
+    // Liste sans filtre userId : les TM retrouvent tous les fichiers visibles côté équipe ;
+    // l'accès à la fiche d'un fichier reste contrôlé par GET /api/prospection/[id].
     const fichiers = await prisma.fichierProspection.findMany({
-      where,
       include: {
         user: {
           select: {
