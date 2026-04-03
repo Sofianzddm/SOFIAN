@@ -9,9 +9,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
+    const role = (session.user.role || "") as string;
+    const globalProspectionView = role === "ADMIN" || role === "HEAD_OF_INFLUENCE";
+
     // Chargement sans include direct sur `user` : si un userId est orphelin (compte supprimé,
     // données migrées), un include Prisma peut faire échouer toute la liste — on charge les users à part.
     const fichiers = await prisma.fichierProspection.findMany({
+      where: globalProspectionView ? undefined : { userId: session.user.id },
       include: {
         _count: {
           select: { contacts: true },

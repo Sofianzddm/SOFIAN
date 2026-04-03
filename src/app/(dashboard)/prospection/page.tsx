@@ -48,7 +48,7 @@ function getProgressColor(percent: number) {
 }
 
 export default function ProspectionListPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [fichiers, setFichiers] = useState<FichierProspection[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -64,6 +64,13 @@ export default function ProspectionListPage() {
     role === "ADMIN" || role === "HEAD_OF_INFLUENCE";
 
   useEffect(() => {
+    if (status === "loading") return;
+    if (status === "unauthenticated") {
+      setLoading(false);
+      setFichiers([]);
+      return;
+    }
+
     const fetchData = async () => {
       try {
         setLoading(true);
@@ -88,7 +95,7 @@ export default function ProspectionListPage() {
       }
     };
     fetchData();
-  }, []);
+  }, [status]);
 
   const defaultTitre = useMemo(() => {
     const now = new Date();
