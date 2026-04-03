@@ -21,6 +21,39 @@ export interface AppSession {
 }
 
 /**
+ * Pour la prospection : l’id porté par le JWT peut ne plus correspondre à `users.id` en base
+ * (migration, compte recréé, seed différent local vs prod). On aligne sur l’email quand c’est sûr.
+ * Ne pas utiliser l’email quand on est en impersonation : le token garde souvent l’email admin.
+ */
+export async function resolveProspectionActor(session: AppSession): Promise<{
+  userId: string;
+  role: string;
+}> {
+  if (session.impersonating) {
+    return {
+      userId: session.user.id,
+      role: (session.user.role || "") as string,
+    };
+  }
+
+  const email = session.user.email?.trim().toLowerCase();
+  if (email) {
+    const row = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, role: true, actif: true },
+    });
+    if (row?.actif) {
+      return { userId: row.id, role: row.role as string };
+    }
+  }
+
+  return {
+    userId: session.user.id,
+    role: (session.user.role || "") as string,
+  };
+}
+
+/**
  * Session « effective » pour les Route Handlers.
  *
  * 1) getServerSession(authOptions) — même source que useSession() (cookies via next/headers).
@@ -49,6 +82,34 @@ async function applyImpersonateCookieToSession(
   request: NextRequest
 ): Promise<AppSession | null> {
   if (!session.user) return null;
+
+  const su = session.user as {
+    id: string;
+    role?: string;
+    email?: string | null;
+    name?: string | null;
+    adminId?: string;
+    adminName?: string;
+  };
+
+  // Impersonation JWT (voir auth.ts : adminId = admin réel, id = utilisateur efficace)
+  if (su.adminId && su.adminId !== su.id) {
+    return {
+      user: {
+        id: su.id,
+        name: su.name,
+        email: su.email,
+        role: su.role,
+      },
+      impersonating: true,
+      realUser: {
+        id: su.adminId,
+        name: su.adminName,
+        email: null,
+        role: "ADMIN",
+      },
+    };
+  }
 
   const impersonateUserId = request.cookies.get(IMPERSONATE_COOKIE)?.value?.trim();
   const isAdmin = (session.user as { role?: string }).role === "ADMIN";

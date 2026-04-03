@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAppSession } from "@/lib/getAppSession";
+import { getAppSession, resolveProspectionActor } from "@/lib/getAppSession";
 
 /** Jamais de cache CDN / data cache sur la liste (évite une liste vide figée en prod). */
 export const dynamic = "force-dynamic";
@@ -8,17 +8,18 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const session = await getAppSession(request);
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    const role = (session.user.role || "") as string;
-    const globalProspectionView = role === "ADMIN" || role === "HEAD_OF_INFLUENCE";
+    const actor = await resolveProspectionActor(session);
+    const globalProspectionView =
+      actor.role === "ADMIN" || actor.role === "HEAD_OF_INFLUENCE";
 
     // Chargement sans include direct sur `user` : si un userId est orphelin (compte supprimé,
     // données migrées), un include Prisma peut faire échouer toute la liste — on charge les users à part.
     const fichiers = await prisma.fichierProspection.findMany({
-      where: globalProspectionView ? undefined : { userId: session.user.id },
+      where: globalProspectionView ? undefined : { userId: actor.userId },
       include: {
         _count: {
           select: { contacts: true },
@@ -69,12 +70,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const session = await getAppSession(request);
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    const userId = session.user.id;
-    const role = (session.user.role || "") as string;
+    const actor = await resolveProspectionActor(session);
+    const userId = actor.userId;
+    const role = actor.role;
 
     if (!["ADMIN", "HEAD_OF_INFLUENCE", "TM"].includes(role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
