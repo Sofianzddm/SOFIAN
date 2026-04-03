@@ -67,7 +67,7 @@ export default function ProspectionListPage() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await fetch("/api/prospection");
+        const res = await fetch("/api/prospection", { credentials: "include" });
         if (!res.ok) {
           throw new Error("Erreur de chargement");
         }
