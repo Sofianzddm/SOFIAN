@@ -20,6 +20,13 @@ export interface AppSession {
   realUser?: AppSessionUser;
 }
 
+export type ProspectionActorResolution =
+  | "impersonating"
+  | "db_email"
+  | "db_email_realigned"
+  | "jwt_fallback_no_email"
+  | "jwt_fallback_user_missing_or_inactive";
+
 /**
  * Pour la prospection : l’id porté par le JWT peut ne plus correspondre à `users.id` en base
  * (migration, compte recréé, seed différent local vs prod). On aligne sur l’email quand c’est sûr.
@@ -28,11 +35,13 @@ export interface AppSession {
 export async function resolveProspectionActor(session: AppSession): Promise<{
   userId: string;
   role: string;
+  resolution: ProspectionActorResolution;
 }> {
   if (session.impersonating) {
     return {
       userId: session.user.id,
       role: (session.user.role || "") as string,
+      resolution: "impersonating",
     };
   }
 
@@ -43,13 +52,24 @@ export async function resolveProspectionActor(session: AppSession): Promise<{
       select: { id: true, role: true, actif: true },
     });
     if (row?.actif) {
-      return { userId: row.id, role: row.role as string };
+      return {
+        userId: row.id,
+        role: row.role as string,
+        resolution:
+          row.id !== session.user.id ? "db_email_realigned" : "db_email",
+      };
     }
+    return {
+      userId: session.user.id,
+      role: (session.user.role || "") as string,
+      resolution: "jwt_fallback_user_missing_or_inactive",
+    };
   }
 
   return {
     userId: session.user.id,
     role: (session.user.role || "") as string,
+    resolution: "jwt_fallback_no_email",
   };
 }
 
@@ -64,16 +84,27 @@ export async function getAppSession(request: NextRequest): Promise<AppSession | 
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) return null;
 
+  const debug = process.env.PROSPECTION_DEBUG === "1";
+
   const fromNextAuth = await getServerSession(authOptions);
   if (fromNextAuth?.user) {
+    if (debug) {
+      console.info("[prospection] getAppSession source=nextauth_server");
+    }
     return await applyImpersonateCookieToSession(fromNextAuth, request);
   }
 
   const token = await getTokenFromRequestFlexible(request, secret);
   if (token) {
+    if (debug) {
+      console.info("[prospection] getAppSession source=jwt_token");
+    }
     return buildSessionFromJwtPayload(token, request);
   }
 
+  if (debug) {
+    console.warn("[prospection] getAppSession source=none (401)");
+  }
   return null;
 }
 

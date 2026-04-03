@@ -32,6 +32,19 @@ export async function GET(request: NextRequest) {
       orderBy: { updatedAt: "desc" },
     });
 
+    console.info(
+      "[prospection-api] GET",
+      JSON.stringify({
+        fichiersCount: fichiers.length,
+        jwtUserId: session.user.id,
+        actorUserId: actor.userId,
+        role: actor.role,
+        resolution: actor.resolution,
+        globalProspectionView,
+        idsMatch: session.user.id === actor.userId,
+      })
+    );
+
     const userIds = [...new Set(fichiers.map((f) => f.userId))];
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
@@ -77,6 +90,16 @@ export async function POST(request: NextRequest) {
     const actor = await resolveProspectionActor(session);
     const userId = actor.userId;
     const role = actor.role;
+
+    console.info(
+      "[prospection-api] POST",
+      JSON.stringify({
+        jwtUserId: session.user.id,
+        actorUserId: actor.userId,
+        role: actor.role,
+        resolution: actor.resolution,
+      })
+    );
 
     if (!["ADMIN", "HEAD_OF_INFLUENCE", "TM"].includes(role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
