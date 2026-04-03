@@ -1,3 +1,4 @@
+import type { Session } from "next-auth";
 import { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getServerSession } from "next-auth";
@@ -20,95 +21,34 @@ export interface AppSession {
 }
 
 /**
- * Session « effective » pour les Route Handlers : on lit d'abord le JWT via la requête
- * (même mécanisme que le middleware), car getServerSession() sans req peut renvoyer null
- * dans certains contextes App Router / serverless.
+ * Session « effective » pour les Route Handlers.
  *
- * Impersonation : aligné sur auth.ts (impersonatedId / impersonatedRole dans le JWT) +
- * cookie httpOnly legacy pour l’admin avant mise à jour du token.
+ * 1) getServerSession(authOptions) — même source que useSession() (cookies via next/headers).
+ * 2) Si absent (cas rares serverless), getToken sur la requête + variantes __Secure- / cookie non préfixé.
+ * 3) Cookie httpOnly d’impersonation admin (fenêtre courte après POST /impersonate).
  */
 export async function getAppSession(request: NextRequest): Promise<AppSession | null> {
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) return null;
 
-  const token = await getToken({ req: request, secret });
-  if (token) {
-    const t = token as Record<string, unknown>;
-    const sub = String(t.sub ?? t.id ?? "");
-    if (!sub) {
-      return fallbackAppSessionFromGetServerSession(request);
-    }
-
-    const impersonateUserId = request.cookies.get(IMPERSONATE_COOKIE)?.value?.trim();
-    const jwtRole = t.role as string | undefined;
-
-    // Admin + cookie d’impersonation, JWT pas encore mis à jour (fenêtre courte après POST /impersonate)
-    if (
-      jwtRole === "ADMIN" &&
-      impersonateUserId &&
-      impersonateUserId !== sub &&
-      !t.impersonatedId
-    ) {
-      const targetUser = await prisma.user.findUnique({
-        where: { id: impersonateUserId, actif: true },
-        select: { id: true, prenom: true, nom: true, email: true, role: true },
-      });
-      if (targetUser) {
-        return {
-          user: {
-            id: targetUser.id,
-            name: `${targetUser.prenom} ${targetUser.nom}`.trim(),
-            email: targetUser.email,
-            role: targetUser.role,
-          },
-          impersonating: true,
-          realUser: {
-            id: sub,
-            name: (t.name as string) ?? undefined,
-            email: (t.email as string) ?? null,
-            role: jwtRole,
-          },
-        };
-      }
-    }
-
-    const effectiveId = String(t.impersonatedId ?? t.sub ?? t.id);
-    const effectiveRole = (t.impersonatedRole ?? t.role) as string | undefined;
-    const impersonatingJwt = Boolean(t.impersonatedId);
-
-    const base: AppSession = {
-      user: {
-        id: effectiveId,
-        name: (t.name as string) ?? undefined,
-        email: (t.email as string) ?? null,
-        role: effectiveRole,
-      },
-    };
-
-    if (impersonatingJwt) {
-      return {
-        ...base,
-        impersonating: true,
-        realUser: {
-          id: sub,
-          name: (t.adminName as string) ?? undefined,
-          email: (t.email as string) ?? null,
-          role: jwtRole,
-        },
-      };
-    }
-
-    return base;
+  const fromNextAuth = await getServerSession(authOptions);
+  if (fromNextAuth?.user) {
+    return await applyImpersonateCookieToSession(fromNextAuth, request);
   }
 
-  return fallbackAppSessionFromGetServerSession(request);
+  const token = await getTokenFromRequestFlexible(request, secret);
+  if (token) {
+    return buildSessionFromJwtPayload(token, request);
+  }
+
+  return null;
 }
 
-async function fallbackAppSessionFromGetServerSession(
+async function applyImpersonateCookieToSession(
+  session: Session,
   request: NextRequest
 ): Promise<AppSession | null> {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return null;
+  if (!session.user) return null;
 
   const impersonateUserId = request.cookies.get(IMPERSONATE_COOKIE)?.value?.trim();
   const isAdmin = (session.user as { role?: string }).role === "ADMIN";
@@ -124,6 +64,13 @@ async function fallbackAppSessionFromGetServerSession(
     };
   }
 
+  return loadImpersonatedUserOrFallback(session, impersonateUserId);
+}
+
+async function loadImpersonatedUserOrFallback(
+  session: Session,
+  impersonateUserId: string
+): Promise<AppSession> {
   const targetUser = await prisma.user.findUnique({
     where: { id: impersonateUserId, actif: true },
     select: { id: true, prenom: true, nom: true, email: true, role: true },
@@ -132,9 +79,9 @@ async function fallbackAppSessionFromGetServerSession(
   if (!targetUser) {
     return {
       user: {
-        id: session.user.id,
-        name: session.user.name,
-        email: session.user.email,
+        id: session.user!.id,
+        name: session.user!.name,
+        email: session.user!.email,
         role: (session.user as { role?: string }).role,
       },
     };
@@ -149,12 +96,97 @@ async function fallbackAppSessionFromGetServerSession(
     },
     impersonating: true,
     realUser: {
-      id: session.user.id,
-      name: session.user.name,
-      email: session.user.email,
+      id: session.user!.id,
+      name: session.user!.name,
+      email: session.user!.email,
       role: (session.user as { role?: string }).role,
     },
   };
+}
+
+async function getTokenFromRequestFlexible(
+  request: NextRequest,
+  secret: string
+): Promise<Record<string, unknown> | null> {
+  const attempts = [
+    () => getToken({ req: request, secret }),
+    () => getToken({ req: request, secret, secureCookie: true }),
+    () => getToken({ req: request, secret, secureCookie: false }),
+  ];
+
+  for (const run of attempts) {
+    const t = await run();
+    if (t) return t as Record<string, unknown>;
+  }
+  return null;
+}
+
+async function buildSessionFromJwtPayload(
+  token: Record<string, unknown>,
+  request: NextRequest
+): Promise<AppSession | null> {
+  const sub = String(token.sub ?? token.id ?? "");
+  if (!sub) return null;
+
+  const impersonateUserId = request.cookies.get(IMPERSONATE_COOKIE)?.value?.trim();
+  const jwtRole = token.role as string | undefined;
+
+  if (
+    jwtRole === "ADMIN" &&
+    impersonateUserId &&
+    impersonateUserId !== sub &&
+    !token.impersonatedId
+  ) {
+    const targetUser = await prisma.user.findUnique({
+      where: { id: impersonateUserId, actif: true },
+      select: { id: true, prenom: true, nom: true, email: true, role: true },
+    });
+    if (targetUser) {
+      return {
+        user: {
+          id: targetUser.id,
+          name: `${targetUser.prenom} ${targetUser.nom}`.trim(),
+          email: targetUser.email,
+          role: targetUser.role,
+        },
+        impersonating: true,
+        realUser: {
+          id: sub,
+          name: token.name as string | undefined,
+          email: token.email as string | null,
+          role: jwtRole,
+        },
+      };
+    }
+  }
+
+  const effectiveId = String(token.impersonatedId ?? token.sub ?? token.id);
+  const effectiveRole = (token.impersonatedRole ?? token.role) as string | undefined;
+  const impersonatingJwt = Boolean(token.impersonatedId);
+
+  const base: AppSession = {
+    user: {
+      id: effectiveId,
+      name: token.name as string | undefined,
+      email: token.email as string | null,
+      role: effectiveRole,
+    },
+  };
+
+  if (impersonatingJwt) {
+    return {
+      ...base,
+      impersonating: true,
+      realUser: {
+        id: sub,
+        name: token.adminName as string | undefined,
+        email: token.email as string | null,
+        role: jwtRole,
+      },
+    };
+  }
+
+  return base;
 }
 
 export function getImpersonateCookieName(): string {

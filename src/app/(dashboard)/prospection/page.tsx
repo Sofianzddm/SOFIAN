@@ -74,7 +74,10 @@ export default function ProspectionListPage() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await fetch("/api/prospection", { credentials: "include" });
+        const res = await fetch("/api/prospection", {
+          credentials: "include",
+          cache: "no-store",
+        });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const msg =
