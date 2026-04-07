@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
+import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 
 // Types
 type Lang = "fr" | "en";
@@ -731,7 +732,7 @@ export default function PressKitPage() {
                     <div className="absolute top-4 right-4 flex gap-2">
                       {talent.instagram && talent.followers > 0 && (
                         <a
-                          href={`https://instagram.com/${talent.instagram.replace('@', '')}`}
+                          href={getInstagramProfileUrl(talent.instagram) ?? "#"}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
@@ -953,7 +954,7 @@ export default function PressKitPage() {
                         </p>
                         {(talent.instagram || talent.tiktok) && (
                           <p className="text-[#F5EDE0]/50 text-sm font-switzer mt-1">
-                            @{talent.instagram?.replace('@', '') || talent.tiktok?.replace('@', '')}
+                            @{normalizeInstagramHandle(talent.instagram) || talent.tiktok?.replace('@', '')}
                           </p>
                         )}
                       </div>
@@ -977,7 +978,7 @@ export default function PressKitPage() {
                       <div className="absolute top-4 right-4 flex gap-2">
                         {talent.instagram && talent.stats?.igFollowers && (
                           <a
-                            href={`https://instagram.com/${talent.instagram.replace('@', '')}`}
+                            href={getInstagramProfileUrl(talent.instagram) ?? "#"}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
@@ -1206,7 +1207,7 @@ export default function PressKitPage() {
                       <div className="grid grid-cols-2 gap-2 md:gap-4 py-3 md:py-4 border-t border-[#220101]/15">
                         <div className="flex items-center gap-2 flex-wrap">
                           <a
-                            href={`https://instagram.com/${selectedTalent.instagram?.replace('@', '')}`}
+                            href={getInstagramProfileUrl(selectedTalent.instagram) ?? "#"}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="hover:scale-110 transition-transform"
@@ -1372,7 +1373,7 @@ export default function PressKitPage() {
                 {/* @ Handle */}
                 {(selectedFullTalent.instagram || selectedFullTalent.tiktok) && (
                   <p className="text-[#B06F70] text-sm md:text-base font-switzer mb-2">
-                    @{selectedFullTalent.instagram?.replace('@', '') || selectedFullTalent.tiktok?.replace('@', '')}
+                    @{normalizeInstagramHandle(selectedFullTalent.instagram) || selectedFullTalent.tiktok?.replace('@', '')}
                   </p>
                 )}
 
@@ -1419,7 +1420,7 @@ export default function PressKitPage() {
                       <div className="grid grid-cols-2 gap-2 md:gap-4 py-3 md:py-4 border-t border-[#220101]/15">
                         <div className="flex items-center gap-2 flex-wrap">
                           <a
-                            href={`https://instagram.com/${selectedFullTalent.instagram?.replace('@', '')}`}
+                            href={getInstagramProfileUrl(selectedFullTalent.instagram) ?? "#"}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="hover:scale-110 transition-transform"

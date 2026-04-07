@@ -1,3 +1,5 @@
+import { normalizeInstagramHandle } from "@/lib/social-links";
+
 /**
  * Formatage des abonnés pour le bloc email (ex: 280K, 1.4M)
  */
@@ -37,7 +39,7 @@ const INSTAGRAM_LINK_STYLE =
  * - Fallback : prénom si pas de handle
  */
 function formatNamePart(prenom: string, instagramHandle: string | null | undefined, format: BlocFormat): string {
-  const handle = instagramHandle?.replace(/^@/, "").trim() || null;
+  const handle = normalizeInstagramHandle(instagramHandle);
   if (format === "html") {
     if (handle) {
       const label = `@${handle}`;

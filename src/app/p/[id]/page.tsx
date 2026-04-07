@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { formatPercent } from "@/lib/format";
+import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
 function getVisitorId(): string {
@@ -286,7 +287,7 @@ function TalentCard({
           </p>
           {(talent.instagram || talent.tiktok) && (
             <p className="text-[#F5EDE0]/50 text-sm font-switzer mt-1">
-              @{talent.instagram?.replace('@', '') || talent.tiktok?.replace('@', '')}
+              @{normalizeInstagramHandle(talent.instagram) || talent.tiktok?.replace('@', '')}
             </p>
           )}
         </div>
@@ -308,7 +309,7 @@ function TalentCard({
         <div className="absolute top-4 right-4 flex gap-2">
           {talent.instagram && talent.stats?.igFollowers && (
             <a
-              href={`https://instagram.com/${talent.instagram.replace('@', '')}`}
+              href={getInstagramProfileUrl(talent.instagram) ?? "#"}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -352,7 +353,7 @@ function TalentCard({
             <div className="flex items-center justify-between py-2.5 px-3 bg-[#F5EDE0]/50 rounded-xl">
               <div className="flex items-center gap-2.5">
                 <a
-                  href={`https://instagram.com/${talent.instagram?.replace('@', '')}`}
+                  href={getInstagramProfileUrl(talent.instagram) ?? "#"}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
@@ -520,7 +521,7 @@ function TalentModal({
             {/* @ Handle */}
             {(talent.instagram || talent.tiktok) && (
               <p className="text-[#B06F70] text-sm md:text-base font-switzer mb-2">
-                @{talent.instagram?.replace('@', '') || talent.tiktok?.replace('@', '')}
+                @{normalizeInstagramHandle(talent.instagram) || talent.tiktok?.replace('@', '')}
               </p>
             )}
 
@@ -572,7 +573,7 @@ function TalentModal({
                   <div className="grid grid-cols-2 gap-2 md:gap-4 py-3 md:py-4 border-t border-[#220101]/15">
                     <div className="flex items-center gap-2 flex-wrap">
                       <a
-                        href={`https://instagram.com/${talent.instagram?.replace('@', '')}`}
+                        href={getInstagramProfileUrl(talent.instagram) ?? "#"}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="hover:scale-110 transition-transform"

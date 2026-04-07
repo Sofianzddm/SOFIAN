@@ -12,6 +12,14 @@ function isAllowed(role: string | undefined): boolean {
   return role !== undefined && (ALLOWED_ROLES as readonly string[]).includes(role);
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizedValue(v: string): string {
+  return (v || "").replace(/\s+/g, " ").trim();
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getAppSession(request);
@@ -124,19 +132,17 @@ export async function POST(request: NextRequest) {
     const HUBSPOT_API_KEY = process.env.HUBSPOT_API_KEY;
     const HUBSPOT_BASE_URL = "https://api.hubapi.com";
 
-    const getContactTokens = async (contactId: string): Promise<{
-      firstname: string;
-      lastname: string;
-      company: string;
-    }> => {
+    const getContactProperties = async (
+      contactId: string,
+      properties: string[]
+    ): Promise<Record<string, string>> => {
       if (!HUBSPOT_API_KEY) {
         throw new Error("HUBSPOT_API_KEY not configured");
       }
 
+      const query = properties.map((p) => `properties=${encodeURIComponent(p)}`).join("&");
       const res = await fetch(
-        `${HUBSPOT_BASE_URL}/crm/v3/objects/contacts/${encodeURIComponent(
-          contactId
-        )}?properties=firstname,lastname,company`,
+        `${HUBSPOT_BASE_URL}/crm/v3/objects/contacts/${encodeURIComponent(contactId)}?${query}`,
         {
           headers: {
             Authorization: `Bearer ${HUBSPOT_API_KEY}`,
@@ -155,7 +161,7 @@ export async function POST(request: NextRequest) {
         >;
       };
 
-      const properties = data.properties || {};
+      const rawProperties = data.properties || {};
       const getVal = (v: unknown): string => {
         if (typeof v === "string") return v;
         if (!v) return "";
@@ -166,20 +172,94 @@ export async function POST(request: NextRequest) {
         return "";
       };
 
+      const out: Record<string, string> = {};
+      for (const key of properties) {
+        out[key] = getVal(rawProperties[key]);
+      }
+      return out;
+    };
+
+    const getContactTokens = async (contactId: string): Promise<{
+      firstname: string;
+      lastname: string;
+      company: string;
+    }> => {
+      const properties = await getContactProperties(contactId, [
+        "firstname",
+        "lastname",
+        "company",
+      ]);
       return {
-        firstname: getVal(properties.firstname),
-        lastname: getVal(properties.lastname),
-        company: getVal(properties.company),
+        firstname: properties.firstname || "",
+        lastname: properties.lastname || "",
+        company: properties.company || "",
       };
     };
 
+    const getContactTokensWithRetry = async (
+      contactId: string,
+      maxAttempts = 3
+    ): Promise<{ firstname: string; lastname: string; company: string }> => {
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          return await getContactTokens(contactId);
+        } catch (e) {
+          lastError = e;
+          if (attempt < maxAttempts) {
+            await sleep(250 * attempt);
+          }
+        }
+      }
+      throw lastError instanceof Error
+        ? lastError
+        : new Error(`Impossible de charger le contact ${contactId}`);
+    };
+
+    const updateContactCastingEmailWithRetry = async (
+      contactId: string,
+      payload: { subject: string; body: string; status: CastingEmailStatus },
+      maxAttempts = 3
+    ): Promise<boolean> => {
+      const isVerified = async (): Promise<boolean> => {
+        const props = await getContactProperties(contactId, [
+          "casting_email_subject",
+          "casting_email_body",
+          "casting_status",
+        ]);
+        return (
+          normalizedValue(props.casting_email_subject || "") ===
+            normalizedValue(payload.subject) &&
+          normalizedValue(props.casting_status || "") ===
+            normalizedValue(payload.status) &&
+          normalizedValue(props.casting_email_body || "") === normalizedValue(payload.body)
+        );
+      };
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const ok = await updateContactCastingEmail(contactId, payload);
+        if (ok) {
+          try {
+            const verified = await isVerified();
+            if (verified) return true;
+          } catch {
+            // ignore et retenter
+          }
+        }
+        if (attempt < maxAttempts) {
+          await sleep(250 * attempt);
+        }
+      }
+      return false;
+    };
+
     for (const contactId of contactIds) {
-      const tokens = await getContactTokens(contactId);
+      const tokens = await getContactTokensWithRetry(contactId);
       const resolvedSubject = isReset ? "" : resolveTokens(subject, tokens);
       const resolvedBody = isReset ? "" : resolveTokens(emailBody, tokens);
       const hubspotBody = isReset ? "" : tiptapToHubspotHtml(resolvedBody);
 
-      const ok = await updateContactCastingEmail(contactId, {
+      const ok = await updateContactCastingEmailWithRetry(contactId, {
         subject: resolvedSubject,
         body: hubspotBody,
         status: (isReset ? "" : status) as CastingEmailStatus,

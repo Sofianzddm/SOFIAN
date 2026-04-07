@@ -16,6 +16,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { formatPercent } from "@/lib/format";
+import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
 function getVisitorId(): string {
@@ -379,7 +380,7 @@ function TalentCard({
           </p>
           {(talent.instagram || talent.tiktok) && (
             <p className="text-[#F5EDE0]/50 text-xs sm:text-sm font-switzer mt-0.5 sm:mt-1">
-              @{talent.instagram?.replace('@', '') || talent.tiktok?.replace('@', '')}
+              @{normalizeInstagramHandle(talent.instagram) || talent.tiktok?.replace('@', '')}
             </p>
           )}
         </div>
@@ -401,7 +402,7 @@ function TalentCard({
         <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 sm:gap-2">
           {talent.instagram && talent.stats?.igFollowers && (
             <a
-              href={`https://instagram.com/${talent.instagram.replace('@', '')}`}
+              href={getInstagramProfileUrl(talent.instagram) ?? "#"}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -445,7 +446,7 @@ function TalentCard({
             <div className="flex items-center justify-between py-2 px-2.5 sm:py-2.5 sm:px-3 bg-[#F5EDE0]/50 rounded-lg sm:rounded-xl">
               <div className="flex items-center gap-1.5 sm:gap-2.5">
                 <a
-                  href={`https://instagram.com/${talent.instagram?.replace('@', '')}`}
+                  href={getInstagramProfileUrl(talent.instagram) ?? "#"}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
@@ -692,7 +693,7 @@ function TalentModal({
                 </h2>
                 {(talent.instagram || talent.tiktok) && (
                   <p className="text-[#F5EDE0]/80 text-sm md:text-base font-switzer mb-2">
-                    @{talent.instagram?.replace('@', '') || talent.tiktok?.replace('@', '')}
+                    @{normalizeInstagramHandle(talent.instagram) || talent.tiktok?.replace('@', '')}
                   </p>
                 )}
                 {talent.niches.length > 0 && (
@@ -853,13 +854,13 @@ function TalentModal({
                       {/* Social Link */}
                       {talent.instagram && (
                         <a
-                          href={`https://instagram.com/${talent.instagram.replace('@', '')}`}
+                          href={getInstagramProfileUrl(talent.instagram) ?? "#"}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-pink-500 to-purple-600 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
                         >
                           <InstagramIcon className="w-5 h-5" />
-                          @{talent.instagram.replace('@', '')}
+                          @{normalizeInstagramHandle(talent.instagram)}
                           <ExternalLink className="w-4 h-4" />
                         </a>
                       )}

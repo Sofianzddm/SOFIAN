@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { formatPercent } from "@/lib/format";
+import { getInstagramProfileUrl } from "@/lib/social-links";
 
 // Helper pour générer un visitor ID anonyme
 function getVisitorId(): string {
@@ -267,7 +268,7 @@ function SelectionCard({
           <div className="flex flex-wrap gap-3">
             {talent.stats?.igFollowers && (
               <a
-                href={`https://instagram.com/${talent.instagram?.replace('@', '')}`}
+                href={getInstagramProfileUrl(talent.instagram) ?? "#"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 px-4 py-2 bg-[#F5EDE0] rounded-xl hover:bg-[#220101] hover:text-[#F5EDE0] transition-colors group"

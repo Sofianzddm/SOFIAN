@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { xaiResponse } from "@/lib/xai";
+import { getInstagramProfileUrl } from "@/lib/social-links";
 
 export const maxDuration = 120;
 
@@ -124,7 +125,7 @@ export async function POST(request: NextRequest) {
 
     const talentsString = body.talents
       .map((t) => {
-        const instagramUrl = t.instagram ? `https://instagram.com/${t.instagram}` : null;
+        const instagramUrl = getInstagramProfileUrl(t.instagram);
         const ig = typeof t.igFollowers === "number" ? t.igFollowers : 0;
         const tt = typeof t.ttFollowers === "number" ? t.ttFollowers : 0;
         const statsParts: string[] = [];

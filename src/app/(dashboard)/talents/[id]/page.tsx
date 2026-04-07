@@ -39,6 +39,7 @@ import {
   Send,
 } from "lucide-react";
 import { formatPercent } from "@/lib/format";
+import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 
 interface TalentDetail {
   id: string;
@@ -797,13 +798,13 @@ export default function TalentDetailPage() {
                   {/* Social Link */}
                   {talent.instagram && (
                     <a
-                      href={`https://instagram.com/${talent.instagram}`}
+                      href={getInstagramProfileUrl(talent.instagram) ?? "#"}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-pink-500 to-purple-600 text-white font-semibold rounded-2xl hover:shadow-lg hover:shadow-pink-500/30 transition-all hover:scale-105"
                     >
                       <Instagram className="w-5 h-5" />
-                      @{talent.instagram}
+                      @{normalizeInstagramHandle(talent.instagram)}
                       <ExternalLink className="w-4 h-4" />
                     </a>
                   )}

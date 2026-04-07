@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { fetchBrandData } from "@/lib/brandfetch";
 import { updateContactPresskitUrl } from "@/lib/hubspot";
 import { formatBlocTalents } from "@/lib/presskit-bloc";
+import { normalizeInstagramHandle } from "@/lib/social-links";
 
 type InputBrand = {
   companyName: string;
@@ -22,6 +23,31 @@ const STATUS = {
   COMPLETED: "COMPLETED",
   FAILED: "FAILED",
 } as const;
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function updateHubspotContactWithRetry(args: {
+  contactId: string;
+  presskitUrl: string;
+  blocTalents?: string;
+  maxAttempts?: number;
+}): Promise<boolean> {
+  const { contactId, presskitUrl, blocTalents, maxAttempts = 3 } = args;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const ok = await updateContactPresskitUrl(contactId, presskitUrl, blocTalents);
+    if (ok) return true;
+
+    if (attempt < maxAttempts) {
+      // Petit backoff pour lisser les erreurs transitoires/rate limit HubSpot.
+      await sleep(250 * attempt);
+    }
+  }
+
+  return false;
+}
 
 function toSlug(value: string): string {
   return value
@@ -192,7 +218,7 @@ async function processBrandForBatch(batchId: string, brandData: InputBrand) {
             return {
               prenom: t.prenom,
               pitch: pkt.pitch || "",
-              instagramHandle: t.instagram?.replace(/^@/, "").trim() || null,
+              instagramHandle: normalizeInstagramHandle(t.instagram),
               igFollowers: s?.igFollowers ?? 0,
               ttFollowers: s?.ttFollowers ?? 0,
               ytAbonnes: s?.ytAbonnes ?? 0,
@@ -211,12 +237,22 @@ async function processBrandForBatch(batchId: string, brandData: InputBrand) {
   });
 
   // 4) HubSpot contacts update
+  const failedHubspotContacts: string[] = [];
   for (const contact of contacts) {
     const presskitUrl = `https://app.glowupagence.fr/book/${slug}?cid=${contact.hubspotContactId}`;
-    await updateContactPresskitUrl(
-      contact.hubspotContactId,
+    const ok = await updateHubspotContactWithRetry({
+      contactId: contact.hubspotContactId,
       presskitUrl,
-      blocTalents ?? undefined
+      blocTalents: blocTalents ?? undefined,
+    });
+    if (!ok) {
+      failedHubspotContacts.push(contact.hubspotContactId);
+    }
+  }
+
+  if (failedHubspotContacts.length > 0) {
+    throw new Error(
+      `Échec de push HubSpot pour ${failedHubspotContacts.length} contact(s): ${failedHubspotContacts.join(", ")}`
     );
   }
 

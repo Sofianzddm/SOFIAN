@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
+import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 
 // Route publique: GET /api/partners/[id]/export
 // ATTENTION: le paramètre "id" est en réalité le slug du partenaire.
@@ -120,7 +121,8 @@ export async function GET(
     });
 
     talentsList.forEach((talent, index) => {
-      const handleIg = talent.instagram?.replace("@", "") || "";
+      const handleIg = normalizeInstagramHandle(talent.instagram) || "";
+      const instagramUrl = getInstagramProfileUrl(talent.instagram);
       const handleTt = talent.tiktok?.replace("@", "") || "";
       const row = talentsSheet.addRow({
         prenom: talent.prenom,
@@ -159,9 +161,9 @@ export async function GET(
       });
 
       // Liens cliquables Instagram et TikTok (après eachCell pour garder le style)
-      if (handleIg) {
+      if (handleIg && instagramUrl) {
         const cellIg = row.getCell("handleIg");
-        cellIg.value = { text: handleIg, hyperlink: `https://instagram.com/${handleIg}` };
+        cellIg.value = { text: handleIg, hyperlink: instagramUrl };
         cellIg.font = { name: "Arial", size: 10, color: { argb: "FFE4405F" }, underline: true };
       }
       if (handleTt) {

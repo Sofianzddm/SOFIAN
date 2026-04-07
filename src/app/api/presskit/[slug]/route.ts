@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { normalizeInstagramHandle } from "@/lib/social-links";
 
 /**
  * GET /api/presskit/[slug]
@@ -72,7 +73,7 @@ export async function GET(
         name: `${talent.prenom} ${talent.nom}`.trim(),
         prenom: talent.prenom,
         nom: talent.nom,
-        handle: talent.instagram?.replace('@', '') || talent.tiktok?.replace('@', '') || '',
+        handle: normalizeInstagramHandle(talent.instagram) || talent.tiktok?.replace('@', '') || '',
         photo: talent.photo,
         presentation: talent.presentation,
         presentationEn: talent.presentationEn,

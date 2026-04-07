@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import EmailComposer from "./EmailComposer";
+import { getInstagramProfileUrl } from "@/lib/social-links";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -622,7 +623,7 @@ export default function CastingComposer({
   const insertTalentLink = useCallback(
     (t: PresskitTalent) => {
       if (!editor) return;
-      const instagramUrl = t.instagram ? `https://instagram.com/${t.instagram}` : null;
+      const instagramUrl = getInstagramProfileUrl(t.instagram);
       if (instagramUrl) {
         editor.commands.insertContent(
           `<a href="${instagramUrl}" target="_blank">${t.prenom} ${t.nom}</a> `
