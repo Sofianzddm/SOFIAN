@@ -5,39 +5,15 @@ import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { GlowUpLogo } from "@/components/ui/logo";
 import {
-  LayoutDashboard,
   Handshake,
-  FileText,
-  User,
-  BarChart3,
   Heart,
 } from "lucide-react";
 
 const menuItems = [
   {
-    label: "Dashboard",
-    href: "/talent/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    label: "Mes Collaborations",
+    label: "Collaborations publiées",
     href: "/talent/collaborations",
     icon: Handshake,
-  },
-  {
-    label: "Mes Factures",
-    href: "/talent/factures",
-    icon: FileText,
-  },
-  {
-    label: "Mes Statistiques",
-    href: "/talent/stats",
-    icon: BarChart3,
-  },
-  {
-    label: "Mon Profil",
-    href: "/talent/profil",
-    icon: User,
   },
 ];
 
@@ -49,7 +25,7 @@ export function TalentSidebar() {
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
       {/* Logo */}
       <div className="h-16 flex items-center justify-center border-b border-gray-200 px-6">
-        <Link href="/talent/dashboard" className="flex items-center gap-2">
+        <Link href="/talent/collaborations" className="flex items-center gap-2">
           <GlowUpLogo className="h-8" />
         </Link>
       </div>

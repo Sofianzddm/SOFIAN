@@ -33,11 +33,8 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const STATUS_OPTIONS = [
-  { value: "all", label: "Tous" },
-  { value: "EN_COURS", label: "En cours" },
+  { value: "all", label: "Publiées" },
   { value: "PUBLIE", label: "Publié" },
-  { value: "FACTURE_RECUE", label: "Facture reçue" },
-  { value: "PAYE", label: "Payé" },
 ];
 
 export default function TalentCollaborationsPage() {
@@ -111,11 +108,7 @@ export default function TalentCollaborationsPage() {
 
   const getStatusConfig = (statut: string) => {
     const configs: Record<string, { label: string; className: string }> = {
-      EN_COURS: { label: "En cours", className: "bg-slate-100 text-slate-600" },
       PUBLIE: { label: "Publié", className: "bg-indigo-500/10 text-indigo-600" },
-      FACTURE_RECUE: { label: "Facture reçue", className: "bg-amber-500/10 text-amber-600" },
-      PAYE: { label: "Payé", className: "bg-emerald-500/10 text-emerald-600" },
-      NEGO: { label: "Négociation", className: "bg-amber-500/10 text-amber-600" },
     };
     return configs[statut] || { label: statut, className: "bg-slate-100 text-slate-600" };
   };
@@ -135,10 +128,10 @@ export default function TalentCollaborationsPage() {
       {/* Header minimal */}
       <div className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Collaborations
+          Collaborations publiées
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          {collaborations.length} collaboration{collaborations.length > 1 ? "s" : ""} au total
+          {collaborations.length} collaboration{collaborations.length > 1 ? "s" : ""} publiée{collaborations.length > 1 ? "s" : ""}
         </p>
       </div>
 
@@ -219,7 +212,7 @@ export default function TalentCollaborationsPage() {
           </div>
           <h3 className="text-base font-medium text-slate-900">Aucune collaboration</h3>
           <p className="mt-1 max-w-sm text-center text-sm text-slate-500">
-            Tes collaborations apparaîtront ici dès leur création par ton Talent Manager.
+            Tu verras ici uniquement les collaborations publiées pour envoyer ta facture.
           </p>
         </div>
       ) : (

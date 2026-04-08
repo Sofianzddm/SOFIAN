@@ -4,14 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
-  Handshake,
-  FileText,
-  Euro,
-  TrendingUp,
-  Clock,
-  CheckCircle2,
   AlertTriangle,
-  Calendar,
   Sparkles,
   Loader2,
 } from "lucide-react";
@@ -67,65 +60,6 @@ export default function TalentDashboardPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <Handshake className="w-5 h-5 text-blue-600" />
-            </div>
-          </div>
-          <p className="text-2xl font-bold text-glowup-licorice">{data?.stats?.totalCollabs || 0}</p>
-          <p className="text-sm text-gray-500">Collaborations totales</p>
-        </div>
-
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <div className="p-2 bg-yellow-50 rounded-lg">
-              <Clock className="w-5 h-5 text-yellow-600" />
-            </div>
-          </div>
-          <p className="text-2xl font-bold text-glowup-licorice">{data?.stats?.enCours || 0}</p>
-          <p className="text-sm text-gray-500">En cours</p>
-        </div>
-      </div>
-
-      {/* Collaborations en cours */}
-      {data?.collabsEnCours && data.collabsEnCours.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-lg font-bold text-glowup-licorice mb-4">
-            📸 Collaborations en cours
-          </h2>
-          <div className="space-y-3">
-            {data.collabsEnCours.map((collab: any) => (
-              <Link
-                key={collab.id}
-                href={`/talent/collaborations/${collab.id}`}
-                className="block p-4 border border-gray-200 rounded-xl hover:border-glowup-rose hover:bg-pink-50/50 transition-all"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold text-gray-900">{collab.marque}</p>
-                    <p className="text-sm text-gray-500">{collab.reference}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-emerald-600">
-                      {new Intl.NumberFormat("fr-FR", {
-                        style: "currency",
-                        currency: "EUR",
-                      }).format(collab.montant)}
-                    </p>
-                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                      {collab.statut}
-                    </span>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Factures en attente */}
       {data?.facturesAttente && data.facturesAttente.length > 0 && (
         <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-6">
@@ -168,35 +102,20 @@ export default function TalentDashboardPage() {
         </div>
       )}
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link
-          href="/talent/collaborations"
-          className="bg-white rounded-xl border border-gray-200 p-6 hover:border-glowup-rose hover:shadow-lg transition-all group"
-        >
-          <Handshake className="w-8 h-8 text-glowup-rose mb-3 group-hover:scale-110 transition-transform" />
-          <h3 className="font-semibold text-gray-900 mb-1">Mes Collaborations</h3>
-          <p className="text-sm text-gray-500">Voir toutes mes collaborations</p>
-        </Link>
-
-        <Link
-          href="/talent/factures"
-          className="bg-white rounded-xl border border-gray-200 p-6 hover:border-glowup-rose hover:shadow-lg transition-all group"
-        >
-          <FileText className="w-8 h-8 text-glowup-rose mb-3 group-hover:scale-110 transition-transform" />
-          <h3 className="font-semibold text-gray-900 mb-1">Mes Factures</h3>
-          <p className="text-sm text-gray-500">Consulter mes paiements</p>
-        </Link>
-
-        <Link
-          href="/talent/profil"
-          className="bg-white rounded-xl border border-gray-200 p-6 hover:border-glowup-rose hover:shadow-lg transition-all group"
-        >
-          <TrendingUp className="w-8 h-8 text-glowup-rose mb-3 group-hover:scale-110 transition-transform" />
-          <h3 className="font-semibold text-gray-900 mb-1">Mon Profil</h3>
-          <p className="text-sm text-gray-500">Voir mes statistiques</p>
-        </Link>
-      </div>
+      {(!data?.facturesAttente || data.facturesAttente.length === 0) && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <p className="text-sm text-gray-600">
+            Aucune facture en attente pour le moment. Tu peux consulter uniquement tes
+            collaborations publiées ici :
+          </p>
+          <Link
+            href="/talent/collaborations"
+            className="inline-flex mt-3 text-sm font-medium text-glowup-rose hover:underline"
+          >
+            Voir mes collaborations publiées
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

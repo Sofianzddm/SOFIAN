@@ -30,9 +30,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Aucun profil talent trouvé" }, { status: 404 });
     }
 
-    // Récupérer toutes les collaborations du talent
+    // Récupérer uniquement les collaborations publiées (flux facture talent)
     const collaborations = await prisma.collaboration.findMany({
-      where: { talentId: talent.id },
+      where: {
+        talentId: talent.id,
+        statut: "PUBLIE",
+      },
       include: {
         marque: {
           select: { 

@@ -30,9 +30,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Aucun profil talent trouvé" }, { status: 404 });
     }
 
-    // Récupérer les collaborations du talent
+    // Récupérer uniquement les collaborations publiées (focus facture talent)
     const collaborations = await prisma.collaboration.findMany({
-      where: { talentId: talent.id },
+      where: {
+        talentId: talent.id,
+        statut: "PUBLIE",
+      },
       include: {
         marque: {
           select: { nom: true },
@@ -44,14 +47,11 @@ export async function GET(request: NextRequest) {
     // Stats globales
     const stats = {
       totalCollabs: collaborations.length,
-      enCours: collaborations.filter(c => 
-        ["GAGNE", "EN_COURS"].includes(c.statut)
-      ).length,
+      enCours: collaborations.length,
     };
 
-    // Collabs en cours (GAGNE ou EN_COURS)
+    // Collabs publiées
     const collabsEnCours = collaborations
-      .filter(c => ["GAGNE", "EN_COURS"].includes(c.statut))
       .map(c => ({
         id: c.id,
         reference: c.reference,
@@ -60,9 +60,9 @@ export async function GET(request: NextRequest) {
         statut: c.statut,
       }));
 
-    // ⚠️ FACTURES EN ATTENTE : Collabs PUBLIEES sans facture uploadée
+    // ⚠️ FACTURES EN ATTENTE : collabs publiées sans facture uploadée
     const facturesAttente = collaborations
-      .filter(c => c.statut === "PUBLIE" && !c.factureTalentUrl)
+      .filter(c => !c.factureTalentUrl)
       .map(c => ({
         id: c.id,
         reference: c.reference,
