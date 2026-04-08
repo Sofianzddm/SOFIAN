@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   FileText,
   Search,
@@ -15,6 +16,8 @@ import {
 } from "lucide-react";
 
 export default function TalentFacturesPage() {
+  const searchParams = useSearchParams();
+  const isDemo = searchParams.get("demo") === "1";
   const [factures, setFactures] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -22,11 +25,12 @@ export default function TalentFacturesPage() {
 
   useEffect(() => {
     fetchFactures();
-  }, []);
+  }, [isDemo]);
 
   async function fetchFactures() {
     try {
-      const res = await fetch("/api/talents/me/factures");
+      const url = isDemo ? "/api/talents/me/factures?demo=1" : "/api/talents/me/factures";
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setFactures(data);
@@ -128,6 +132,11 @@ export default function TalentFacturesPage() {
           Mes Factures
         </h1>
         <p className="text-gray-600 mt-1">Suivi de tes paiements</p>
+        {isDemo && (
+          <p className="mt-2 inline-flex rounded-md bg-violet-100 px-2.5 py-1 text-xs font-medium text-violet-700">
+            Mode démo activé
+          </p>
+        )}
       </div>
 
       {/* Stats */}

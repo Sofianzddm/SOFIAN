@@ -59,6 +59,7 @@ export async function POST(
         mois: original.mois,
         annee: original.annee,
         userId: original.userId,
+        dossierId: canSeeAll ? original.dossierId : null,
       },
     });
 

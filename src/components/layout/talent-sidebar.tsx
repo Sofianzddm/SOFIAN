@@ -1,47 +1,62 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { GlowUpLogo } from "@/components/ui/logo";
 import {
+  LayoutDashboard,
   Handshake,
+  FileText,
   Heart,
 } from "lucide-react";
 
 const menuItems = [
   {
+    label: "Dashboard",
+    href: "/talent/dashboard",
+    icon: LayoutDashboard,
+  },
+  {
     label: "Collaborations publiées",
     href: "/talent/collaborations",
     icon: Handshake,
+  },
+  {
+    label: "Factures",
+    href: "/talent/factures",
+    icon: FileText,
   },
 ];
 
 export function TalentSidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
+  const isDemo = searchParams.get("demo") === "1" || pathname === "/talent/demo";
+  const withDemo = (href: string) => (isDemo ? `${href}?demo=1` : href);
 
   return (
-    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
+    <aside className="w-64 bg-white border-r border-[#F5EDE0] flex flex-col">
       {/* Logo */}
-      <div className="h-16 flex items-center justify-center border-b border-gray-200 px-6">
-        <Link href="/talent/collaborations" className="flex items-center gap-2">
+      <div className="h-16 flex items-center justify-center border-b border-[#F5EDE0] px-6">
+        <Link href={withDemo("/talent/dashboard")} className="flex items-center gap-2">
           <GlowUpLogo className="h-8" />
         </Link>
       </div>
 
       {/* User Badge */}
-      <div className="p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-[#F5EDE0]">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-glowup-rose to-purple-600 flex items-center justify-center text-white font-bold text-lg">
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#220101] to-[#B06F70] flex items-center justify-center text-white font-bold text-lg">
             {session?.user?.name?.charAt(0) || "T"}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-glowup-licorice truncate">
+            <p className="text-sm font-semibold text-[#220101] truncate">
               {session?.user?.name}
             </p>
             <div className="flex items-center gap-1 text-xs text-gray-500">
-              <Heart className="w-3 h-3 fill-glowup-rose text-glowup-rose" />
+              <Heart className="w-3 h-3 fill-[#B06F70] text-[#B06F70]" />
               <span>Talent</span>
             </div>
           </div>
@@ -57,11 +72,11 @@ export function TalentSidebar() {
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={withDemo(item.href)}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 isActive
-                  ? "bg-gradient-to-r from-glowup-rose to-purple-600 text-white shadow-lg shadow-pink-200"
-                  : "text-gray-600 hover:bg-glowup-rose/10 hover:text-glowup-rose"
+                  ? "bg-[#220101] text-[#F5EDE0] shadow-sm"
+                  : "text-[#220101]/70 hover:bg-[#F5EDE0] hover:text-[#220101]"
               }`}
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
@@ -72,9 +87,9 @@ export function TalentSidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-gray-200">
-        <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-xl p-4">
-          <p className="text-xs font-semibold text-glowup-licorice mb-1">
+      <div className="p-4 border-t border-[#F5EDE0]">
+        <div className="bg-gradient-to-br from-[#F5EDE0] to-[#efe0d2] rounded-xl p-4">
+          <p className="text-xs font-semibold text-[#220101] mb-1">
             💡 Besoin d'aide ?
           </p>
           <p className="text-xs text-gray-600 mb-2">
@@ -82,7 +97,7 @@ export function TalentSidebar() {
           </p>
           <a
             href="mailto:contact@glowupagence.fr"
-            className="text-xs text-glowup-rose hover:underline font-medium"
+            className="text-xs text-[#220101] hover:underline font-medium"
           >
             contact@glowupagence.fr
           </a>

@@ -12,16 +12,15 @@ export async function GET(request: NextRequest) {
   try {
     const forceDemo = request.nextUrl.searchParams.get("demo") === "1";
     const envDemo = process.env.TALENT_PORTAL_DEMO === "1";
-    if (forceDemo || envDemo) {
-      return NextResponse.json(getTalentDemoPublishedCollaborations());
-    }
-
     const session = await getServerSession(authOptions);
-    
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
     }
 
+    if (forceDemo || envDemo) {
+      return NextResponse.json(getTalentDemoPublishedCollaborations());
+    }
+    
     // Vérifier que l'utilisateur est bien un TALENT
     if (session.user.role !== "TALENT") {
       return NextResponse.json({ error: "Accès réservé aux talents" }, { status: 403 });

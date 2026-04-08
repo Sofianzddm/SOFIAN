@@ -42,6 +42,7 @@ export default function TalentCollaborationsPage() {
   const searchParams = useSearchParams();
   const isDemo = searchParams.get("demo") === "1";
   const [collaborations, setCollaborations] = useState<any[]>([]);
+  const [isDemoFallback, setIsDemoFallback] = useState(false);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -61,11 +62,31 @@ export default function TalentCollaborationsPage() {
 
   async function fetchCollaborations() {
     try {
-      const url = isDemo
-        ? "/api/talents/me/collaborations?demo=1"
-        : "/api/talents/me/collaborations";
-      const res = await fetch(url);
-      if (res.ok) setCollaborations(await res.json());
+      if (isDemo) {
+        const res = await fetch("/api/talents/me/collaborations?demo=1");
+        if (res.ok) {
+          setCollaborations(await res.json());
+          setIsDemoFallback(true);
+        }
+        return;
+      }
+
+      const res = await fetch("/api/talents/me/collaborations");
+      if (res.ok) {
+        const realData = await res.json();
+        if (Array.isArray(realData) && realData.length > 0) {
+          setCollaborations(realData);
+          setIsDemoFallback(false);
+          return;
+        }
+      }
+
+      // Fallback démo automatique si aucun résultat réel
+      const demoRes = await fetch("/api/talents/me/collaborations?demo=1");
+      if (demoRes.ok) {
+        setCollaborations(await demoRes.json());
+        setIsDemoFallback(true);
+      }
     } catch (error) {
       console.error("Erreur:", error);
     } finally {
@@ -139,7 +160,7 @@ export default function TalentCollaborationsPage() {
         <p className="mt-1 text-sm text-slate-500">
           {collaborations.length} collaboration{collaborations.length > 1 ? "s" : ""} publiée{collaborations.length > 1 ? "s" : ""}
         </p>
-        {isDemo && (
+        {(isDemo || isDemoFallback) && (
           <p className="mt-2 inline-flex rounded-md bg-violet-100 px-2.5 py-1 text-xs font-medium text-violet-700">
             Mode démo activé
           </p>
@@ -362,13 +383,15 @@ export default function TalentCollaborationsPage() {
                         </div>
                         <button
                           onClick={() => {
-                            if (isDemo) return;
+                            if (isDemo || isDemoFallback) return;
                             setUploadingCollabId(collab.id);
                           }}
-                          disabled={isDemo}
+                          disabled={isDemo || isDemoFallback}
                           className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                          {isDemo ? "Upload désactivé (démo)" : "Envoyer ma facture"}
+                          {isDemo || isDemoFallback
+                            ? "Upload désactivé (démo)"
+                            : "Envoyer ma facture"}
                         </button>
                       </div>
                     )}

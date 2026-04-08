@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { getTalentDemoPublishedCollaborations } from "@/lib/talent-demo";
 
 /**
  * GET /api/talents/me/factures
@@ -14,6 +15,26 @@ export async function GET(request: NextRequest) {
 
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    }
+
+    const forceDemo = request.nextUrl.searchParams.get("demo") === "1";
+    const envDemo = process.env.TALENT_PORTAL_DEMO === "1";
+    if (forceDemo || envDemo) {
+      const collaborations = getTalentDemoPublishedCollaborations();
+      const formatted = collaborations.map((collab) => ({
+        id: collab.id,
+        reference: `Facture ${collab.marque}`.trim(),
+        marque: collab.marque,
+        dateEmission: collab.factureTalentRecueAt || collab.datePublication || collab.createdAt,
+        montant: collab.montant,
+        statut: collab.paidAt
+          ? "PAYE"
+          : collab.factureTalentUrl
+          ? "FACTURE_RECUE"
+          : "EN_ATTENTE",
+        pdfUrl: collab.factureTalentUrl || null,
+      }));
+      return NextResponse.json(formatted);
     }
 
     if (session.user.role !== "TALENT") {

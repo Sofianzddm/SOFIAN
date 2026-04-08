@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAppSession } from "@/lib/getAppSession";
+import { getAppSession, resolveProspectionActor } from "@/lib/getAppSession";
+import { findDossierProspectionById } from "@/lib/prospectionDossiersDb";
 
 const ADMIN_ROLES = ["ADMIN", "HEAD_OF_INFLUENCE"] as const;
 
 async function getSessionAndFichier(request: NextRequest, id: string) {
   const session = await getAppSession(request);
-  if (!session?.user) {
+  if (!session?.user?.id) {
     return { error: NextResponse.json({ error: "Non autorisé" }, { status: 401 }) };
   }
 
-  const userId = session.user.id;
-  const role = (session.user.role || "") as string;
+  const actor = await resolveProspectionActor(session);
+  const userId = actor.userId;
+  const role = actor.role;
 
   const fichier = await prisma.fichierProspection.findUnique({
     where: { id },
@@ -95,7 +97,8 @@ export async function PATCH(
     const result = await getSessionAndFichier(request, id);
     if ("error" in result) return result.error;
 
-    const { role } = result;
+    const { role, fichier } = result;
+    const canManageDossiers = role === "ADMIN" || role === "HEAD_OF_INFLUENCE";
 
     // HEAD_OF_INFLUENCE & ADMIN peuvent modifier tous les fichiers
     if (!["ADMIN", "HEAD_OF_INFLUENCE", "TM"].includes(role)) {
@@ -103,16 +106,58 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { titre } = body as { titre?: string };
-    const finalTitre = (titre || "").trim();
+    const { titre, dossierId: dossierIdRaw } = body as {
+      titre?: string;
+      dossierId?: string | null;
+    };
 
-    if (!finalTitre) {
-      return NextResponse.json({ error: "Titre requis" }, { status: 400 });
+    if (dossierIdRaw !== undefined && !canManageDossiers) {
+      return NextResponse.json(
+        { error: "Seuls les administrateurs peuvent gérer les dossiers" },
+        { status: 403 }
+      );
+    }
+
+    const data: { titre?: string; dossierId?: string | null } = {};
+
+    if (titre !== undefined) {
+      const finalTitre = (titre || "").trim();
+      if (!finalTitre) {
+        return NextResponse.json({ error: "Titre requis" }, { status: 400 });
+      }
+      data.titre = finalTitre;
+    }
+
+    if (dossierIdRaw !== undefined) {
+      if (dossierIdRaw === null || dossierIdRaw === "") {
+        data.dossierId = null;
+      } else {
+        const d = await findDossierProspectionById(
+          String(dossierIdRaw).trim()
+        );
+        if (!d) {
+          return NextResponse.json({ error: "Dossier introuvable" }, { status: 404 });
+        }
+        if (d.userId !== fichier.userId) {
+          return NextResponse.json(
+            { error: "Ce dossier ne correspond pas au propriétaire du fichier" },
+            { status: 403 }
+          );
+        }
+        data.dossierId = d.id;
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json(
+        { error: "Indiquez un titre ou un dossier" },
+        { status: 400 }
+      );
     }
 
     const updated = await prisma.fichierProspection.update({
       where: { id },
-      data: { titre: finalTitre },
+      data,
     });
 
     return NextResponse.json({
