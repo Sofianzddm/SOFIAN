@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Search,
   Calendar,
@@ -38,6 +39,8 @@ const STATUS_OPTIONS = [
 ];
 
 export default function TalentCollaborationsPage() {
+  const searchParams = useSearchParams();
+  const isDemo = searchParams.get("demo") === "1";
   const [collaborations, setCollaborations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -54,11 +57,14 @@ export default function TalentCollaborationsPage() {
 
   useEffect(() => {
     fetchCollaborations();
-  }, []);
+  }, [isDemo]);
 
   async function fetchCollaborations() {
     try {
-      const res = await fetch("/api/talents/me/collaborations");
+      const url = isDemo
+        ? "/api/talents/me/collaborations?demo=1"
+        : "/api/talents/me/collaborations";
+      const res = await fetch(url);
       if (res.ok) setCollaborations(await res.json());
     } catch (error) {
       console.error("Erreur:", error);
@@ -133,6 +139,11 @@ export default function TalentCollaborationsPage() {
         <p className="mt-1 text-sm text-slate-500">
           {collaborations.length} collaboration{collaborations.length > 1 ? "s" : ""} publiée{collaborations.length > 1 ? "s" : ""}
         </p>
+        {isDemo && (
+          <p className="mt-2 inline-flex rounded-md bg-violet-100 px-2.5 py-1 text-xs font-medium text-violet-700">
+            Mode démo activé
+          </p>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -217,22 +228,40 @@ export default function TalentCollaborationsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {sortedCollabs.map((collab) => {
+          {sortedCollabs.map((collab, idx) => {
             const status = getStatusConfig(collab.statut);
             const needsInvoice = collab.statut === "PUBLIE" && !collab.factureTalentUrl;
             const isExpanded = expandedCollab === collab.id;
+            const currentDate = new Date(collab.datePublication || collab.createdAt);
+            const currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
+            const prev = sortedCollabs[idx - 1];
+            const prevDate = prev ? new Date(prev.datePublication || prev.createdAt) : null;
+            const prevMonthKey = prevDate
+              ? `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`
+              : null;
+            const showMonthHeader = idx === 0 || currentMonthKey !== prevMonthKey;
 
             return (
-              <div
-                key={collab.id}
-                className={`group overflow-hidden rounded-xl bg-white ring-1 ring-slate-200/60 transition-all duration-200 hover:ring-slate-300 ${
-                  needsInvoice ? "ring-amber-200" : ""
-                }`}
-              >
+              <div key={collab.id}>
+                {showMonthHeader && (
+                  <div className="mb-2 mt-4">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {currentDate.toLocaleDateString("fr-FR", {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </h2>
+                  </div>
+                )}
                 <div
-                  className="flex cursor-pointer flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"
-                  onClick={() => setExpandedCollab(isExpanded ? null : collab.id)}
+                  className={`group overflow-hidden rounded-xl bg-white ring-1 ring-slate-200/60 transition-all duration-200 hover:ring-slate-300 ${
+                    needsInvoice ? "ring-amber-200" : ""
+                  }`}
                 >
+                  <div
+                    className="flex cursor-pointer flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"
+                    onClick={() => setExpandedCollab(isExpanded ? null : collab.id)}
+                  >
                   <div className="flex min-w-0 gap-4">
                     <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 group-hover:bg-slate-100">
                       <Building2 className="h-5 w-5 text-slate-500" />
@@ -271,11 +300,11 @@ export default function TalentCollaborationsPage() {
                       }`}
                     />
                   </div>
-                </div>
+                  </div>
 
-                {/* Section dépliée */}
-                {isExpanded && (
-                  <div className="border-t border-slate-100 bg-slate-50/30 px-5 py-4">
+                  {/* Section dépliée */}
+                  {isExpanded && (
+                    <div className="border-t border-slate-100 bg-slate-50/30 px-5 py-4">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex flex-wrap gap-3">
                         {collab.lienPublication && (
@@ -332,10 +361,14 @@ export default function TalentCollaborationsPage() {
                           </div>
                         </div>
                         <button
-                          onClick={() => setUploadingCollabId(collab.id)}
-                          className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-600"
+                          onClick={() => {
+                            if (isDemo) return;
+                            setUploadingCollabId(collab.id);
+                          }}
+                          disabled={isDemo}
+                          className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                          Envoyer ma facture
+                          {isDemo ? "Upload désactivé (démo)" : "Envoyer ma facture"}
                         </button>
                       </div>
                     )}
@@ -384,8 +417,9 @@ export default function TalentCollaborationsPage() {
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -11,16 +12,19 @@ import {
 
 export default function TalentDashboardPage() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const isDemo = searchParams.get("demo") === "1";
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [isDemo]);
 
   async function fetchData() {
     try {
-      const res = await fetch("/api/talents/me/dashboard");
+      const url = isDemo ? "/api/talents/me/dashboard?demo=1" : "/api/talents/me/dashboard";
+      const res = await fetch(url);
       if (res.ok) {
         setData(await res.json());
       }
@@ -57,6 +61,11 @@ export default function TalentDashboardPage() {
             Salut {session?.user?.name?.split(" ")[0]} ! 👋
           </h1>
           <p className="text-white/80 mt-2">Bienvenue sur ton espace talent Glow Up</p>
+          {isDemo && (
+            <p className="mt-3 inline-flex rounded-md bg-white/20 px-2.5 py-1 text-xs font-medium">
+              Version démo
+            </p>
+          )}
         </div>
       </div>
 
@@ -76,7 +85,7 @@ export default function TalentDashboardPage() {
             {data.facturesAttente.map((collab: any) => (
               <Link
                 key={collab.id}
-                href={`/talent/collaborations/${collab.id}`}
+                href={isDemo ? "/talent/collaborations?demo=1" : `/talent/collaborations/${collab.id}`}
                 className="block p-3 bg-white rounded-lg hover:shadow-md transition-all"
               >
                 <div className="flex items-center justify-between">
@@ -109,7 +118,7 @@ export default function TalentDashboardPage() {
             collaborations publiées ici :
           </p>
           <Link
-            href="/talent/collaborations"
+            href={isDemo ? "/talent/collaborations?demo=1" : "/talent/collaborations"}
             className="inline-flex mt-3 text-sm font-medium text-glowup-rose hover:underline"
           >
             Voir mes collaborations publiées

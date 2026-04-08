@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { getTalentDemoPublishedCollaborations } from "@/lib/talent-demo";
 
 /**
  * GET /api/talents/me/dashboard
@@ -9,6 +10,34 @@ import prisma from "@/lib/prisma";
  */
 export async function GET(request: NextRequest) {
   try {
+    const forceDemo = request.nextUrl.searchParams.get("demo") === "1";
+    const envDemo = process.env.TALENT_PORTAL_DEMO === "1";
+    if (forceDemo || envDemo) {
+      const collaborations = getTalentDemoPublishedCollaborations();
+      return NextResponse.json({
+        stats: {
+          totalCollabs: collaborations.length,
+          enCours: collaborations.length,
+        },
+        collabsEnCours: collaborations.map((c) => ({
+          id: c.id,
+          reference: c.reference,
+          marque: c.marque,
+          montant: c.montant,
+          statut: c.statut,
+        })),
+        facturesAttente: collaborations
+          .filter((c) => !c.factureTalentUrl)
+          .map((c) => ({
+            id: c.id,
+            reference: c.reference,
+            marque: c.marque,
+            montant: c.montant,
+            datePublication: c.datePublication,
+          })),
+      });
+    }
+
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.id) {
