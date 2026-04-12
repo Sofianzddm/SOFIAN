@@ -1363,7 +1363,7 @@ export function StrategyVillaCannesClient() {
           onClick={() => setSelectedPipelineOpp(null)}
         >
           <div
-            className="w-full max-w-2xl rounded-xl border border-gray-200 bg-white p-5 space-y-4"
+            className="w-full max-w-2xl max-h-[min(92vh,880px)] overflow-y-auto overscroll-contain rounded-xl border border-gray-200 bg-white p-5 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
@@ -1421,22 +1421,27 @@ export function StrategyVillaCannesClient() {
             </div>
 
             <div className="rounded-lg border border-gray-200 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm font-medium">Modifier les talents</p>
+              <div className="mb-2 flex items-center justify-between gap-3 pr-1">
+                <p className="text-sm font-medium text-[#220101]">Modifier les talents</p>
                 <button
-                  className="text-xs font-medium text-glowup-rose"
+                  type="button"
+                  className="shrink-0 text-xs font-medium text-[#B06F70] hover:underline"
                   onClick={savePipelineTalents}
                 >
                   Enregistrer
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-auto">
+              <div
+                className="max-h-[min(50vh,28rem)] overflow-y-auto overscroll-y-contain rounded-lg border border-[#F5EDE0] bg-[#F5EDE0]/40 p-2 pr-3 pb-3 [scrollbar-gutter:stable]"
+                role="list"
+              >
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2 md:gap-2">
                 {talentOptions.map((t) => {
                   const checked = selectedPipelineTalentIds.includes(t.id);
                   return (
                     <label
                       key={t.id}
-                      className="flex items-center gap-2 rounded-lg border border-gray-100 px-2 py-1.5 hover:bg-gray-50"
+                      className="flex min-h-[2.5rem] items-center gap-2 rounded-lg border border-gray-100 bg-white px-2 py-1.5 hover:bg-gray-50"
                     >
                       <input
                         type="checkbox"
@@ -1460,6 +1465,7 @@ export function StrategyVillaCannesClient() {
                     </label>
                   );
                 })}
+                </div>
               </div>
             </div>
 
