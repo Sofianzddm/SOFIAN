@@ -33,6 +33,8 @@ export type Talent = {
 export interface EmailComposerProps {
   subject: string;
   onSubjectChange: (v: string) => void;
+  language: "fr" | "en";
+  onLanguageChange: (v: "fr" | "en") => void;
   brandName: string;
   brandResearch: BrandResearch | null;
   onBrandResearch: () => void;
@@ -46,6 +48,8 @@ export interface EmailComposerProps {
 export default function EmailComposer({
   subject,
   onSubjectChange,
+  language,
+  onLanguageChange,
   brandName,
   brandResearch,
   onBrandResearch,
@@ -83,6 +87,7 @@ export default function EmailComposer({
     const key = `email-composer-draft:${brandName || "default"}`;
     const id = window.setTimeout(() => {
       const payload = {
+        language,
         subject,
         body: editor?.getHTML() || "",
         at: Date.now(),
@@ -90,7 +95,7 @@ export default function EmailComposer({
       window.localStorage.setItem(key, JSON.stringify(payload));
     }, 500);
     return () => window.clearTimeout(id);
-  }, [subject, brandName, editor, bodyTick]);
+  }, [subject, language, brandName, editor, bodyTick]);
 
   const insertVariable = (token: string) => {
     if (lastField === "subject") {
@@ -184,20 +189,36 @@ export default function EmailComposer({
       </div>
 
       {previewMode === "edit" && (
-        <div>
-          <label className="block text-xs font-medium mb-1" style={{ color: LICORICE }}>
-            Objet de l'email <span className="text-red-500">*</span>
-          </label>
-          <input
-            ref={subjectInputRef}
-            type="text"
-            value={subject}
-            onChange={(e) => onSubjectChange(e.target.value)}
-            onFocus={() => setLastField("subject")}
-            className="w-full rounded-xl border px-3 py-2 text-sm focus:ring-2 focus:ring-offset-0"
-            style={{ borderColor: OLD_ROSE, color: LICORICE }}
-            placeholder="Objet..."
-          />
+        <div className="space-y-3">
+          <div className="w-full sm:w-44">
+            <label className="block text-xs font-medium mb-1" style={{ color: LICORICE }}>
+              Langue de rédaction
+            </label>
+            <select
+              value={language}
+              onChange={(e) => onLanguageChange(e.target.value === "en" ? "en" : "fr")}
+              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              style={{ borderColor: OLD_ROSE, color: LICORICE }}
+            >
+              <option value="fr">Français</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1" style={{ color: LICORICE }}>
+              Objet de l'email <span className="text-red-500">*</span>
+            </label>
+            <input
+              ref={subjectInputRef}
+              type="text"
+              value={subject}
+              onChange={(e) => onSubjectChange(e.target.value)}
+              onFocus={() => setLastField("subject")}
+              className="w-full rounded-xl border px-3 py-2 text-sm focus:ring-2 focus:ring-offset-0"
+              style={{ borderColor: OLD_ROSE, color: LICORICE }}
+              placeholder="Objet..."
+            />
+          </div>
         </div>
       )}
 

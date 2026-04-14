@@ -219,6 +219,7 @@ export default function CastingComposer({
   const [brandResearch, setBrandResearch] = useState<BrandResearchState | null>(null);
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
 
   type TalentDetailPreview = {
     id: string;
@@ -414,6 +415,7 @@ export default function CastingComposer({
     setPreviewMode("edit");
     setLastField("body");
     setBrandResearch(null);
+    setEmailLanguage("fr");
 
     if (hasHubspotDraft) {
       setSubject(sub);
@@ -519,6 +521,7 @@ export default function CastingComposer({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          language: emailLanguage,
           brandName: contact.company,
           brandResearch,
           talents: talentsPayload,
@@ -543,7 +546,7 @@ export default function CastingComposer({
     } finally {
       setIsGenerating(false);
     }
-  }, [contact, brandResearch, selectedTalents, editor, onError, onSuccess]);
+  }, [contact, brandResearch, selectedTalents, emailLanguage, editor, onError, onSuccess]);
 
   const previewSubjectResolved = useMemo(() => {
     if (!contact || !previewRecipient) return "";
@@ -936,6 +939,8 @@ export default function CastingComposer({
               <EmailComposer
                 subject={subject}
                 onSubjectChange={setSubject}
+                language={emailLanguage}
+                onLanguageChange={setEmailLanguage}
                 brandName={brandTitle}
                 brandResearch={brandResearch}
                 onBrandResearch={runBrandResearch}
