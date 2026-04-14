@@ -246,6 +246,7 @@ export default function DemandeModal({
   onSuccess: (msg: string) => void;
 }) {
   const [subject, setSubject] = useState("");
+  const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
   const [saving, setSaving] = useState(false);
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -349,6 +350,7 @@ export default function DemandeModal({
   useEffect(() => {
     if (!open || !demande) return;
     setSubject(demande.sujetPret || "");
+    setEmailLanguage("fr");
     editor?.commands.setContent(demande.emailPret || "<p></p>");
     setBriefAnalysis(null);
     setSelectedIds(new Set());
@@ -494,6 +496,7 @@ export default function DemandeModal({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          language: emailLanguage,
           brandName,
           brandResearch: briefAsBrandResearch,
           talents: selectedTalentsRaw.map((t) => {
@@ -758,6 +761,8 @@ export default function DemandeModal({
             <EmailComposer
               subject={subject}
               onSubjectChange={setSubject}
+              language={emailLanguage}
+              onLanguageChange={setEmailLanguage}
               brandName={brandName}
               brandResearch={briefAsBrandResearch}
               onBrandResearch={runBrandResearch}
