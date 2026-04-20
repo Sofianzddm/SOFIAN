@@ -195,6 +195,30 @@ enum TypeNotification {
   CONTRAT_MARQUE_MODIFICATIONS
 }
 
+enum DinnerCampaignStatus {
+  DRAFT
+  IN_REVIEW
+  FINALIZED
+}
+
+enum DinnerCandidateSource {
+  PLANNER
+  CLIENT
+}
+
+enum DinnerCandidateStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+enum DinnerEventType {
+  CREATED
+  MOVED
+  COMMENT_ADDED
+  EDITED
+}
+
 // ============================================
 // USERS
 // ============================================
@@ -250,6 +274,11 @@ model User {
 
   contratMarqueAnnotations     ContratMarqueAnnotation[]
   contratMarqueCommentairesAuteur ContratMarqueCommentaire[] @relation("ContratMarqueCommentaireAuteur")
+  dinnerCampaignsCreated DinnerCampaign[] @relation("DinnerCampaignCreatedBy")
+  dinnerCandidatesCreated DinnerCreatorCandidate[] @relation("DinnerCandidateCreatedBy")
+  dinnerCandidatesUpdated DinnerCreatorCandidate[] @relation("DinnerCandidateUpdatedBy")
+  dinnerEvents DinnerCandidateEvent[]
+  dinnerComments DinnerCandidateComment[]
 
   @@map("users")
 }
@@ -342,6 +371,7 @@ model Talent {
   delegations DelegationTM[]
   delegationActivites DelegationActivite[]
   participantsVilla ParticipantVilla[]
+  dinnerCandidates DinnerCreatorCandidate[]
   
   @@map("talents")
 }
@@ -1915,4 +1945,97 @@ model ParticipantVilla {
   @@unique([projetId, talentId])
   @@index([projetId])
   @@index([talentId])
+}
+
+model DinnerCampaign {
+  id          String              @id @default(cuid())
+  projetSlug  String              @default("villa-cannes")
+  name        String
+  clientName  String
+  clientAccessToken String        @unique
+  logoUrl     String?
+  eventPhotos Json?
+  reportingSummary String?        @db.Text
+  reportingKpis Json?
+  city        String?
+  eventDate   DateTime?
+  budgetMin   Decimal?            @db.Decimal(10, 2)
+  budgetMax   Decimal?            @db.Decimal(10, 2)
+  status      DinnerCampaignStatus @default(DRAFT)
+  createdById String
+  createdBy   User                @relation("DinnerCampaignCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  candidates DinnerCreatorCandidate[]
+  events     DinnerCandidateEvent[]
+
+  @@index([projetSlug, createdAt])
+  @@index([status])
+  @@map("dinner_campaigns")
+}
+
+model DinnerCreatorCandidate {
+  id              String               @id @default(cuid())
+  campaignId      String
+  campaign        DinnerCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  talentId        String?
+  talent          Talent?              @relation(fields: [talentId], references: [id], onDelete: SetNull)
+  manualHandle    String?
+  manualPlatform  String?
+  fullName        String
+  followers       Int?
+  engagementRate  Decimal?             @db.Decimal(5, 2)
+  estimatedCost   Decimal?             @db.Decimal(10, 2)
+  notePlanner     String?
+  noteClient      String?
+  source          DinnerCandidateSource @default(PLANNER)
+  status          DinnerCandidateStatus @default(PROPOSED)
+  rejectionReason String?
+  position        Int                  @default(0)
+  createdById     String
+  createdBy       User                 @relation("DinnerCandidateCreatedBy", fields: [createdById], references: [id])
+  updatedById     String
+  updatedBy       User                 @relation("DinnerCandidateUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  events   DinnerCandidateEvent[]
+  comments DinnerCandidateComment[]
+
+  @@index([campaignId, status, position])
+  @@index([campaignId, talentId])
+  @@map("dinner_creator_candidates")
+}
+
+model DinnerCandidateEvent {
+  id          String            @id @default(cuid())
+  candidateId String
+  candidate   DinnerCreatorCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  campaignId  String
+  campaign    DinnerCampaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  type        DinnerEventType
+  fromStatus  DinnerCandidateStatus?
+  toStatus    DinnerCandidateStatus?
+  payload     Json?
+  actorId     String
+  actor       User              @relation(fields: [actorId], references: [id])
+  createdAt   DateTime          @default(now())
+
+  @@index([campaignId, createdAt])
+  @@index([candidateId, createdAt])
+  @@map("dinner_candidate_events")
+}
+
+model DinnerCandidateComment {
+  id          String            @id @default(cuid())
+  candidateId String
+  candidate   DinnerCreatorCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User              @relation(fields: [authorId], references: [id])
+  content     String            @db.Text
+  createdAt   DateTime          @default(now())
+
+  @@index([candidateId, createdAt])
+  @@map("dinner_candidate_comments")
 }

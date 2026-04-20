@@ -341,6 +341,12 @@ export function Sidebar() {
             icon: Briefcase,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
+          {
+            label: "Dinner Selection",
+            href: "/strategy/projets/villa-cannes/dinner-selection",
+            icon: Users,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
         ]
       : menuItems
           .filter((item) => item.roles.includes(userRole))
