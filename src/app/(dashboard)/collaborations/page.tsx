@@ -16,6 +16,7 @@ import {
   FileText,
   Loader2,
   Package,
+  Download,
 } from "lucide-react";
 
 interface Livrable {
@@ -28,6 +29,10 @@ interface Livrable {
 interface Collaboration {
   id: string;
   reference: string;
+  quoteReference: string | null;
+  invoiceReference?: string | null;
+  invoiceObject?: string | null;
+  invoiceDate?: string | null;
   source: string;
   livrables: Livrable[];
   montantBrut: number;
@@ -70,6 +75,8 @@ export default function CollaborationsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterStatut, setFilterStatut] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [userRole, setUserRole] = useState("");
 
   useEffect(() => {
@@ -91,7 +98,7 @@ export default function CollaborationsPage() {
 
   const fetchCollaborations = async () => {
     try {
-      const res = await fetch("/api/collaborations");
+      const res = await fetch("/api/collaborations", { cache: "no-store" });
       setCollaborations(await res.json());
     } catch (error) {
       console.error("Erreur:", error);
@@ -100,19 +107,136 @@ export default function CollaborationsPage() {
     }
   };
 
+  const getMonthKey = (value: string | null | undefined) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toISOString().slice(0, 7);
+  };
+
+  const toNumber = (value: unknown) => {
+    const n = Number(value ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+
   const filteredCollabs = collaborations.filter((collab) => {
     const matchSearch =
       collab.reference.toLowerCase().includes(search.toLowerCase()) ||
       `${collab.talent.prenom} ${collab.talent.nom}`.toLowerCase().includes(search.toLowerCase()) ||
       collab.marque.nom.toLowerCase().includes(search.toLowerCase());
     const matchStatut = !filterStatut || collab.statut === filterStatut;
-    return matchSearch && matchStatut;
+    const collabMonth = getMonthKey(collab.createdAt);
+    const matchMonth = !filterMonth || collabMonth === filterMonth;
+    return matchSearch && matchStatut && matchMonth;
   });
 
   const formatMoney = (amount: number) =>
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 0 }).format(amount);
+  const formatDate = (date: string | Date | null | undefined) => {
+    if (!date) return "";
+    return new Intl.DateTimeFormat("fr-FR").format(new Date(date));
+  };
+  const toDateOrNull = (date: string | null | undefined) => {
+    if (!date) return null;
+    const parsed = new Date(date);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
 
   const getStatutInfo = (statut: string) => STATUTS.find((s) => s.value === statut) || STATUTS[0];
+  const monthFormatter = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+
+  const availableMonths = Array.from(
+    new Set(collaborations.map((c) => getMonthKey(c.createdAt)).filter(Boolean))
+  ).sort((a, b) => b.localeCompare(a));
+
+  const formatMonthLabel = (month: string) => {
+    const [year, m] = month.split("-").map(Number);
+    return monthFormatter.format(new Date(year, m - 1, 1));
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      setExporting(true);
+      const ExcelJS = (await import("exceljs")).default;
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Collaborations");
+      const isAdmin = userRole === "ADMIN";
+      const exportMonthLabel = filterMonth ? formatMonthLabel(filterMonth) : "Tous";
+
+      const columns: { header: string; key: string; width: number; style?: { numFmt?: string } }[] = [
+        { header: "Mois", key: "mois", width: 20 },
+        { header: "Date collab", key: "dateCollab", width: 15, style: { numFmt: "dd/mm/yyyy" } },
+        { header: "N° devis", key: "numeroDevis", width: 18 },
+        { header: "N° facture", key: "numeroFacture", width: 18 },
+        { header: "Objet facture", key: "objetFacture", width: 40 },
+        { header: "Date facturation", key: "dateFacturation", width: 18, style: { numFmt: "dd/mm/yyyy" } },
+        { header: "Nom collab", key: "nomCollab", width: 40 },
+        { header: "Montant HT talent", key: "montantHtTalent", width: 20, style: { numFmt: '#,##0.00" €"' } },
+      ];
+
+      if (isAdmin) {
+        columns.push({
+          header: "Montant HT agence",
+          key: "montantHtAgence",
+          width: 20,
+          style: { numFmt: '#,##0.00" €"' },
+        });
+      }
+
+      worksheet.columns = columns;
+
+      let totalMontantTalent = 0;
+      let totalMontantAgence = 0;
+      filteredCollabs.forEach((collab) => {
+        const montantTalent = toNumber(collab.montantNet);
+        const montantAgence = toNumber(collab.commissionEuros);
+        totalMontantTalent += montantTalent;
+        totalMontantAgence += montantAgence;
+
+        const rowData: Record<string, string | number | Date> = {
+          mois: formatMonthLabel(getMonthKey(collab.createdAt)),
+          dateCollab: toDateOrNull(collab.createdAt) || "",
+          numeroDevis: collab.quoteReference ?? "",
+          numeroFacture: collab.invoiceReference ?? "",
+          objetFacture: collab.invoiceObject ?? "",
+          dateFacturation: toDateOrNull(collab.invoiceDate || null) || "",
+          nomCollab: `${collab.talent.prenom} ${collab.talent.nom} - ${collab.marque.nom}`,
+          montantHtTalent: montantTalent,
+        };
+
+        if (isAdmin) {
+          rowData.montantHtAgence = montantAgence;
+        }
+
+        worksheet.addRow(rowData);
+      });
+
+      worksheet.getRow(1).font = { bold: true };
+      const totalRowData: Record<string, string | number | Date> = {
+        mois: "TOTAL",
+        nomCollab: `${filteredCollabs.length} collab(s)`,
+        montantHtTalent: totalMontantTalent,
+      };
+      if (isAdmin) totalRowData.montantHtAgence = totalMontantAgence;
+      const totalRow = worksheet.addRow(totalRowData);
+      totalRow.font = { bold: true };
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `collaborations-${exportMonthLabel.replace(/\s+/g, "-").toLowerCase()}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Erreur export Excel:", error);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Résumé des livrables
   const getLivrablesLabel = (livrables: Livrable[]) => {
@@ -127,14 +251,14 @@ export default function CollaborationsPage() {
   };
 
   // Stats
-  const totalCA = collaborations
+  const totalCA = filteredCollabs
     .filter((c) => !["PERDU", "NEGO"].includes(c.statut))
-    .reduce((acc, c) => acc + Number(c.montantBrut), 0);
-  const totalCommission = collaborations
+    .reduce((acc, c) => acc + toNumber(c.montantBrut), 0);
+  const totalCommission = filteredCollabs
     .filter((c) => !["PERDU", "NEGO"].includes(c.statut))
-    .reduce((acc, c) => acc + Number(c.commissionEuros), 0);
-  const enNego = collaborations.filter((c) => c.statut === "NEGO").length;
-  const gagnes = collaborations.filter((c) => !["PERDU", "NEGO"].includes(c.statut)).length;
+    .reduce((acc, c) => acc + toNumber(c.commissionEuros), 0);
+  const enNego = filteredCollabs.filter((c) => c.statut === "NEGO").length;
+  const gagnes = filteredCollabs.filter((c) => !["PERDU", "NEGO"].includes(c.statut)).length;
 
   return (
     <div className="space-y-6">
@@ -142,7 +266,7 @@ export default function CollaborationsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-glowup-licorice">Collaborations</h1>
-          <p className="text-gray-500 mt-1">{collaborations.length} collaborations</p>
+          <p className="text-gray-500 mt-1">{filteredCollabs.length} collaboration(s) (sur {collaborations.length})</p>
         </div>
         <Link
           href="/collaborations/new"
@@ -192,6 +316,10 @@ export default function CollaborationsPage() {
               <div className="p-3 bg-green-50 rounded-xl"><Handshake className="w-5 h-5 text-green-600" /></div>
             </div>
           </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 col-span-2 md:col-span-4">
+            <p className="text-sm text-gray-500">Total collaborations (filtre actif)</p>
+            <p className="text-xl font-bold text-glowup-licorice mt-1">{filteredCollabs.length}</p>
+          </div>
         </div>
       )}
 
@@ -218,6 +346,31 @@ export default function CollaborationsPage() {
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
+          <select
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm min-w-[170px]"
+          >
+            <option value="">Tous les mois</option>
+            {availableMonths.map((month) => (
+              <option key={month} value={month}>
+                {formatMonthLabel(month)}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={exporting || filteredCollabs.length === 0}
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px]"
+          >
+            {exporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            Export Excel
+          </button>
         </div>
       </div>
 

@@ -25,6 +25,18 @@ import {
 type TabType = "invoices" | "quotes";
 type PeriodType = "3m" | "6m" | "year" | "all";
 
+function toMonthKey(dateValue: string | null | undefined): string | null {
+  if (!dateValue) return null;
+  const d = new Date(dateValue);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 7);
+}
+
+function formatMonthLabel(monthKey: string): string {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+}
+
 interface DocumentInfo {
   id: string;
   reference: string;
@@ -156,6 +168,7 @@ export default function FacturesPage() {
   const debouncedSearch = useDebounce(searchInput, 300);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [period, setPeriod] = useState<PeriodType>((searchParams.get("period") as PeriodType) || "all");
+  const [monthFilter, setMonthFilter] = useState(searchParams.get("month") || "all");
   const [statutFilter, setStatutFilter] = useState(searchParams.get("statut") || "all");
   const [page, setPage] = useState(Number(searchParams.get("page")) || 1);
   const [perPage, setPerPage] = useState(Number(searchParams.get("perPage")) || 10);
@@ -184,6 +197,7 @@ export default function FacturesPage() {
     u.set("tab", tab);
     if (debouncedSearch) u.set("search", debouncedSearch);
     if (period !== "all") u.set("period", period);
+    if (monthFilter !== "all") u.set("month", monthFilter);
     if (statutFilter !== "all") u.set("statut", statutFilter);
     if (page > 1) u.set("page", String(page));
     if (perPage !== 10) u.set("perPage", String(perPage));
@@ -192,7 +206,7 @@ export default function FacturesPage() {
     if (typeof window !== "undefined" && window.location.search !== (queryString ? `?${queryString}` : "")) {
       router.replace(next);
     }
-  }, [tab, debouncedSearch, period, statutFilter, page, perPage, router]);
+  }, [tab, debouncedSearch, period, monthFilter, statutFilter, page, perPage, router]);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -310,6 +324,9 @@ export default function FacturesPage() {
       else from = new Date(now.getFullYear(), 0, 1);
       list = list.filter((d) => new Date(d.dateEmission || d.createdAt) >= from);
     }
+    if (monthFilter !== "all") {
+      list = list.filter((d) => toMonthKey(d.dateEmission || d.createdAt) === monthFilter);
+    }
     if (statutFilter !== "all") {
       if (statutFilter === "EN_RETARD") {
         list = list.filter((d) => d.statut === "ENVOYE" && d.dateEcheance && new Date(d.dateEcheance) < now);
@@ -327,7 +344,7 @@ export default function FacturesPage() {
       );
     }
     return list;
-  }, [documents, period, statutFilter, debouncedSearch]);
+  }, [documents, period, monthFilter, statutFilter, debouncedSearch]);
 
   const facturesSorted = useMemo(() => {
     const arr = [...facturesFiltered];
@@ -356,6 +373,9 @@ export default function FacturesPage() {
       else from = new Date(now.getFullYear(), 0, 1);
       list = list.filter((q) => new Date(q.issueDate) >= from);
     }
+    if (monthFilter !== "all") {
+      list = list.filter((q) => toMonthKey(q.issueDate) === monthFilter);
+    }
     if (statutFilter !== "all") {
       list = list.filter((q) => q.status === statutFilter);
     }
@@ -370,7 +390,31 @@ export default function FacturesPage() {
       );
     }
     return list;
-  }, [quotesData, period, statutFilter, debouncedSearch]);
+  }, [quotesData, period, monthFilter, statutFilter, debouncedSearch]);
+
+  const availableInvoiceMonths = useMemo(() => {
+    const docs = Array.isArray(documents) ? documents : [];
+    const monthSet = new Set<string>();
+    docs
+      .filter((d) => String(d.type).toUpperCase() === "FACTURE")
+      .forEach((d) => {
+        const key = toMonthKey(d.dateEmission || d.createdAt);
+        if (key) monthSet.add(key);
+      });
+    return Array.from(monthSet).sort((a, b) => b.localeCompare(a));
+  }, [documents]);
+
+  const availableQuoteMonths = useMemo(() => {
+    const list = quotesData?.quotes ?? [];
+    const monthSet = new Set<string>();
+    list.forEach((q) => {
+      const key = toMonthKey(q.issueDate);
+      if (key) monthSet.add(key);
+    });
+    return Array.from(monthSet).sort((a, b) => b.localeCompare(a));
+  }, [quotesData]);
+
+  const availableMonths = tab === "invoices" ? availableInvoiceMonths : availableQuoteMonths;
 
   const quotesSorted = useMemo(() => {
     const arr = [...quotesFiltered];
@@ -635,6 +679,21 @@ export default function FacturesPage() {
               {PERIOD_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={monthFilter}
+              onChange={(e) => {
+                setMonthFilter(e.target.value);
+                setPage(1);
+              }}
+              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-white"
+            >
+              <option value="all">Tous les mois</option>
+              {availableMonths.map((month) => (
+                <option key={month} value={month}>
+                  {formatMonthLabel(month)}
                 </option>
               ))}
             </select>

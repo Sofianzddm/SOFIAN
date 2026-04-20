@@ -67,6 +67,28 @@ export async function GET(request: NextRequest) {
           select: { id: true, nom: true },
         },
         livrables: true,
+        quotes: {
+          select: {
+            reference: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+        documents: {
+          where: {
+            type: { in: ["DEVIS", "FACTURE"] },
+            statut: { not: "ANNULE" },
+          },
+          select: {
+            reference: true,
+            type: true,
+            titre: true,
+            dateEmission: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
         accountManager: {
           select: { id: true, prenom: true, nom: true },
         },
@@ -85,7 +107,20 @@ export async function GET(request: NextRequest) {
           paidAt: undefined,
         }));
 
-    return NextResponse.json(payload);
+    const payloadWithQuoteReference = payload.map((c) => {
+      const latestQuoteDocument = c.documents?.find((d: { type: string }) => d.type === "DEVIS");
+      const latestInvoiceDocument = c.documents?.find((d: { type: string }) => d.type === "FACTURE");
+
+      return {
+        ...c,
+        quoteReference: c.quotes?.[0]?.reference ?? latestQuoteDocument?.reference ?? null,
+        invoiceReference: latestInvoiceDocument?.reference ?? null,
+        invoiceObject: latestInvoiceDocument?.titre ?? null,
+        invoiceDate: latestInvoiceDocument?.dateEmission ?? null,
+      };
+    });
+
+    return NextResponse.json(payloadWithQuoteReference);
   } catch (error) {
     console.error("Erreur GET collaborations:", error);
     return NextResponse.json({ message: "Erreur" }, { status: 500 });
