@@ -34,8 +34,13 @@ export async function GET(
       return NextResponse.json({ error: "Document non trouvé" }, { status: 404 });
     }
 
-    // Si le PDF existe déjà en base64, on le retourne
-    if (document.pdfBase64) {
+    // Pour les factures libres (sans collaboration), on force la régénération
+    // pour garantir un rendu aligné (dont bloc RIB).
+    const shouldForceRegenerate =
+      document.type === "FACTURE" && !document.collaborationId;
+
+    // Si le PDF existe déjà en base64, on le retourne (sauf cas forcé)
+    if (document.pdfBase64 && !shouldForceRegenerate) {
       const pdfBuffer = Buffer.from(document.pdfBase64, "base64");
       return new NextResponse(pdfBuffer as any, {
         headers: {
@@ -51,11 +56,11 @@ export async function GET(
     const pdfData = documentToPDFData(document);
     const pdfBuffer = await generateDocumentPDF(pdfData, document.type);
 
-    // Option : sauvegarder en base pour cache (décommentez si souhaité)
-    // await prisma.document.update({
-    //   where: { id },
-    //   data: { pdfBase64: pdfBuffer.toString("base64") },
-    // });
+    // Sauvegarder en base pour accélérer les prochains accès
+    await prisma.document.update({
+      where: { id },
+      data: { pdfBase64: pdfBuffer.toString("base64") },
+    });
 
     return new NextResponse(pdfBuffer as any, {
       headers: {

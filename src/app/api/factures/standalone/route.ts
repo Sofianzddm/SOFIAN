@@ -5,7 +5,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
-import { MENTIONS_TVA } from "@/lib/documents/config";
+import { getTypeTVA, getMentionTVA, AGENCE_CONFIG } from "@/lib/documents/config";
+import { renderToBuffer } from "@react-pdf/renderer";
+import { createElement } from "react";
+import {
+  FactureTemplate,
+  type FactureData,
+  type LigneFacture,
+} from "@/lib/documents/templates/FactureTemplate";
 
 interface LigneInput {
   description: string;
@@ -118,12 +125,8 @@ export async function POST(request: NextRequest) {
       lignesCalculees.length > 0 ? lignesCalculees[0].tauxTVA || 0 : 20;
 
     const paysClient = pays || "France";
-    const mentionTVA =
-      paysClient === "France"
-        ? null
-        : paysClient === "UE"
-        ? "TVA non applicable – autoliquidation par le preneur"
-        : "TVA non applicable – article 259-1 du CGI – Reverse charge applies";
+    const typeTVA = getTypeTVA(paysClient, null);
+    const mentionTVA = getMentionTVA(typeTVA, null);
 
     const conditionPaiementLabel =
       String(conditionsReglement) === "CUSTOM" && conditionsReglementLibre?.trim()
@@ -138,8 +141,59 @@ export async function POST(request: NextRequest) {
         : paysClient === "UE"
         ? `TVA non applicable – autoliquidation par le preneur — ${conditionPaiementLabel}`
         : `TVA non applicable – article 259-1 du CGI – Reverse charge applies — ${conditionPaiementLabel}`;
+    const notesDocument = [commentaireTVA, notes?.trim()].filter(Boolean).join("\n\n");
 
     const now = new Date();
+    const dateEcheanceDocument = delai > 0 ? dateEcheance : dateDoc;
+
+    const lignesFacture: LigneFacture[] = lignesCalculees.map((l) => ({
+      description: l.description,
+      quantite: l.quantite,
+      prixUnitaire: l.prixUnitaire,
+      tauxTVA: l.tauxTVA,
+      totalHT: l.totalHT,
+    }));
+
+    const factureData: FactureData = {
+      reference,
+      titre: objet || reference,
+      dateDocument: dateDoc.toISOString(),
+      dateEcheance: dateEcheanceDocument.toISOString(),
+      emetteur: {
+        nom: AGENCE_CONFIG.raisonSociale,
+        adresse: AGENCE_CONFIG.adresse,
+        codePostal: AGENCE_CONFIG.codePostal,
+        ville: AGENCE_CONFIG.ville,
+        pays: AGENCE_CONFIG.pays,
+        capital: AGENCE_CONFIG.capital,
+        siret: AGENCE_CONFIG.siret,
+        siren: AGENCE_CONFIG.siren,
+        telephone: AGENCE_CONFIG.telephone,
+        email: AGENCE_CONFIG.email,
+        tva: AGENCE_CONFIG.tva,
+        rcs: AGENCE_CONFIG.rcs,
+        ape: AGENCE_CONFIG.ape,
+        iban: AGENCE_CONFIG.rib?.iban || undefined,
+        bic: AGENCE_CONFIG.rib?.bic || undefined,
+      },
+      client: {
+        nom: clientNom,
+        adresse: clientAdresse || undefined,
+        pays: paysClient,
+      },
+      lignes: lignesFacture,
+      montantHT,
+      tauxTVA,
+      montantTVA,
+      montantTTC,
+      mentionTVA,
+      notes: notesDocument,
+      conditionsPaiementLabel: conditionPaiementLabel,
+    };
+
+    const pdfBuffer = await renderToBuffer(
+      createElement(FactureTemplate, { data: factureData }) as any
+    );
 
     const document = await prisma.document.create({
       data: {
@@ -152,15 +206,16 @@ export async function POST(request: NextRequest) {
         tauxTVA: tauxTVA as any,
         montantTVA: montantTVA as any,
         montantTTC: montantTTC as any,
-        typeTVA: "FRANCE",
+        typeTVA,
         mentionTVA,
         lignes: lignesCalculees as any,
         dateDocument: dateDoc,
         dateEmission: now,
-        dateEcheance: delai > 0 ? dateEcheance : dateDoc,
+        dateEcheance: dateEcheanceDocument,
         poClient: null,
         modePaiement,
-        notes: commentaireTVA,
+        notes: notesDocument,
+        pdfBase64: pdfBuffer.toString("base64"),
         createdBy: { connect: { id: user.id } },
         clientNom,
         clientEmail: clientEmail || null,
@@ -178,6 +233,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    const pdfUrl = `/api/documents/${document.id}/pdf`;
+    await prisma.document.update({
+      where: { id: document.id },
+      data: { fichierUrl: pdfUrl },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -187,6 +248,7 @@ export async function POST(request: NextRequest) {
           type: document.type,
           montantTTC: Number(document.montantTTC),
           dateEcheance: document.dateEcheance,
+          fichierUrl: pdfUrl,
         },
       },
       { status: 201 }

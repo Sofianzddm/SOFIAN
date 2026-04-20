@@ -744,7 +744,10 @@ export function ProspectingPipelineClient() {
           setComposerOpen(false);
           setComposerContact(null);
         }}
-        onSaved={(status, draft) => {
+        onSaved={(
+          status: "pret" | "en_cours" | "reset",
+          draft?: { subject: string; bodyHtml: string }
+        ) => {
           const missionId = composerContact?.missionBrief?.id as string | undefined;
           if (!missionId) return;
           if (status === "pret") {

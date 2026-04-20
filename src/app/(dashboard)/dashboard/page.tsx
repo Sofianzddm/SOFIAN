@@ -362,8 +362,107 @@ export default function DashboardPage() {
       {role === "ADMIN" && <AdminDashboard data={data} absences={absences} />}
       {role === "HEAD_OF_INFLUENCE" && <HeadOfInfluenceDashboard data={data} absences={absences} />}
       {role === "HEAD_OF" && <HeadOfDashboard data={data} role={role} />}
+      {role === "HEAD_OF_SALES" && <HeadOfSalesDashboard />}
       {role === "TM" && <TMDashboard data={data} />}
       {role === "CASTING_MANAGER" && <CastingManagerDashboard />}
+    </div>
+  );
+}
+
+function HeadOfSalesDashboard() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [readyMissions, setReadyMissions] = useState<
+    Array<{
+      id: string;
+      creatorName: string;
+      targetBrand: string;
+      strategyReason: string;
+    }>
+  >([]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setError(null);
+        setLoading(true);
+        const res = await fetch("/api/strategy/contact-missions?stage=DRAFTED_FOR_VALIDATION", {
+          credentials: "include",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Impossible de charger les mails prêts.");
+        }
+        if (!mounted) return;
+        const rows = Array.isArray(data.missions) ? data.missions : [];
+        setReadyMissions(
+          rows.map((m: any) => ({
+            id: String(m.id || ""),
+            creatorName: String(m.creatorName || ""),
+            targetBrand: String(m.targetBrand || ""),
+            strategyReason: String(m.strategyReason || ""),
+          }))
+        );
+      } catch (e: unknown) {
+        if (!mounted) return;
+        setError(e instanceof Error ? e.message : "Erreur réseau.");
+        setReadyMissions([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Prospection individuelle prête</h2>
+            <p className="text-sm text-slate-500">
+              {loading ? "Chargement..." : `${readyMissions.length} mail(s) prêt(s) à envoyer`}
+            </p>
+          </div>
+          <Link
+            href="/strategy/projet-individuel-talent/pipeline"
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            Ouvrir pipeline
+            <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-900">Mails prêts (validation casting)</h3>
+        </div>
+        {loading ? (
+          <div className="px-6 py-8 text-sm text-slate-500 inline-flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Chargement des cartes...
+          </div>
+        ) : error ? (
+          <div className="px-6 py-8 text-sm text-red-600">{error}</div>
+        ) : readyMissions.length === 0 ? (
+          <div className="px-6 py-8 text-sm text-slate-500">Aucun mail prêt pour le moment.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {readyMissions.map((m) => (
+              <div key={m.id} className="px-6 py-3">
+                <p className="font-medium text-slate-900">
+                  {m.creatorName} × {m.targetBrand}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{m.strategyReason}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

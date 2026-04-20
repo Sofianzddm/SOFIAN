@@ -56,10 +56,19 @@ export async function middleware(request: NextRequest) {
   if (effectiveRole === "STRATEGY_PLANNER" && !pathname.startsWith("/strategy")) {
     return NextResponse.redirect(new URL("/strategy/projets/villa-cannes", request.url));
   }
-  // Autres rôles : bloquer /strategy/* (sauf ADMIN)
+  // Exception: pipeline prospection accessible à HEAD_OF_SALES / CASTING_MANAGER / HEAD_OF
+  const isProspectionPipeline =
+    pathname === "/strategy/projet-individuel-talent/pipeline" ||
+    pathname.startsWith("/strategy/projet-individuel-talent/pipeline/");
+
+  // Autres rôles : bloquer /strategy/* (sauf ADMIN et exception pipeline)
   if (
     effectiveRole !== "STRATEGY_PLANNER" &&
     effectiveRole !== "ADMIN" &&
+    !(isProspectionPipeline &&
+      (effectiveRole === "HEAD_OF_SALES" ||
+        effectiveRole === "CASTING_MANAGER" ||
+        effectiveRole === "HEAD_OF")) &&
     pathname.startsWith("/strategy")
   ) {
     return NextResponse.redirect(new URL("/dashboard", request.url));

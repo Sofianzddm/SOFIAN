@@ -53,6 +53,18 @@ const menuItems = [
     roles: ["CASTING_MANAGER", "ADMIN"],
   },
   {
+    label: "Missions Strategy",
+    href: "/casting-outreach/missions",
+    icon: Target,
+    roles: ["ADMIN"],
+  },
+  {
+    label: "Pipeline prospection",
+    href: "/strategy/projet-individuel-talent/pipeline",
+    icon: Briefcase,
+    roles: ["CASTING_MANAGER", "HEAD_OF_SALES", "STRATEGY_PLANNER", "ADMIN", "HEAD_OF"],
+  },
+  {
     label: "Demandes Entrantes",
     href: "/demandes-entrantes",
     icon: Mail,
@@ -345,6 +357,18 @@ export function Sidebar() {
             label: "Sélection dîner",
             href: "/strategy/projets/villa-cannes/dinner-selection",
             icon: Users,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "Projet individuel talent",
+            href: "/strategy/projet-individuel-talent",
+            icon: Mail,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "Pipeline prospection",
+            href: "/strategy/projet-individuel-talent/pipeline",
+            icon: Briefcase,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
         ]

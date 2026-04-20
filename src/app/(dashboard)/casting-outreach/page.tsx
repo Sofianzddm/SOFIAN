@@ -71,9 +71,18 @@ type MissionBrief = {
   dos?: string | null;
   donts?: string | null;
   priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  status: "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED";
   deadlineAt?: string | null;
   campaignName?: string | null;
 };
+
+function missionStatusLabel(status: MissionBrief["status"]): string {
+  if (status === "EMAIL_DRAFTED") return "Brouillon";
+  if (status === "APPROVED_BY_SALES") return "Mail prêt";
+  if (status === "SENT") return "Envoyé";
+  if (status === "CANCELLED") return "Annulé";
+  return "À rédiger";
+}
 
 /** Regroupe les contacts par marque (companyName), tri marques puis contacts */
 function groupContactsByBrand(contacts: HubSpotContactCasting[]): BrandGroup[] {
@@ -547,6 +556,7 @@ export default function CastingOutreachPage() {
             emoji="🔴"
             hint="Sans corps d’email — regroupé par marque"
             groups={columns.todo}
+            missionsByBrand={missionsByBrand}
             borderColor={COL_BORDER.todo}
             onComposeAll={(group) => {
               setActiveBrand({
@@ -570,6 +580,7 @@ export default function CastingOutreachPage() {
             emoji="🟡"
             hint="Statut « en cours » — regroupé par marque"
             groups={columns.progress}
+            missionsByBrand={missionsByBrand}
             borderColor={COL_BORDER.progress}
             onComposeAll={(group) => {
               setActiveBrand({
@@ -593,6 +604,7 @@ export default function CastingOutreachPage() {
             emoji="🟢"
             hint="Statut « prêt » — regroupé par marque"
             groups={columns.ready}
+            missionsByBrand={missionsByBrand}
             borderColor={COL_BORDER.ready}
             onComposeAll={(group) => {
               setActiveBrand({
@@ -638,6 +650,7 @@ function KanbanColumn({
   emoji,
   hint,
   groups,
+  missionsByBrand,
   borderColor,
   onComposeAll,
   onComposeOne,
@@ -646,6 +659,7 @@ function KanbanColumn({
   emoji: string;
   hint: string;
   groups: BrandGroup[];
+  missionsByBrand: Record<string, MissionBrief>;
   borderColor: string;
   onComposeAll: (group: BrandGroup) => void;
   onComposeOne: (group: BrandGroup, contact: HubSpotContactCasting) => void;
@@ -716,6 +730,19 @@ function KanbanColumn({
                   >
                     {group.contacts.length} contact{group.contacts.length !== 1 ? "s" : ""}
                   </span>
+                  {missionsByBrand[group.key] && (
+                    <span
+                      className="ml-1 text-[11px] font-medium px-2 py-0.5 rounded-full inline-flex items-center mt-0.5"
+                      style={{
+                        backgroundColor: "rgba(200, 242, 133, 0.25)",
+                        color: LICORICE,
+                        border: `1px solid ${TEA_GREEN}`,
+                      }}
+                      title="Statut mission strategy"
+                    >
+                      Mission: {missionStatusLabel(missionsByBrand[group.key].status)}
+                    </span>
+                  )}
                 </div>
                   <div className="flex flex-col items-end gap-2">
                     <span

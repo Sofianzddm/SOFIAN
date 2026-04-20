@@ -5,6 +5,8 @@ import {
   type CastingEmailStatus,
 } from "@/lib/hubspot";
 import { getAppSession } from "@/lib/getAppSession";
+import { prisma } from "@/lib/prisma";
+import { normalizeMissionBrandKey } from "@/lib/contact-missions";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "ADMIN"] as const;
 
@@ -19,6 +21,8 @@ async function sleep(ms: number): Promise<void> {
 function normalizedValue(v: string): string {
   return (v || "").replace(/\s+/g, " ").trim();
 }
+
+const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
 
 export async function GET(request: NextRequest) {
   try {
@@ -253,11 +257,15 @@ export async function POST(request: NextRequest) {
       return false;
     };
 
+    const brandKeysTouched = new Set<string>();
+
     for (const contactId of contactIds) {
       const tokens = await getContactTokensWithRetry(contactId);
       const resolvedSubject = isReset ? "" : resolveTokens(subject, tokens);
       const resolvedBody = isReset ? "" : resolveTokens(emailBody, tokens);
       const hubspotBody = isReset ? "" : tiptapToHubspotHtml(resolvedBody);
+      const brandKey = normalizeMissionBrandKey(tokens.company || "");
+      if (brandKey) brandKeysTouched.add(brandKey);
 
       const ok = await updateContactCastingEmailWithRetry(contactId, {
         subject: resolvedSubject,
@@ -270,6 +278,21 @@ export async function POST(request: NextRequest) {
           "Échec de la mise à jour HubSpot. Vérifiez la configuration ou réessayez."
         );
       }
+    }
+
+    if (brandKeysTouched.size > 0) {
+      const nextMissionStatus = isReset
+        ? "READY_FOR_CASTING"
+        : status === "pret"
+          ? "APPROVED_BY_SALES"
+          : "EMAIL_DRAFTED";
+      await contactMissionModel.updateMany({
+        where: {
+          targetBrandKey: { in: Array.from(brandKeysTouched) },
+          status: { in: ["READY_FOR_CASTING", "EMAIL_DRAFTED", "APPROVED_BY_SALES"] },
+        },
+        data: { status: nextMissionStatus },
+      });
     }
 
     return NextResponse.json({

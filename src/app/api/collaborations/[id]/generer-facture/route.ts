@@ -8,6 +8,7 @@ import type { FactureData, LigneFacture } from "@/lib/documents/templates/Factur
 import { createElement } from "react";
 import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
+import { genererNumeroDocument } from "@/lib/documents/numerotation";
 
 export async function POST(
   request: NextRequest,
@@ -88,26 +89,8 @@ export async function POST(
       }
     }
 
-    // Générer la référence facture
-    const annee = new Date().getFullYear();
-    const compteur = await prisma.compteur.upsert({
-      where: {
-        type_annee: {
-          type: "FAC",
-          annee,
-        },
-      },
-      update: {
-        dernierNumero: { increment: 1 },
-      },
-      create: {
-        type: "FAC",
-        annee,
-        dernierNumero: 1,
-      },
-    });
-
-    const reference = `FAC-${annee}-${String(compteur.dernierNumero).padStart(4, "0")}`;
+    // Générer la référence facture via la numérotation centralisée (F-YYYY-NNNN)
+    const reference = await genererNumeroDocument("FACTURE");
 
     // Calculer les montants
     let montantHT = 0;

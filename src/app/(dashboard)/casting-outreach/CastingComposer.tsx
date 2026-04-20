@@ -49,6 +49,9 @@ type CastingCompanyRecipients = {
     dos?: string | null;
     donts?: string | null;
     priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+    status: "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED";
+    clientLanguage?: "FR" | "EN" | null;
+    clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }> | null;
     deadlineAt?: string | null;
     campaignName?: string | null;
   } | null;
@@ -179,12 +182,25 @@ function hubspotBodyToEditorHtml(raw: string | undefined): string {
   return plainTextToEmailHtml(t);
 }
 
+function missionStatusLabel(
+  status: "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED"
+): string {
+  if (status === "EMAIL_DRAFTED") return "Brouillon en cours";
+  if (status === "APPROVED_BY_SALES") return "Mail prêt";
+  if (status === "SENT") return "Envoyé";
+  if (status === "CANCELLED") return "Annulé";
+  return "À rédiger";
+}
+
 export interface CastingComposerProps {
   open: boolean;
   contact: CastingCompanyRecipients | null;
   brandColumn?: "todo" | "progress" | "ready" | null;
   onClose: () => void;
-  onSaved: (status: "en_cours" | "pret" | "reset") => void;
+  onSaved: (
+    status: "en_cours" | "pret" | "reset",
+    draft?: { subject: string; bodyHtml: string }
+  ) => void;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
 }
@@ -199,6 +215,7 @@ export default function CastingComposer({
   onSuccess,
 }: CastingComposerProps) {
   const { data: session } = useSession();
+  const isHeadOfSalesReadOnly = session?.user?.role === "HEAD_OF_SALES";
   const ownerFirstName = useMemo(
     () => firstNameFromSessionName(session?.user?.name),
     [session?.user?.name]
@@ -233,6 +250,10 @@ export default function CastingComposer({
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
+  const [markingSent, setMarkingSent] = useState(false);
+  const [missionStatus, setMissionStatus] = useState<
+    "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED" | null
+  >(null);
 
   type TalentDetailPreview = {
     id: string;
@@ -440,6 +461,37 @@ export default function CastingComposer({
     setEditorEmpty(!editor.getText().trim());
     setBodyTick((n) => n + 1);
   }, [open, contact, editor]);
+
+  useEffect(() => {
+    if (!open || !contact?.missionBrief) {
+      setMissionStatus(null);
+      return;
+    }
+    setMissionStatus(contact.missionBrief.status);
+  }, [open, contact]);
+
+  const markMissionAsSent = useCallback(async () => {
+    if (!contact?.missionBrief?.id) return;
+    setMarkingSent(true);
+    try {
+      const res = await fetch("/api/strategy/contact-missions", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ missionId: contact.missionBrief.id, status: "SENT" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Mise à jour mission impossible.");
+      }
+      setMissionStatus("SENT");
+      onSuccess("Mission marquée comme envoyée.");
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : "Erreur inattendue.");
+    } finally {
+      setMarkingSent(false);
+    }
+  }, [contact, onError, onSuccess]);
 
   const runBrandResearch = useCallback(async () => {
     if (!contact?.company?.trim()) {
@@ -661,6 +713,11 @@ export default function CastingComposer({
 
   const getBodyHtml = () => editor?.getHTML() ?? "";
 
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!isHeadOfSalesReadOnly);
+  }, [editor, isHeadOfSalesReadOnly]);
+
   const submit = async (status: "en_cours" | "pret") => {
     if (!contact) return;
     const sub = subject.trim();
@@ -668,16 +725,31 @@ export default function CastingComposer({
       onError("L’objet de l’email est obligatoire.");
       return;
     }
+    const contactIds = contact.contacts.map((c) => c.id).filter(Boolean);
+    const bodyHtml = getBodyHtml();
     setSaving(true);
     try {
+      // Permet la rédaction même sans contacts HubSpot reliés.
+      if (contactIds.length === 0) {
+        onSaved(status, { subject: sub, bodyHtml });
+        if (status === "en_cours") {
+          onSuccess("Brouillon enregistré (sans contact HubSpot).");
+        } else {
+          const marque = contact.company || "la marque";
+          onSuccess(`Email prêt pour ${marque} ✓ (contacts à ajouter)`);
+          onClose();
+        }
+        return;
+      }
+
       const res = await fetch("/api/hubspot/casting", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contactIds: contact.contacts.map((c) => c.id),
+          contactIds,
           subject: sub,
-          body: getBodyHtml(),
+          body: bodyHtml,
           status,
         }),
       });
@@ -687,7 +759,7 @@ export default function CastingComposer({
           typeof data.error === "string" ? data.error : "Enregistrement impossible."
         );
       }
-      onSaved(status);
+      onSaved(status, { subject: sub, bodyHtml });
       if (status === "en_cours") {
         onSuccess("Brouillon enregistré");
       } else {
@@ -704,14 +776,22 @@ export default function CastingComposer({
 
   const resetToTodo = async () => {
     if (!contact) return;
+    const contactIds = contact.contacts.map((c) => c.id).filter(Boolean);
     setSaving(true);
     try {
+      if (contactIds.length === 0) {
+        onSaved("reset");
+        onSuccess("Remis à traiter");
+        onClose();
+        return;
+      }
+
       const res = await fetch("/api/hubspot/casting", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contactIds: contact.contacts.map((c) => c.id),
+          contactIds,
           status: "",
           subject: "",
           body: "",
@@ -955,6 +1035,10 @@ export default function CastingComposer({
                     Brief strategy - {contact.missionBrief.creatorName}{" -> "}{" "}
                     {contact.missionBrief.targetBrand}
                   </p>
+                  <p className="mt-1 text-amber-800">
+                    <strong>Statut mission:</strong>{" "}
+                    {missionStatus ? missionStatusLabel(missionStatus) : missionStatusLabel(contact.missionBrief.status)}
+                  </p>
                   <p className="mt-1 text-amber-900">{contact.missionBrief.strategyReason}</p>
                   {contact.missionBrief.recommendedAngle && (
                     <p className="mt-1 text-amber-800">
@@ -977,30 +1061,90 @@ export default function CastingComposer({
                       <strong>Don't:</strong> {contact.missionBrief.donts}
                     </p>
                   )}
+                  {contact.missionBrief.clientLanguage && (
+                    <p className="mt-1 text-amber-800">
+                      <strong>Langue client:</strong>{" "}
+                      {contact.missionBrief.clientLanguage === "FR" ? "Français" : "Anglais"}
+                    </p>
+                  )}
+                  {Array.isArray(contact.missionBrief.clientContacts) &&
+                    contact.missionBrief.clientContacts.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-amber-800 font-semibold">Contacts client</p>
+                        {contact.missionBrief.clientContacts.map((c, idx) => (
+                          <p key={`${c.email || "contact"}-${idx}`} className="text-xs text-amber-900">
+                            {`${c.firstname || ""} ${c.lastname || ""}`.trim() || "Contact"} -{" "}
+                            {c.email || "email non renseigné"}
+                            {c.role ? ` (${c.role})` : ""}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  {missionStatus !== "SENT" && (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={markMissionAsSent}
+                        disabled={markingSent}
+                        className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 disabled:opacity-60"
+                      >
+                        {markingSent ? "Mise à jour..." : "Marquer mission envoyée"}
+                      </button>
+                    </div>
+                  )}
                 </section>
               )}
 
-              <EmailComposer
-                subject={subject}
-                onSubjectChange={setSubject}
-                language={emailLanguage}
-                onLanguageChange={setEmailLanguage}
-                brandName={brandTitle}
-                brandResearch={brandResearch}
-                onBrandResearch={runBrandResearch}
-                isResearching={isResearching}
-                talentsSelected={selectedTalents}
-                isGenerating={isGenerating}
-                onGenerate={runGenerateEmail}
-                editor={editor}
-              />
+              {isHeadOfSalesReadOnly ? (
+                <section
+                  className="rounded-xl border p-4 space-y-3 bg-white"
+                  style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                >
+                  <p className="text-xs uppercase tracking-wide" style={{ color: OLD_ROSE }}>
+                    Lecture seule - mail rédigé
+                  </p>
+                  <div>
+                    <p className="text-[11px] uppercase opacity-70" style={{ color: LICORICE }}>
+                      Objet
+                    </p>
+                    <p className="text-sm font-semibold" style={{ color: LICORICE }}>
+                      {subject || "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase opacity-70" style={{ color: LICORICE }}>
+                      Corps
+                    </p>
+                    <div
+                      className="prose prose-sm max-w-none text-sm min-h-[200px] border-t pt-3"
+                      style={{ color: LICORICE }}
+                      dangerouslySetInnerHTML={{ __html: (editor?.getHTML() || "<p>—</p>").replace(/\n/g, "<br />") }}
+                    />
+                  </div>
+                </section>
+              ) : (
+                <EmailComposer
+                  subject={subject}
+                  onSubjectChange={setSubject}
+                  language={emailLanguage}
+                  onLanguageChange={setEmailLanguage}
+                  brandName={brandTitle}
+                  brandResearch={brandResearch}
+                  onBrandResearch={runBrandResearch}
+                  isResearching={isResearching}
+                  talentsSelected={selectedTalents}
+                  isGenerating={isGenerating}
+                  onGenerate={runGenerateEmail}
+                  editor={editor}
+                />
+              )}
             </div>
 
             <div
               className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t shrink-0 bg-white/95 sticky bottom-0"
               style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
             >
-              {brandColumn === "ready" && (
+              {!isHeadOfSalesReadOnly && brandColumn === "ready" && (
                 <button
                   type="button"
                   onClick={resetToTodo}
@@ -1021,25 +1165,29 @@ export default function CastingComposer({
               >
                 Annuler
               </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => submit("en_cours")}
-                className="px-4 py-2 text-sm rounded-xl border-2 transition-colors"
-                style={{ borderColor: OLD_ROSE, color: LICORICE }}
-              >
-                Enregistrer brouillon
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => submit("pret")}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl transition-opacity disabled:opacity-60"
-                style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
-              >
-                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                Marquer comme prêt
-              </button>
+              {!isHeadOfSalesReadOnly && (
+                <>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => submit("en_cours")}
+                    className="px-4 py-2 text-sm rounded-xl border-2 transition-colors"
+                    style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                  >
+                    Enregistrer brouillon
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => submit("pret")}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl transition-opacity disabled:opacity-60"
+                    style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                  >
+                    {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Marquer comme prêt
+                  </button>
+                </>
+              )}
             </div>
           </div>
         {talentDetailOpen && (

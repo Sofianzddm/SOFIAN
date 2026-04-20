@@ -70,6 +70,8 @@ export function documentToPDFData(document: any): FactureData | DevisData {
       tva: AGENCE_CONFIG.tva,
       rcs: AGENCE_CONFIG.rcs,
       ape: AGENCE_CONFIG.ape,
+      iban: AGENCE_CONFIG.rib?.iban,
+      bic: AGENCE_CONFIG.rib?.bic,
     },
     
     client: {
