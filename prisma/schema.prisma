@@ -233,7 +233,20 @@ enum ContactMissionStatus {
   EMAIL_DRAFTED
   APPROVED_BY_SALES
   SENT
+  RELANCED
   CANCELLED
+}
+
+enum ContactMissionStage {
+  STRATEGY_DEFINED
+  TO_DRAFT
+  DRAFTED_FOR_VALIDATION
+  TO_SEND
+  SENT
+  RESPONSE_RECEIVED
+  IN_NEGOTIATION
+  WON
+  LOST
 }
 
 // ============================================
@@ -297,6 +310,7 @@ model User {
   dinnerEvents DinnerCandidateEvent[]
   dinnerComments DinnerCandidateComment[]
   contactMissionsCreated ContactMission[] @relation("ContactMissionCreatedBy")
+  prospectingCampaignsCreated TalentProspectingCampaign[] @relation("TalentProspectingCampaignCreatedBy")
 
   @@map("users")
 }
@@ -383,6 +397,8 @@ model Talent {
   partnerTalents  PartnerTalent[]
   agencyProjects AgencyProjectTalent[]
   partnerTarifOverrides PartnerTarifOverride[]
+  contactMissions ContactMission[]
+  prospectingCampaigns TalentProspectingCampaign[]
   quotes        Quote[]
   prospectionContacts ProspectionContact[]
 
@@ -1987,7 +2003,6 @@ model DinnerCampaign {
 
   candidates DinnerCreatorCandidate[]
   events     DinnerCandidateEvent[]
-  contactMissions ContactMission[]
 
   @@index([projetSlug, createdAt])
   @@index([status])
@@ -2023,7 +2038,6 @@ model DinnerCreatorCandidate {
 
   events   DinnerCandidateEvent[]
   comments DinnerCandidateComment[]
-  contactMissions ContactMission[]
 
   @@index([campaignId, status, position])
   @@index([campaignId, talentId])
@@ -2032,10 +2046,10 @@ model DinnerCreatorCandidate {
 
 model ContactMission {
   id                  String                @id @default(cuid())
-  campaignId          String
-  campaign            DinnerCampaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  candidateId         String?
-  candidate           DinnerCreatorCandidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  campaignId          String?
+  campaign            TalentProspectingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  talentId            String?
+  talent              Talent?               @relation(fields: [talentId], references: [id], onDelete: SetNull)
   creatorName         String
   targetBrand         String
   targetBrandKey      String
@@ -2046,16 +2060,42 @@ model ContactMission {
   donts               String?               @db.Text
   priority            ContactMissionPriority @default(MEDIUM)
   status              ContactMissionStatus   @default(READY_FOR_CASTING)
+  stage               ContactMissionStage    @default(TO_DRAFT)
+  draftEmailSubject   String?                @db.Text
+  draftEmailBody      String?                @db.Text
+  clientLanguage      String?
+  clientContacts      Json?
   deadlineAt          DateTime?
   createdById         String
   createdBy           User                  @relation("ContactMissionCreatedBy", fields: [createdById], references: [id])
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
 
-  @@index([campaignId, createdAt])
+  @@index([campaignId, stage, createdAt])
+  @@index([talentId])
   @@index([targetBrandKey, status, createdAt])
-  @@index([candidateId])
   @@map("contact_missions")
+}
+
+model TalentProspectingCampaign {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?  @db.Text
+  talentId      String
+  talent        Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  createdById   String
+  createdBy     User     @relation("TalentProspectingCampaignCreatedBy", fields: [createdById], references: [id])
+  isActive      Boolean  @default(true)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  contactMissions ContactMission[]
+
+  @@index([createdById, isActive, createdAt])
+  @@index([talentId, isActive, createdAt])
+  @@map("talent_prospecting_campaigns")
 }
 
 model DinnerCandidateEvent {
