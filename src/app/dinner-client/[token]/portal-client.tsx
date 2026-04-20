@@ -41,7 +41,7 @@ const STATUS_LABEL: Record<Candidate["status"], string> = {
   proposed: "À valider",
   approved: "Validés",
   contacted: "Contactés",
-  creator_approved: "Validés par le créateur",
+  creator_approved: "Validé par le créateur",
   rejected: "Refusés",
 };
 
@@ -194,7 +194,7 @@ export function DinnerClientPortal({ token }: { token: string }) {
               .join("")}
           </div>
         )}
-        <h1 className="text-xl font-semibold text-gray-900">Sélection créateurs dîner</h1>
+        <h1 className="text-xl font-semibold text-gray-900">Sélection de créateurs – dîner</h1>
         {data?.campaign ? (
           <p className="mt-1 text-sm text-gray-600">
             {data.campaign.clientName} - {data.campaign.name}
@@ -230,7 +230,7 @@ export function DinnerClientPortal({ token }: { token: string }) {
                 : ""
             }`}
           >
-            Section événement (PHOTOS + REPORTING)
+            Section événement (photos & reporting)
           </button>
         </div>
       </header>

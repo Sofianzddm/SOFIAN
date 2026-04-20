@@ -39,6 +39,19 @@ type CastingCompanyRecipients = {
   /** Repris depuis HubSpot (casting_email_*) pour éditer un brouillon existant */
   initialSubject?: string;
   initialBodyHtml?: string;
+  missionBrief?: {
+    id: string;
+    creatorName: string;
+    targetBrand: string;
+    strategyReason: string;
+    recommendedAngle?: string | null;
+    objective?: string | null;
+    dos?: string | null;
+    donts?: string | null;
+    priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+    deadlineAt?: string | null;
+    campaignName?: string | null;
+  } | null;
 };
 
 type PresskitTalent = {
@@ -935,6 +948,37 @@ export default function CastingComposer({
                   </span>
                 ))}
               </div>
+
+              {contact.missionBrief && (
+                <section className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs">
+                  <p className="font-semibold text-amber-900">
+                    Brief strategy - {contact.missionBrief.creatorName}{" -> "}{" "}
+                    {contact.missionBrief.targetBrand}
+                  </p>
+                  <p className="mt-1 text-amber-900">{contact.missionBrief.strategyReason}</p>
+                  {contact.missionBrief.recommendedAngle && (
+                    <p className="mt-1 text-amber-800">
+                      <strong>Angle:</strong> {contact.missionBrief.recommendedAngle}
+                    </p>
+                  )}
+                  {(contact.missionBrief.objective || contact.missionBrief.priority) && (
+                    <p className="mt-1 text-amber-800">
+                      <strong>Objectif:</strong> {contact.missionBrief.objective || "—"} ·{" "}
+                      <strong>Priorite:</strong> {contact.missionBrief.priority}
+                    </p>
+                  )}
+                  {contact.missionBrief.dos && (
+                    <p className="mt-1 text-amber-800">
+                      <strong>Do:</strong> {contact.missionBrief.dos}
+                    </p>
+                  )}
+                  {contact.missionBrief.donts && (
+                    <p className="mt-1 text-amber-800">
+                      <strong>Don't:</strong> {contact.missionBrief.donts}
+                    </p>
+                  )}
+                </section>
+              )}
 
               <EmailComposer
                 subject={subject}

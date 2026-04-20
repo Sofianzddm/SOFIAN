@@ -90,7 +90,7 @@ const STATUS_LABEL: Record<Candidate["status"], string> = {
   proposed: "Proposés",
   approved: "Validés",
   contacted: "Contactés",
-  creator_approved: "Validés par le créateur",
+  creator_approved: "Validé par le créateur",
   rejected: "Refusés",
 };
 
@@ -705,7 +705,7 @@ export function DinnerSelectionClient() {
       <section className="rounded-2xl border border-gray-200 bg-white p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Sélection créateurs dîner</h1>
+            <h1 className="text-xl font-semibold text-gray-900">Sélection de créateurs – dîner</h1>
             <p className="text-sm text-gray-500">
               Le planner propose, la cliente valide dans un board kanban.
             </p>
