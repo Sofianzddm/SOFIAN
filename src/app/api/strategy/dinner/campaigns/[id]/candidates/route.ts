@@ -11,6 +11,14 @@ function normalizeHandle(value: string): string {
   return value.trim().toLowerCase().replace(/^@+/, "");
 }
 
+function normalizeInstagramUrl(value: string): string | null {
+  const raw = value.trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const clean = raw.replace(/^@+/, "").replace(/^instagram\.com\//i, "");
+  return `https://instagram.com/${clean}`;
+}
+
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -36,6 +44,8 @@ export async function POST(
       talentId?: string;
       fullName?: string;
       manualHandle?: string;
+      creatorEmail?: string | null;
+      instagramUrl?: string | null;
       manualPlatform?: string;
       followers?: number | null;
       engagementRate?: number | null;
@@ -104,6 +114,8 @@ export async function POST(
         talentId: talentId || null,
         fullName,
         manualHandle: manualHandle || null,
+        creatorEmail: body.creatorEmail?.trim() || null,
+        instagramUrl: body.instagramUrl ? normalizeInstagramUrl(body.instagramUrl) : null,
         manualPlatform: (body.manualPlatform || "").trim() || null,
         followers: body.followers ?? null,
         engagementRate: body.engagementRate ?? null,

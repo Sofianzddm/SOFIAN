@@ -24,6 +24,8 @@ type Candidate = {
   talentId: string | null;
   fullName: string;
   manualHandle: string | null;
+  creatorEmail: string | null;
+  instagramUrl: string | null;
   manualPlatform: string | null;
   followers: number | null;
   engagementRate: number | null;
@@ -31,9 +33,26 @@ type Candidate = {
   notePlanner: string | null;
   noteClient: string | null;
   source: "planner" | "client";
-  status: "proposed" | "approved" | "rejected";
+  status: "proposed" | "approved" | "contacted" | "creator_approved" | "rejected";
   rejectionReason: string | null;
   position: number;
+};
+
+type ContactMission = {
+  id: string;
+  campaignId: string;
+  candidateId: string | null;
+  creatorName: string;
+  targetBrand: string;
+  strategyReason: string;
+  recommendedAngle: string | null;
+  objective: string | null;
+  dos: string | null;
+  donts: string | null;
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  status: "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED";
+  deadlineAt: string | null;
+  createdAt: string;
 };
 
 type TalentOption = {
@@ -70,6 +89,8 @@ type CampaignDetail = {
 const STATUS_LABEL: Record<Candidate["status"], string> = {
   proposed: "Proposés",
   approved: "Validés",
+  contacted: "Contactés",
+  creator_approved: "Validés par le créateur",
   rejected: "Refusés",
 };
 
@@ -121,6 +142,8 @@ export function DinnerSelectionClient() {
     talentId: "",
     fullName: "",
     manualHandle: "",
+    creatorEmail: "",
+    instagramUrl: "",
     followers: "",
     engagementRate: "",
     estimatedCost: "",
@@ -128,6 +151,18 @@ export function DinnerSelectionClient() {
     notePlanner: "",
   });
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const [missions, setMissions] = useState<ContactMission[]>([]);
+  const [missionCandidate, setMissionCandidate] = useState<Candidate | null>(null);
+  const [missionForm, setMissionForm] = useState({
+    targetBrand: "",
+    strategyReason: "",
+    recommendedAngle: "",
+    objective: "",
+    dos: "",
+    donts: "",
+    priority: "MEDIUM" as ContactMission["priority"],
+    deadlineAt: "",
+  });
 
   const canUploadNewEventPhotos = useMemo(
     () => isEventFinished(newCampaign.eventDate || null),
@@ -142,6 +177,8 @@ export function DinnerSelectionClient() {
     const base: Record<Candidate["status"], Candidate[]> = {
       proposed: [],
       approved: [],
+      contacted: [],
+      creator_approved: [],
       rejected: [],
     };
     for (const c of detail?.candidates || []) base[c.status].push(c);
@@ -203,6 +240,20 @@ export function DinnerSelectionClient() {
     }
   }, []);
 
+  const loadMissions = useCallback(async (campaignId: string) => {
+    if (!campaignId) return;
+    try {
+      const res = await fetch(`/api/strategy/dinner/campaigns/${campaignId}/missions`, {
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Chargement des missions impossible");
+      setMissions(Array.isArray(data.missions) ? (data.missions as ContactMission[]) : []);
+    } catch {
+      setMissions([]);
+    }
+  }, []);
+
   useEffect(() => {
     void loadCampaigns();
     void loadTalents();
@@ -211,7 +262,8 @@ export function DinnerSelectionClient() {
   useEffect(() => {
     if (!activeCampaignId) return;
     void loadDetail(activeCampaignId);
-  }, [activeCampaignId, loadDetail]);
+    void loadMissions(activeCampaignId);
+  }, [activeCampaignId, loadDetail, loadMissions]);
 
   useEffect(() => {
     if (!detail?.campaign) return;
@@ -431,6 +483,12 @@ export function DinnerSelectionClient() {
           talentId: selectedTalent?.id || null,
           fullName: selectedTalent ? selectedTalent.name : addForm.fullName,
           manualHandle: addForm.manualHandle || selectedTalent?.instagram || null,
+          creatorEmail: addForm.creatorEmail || null,
+          instagramUrl:
+            addForm.instagramUrl ||
+            (selectedTalent?.instagram
+              ? `https://instagram.com/${String(selectedTalent.instagram).replace(/^@+/, "")}`
+              : null),
           followers: selectedTalent?.igFollowers || Number(addForm.followers) || null,
           engagementRate: selectedTalent?.igEngagement || Number(addForm.engagementRate) || null,
           estimatedCost: Number(addForm.estimatedCost) || null,
@@ -445,6 +503,8 @@ export function DinnerSelectionClient() {
         talentId: "",
         fullName: "",
         manualHandle: "",
+        creatorEmail: "",
+        instagramUrl: "",
         followers: "",
         engagementRate: "",
         estimatedCost: "",
@@ -563,6 +623,8 @@ export function DinnerSelectionClient() {
         body: JSON.stringify({
           fullName: candidate.fullName,
           manualHandle: candidate.manualHandle,
+          creatorEmail: candidate.creatorEmail,
+          instagramUrl: candidate.instagramUrl,
           followers: candidate.followers,
           engagementRate: candidate.engagementRate,
           estimatedCost: candidate.estimatedCost,
@@ -575,6 +637,64 @@ export function DinnerSelectionClient() {
       await loadDetail(activeCampaignId);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openMissionModal = (candidate: Candidate) => {
+    setMissionCandidate(candidate);
+    setMissionForm({
+      targetBrand: "",
+      strategyReason: "",
+      recommendedAngle: "",
+      objective: "",
+      dos: "",
+      donts: "",
+      priority: "MEDIUM",
+      deadlineAt: "",
+    });
+  };
+
+  const createMission = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!activeCampaignId || !missionCandidate) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/strategy/dinner/campaigns/${activeCampaignId}/missions`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateId: missionCandidate.id,
+          creatorName: missionCandidate.fullName,
+          targetBrand: missionForm.targetBrand,
+          strategyReason: missionForm.strategyReason,
+          recommendedAngle: missionForm.recommendedAngle || null,
+          objective: missionForm.objective || null,
+          dos: missionForm.dos || null,
+          donts: missionForm.donts || null,
+          priority: missionForm.priority,
+          deadlineAt: missionForm.deadlineAt || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Creation mission impossible");
+      setMissionCandidate(null);
+      setMissionForm({
+        targetBrand: "",
+        strategyReason: "",
+        recommendedAngle: "",
+        objective: "",
+        dos: "",
+        donts: "",
+        priority: "MEDIUM",
+        deadlineAt: "",
+      });
+      await loadMissions(activeCampaignId);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur reseau");
     } finally {
       setSaving(false);
     }
@@ -1054,7 +1174,7 @@ export function DinnerSelectionClient() {
       {activeCampaignId ? (
         <form onSubmit={addCandidate} className="rounded-2xl border border-gray-200 bg-white p-5 space-y-3">
           <h2 className="text-sm font-semibold text-gray-900">Ajouter un créateur</h2>
-          <div className="grid gap-2 md:grid-cols-5">
+          <div className="grid gap-2 md:grid-cols-4">
             <select
               value={addForm.talentId}
               onChange={(e) => setAddForm((v) => ({ ...v, talentId: e.target.value }))}
@@ -1078,6 +1198,19 @@ export function DinnerSelectionClient() {
               value={addForm.manualHandle}
               onChange={(e) => setAddForm((v) => ({ ...v, manualHandle: e.target.value }))}
               placeholder="@handle"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+            <input
+              value={addForm.creatorEmail}
+              onChange={(e) => setAddForm((v) => ({ ...v, creatorEmail: e.target.value }))}
+              placeholder="Email créateur"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              type="email"
+            />
+            <input
+              value={addForm.instagramUrl}
+              onChange={(e) => setAddForm((v) => ({ ...v, instagramUrl: e.target.value }))}
+              placeholder="Lien Instagram"
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
             <input
@@ -1140,7 +1273,9 @@ export function DinnerSelectionClient() {
       ) : null}
 
       <section className="grid gap-4 lg:grid-cols-3">
-        {(["proposed", "approved", "rejected"] as Candidate["status"][]).map((status) => (
+        {(
+          ["proposed", "approved", "contacted", "creator_approved", "rejected"] as Candidate["status"][]
+        ).map((status) => (
           <div key={status} className="rounded-2xl border border-gray-200 bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">{STATUS_LABEL[status]}</h3>
@@ -1175,11 +1310,52 @@ export function DinnerSelectionClient() {
                         : ""}
                       {typeof c.engagementRate === "number" ? ` - ${c.engagementRate}% engagement` : ""}
                     </p>
+                    {(c.creatorEmail || c.instagramUrl) && (
+                      <p className="text-xs text-gray-500">
+                        {c.creatorEmail ? `${c.creatorEmail}` : ""}
+                        {c.creatorEmail && c.instagramUrl ? " - " : ""}
+                        {c.instagramUrl ? (
+                          <a
+                            href={c.instagramUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline hover:text-gray-700"
+                          >
+                            Profil Instagram
+                          </a>
+                        ) : null}
+                      </p>
+                    )}
                     {c.notePlanner ? <p className="text-xs text-gray-600">{c.notePlanner}</p> : null}
                     {c.rejectionReason ? (
                       <p className="text-xs text-red-600">Refuse - Motif: {c.rejectionReason}</p>
                     ) : null}
                     <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => openMissionModal(c)}
+                        className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700"
+                      >
+                        Mission casting
+                      </button>
+                      {c.status !== "contacted" ? (
+                        <button
+                          type="button"
+                          onClick={() => void moveCandidate(c.id, "contacted")}
+                          className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700"
+                        >
+                          Contacté
+                        </button>
+                      ) : null}
+                      {c.status !== "creator_approved" ? (
+                        <button
+                          type="button"
+                          onClick={() => void moveCandidate(c.id, "creator_approved")}
+                          className="rounded-md border border-purple-200 bg-purple-50 px-2 py-1 text-xs text-purple-700"
+                        >
+                          Validé créateur
+                        </button>
+                      ) : null}
                       {c.status !== "approved" ? (
                         <button
                           type="button"
@@ -1228,6 +1404,22 @@ export function DinnerSelectionClient() {
         ))}
       </section>
 
+      {missions.length > 0 ? (
+        <section className="rounded-2xl border border-gray-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-gray-900">Missions strategy vers casting</h3>
+          <div className="mt-3 space-y-2">
+            {missions.slice(0, 8).map((m) => (
+              <article key={m.id} className="rounded-lg border border-gray-200 p-3 text-sm">
+                <p className="font-medium text-gray-900">
+                  {m.creatorName} → {m.targetBrand}
+                </p>
+                <p className="mt-1 text-xs text-gray-600">{m.strategyReason}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {selectedCandidate ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
@@ -1259,6 +1451,27 @@ export function DinnerSelectionClient() {
                 }
                 className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 placeholder="@handle"
+              />
+              <input
+                value={selectedCandidate.creatorEmail || ""}
+                onChange={(e) =>
+                  setSelectedCandidate((prev) =>
+                    prev ? { ...prev, creatorEmail: e.target.value } : prev
+                  )
+                }
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Email créateur"
+                type="email"
+              />
+              <input
+                value={selectedCandidate.instagramUrl || ""}
+                onChange={(e) =>
+                  setSelectedCandidate((prev) =>
+                    prev ? { ...prev, instagramUrl: e.target.value } : prev
+                  )
+                }
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Lien Instagram"
               />
               <input
                 value={selectedCandidate.followers ?? ""}
@@ -1339,6 +1552,106 @@ export function DinnerSelectionClient() {
                 Supprimer ce talent
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {missionCandidate ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-gray-900">
+                Mission casting - {missionCandidate.fullName}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMissionCandidate(null)}
+                className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700"
+              >
+                Fermer
+              </button>
+            </div>
+            <form onSubmit={createMission} className="space-y-2">
+              <input
+                value={missionForm.targetBrand}
+                onChange={(e) => setMissionForm((v) => ({ ...v, targetBrand: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Marque a contacter (ex: La Mer)"
+                required
+              />
+              <textarea
+                value={missionForm.strategyReason}
+                onChange={(e) => setMissionForm((v) => ({ ...v, strategyReason: e.target.value }))}
+                className="min-h-20 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Pourquoi cette marque pour ce createur ?"
+                required
+              />
+              <input
+                value={missionForm.recommendedAngle}
+                onChange={(e) =>
+                  setMissionForm((v) => ({ ...v, recommendedAngle: e.target.value }))
+                }
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Angle recommande (optionnel)"
+              />
+              <div className="grid gap-2 md:grid-cols-3">
+                <input
+                  value={missionForm.objective}
+                  onChange={(e) => setMissionForm((v) => ({ ...v, objective: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  placeholder="Objectif (call, intro...)"
+                />
+                <select
+                  value={missionForm.priority}
+                  onChange={(e) =>
+                    setMissionForm((v) => ({
+                      ...v,
+                      priority: e.target.value as ContactMission["priority"],
+                    }))
+                  }
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value="LOW">Priorite basse</option>
+                  <option value="MEDIUM">Priorite moyenne</option>
+                  <option value="HIGH">Priorite haute</option>
+                  <option value="URGENT">Urgent</option>
+                </select>
+                <input
+                  type="datetime-local"
+                  value={missionForm.deadlineAt}
+                  onChange={(e) => setMissionForm((v) => ({ ...v, deadlineAt: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <textarea
+                value={missionForm.dos}
+                onChange={(e) => setMissionForm((v) => ({ ...v, dos: e.target.value }))}
+                className="min-h-16 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Do (optionnel)"
+              />
+              <textarea
+                value={missionForm.donts}
+                onChange={(e) => setMissionForm((v) => ({ ...v, donts: e.target.value }))}
+                className="min-h-16 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Don't (optionnel)"
+              />
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg bg-[#1A1110] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  Creer et envoyer a casting
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMissionCandidate(null)}
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700"
+                >
+                  Annuler
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

@@ -61,6 +61,20 @@ type BrandGroup = {
   contacts: HubSpotContactCasting[];
 };
 
+type MissionBrief = {
+  id: string;
+  creatorName: string;
+  targetBrand: string;
+  strategyReason: string;
+  recommendedAngle?: string | null;
+  objective?: string | null;
+  dos?: string | null;
+  donts?: string | null;
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  deadlineAt?: string | null;
+  campaignName?: string | null;
+};
+
 /** Regroupe les contacts par marque (companyName), tri marques puis contacts */
 function groupContactsByBrand(contacts: HubSpotContactCasting[]): BrandGroup[] {
   const map = new Map<string, { displayName: string; contacts: HubSpotContactCasting[] }>();
@@ -155,6 +169,7 @@ export default function CastingOutreachPage() {
     contacts: Array<Pick<HubSpotContactCasting, "id" | "firstname" | "lastname" | "email">>;
     initialSubject?: string;
     initialBodyHtml?: string;
+    missionBrief?: MissionBrief | null;
   } | null>(null);
   const [activeBrandColumn, setActiveBrandColumn] = useState<"todo" | "progress" | "ready" | null>(
     null
@@ -162,6 +177,7 @@ export default function CastingOutreachPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(
     null
   );
+  const [missionsByBrand, setMissionsByBrand] = useState<Record<string, MissionBrief>>({});
 
   const allowed =
     effectiveRole !== null &&
@@ -282,10 +298,32 @@ export default function CastingOutreachPage() {
   useEffect(() => {
     if (!listId) {
       setContacts([]);
+      setMissionsByBrand({});
       return;
     }
     loadContacts(listId);
   }, [listId, loadContacts]);
+
+  useEffect(() => {
+    const groups = groupContactsByBrand(contacts);
+    const keys = groups.map((g) => g.key).filter(Boolean);
+    if (keys.length === 0) {
+      setMissionsByBrand({});
+      return;
+    }
+    const encoded = encodeURIComponent(keys.join(","));
+    fetch(`/api/strategy/contact-missions?brands=${encoded}`, { credentials: "include" })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        if (!data.missionsByBrand || typeof data.missionsByBrand !== "object") {
+          setMissionsByBrand({});
+          return;
+        }
+        setMissionsByBrand(data.missionsByBrand as Record<string, MissionBrief>);
+      })
+      .catch(() => setMissionsByBrand({}));
+  }, [contacts]);
 
   const columns = useMemo(() => {
     // Important : une seule carte par marque.
@@ -511,12 +549,18 @@ export default function CastingOutreachPage() {
             groups={columns.todo}
             borderColor={COL_BORDER.todo}
             onComposeAll={(group) => {
-              setActiveBrand(composerStateForBrand(group.displayName, group.contacts));
+              setActiveBrand({
+                ...composerStateForBrand(group.displayName, group.contacts),
+                missionBrief: missionsByBrand[group.key] || null,
+              });
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
             onComposeOne={(group, c) => {
-              setActiveBrand(composerStateForBrand(group.displayName, [c]));
+              setActiveBrand({
+                ...composerStateForBrand(group.displayName, [c]),
+                missionBrief: missionsByBrand[group.key] || null,
+              });
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
@@ -528,12 +572,18 @@ export default function CastingOutreachPage() {
             groups={columns.progress}
             borderColor={COL_BORDER.progress}
             onComposeAll={(group) => {
-              setActiveBrand(composerStateForBrand(group.displayName, group.contacts));
+              setActiveBrand({
+                ...composerStateForBrand(group.displayName, group.contacts),
+                missionBrief: missionsByBrand[group.key] || null,
+              });
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
             onComposeOne={(group, c) => {
-              setActiveBrand(composerStateForBrand(group.displayName, [c]));
+              setActiveBrand({
+                ...composerStateForBrand(group.displayName, [c]),
+                missionBrief: missionsByBrand[group.key] || null,
+              });
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
@@ -545,12 +595,18 @@ export default function CastingOutreachPage() {
             groups={columns.ready}
             borderColor={COL_BORDER.ready}
             onComposeAll={(group) => {
-              setActiveBrand(composerStateForBrand(group.displayName, group.contacts));
+              setActiveBrand({
+                ...composerStateForBrand(group.displayName, group.contacts),
+                missionBrief: missionsByBrand[group.key] || null,
+              });
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}
             onComposeOne={(group, c) => {
-              setActiveBrand(composerStateForBrand(group.displayName, [c]));
+              setActiveBrand({
+                ...composerStateForBrand(group.displayName, [c]),
+                missionBrief: missionsByBrand[group.key] || null,
+              });
               setActiveBrandColumn(brandColumnFor(group.contacts));
               setComposerOpen(true);
             }}

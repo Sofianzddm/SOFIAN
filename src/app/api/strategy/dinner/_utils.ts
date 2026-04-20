@@ -23,6 +23,8 @@ export function parseCandidateStatus(value: unknown): DinnerCandidateStatus | nu
   const raw = String(value || "").trim().toLowerCase();
   if (raw === "proposed") return "PROPOSED";
   if (raw === "approved") return "APPROVED";
+  if (raw === "contacted") return "CONTACTED";
+  if (raw === "creator_approved") return "CREATOR_APPROVED";
   if (raw === "rejected") return "REJECTED";
   return null;
 }

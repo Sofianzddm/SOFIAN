@@ -342,7 +342,7 @@ export function Sidebar() {
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
-            label: "Dinner Selection",
+            label: "Sélection dîner",
             href: "/strategy/projets/villa-cannes/dinner-selection",
             icon: Users,
             roles: ["STRATEGY_PLANNER", "ADMIN"],

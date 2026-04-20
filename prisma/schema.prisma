@@ -209,6 +209,8 @@ enum DinnerCandidateSource {
 enum DinnerCandidateStatus {
   PROPOSED
   APPROVED
+  CONTACTED
+  CREATOR_APPROVED
   REJECTED
 }
 
@@ -217,6 +219,21 @@ enum DinnerEventType {
   MOVED
   COMMENT_ADDED
   EDITED
+}
+
+enum ContactMissionPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ContactMissionStatus {
+  READY_FOR_CASTING
+  EMAIL_DRAFTED
+  APPROVED_BY_SALES
+  SENT
+  CANCELLED
 }
 
 // ============================================
@@ -279,6 +296,7 @@ model User {
   dinnerCandidatesUpdated DinnerCreatorCandidate[] @relation("DinnerCandidateUpdatedBy")
   dinnerEvents DinnerCandidateEvent[]
   dinnerComments DinnerCandidateComment[]
+  contactMissionsCreated ContactMission[] @relation("ContactMissionCreatedBy")
 
   @@map("users")
 }
@@ -1969,6 +1987,7 @@ model DinnerCampaign {
 
   candidates DinnerCreatorCandidate[]
   events     DinnerCandidateEvent[]
+  contactMissions ContactMission[]
 
   @@index([projetSlug, createdAt])
   @@index([status])
@@ -1982,6 +2001,8 @@ model DinnerCreatorCandidate {
   talentId        String?
   talent          Talent?              @relation(fields: [talentId], references: [id], onDelete: SetNull)
   manualHandle    String?
+  creatorEmail    String?
+  instagramUrl    String?
   manualPlatform  String?
   fullName        String
   followers       Int?
@@ -2002,10 +2023,39 @@ model DinnerCreatorCandidate {
 
   events   DinnerCandidateEvent[]
   comments DinnerCandidateComment[]
+  contactMissions ContactMission[]
 
   @@index([campaignId, status, position])
   @@index([campaignId, talentId])
   @@map("dinner_creator_candidates")
+}
+
+model ContactMission {
+  id                  String                @id @default(cuid())
+  campaignId          String
+  campaign            DinnerCampaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  candidateId         String?
+  candidate           DinnerCreatorCandidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  creatorName         String
+  targetBrand         String
+  targetBrandKey      String
+  strategyReason      String                @db.Text
+  recommendedAngle    String?               @db.Text
+  objective           String?
+  dos                 String?               @db.Text
+  donts               String?               @db.Text
+  priority            ContactMissionPriority @default(MEDIUM)
+  status              ContactMissionStatus   @default(READY_FOR_CASTING)
+  deadlineAt          DateTime?
+  createdById         String
+  createdBy           User                  @relation("ContactMissionCreatedBy", fields: [createdById], references: [id])
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([campaignId, createdAt])
+  @@index([targetBrandKey, status, createdAt])
+  @@index([candidateId])
+  @@map("contact_missions")
 }
 
 model DinnerCandidateEvent {

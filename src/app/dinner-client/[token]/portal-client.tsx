@@ -1,14 +1,16 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Loader2, Plus, X, Images, BarChart3 } from "lucide-react";
+import { Check, Loader2, Plus, X, Images, BarChart3, Instagram } from "lucide-react";
+import { GlowUpLogo } from "@/components/ui/logo";
 
 type Candidate = {
   id: string;
   fullName: string;
   manualHandle: string | null;
+  instagramUrl: string | null;
   source: "planner" | "client";
-  status: "proposed" | "approved" | "rejected";
+  status: "proposed" | "approved" | "contacted" | "creator_approved" | "rejected";
   notePlanner: string | null;
   rejectionReason: string | null;
   followers: number | null;
@@ -38,6 +40,8 @@ type CampaignPayload = {
 const STATUS_LABEL: Record<Candidate["status"], string> = {
   proposed: "À valider",
   approved: "Validés",
+  contacted: "Contactés",
+  creator_approved: "Validés par le créateur",
   rejected: "Refusés",
 };
 
@@ -47,7 +51,7 @@ export function DinnerClientPortal({ token }: { token: string }) {
   const [saving, setSaving] = useState(false);
   const [uploadingEventPhoto, setUploadingEventPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [addForm, setAddForm] = useState({ fullName: "", manualHandle: "" });
+  const [addForm, setAddForm] = useState({ fullName: "", manualHandle: "", instagramUrl: "" });
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [activeSection, setActiveSection] = useState<"selection" | "reporting">("selection");
 
@@ -82,6 +86,8 @@ export function DinnerClientPortal({ token }: { token: string }) {
     const base: Record<Candidate["status"], Candidate[]> = {
       proposed: [],
       approved: [],
+      contacted: [],
+      creator_approved: [],
       rejected: [],
     };
     for (const c of data?.candidates || []) base[c.status].push(c);
@@ -125,12 +131,13 @@ export function DinnerClientPortal({ token }: { token: string }) {
         body: JSON.stringify({
           fullName: addForm.fullName,
           manualHandle: addForm.manualHandle,
+          instagramUrl: addForm.instagramUrl,
           source: "client",
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Impossible d'ajouter");
-      setAddForm({ fullName: "", manualHandle: "" });
+      setAddForm({ fullName: "", manualHandle: "", instagramUrl: "" });
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau");
@@ -162,6 +169,12 @@ export function DinnerClientPortal({ token }: { token: string }) {
   return (
     <main className="mx-auto w-full max-w-[1400px] px-4 py-8 md:px-8 space-y-6">
       <header className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+            Powered by
+          </p>
+          <GlowUpLogo className="h-4 w-auto" variant="dark" />
+        </div>
         {data?.campaign.logoUrl ? (
           <img
             src={data.campaign.logoUrl}
@@ -337,6 +350,12 @@ export function DinnerClientPortal({ token }: { token: string }) {
             placeholder="@handle (optionnel)"
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm md:w-64"
           />
+          <input
+            value={addForm.instagramUrl}
+            onChange={(e) => setAddForm((v) => ({ ...v, instagramUrl: e.target.value }))}
+            placeholder="Lien Instagram (optionnel)"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm md:w-72"
+          />
           <button
             type="submit"
             disabled={saving}
@@ -352,7 +371,9 @@ export function DinnerClientPortal({ token }: { token: string }) {
       {loading ? <p className="text-sm text-gray-500">Chargement...</p> : null}
 
       <section className="grid gap-4 md:grid-cols-3">
-        {(["proposed", "approved", "rejected"] as Candidate["status"][]).map((status) => (
+        {(
+          ["proposed", "approved", "contacted", "creator_approved", "rejected"] as Candidate["status"][]
+        ).map((status) => (
           <div key={status} className="rounded-2xl border border-gray-200 bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">{STATUS_LABEL[status]}</h3>
@@ -376,6 +397,17 @@ export function DinnerClientPortal({ token }: { token: string }) {
                       ? ` - ${new Intl.NumberFormat("fr-FR").format(c.followers)} followers`
                       : ""}
                   </p>
+                  {c.instagramUrl ? (
+                    <a
+                      href={c.instagramUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 rounded-full border border-pink-200 bg-pink-50 px-2 py-1 text-xs font-medium text-pink-700 hover:bg-pink-100"
+                    >
+                      <Instagram className="h-3.5 w-3.5" />
+                      Voir Instagram
+                    </a>
+                  ) : null}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {c.status !== "approved" ? (
                       <button
@@ -434,6 +466,22 @@ export function DinnerClientPortal({ token }: { token: string }) {
                   : "Non renseigné"}
               </p>
               <p>
+                <span className="font-medium text-gray-900">Instagram:</span>{" "}
+                {selectedCandidate.instagramUrl ? (
+                  <a
+                    href={selectedCandidate.instagramUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-pink-700 underline"
+                  >
+                    <Instagram className="h-3.5 w-3.5" />
+                    Ouvrir le profil
+                  </a>
+                ) : (
+                  "Non renseigné"
+                )}
+              </p>
+              <p>
                 <span className="font-medium text-gray-900">Source:</span>{" "}
                 {selectedCandidate.source === "client" ? "Ajouté par cliente" : "Ajouté par planner"}
               </p>
@@ -443,6 +491,10 @@ export function DinnerClientPortal({ token }: { token: string }) {
                   ? "À valider"
                   : selectedCandidate.status === "approved"
                     ? "Validé"
+                    : selectedCandidate.status === "contacted"
+                      ? "Contacté"
+                      : selectedCandidate.status === "creator_approved"
+                        ? "Validé par le créateur"
                     : "Refusé"}
               </p>
               <p>

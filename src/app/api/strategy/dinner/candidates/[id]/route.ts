@@ -3,6 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { canAccessDinnerStrategy } from "@/app/api/strategy/dinner/_utils";
 
+function normalizeInstagramUrl(value: string): string | null {
+  const raw = value.trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const clean = raw.replace(/^@+/, "").replace(/^instagram\.com\//i, "");
+  return `https://instagram.com/${clean}`;
+}
+
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -19,6 +27,8 @@ export async function PATCH(
     const body = (await request.json()) as {
       fullName?: string;
       manualHandle?: string | null;
+      creatorEmail?: string | null;
+      instagramUrl?: string | null;
       manualPlatform?: string | null;
       followers?: number | null;
       engagementRate?: number | null;
@@ -59,6 +69,14 @@ export async function PATCH(
           body.manualHandle === undefined
             ? undefined
             : (body.manualHandle || "").trim().replace(/^@+/, "").toLowerCase() || null,
+        creatorEmail:
+          body.creatorEmail === undefined ? undefined : (body.creatorEmail || "").trim() || null,
+        instagramUrl:
+          body.instagramUrl === undefined
+            ? undefined
+            : body.instagramUrl
+              ? normalizeInstagramUrl(body.instagramUrl)
+              : null,
         manualPlatform:
           body.manualPlatform === undefined ? undefined : (body.manualPlatform || "").trim() || null,
         followers: body.followers === undefined ? undefined : body.followers,

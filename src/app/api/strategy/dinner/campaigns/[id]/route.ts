@@ -82,6 +82,8 @@ export async function GET(
         talentId: c.talentId,
         fullName: c.fullName,
         manualHandle: c.manualHandle,
+        creatorEmail: c.creatorEmail,
+        instagramUrl: c.instagramUrl,
         manualPlatform: c.manualPlatform,
         followers: c.followers,
         engagementRate: c.engagementRate,

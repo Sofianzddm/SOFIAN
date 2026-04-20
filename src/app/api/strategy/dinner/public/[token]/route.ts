@@ -6,6 +6,14 @@ function normalizeHandle(value: string): string {
   return value.trim().toLowerCase().replace(/^@+/, "");
 }
 
+function normalizeInstagramUrl(value: string): string | null {
+  const raw = value.trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const clean = raw.replace(/^@+/, "").replace(/^instagram\.com\//i, "");
+  return `https://instagram.com/${clean}`;
+}
+
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ token: string }> }
@@ -47,6 +55,8 @@ export async function GET(
         talentId: c.talentId,
         fullName: c.fullName,
         manualHandle: c.manualHandle,
+        creatorEmail: c.creatorEmail,
+        instagramUrl: c.instagramUrl,
         manualPlatform: c.manualPlatform,
         followers: c.followers,
         engagementRate: c.engagementRate,
@@ -83,6 +93,7 @@ export async function POST(
     const body = (await request.json()) as {
       fullName?: string;
       manualHandle?: string;
+      instagramUrl?: string;
       manualPlatform?: string;
       noteClient?: string | null;
       source?: string;
@@ -119,6 +130,7 @@ export async function POST(
         campaignId: campaign.id,
         fullName,
         manualHandle: manualHandle || null,
+        instagramUrl: body.instagramUrl ? normalizeInstagramUrl(body.instagramUrl) : null,
         manualPlatform: (body.manualPlatform || "").trim() || null,
         source: parseCandidateSource(body.source) ?? "CLIENT",
         status: "PROPOSED",
