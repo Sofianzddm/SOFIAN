@@ -144,15 +144,15 @@ export default function NewGiftPage() {
     }
   };
 
-  if (!user?.role || !["TM", "ADMIN"].includes(user.role)) {
+  if (!user?.role || !["TM", "CM", "ADMIN"].includes(user.role)) {
     return (
       <div className="max-w-2xl mx-auto py-12 text-center">
         <AlertTriangle className="w-16 h-16 text-orange-500 mx-auto mb-4" />
         <h2 className="text-2xl font-bold text-glowup-licorice mb-2">
-          Accès réservé aux Talent Managers et Admin
+          Accès réservé aux Talent Managers, Account Managers et Admin
         </h2>
         <p className="text-gray-600 mb-6">
-          Seuls les Talent Managers et Admin peuvent créer des demandes de gifts.
+          Seuls les Talent Managers, Account Managers et Admin peuvent créer des demandes de gifts.
         </p>
         <Link
           href="/gifts"

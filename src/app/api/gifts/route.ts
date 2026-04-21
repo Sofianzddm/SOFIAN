@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
     // Mode spécial: récupération des talents filtrés pour le formulaire de création
     if (mode === "talents") {
-      if (!["TM", "ADMIN"].includes(user.role)) {
+      if (!["TM", "CM", "ADMIN"].includes(user.role)) {
         return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
       }
 
@@ -180,10 +180,10 @@ export async function POST(req: NextRequest) {
 
     const user = session.user as { id: string; role: string };
 
-    // Seuls les TM et ADMIN peuvent créer des demandes
-    if (!["TM", "ADMIN"].includes(user.role)) {
+    // Seuls les TM, CM et ADMIN peuvent créer des demandes
+    if (!["TM", "CM", "ADMIN"].includes(user.role)) {
       return NextResponse.json(
-        { error: "Seuls les Talent Managers et Admin peuvent créer des demandes de gifts" },
+        { error: "Seuls les Talent Managers, Account Managers et Admin peuvent créer des demandes de gifts" },
         { status: 403 }
       );
     }
@@ -218,13 +218,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Vérifier que le TM gère bien ce talent (sauf pour les ADMIN)
+    // Vérifier les droits talent selon le rôle créateur
     let talent;
     if (user.role === "TM") {
       talent = await prisma.talent.findFirst({
         where: {
           id: talentId,
-          managerId: user.id,
+          OR: [
+            { managerId: user.id },
+            {
+              delegations: {
+                some: {
+                  tmRelaiId: user.id,
+                  actif: true,
+                },
+              },
+            },
+          ],
         },
       });
 
@@ -235,7 +245,7 @@ export async function POST(req: NextRequest) {
         );
       }
     } else {
-      // Pour les ADMIN, vérifier simplement que le talent existe
+      // Pour les CM / ADMIN, vérifier simplement que le talent existe
       talent = await prisma.talent.findUnique({
         where: { id: talentId },
       });
@@ -272,6 +282,7 @@ export async function POST(req: NextRequest) {
       data: {
         reference,
         talentId,
+        // Si création par CM/ADMIN, la demande est rattachée au TM responsable du talent.
         tmId: user.role === "TM" ? user.id : talent.managerId ?? user.id,
         marqueId: marqueId || null,
         typeGift,

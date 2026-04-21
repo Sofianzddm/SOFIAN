@@ -37,6 +37,7 @@ import {
   Lock,
   Music2,
   Send,
+  Gift,
 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -490,9 +491,53 @@ function CastingManagerDashboard() {
 }
 
 function CMDashboard({ data }: { data: any }) {
-  const stats = data?.stats || {};
-  const collabsEnCours = Number(stats.collabsEnCours) || 0;
-  const collabsPublie = Number(stats.collabsPublie) || 0;
+  const [loadingGifts, setLoadingGifts] = useState(true);
+  const [gifts, setGifts] = useState<any[]>([]);
+  const [giftsError, setGiftsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setLoadingGifts(true);
+        setGiftsError(null);
+        const res = await fetch("/api/gifts", { credentials: "include" });
+        const json = await res.json().catch(() => []);
+        if (!res.ok) throw new Error("Impossible de charger les gifts");
+        if (!mounted) return;
+        setGifts(Array.isArray(json) ? json : []);
+      } catch (e) {
+        if (!mounted) return;
+        setGifts([]);
+        setGiftsError(e instanceof Error ? e.message : "Erreur de chargement");
+      } finally {
+        if (mounted) setLoadingGifts(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const giftsEnAttente = gifts.filter((g) => g.statut === "EN_ATTENTE").length;
+  const giftsEnTraitement = gifts.filter(
+    (g) => g.statut === "EN_COURS" || g.statut === "ATTENTE_MARQUE"
+  ).length;
+  const giftsUrgents = gifts.filter(
+    (g) =>
+      g.priorite === "URGENTE" &&
+      g.statut !== "ANNULE" &&
+      g.statut !== "REFUSE" &&
+      g.statut !== "RECU"
+  ).length;
+  const recentGifts = [...gifts]
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt || b.createdAt).getTime() -
+        new Date(a.updatedAt || a.createdAt).getTime()
+    )
+    .slice(0, 5);
 
   return (
     <div className="space-y-6">
@@ -501,7 +546,7 @@ function CMDashboard({ data }: { data: any }) {
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Suivi Account Manager</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Vue rapide des collaborations et demandes de gifts.
+              Vue rapide des demandes de gifts uniquement.
             </p>
           </div>
           <Link
@@ -514,39 +559,54 @@ function CMDashboard({ data }: { data: any }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Link
-          href="/collaborations"
-          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-all"
-        >
-          <p className="text-sm text-slate-500">Collaborations en cours</p>
-          <p className="text-3xl font-bold text-slate-900 mt-1 tabular-nums">
-            {collabsEnCours}
-          </p>
-        </Link>
-        <Link
-          href="/collaborations"
-          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-all"
-        >
-          <p className="text-sm text-slate-500">Collaborations publiées</p>
-          <p className="text-3xl font-bold text-slate-900 mt-1 tabular-nums">
-            {collabsPublie}
-          </p>
-        </Link>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">En attente</p>
+          <p className="text-3xl font-bold text-slate-900 mt-1 tabular-nums">{giftsEnAttente}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">En traitement</p>
+          <p className="text-3xl font-bold text-slate-900 mt-1 tabular-nums">{giftsEnTraitement}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Urgentes</p>
+          <p className="text-3xl font-bold text-red-600 mt-1 tabular-nums">{giftsUrgents}</p>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm text-slate-600">
-          Besoin du suivi complet gifts ? Utilise la page{" "}
-          <Link href="/account-manager" className="font-semibold text-glowup-rose hover:underline">
-            account-manager
-          </Link>{" "}
-          ou accede directement a{" "}
-          <Link href="/gifts" className="font-semibold text-glowup-rose hover:underline">
-            /gifts
-          </Link>
-          .
-        </p>
+        <div className="flex items-center gap-2 mb-3">
+          <Gift className="h-4 w-4 text-glowup-rose" />
+          <p className="text-sm font-semibold text-slate-900">Dernieres demandes</p>
+        </div>
+        {loadingGifts ? (
+          <div className="inline-flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Chargement des gifts...
+          </div>
+        ) : giftsError ? (
+          <p className="text-sm text-red-600">{giftsError}</p>
+        ) : recentGifts.length === 0 ? (
+          <p className="text-sm text-slate-500">Aucune demande de gift pour le moment.</p>
+        ) : (
+          <div className="space-y-2">
+            {recentGifts.map((gift) => (
+              <Link
+                key={gift.id}
+                href={`/gifts/${gift.id}`}
+                className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2 hover:bg-slate-50"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900 truncate">{gift.reference}</p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {gift.talent?.prenom} {gift.talent?.nom} • {gift.typeGift}
+                  </p>
+                </div>
+                <span className="text-xs font-medium text-slate-600">{gift.statut}</span>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2116,7 +2176,7 @@ function getWelcomeMessage(role: string) {
     HEAD_OF_INFLUENCE: "Supervision du pôle Influence",
     HEAD_OF_SALES: "Supervision du pôle Sales",
     TM: "Gérez vos talents et négociations",
-    CM: "Suivi des collaborations et gifts",
+    CM: "Suivi des demandes de gifts",
     TALENT: "Votre espace personnel",
     CASTING_MANAGER: "Prospection casting & HubSpot",
   };
