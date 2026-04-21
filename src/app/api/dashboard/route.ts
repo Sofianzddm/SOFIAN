@@ -181,8 +181,10 @@ export async function GET(request: NextRequest) {
         prisma.negociation.aggregate({
           _sum: { budgetFinal: true },
           where: {
-            statut: { in: ["EN_ATTENTE", "EN_DISCUSSION"] },
-            lastModifiedAt: { gte: startOfMonth, lt: startOfNextMonth },
+            // Exclure les négociations déjà converties en collaboration
+            collaborationId: null,
+            // Inclure le pipeline de négo complet (hors archivées / refusées traitées ailleurs)
+            statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION", "VALIDEE"] },
           },
         }),
       ]);

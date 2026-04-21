@@ -40,6 +40,8 @@ type Mission = {
   updatedAt?: string;
 };
 
+type ContactDraft = { firstname: string; lastname: string; email: string; role: string };
+
 const REMINDER_DELAY_HOURS = 72;
 const REMINDER_DELAY_MS = REMINDER_DELAY_HOURS * 60 * 60 * 1000;
 
@@ -134,7 +136,7 @@ export function ProspectingPipelineClient() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerContact, setComposerContact] = useState<any>(null);
   const [contactFormByMission, setContactFormByMission] = useState<
-    Record<string, { open: boolean; firstname: string; lastname: string; email: string; role: string }>
+    Record<string, { open: boolean; contacts: ContactDraft[] }>
   >({});
 
   const visibleStages = useMemo(() => allowedColumns(role), [role]);
@@ -227,51 +229,68 @@ export function ProspectingPipelineClient() {
 
   async function addClientContact(m: Mission) {
     const form = contactFormByMission[m.id];
-    const email = String(form?.email || "").trim().toLowerCase();
-    if (!email || !email.includes("@")) {
-      setError("Email client invalide.");
+    const contactsDraft = Array.isArray(form?.contacts) ? form.contacts : [];
+    const cleaned = contactsDraft
+      .map((c) => ({
+        firstname: String(c.firstname || "").trim(),
+        lastname: String(c.lastname || "").trim(),
+        email: String(c.email || "").trim().toLowerCase(),
+        role: String(c.role || "").trim(),
+      }))
+      .filter((c) => c.firstname && c.email);
+
+    if (cleaned.length === 0) {
+      setError("Ajoute au moins un contact avec prénom et email.");
       return;
     }
     setUpdatingId(m.id);
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch("/api/hubspot/casting/brand-contacts", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brand: m.targetBrand,
-          firstname: String(form?.firstname || "").trim(),
-          lastname: String(form?.lastname || "").trim(),
-          email,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Création contact impossible.");
+      const results = await Promise.all(
+        cleaned.map(async (contact) => {
+          const res = await fetch("/api/hubspot/casting/brand-contacts", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              brand: m.targetBrand,
+              firstname: contact.firstname,
+              lastname: contact.lastname,
+              email: contact.email,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "Création contact impossible.");
+          return data;
+        })
+      );
       const currentContacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
-      const nextContacts = [
-        ...currentContacts.filter((c) => String(c?.email || "").toLowerCase() !== email),
-        {
-          firstname: String(form?.firstname || "").trim(),
-          lastname: String(form?.lastname || "").trim(),
-          email,
-          role: String(form?.role || "").trim(),
-        },
-      ];
+      const byEmail = new Map<string, { firstname?: string; lastname?: string; email?: string; role?: string }>();
+      for (const c of currentContacts) {
+        const email = String(c?.email || "").trim().toLowerCase();
+        if (email) byEmail.set(email, c);
+      }
+      for (const c of cleaned) {
+        byEmail.set(c.email, c);
+      }
+      const nextContacts = Array.from(byEmail.values());
       await patchMission(m.id, {
         clientContacts: nextContacts,
         clientLanguage: (m.clientLanguage || "FR") as "FR" | "EN",
       });
       setContactFormByMission((prev) => ({
         ...prev,
-        [m.id]: { open: false, firstname: "", lastname: "", email: "", role: "" },
+        [m.id]: { open: false, contacts: [{ firstname: "", lastname: "", email: "", role: "" }] },
       }));
-      setSuccess(
-        data.alreadyExisted
-          ? "Contact déjà existant: fiche HubSpot retrouvée et réutilisée."
-          : "Contact client enregistré avec succès."
-      );
+      const reusedCount = results.filter((r) => Boolean(r?.alreadyExisted)).length;
+      if (reusedCount > 0) {
+        setSuccess(
+          `${cleaned.length} contact(s) traité(s) dont ${reusedCount} déjà existant(s) dans HubSpot.`
+        );
+      } else {
+        setSuccess(`${cleaned.length} contact(s) client enregistré(s) avec succès.`);
+      }
       await loadMissions();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -581,10 +600,10 @@ export function ProspectingPipelineClient() {
                             ...prev,
                             [m.id]: {
                               open: !prev[m.id]?.open,
-                              firstname: prev[m.id]?.firstname || "",
-                              lastname: prev[m.id]?.lastname || "",
-                              email: prev[m.id]?.email || "",
-                              role: prev[m.id]?.role || "",
+                              contacts:
+                                prev[m.id]?.contacts?.length
+                                  ? prev[m.id].contacts
+                                  : [{ firstname: "", lastname: "", email: "", role: "" }],
                             },
                           }))
                         }
@@ -620,74 +639,92 @@ export function ProspectingPipelineClient() {
                   </div>
                   {role === "ADMIN" && contactFormByMission[m.id]?.open && (
                     <div className="mt-2 grid gap-2 rounded-lg border border-gray-200 p-2">
-                      <input
-                        value={contactFormByMission[m.id]?.firstname || ""}
-                        onChange={(e) =>
+                      {(contactFormByMission[m.id]?.contacts || []).map((contact, index) => (
+                        <div key={`${m.id}-contact-${index}`} className="grid grid-cols-1 gap-2 md:grid-cols-4">
+                          <input
+                            value={contact.firstname}
+                            onChange={(e) =>
+                              setContactFormByMission((prev) => ({
+                                ...prev,
+                                [m.id]: {
+                                  open: true,
+                                  contacts: (prev[m.id]?.contacts || []).map((c, i) =>
+                                    i === index ? { ...c, firstname: e.target.value } : c
+                                  ),
+                                },
+                              }))
+                            }
+                            placeholder="Prénom*"
+                            className="rounded border border-gray-300 px-2 py-1 text-xs"
+                          />
+                          <input
+                            value={contact.lastname}
+                            onChange={(e) =>
+                              setContactFormByMission((prev) => ({
+                                ...prev,
+                                [m.id]: {
+                                  open: true,
+                                  contacts: (prev[m.id]?.contacts || []).map((c, i) =>
+                                    i === index ? { ...c, lastname: e.target.value } : c
+                                  ),
+                                },
+                              }))
+                            }
+                            placeholder="Nom"
+                            className="rounded border border-gray-300 px-2 py-1 text-xs"
+                          />
+                          <input
+                            value={contact.email}
+                            onChange={(e) =>
+                              setContactFormByMission((prev) => ({
+                                ...prev,
+                                [m.id]: {
+                                  open: true,
+                                  contacts: (prev[m.id]?.contacts || []).map((c, i) =>
+                                    i === index ? { ...c, email: e.target.value } : c
+                                  ),
+                                },
+                              }))
+                            }
+                            placeholder="Email*"
+                            className="rounded border border-gray-300 px-2 py-1 text-xs"
+                          />
+                          <input
+                            value={contact.role}
+                            onChange={(e) =>
+                              setContactFormByMission((prev) => ({
+                                ...prev,
+                                [m.id]: {
+                                  open: true,
+                                  contacts: (prev[m.id]?.contacts || []).map((c, i) =>
+                                    i === index ? { ...c, role: e.target.value } : c
+                                  ),
+                                },
+                              }))
+                            }
+                            placeholder="Rôle / Poste"
+                            className="rounded border border-gray-300 px-2 py-1 text-xs"
+                          />
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() =>
                           setContactFormByMission((prev) => ({
                             ...prev,
                             [m.id]: {
                               open: true,
-                              firstname: e.target.value,
-                              lastname: prev[m.id]?.lastname || "",
-                              email: prev[m.id]?.email || "",
-                              role: prev[m.id]?.role || "",
+                              contacts: [
+                                ...(prev[m.id]?.contacts || []),
+                                { firstname: "", lastname: "", email: "", role: "" },
+                              ],
                             },
                           }))
                         }
-                        placeholder="Prénom"
-                        className="rounded border border-gray-300 px-2 py-1 text-xs"
-                      />
-                      <input
-                        value={contactFormByMission[m.id]?.lastname || ""}
-                        onChange={(e) =>
-                          setContactFormByMission((prev) => ({
-                            ...prev,
-                            [m.id]: {
-                              open: true,
-                              firstname: prev[m.id]?.firstname || "",
-                              lastname: e.target.value,
-                              email: prev[m.id]?.email || "",
-                              role: prev[m.id]?.role || "",
-                            },
-                          }))
-                        }
-                        placeholder="Nom"
-                        className="rounded border border-gray-300 px-2 py-1 text-xs"
-                      />
-                      <input
-                        value={contactFormByMission[m.id]?.email || ""}
-                        onChange={(e) =>
-                          setContactFormByMission((prev) => ({
-                            ...prev,
-                            [m.id]: {
-                              open: true,
-                              firstname: prev[m.id]?.firstname || "",
-                              lastname: prev[m.id]?.lastname || "",
-                              email: e.target.value,
-                              role: prev[m.id]?.role || "",
-                            },
-                          }))
-                        }
-                        placeholder="Email client"
-                        className="rounded border border-gray-300 px-2 py-1 text-xs"
-                      />
-                      <input
-                        value={contactFormByMission[m.id]?.role || ""}
-                        onChange={(e) =>
-                          setContactFormByMission((prev) => ({
-                            ...prev,
-                            [m.id]: {
-                              open: true,
-                              firstname: prev[m.id]?.firstname || "",
-                              lastname: prev[m.id]?.lastname || "",
-                              email: prev[m.id]?.email || "",
-                              role: e.target.value,
-                            },
-                          }))
-                        }
-                        placeholder="Rôle / Poste"
-                        className="rounded border border-gray-300 px-2 py-1 text-xs"
-                      />
+                        className="text-left text-xs font-medium text-[#C08B8B]"
+                      >
+                        + Ajouter un contact
+                      </button>
                       <select
                         value={m.clientLanguage || "FR"}
                         onChange={(e) =>

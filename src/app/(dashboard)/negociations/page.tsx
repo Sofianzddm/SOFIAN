@@ -44,6 +44,7 @@ interface Negociation {
   marque: { id: string; nom: string; secteur: string | null } | null;
   nomMarqueSaisi?: string | null;
   livrables: { typeContenu: string; quantite: number }[];
+  collaborationId?: string | null;
   _count: { commentaires: number };
 }
 
@@ -54,6 +55,7 @@ const STATUTS = [
   { value: "EN_DISCUSSION", label: "En discussion", dot: "bg-blue-500" },
   { value: "VALIDEE", label: "Validée", dot: "bg-emerald-500" },
   { value: "REFUSEE", label: "Refusée", dot: "bg-red-500" },
+  { value: "ANNULEE", label: "Archivé", dot: "bg-slate-500" },
 ];
 
 const TYPE_LABELS: Record<string, string> = {
@@ -123,7 +125,7 @@ export default function NegociationsPage() {
       EN_DISCUSSION: { label: "En discussion", className: "bg-blue-500/10 text-blue-600" },
       VALIDEE: { label: "Validée", className: "bg-emerald-500/10 text-emerald-600" },
       REFUSEE: { label: "Refusée", className: "bg-red-500/10 text-red-600" },
-      ANNULEE: { label: "Annulée", className: "bg-slate-100 text-slate-500" },
+      ANNULEE: { label: "Archivé", className: "bg-slate-100 text-slate-500" },
     };
     return config[statut] || { label: statut, className: "bg-slate-100 text-slate-600" };
   };
@@ -141,8 +143,13 @@ export default function NegociationsPage() {
   const enDiscussion = negociations.filter((n) => n.statut === "EN_DISCUSSION").length;
   const validees = negociations.filter((n) => n.statut === "VALIDEE").length;
   const totalBudget = negociations
-    .filter((n) => !["REFUSEE", "ANNULEE"].includes(n.statut))
-    .reduce((acc, n) => acc + (Number(n.budgetSouhaite) || Number(n.budgetMarque) || 0), 0);
+    .filter((n) => !["REFUSEE", "ANNULEE"].includes(n.statut) && !n.collaborationId)
+    .reduce(
+      (acc, n) =>
+        acc +
+        (Number(n.budgetFinal) || Number(n.budgetSouhaite) || Number(n.budgetMarque) || 0),
+      0
+    );
 
   const cinqJoursMs = 5 * 24 * 60 * 60 * 1000;
   const sansReponse = filteredNegos.filter(

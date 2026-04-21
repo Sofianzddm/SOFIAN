@@ -123,10 +123,11 @@ export async function POST(
       });
 
       // Mettre à jour la négociation (lier la marque résolue)
+      // Une fois convertie en collaboration, la négociation est archivée.
       const updated = await tx.negociation.update({
         where: { id: id },
         data: {
-          statut: "VALIDEE",
+          statut: "ANNULEE",
           marqueId: marqueIdFinal,
           validePar: session.user.id,
           dateValidation: new Date(),
