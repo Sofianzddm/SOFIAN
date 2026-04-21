@@ -23,12 +23,14 @@ export async function middleware(request: NextRequest) {
   }
 
   // Inbound Apps Script routes: auth Bearer interne dans les handlers.
-  // - /api/inbound/talents (GET)
-  // - /api/inbound/opportunities (POST seulement)
+  // On bypass totalement ces 2 endpoints de base:
+  // - /api/inbound/talents
+  // - /api/inbound/opportunities
+  // Les autres /api/inbound/* restent protégées par session middleware.
   if (pathname === "/api/inbound/talents") {
     return NextResponse.next();
   }
-  if (pathname === "/api/inbound/opportunities" && request.method === "POST") {
+  if (pathname === "/api/inbound/opportunities") {
     return NextResponse.next();
   }
 
