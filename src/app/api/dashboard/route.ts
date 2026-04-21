@@ -766,7 +766,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ============================================
-    // CM - Dashboard Community Manager
+    // CM - Dashboard Account Manager
     // ============================================
     if (role === "CM") {
       const [

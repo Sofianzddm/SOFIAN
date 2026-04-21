@@ -496,7 +496,7 @@ function getRoleName(role: string): string {
     HEAD_OF_INFLUENCE: "Head of Influence",
     HEAD_OF_SALES: "Head of Sales",
     TM: "Talent Manager",
-    CM: "Community Manager",
+    CM: "Account Manager",
     TALENT: "Talent",
     JURISTE: "Juriste",
     STRATEGY_PLANNER: "Strategy Planner",
