@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
-import type { HubSpotContactCasting } from "@/lib/hubspot";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 
 type Role = "STRATEGY_PLANNER" | "CASTING_MANAGER" | "HEAD_OF_SALES" | "HEAD_OF" | "ADMIN";
@@ -108,20 +107,6 @@ function columnAccentColor(stage: Stage): string {
   if (stage === "SENT") return "#86EFAC";
   if (stage === "LOST") return "#FCA5A5";
   return "#D1B070";
-}
-
-function pickInitialCastingDraft(contacts: HubSpotContactCasting[]): {
-  initialSubject: string;
-  initialBodyHtml: string;
-} {
-  const withBody = contacts.find((c) => (c.castingEmailBody || "").trim());
-  const withSubject = contacts.find((c) => (c.castingEmailSubject || "").trim());
-  const ref = withBody || withSubject || contacts[0];
-  if (!ref) return { initialSubject: "", initialBodyHtml: "" };
-  return {
-    initialSubject: (ref.castingEmailSubject || "").trim(),
-    initialBodyHtml: (ref.castingEmailBody || "").trim(),
-  };
 }
 
 export function ProspectingPipelineClient() {
@@ -247,24 +232,6 @@ export function ProspectingPipelineClient() {
     setError(null);
     setSuccess(null);
     try {
-      const results = await Promise.all(
-        cleaned.map(async (contact) => {
-          const res = await fetch("/api/hubspot/casting/brand-contacts", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              brand: m.targetBrand,
-              firstname: contact.firstname,
-              lastname: contact.lastname,
-              email: contact.email,
-            }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data.error || "Création contact impossible.");
-          return data;
-        })
-      );
       const currentContacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
       const byEmail = new Map<string, { firstname?: string; lastname?: string; email?: string; role?: string }>();
       for (const c of currentContacts) {
@@ -283,14 +250,7 @@ export function ProspectingPipelineClient() {
         ...prev,
         [m.id]: { open: false, contacts: [{ firstname: "", lastname: "", email: "", role: "" }] },
       }));
-      const reusedCount = results.filter((r) => Boolean(r?.alreadyExisted)).length;
-      if (reusedCount > 0) {
-        setSuccess(
-          `${cleaned.length} contact(s) traité(s) dont ${reusedCount} déjà existant(s) dans HubSpot.`
-        );
-      } else {
-        setSuccess(`${cleaned.length} contact(s) client enregistré(s) avec succès.`);
-      }
+      setSuccess(`${cleaned.length} contact(s) client enregistré(s) avec succès.`);
       await loadMissions();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -302,31 +262,17 @@ export function ProspectingPipelineClient() {
   async function openComposer(m: Mission) {
     setUpdatingId(m.id);
     try {
-      const res = await fetch(
-        `/api/hubspot/casting/brand-contacts?brand=${encodeURIComponent(m.targetBrand)}`,
-        { credentials: "include" }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Contacts HubSpot introuvables.");
-      const contactsRaw = Array.isArray(data.contacts)
-        ? (data.contacts as HubSpotContactCasting[])
-        : [];
-
-      const initialFromContacts = pickInitialCastingDraft(contactsRaw);
+      const localContacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
       setComposerContact({
         company: m.targetBrand,
-        contacts: contactsRaw.map((c) => ({
-          id: c.id,
-          firstname: c.firstname,
-          lastname: c.lastname,
-          email: c.email,
+        contacts: localContacts.map((c, index) => ({
+          id: `${m.id}-${index}`,
+          firstname: String(c?.firstname || "").trim(),
+          lastname: String(c?.lastname || "").trim(),
+          email: String(c?.email || "").trim(),
         })),
-        initialSubject:
-          String(m.draftEmailSubject || "").trim() ||
-          initialFromContacts.initialSubject,
-        initialBodyHtml:
-          String(m.draftEmailBody || "").trim() ||
-          initialFromContacts.initialBodyHtml,
+        initialSubject: String(m.draftEmailSubject || "").trim(),
+        initialBodyHtml: String(m.draftEmailBody || "").trim(),
         missionBrief: {
           id: m.id,
           creatorName: m.creatorName,
@@ -777,6 +723,7 @@ export function ProspectingPipelineClient() {
         open={composerOpen}
         contact={composerContact}
         brandColumn={"todo"}
+        useHubspot={false}
         onClose={() => {
           setComposerOpen(false);
           setComposerContact(null);

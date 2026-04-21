@@ -196,6 +196,7 @@ export interface CastingComposerProps {
   open: boolean;
   contact: CastingCompanyRecipients | null;
   brandColumn?: "todo" | "progress" | "ready" | null;
+  useHubspot?: boolean;
   onClose: () => void;
   onSaved: (
     status: "en_cours" | "pret" | "reset",
@@ -209,6 +210,7 @@ export default function CastingComposer({
   open,
   contact,
   brandColumn,
+  useHubspot = true,
   onClose,
   onSaved,
   onError,
@@ -725,7 +727,7 @@ export default function CastingComposer({
       onError("L’objet de l’email est obligatoire.");
       return;
     }
-    const contactIds = contact.contacts.map((c) => c.id).filter(Boolean);
+    const contactIds = useHubspot ? contact.contacts.map((c) => c.id).filter(Boolean) : [];
     const bodyHtml = getBodyHtml();
     setSaving(true);
     try {
@@ -776,7 +778,7 @@ export default function CastingComposer({
 
   const resetToTodo = async () => {
     if (!contact) return;
-    const contactIds = contact.contacts.map((c) => c.id).filter(Boolean);
+    const contactIds = useHubspot ? contact.contacts.map((c) => c.id).filter(Boolean) : [];
     setSaving(true);
     try {
       if (contactIds.length === 0) {

@@ -37,7 +37,18 @@ export async function GET(request: NextRequest) {
     }
 
     if (statut) {
-      where.statut = statut;
+      // Compat historique:
+      // - Les nouvelles négociations converties sont archivées en ANNULEE
+      // - Certaines anciennes négociations converties sont restées en VALIDEE avec collaborationId
+      // Le filtre "Archivé" doit afficher les deux.
+      if (statut === "ANNULEE") {
+        where.OR = [
+          { statut: "ANNULEE" },
+          { statut: "VALIDEE", collaborationId: { not: null } },
+        ];
+      } else {
+        where.statut = statut;
+      }
     }
 
     const negociations = await prisma.negociation.findMany({
