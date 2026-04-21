@@ -65,6 +65,12 @@ const menuItems = [
     roles: ["CASTING_MANAGER", "HEAD_OF_SALES", "STRATEGY_PLANNER", "ADMIN", "HEAD_OF"],
   },
   {
+    label: "Inbound 📬",
+    href: "/inbound",
+    icon: Mail,
+    roles: ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"],
+  },
+  {
     label: "Demandes Entrantes",
     href: "/demandes-entrantes",
     icon: Mail,
@@ -199,6 +205,7 @@ export function Sidebar() {
   const [hasAbsence, setHasAbsence] = useState(false);
   const [hasMissingDelegations, setHasMissingDelegations] = useState(false);
   const [delegationsRecues, setDelegationsRecues] = useState<any[]>([]);
+  const [inboundNewCount, setInboundNewCount] = useState(0);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -227,6 +234,29 @@ export function Sidebar() {
       }
     };
     fetchDelegationsRecues();
+  }, [userRole]);
+
+  useEffect(() => {
+    if (!["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"].includes(userRole)) return;
+    let cancelled = false;
+    const loadInboundCount = async () => {
+      try {
+        const res = await fetch("/api/inbound/opportunities?status=NEW&countOnly=1", {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setInboundNewCount(Number(data.count) || 0);
+      } catch {
+        if (!cancelled) setInboundNewCount(0);
+      }
+    };
+    void loadInboundCount();
+    const interval = setInterval(loadInboundCount, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [userRole]);
 
   useEffect(() => {
@@ -453,6 +483,11 @@ export function Sidebar() {
               {!collapsed && (
                 <span className="font-medium text-sm flex items-center gap-2">
                   {item.label}
+                  {item.href === "/inbound" && inboundNewCount > 0 && (
+                    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#C08B8B] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {inboundNewCount}
+                    </span>
+                  )}
                   {item.href === "/mon-absence" && hasMissingDelegations && (
                     <span className="inline-flex h-2 w-2 rounded-full bg-orange-400" />
                   )}
