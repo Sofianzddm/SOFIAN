@@ -22,6 +22,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Inbound Apps Script routes: auth Bearer interne dans les handlers.
+  // - /api/inbound/talents (GET)
+  // - /api/inbound/opportunities (POST seulement)
+  if (pathname === "/api/inbound/talents") {
+    return NextResponse.next();
+  }
+  if (pathname === "/api/inbound/opportunities" && request.method === "POST") {
+    return NextResponse.next();
+  }
+
   const token = await getToken({
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
@@ -148,5 +158,7 @@ export const config = {
     // Prospection (fichiers leads) — même session que le reste du dashboard
     "/prospection",
     "/prospection/:path*",
+    // Inbound API: session requise sauf exceptions Bearer (gérées plus haut)
+    "/api/inbound/:path*",
   ],
 };
