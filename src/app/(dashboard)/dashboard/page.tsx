@@ -363,6 +363,7 @@ export default function DashboardPage() {
       {role === "HEAD_OF_INFLUENCE" && <HeadOfInfluenceDashboard data={data} absences={absences} />}
       {role === "HEAD_OF" && <HeadOfDashboard data={data} role={role} />}
       {role === "HEAD_OF_SALES" && <HeadOfSalesDashboard />}
+      {role === "CM" && <CMDashboard data={data} />}
       {role === "TM" && <TMDashboard data={data} />}
       {role === "CASTING_MANAGER" && <CastingManagerDashboard />}
     </div>
@@ -484,6 +485,69 @@ function CastingManagerDashboard() {
         Ouvrir Casting Outreach
         <ChevronRight className="w-4 h-4" />
       </Link>
+    </div>
+  );
+}
+
+function CMDashboard({ data }: { data: any }) {
+  const stats = data?.stats || {};
+  const collabsEnCours = Number(stats.collabsEnCours) || 0;
+  const collabsPublie = Number(stats.collabsPublie) || 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Suivi Account Manager</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Vue rapide des collaborations et demandes de gifts.
+            </p>
+          </div>
+          <Link
+            href="/gifts"
+            className="inline-flex items-center gap-2 rounded-xl bg-glowup-rose px-4 py-2 text-sm font-medium text-white hover:bg-glowup-rose/90"
+          >
+            Ouvrir gifts
+            <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Link
+          href="/collaborations"
+          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-all"
+        >
+          <p className="text-sm text-slate-500">Collaborations en cours</p>
+          <p className="text-3xl font-bold text-slate-900 mt-1 tabular-nums">
+            {collabsEnCours}
+          </p>
+        </Link>
+        <Link
+          href="/collaborations"
+          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-all"
+        >
+          <p className="text-sm text-slate-500">Collaborations publiées</p>
+          <p className="text-3xl font-bold text-slate-900 mt-1 tabular-nums">
+            {collabsPublie}
+          </p>
+        </Link>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-sm text-slate-600">
+          Besoin du suivi complet gifts ? Utilise la page{" "}
+          <Link href="/account-manager" className="font-semibold text-glowup-rose hover:underline">
+            account-manager
+          </Link>{" "}
+          ou accede directement a{" "}
+          <Link href="/gifts" className="font-semibold text-glowup-rose hover:underline">
+            /gifts
+          </Link>
+          .
+        </p>
+      </div>
     </div>
   );
 }
