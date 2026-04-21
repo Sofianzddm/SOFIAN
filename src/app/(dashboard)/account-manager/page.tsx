@@ -93,6 +93,20 @@ export default function AccountManagerDashboard() {
     totalGifts: demandesGift.length,
     giftsEnCours: demandesGift.filter((g) => g.statut === "EN_COURS" || g.statut === "ATTENTE_MARQUE").length,
   };
+  const giftsUrgents = demandesGift.filter(
+    (g) =>
+      g.priorite === "URGENTE" &&
+      g.statut !== "RECU" &&
+      g.statut !== "ANNULE" &&
+      g.statut !== "REFUSE"
+  ).length;
+  const giftsSuivi = [...demandesGift]
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt || b.createdAt).getTime() -
+        new Date(a.updatedAt || a.createdAt).getTime()
+    )
+    .slice(0, 5);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -189,6 +203,63 @@ export default function AccountManagerDashboard() {
             <ChevronRight className="w-8 h-8 group-hover:translate-x-2 transition-transform" />
           </div>
         </Link>
+      </div>
+
+      {/* Feature simple: suivi gifts */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-glowup-licorice flex items-center gap-2">
+            <Gift className="w-5 h-5 text-purple-600" />
+            Suivi gifts
+          </h2>
+          <Link
+            href="/gifts"
+            className="text-sm font-semibold text-purple-600 hover:text-purple-700 transition-colors"
+          >
+            Voir tout
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <p className="text-xs text-gray-500">En attente</p>
+            <p className="text-lg font-bold text-yellow-700">
+              {demandesGift.filter((g) => g.statut === "EN_ATTENTE").length}
+            </p>
+          </div>
+          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <p className="text-xs text-gray-500">En traitement</p>
+            <p className="text-lg font-bold text-blue-700">{stats.giftsEnCours}</p>
+          </div>
+          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <p className="text-xs text-gray-500">Urgentes</p>
+            <p className="text-lg font-bold text-red-700">{giftsUrgents}</p>
+          </div>
+        </div>
+
+        {giftsSuivi.length === 0 ? (
+          <p className="text-sm text-gray-500">Aucune demande de gift pour le moment.</p>
+        ) : (
+          <div className="space-y-2">
+            {giftsSuivi.map((gift) => (
+              <Link
+                key={gift.id}
+                href={`/gifts/${gift.id}`}
+                className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 hover:border-purple-200 hover:bg-purple-50/40 px-3 py-2 transition-all"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-glowup-licorice truncate">
+                    {gift.reference}
+                  </p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {gift.talent?.prenom} {gift.talent?.nom} • {gift.typeGift}
+                  </p>
+                </div>
+                <StatutBadge statut={gift.statut} />
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Mes collaborations assignées */}

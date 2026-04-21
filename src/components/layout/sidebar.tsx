@@ -95,12 +95,6 @@ const menuItems = [
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"],
   },
   {
-    label: "Partenaires",
-    href: "/partners",
-    icon: Building2,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "CM"],
-  },
-  {
     label: "Collaborations",
     href: "/collaborations",
     icon: Handshake,
@@ -141,12 +135,6 @@ const menuItems = [
     href: "/gifts",
     icon: Gift,
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"],
-  },
-  {
-    label: "Account Manager",
-    href: "/account-manager",
-    icon: UserCog,
-    roles: ["CM", "ADMIN"],
   },
   {
     label: "Factures & Devis",
