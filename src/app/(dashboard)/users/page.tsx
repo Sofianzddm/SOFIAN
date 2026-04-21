@@ -36,7 +36,7 @@ const roleLabels: Record<string, string> = {
   STRATEGY_PLANNER: "Strategy Planner",
   TM: "Talent Manager",
   CASTING_MANAGER: "Casting Manager",
-  CM: "Community Manager",
+  CM: "Account Manager",
   TALENT: "Talent",
 };
 
@@ -252,7 +252,7 @@ export default function UsersPage() {
             <option value="STRATEGY_PLANNER">Strategy Planner</option>
             <option value="TM">Talent Managers</option>
             <option value="CASTING_MANAGER">Casting Managers</option>
-            <option value="CM">Community Managers</option>
+            <option value="CM">Account Managers</option>
             <option value="TALENT">Talents</option>
           </select>
 

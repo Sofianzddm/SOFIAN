@@ -18,7 +18,7 @@ const roleOptions = [
     label: "Casting Manager",
     description: "Prospection casting & listes HubSpot",
   },
-  { value: "CM", label: "Community Manager", description: "Gestion des contenus" },
+  { value: "CM", label: "Account Manager", description: "Prise en charge et traitement des demandes de gifts" },
   { value: "TALENT", label: "Talent", description: "Accès limité au portail talent" },
 ];
 

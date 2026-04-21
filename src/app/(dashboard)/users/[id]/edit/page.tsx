@@ -24,7 +24,7 @@ const roleOptions = [
   { value: "STRATEGY_PLANNER", label: "Strategy Planner" },
   { value: "TM", label: "Talent Manager" },
   { value: "CASTING_MANAGER", label: "Casting Manager" },
-  { value: "CM", label: "Community Manager" },
+  { value: "CM", label: "Account Manager" },
   { value: "TALENT", label: "Talent" },
 ];
 
