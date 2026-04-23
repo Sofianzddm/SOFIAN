@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -57,11 +57,16 @@ const NICHES_OPTIONS = [
 ];
 
 const FORMES_JURIDIQUES = ["Auto-entrepreneur", "SASU", "EURL", "SARL", "SAS", "Autre"];
+const numToString = (value: unknown) => (value === null || value === undefined ? "" : String(value));
 
 export default function NewTalentPage() {
   const router = useRouter();
+  const params = useParams<{ id?: string }>();
+  const talentId = params?.id;
+  const isEditMode = Boolean(talentId);
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(false);
   const [managers, setManagers] = useState<Manager[]>([]);
 
   const [formData, setFormData] = useState({
@@ -163,18 +168,116 @@ export default function NewTalentPage() {
   });
 
   useEffect(() => {
-    fetchManagers();
-  }, []);
+    const load = async () => {
+      setInitialLoading(true);
+      try {
+        const usersRes = await fetch("/api/users?role=TM");
+        const users = await usersRes.json();
+        setManagers(users);
 
-  const fetchManagers = async () => {
-    try {
-      const res = await fetch("/api/users?role=TM");
-      const data = await res.json();
-      setManagers(data);
-    } catch (error) {
-      console.error("Erreur:", error);
-    }
-  };
+        if (isEditMode && talentId) {
+          const talentRes = await fetch(`/api/talents/${talentId}`);
+          if (!talentRes.ok) throw new Error("Talent introuvable");
+          const talent = await talentRes.json();
+          const stats = talent.stats || {};
+          const tarifs = talent.tarifs || {};
+          const adresseParts = typeof talent.adresse === "string" ? talent.adresse.split(" – ") : [];
+
+          setFormData((prev) => ({
+            ...prev,
+            prenom: talent.prenom || "",
+            nom: talent.nom || "",
+            email: talent.email || "",
+            telephone: talent.telephone || "",
+            telephoneSecondaire: talent.telephoneSecondaire || "",
+            dateNaissance: talent.dateNaissance ? String(talent.dateNaissance).slice(0, 10) : "",
+            nationalite: talent.nationalite || "Française",
+            presentation: talent.presentation || "",
+            niches: Array.isArray(talent.niches) ? talent.niches : [],
+            selectedClients: Array.isArray(talent.selectedClients) ? talent.selectedClients.join(", ") : "",
+            managerId: talent.managerId || "",
+            commissionInbound: numToString(talent.commissionInbound) || "20",
+            commissionOutbound: numToString(talent.commissionOutbound) || "30",
+            photo: talent.photo || "",
+            contactUrgenceNom: talent.contactUrgenceNom || "",
+            contactUrgenceTel: talent.contactUrgenceTel || "",
+            contactUrgenceLien: talent.contactUrgenceLien || "",
+            adresseRue: adresseParts[0] || "",
+            adresseComplement: adresseParts[1] || "",
+            codePostal: talent.codePostal || "",
+            ville: talent.ville || "",
+            pays: talent.pays || "France",
+            siret: talent.siret || "",
+            numeroTVA: talent.numeroTVA || "",
+            raisonSociale: talent.raisonSociale || "",
+            formeJuridique: talent.formeJuridique || "",
+            nomBanque: talent.nomBanque || "",
+            titulaireCompte: talent.titulaireCompte || "",
+            iban: talent.iban || "",
+            bic: talent.bic || "",
+            notesInternes: talent.notesInternes || "",
+            instagram: talent.instagram || "",
+            tiktok: talent.tiktok || "",
+            youtube: talent.youtube || "",
+            igFollowers: numToString(stats.igFollowers),
+            igFollowersEvol: numToString(stats.igFollowersEvol),
+            igEngagement: numToString(stats.igEngagement),
+            igEngagementEvol: numToString(stats.igEngagementEvol),
+            igGenreFemme: numToString(stats.igGenreFemme),
+            igGenreHomme: numToString(stats.igGenreHomme),
+            igAge13_17: numToString(stats.igAge13_17),
+            igAge18_24: numToString(stats.igAge18_24),
+            igAge25_34: numToString(stats.igAge25_34),
+            igAge35_44: numToString(stats.igAge35_44),
+            igAge45Plus: numToString(stats.igAge45Plus),
+            igLocFrance: numToString(stats.igLocFrance),
+            ttFollowers: numToString(stats.ttFollowers),
+            ttFollowersEvol: numToString(stats.ttFollowersEvol),
+            ttEngagement: numToString(stats.ttEngagement),
+            ttEngagementEvol: numToString(stats.ttEngagementEvol),
+            ttGenreFemme: numToString(stats.ttGenreFemme),
+            ttGenreHomme: numToString(stats.ttGenreHomme),
+            ttAge13_17: numToString(stats.ttAge13_17),
+            ttAge18_24: numToString(stats.ttAge18_24),
+            ttAge25_34: numToString(stats.ttAge25_34),
+            ttAge35_44: numToString(stats.ttAge35_44),
+            ttAge45Plus: numToString(stats.ttAge45Plus),
+            ttLocFrance: numToString(stats.ttLocFrance),
+            ytAbonnes: numToString(stats.ytAbonnes),
+            ytAbonnesEvol: numToString(stats.ytAbonnesEvol),
+            tarifStory: numToString(tarifs.tarifStory),
+            tarifStoryConcours: numToString(tarifs.tarifStoryConcours),
+            tarifPost: numToString(tarifs.tarifPost),
+            tarifPostConcours: numToString(tarifs.tarifPostConcours),
+            tarifPostCommun: numToString(tarifs.tarifPostCommun),
+            tarifPostCrosspost: numToString(tarifs.tarifPostCrosspost),
+            tarifReel: numToString(tarifs.tarifReel),
+            tarifReelCrosspost: numToString(tarifs.tarifReelCrosspost),
+            tarifReelConcours: numToString(tarifs.tarifReelConcours),
+            tarifTiktokVideo: numToString(tarifs.tarifTiktokVideo),
+            tarifTiktokConcours: numToString(tarifs.tarifTiktokConcours),
+            tarifYoutubeVideo: numToString(tarifs.tarifYoutubeVideo),
+            tarifYoutubeShort: numToString(tarifs.tarifYoutubeShort),
+            tarifSnapchatStory: numToString(tarifs.tarifSnapchatStory),
+            tarifSnapchatSpotlight: numToString(tarifs.tarifSnapchatSpotlight),
+            tarifEvent: numToString(tarifs.tarifEvent),
+            tarifShooting: numToString(tarifs.tarifShooting),
+            tarifAmbassadeur: numToString(tarifs.tarifAmbassadeur),
+          }));
+        }
+      } catch (error) {
+        console.error("Erreur:", error);
+        if (isEditMode) {
+          alert("Erreur lors du chargement du talent");
+          router.push("/talents");
+        }
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+
+    load();
+  }, [isEditMode, router, talentId]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -204,8 +307,10 @@ export default function NewTalentPage() {
     setLoading(true);
     try {
       const adresse = [formData.adresseRue, formData.adresseComplement].filter(Boolean).join(" – ") || null;
-      const res = await fetch("/api/talents", {
-        method: "POST",
+      const endpoint = isEditMode && talentId ? `/api/talents/${talentId}` : "/api/talents";
+      const method = isEditMode ? "PUT" : "POST";
+      const res = await fetch(endpoint, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
@@ -222,14 +327,15 @@ export default function NewTalentPage() {
       });
 
       if (res.ok) {
-        const talent = await res.json();
-        router.push(`/talents/${talent.id}`);
+        const talent = await res.json().catch(() => null);
+        const targetId = talent?.id || talentId;
+        router.push(targetId ? `/talents/${targetId}` : "/talents");
       } else {
         const error = await res.json();
-        alert(error.message || "Erreur lors de la création");
+        alert(error.message || error.error || "Erreur lors de l'enregistrement");
       }
     } catch (error) {
-      alert("Erreur lors de la création");
+      alert("Erreur lors de l'enregistrement");
     } finally {
       setLoading(false);
     }
@@ -242,6 +348,14 @@ export default function NewTalentPage() {
     if (num >= 1000) return `${(num / 1000).toFixed(0)}K`;
     return count;
   };
+
+  if (initialLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50/50">
+        <Loader2 className="w-8 h-8 animate-spin text-glowup-rose" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50/50">
@@ -258,7 +372,7 @@ export default function NewTalentPage() {
               </Link>
               <div>
                 <h1 className="text-xl font-bold text-glowup-licorice">
-                  Nouveau talent
+                  {isEditMode ? "Modifier le talent" : "Nouveau talent"}
                 </h1>
                 <p className="text-sm text-gray-500">
                   Étape {currentStep} sur 5
@@ -1606,7 +1720,7 @@ export default function NewTalentPage() {
                   ) : (
                     <Save className="w-4 h-4" />
                   )}
-                  Créer le talent
+                  {isEditMode ? "Enregistrer les modifications" : "Créer le talent"}
                 </button>
               )}
             </div>
