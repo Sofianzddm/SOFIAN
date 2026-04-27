@@ -40,9 +40,7 @@ export default async function JuristeContratPage({
   }
 
   const st = collaboration.contratMarqueStatut ?? "AUCUN";
-  if (!["EN_ATTENTE_JURISTE", "A_MODIFIER"].includes(st)) {
-    redirect("/juriste");
-  }
+  const juristeCanAnnotate = ["EN_ATTENTE_JURISTE", "A_MODIFIER"].includes(st);
 
   const serialized = JSON.parse(JSON.stringify(collaboration)) as typeof collaboration;
   const versions = buildContratMarqueVersionsForClient(collaboration);
@@ -64,8 +62,8 @@ export default async function JuristeContratPage({
       collaborationId={collaboration.id}
       collaboration={serialized}
       currentUser={currentUser}
-      canAnnotate
-      readOnly={false}
+      canAnnotate={juristeCanAnnotate}
+      readOnly={!juristeCanAnnotate}
       initialAnnotations={initialAnnotations}
       initialCommentaires={commentaires}
       versions={versions}
