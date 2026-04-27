@@ -41,9 +41,10 @@ export async function POST(
       return NextResponse.json({ error: "Statut invalide" }, { status: 400 });
     }
 
-    if (statut === "SIGNE" && !isAdmin && !isHoI) {
+    const juristeCanLaunchDocuseal = isJuriste && body.mode === "DOCUSEAL";
+    if (statut === "SIGNE" && !isAdmin && !isHoI && !juristeCanLaunchDocuseal) {
       return NextResponse.json(
-        { error: "Seuls les administrateurs peuvent enregistrer la signature" },
+        { error: "Seuls ADMIN/HEAD_OF_INFLUENCE peuvent signer en externe ; la juriste peut lancer DocuSeal." },
         { status: 403 }
       );
     }

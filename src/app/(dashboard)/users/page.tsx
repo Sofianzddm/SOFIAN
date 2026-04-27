@@ -33,6 +33,7 @@ const roleLabels: Record<string, string> = {
   HEAD_OF: "Head of",
   HEAD_OF_INFLUENCE: "Head of Influence",
   HEAD_OF_SALES: "Head of Sales",
+  JURISTE: "Juriste",
   STRATEGY_PLANNER: "Strategy Planner",
   TM: "Talent Manager",
   CASTING_MANAGER: "Casting Manager",
@@ -45,6 +46,7 @@ const roleColors: Record<string, string> = {
   HEAD_OF: "bg-purple-100 text-purple-700",
   HEAD_OF_INFLUENCE: "bg-blue-100 text-blue-700",
   HEAD_OF_SALES: "bg-green-100 text-green-700",
+  JURISTE: "bg-amber-100 text-amber-800",
   STRATEGY_PLANNER: "bg-indigo-100 text-indigo-700",
   TM: "bg-yellow-100 text-yellow-700",
   CASTING_MANAGER: "bg-rose-100 text-rose-800",
@@ -249,6 +251,7 @@ export default function UsersPage() {
             <option value="HEAD_OF">Head of</option>
             <option value="HEAD_OF_INFLUENCE">Head of Influence</option>
             <option value="HEAD_OF_SALES">Head of Sales</option>
+            <option value="JURISTE">Juristes</option>
             <option value="STRATEGY_PLANNER">Strategy Planner</option>
             <option value="TM">Talent Managers</option>
             <option value="CASTING_MANAGER">Casting Managers</option>

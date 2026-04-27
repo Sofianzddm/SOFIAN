@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
+import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 
 type InboundStatus = "NEW" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 
@@ -28,6 +29,8 @@ type Opportunity = {
   extractedDeadline?: string | null;
   extractedDeliverables?: string | null;
   briefSummary?: string | null;
+  draftEmailSubject?: string | null;
+  draftEmailBody?: string | null;
   convertedAt?: string | null;
   convertedBy?: { prenom: string; nom: string } | null;
   archivedAt?: string | null;
@@ -45,6 +48,7 @@ export default function InboundDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
 
   const role = (session?.user as { role?: string } | undefined)?.role || "";
   const forbidden = status !== "loading" && !ALLOWED.includes(role);
@@ -125,6 +129,21 @@ export default function InboundDetailPage() {
     }
   };
 
+  const saveDraft = async (draft?: { subject: string; bodyHtml: string }) => {
+    const res = await fetch(`/api/inbound/opportunities/${opportunity.id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        draftEmailSubject: draft?.subject ?? "",
+        draftEmailBody: draft?.bodyHtml ?? "",
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Erreur sauvegarde brouillon");
+    if (data?.opportunity) setOpportunity(data.opportunity as Opportunity);
+  };
+
   return (
     <div className="space-y-4">
       <Link href="/inbound" className="text-sm text-slate-500 hover:text-slate-800">← Retour aux opportunites inbound</Link>
@@ -197,6 +216,13 @@ export default function InboundDetailPage() {
 
           {canAct && (
             <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <button
+                disabled={submitting}
+                onClick={() => setComposerOpen(true)}
+                className="mb-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
+              >
+                Rediger un mail
+              </button>
               <button disabled={submitting} onClick={convert} className="w-full rounded-lg bg-[#C8F285] px-3 py-2 text-sm font-semibold text-[#1A1110] disabled:opacity-60">
                 Convertir en Prospection
               </button>
@@ -207,6 +233,47 @@ export default function InboundDetailPage() {
           )}
         </aside>
       </div>
+
+      <CastingComposer
+        open={composerOpen}
+        contact={{
+          company: opportunity.extractedBrand || opportunity.senderDomain,
+          contacts: [
+            {
+              id: opportunity.id,
+              firstname: opportunity.senderName || "",
+              lastname: "",
+              email: opportunity.senderEmail,
+            },
+          ],
+          initialSubject: opportunity.draftEmailSubject || opportunity.subject || "",
+          initialBodyHtml: opportunity.draftEmailBody || "",
+          missionBrief: null,
+        }}
+        brandColumn={"todo"}
+        useHubspot={false}
+        onClose={() => setComposerOpen(false)}
+        onSaved={(state: "pret" | "en_cours" | "reset", draft?: { subject: string; bodyHtml: string }) => {
+          if (state === "reset") return;
+          void saveDraft(draft).catch((e: unknown) => {
+            const msg = e instanceof Error ? e.message : "Erreur sauvegarde brouillon";
+            window.alert(msg);
+          });
+        }}
+        onError={(msg) => window.alert(msg)}
+        onSuccess={() => {
+          void (async () => {
+            const res = await fetch(`/api/inbound/opportunities/${opportunity.id}`, {
+              cache: "no-store",
+              credentials: "include",
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.opportunity) {
+              setOpportunity(data.opportunity as Opportunity);
+            }
+          })();
+        }}
+      />
     </div>
   );
 }

@@ -342,7 +342,7 @@ export default function ContratPdfReviewer({
   const canActOnCurrentVersion = !isArchivedVersion;
 
   const canShowUploadButton =
-    currentUser.role === "ADMIN" || currentUser.role === "HEAD_OF_INFLUENCE";
+    currentUser.role === "ADMIN" || currentUser.role === "HEAD_OF_INFLUENCE" || currentUser.role === "JURISTE";
   /** Barre avec sélecteur de versions et/ou upload (upload visible aussi sans lignes `ContratMarqueVersion`). */
   const showViewerToolbar = versions.length > 0 || canShowUploadButton;
 
@@ -480,8 +480,9 @@ export default function ContratPdfReviewer({
     canUseReviewDecisions &&
     (statut === "EN_ATTENTE_JURISTE" || statut === "A_MODIFIER") &&
     canActOnCurrentVersion;
+  const canLaunchDocuseal = isAdmin || isHeadOfInfluence || isJuriste;
   const showDecisionAdminSign =
-    (isAdmin || isHeadOfInfluence) && statut === "APPROUVE" && canActOnCurrentVersion;
+    canLaunchDocuseal && statut === "APPROUVE" && canActOnCurrentVersion;
   const showDecisionSigne = statut === "SIGNE" && Boolean(collaboration.contratMarqueSigneAt) && canActOnCurrentVersion;
   const officielSigneManquant =
     statut === "SIGNE" && !collaboration.contratMarquePdfOfficielSigneDeposeAt;
@@ -1311,6 +1312,25 @@ export default function ContratPdfReviewer({
                   >
                     ✓ Approuver — prêt pour signature
                   </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => handleStatut("A_MODIFIER")}
+                    style={{
+                      padding: "10px",
+                      borderRadius: "8px",
+                      border: "0.5px solid var(--color-border-tertiary, #e8e4df)",
+                      background: "var(--color-background-primary, #fff)",
+                      color: "var(--color-text-primary, #1A1110)",
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      cursor: busy ? "not-allowed" : "pointer",
+                      width: "100%",
+                      opacity: busy ? 0.6 : 1,
+                    }}
+                  >
+                    ⚠ Demander des modifications
+                  </button>
                 </div>
               ) : null}
 
@@ -1338,16 +1358,37 @@ export default function ContratPdfReviewer({
                   >
                     ✓ Approuvé par le juriste — en attente de votre signature
                   </div>
+                  {(isAdmin || isHeadOfInfluence) ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleStatut("SIGNE", "EXTERNE")}
+                      style={{
+                        padding: "10px",
+                        borderRadius: "8px",
+                        border: "none",
+                        background: "#1A1110",
+                        color: "white",
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        cursor: busy ? "not-allowed" : "pointer",
+                        width: "100%",
+                        opacity: busy ? 0.6 : 1,
+                      }}
+                    >
+                      Marquer comme signé (externe) ✓
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => handleStatut("SIGNE", "EXTERNE")}
+                    onClick={() => handleStatut("SIGNE", "DOCUSEAL")}
                     style={{
                       padding: "10px",
                       borderRadius: "8px",
-                      border: "none",
-                      background: "#1A1110",
-                      color: "white",
+                      border: "0.5px solid var(--color-border-tertiary, #e8e4df)",
+                      background: "var(--color-background-primary, #fff)",
+                      color: "var(--color-text-primary, #1A1110)",
                       fontSize: "13px",
                       fontWeight: 500,
                       cursor: busy ? "not-allowed" : "pointer",
@@ -1355,7 +1396,7 @@ export default function ContratPdfReviewer({
                       opacity: busy ? 0.6 : 1,
                     }}
                   >
-                    Marquer comme signé (externe) ✓
+                    Envoyer en signature electronique (DocuSeal)
                   </button>
                 </div>
               ) : null}

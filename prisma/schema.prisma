@@ -647,6 +647,8 @@ model InboundOpportunity {
   extractedDeadline String?
   extractedDeliverables String? @db.Text
   briefSummary      String? @db.Text
+  draftEmailSubject String?
+  draftEmailBody    String? @db.Text
 
   status            InboundStatus @default(NEW)
 

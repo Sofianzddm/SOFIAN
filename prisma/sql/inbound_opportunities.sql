@@ -65,3 +65,8 @@ ALTER TABLE "inbound_opportunities"
 ALTER TABLE "inbound_opportunities"
   ADD CONSTRAINT "inbound_opportunities_archivedById_fkey"
   FOREIGN KEY ("archivedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Draft email fields (same drafting flow as casting outreach)
+ALTER TABLE "inbound_opportunities"
+  ADD COLUMN IF NOT EXISTS "draftEmailSubject" TEXT,
+  ADD COLUMN IF NOT EXISTS "draftEmailBody" TEXT;
