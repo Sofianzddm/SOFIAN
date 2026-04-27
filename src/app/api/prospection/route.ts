@@ -30,8 +30,7 @@ export async function GET(request: NextRequest) {
             select: { contacts: true },
           },
           contacts: {
-            where: { statut: "GAGNE" },
-            select: { id: true },
+            select: { statut: true },
           },
         },
         orderBy: { updatedAt: "desc" },
@@ -68,6 +67,15 @@ export async function GET(request: NextRequest) {
     const fichiersPayload = fichiers.map((f) => {
       const u = userById.get(f.userId);
       const showDossierMeta = globalProspectionView;
+      const statusCounts = f.contacts.reduce(
+        (acc, contact) => {
+          if (contact.statut === "GAGNE") acc.gagne += 1;
+          else if (contact.statut === "PERDU") acc.perdu += 1;
+          else acc.enCours += 1;
+          return acc;
+        },
+        { gagne: 0, enCours: 0, perdu: 0 }
+      );
       return {
         id: f.id,
         titre: f.titre,
@@ -89,7 +97,8 @@ export async function GET(request: NextRequest) {
           image: null as string | null,
         },
         _count: { contacts: f._count.contacts },
-        contactsGagnes: f.contacts.length,
+        contactsGagnes: statusCounts.gagne,
+        statusCounts,
       };
     });
 

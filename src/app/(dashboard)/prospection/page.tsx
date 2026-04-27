@@ -39,6 +39,11 @@ type FichierProspection = {
     contacts: number;
   };
   contactsGagnes: number;
+  statusCounts?: {
+    gagne: number;
+    enCours: number;
+    perdu: number;
+  };
 };
 
 function formatDate(dateStr: string) {
@@ -482,7 +487,9 @@ export default function ProspectionListPage() {
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           {fichiersVisibles.map((fichier) => {
             const total = fichier._count.contacts;
-            const gagnes = fichier.contactsGagnes;
+            const gagnes = fichier.statusCounts?.gagne ?? fichier.contactsGagnes;
+            const enCours = fichier.statusCounts?.enCours ?? Math.max(total - gagnes, 0);
+            const perdus = fichier.statusCounts?.perdu ?? 0;
             const ratio = total > 0 ? Math.round((gagnes / total) * 100) : 0;
             const barColor = getProgressColor(ratio);
 
@@ -625,6 +632,18 @@ export default function ProspectionListPage() {
                   <span className="inline-flex items-center gap-1">
                     <CalendarClock className="w-3 h-3" />
                     {formatDate(fichier.updatedAt)}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center rounded-full bg-[#C8F285]/30 px-2 py-0.5 text-[11px] text-[#1A1110]">
+                    Gagné {gagnes}
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                    En cours {enCours}
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-[11px] text-red-600">
+                    Perdu {perdus}
                   </span>
                 </div>
 

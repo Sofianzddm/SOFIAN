@@ -15,6 +15,7 @@ import {
   Trophy,
   Frown,
   Meh,
+  Download,
 } from "lucide-react";
 import {
   MentionTextarea,
@@ -156,6 +157,15 @@ function askWonAmount(initialValue?: number | string | null): number | null {
     return null;
   }
   return parsed;
+}
+
+function escapeCsvValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  const stringValue = String(value);
+  if (/[;"\n]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
 }
 
 function getActionIcon(contact: Contact) {
@@ -328,17 +338,79 @@ export default function FichierProspectionPage() {
   }, []);
 
   const stats = useMemo(() => {
-    if (!fichier) return { total: 0, gagnes: 0, caGagne: 0, budgetEnCours: 0 };
+    if (!fichier) {
+      return {
+        total: 0,
+        gagnes: 0,
+        enCours: 0,
+        perdus: 0,
+        caGagne: 0,
+        budgetEnCours: 0,
+      };
+    }
     const total = fichier.contacts.length;
     const gagnes = fichier.contacts.filter((c) => c.statut === "GAGNE").length;
+    const perdus = fichier.contacts.filter((c) => c.statut === "PERDU").length;
+    const enCours = total - gagnes - perdus;
     const caGagne = fichier.contacts
       .filter((c) => c.statut === "GAGNE")
       .reduce((sum, c) => sum + extractOpportunityAmount(c), 0);
     const budgetEnCours = fichier.contacts
       .filter((c) => ["EN_NEGOC", "EN_ATTENTE"].includes(c.statut))
       .reduce((sum, c) => sum + extractOpportunityAmount(c), 0);
-    return { total, gagnes, caGagne, budgetEnCours };
+    return { total, gagnes, enCours, perdus, caGagne, budgetEnCours };
   }, [fichier]);
+
+  const handleExportCsv = () => {
+    if (!fichier) return;
+    const headers = [
+      "Index",
+      "Talent",
+      "Opportunite",
+      "Prenom",
+      "Nom",
+      "Email",
+      "Statut",
+      "MontantHT",
+      "ProchaineActionStatut",
+      "ProchaineActionDate",
+      "ActionPrevue",
+      "DerniereAction",
+      "Commentaires",
+    ];
+    const rows = fichier.contacts.map((contact, index) => [
+      index + 1,
+      talents.find((t) => t.id === contact.talentId)?.name || "",
+      contact.nomOpportunite,
+      contact.prenom || "",
+      contact.nom || "",
+      contact.email || "",
+      contact.statut,
+      contact.montantBrut ?? "",
+      contact.prochainStatut ?? "",
+      contact.prochainDate
+        ? new Date(contact.prochainDate).toLocaleDateString("fr-FR")
+        : "",
+      contact.actionPrevue || "",
+      contact.derniereFait || "",
+      contact.commentCount ?? 0,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map((value) => escapeCsvValue(value)).join(";"))
+      .join("\n");
+
+    const blob = new Blob([`\uFEFF${csv}`], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${fichier.titre.replace(/[^\w\s-]/g, "").trim() || "prospection"}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const handleTitleBlur = async () => {
     const newTitle = titleValue.trim();
@@ -815,7 +887,27 @@ export default function FichierProspectionPage() {
           <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#F5EBE0] text-xs text-[#1A1110]">
             {stats.total} contacts · {stats.gagnes} gagnés
           </span>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-[#1A1110] hover:bg-gray-50"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Exporter CSV
+          </button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center rounded-full bg-[#C8F285]/30 px-3 py-1 text-xs text-[#1A1110]">
+          Gagné {stats.gagnes}
+        </span>
+        <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-700">
+          En cours {stats.enCours}
+        </span>
+        <span className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-xs text-red-600">
+          Perdu {stats.perdus}
+        </span>
       </div>
 
       {/* Tableau */}
@@ -1013,7 +1105,7 @@ export default function FichierProspectionPage() {
 
       <div className="sticky bottom-0 border-t border-gray-200 bg-white px-4 py-3 flex items-center justify-between text-sm rounded-t-xl">
         <span className="text-gray-500">
-          {stats.total} contacts · {stats.gagnes} gagnés
+          {stats.total} contacts · {stats.gagnes} gagnés · {stats.enCours} en cours · {stats.perdus} perdus
         </span>
         <div className="flex items-center gap-6">
           <span>
