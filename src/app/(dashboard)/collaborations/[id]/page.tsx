@@ -229,6 +229,9 @@ export default function CollabDetailPage() {
   const [savingMarque, setSavingMarque] = useState(false);
   const [selectedFactureTalent, setSelectedFactureTalent] = useState<File | null>(null);
   const [uploadingFactureTalent, setUploadingFactureTalent] = useState(false);
+  const [selectedDevisSigne, setSelectedDevisSigne] = useState<File | null>(null);
+  const [uploadingDevisSigne, setUploadingDevisSigne] = useState(false);
+  const [isDragOverDevisSigne, setIsDragOverDevisSigne] = useState(false);
   const [validatingFacture, setValidatingFacture] = useState(false);
   const [facturePreviewUrl, setFacturePreviewUrl] = useState<string | null>(null);
   const [showNotesModal, setShowNotesModal] = useState(false);
@@ -785,6 +788,50 @@ export default function CollabDetailPage() {
     }
   };
 
+  const handleDevisSigneSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedDevisSigne(e.target.files[0]);
+    }
+  };
+
+  const handleDevisSigneDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOverDevisSigne(false);
+    if (e.dataTransfer.files?.[0]) {
+      setSelectedDevisSigne(e.dataTransfer.files[0]);
+    }
+  };
+
+  const uploadDevisSigne = async () => {
+    if (!selectedDevisSigne || !collab?.id) return;
+
+    setUploadingDevisSigne(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedDevisSigne);
+
+      const res = await fetch(`/api/collaborations/${collab.id}/upload-devis-signe`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        alert(data.message || "Devis signé déposé avec succès !");
+        setSelectedDevisSigne(null);
+        await fetchCollab();
+      } else {
+        const error = await res.json();
+        alert(error.error || "Erreur lors du dépôt du devis signé");
+      }
+    } catch (error) {
+      console.error("Erreur upload devis signé:", error);
+      alert("Erreur lors du dépôt du devis signé");
+    } finally {
+      setUploadingDevisSigne(false);
+    }
+  };
+
   const validerFactureTalent = async () => {
     if (!collab?.id) return;
     setValidatingFacture(true);
@@ -898,13 +945,17 @@ export default function CollabDetailPage() {
   const nextStatuts = isAdmin ? nextStatutsRaw : nextStatutsRaw.filter((s) => s !== "PAYE");
   const activeDevis = getActiveDocument("DEVIS");
   const activeFacture = getActiveDocument("FACTURE");
+  const roleForUi = effectiveRole ?? (session?.user as { role?: string })?.role ?? "";
   const canGenerateDevis = ["NEGO", "GAGNE", "EN_COURS"].includes(collab.statut) && !activeDevis;
   const canGenerateFacture = ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) && !activeFacture;
+  const canUploadSignedDevis = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(roleForUi);
+  const activeDevisForManualUpload = (collab.documents || []).find(
+    (d) => d.type === "DEVIS" && d.statut !== "ANNULE" && !d.avoirRef
+  );
   const hasAnnuledFacture = (collab?.documents || []).some(
     (d: DocumentInfo) => d.type === "FACTURE" && (d.statut === "ANNULE" || d.avoirRef)
   );
   const existingDocs = collab.documents || [];
-  const roleForUi = effectiveRole ?? (session?.user as { role?: string })?.role ?? "";
   const canSeeContratBloc = ["ADMIN", "TM", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const canGenerateContrat = ["ADMIN", "TM"].includes(roleForUi);
   const currentUserForContratMarque = {
@@ -1222,6 +1273,81 @@ export default function CollabDetailPage() {
                   Valider la facture
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {canUploadSignedDevis && activeDevisForManualUpload && !activeDevisForManualUpload.signedDocumentUrl && (
+        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-6 mb-8">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <FileSignature className="w-6 h-6 text-emerald-700" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-emerald-900 text-lg mb-2">Déposer un devis signé</h3>
+              <p className="text-sm text-emerald-700 mb-4">
+                Glissez un fichier signé dans la zone ci-dessous ou sélectionnez-le manuellement.
+              </p>
+              <div
+                className={`border-2 border-dashed rounded-xl p-4 transition-colors ${
+                  isDragOverDevisSigne
+                    ? "border-emerald-500 bg-emerald-100/60"
+                    : "border-emerald-300 bg-white/80"
+                }`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragOverDevisSigne(true);
+                }}
+                onDragLeave={() => setIsDragOverDevisSigne(false)}
+                onDrop={handleDevisSigneDrop}
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    onChange={handleDevisSigneSelect}
+                    className="hidden"
+                    id="devis-signe-upload"
+                  />
+                  <label
+                    htmlFor="devis-signe-upload"
+                    className="px-4 py-2.5 bg-emerald-700 text-white rounded-lg font-medium hover:bg-emerald-800 cursor-pointer transition-colors inline-flex items-center gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Choisir un fichier signé
+                  </label>
+                  {selectedDevisSigne && (
+                    <>
+                      <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                        <FileText className="w-4 h-4 text-emerald-700" />
+                        <span className="text-sm text-emerald-800 font-medium">{selectedDevisSigne.name}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={uploadDevisSigne}
+                        disabled={uploadingDevisSigne}
+                        className="px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 inline-flex items-center gap-2"
+                      >
+                        {uploadingDevisSigne ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Envoi...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4" />
+                            Envoyer
+                          </>
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-emerald-700 mt-3">
+                Devis concerné : {activeDevisForManualUpload.reference} • Formats acceptés : PDF, JPG, PNG • Taille max : 10MB
+              </p>
             </div>
           </div>
         </div>
