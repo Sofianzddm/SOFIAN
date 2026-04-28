@@ -290,7 +290,7 @@ export async function POST(
       await Promise.all(notifs);
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, submissionId: docusealSubmissionId ?? null });
   } catch (error) {
     console.error("POST contrat-marque/statut:", error);
     return NextResponse.json({ error: "Erreur lors de la mise à jour du statut" }, { status: 500 });

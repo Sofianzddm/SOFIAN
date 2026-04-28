@@ -333,6 +333,10 @@ export default function ContratPdfReviewer({
     if (selectedVersion?.id) return `${base}?versionId=${encodeURIComponent(selectedVersion.id)}`;
     return base;
   }, [collaborationId, selectedVersion?.id]);
+  const docusealBaseUrl = (process.env.NEXT_PUBLIC_DOCUSEAL_URL || "https://docuseal.com").replace(/\/$/, "");
+  const existingDocusealSubmissionUrl = collaboration.contratSubmissionId
+    ? `${docusealBaseUrl}/submissions/${collaboration.contratSubmissionId}`
+    : "";
 
   const latestVersionId = versions.length > 0 ? versions[versions.length - 1]?.id : null;
   const isArchivedVersion =
@@ -486,6 +490,11 @@ export default function ContratPdfReviewer({
   const showDecisionSigne = statut === "SIGNE" && Boolean(collaboration.contratMarqueSigneAt) && canActOnCurrentVersion;
   const officielSigneManquant =
     statut === "SIGNE" && !collaboration.contratMarquePdfOfficielSigneDeposeAt;
+  const showJuristeSignedDepositHint = isJuriste && statut === "APPROUVE" && canActOnCurrentVersion;
+  const showJuristeDocusealAction =
+    isJuriste &&
+    canActOnCurrentVersion &&
+    (statut === "APPROUVE" || (statut === "SIGNE" && collaboration.contratMarqueMode === "DOCUSEAL"));
 
   const scrollToAnnotation = useCallback((a: AnnotationRow) => {
     const scrollTo = scrollToHighlightRef.current;
@@ -559,13 +568,21 @@ export default function ContratPdfReviewer({
           alert((j as { error?: string }).error || "Erreur");
           return;
         }
+        const payload = (await res.json().catch(() => ({}))) as { submissionId?: string | null };
+        if (nextStatut === "SIGNE" && mode === "DOCUSEAL") {
+          const submissionId = payload.submissionId ?? collaboration.contratSubmissionId ?? null;
+          if (submissionId) {
+            const url = `${docusealBaseUrl}/submissions/${submissionId}`;
+            window.open(url, "_blank", "noopener,noreferrer");
+          }
+        }
         onStatutChange?.();
         window.location.reload();
       } finally {
         setBusy(false);
       }
     },
-    [annotations, collaborationId, onStatutChange, versions]
+    [annotations, collaboration.contratSubmissionId, collaborationId, docusealBaseUrl, onStatutChange, versions]
   );
 
   const postComment = async () => {
@@ -722,6 +739,39 @@ export default function ContratPdfReviewer({
         </div>
       ) : null}
 
+      {showJuristeSignedDepositHint ? (
+        <div className="shrink-0 border-b border-blue-200 bg-blue-50/90 px-4 py-3">
+          <p className="text-sm font-semibold text-blue-950">Dépôt juriste du contrat signé</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-blue-950/90">
+            Après signature client + agence, déposez ici le PDF signé côté juriste (zone glisser-déposer
+            sous les versions, ou bouton d&apos;upload).
+          </p>
+          {showJuristeDocusealAction ? (
+            <div className="mt-2">
+              {existingDocusealSubmissionUrl ? (
+                <a
+                  href={existingDocusealSubmissionUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
+                >
+                  Ouvrir DocuSeal pour signer / compléter
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleStatut("SIGNE", "DOCUSEAL")}
+                  disabled={busy}
+                  className="inline-flex items-center rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+                >
+                  Lancer DocuSeal pour signature manuelle
+                </button>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {statut === "SIGNE" && collaboration.contratMarquePdfOfficielSigneDeposeAt ? (
         <div className="shrink-0 border-b border-emerald-200 bg-emerald-50/90 px-4 py-2 text-xs text-emerald-900">
           <span className="font-semibold">PDF officiel signé déposé</span>
@@ -862,6 +912,8 @@ export default function ContratPdfReviewer({
                   >
                     {isUploading ? (
                       <>⏳ Upload en cours...</>
+                    ) : showJuristeSignedDepositHint ? (
+                      <>↑ Déposer le PDF signé</>
                     ) : (
                       <>↑ Uploader V{nextUploadNumero}</>
                     )}
@@ -938,10 +990,10 @@ export default function ContratPdfReviewer({
                 ) : isJuriste && statut === "APPROUVE" ? (
                   <>
                     <span style={{ color: "var(--color-text-primary, #1A1110)" }}>
-                      Déposez ici le PDF signé (client + agence)
+                      Déposez ici le PDF signé (côté juriste)
                     </span>
                     <span style={{ display: "block", marginTop: "4px", fontSize: "11px", fontWeight: 400 }}>
-                      après signature, le contrat sera automatiquement marqué comme signé
+                      après signature client + agence, le contrat sera automatiquement marqué comme signé
                     </span>
                   </>
                 ) : (
