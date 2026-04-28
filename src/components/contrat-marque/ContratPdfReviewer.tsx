@@ -747,7 +747,7 @@ export default function ContratPdfReviewer({
             sous les versions, ou bouton d&apos;upload).
           </p>
           {showJuristeDocusealAction ? (
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               {existingDocusealSubmissionUrl ? (
                 <a
                   href={existingDocusealSubmissionUrl}
@@ -767,6 +767,14 @@ export default function ContratPdfReviewer({
                   Lancer DocuSeal pour signature manuelle
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => void handleStatut("SIGNE", "EXTERNE")}
+                disabled={busy}
+                className="inline-flex items-center rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+              >
+                Marquer signé par les deux parties
+              </button>
             </div>
           ) : null}
         </div>
@@ -993,7 +1001,7 @@ export default function ContratPdfReviewer({
                       Déposez ici le PDF signé (côté juriste)
                     </span>
                     <span style={{ display: "block", marginTop: "4px", fontSize: "11px", fontWeight: 400 }}>
-                      après signature client + agence, le contrat sera automatiquement marqué comme signé
+                      le dépôt n&apos;envoie pas en statut signé automatiquement
                     </span>
                   </>
                 ) : (

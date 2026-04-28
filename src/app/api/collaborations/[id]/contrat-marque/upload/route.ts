@@ -78,7 +78,11 @@ export async function POST(
 
     const oldPdfUrl = collaboration.contratMarquePdfUrl?.trim() ?? "";
 
-    /** Nouvelle version du PDF signé scanné : ne pas réinitialiser le workflow (statut SIGNE inchangé). */
+    /**
+     * Dépôt d'un PDF signé "final" :
+     * - si déjà SIGNE : on reste SIGNE
+     * - si APPROUVE : on garde APPROUVE (attente éventuelle de contre-signature client)
+     */
     if (signedFinal) {
       const canDepositSignedFinal =
         collaboration.contratMarqueStatut === "SIGNE" ||
@@ -136,12 +140,15 @@ export async function POST(
         });
       });
 
+      const nextSignedStatus =
+        collaboration.contratMarqueStatut === "SIGNE" ? "SIGNE" : "APPROUVE";
       await prisma.collaboration.update({
         where: { id },
         data: {
           contratMarquePdfUrl: url,
-          contratMarqueStatut: "SIGNE",
-          contratMarqueSigneAt: new Date(),
+          contratMarqueStatut: nextSignedStatus,
+          contratMarqueSigneAt:
+            nextSignedStatus === "SIGNE" ? new Date() : null,
           contratMarqueMode: collaboration.contratMarqueMode ?? "EXTERNE",
           contratMarqueVersionActuelle: newVersionSigned.numero,
           contratMarquePdfOfficielSigneDeposeAt: new Date(),

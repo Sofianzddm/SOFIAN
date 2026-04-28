@@ -42,9 +42,10 @@ export async function POST(
     }
 
     const juristeCanLaunchDocuseal = isJuriste && body.mode === "DOCUSEAL";
-    if (statut === "SIGNE" && !isAdmin && !isHoI && !juristeCanLaunchDocuseal) {
+    const juristeCanMarkExternalSigned = isJuriste && body.mode === "EXTERNE";
+    if (statut === "SIGNE" && !isAdmin && !isHoI && !juristeCanLaunchDocuseal && !juristeCanMarkExternalSigned) {
       return NextResponse.json(
-        { error: "Seuls ADMIN/HEAD_OF_INFLUENCE peuvent signer en externe ; la juriste peut lancer DocuSeal." },
+        { error: "Seuls ADMIN/HEAD_OF_INFLUENCE/JURISTE peuvent finaliser le statut signé selon le mode choisi." },
         { status: 403 }
       );
     }
@@ -90,9 +91,16 @@ export async function POST(
       const templateId = templateIdRaw ? parseInt(templateIdRaw, 10) : NaN;
       const docusealKey = process.env.DOCUSEAL_API_KEY?.trim();
       const agenceEmail = process.env.AGENCE_SIGNATURE_EMAIL?.trim();
+      const missing: string[] = [];
+      if (!Number.isInteger(templateId)) missing.push("DOCUSEAL_CONTRAT_TALENT_TEMPLATE_ID");
+      if (!docusealKey) missing.push("DOCUSEAL_API_KEY");
+      if (!agenceEmail) missing.push("AGENCE_SIGNATURE_EMAIL");
       if (!Number.isInteger(templateId) || !docusealKey || !agenceEmail) {
         return NextResponse.json(
-          { error: "Configuration DocuSeal incomplète (template/apiKey/agenceEmail)" },
+          {
+            error: `Configuration DocuSeal incomplète: ${missing.join(", ")}`,
+            missing,
+          },
           { status: 503 }
         );
       }
