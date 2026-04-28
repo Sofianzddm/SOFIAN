@@ -1,9 +1,16 @@
+import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getDestinatairesNotification, logDelegationActivite } from "@/lib/delegations";
 import type { Role } from "@prisma/client";
+import { Resend } from "resend";
+import { render } from "@react-email/render";
+import { MentionEmail } from "@/lib/emails/MentionEmail";
+
+const MENTION_REGEX = /@\[([a-z0-9]+)\]/gi;
+const MESSAGE_PREVIEW_MAX_LEN = 280;
 
 // POST /api/gifts/[id]/commentaires - Ajouter un commentaire
 export async function POST(
@@ -81,6 +88,15 @@ export async function POST(
       },
     });
 
+    const mentionedIds = new Set<string>();
+    let match: RegExpExecArray | null;
+    while ((match = MENTION_REGEX.exec(contenu)) !== null) {
+      const mentionedUserId = match[1].trim();
+      if (mentionedUserId && mentionedUserId !== user.id) {
+        mentionedIds.add(mentionedUserId);
+      }
+    }
+
     // Notifications sur nouveau commentaire
     try {
       const auteurRole = user.role;
@@ -88,6 +104,9 @@ export async function POST(
       const auteurNom = `${auteurSession.prenom || ""} ${auteurSession.nom || ""}`.trim();
       const ref = demande.reference;
       const lien = `/gifts/${id}`;
+      const rawBase = (process.env.NEXT_PUBLIC_BASE_URL || "https://app.glowupagence.fr").trim();
+      const baseUrl = rawBase.replace(/\/$/, "");
+      const contextUrl = `${baseUrl}${lien}`;
 
       const staffRoles: Role[] = [
         "HEAD_OF",
@@ -173,6 +192,66 @@ export async function POST(
               })
             )
           );
+        }
+      }
+
+      // Mentions explicites dans le commentaire (notifications + emails)
+      if (mentionedIds.size > 0) {
+        await prisma.$transaction(
+          Array.from(mentionedIds).map((mentionedUserId) =>
+            prisma.notification.create({
+              data: {
+                userId: mentionedUserId,
+                type: "MENTION",
+                titre: `${auteurSession.prenom ?? "Quelqu'un"} vous a mentionné`,
+                message: `sur la demande de gift ${ref}`,
+                lien,
+                actorId: user.id,
+                talentId: demande.talentId,
+                marqueId: demande.marqueId,
+              },
+            })
+          )
+        );
+
+        const resendKey = process.env.RESEND_API_KEY;
+        const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+        if (resendKey && fromEmail) {
+          const mentionedUsers = await prisma.user.findMany({
+            where: { id: { in: Array.from(mentionedIds) } },
+            select: { email: true, prenom: true },
+          });
+
+          const messagePreview =
+            contenu.length > MESSAGE_PREVIEW_MAX_LEN
+              ? contenu.slice(0, MESSAGE_PREVIEW_MAX_LEN) + "…"
+              : contenu;
+
+          const resend = new Resend(resendKey);
+          for (const mentionedUser of mentionedUsers) {
+            if (!mentionedUser.email) continue;
+            try {
+              const html = await render(
+                React.createElement(MentionEmail, {
+                  mentionnedName: mentionedUser.prenom?.trim() || "vous",
+                  mentionnedByName: auteurNom || "Quelqu'un",
+                  contextType: "gift",
+                  contextReference: ref,
+                  messageContent: messagePreview,
+                  contextUrl,
+                })
+              );
+
+              await resend.emails.send({
+                from: fromEmail.includes("<") ? fromEmail : `Glow Up Agence <${fromEmail}>`,
+                to: mentionedUser.email,
+                subject: `[Mention] ${auteurNom || "Quelqu'un"} vous a mentionné dans ${ref}`,
+                html,
+              });
+            } catch (err) {
+              console.error("Erreur envoi email mention gift:", mentionedUser.email, err);
+            }
+          }
         }
       }
 

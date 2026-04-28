@@ -593,7 +593,9 @@ export default function ContratPdfReviewer({
 
   const uploadPdfFile = useCallback(
     async (file: File) => {
-      if (file.type !== "application/pdf") {
+      const isPdfMime = file.type === "application/pdf";
+      const isPdfByName = file.name.toLowerCase().endsWith(".pdf");
+      if (!isPdfMime && !isPdfByName) {
         alert("Le fichier doit être un PDF.");
         return;
       }
@@ -601,7 +603,9 @@ export default function ContratPdfReviewer({
       try {
         const formData = new FormData();
         formData.append("file", file);
-        if (statut === "SIGNE") {
+        const shouldUploadAsSignedFinal =
+          statut === "SIGNE" || (isJuriste && statut === "APPROUVE");
+        if (shouldUploadAsSignedFinal) {
           formData.append("signedFinal", "true");
         }
         const res = await fetch(`/api/collaborations/${collaborationId}/contrat-marque/upload`, {
@@ -624,7 +628,7 @@ export default function ContratPdfReviewer({
         if (uploadRef.current) uploadRef.current.value = "";
       }
     },
-    [collaborationId, statut]
+    [collaborationId, isJuriste, statut]
   );
 
   const handleUploadNewVersion = useCallback(
@@ -929,6 +933,15 @@ export default function ContratPdfReviewer({
                     </span>
                     <span style={{ display: "block", marginTop: "4px", fontSize: "11px", fontWeight: 400 }}>
                       (scan ou fichier signé électroniquement) — ou cliquez pour choisir un fichier
+                    </span>
+                  </>
+                ) : isJuriste && statut === "APPROUVE" ? (
+                  <>
+                    <span style={{ color: "var(--color-text-primary, #1A1110)" }}>
+                      Déposez ici le PDF signé (client + agence)
+                    </span>
+                    <span style={{ display: "block", marginTop: "4px", fontSize: "11px", fontWeight: 400 }}>
+                      après signature, le contrat sera automatiquement marqué comme signé
                     </span>
                   </>
                 ) : (

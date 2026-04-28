@@ -48,7 +48,9 @@ export async function POST(
     if (!file) {
       return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
     }
-    if (file.type !== "application/pdf") {
+    const isPdfMime = file.type === "application/pdf";
+    const isPdfByName = file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdfMime && !isPdfByName) {
       return NextResponse.json({ error: "Le contrat doit être un PDF" }, { status: 400 });
     }
 
@@ -77,11 +79,14 @@ export async function POST(
 
     /** Nouvelle version du PDF signé scanné : ne pas réinitialiser le workflow (statut SIGNE inchangé). */
     if (signedFinal) {
-      if (collaboration.contratMarqueStatut !== "SIGNE") {
+      const canDepositSignedFinal =
+        collaboration.contratMarqueStatut === "SIGNE" ||
+        collaboration.contratMarqueStatut === "APPROUVE";
+      if (!canDepositSignedFinal) {
         return NextResponse.json(
           {
             error:
-              "Le PDF signé définitif ne peut être déposé que lorsque le contrat est déjà marqué comme signé.",
+              "Le PDF signé définitif ne peut être déposé que sur un contrat approuvé ou déjà signé.",
           },
           { status: 400 }
         );
@@ -134,6 +139,9 @@ export async function POST(
         where: { id },
         data: {
           contratMarquePdfUrl: url,
+          contratMarqueStatut: "SIGNE",
+          contratMarqueSigneAt: new Date(),
+          contratMarqueMode: collaboration.contratMarqueMode ?? "EXTERNE",
           contratMarqueVersionActuelle: newVersionSigned.numero,
           contratMarquePdfOfficielSigneDeposeAt: new Date(),
         },

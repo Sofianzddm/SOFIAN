@@ -29,7 +29,7 @@ const COLORS = {
 export interface MentionEmailProps {
   mentionnedName: string;
   mentionnedByName: string;
-  contextType: "collaboration" | "negociation" | "prospection";
+  contextType: "collaboration" | "negociation" | "prospection" | "gift";
   contextReference: string;
   messageContent: string;
   contextUrl: string;
@@ -48,7 +48,9 @@ export function MentionEmail({
       ? "collaboration"
       : contextType === "negociation"
         ? "négociation"
-        : "opportunité de prospection";
+        : contextType === "gift"
+          ? "demande de gift"
+          : "opportunité de prospection";
   const preview = `${mentionnedByName} vous a mentionné dans une conversation (${contextReference}).`;
 
   const stripHtml = (html: string): string => {
