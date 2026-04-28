@@ -568,10 +568,16 @@ export default function ContratPdfReviewer({
           alert((j as { error?: string }).error || "Erreur");
           return;
         }
-        const payload = (await res.json().catch(() => ({}))) as { submissionId?: string | null };
+        const payload = (await res.json().catch(() => ({}))) as {
+          submissionId?: string | null;
+          signingUrl?: string | null;
+        };
         if (nextStatut === "SIGNE" && mode === "DOCUSEAL") {
+          const directSigningUrl = payload.signingUrl ?? null;
           const submissionId = payload.submissionId ?? collaboration.contratSubmissionId ?? null;
-          if (submissionId) {
+          if (directSigningUrl) {
+            window.open(directSigningUrl, "_blank", "noopener,noreferrer");
+          } else if (submissionId) {
             const url = `${docusealBaseUrl}/submissions/${submissionId}`;
             window.open(url, "_blank", "noopener,noreferrer");
           }

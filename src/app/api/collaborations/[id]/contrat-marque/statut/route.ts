@@ -8,6 +8,25 @@ import { render } from "@react-email/render";
 import { ContratMarqueApprouveEmail } from "@/lib/emails/ContratMarqueApprouveEmail";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
+const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
+
+type DocuSealSubmitterRow = {
+  role?: string;
+  embed_src?: string | null;
+  url?: string | null;
+  submission_url?: string | null;
+  slug?: string | null;
+  submission_id?: number;
+};
+
+function getSubmitterSigningUrl(s: DocuSealSubmitterRow): string | null {
+  const raw =
+    s.embed_src?.trim() ||
+    s.url?.trim() ||
+    s.submission_url?.trim() ||
+    (s.slug?.trim() ? `${DOCUSEAL_SIGNING_BASE}/${s.slug.trim()}` : "");
+  return raw && raw.startsWith("http") ? raw : null;
+}
 
 type StatutPayload = {
   statut?: "APPROUVE" | "A_MODIFIER" | "SIGNE";
@@ -86,16 +105,19 @@ export async function POST(
     }
 
     let docusealSubmissionId: string | undefined;
+    let docusealSigningUrl: string | undefined;
     if (statut === "SIGNE" && body.mode === "DOCUSEAL") {
       const templateIdRaw = process.env.DOCUSEAL_CONTRAT_TALENT_TEMPLATE_ID?.trim();
       const templateId = templateIdRaw ? parseInt(templateIdRaw, 10) : NaN;
       const docusealKey = process.env.DOCUSEAL_API_KEY?.trim();
-      const agenceEmail = process.env.AGENCE_SIGNATURE_EMAIL?.trim();
+      const juristeEmail =
+        (session.user.email && String(session.user.email).trim()) ||
+        process.env.AGENCE_SIGNATURE_EMAIL?.trim();
       const missing: string[] = [];
       if (!Number.isInteger(templateId)) missing.push("DOCUSEAL_CONTRAT_TALENT_TEMPLATE_ID");
       if (!docusealKey) missing.push("DOCUSEAL_API_KEY");
-      if (!agenceEmail) missing.push("AGENCE_SIGNATURE_EMAIL");
-      if (!Number.isInteger(templateId) || !docusealKey || !agenceEmail) {
+      if (!juristeEmail) missing.push("SESSION_USER_EMAIL (ou AGENCE_SIGNATURE_EMAIL)");
+      if (!Number.isInteger(templateId) || !docusealKey || !juristeEmail) {
         return NextResponse.json(
           {
             error: `Configuration DocuSeal incomplète: ${missing.join(", ")}`,
@@ -154,11 +176,10 @@ export async function POST(
           send_email: false,
           submitters: [
             {
-              email: agenceEmail,
-              role: "Agence",
-              name: "Sofian Ayad-Zeddam",
+              email: juristeEmail,
+              role: "Juriste",
+              name: session.user.name?.trim() || "Juriste Glow Up",
               order: 1,
-              readonly: true,
               values,
             },
           ],
@@ -169,12 +190,15 @@ export async function POST(
         return NextResponse.json({ error: `DocuSeal: ${err || docusealRes.statusText}` }, { status: 502 });
       }
       const d = await docusealRes.json();
-      const first = Array.isArray(d) ? d[0] : null;
-      docusealSubmissionId =
-        first?.submission_id != null ? String(first.submission_id) : undefined;
+      const rows = (Array.isArray(d) ? d : []) as DocuSealSubmitterRow[];
+      const first = rows[0] ?? null;
+      docusealSubmissionId = first?.submission_id != null ? String(first.submission_id) : undefined;
       if (!docusealSubmissionId) {
         return NextResponse.json({ error: "Réponse DocuSeal invalide" }, { status: 502 });
       }
+      docusealSigningUrl = getSubmitterSigningUrl(
+        rows.find((r) => r.role === "Juriste") ?? first ?? {}
+      ) ?? undefined;
     }
 
     const data: {
@@ -298,7 +322,11 @@ export async function POST(
       await Promise.all(notifs);
     }
 
-    return NextResponse.json({ success: true, submissionId: docusealSubmissionId ?? null });
+    return NextResponse.json({
+      success: true,
+      submissionId: docusealSubmissionId ?? null,
+      signingUrl: docusealSigningUrl ?? null,
+    });
   } catch (error) {
     console.error("POST contrat-marque/statut:", error);
     return NextResponse.json({ error: "Erreur lors de la mise à jour du statut" }, { status: 500 });
