@@ -31,6 +31,7 @@ import {
   FileText,
   ArrowRight,
   Plus,
+  Ban,
 } from "lucide-react";
 import {
   MentionTextarea,
@@ -47,6 +48,7 @@ export default function GiftDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [commentaire, setCommentaire] = useState("");
   const [sending, setSending] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState<any>({});
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
@@ -54,6 +56,10 @@ export default function GiftDetailPage() {
   const user = session?.user as { id?: string; role?: string };
   const isAM = user?.role === "CM" || user?.role === "ADMIN";
   const isTM = user?.role === "TM";
+  const canCancel =
+    demande &&
+    demande.statut !== "ANNULE" &&
+    (user?.role === "ADMIN" || (user?.role === "TM" && demande.tmId === user?.id));
   const isHotelAcceptedOrBeyond = !!demande &&
     demande.typeGift === "HOTEL" &&
     (demande.statut === "ACCEPTE" ||
@@ -180,6 +186,27 @@ export default function GiftDetailPage() {
     }
   };
 
+  const handleCancelDemande = async () => {
+    const confirmed = window.confirm(
+      "Confirmer l'annulation de cette demande de gift ?"
+    );
+    if (!confirmed) return;
+
+    try {
+      setCancelling(true);
+      const res = await fetch(`/api/gifts/${params.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Erreur");
+      router.push("/gifts");
+      router.refresh();
+    } catch (err) {
+      alert("Erreur lors de l'annulation de la demande");
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -217,7 +244,7 @@ export default function GiftDetailPage() {
             <ArrowLeft className="w-4 h-4" />
             Retour aux demandes
           </Link>
-          <div className="flex items-start justify-between">
+          <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm">
                 <Gift className="w-8 h-8" />
@@ -232,7 +259,24 @@ export default function GiftDetailPage() {
                 </p>
               </div>
             </div>
-            <PrioriteBadge priorite={demande.priorite} large />
+            <div className="flex items-center gap-3">
+              <PrioriteBadge priorite={demande.priorite} large />
+              {canCancel && (
+                <button
+                  type="button"
+                  onClick={handleCancelDemande}
+                  disabled={cancelling}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/90 text-white font-semibold hover:bg-red-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {cancelling ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Ban className="w-4 h-4" />
+                  )}
+                  Annuler la demande
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
