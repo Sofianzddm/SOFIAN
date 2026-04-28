@@ -8,7 +8,7 @@ import { render } from "@react-email/render";
 import { ContratMarqueApprouveEmail } from "@/lib/emails/ContratMarqueApprouveEmail";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
-const DOCUSEAL_TEMPLATES_PDF = "https://api.docuseal.com/templates/pdf";
+const DOCUSEAL_SUBMISSIONS_PDF = "https://api.docuseal.com/submissions/pdf";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
 
 type DocuSealSubmitterRow = {
@@ -164,7 +164,7 @@ export async function POST(
       const pdfArrayBuffer = await pdfRes.arrayBuffer();
       const pdfBase64 = Buffer.from(pdfArrayBuffer).toString("base64");
 
-      const templateRes = await fetch(DOCUSEAL_TEMPLATES_PDF, {
+      const docusealRes = await fetch(DOCUSEAL_SUBMISSIONS_PDF, {
         method: "POST",
         headers: {
           "X-Auth-Token": docusealKey,
@@ -172,37 +172,30 @@ export async function POST(
         },
         body: JSON.stringify({
           name: `Contrat marque ${collabDs.reference}`,
+          send_email: false,
           documents: [
             {
               name: "contrat-marque",
               file: pdfBase64,
-              fields: [],
+              fields: [
+                {
+                  name: "Signature Juriste",
+                  type: "signature",
+                  role: "Juriste",
+                  required: true,
+                  areas: [
+                    {
+                      page: 1,
+                      x: 0.62,
+                      y: 0.9,
+                      w: 0.3,
+                      h: 0.06,
+                    },
+                  ],
+                },
+              ],
             },
           ],
-        }),
-      });
-      if (!templateRes.ok) {
-        const err = await templateRes.text();
-        return NextResponse.json(
-          { error: `DocuSeal template(pdf): ${err || templateRes.statusText}` },
-          { status: 502 }
-        );
-      }
-      const templateData = (await templateRes.json()) as { id?: number };
-      const templateId = templateData.id;
-      if (!templateId) {
-        return NextResponse.json({ error: "Réponse DocuSeal invalide (template id manquant)" }, { status: 502 });
-      }
-
-      const docusealRes = await fetch(DOCUSEAL_SUBMISSIONS, {
-        method: "POST",
-        headers: {
-          "X-Auth-Token": docusealKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          template_id: templateId,
-          send_email: false,
           submitters: [
             {
               email: juristeEmail,
@@ -215,7 +208,10 @@ export async function POST(
       });
       if (!docusealRes.ok) {
         const err = await docusealRes.text();
-        return NextResponse.json({ error: `DocuSeal: ${err || docusealRes.statusText}` }, { status: 502 });
+        return NextResponse.json(
+          { error: `DocuSeal: ${err || docusealRes.statusText}` },
+          { status: 502 }
+        );
       }
       const d = await docusealRes.json();
       const rows = (Array.isArray(d) ? d : []) as DocuSealSubmitterRow[];
