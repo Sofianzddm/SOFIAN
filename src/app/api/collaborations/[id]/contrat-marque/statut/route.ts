@@ -7,6 +7,9 @@ import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { ContratMarqueApprouveEmail } from "@/lib/emails/ContratMarqueApprouveEmail";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SUBMISSIONS_PDF = "https://api.docuseal.com/submissions/pdf";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -353,6 +356,10 @@ export async function POST(
     });
   } catch (error) {
     console.error("POST contrat-marque/statut:", error);
-    return NextResponse.json({ error: "Erreur lors de la mise à jour du statut" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Erreur inconnue";
+    return NextResponse.json(
+      { error: `Erreur lors de la mise à jour du statut: ${message}` },
+      { status: 500 }
+    );
   }
 }
