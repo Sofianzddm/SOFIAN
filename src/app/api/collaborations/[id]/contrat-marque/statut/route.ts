@@ -8,6 +8,7 @@ import { render } from "@react-email/render";
 import { ContratMarqueApprouveEmail } from "@/lib/emails/ContratMarqueApprouveEmail";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
+const DOCUSEAL_TEMPLATES_PDF = "https://api.docuseal.com/templates/pdf";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
 
 type DocuSealSubmitterRow = {
@@ -107,17 +108,14 @@ export async function POST(
     let docusealSubmissionId: string | undefined;
     let docusealSigningUrl: string | undefined;
     if (statut === "SIGNE" && body.mode === "DOCUSEAL") {
-      const templateIdRaw = process.env.DOCUSEAL_CONTRAT_TALENT_TEMPLATE_ID?.trim();
-      const templateId = templateIdRaw ? parseInt(templateIdRaw, 10) : NaN;
       const docusealKey = process.env.DOCUSEAL_API_KEY?.trim();
       const juristeEmail =
         (session.user.email && String(session.user.email).trim()) ||
         process.env.AGENCE_SIGNATURE_EMAIL?.trim();
       const missing: string[] = [];
-      if (!Number.isInteger(templateId)) missing.push("DOCUSEAL_CONTRAT_TALENT_TEMPLATE_ID");
       if (!docusealKey) missing.push("DOCUSEAL_API_KEY");
       if (!juristeEmail) missing.push("SESSION_USER_EMAIL (ou AGENCE_SIGNATURE_EMAIL)");
-      if (!Number.isInteger(templateId) || !docusealKey || !juristeEmail) {
+      if (!docusealKey || !juristeEmail) {
         return NextResponse.json(
           {
             error: `Configuration DocuSeal incomplète: ${missing.join(", ")}`,
@@ -149,21 +147,52 @@ export async function POST(
       if (!collabDs) {
         return NextResponse.json({ error: "Collaboration non trouvée" }, { status: 404 });
       }
+      if (!collabDs.contratMarquePdfUrl?.trim()) {
+        return NextResponse.json(
+          { error: "Aucun PDF contrat disponible pour la signature électronique." },
+          { status: 400 }
+        );
+      }
 
-      const talentNom = `${collabDs.talent.prenom} ${collabDs.talent.nom}`.trim();
-      const values = {
-        talent_nom: talentNom,
-        societe_nom: collabDs.talent.raisonSociale ?? "",
-        siret: collabDs.talent.siret ?? "",
-        adresse_talent: [collabDs.talent.adresse, collabDs.talent.codePostal, collabDs.talent.ville, collabDs.talent.pays]
-          .filter(Boolean)
-          .join(", "),
-        marque: collabDs.marque.nom,
-        livrables: collabDs.livrables
-          .map((l) => `${l.quantite}× ${l.typeContenu}${l.description ? ` — ${l.description}` : ""}`)
-          .join("\n"),
-        montant_net_talent: collabDs.montantNet.toString(),
-      };
+      const pdfRes = await fetch(collabDs.contratMarquePdfUrl);
+      if (!pdfRes.ok) {
+        return NextResponse.json(
+          { error: "Impossible de récupérer le PDF contrat pour DocuSeal." },
+          { status: 502 }
+        );
+      }
+      const pdfArrayBuffer = await pdfRes.arrayBuffer();
+      const pdfBase64 = Buffer.from(pdfArrayBuffer).toString("base64");
+
+      const templateRes = await fetch(DOCUSEAL_TEMPLATES_PDF, {
+        method: "POST",
+        headers: {
+          "X-Auth-Token": docusealKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: `Contrat marque ${collabDs.reference}`,
+          documents: [
+            {
+              name: "contrat-marque",
+              file: pdfBase64,
+              fields: [],
+            },
+          ],
+        }),
+      });
+      if (!templateRes.ok) {
+        const err = await templateRes.text();
+        return NextResponse.json(
+          { error: `DocuSeal template(pdf): ${err || templateRes.statusText}` },
+          { status: 502 }
+        );
+      }
+      const templateData = (await templateRes.json()) as { id?: number };
+      const templateId = templateData.id;
+      if (!templateId) {
+        return NextResponse.json({ error: "Réponse DocuSeal invalide (template id manquant)" }, { status: 502 });
+      }
 
       const docusealRes = await fetch(DOCUSEAL_SUBMISSIONS, {
         method: "POST",
@@ -180,7 +209,6 @@ export async function POST(
               role: "Juriste",
               name: session.user.name?.trim() || "Juriste Glow Up",
               order: 1,
-              values,
             },
           ],
         }),
