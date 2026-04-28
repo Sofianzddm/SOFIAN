@@ -37,6 +37,7 @@ export async function POST(
         reference: true,
         contratMarquePdfUrl: true,
         contratMarqueStatut: true,
+        contratMarqueMode: true,
       },
     });
     if (!collaboration) {
