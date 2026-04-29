@@ -842,7 +842,9 @@ export default function NegociationDetailPage() {
                             }}
                           />
                         </div>
-                        <p className="mt-1 text-xs text-slate-400">{c.user.prenom} · {new Date(c.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {c.user.prenom} · {new Date(c.createdAt).toLocaleDateString("fr-FR")} à {new Date(c.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                        </p>
                       </div>
                     </div>
                   );

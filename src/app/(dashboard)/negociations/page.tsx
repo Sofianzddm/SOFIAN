@@ -9,7 +9,6 @@ import {
   MessageSquare,
   Euro,
   Clock,
-  CheckCircle2,
   XCircle,
   AlertCircle,
   ChevronRight,
@@ -53,9 +52,7 @@ const STATUTS = [
   { value: "BROUILLON", label: "Brouillon", dot: "bg-slate-400" },
   { value: "EN_ATTENTE", label: "En attente", dot: "bg-amber-500" },
   { value: "EN_DISCUSSION", label: "En discussion", dot: "bg-blue-500" },
-  { value: "VALIDEE", label: "Validée", dot: "bg-emerald-500" },
   { value: "REFUSEE", label: "Refusée", dot: "bg-red-500" },
-  { value: "ANNULEE", label: "Archivé", dot: "bg-slate-500" },
 ];
 
 const TYPE_LABELS: Record<string, string> = {
@@ -105,7 +102,11 @@ export default function NegociationsPage() {
     }
   };
 
-  const filteredNegos = negociations.filter((nego) => {
+  const activeNegociations = negociations.filter(
+    (nego) => !["VALIDEE", "ANNULEE"].includes(nego.statut)
+  );
+
+  const filteredNegos = activeNegociations.filter((nego) => {
     const matchSearch =
       nego.reference.toLowerCase().includes(search.toLowerCase()) ||
       `${nego.talent.prenom} ${nego.talent.nom}`.toLowerCase().includes(search.toLowerCase()) ||
@@ -141,7 +142,6 @@ export default function NegociationsPage() {
 
   const enAttente = negociations.filter((n) => n.statut === "EN_ATTENTE").length;
   const enDiscussion = negociations.filter((n) => n.statut === "EN_DISCUSSION").length;
-  const validees = negociations.filter((n) => n.statut === "VALIDEE").length;
   const totalBudget = negociations
     .filter((n) => !["REFUSEE", "ANNULEE"].includes(n.statut) && !n.collaborationId)
     .reduce(
@@ -177,7 +177,7 @@ export default function NegociationsPage() {
       </div>
 
       {/* Stats - 4 carrés sympas */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60">
           <div className="flex items-center justify-between mb-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10">
@@ -195,15 +195,6 @@ export default function NegociationsPage() {
           </div>
           <p className="text-2xl font-bold text-slate-900 tabular-nums">{enDiscussion}</p>
           <p className="text-sm text-slate-500">En discussion</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            </div>
-          </div>
-          <p className="text-2xl font-bold text-slate-900 tabular-nums">{validees}</p>
-          <p className="text-sm text-slate-500">Validées</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60">
           <div className="flex items-center justify-between mb-2">

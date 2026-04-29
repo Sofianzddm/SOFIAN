@@ -222,7 +222,7 @@ function getActionIcon(contact: Contact) {
    if (contact.prochainStatut === "ANNULE") {
      return {
        icon: "Meh" as const,
-       color: "bg-gray-300 text-white",
+      color: "bg-black text-white",
        label: "Annulé",
      };
    }
@@ -1811,7 +1811,9 @@ function ActionButton({
                   onClick={() => setStatut(value)}
                   className={`px-3 py-1.5 rounded-full text-xs border ${
                     statut === value
-                      ? "bg-[#C8F285] border-[#C8F285] text-[#1A1110]"
+                      ? value === "ANNULE"
+                        ? "bg-black border-black text-white"
+                        : "bg-[#C8F285] border-[#C8F285] text-[#1A1110]"
                       : "border-gray-200 text-gray-700 hover:bg-gray-50"
                   }`}
                 >
