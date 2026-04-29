@@ -266,6 +266,7 @@ enum InboundPriority {
 
 enum InboundStatus {
   NEW
+  READY
   IN_REVIEW
   CONVERTED
   ARCHIVED
@@ -335,6 +336,7 @@ model User {
   prospectingCampaignsCreated TalentProspectingCampaign[] @relation("TalentProspectingCampaignCreatedBy")
   inboundConverted InboundOpportunity[] @relation("InboundConvertedBy")
   inboundArchived  InboundOpportunity[] @relation("InboundArchivedBy")
+  inboundMarkedReady InboundOpportunity[] @relation("InboundMarkedReadyBy")
   cannesPresences  CannesPresence[] @relation("UserCannesPresences")
 
   @@map("users")
@@ -663,6 +665,9 @@ model InboundOpportunity {
   archivedById      String?
   archivedBy        User?    @relation("InboundArchivedBy", fields: [archivedById], references: [id])
   archivedReason    String?
+  markedReadyAt     DateTime?
+  markedReadyById   String?
+  markedReadyBy     User?    @relation("InboundMarkedReadyBy", fields: [markedReadyById], references: [id])
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

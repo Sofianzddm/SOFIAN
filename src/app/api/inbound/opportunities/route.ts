@@ -76,8 +76,20 @@ export async function POST(req: NextRequest) {
         where: { id: existing.id },
         data: {
           receivedAt: new Date(data.receivedAt),
+          senderEmail: data.senderEmail,
+          senderName: data.senderName || null,
+          senderDomain: data.senderDomain.toLowerCase().trim(),
           bodyExcerpt: data.bodyExcerpt.slice(0, 3000),
           subject: data.subject.trim(),
+          category: data.category,
+          confidence: data.confidence,
+          priority: data.priority,
+          extractedBrand: data.extractedBrand || null,
+          extractedTopic: data.extractedTopic || null,
+          extractedBudget: data.extractedBudget || null,
+          extractedDeadline: data.extractedDeadline || null,
+          extractedDeliverables: data.extractedDeliverables || null,
+          briefSummary: data.briefSummary || null,
           threadId,
         },
       });
@@ -180,7 +192,7 @@ export async function GET(req: NextRequest) {
     const countOnly = searchParams.get("countOnly") === "1";
 
     const where = {
-      ...(status ? { status: status as "NEW" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED" } : {}),
+      ...(status ? { status: status as "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED" } : {}),
       ...(priority ? { priority: priority as "LOW" | "MEDIUM" | "HIGH" | "URGENT" } : {}),
       ...(talentId ? { talentId } : {}),
     };

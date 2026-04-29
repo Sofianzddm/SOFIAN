@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2, Mail, Filter, Trash2 } from "lucide-react";
 
-type InboundStatus = "NEW" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
+type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 type InboundPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 type Opportunity = {
@@ -25,8 +25,6 @@ type Opportunity = {
 };
 
 const ALLOWED = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"];
-const STATUS_ORDER: InboundStatus[] = ["NEW", "IN_REVIEW", "CONVERTED", "ARCHIVED"];
-
 function relativeDate(dateStr: string) {
   const d = new Date(dateStr).getTime();
   const diff = Date.now() - d;
@@ -41,7 +39,7 @@ export default function InboundPage() {
   const { data: session, status } = useSession();
   const [items, setItems] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<InboundStatus | "ALL">("NEW");
+  const [statusFilter, setStatusFilter] = useState<"NEW" | "READY">("NEW");
   const [priorityFilter, setPriorityFilter] = useState<InboundPriority | "ALL">("ALL");
   const [talentFilter, setTalentFilter] = useState<string>("ALL");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -87,17 +85,6 @@ export default function InboundPage() {
     [items, priorityFilter, talentFilter]
   );
 
-  const counts = useMemo(() => {
-    const c: Record<InboundStatus, number> = {
-      NEW: 0,
-      IN_REVIEW: 0,
-      CONVERTED: 0,
-      ARCHIVED: 0,
-    };
-    for (const o of items) c[o.status] += 1;
-    return c;
-  }, [items]);
-
   const removeOpportunity = async (id: string) => {
     if (!window.confirm("Supprimer definitivement cette opportunite inbound ?")) return;
     if (!window.confirm("Cette action est irreversible. Confirmer la suppression ?")) return;
@@ -137,18 +124,24 @@ export default function InboundPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {STATUS_ORDER.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setStatusFilter(s)}
-            className={`rounded-lg px-3 py-1.5 text-sm ${
-              statusFilter === s ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-700"
-            }`}
-          >
-            {s === "NEW" ? "Nouvelles" : s === "IN_REVIEW" ? "En revue" : s === "CONVERTED" ? "Converties" : "Archivees"} ({counts[s]})
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={() => setStatusFilter("NEW")}
+          className={`rounded-lg px-3 py-1.5 text-sm ${
+            statusFilter === "NEW" ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-700"
+          }`}
+        >
+          Nouvelles
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("READY")}
+          className={`rounded-lg px-3 py-1.5 text-sm ${
+            statusFilter === "READY" ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-700"
+          }`}
+        >
+          Traitees
+        </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">

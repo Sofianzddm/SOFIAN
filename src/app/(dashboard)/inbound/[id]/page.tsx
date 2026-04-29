@@ -7,7 +7,7 @@ import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 
-type InboundStatus = "NEW" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
+type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 
 type Opportunity = {
   id: string;
@@ -125,6 +125,23 @@ export default function InboundDetailPage() {
       router.push("/inbound");
     } catch (e: any) {
       window.alert(e?.message || "Erreur archivage");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const markReady = async () => {
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/inbound/opportunities/${opportunity.id}/mark-ready`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      router.push("/inbound");
+    } catch (e: any) {
+      window.alert(e?.message || "Erreur marquage");
     } finally {
       setSubmitting(false);
     }
@@ -251,6 +268,11 @@ export default function InboundDetailPage() {
                   <button disabled={submitting} onClick={archive} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60">
                     Archiver
                   </button>
+                  {opportunity.status === "NEW" && (
+                    <button disabled={submitting} onClick={markReady} className="mt-2 w-full rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 disabled:opacity-60">
+                      ✅ Marquer comme pret
+                    </button>
+                  )}
                 </>
               )}
               {canDelete && (

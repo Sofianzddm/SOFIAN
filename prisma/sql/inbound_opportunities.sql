@@ -9,7 +9,7 @@ CREATE TYPE "InboundCategory" AS ENUM (
 
 CREATE TYPE "InboundPriority" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'URGENT');
 
-CREATE TYPE "InboundStatus" AS ENUM ('NEW', 'IN_REVIEW', 'CONVERTED', 'ARCHIVED');
+CREATE TYPE "InboundStatus" AS ENUM ('NEW', 'READY', 'IN_REVIEW', 'CONVERTED', 'ARCHIVED');
 
 ALTER TYPE "TypeNotification" ADD VALUE IF NOT EXISTS 'INBOUND_OPPORTUNITY';
 
@@ -42,6 +42,8 @@ CREATE TABLE "inbound_opportunities" (
   "archivedAt" TIMESTAMP(3),
   "archivedById" TEXT,
   "archivedReason" TEXT,
+  "markedReadyAt" TIMESTAMP(3),
+  "markedReadyById" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT NOW(),
   CONSTRAINT "inbound_opportunities_pkey" PRIMARY KEY ("id"),
@@ -67,6 +69,10 @@ ALTER TABLE "inbound_opportunities"
   ADD CONSTRAINT "inbound_opportunities_archivedById_fkey"
   FOREIGN KEY ("archivedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
+ALTER TABLE "inbound_opportunities"
+  ADD CONSTRAINT "inbound_opportunities_markedReadyById_fkey"
+  FOREIGN KEY ("markedReadyById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
 -- Draft email fields (same drafting flow as casting outreach)
 ALTER TABLE "inbound_opportunities"
   ADD COLUMN IF NOT EXISTS "draftEmailSubject" TEXT,
@@ -77,3 +83,9 @@ ALTER TABLE "inbound_opportunities"
 
 CREATE INDEX IF NOT EXISTS "inbound_opportunities_threadId_idx"
   ON "inbound_opportunities"("threadId");
+
+ALTER TYPE "InboundStatus" ADD VALUE IF NOT EXISTS 'READY';
+
+ALTER TABLE "inbound_opportunities"
+  ADD COLUMN IF NOT EXISTS "markedReadyAt" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "markedReadyById" TEXT;
