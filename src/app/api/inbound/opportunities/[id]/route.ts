@@ -80,3 +80,45 @@ export async function PATCH(
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getAppSession(req);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Non autorise" }, { status: 401 });
+    }
+    const role = session.user.role || "";
+    if (!ALLOWED_ROLES.includes(role as (typeof ALLOWED_ROLES)[number])) {
+      return NextResponse.json({ error: "Acces refuse" }, { status: 403 });
+    }
+
+    const { id } = await params;
+    const existing = await prisma.inboundOpportunity.findUnique({
+      where: { id },
+      select: { id: true, status: true, convertedToProspectionId: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    if (existing.status === "CONVERTED" || existing.convertedToProspectionId) {
+      return NextResponse.json(
+        { error: "Impossible de supprimer une opportunite deja convertie." },
+        { status: 409 }
+      );
+    }
+
+    await prisma.inboundOpportunity.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("DELETE /api/inbound/opportunities/[id] error:", error);
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  }
+}

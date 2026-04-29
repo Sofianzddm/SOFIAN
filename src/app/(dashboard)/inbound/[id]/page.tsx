@@ -90,6 +90,7 @@ export default function InboundDetailPage() {
   if (!opportunity) return <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm">Opportunite introuvable.</div>;
 
   const canAct = opportunity.status === "NEW" || opportunity.status === "IN_REVIEW";
+  const canDelete = opportunity.status !== "CONVERTED";
 
   const convert = async () => {
     if (!window.confirm("Cette opportunite sera convertie en Prospection et assignee automatiquement a la Head of Sales. Confirmer ?")) return;
@@ -124,6 +125,25 @@ export default function InboundDetailPage() {
       router.push("/inbound");
     } catch (e: any) {
       window.alert(e?.message || "Erreur archivage");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const removeOpportunity = async () => {
+    if (!window.confirm("Supprimer definitivement cette opportunite inbound ?")) return;
+    if (!window.confirm("Cette action est irreversible. Confirmer la suppression ?")) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/inbound/opportunities/${opportunity.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur suppression");
+      router.push("/inbound");
+    } catch (e: any) {
+      window.alert(e?.message || "Erreur suppression");
     } finally {
       setSubmitting(false);
     }
@@ -214,21 +234,34 @@ export default function InboundDetailPage() {
             ) : null}
           </div>
 
-          {canAct && (
+          {(canAct || canDelete) && (
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <button
-                disabled={submitting}
-                onClick={() => setComposerOpen(true)}
-                className="mb-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
-              >
-                Rediger un mail
-              </button>
-              <button disabled={submitting} onClick={convert} className="w-full rounded-lg bg-[#C8F285] px-3 py-2 text-sm font-semibold text-[#1A1110] disabled:opacity-60">
-                Convertir en Prospection
-              </button>
-              <button disabled={submitting} onClick={archive} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60">
-                Archiver
-              </button>
+              {canAct && (
+                <>
+                  <button
+                    disabled={submitting}
+                    onClick={() => setComposerOpen(true)}
+                    className="mb-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
+                  >
+                    Rediger un mail
+                  </button>
+                  <button disabled={submitting} onClick={convert} className="w-full rounded-lg bg-[#C8F285] px-3 py-2 text-sm font-semibold text-[#1A1110] disabled:opacity-60">
+                    Convertir en Prospection
+                  </button>
+                  <button disabled={submitting} onClick={archive} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60">
+                    Archiver
+                  </button>
+                </>
+              )}
+              {canDelete && (
+                <button
+                  disabled={submitting}
+                  onClick={removeOpportunity}
+                  className="mt-2 w-full rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-60"
+                >
+                  Supprimer definitivement
+                </button>
+              )}
             </div>
           )}
         </aside>
