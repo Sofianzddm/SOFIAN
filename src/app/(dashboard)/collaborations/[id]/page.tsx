@@ -231,7 +231,6 @@ export default function CollabDetailPage() {
   const [uploadingFactureTalent, setUploadingFactureTalent] = useState(false);
   const [selectedDevisSigne, setSelectedDevisSigne] = useState<File | null>(null);
   const [uploadingDevisSigne, setUploadingDevisSigne] = useState(false);
-  const [isDragOverDevisSigne, setIsDragOverDevisSigne] = useState(false);
   const [validatingFacture, setValidatingFacture] = useState(false);
   const [facturePreviewUrl, setFacturePreviewUrl] = useState<string | null>(null);
   const [showNotesModal, setShowNotesModal] = useState(false);
@@ -794,14 +793,6 @@ export default function CollabDetailPage() {
     }
   };
 
-  const handleDevisSigneDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragOverDevisSigne(false);
-    if (e.dataTransfer.files?.[0]) {
-      setSelectedDevisSigne(e.dataTransfer.files[0]);
-    }
-  };
-
   const uploadDevisSigne = async () => {
     if (!selectedDevisSigne || !collab?.id) return;
 
@@ -947,7 +938,9 @@ export default function CollabDetailPage() {
   const activeFacture = getActiveDocument("FACTURE");
   const roleForUi = effectiveRole ?? (session?.user as { role?: string })?.role ?? "";
   const canGenerateDevis = ["NEGO", "GAGNE", "EN_COURS"].includes(collab.statut) && !activeDevis;
-  const canGenerateFacture = ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) && !activeFacture;
+  const canGenerateFacture =
+    ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) &&
+    (collab.isLongTerme || !activeFacture);
   const canUploadSignedDevis = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(roleForUi);
   const activeDevisForManualUpload = (collab.documents || []).find(
     (d) => d.type === "DEVIS" && d.statut !== "ANNULE" && !d.avoirRef
@@ -1278,80 +1271,6 @@ export default function CollabDetailPage() {
         </div>
       )}
 
-      {canUploadSignedDevis && activeDevisForManualUpload && !activeDevisForManualUpload.signedDocumentUrl && (
-        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-6 mb-8">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <FileSignature className="w-6 h-6 text-emerald-700" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-emerald-900 text-lg mb-2">Déposer un devis signé</h3>
-              <p className="text-sm text-emerald-700 mb-4">
-                Glissez un fichier signé dans la zone ci-dessous ou sélectionnez-le manuellement.
-              </p>
-              <div
-                className={`border-2 border-dashed rounded-xl p-4 transition-colors ${
-                  isDragOverDevisSigne
-                    ? "border-emerald-500 bg-emerald-100/60"
-                    : "border-emerald-300 bg-white/80"
-                }`}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragOverDevisSigne(true);
-                }}
-                onDragLeave={() => setIsDragOverDevisSigne(false)}
-                onDrop={handleDevisSigneDrop}
-              >
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    type="file"
-                    accept=".pdf,.jpg,.jpeg,.png"
-                    onChange={handleDevisSigneSelect}
-                    className="hidden"
-                    id="devis-signe-upload"
-                  />
-                  <label
-                    htmlFor="devis-signe-upload"
-                    className="px-4 py-2.5 bg-emerald-700 text-white rounded-lg font-medium hover:bg-emerald-800 cursor-pointer transition-colors inline-flex items-center gap-2"
-                  >
-                    <Upload className="w-4 h-4" />
-                    Choisir un fichier signé
-                  </label>
-                  {selectedDevisSigne && (
-                    <>
-                      <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                        <FileText className="w-4 h-4 text-emerald-700" />
-                        <span className="text-sm text-emerald-800 font-medium">{selectedDevisSigne.name}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={uploadDevisSigne}
-                        disabled={uploadingDevisSigne}
-                        className="px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 inline-flex items-center gap-2"
-                      >
-                        {uploadingDevisSigne ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Envoi...
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-4 h-4" />
-                            Envoyer
-                          </>
-                        )}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <p className="text-xs text-emerald-700 mt-3">
-                Devis concerné : {activeDevisForManualUpload.reference} • Formats acceptés : PDF, JPG, PNG • Taille max : 10MB
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
         <div className="grid grid-cols-12 gap-8">
           {/* Main Content */}
@@ -1652,7 +1571,13 @@ export default function CollabDetailPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-glowup-licorice">
                         {c.user.prenom} {c.user.nom}
-                        <span className="text-gray-400 font-normal ml-2">{formatRelative(c.createdAt)}</span>
+                        <span className="text-gray-400 font-normal ml-2">
+                          {new Date(c.createdAt).toLocaleDateString("fr-FR")} à{" "}
+                          {new Date(c.createdAt).toLocaleTimeString("fr-FR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
                       </p>
                       <div
                         className="message-content text-sm text-gray-600 mt-0.5 prose prose-sm max-w-none"
@@ -1915,7 +1840,7 @@ export default function CollabDetailPage() {
         {/* Sidebar */}
         <div className="col-span-4 space-y-6">
           {/* Actions */}
-          {(nextStatuts.length > 0 || canGenerateDevis || canGenerateFacture || activeDevis || activeFacture) && (
+          {(nextStatuts.length > 0 || canGenerateDevis || canGenerateFacture || activeDevis || activeFacture || (canUploadSignedDevis && !!activeDevisForManualUpload)) && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden border-l-4 border-l-glowup-rose">
               <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-glowup-lace/30 to-white">
                 <h3 className="font-semibold text-glowup-licorice text-sm uppercase tracking-wider">Actions rapides</h3>
@@ -1931,6 +1856,41 @@ export default function CollabDetailPage() {
                     <Download className="w-4 h-4" /> Devis {activeDevis.reference}
                   </a>
                 )}
+                {canUploadSignedDevis && activeDevisForManualUpload && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={handleDevisSigneSelect}
+                      className="hidden"
+                      id="devis-signe-upload"
+                    />
+                    <label
+                      htmlFor="devis-signe-upload"
+                      className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-emerald-700 text-white rounded-lg text-sm font-semibold hover:bg-emerald-800 cursor-pointer transition-colors"
+                    >
+                      <FileSignature className="w-4 h-4" />
+                      {activeDevisForManualUpload.signedDocumentUrl ? "Remplacer le devis signé" : "Déposer un devis signé"}
+                    </label>
+                    {selectedDevisSigne && (
+                      <>
+                        <p className="text-xs text-emerald-800 truncate">{selectedDevisSigne.name}</p>
+                        <button
+                          type="button"
+                          onClick={uploadDevisSigne}
+                          disabled={uploadingDevisSigne}
+                          className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+                        >
+                          {uploadingDevisSigne ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                          {uploadingDevisSigne ? "Envoi..." : "Envoyer le devis signé"}
+                        </button>
+                      </>
+                    )}
+                    <p className="text-[11px] text-emerald-700">
+                      Devis {activeDevisForManualUpload.reference} • PDF/JPG/PNG • 10MB max
+                    </p>
+                  </div>
+                )}
                 {canGenerateFacture && (
                   <>
                     {hasAnnuledFacture && (
@@ -1939,7 +1899,7 @@ export default function CollabDetailPage() {
                       </p>
                     )}
                     <Link href={`/collaborations/${collab.id}/facturer`} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-semibold hover:bg-emerald-100 transition-colors">
-                      <Receipt className="w-4 h-4" /> Facturer la collaboration
+                      <Receipt className="w-4 h-4" /> {activeFacture && collab.isLongTerme ? "Créer une nouvelle facture" : "Facturer la collaboration"}
                     </Link>
                   </>
                 )}
