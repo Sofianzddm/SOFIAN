@@ -7,6 +7,7 @@ import { sendInboundNotificationEmail } from "@/lib/emails/inbound-notification"
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
 type AllowedRole = (typeof ALLOWED_ROLES)[number];
+const ALLOWED_CATEGORIES = new Set(["COLLAB_PAID", "PRESS_KIT", "EVENT_INVITE", "OTHER"]);
 
 const InboundPayloadSchema = z.object({
   talentEmail: z.string().email(),
@@ -18,8 +19,9 @@ const InboundPayloadSchema = z.object({
   subject: z.string().min(1),
   bodyExcerpt: z.string().max(5000),
   gmailMessageId: z.string().min(1),
+  threadId: z.string().nullable().optional(),
   receivedAt: z.string().datetime(),
-  category: z.enum(["COLLAB_PAID", "COLLAB_GIFTING", "PRESS_KIT", "EVENT_INVITE", "OTHER"]),
+  category: z.enum(["COLLAB_PAID", "PRESS_KIT", "EVENT_INVITE", "OTHER"]),
   confidence: z.number().min(0).max(1),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
   extractedBrand: z.string().nullable().optional(),
@@ -58,11 +60,27 @@ export async function POST(req: NextRequest) {
     }
     const data = parsed.data;
 
-    const existing = await prisma.inboundOpportunity.findUnique({
-      where: { gmailMessageId: data.gmailMessageId },
-      select: { id: true },
-    });
+    const threadId = data.threadId?.trim() || null;
+    const existing = threadId
+      ? await prisma.inboundOpportunity.findFirst({
+          where: { threadId },
+          orderBy: { receivedAt: "desc" },
+          select: { id: true },
+        })
+      : await prisma.inboundOpportunity.findUnique({
+          where: { gmailMessageId: data.gmailMessageId },
+          select: { id: true },
+        });
     if (existing) {
+      await prisma.inboundOpportunity.update({
+        where: { id: existing.id },
+        data: {
+          receivedAt: new Date(data.receivedAt),
+          bodyExcerpt: data.bodyExcerpt.slice(0, 3000),
+          subject: data.subject.trim(),
+          threadId,
+        },
+      });
       return NextResponse.json({ ok: true, duplicate: true, id: existing.id });
     }
 
@@ -84,6 +102,7 @@ export async function POST(req: NextRequest) {
         subject: data.subject.trim(),
         bodyExcerpt: data.bodyExcerpt.slice(0, 3000),
         gmailMessageId: data.gmailMessageId,
+        threadId,
         receivedAt: new Date(data.receivedAt),
         category: data.category,
         confidence: data.confidence,
@@ -171,7 +190,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ count });
     }
 
-    const opportunities = await prisma.inboundOpportunity.findMany({
+    const opportunitiesRaw = await prisma.inboundOpportunity.findMany({
       where,
       orderBy: [{ receivedAt: "desc" }],
       include: {
@@ -181,6 +200,10 @@ export async function GET(req: NextRequest) {
       },
       take: 200,
     });
+    const opportunities = opportunitiesRaw.map((opportunity) => ({
+      ...opportunity,
+      category: ALLOWED_CATEGORIES.has(opportunity.category) ? opportunity.category : "OTHER",
+    }));
 
     return NextResponse.json({ opportunities });
   } catch (error) {

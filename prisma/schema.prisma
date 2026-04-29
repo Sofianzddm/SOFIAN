@@ -252,7 +252,6 @@ enum ContactMissionStage {
 
 enum InboundCategory {
   COLLAB_PAID
-  COLLAB_GIFTING
   PRESS_KIT
   EVENT_INVITE
   OTHER
@@ -637,6 +636,7 @@ model InboundOpportunity {
   subject           String
   bodyExcerpt       String   @db.Text
   gmailMessageId    String   @unique
+  threadId          String?
   receivedAt        DateTime
 
   category          InboundCategory
@@ -671,6 +671,7 @@ model InboundOpportunity {
   @@index([receivedAt])
   @@index([talentId])
   @@index([senderDomain])
+  @@index([threadId])
   @@map("inbound_opportunities")
 }
 

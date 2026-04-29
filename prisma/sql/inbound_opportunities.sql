@@ -2,7 +2,6 @@
 
 CREATE TYPE "InboundCategory" AS ENUM (
   'COLLAB_PAID',
-  'COLLAB_GIFTING',
   'PRESS_KIT',
   'EVENT_INVITE',
   'OTHER'
@@ -25,6 +24,7 @@ CREATE TABLE "inbound_opportunities" (
   "subject" TEXT NOT NULL,
   "bodyExcerpt" TEXT NOT NULL,
   "gmailMessageId" TEXT NOT NULL,
+  "threadId" TEXT,
   "receivedAt" TIMESTAMP(3) NOT NULL,
   "category" "InboundCategory" NOT NULL,
   "confidence" DOUBLE PRECISION NOT NULL,
@@ -53,6 +53,7 @@ CREATE INDEX "inbound_opportunities_status_idx" ON "inbound_opportunities"("stat
 CREATE INDEX "inbound_opportunities_receivedAt_idx" ON "inbound_opportunities"("receivedAt");
 CREATE INDEX "inbound_opportunities_talentId_idx" ON "inbound_opportunities"("talentId");
 CREATE INDEX "inbound_opportunities_senderDomain_idx" ON "inbound_opportunities"("senderDomain");
+CREATE INDEX "inbound_opportunities_threadId_idx" ON "inbound_opportunities"("threadId");
 
 ALTER TABLE "inbound_opportunities"
   ADD CONSTRAINT "inbound_opportunities_talentId_fkey"
@@ -70,3 +71,9 @@ ALTER TABLE "inbound_opportunities"
 ALTER TABLE "inbound_opportunities"
   ADD COLUMN IF NOT EXISTS "draftEmailSubject" TEXT,
   ADD COLUMN IF NOT EXISTS "draftEmailBody" TEXT;
+
+ALTER TABLE "inbound_opportunities"
+  ADD COLUMN IF NOT EXISTS "threadId" TEXT;
+
+CREATE INDEX IF NOT EXISTS "inbound_opportunities_threadId_idx"
+  ON "inbound_opportunities"("threadId");
