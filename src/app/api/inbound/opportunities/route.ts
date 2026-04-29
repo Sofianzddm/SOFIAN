@@ -13,7 +13,7 @@ const InboundPayloadSchema = z.object({
   talentName: z.string().min(1),
   talentId: z.string().optional(),
   senderEmail: z.string().email(),
-  senderName: z.string().optional(),
+  senderName: z.string().nullable().optional(),
   senderDomain: z.string().min(1),
   subject: z.string().min(1),
   bodyExcerpt: z.string().max(5000),
@@ -22,12 +22,12 @@ const InboundPayloadSchema = z.object({
   category: z.enum(["COLLAB_PAID", "COLLAB_GIFTING", "PRESS_KIT", "EVENT_INVITE", "OTHER"]),
   confidence: z.number().min(0).max(1),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
-  extractedBrand: z.string().optional(),
-  extractedTopic: z.string().optional(),
-  extractedBudget: z.string().optional(),
-  extractedDeadline: z.string().optional(),
-  extractedDeliverables: z.string().optional(),
-  briefSummary: z.string().optional(),
+  extractedBrand: z.string().nullable().optional(),
+  extractedTopic: z.string().nullable().optional(),
+  extractedBudget: z.string().nullable().optional(),
+  extractedDeadline: z.string().nullable().optional(),
+  extractedDeliverables: z.string().nullable().optional(),
+  briefSummary: z.string().nullable().optional(),
 });
 
 async function requireInboundRole(req: NextRequest) {
