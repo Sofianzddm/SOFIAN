@@ -6,20 +6,50 @@ import { toast } from "sonner";
 import { EVENT_TYPE_OPTIONS } from "../constants";
 import type { CannesEvent } from "../../types";
 
+type EventFormData = Partial<
+  Pick<
+    CannesEvent,
+    | "id"
+    | "date"
+    | "startTime"
+    | "endTime"
+    | "title"
+    | "type"
+    | "location"
+    | "address"
+    | "organizer"
+    | "contactInfo"
+    | "dressCode"
+    | "invitationLink"
+    | "description"
+    | "notes"
+  >
+>;
+
 type Props = {
-  initialData?: CannesEvent | null;
+  mode?: "create" | "edit";
+  initialData?: EventFormData | null;
   defaultDate?: string;
+  defaultStartTime?: string;
   onClose: () => void;
 };
 
-export default function EventForm({ initialData, defaultDate, onClose }: Props) {
+export default function EventForm({
+  mode,
+  initialData,
+  defaultDate,
+  defaultStartTime,
+  onClose,
+}: Props) {
   const router = useRouter();
-  const isEdit = Boolean(initialData?.id);
+  const isEdit = mode ? mode === "edit" : Boolean(initialData?.id);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    date: initialData ? new Date(initialData.date).toISOString().slice(0, 10) : defaultDate || "2026-05-12",
-    startTime: initialData?.startTime || "",
+    date: initialData?.date
+      ? new Date(initialData.date).toISOString().slice(0, 10)
+      : defaultDate || "",
+    startTime: initialData?.startTime || defaultStartTime || "",
     endTime: initialData?.endTime || "",
     title: initialData?.title || "",
     type: initialData?.type || "SOIREE",
@@ -36,7 +66,7 @@ export default function EventForm({ initialData, defaultDate, onClose }: Props) 
   async function submit() {
     setLoading(true);
     try {
-      const res = await fetch(isEdit ? `/api/cannes/events/${initialData!.id}` : "/api/cannes/events", {
+      const res = await fetch(isEdit ? `/api/cannes/events/${initialData?.id}` : "/api/cannes/events", {
         method: isEdit ? "PATCH" : "POST",
         body: JSON.stringify(form),
       });

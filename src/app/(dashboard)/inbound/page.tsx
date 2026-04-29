@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Loader2, Mail, Filter } from "lucide-react";
+import { Loader2, Mail, Filter, Trash2 } from "lucide-react";
 
 type InboundStatus = "NEW" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 type InboundPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
@@ -44,6 +44,7 @@ export default function InboundPage() {
   const [statusFilter, setStatusFilter] = useState<InboundStatus | "ALL">("NEW");
   const [priorityFilter, setPriorityFilter] = useState<InboundPriority | "ALL">("ALL");
   const [talentFilter, setTalentFilter] = useState<string>("ALL");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const role = (session?.user as { role?: string } | undefined)?.role || "";
   const forbidden = status !== "loading" && !ALLOWED.includes(role);
@@ -96,6 +97,25 @@ export default function InboundPage() {
     for (const o of items) c[o.status] += 1;
     return c;
   }, [items]);
+
+  const removeOpportunity = async (id: string) => {
+    if (!window.confirm("Supprimer definitivement cette opportunite inbound ?")) return;
+    if (!window.confirm("Cette action est irreversible. Confirmer la suppression ?")) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/inbound/opportunities/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur suppression");
+      setItems((prev) => prev.filter((item) => item.id !== id));
+    } catch (e: any) {
+      window.alert(e?.message || "Erreur suppression");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   if (status === "loading" || loading) {
     return (
@@ -183,10 +203,23 @@ export default function InboundPage() {
                 </td>
                 <td className="px-4 py-3 text-slate-600">{relativeDate(o.receivedAt)}</td>
                 <td className="px-4 py-3">
-                  <Link href={`/inbound/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
-                    <Mail className="h-3.5 w-3.5" />
-                    Voir
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link href={`/inbound/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
+                      <Mail className="h-3.5 w-3.5" />
+                      Voir
+                    </Link>
+                    {o.status !== "CONVERTED" ? (
+                      <button
+                        type="button"
+                        disabled={deletingId === o.id}
+                        onClick={() => void removeOpportunity(o.id)}
+                        className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-60"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Supprimer
+                      </button>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             ))}

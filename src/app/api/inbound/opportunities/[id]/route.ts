@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
+const ALLOWED_CATEGORIES = new Set(["COLLAB_PAID", "PRESS_KIT", "EVENT_INVITE", "OTHER"]);
 
 export async function GET(
   req: NextRequest,
@@ -32,7 +33,12 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ opportunity });
+    const normalizedOpportunity = {
+      ...opportunity,
+      category: ALLOWED_CATEGORIES.has(opportunity.category) ? opportunity.category : "OTHER",
+    };
+
+    return NextResponse.json({ opportunity: normalizedOpportunity });
   } catch (error) {
     console.error("GET /api/inbound/opportunities/[id] error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -74,7 +80,12 @@ export async function PATCH(
       },
     });
 
-    return NextResponse.json({ opportunity: updated });
+    const normalizedOpportunity = {
+      ...updated,
+      category: ALLOWED_CATEGORIES.has(updated.category) ? updated.category : "OTHER",
+    };
+
+    return NextResponse.json({ opportunity: normalizedOpportunity });
   } catch (error) {
     console.error("PATCH /api/inbound/opportunities/[id] error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

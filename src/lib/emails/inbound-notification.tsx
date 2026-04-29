@@ -16,7 +16,7 @@ import { Resend } from "resend";
 const LOGO_URL = "https://app.glowupagence.fr/Logo.png";
 const APP_URL = (process.env.NEXT_PUBLIC_BASE_URL || "https://app.glowupagence.fr").replace(/\/$/, "");
 
-type InboundCategory = "COLLAB_PAID" | "COLLAB_GIFTING" | "PRESS_KIT" | "EVENT_INVITE" | "OTHER";
+type InboundCategory = "COLLAB_PAID" | "PRESS_KIT" | "EVENT_INVITE" | "OTHER";
 type InboundPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 type InboundEmailOpportunity = {
@@ -54,7 +54,6 @@ export function InboundNotificationEmail({
   const ctaUrl = `${APP_URL}/inbound/${opportunity.id}`;
   const categoryLabel: Record<InboundCategory, string> = {
     COLLAB_PAID: "Collab payee",
-    COLLAB_GIFTING: "Gifting",
     PRESS_KIT: "Press kit",
     EVENT_INVITE: "Event invite",
     OTHER: "Autre",
