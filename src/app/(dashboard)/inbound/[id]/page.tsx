@@ -184,11 +184,11 @@ export default function InboundDetailPage() {
 
         <aside className="xl:col-span-2 space-y-3">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="font-semibold text-slate-900">Classification IA</h2>
+            <h2 className="font-semibold text-slate-900">Classification</h2>
             <p className="mt-2 text-sm text-slate-700">Categorie: <strong>{opportunity.category}</strong></p>
             <p className="text-sm text-slate-700">Priorite: <strong>{opportunity.priority}</strong></p>
             <div className="mt-2">
-              <div className="mb-1 text-xs text-slate-500">Confiance IA ({Math.round(opportunity.confidence * 100)}%)</div>
+              <div className="mb-1 text-xs text-slate-500">Confiance ({Math.round(opportunity.confidence * 100)}%)</div>
               <div className="h-2 rounded bg-slate-100">
                 <div className="h-2 rounded bg-[#C08B8B]" style={{ width: `${Math.round(opportunity.confidence * 100)}%` }} />
               </div>

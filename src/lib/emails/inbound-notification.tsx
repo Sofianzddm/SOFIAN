@@ -83,7 +83,7 @@ export function InboundNotificationEmail({
               <Text style={row}><strong>📝 Sujet:</strong> {opportunity.subject}</Text>
               <Text style={row}><strong>🎯 Categorie:</strong> {categoryLabel[opportunity.category]}</Text>
               <Text style={row}><strong>⚡ Priorite:</strong> {opportunity.priority}</Text>
-              <Text style={row}><strong>🤖 Confiance IA:</strong> {confidencePct}</Text>
+              <Text style={row}><strong>Confiance:</strong> {confidencePct}</Text>
             </Section>
             {opportunity.briefSummary ? <Text style={row}><strong>💼 Brief:</strong> {opportunity.briefSummary}</Text> : null}
             {opportunity.extractedBudget ? <Text style={row}><strong>💰 Budget:</strong> {opportunity.extractedBudget}</Text> : null}

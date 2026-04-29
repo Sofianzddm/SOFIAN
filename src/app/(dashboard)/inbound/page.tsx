@@ -157,7 +157,7 @@ export default function InboundPage() {
               <th className="px-4 py-3 text-left">Sujet</th>
               <th className="px-4 py-3 text-left">Categorie</th>
               <th className="px-4 py-3 text-left">Priorite</th>
-              <th className="px-4 py-3 text-left">Confiance IA</th>
+              <th className="px-4 py-3 text-left">Confiance</th>
               <th className="px-4 py-3 text-left">Date</th>
               <th className="px-4 py-3 text-left">Action</th>
             </tr>

@@ -336,6 +336,7 @@ model User {
   prospectingCampaignsCreated TalentProspectingCampaign[] @relation("TalentProspectingCampaignCreatedBy")
   inboundConverted InboundOpportunity[] @relation("InboundConvertedBy")
   inboundArchived  InboundOpportunity[] @relation("InboundArchivedBy")
+  cannesPresences  CannesPresence[] @relation("UserCannesPresences")
 
   @@map("users")
 }
@@ -432,6 +433,7 @@ model Talent {
   delegationActivites DelegationActivite[]
   participantsVilla ParticipantVilla[]
   dinnerCandidates DinnerCreatorCandidate[]
+  cannesPresences CannesPresence[] @relation("TalentCannesPresences")
   
   @@map("talents")
 }
@@ -2206,4 +2208,108 @@ model DinnerCandidateComment {
 
   @@index([candidateId, createdAt])
   @@map("dinner_candidate_comments")
+}
+
+// =============================================
+// MODULE CANNES 2026
+// =============================================
+
+enum CannesEventType {
+  SOIREE
+  DINER
+  BRUNCH
+  COCKTAIL
+  CONFERENCE
+  PROJECTION
+  SHOOTING
+  AUTRE
+}
+
+enum CannesContactCategory {
+  MARQUE
+  AGENCE
+  PRESSE
+  PRODUCTION
+  HOTEL
+  TRANSPORT
+  TALENT_EXT
+  AUTRE
+}
+
+model CannesEvent {
+  id             String          @id @default(cuid())
+  date           DateTime
+  startTime      String
+  endTime        String?
+  title          String
+  type           CannesEventType @default(SOIREE)
+  location       String
+  address        String?
+  organizer      String?
+  contactInfo    String?
+  dressCode      String?
+  invitationLink String?
+  description    String?         @db.Text
+  notes          String?         @db.Text
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  createdById    String?
+  attendees      CannesEventAttendee[]
+
+  @@index([date])
+}
+
+model CannesContact {
+  id            String                @id @default(cuid())
+  firstName     String
+  lastName      String
+  company       String?
+  role          String?
+  phone         String?
+  email         String?
+  instagram     String?
+  hotel         String?
+  arrivalDate   DateTime?
+  departureDate DateTime?
+  category      CannesContactCategory @default(AUTRE)
+  notes         String?               @db.Text
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([category])
+}
+
+model CannesPresence {
+  id              String   @id @default(cuid())
+  userId          String?
+  talentId        String?
+  arrivalDate     DateTime
+  departureDate   DateTime
+  hotel           String?
+  hotelAddress    String?
+  flightArrival   String?
+  flightDeparture String?
+  roomNumber      String?
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User?    @relation("UserCannesPresences", fields: [userId], references: [id], onDelete: Cascade)
+  talent          Talent?  @relation("TalentCannesPresences", fields: [talentId], references: [id], onDelete: Cascade)
+  attendances     CannesEventAttendee[]
+
+  @@index([userId])
+  @@index([talentId])
+}
+
+model CannesEventAttendee {
+  id         String         @id @default(cuid())
+  eventId    String
+  presenceId String
+  createdAt  DateTime       @default(now())
+  event      CannesEvent    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  presence   CannesPresence @relation(fields: [presenceId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, presenceId])
+  @@index([eventId])
+  @@index([presenceId])
 }
