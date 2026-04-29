@@ -22,6 +22,7 @@ export default function EventDetailModal({ event, presences, isAdmin, onClose }:
   const [presenceId, setPresenceId] = useState("");
 
   const currentEvent = event;
+  const currentEventId = currentEvent?.id;
   const badge = currentEvent ? TYPE_COLORS[currentEvent.type] || TYPE_COLORS.AUTRE : TYPE_COLORS.AUTRE;
 
   useEffect(() => {
@@ -43,12 +44,12 @@ export default function EventDetailModal({ event, presences, isAdmin, onClose }:
   if (!currentEvent) return null;
 
   async function addAttendee() {
-    if (!presenceId) return;
+    if (!presenceId || !currentEventId) return;
     try {
       const selected = presences.find((p) => p.id === presenceId);
       if (!selected) return;
       setLocalAttendees((prev) => [...prev, { id: `tmp-${presenceId}`, presenceId, presence: selected }]);
-      const res = await fetch(`/api/cannes/events/${currentEvent.id}/attendees`, {
+      const res = await fetch(`/api/cannes/events/${currentEventId}/attendees`, {
         method: "POST",
         body: JSON.stringify({ presenceId }),
       });
@@ -63,10 +64,11 @@ export default function EventDetailModal({ event, presences, isAdmin, onClose }:
   }
 
   async function removeAttendee(id: string) {
+    if (!currentEventId) return;
     const backup = localAttendees;
     try {
       setLocalAttendees((prev) => prev.filter((a) => a.presenceId !== id));
-      const res = await fetch(`/api/cannes/events/${currentEvent.id}/attendees?presenceId=${id}`, {
+      const res = await fetch(`/api/cannes/events/${currentEventId}/attendees?presenceId=${id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error();
@@ -79,10 +81,11 @@ export default function EventDetailModal({ event, presences, isAdmin, onClose }:
   }
 
   async function deleteEvent() {
+    if (!currentEventId) return;
     const ok = window.confirm("Supprimer cet evenement ? Cette action est irreversible.");
     if (!ok) return;
     try {
-      const res = await fetch(`/api/cannes/events/${currentEvent.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/cannes/events/${currentEventId}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       toast.success("Evenement supprime");
       onClose();

@@ -43,7 +43,7 @@ export default function CannesClient({
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-[#C08B8B]">Festival de Cannes</p>
                 <h1 className="mt-1 font-[Spectral] text-4xl font-light text-[#1A1110]">Edition 2026</h1>
-                <p className="mt-2 text-sm text-[#1A1110]/60">12 -> 23 mai 2026 · Espace partage Glow Up</p>
+                <p className="mt-2 text-sm text-[#1A1110]/60">12 -&gt; 23 mai 2026 · Espace partage Glow Up</p>
               </div>
               {isAdmin && (
                 <span className="rounded-full bg-[#C8F285] px-3 py-1 text-xs font-medium text-[#1A1110]">

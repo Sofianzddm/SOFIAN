@@ -26,13 +26,8 @@ import {
   Briefcase,
   Mail,
   BadgeDollarSign,
-  Sparkles,
 } from "lucide-react";
 import { useState, useEffect } from "react";
-
-const CANNES_LAUNCH_DATE = new Date("2026-04-29");
-const SHOW_NEW_BADGE =
-  Date.now() - CANNES_LAUNCH_DATE.getTime() < 14 * 24 * 60 * 60 * 1000;
 
 // Définition des accès par rôle
 const menuItems = [
@@ -110,13 +105,6 @@ const menuItems = [
     href: "/collaborations",
     icon: Handshake,
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "TALENT"],
-  },
-  {
-    label: "Cannes 2026",
-    href: "/cannes-2026",
-    icon: Sparkles,
-    badge: SHOW_NEW_BADGE ? "NEW" : undefined,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM", "TALENT", "CASTING_MANAGER", "STRATEGY_PLANNER"],
   },
   {
     label: "Négociations",
@@ -502,11 +490,6 @@ export function Sidebar() {
                   )}
                   {item.href === "/mon-absence" && hasMissingDelegations && (
                     <span className="inline-flex h-2 w-2 rounded-full bg-orange-400" />
-                  )}
-                  {item.href === "/cannes-2026" && (item as { badge?: string }).badge && (
-                    <span className="ml-auto rounded-full bg-[#C8F285] px-2 py-0.5 text-[10px] font-bold text-[#1A1110]">
-                      {(item as { badge?: string }).badge}
-                    </span>
                   )}
                 </span>
               )}
