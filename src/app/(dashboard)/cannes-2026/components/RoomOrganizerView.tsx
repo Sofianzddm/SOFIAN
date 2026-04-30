@@ -28,9 +28,89 @@ function formatShortDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 }
 
+function getDayKeysInRange(startDate: string, endDate: string) {
+  const start = toDateOnly(startDate);
+  const end = toDateOnly(endDate);
+  return CANNES_2026_DAYS.map((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()))
+    .filter((d) => d >= start && d <= end)
+    .map((d) => d.toISOString().slice(0, 10));
+}
+
+function computeSmartAssignments(
+  rows: CannesPresence[],
+  baseAssignments: Record<string, string>
+) {
+  const occupancy: Record<string, Record<string, number>> = {};
+  const byPriority = [...rows].sort((a, b) => {
+    const delta = toDateOnly(a.arrivalDate).getTime() - toDateOnly(b.arrivalDate).getTime();
+    if (delta !== 0) return delta;
+    return toDateOnly(b.departureDate).getTime() - toDateOnly(a.departureDate).getTime();
+  });
+  const result: Record<string, string> = {};
+
+  const ensureDay = (dayKey: string) => {
+    if (!occupancy[dayKey]) {
+      occupancy[dayKey] = Object.fromEntries(ROOM_CONFIG.map((r) => [r.id, 0]));
+    }
+  };
+
+  for (const presence of byPriority) {
+    const dayKeys = getDayKeysInRange(presence.arrivalDate, presence.departureDate);
+    const currentRoom = baseAssignments[presence.id] || presence.roomNumber || "";
+
+    const feasibleRooms = ROOM_CONFIG.filter((room) =>
+      dayKeys.every((dayKey) => {
+        ensureDay(dayKey);
+        return occupancy[dayKey][room.id] + 1 <= room.capacity;
+      })
+    );
+
+    let chosenRoomId = "";
+
+    if (feasibleRooms.length > 0) {
+      const scored = feasibleRooms.map((room) => {
+        const continuityBonus = currentRoom === room.id ? 30 : 0;
+        const roomTypePenalty = room.capacity > 1 ? 4 : 0;
+        const loadScore = dayKeys.reduce((acc, dayKey) => {
+          ensureDay(dayKey);
+          return acc + (room.capacity - occupancy[dayKey][room.id]);
+        }, 0);
+        return {
+          roomId: room.id,
+          score: continuityBonus + loadScore - roomTypePenalty,
+        };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      chosenRoomId = scored[0]?.roomId || "";
+    } else {
+      // Fallback: minimiser la surcharge quand toutes les options sont pleines.
+      const withOverflow = ROOM_CONFIG.map((room) => {
+        const overflowCost = dayKeys.reduce((acc, dayKey) => {
+          ensureDay(dayKey);
+          const next = occupancy[dayKey][room.id] + 1;
+          return acc + Math.max(0, next - room.capacity);
+        }, 0);
+        return { roomId: room.id, overflowCost };
+      }).sort((a, b) => a.overflowCost - b.overflowCost);
+      chosenRoomId = withOverflow[0]?.roomId || "";
+    }
+
+    result[presence.id] = chosenRoomId;
+    if (chosenRoomId) {
+      for (const dayKey of dayKeys) {
+        ensureDay(dayKey);
+        occupancy[dayKey][chosenRoomId] += 1;
+      }
+    }
+  }
+
+  return result;
+}
+
 export default function RoomOrganizerView({ presences, isAdmin }: Props) {
   const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [savingAll, setSavingAll] = useState(false);
   const [draggedPresenceId, setDraggedPresenceId] = useState<string | null>(null);
   const [dropTargetRoom, setDropTargetRoom] = useState<string | null>(null);
   const [draftRooms, setDraftRooms] = useState<Record<string, string>>(() =>
@@ -114,6 +194,44 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     setDropTargetRoom(null);
   }
 
+  function applySmartSuggestion() {
+    const suggested = computeSmartAssignments(talentRows, draftRooms);
+    setDraftRooms((prev) => ({ ...prev, ...suggested }));
+    toast.success("Suggestion intelligente appliquee");
+  }
+
+  async function saveAllAssignments() {
+    if (!isAdmin) return;
+    const changed = talentRows.filter((p) => {
+      const nextRoom = draftRooms[p.id] || "";
+      const currentRoom = p.roomNumber || "";
+      return nextRoom !== currentRoom;
+    });
+    if (changed.length === 0) {
+      toast.message("Aucun changement a enregistrer");
+      return;
+    }
+
+    setSavingAll(true);
+    try {
+      await Promise.all(
+        changed.map(async (p) => {
+          const res = await fetch(`/api/cannes/presences/${p.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ roomNumber: draftRooms[p.id] || null }),
+          });
+          if (!res.ok) throw new Error(`Echec sur ${p.id}`);
+        })
+      );
+      toast.success(`${changed.length} affectation(s) enregistree(s)`);
+      router.refresh();
+    } catch {
+      toast.error("Erreur pendant l'enregistrement en masse");
+    } finally {
+      setSavingAll(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
@@ -134,6 +252,23 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
               : "Aucune surcharge detectee"}
           </span>
         </div>
+        {isAdmin && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={applySmartSuggestion}
+              className="rounded border border-[#1A1110] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]"
+            >
+              Suggestion intelligente (2 semaines)
+            </button>
+            <button
+              onClick={() => void saveAllAssignments()}
+              disabled={savingAll}
+              className="rounded bg-[#1A1110] px-3 py-2 text-sm text-[#F5EBE0] hover:bg-[#C08B8B] disabled:opacity-50"
+            >
+              {savingAll ? "Enregistrement..." : "Enregistrer toutes les affectations"}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
