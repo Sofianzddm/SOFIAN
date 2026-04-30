@@ -54,7 +54,7 @@ export default function InboundPage() {
       try {
         setLoading(true);
         const params = new URLSearchParams();
-        if (statusFilter !== "ALL") params.set("status", statusFilter);
+        params.set("status", statusFilter);
         const res = await fetch(`/api/inbound/opportunities?${params.toString()}`, {
           cache: "no-store",
           credentials: "include",
