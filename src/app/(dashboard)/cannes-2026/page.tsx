@@ -19,7 +19,16 @@ export default async function Page() {
             presence: {
               include: {
                 user: { select: { id: true, prenom: true, nom: true, role: true } },
-                talent: { select: { id: true, prenom: true, nom: true, photo: true } },
+                talent: {
+                  select: {
+                    id: true,
+                    prenom: true,
+                    nom: true,
+                    photo: true,
+                    instagram: true,
+                    tiktok: true,
+                  },
+                },
               },
             },
           },
@@ -31,7 +40,16 @@ export default async function Page() {
       orderBy: [{ arrivalDate: "asc" }],
       include: {
         user: { select: { id: true, prenom: true, nom: true, role: true } },
-        talent: { select: { id: true, prenom: true, nom: true, photo: true } },
+        talent: {
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            photo: true,
+            instagram: true,
+            tiktok: true,
+          },
+        },
       },
     }),
   ]);

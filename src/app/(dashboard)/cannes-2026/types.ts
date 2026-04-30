@@ -11,7 +11,14 @@ export type CannesPresence = {
   roomNumber: string | null;
   notes: string | null;
   user: { id: string; prenom: string; nom: string; role?: string } | null;
-  talent: { id: string; prenom: string; nom: string; photo: string | null } | null;
+  talent: {
+    id: string;
+    prenom: string;
+    nom: string;
+    photo: string | null;
+    instagram: string | null;
+    tiktok: string | null;
+  } | null;
 };
 
 export type CannesEventAttendee = {

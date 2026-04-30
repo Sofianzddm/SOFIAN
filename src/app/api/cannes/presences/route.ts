@@ -10,7 +10,16 @@ export async function GET() {
     orderBy: [{ arrivalDate: "asc" }],
     include: {
       user: { select: { id: true, prenom: true, nom: true, role: true } },
-      talent: { select: { id: true, prenom: true, nom: true, photo: true } },
+      talent: {
+        select: {
+          id: true,
+          prenom: true,
+          nom: true,
+          photo: true,
+          instagram: true,
+          tiktok: true,
+        },
+      },
     },
   });
 

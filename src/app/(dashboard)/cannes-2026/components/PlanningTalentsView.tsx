@@ -13,18 +13,81 @@ export default function PlanningTalentsView({ presences, isAdmin }: Props) {
 
   const rows = useMemo(() => presences.filter((p) => p.talent), [presences]);
 
+  function toSocialUrl(value: string | null | undefined, platform: "instagram" | "tiktok") {
+    if (!value) return "";
+    const raw = value.trim();
+    if (!raw) return "";
+    if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+    const username = raw.replace(/^@/, "");
+    if (!username) return "";
+    return platform === "instagram"
+      ? `https://instagram.com/${username}`
+      : `https://www.tiktok.com/@${username}`;
+  }
+
+  function escapeCsvCell(value: string) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+
+  function exportTalentsCsv() {
+    const headers = [
+      "Prenom",
+      "Nom",
+      "Date arrivee",
+      "Date depart",
+      "Hotel",
+      "Instagram",
+      "TikTok",
+    ];
+
+    const lines = rows.map((presence) => {
+      const instagramUrl = toSocialUrl(presence.talent?.instagram, "instagram");
+      const tiktokUrl = toSocialUrl(presence.talent?.tiktok, "tiktok");
+      return [
+        presence.talent?.prenom || "",
+        presence.talent?.nom || "",
+        new Date(presence.arrivalDate).toLocaleDateString("fr-FR"),
+        new Date(presence.departureDate).toLocaleDateString("fr-FR"),
+        presence.hotel || "",
+        instagramUrl,
+        tiktokUrl,
+      ]
+        .map((value) => escapeCsvCell(value))
+        .join(";");
+    });
+
+    const csvContent = `\uFEFF${headers.map((value) => escapeCsvCell(value)).join(";")}\n${lines.join("\n")}`;
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "cannes-2026-presence-talents.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
         <p className="font-medium text-[#1A1110]">{rows.length} talents sur place</p>
-        {isAdmin && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setCreatingPresence(true)}
-            className="rounded bg-[#1A1110] px-3 py-2 text-sm text-[#F5EBE0] hover:bg-[#C08B8B]"
+            onClick={exportTalentsCsv}
+            className="rounded border border-[#E5E0D8] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]"
           >
-            + Ajouter une presence
+            Exporter CSV
           </button>
-        )}
+          {isAdmin && (
+            <button
+              onClick={() => setCreatingPresence(true)}
+              className="rounded bg-[#1A1110] px-3 py-2 text-sm text-[#F5EBE0] hover:bg-[#C08B8B]"
+            >
+              + Ajouter une presence
+            </button>
+          )}
+        </div>
       </div>
       <div className="space-y-2">
         {rows.map((p) => (
