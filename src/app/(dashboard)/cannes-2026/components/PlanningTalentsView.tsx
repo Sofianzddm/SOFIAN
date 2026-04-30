@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CANNES_2026_DAYS } from "@/lib/cannes/dates";
+import { toast } from "sonner";
 import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
 import type { CannesPresence } from "../types";
@@ -13,59 +14,26 @@ export default function PlanningTalentsView({ presences, isAdmin }: Props) {
 
   const rows = useMemo(() => presences.filter((p) => p.talent), [presences]);
 
-  function toSocialUrl(value: string | null | undefined, platform: "instagram" | "tiktok") {
-    if (!value) return "";
-    const raw = value.trim();
-    if (!raw) return "";
-    if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
-    const username = raw.replace(/^@/, "");
-    if (!username) return "";
-    return platform === "instagram"
-      ? `https://instagram.com/${username}`
-      : `https://www.tiktok.com/@${username}`;
-  }
-
-  function escapeCsvCell(value: string) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-
-  function exportTalentsCsv() {
-    const headers = [
-      "Prenom",
-      "Nom",
-      "Date arrivee",
-      "Date depart",
-      "Hotel",
-      "Instagram",
-      "TikTok",
-    ];
-
-    const lines = rows.map((presence) => {
-      const instagramUrl = toSocialUrl(presence.talent?.instagram, "instagram");
-      const tiktokUrl = toSocialUrl(presence.talent?.tiktok, "tiktok");
-      return [
-        presence.talent?.prenom || "",
-        presence.talent?.nom || "",
-        new Date(presence.arrivalDate).toLocaleDateString("fr-FR"),
-        new Date(presence.departureDate).toLocaleDateString("fr-FR"),
-        presence.hotel || "",
-        instagramUrl,
-        tiktokUrl,
-      ]
-        .map((value) => escapeCsvCell(value))
-        .join(";");
-    });
-
-    const csvContent = `\uFEFF${headers.map((value) => escapeCsvCell(value)).join(";")}\n${lines.join("\n")}`;
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "cannes-2026-presence-talents.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  async function exportTalentsExcel() {
+    try {
+      const res = await fetch("/api/cannes/presences/export", {
+        method: "GET",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "cannes-2026-presences-talents.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success("Export Excel telecharge");
+    } catch {
+      toast.error("Erreur lors de l'export Excel");
+    }
   }
 
   return (
@@ -74,10 +42,10 @@ export default function PlanningTalentsView({ presences, isAdmin }: Props) {
         <p className="font-medium text-[#1A1110]">{rows.length} talents sur place</p>
         <div className="flex items-center gap-2">
           <button
-            onClick={exportTalentsCsv}
+            onClick={() => void exportTalentsExcel()}
             className="rounded border border-[#E5E0D8] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]"
           >
-            Exporter CSV
+            Exporter Excel
           </button>
           {isAdmin && (
             <button
