@@ -6,9 +6,10 @@ import AgendaView from "./components/AgendaView";
 import ContactsView from "./components/ContactsView";
 import PlanningTeamView from "./components/PlanningTeamView";
 import PlanningTalentsView from "./components/PlanningTalentsView";
+import RoomOrganizerView from "./components/RoomOrganizerView";
 import type { CannesContact, CannesEvent, CannesPresence } from "./types";
 
-type Tab = "agenda" | "contacts" | "team" | "talents";
+type Tab = "agenda" | "contacts" | "team" | "talents" | "rooms";
 
 type Props = {
   isAdmin: boolean;
@@ -58,6 +59,7 @@ export default function CannesClient({
                 ["contacts", "Contacts sur place"],
                 ["team", "Planning equipe"],
                 ["talents", "Planning talents"],
+                ["rooms", "Organisateur chambres"],
               ].map(([key, label]) => (
                 <button
                   key={key}
@@ -81,6 +83,7 @@ export default function CannesClient({
           {tab === "contacts" && <ContactsView contacts={initialContacts} isAdmin={isAdmin} />}
           {tab === "team" && <PlanningTeamView presences={teamPresences} isAdmin={isAdmin} />}
           {tab === "talents" && <PlanningTalentsView presences={talentPresences} isAdmin={isAdmin} />}
+          {tab === "rooms" && <RoomOrganizerView presences={talentPresences} isAdmin={isAdmin} />}
         </main>
       </div>
     </>
