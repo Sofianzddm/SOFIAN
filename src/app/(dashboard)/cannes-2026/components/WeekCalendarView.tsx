@@ -271,7 +271,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
 
   const syntheticEventsByDay = useMemo(() => {
     const map = new Map<string, CalendarRenderableEvent[]>();
-    const weekDaySet = new Set(week.days.map((d) => d.date));
+    const weekDaySet: Set<string> = new Set(week.days.map((d) => d.date));
 
     const makeSyntheticEvent = (
       dayDate: string,
