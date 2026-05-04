@@ -1,3 +1,11 @@
+export type CannesTeamUnavailability = {
+  id: string;
+  presenceId: string;
+  startDate: string;
+  endDate: string;
+  label: string | null;
+};
+
 export type CannesPresence = {
   id: string;
   userId: string | null;
@@ -10,6 +18,7 @@ export type CannesPresence = {
   flightDeparture: string | null;
   roomNumber: string | null;
   notes: string | null;
+  teamUnavailabilities?: CannesTeamUnavailability[];
   user: { id: string; prenom: string; nom: string; role?: string } | null;
   talent: {
     id: string;

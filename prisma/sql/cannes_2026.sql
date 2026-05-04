@@ -82,3 +82,16 @@ CREATE TABLE IF NOT EXISTS "CannesEventAttendee" (
 CREATE UNIQUE INDEX IF NOT EXISTS "CannesEventAttendee_eventId_presenceId_key" ON "CannesEventAttendee"("eventId","presenceId");
 CREATE INDEX IF NOT EXISTS "CannesEventAttendee_eventId_idx" ON "CannesEventAttendee"("eventId");
 CREATE INDEX IF NOT EXISTS "CannesEventAttendee_presenceId_idx" ON "CannesEventAttendee"("presenceId");
+
+-- Indisponibilités planning équipe (liées à une présence collaborateur)
+CREATE TABLE IF NOT EXISTS "CannesTeamUnavailability" (
+  "id" TEXT PRIMARY KEY,
+  "presenceId" TEXT NOT NULL,
+  "startDate" TIMESTAMP(3) NOT NULL,
+  "endDate" TIMESTAMP(3) NOT NULL,
+  "label" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "CannesTeamUnavailability_presenceId_fkey" FOREIGN KEY ("presenceId") REFERENCES "CannesPresence"("id") ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "CannesTeamUnavailability_presenceId_idx" ON "CannesTeamUnavailability"("presenceId");

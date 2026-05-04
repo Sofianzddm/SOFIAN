@@ -2286,25 +2286,39 @@ model CannesContact {
 }
 
 model CannesPresence {
-  id              String   @id @default(cuid())
-  userId          String?
-  talentId        String?
-  arrivalDate     DateTime
-  departureDate   DateTime
-  hotel           String?
-  hotelAddress    String?
-  flightArrival   String?
-  flightDeparture String?
-  roomNumber      String?
-  notes           String?  @db.Text
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  user            User?    @relation("UserCannesPresences", fields: [userId], references: [id], onDelete: Cascade)
-  talent          Talent?  @relation("TalentCannesPresences", fields: [talentId], references: [id], onDelete: Cascade)
-  attendances     CannesEventAttendee[]
+  id                   String                     @id @default(cuid())
+  userId               String?
+  talentId             String?
+  arrivalDate          DateTime
+  departureDate        DateTime
+  hotel                String?
+  hotelAddress         String?
+  flightArrival        String?
+  flightDeparture      String?
+  roomNumber           String?
+  notes                String?                    @db.Text
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  user                 User?                      @relation("UserCannesPresences", fields: [userId], references: [id], onDelete: Cascade)
+  talent               Talent?                    @relation("TalentCannesPresences", fields: [talentId], references: [id], onDelete: Cascade)
+  attendances          CannesEventAttendee[]
+  teamUnavailabilities CannesTeamUnavailability[]
 
   @@index([userId])
   @@index([talentId])
+}
+
+model CannesTeamUnavailability {
+  id         String         @id @default(cuid())
+  presenceId String
+  startDate  DateTime
+  endDate    DateTime
+  label      String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  presence   CannesPresence @relation(fields: [presenceId], references: [id], onDelete: Cascade)
+
+  @@index([presenceId])
 }
 
 model CannesEventAttendee {

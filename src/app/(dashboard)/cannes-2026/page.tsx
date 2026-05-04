@@ -50,6 +50,7 @@ export default async function Page() {
             tiktok: true,
           },
         },
+        teamUnavailabilities: { orderBy: { startDate: "asc" } },
       },
     }),
   ]);

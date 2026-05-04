@@ -20,3 +20,11 @@ export function isDateInRange(date: Date, start: Date, end: Date) {
   const t = date.getTime();
   return t >= start.getTime() && t <= end.getTime();
 }
+
+/** Jour calendaire UTC (comparaison par clé YYYY-MM-DD). */
+export function isUtcDayInIsoRange(day: Date, rangeStartIso: string, rangeEndIso: string) {
+  const k = day.toISOString().slice(0, 10);
+  const s = new Date(rangeStartIso).toISOString().slice(0, 10);
+  const e = new Date(rangeEndIso).toISOString().slice(0, 10);
+  return k >= s && k <= e;
+}

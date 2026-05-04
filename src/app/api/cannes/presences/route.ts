@@ -20,6 +20,7 @@ export async function GET() {
           tiktok: true,
         },
       },
+      teamUnavailabilities: { orderBy: { startDate: "asc" } },
     },
   });
 
