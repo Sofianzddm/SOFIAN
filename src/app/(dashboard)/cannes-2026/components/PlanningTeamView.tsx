@@ -597,14 +597,26 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
     };
   }, [officialWeekDays, officialHiddenByDay, rows, talentPresences]);
 
-  const presenceDaysLegend = useMemo(() => {
+  const officialSelectedDaysByPerson = useMemo(() => {
+    if (officialWeekDays.length === 0) return [];
     return rows
       .map((p) => {
-        const days = CANNES_2026_DAYS.filter((d) => cellState(p, d).onPresenceWindow).length;
-        return { id: p.id, label: personLabel(p), days };
+        const selectedDays = officialWeekDays.filter((d) => {
+          const dayKey = utcDayKey(d);
+          const st = cellState(p, d);
+          return st.disponible && !officialHiddenByDay[`${p.id}:${dayKey}`];
+        }).length;
+        const onSiteDays = officialWeekDays.filter((d) => cellState(p, d).onPresenceWindow).length;
+        return {
+          id: p.id,
+          label: personLabel(p),
+          selectedDays,
+          onSiteDays,
+        };
       })
-      .sort((a, b) => b.days - a.days || a.label.localeCompare(b.label, "fr"));
-  }, [rows]);
+      .filter((item) => item.onSiteDays > 0)
+      .sort((a, b) => b.selectedDays - a.selectedDays || a.label.localeCompare(b.label, "fr"));
+  }, [officialHiddenByDay, officialWeekDays, rows]);
 
   const addSingleDay = useCallback(async (presence: CannesPresence, day: Date) => {
     const dayKey = utcDayKey(day);
@@ -1034,16 +1046,16 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
       </p>
       <div className="mt-3 rounded-lg border border-[#E5E0D8] bg-[#FCFAF8] p-3">
         <p className="mb-2 text-xs font-semibold text-[#1A1110]/75">
-          Légende · Jours de présence par collaborateur
+          Semaine officielle · Jours retenus par collaborateur (selon tes choix)
         </p>
         <div className="flex flex-wrap gap-1.5">
-          {presenceDaysLegend.map((item) => (
+          {officialSelectedDaysByPerson.map((item) => (
             <span
               key={item.id}
               className="inline-flex items-center gap-1 rounded-full border border-[#E5E0D8] bg-white px-2 py-1 text-[11px] text-[#1A1110]/80"
             >
               <span className="font-medium">{item.label}</span>
-              <span className="text-[#1A1110]/55">· {item.days} j</span>
+              <span className="text-[#1A1110]/55">· {item.selectedDays}/{item.onSiteDays} j</span>
             </span>
           ))}
         </div>
