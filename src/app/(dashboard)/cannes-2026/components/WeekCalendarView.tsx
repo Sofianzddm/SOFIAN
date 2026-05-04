@@ -51,6 +51,22 @@ type DayPresenceHighlights = {
   talentDepartureHours: string[];
   teamArrivalHours: string[];
   teamDepartureHours: string[];
+  talentArrivalNames: string[];
+  talentDepartureNames: string[];
+  teamArrivalNames: string[];
+  teamDepartureNames: string[];
+  externalPresenceNames: string[];
+};
+
+type PresenceCalendarKind =
+  | "talent-arrival"
+  | "talent-departure"
+  | "team-arrival"
+  | "team-departure"
+  | "external-presence";
+
+type CalendarRenderableEvent = CannesEvent & {
+  syntheticKind?: PresenceCalendarKind;
 };
 
 function normalizeHour(raw: string): string | null {
@@ -84,6 +100,32 @@ function summarizeHours(hours: string[]): string {
   const uniq = [...new Set(hours)].sort();
   if (uniq.length <= 2) return uniq.join(", ");
   return `${uniq.slice(0, 2).join(", ")} +${uniq.length - 2}`;
+}
+
+function summarizeNames(names: string[]): string {
+  const uniq = [...new Set(names.filter(Boolean))];
+  if (uniq.length === 0) return "Noms non renseignes";
+  if (uniq.length <= 3) return uniq.join(", ");
+  return `${uniq.slice(0, 3).join(", ")} +${uniq.length - 3}`;
+}
+
+function presenceLabel(presence: CannesPresence): string {
+  if (presence.talent) return `${presence.talent.prenom ?? ""} ${presence.talent.nom ?? ""}`.trim() || "Talent";
+  if (presence.user) return `${presence.user.prenom ?? ""} ${presence.user.nom ?? ""}`.trim() || "Collaborateur";
+  return "Profil";
+}
+
+function plusOneHour(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = Math.min(23 * 60 + 59, h * 60 + m + 60);
+  const hh = Math.floor(total / 60);
+  const mm = total % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function earliestHour(hours: string[], fallback: string): string {
+  if (hours.length === 0) return fallback;
+  return [...hours].sort()[0] || fallback;
 }
 
 export default function WeekCalendarView({ events, presences, isAdmin }: Props) {
@@ -153,6 +195,11 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
         talentDepartureHours: [],
         teamArrivalHours: [],
         teamDepartureHours: [],
+        talentArrivalNames: [],
+        talentDepartureNames: [],
+        teamArrivalNames: [],
+        teamDepartureNames: [],
+        externalPresenceNames: [],
       });
     }
 
@@ -162,6 +209,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
       const isTalent = !!presence.talentId;
       const isTeam = !!presence.userId && !presence.talentId;
       const isExternal = isExternalTeamPresence(presence);
+      const displayName = presenceLabel(presence);
       const arrivalHour = extractHourFromFlightText(presence.flightArrival) ?? extractHourFromIso(presence.arrivalDate);
       const departureHour =
         extractHourFromFlightText(presence.flightDeparture) ?? extractHourFromIso(presence.departureDate);
@@ -171,10 +219,12 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
         if (isTalent) {
           arrivalEntry.talentArrivals += 1;
           if (arrivalHour) arrivalEntry.talentArrivalHours.push(arrivalHour);
+          arrivalEntry.talentArrivalNames.push(displayName);
         }
         if (isTeam) {
           arrivalEntry.teamArrivals += 1;
           if (arrivalHour) arrivalEntry.teamArrivalHours.push(arrivalHour);
+          arrivalEntry.teamArrivalNames.push(displayName);
         }
       }
 
@@ -183,10 +233,12 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
         if (isTalent) {
           departureEntry.talentDepartures += 1;
           if (departureHour) departureEntry.talentDepartureHours.push(departureHour);
+          departureEntry.talentDepartureNames.push(displayName);
         }
         if (isTeam) {
           departureEntry.teamDepartures += 1;
           if (departureHour) departureEntry.teamDepartureHours.push(departureHour);
+          departureEntry.teamDepartureNames.push(displayName);
         }
       }
 
@@ -197,7 +249,10 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
           const dayTs = new Date(`${day.date}T12:00:00.000Z`).getTime();
           if (dayTs >= arrivalTs && dayTs <= departureTs) {
             const entry = map.get(day.date);
-            if (entry) entry.externalPresences += 1;
+            if (entry) {
+              entry.externalPresences += 1;
+              entry.externalPresenceNames.push(displayName);
+            }
           }
         }
       }
@@ -213,6 +268,120 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
     { key: "teamDepartures", label: "Departs equipe", activeClass: "bg-[#EAF8E6] text-[#2E5B0F]" },
     { key: "externalPresences", label: "Prestats externes", activeClass: "bg-[#F1EAFE] text-[#5F3B91]" },
   ];
+
+  const syntheticEventsByDay = useMemo(() => {
+    const map = new Map<string, CalendarRenderableEvent[]>();
+
+    const makeSyntheticEvent = (
+      dayDate: string,
+      kind: PresenceCalendarKind,
+      title: string,
+      startTime: string,
+      description: string,
+      location: string
+    ): CalendarRenderableEvent => ({
+      id: `presence-${kind}-${dayDate}-${startTime}`,
+      date: `${dayDate}T00:00:00.000Z`,
+      startTime,
+      endTime: plusOneHour(startTime),
+      title,
+      type: "AUTRE",
+      location,
+      address: null,
+      organizer: null,
+      contactInfo: null,
+      dressCode: null,
+      invitationLink: null,
+      description,
+      notes: null,
+      attendees: [],
+      syntheticKind: kind,
+    });
+
+    for (const day of week.days) {
+      const highlights = dayHighlightsByKey.get(day.date);
+      if (!highlights) continue;
+
+      const dayItems: CalendarRenderableEvent[] = [];
+
+      if (filters.talentArrivals && highlights.talentArrivals > 0) {
+        const startTime = earliestHour(highlights.talentArrivalHours, "09:00");
+        dayItems.push(
+          makeSyntheticEvent(
+            day.date,
+            "talent-arrival",
+            `Arrivees talents (${highlights.talentArrivals})`,
+            startTime,
+            `Talents: ${summarizeNames(highlights.talentArrivalNames)} · Heures: ${
+              summarizeHours(highlights.talentArrivalHours) || "non renseignees"
+            }`,
+            summarizeNames(highlights.talentArrivalNames)
+          )
+        );
+      }
+      if (filters.talentDepartures && highlights.talentDepartures > 0) {
+        const startTime = earliestHour(highlights.talentDepartureHours, "18:00");
+        dayItems.push(
+          makeSyntheticEvent(
+            day.date,
+            "talent-departure",
+            `Departs talents (${highlights.talentDepartures})`,
+            startTime,
+            `Talents: ${summarizeNames(highlights.talentDepartureNames)} · Heures: ${
+              summarizeHours(highlights.talentDepartureHours) || "non renseignees"
+            }`,
+            summarizeNames(highlights.talentDepartureNames)
+          )
+        );
+      }
+      if (filters.teamArrivals && highlights.teamArrivals > 0) {
+        const startTime = earliestHour(highlights.teamArrivalHours, "10:00");
+        dayItems.push(
+          makeSyntheticEvent(
+            day.date,
+            "team-arrival",
+            `Arrivees equipe (${highlights.teamArrivals})`,
+            startTime,
+            `Equipe: ${summarizeNames(highlights.teamArrivalNames)} · Heures: ${
+              summarizeHours(highlights.teamArrivalHours) || "non renseignees"
+            }`,
+            summarizeNames(highlights.teamArrivalNames)
+          )
+        );
+      }
+      if (filters.teamDepartures && highlights.teamDepartures > 0) {
+        const startTime = earliestHour(highlights.teamDepartureHours, "17:00");
+        dayItems.push(
+          makeSyntheticEvent(
+            day.date,
+            "team-departure",
+            `Departs equipe (${highlights.teamDepartures})`,
+            startTime,
+            `Equipe: ${summarizeNames(highlights.teamDepartureNames)} · Heures: ${
+              summarizeHours(highlights.teamDepartureHours) || "non renseignees"
+            }`,
+            summarizeNames(highlights.teamDepartureNames)
+          )
+        );
+      }
+      if (filters.externalPresences && highlights.externalPresences > 0) {
+        dayItems.push(
+          makeSyntheticEvent(
+            day.date,
+            "external-presence",
+            `Prestats externes (${highlights.externalPresences})`,
+            "12:00",
+            `Prestats: ${summarizeNames(highlights.externalPresenceNames)}`,
+            summarizeNames(highlights.externalPresenceNames)
+          )
+        );
+      }
+
+      if (dayItems.length > 0) map.set(day.date, dayItems);
+    }
+
+    return map;
+  }, [dayHighlightsByKey, filters, week.days]);
 
   const handleSlotClick = (e: React.MouseEvent<HTMLDivElement>, dayDate: string, inFestival: boolean) => {
     if (!isAdmin || !inFestival) return;
@@ -394,7 +563,9 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             </div>
 
             {week.days.map((day) => {
-              const dayEvents = eventsByDay.get(day.date) ?? [];
+              const realDayEvents = eventsByDay.get(day.date) ?? [];
+              const syntheticDayEvents = syntheticEventsByDay.get(day.date) ?? [];
+              const dayEvents: CalendarRenderableEvent[] = [...realDayEvents, ...syntheticDayEvents];
               const positionedEvents = layoutEvents(dayEvents);
 
               return (
@@ -413,18 +584,31 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
 
                   {positionedEvents.map((ev) => {
                     const { top, height, overflowsNextDay } = computeEventPosition(ev.startTime, ev.endTime);
-                    const colors = TYPE_COLORS[ev.type] ?? TYPE_COLORS.AUTRE;
+                    const syntheticColors: Record<PresenceCalendarKind, { bg: string; border: string; text: string }> = {
+                      "talent-arrival": { bg: "#FDE8E8", border: "#E7A4A4", text: "#7B1A1A" },
+                      "talent-departure": { bg: "#FFEED8", border: "#E8C08D", text: "#7A4A0B" },
+                      "team-arrival": { bg: "#E8F0FE", border: "#A8BEEA", text: "#204A8A" },
+                      "team-departure": { bg: "#EAF8E6", border: "#B2D5A7", text: "#2E5B0F" },
+                      "external-presence": { bg: "#F1EAFE", border: "#C8B6E8", text: "#5F3B91" },
+                    };
+                    const colors = ev.syntheticKind
+                      ? syntheticColors[ev.syntheticKind]
+                      : (TYPE_COLORS[ev.type] ?? TYPE_COLORS.AUTRE);
                     const widthPct = 100 / ev._totalColumns;
                     const leftPct = ev._column * widthPct;
+                    const isSynthetic = !!ev.syntheticKind;
 
                     return (
                       <button
                         key={ev.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedEvent(ev);
+                          if (!isSynthetic) setSelectedEvent(ev);
                         }}
-                        className="absolute overflow-hidden rounded-md border-l-4 px-2 py-1 text-left text-[11px] shadow-sm transition hover:z-10 hover:shadow-md"
+                        title={isSynthetic ? ev.description || undefined : undefined}
+                        className={`absolute overflow-hidden rounded-md border-l-4 px-2 py-1 text-left text-[11px] shadow-sm transition hover:z-10 hover:shadow-md ${
+                          isSynthetic ? "border-dashed" : ""
+                        }`}
                         style={{
                           top,
                           height,
