@@ -774,6 +774,7 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
           <PlanningPdfExportModal
             defaults={{ team: true, talents: false, events: false }}
             buttonLabel="Exporter PDF…"
+            teamHiddenByDay={officialHiddenByDay}
           />
           {isAdmin && (
             <button

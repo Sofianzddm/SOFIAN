@@ -13,6 +13,8 @@ type Props = {
   buttonLabel?: string;
   /** Classes Tailwind pour le bouton (ex. arrondi plein sur l’agenda). */
   buttonClassName?: string;
+  /** Optionnel : masque jour/personne appliqué dans la vue officielle équipe. */
+  teamHiddenByDay?: Record<string, true>;
 };
 
 const LABELS: Record<(typeof CANNES_PDF_SECTION_KEYS)[number], string> = {
@@ -25,6 +27,7 @@ export default function PlanningPdfExportModal({
   defaults,
   buttonLabel = "Exporter PDF…",
   buttonClassName = "rounded border border-[#E5E0D8] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]",
+  teamHiddenByDay,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -47,7 +50,7 @@ export default function PlanningPdfExportModal({
     }
     setLoading(true);
     try {
-      await downloadCannesPlanningPdf(flags);
+      await downloadCannesPlanningPdf(flags, { teamHiddenByDay });
       setOpen(false);
     } finally {
       setLoading(false);

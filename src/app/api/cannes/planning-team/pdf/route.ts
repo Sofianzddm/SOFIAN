@@ -38,6 +38,20 @@ export async function GET(request: NextRequest) {
     const talentPresences = raw.filter((p) => p.talent);
 
     const sectionFlags = parseCannesPdfSectionsParam(request.nextUrl.searchParams.get("sections"));
+    let teamHiddenByDay: Record<string, true> = {};
+    const rawTeamHidden = request.nextUrl.searchParams.get("teamHidden");
+    if (rawTeamHidden) {
+      try {
+        const parsed = JSON.parse(rawTeamHidden) as string[];
+        if (Array.isArray(parsed)) {
+          for (const key of parsed) {
+            if (typeof key === "string" && key.includes(":")) teamHiddenByDay[key] = true;
+          }
+        }
+      } catch {
+        teamHiddenByDay = {};
+      }
+    }
 
     const events: CannesPlanningPdfEvent[] = eventsList.map((e) => ({
       id: e.id,
@@ -62,6 +76,7 @@ export async function GET(request: NextRequest) {
         includeTeam: sectionFlags.team,
         includeTalents: sectionFlags.talents,
         includeEvents: sectionFlags.events,
+        teamHiddenByDay,
       }) as any
     );
 

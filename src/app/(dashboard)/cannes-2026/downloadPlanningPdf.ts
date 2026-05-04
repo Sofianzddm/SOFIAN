@@ -4,13 +4,25 @@ import { toast } from "sonner";
 import type { CannesPdfSectionFlags } from "@/lib/cannes/planningPdfSections";
 import { flagsToSectionsSearchParam, filenameSlugForFlags } from "@/lib/cannes/planningPdfSections";
 
-export async function downloadCannesPlanningPdf(flags: CannesPdfSectionFlags) {
+type DownloadOptions = {
+  teamHiddenByDay?: Record<string, true>;
+};
+
+export async function downloadCannesPlanningPdf(flags: CannesPdfSectionFlags, options?: DownloadOptions) {
   try {
     const qs = flagsToSectionsSearchParam(flags);
-    const sep = qs ? "&" : "";
-    const url = qs
-      ? `/api/cannes/planning-team/pdf?${qs}${sep}ts=${Date.now()}`
-      : `/api/cannes/planning-team/pdf?ts=${Date.now()}`;
+    const params = new URLSearchParams();
+    if (qs) params.set("sections", qs);
+    params.set("ts", String(Date.now()));
+
+    if (options?.teamHiddenByDay) {
+      const hiddenKeys = Object.keys(options.teamHiddenByDay).filter((k) => options.teamHiddenByDay?.[k]);
+      if (hiddenKeys.length > 0) {
+        params.set("teamHidden", JSON.stringify(hiddenKeys));
+      }
+    }
+
+    const url = `/api/cannes/planning-team/pdf?${params.toString()}`;
     const res = await fetch(url, { credentials: "include", cache: "no-store" });
     if (!res.ok) throw new Error();
     const blob = await res.blob();

@@ -54,6 +54,7 @@ type Props = {
   includeTeam: boolean;
   includeTalents: boolean;
   includeEvents: boolean;
+  teamHiddenByDay?: Record<string, true>;
 };
 
 const styles = StyleSheet.create({
@@ -327,16 +328,26 @@ function isTeamBlocked(p: CannesPlanningPdfPresence, day: Date) {
   return unavs.some((u) => isUtcDayInIsoRange(day, u.startDate, u.endDate));
 }
 
-function teamDayStats(team: CannesPlanningPdfPresence[], day: Date) {
+function isTeamHiddenByPlanningChoice(
+  p: CannesPlanningPdfPresence,
+  day: Date,
+  teamHiddenByDay?: Record<string, true>
+) {
+  if (!teamHiddenByDay) return false;
+  return !!teamHiddenByDay[`${p.id}:${day.toISOString().slice(0, 10)}`];
+}
+
+function teamDayStats(team: CannesPlanningPdfPresence[], day: Date, teamHiddenByDay?: Record<string, true>) {
   let surPlace = 0;
   let indispo = 0;
   let dispo = 0;
   for (const p of team) {
     const on = isOnSite(p, day);
     const blocked = isTeamBlocked(p, day);
+    const hidden = isTeamHiddenByPlanningChoice(p, day, teamHiddenByDay);
     if (on) surPlace++;
     if (blocked) indispo++;
-    if (on && !blocked) dispo++;
+    if (on && !blocked && !hidden) dispo++;
   }
   return { surPlace, dispo, indispo };
 }
@@ -358,18 +369,22 @@ function timelineLine(p: CannesPlanningPdfPresence) {
   }).join(" ");
 }
 
-function isPresentForPlanning(p: CannesPlanningPdfPresence, day: Date) {
+function isPresentForPlanning(
+  p: CannesPlanningPdfPresence,
+  day: Date,
+  teamHiddenByDay?: Record<string, true>
+) {
   if (!isOnSite(p, day)) return false;
-  if (p.user) return !isTeamBlocked(p, day);
+  if (p.user) return !isTeamBlocked(p, day) && !isTeamHiddenByPlanningChoice(p, day, teamHiddenByDay);
   return true;
 }
 
-function planningPresenceStats(p: CannesPlanningPdfPresence) {
+function planningPresenceStats(p: CannesPlanningPdfPresence, teamHiddenByDay?: Record<string, true>) {
   let total = 0;
   let streak = 0;
   let maxStreak = 0;
   for (const d of CANNES_2026_DAYS) {
-    if (isPresentForPlanning(p, d)) {
+    if (isPresentForPlanning(p, d, teamHiddenByDay)) {
       total++;
       streak++;
       if (streak > maxStreak) maxStreak = streak;
@@ -403,13 +418,15 @@ function namesPresentOnDay(
   team: CannesPlanningPdfPresence[],
   talents: CannesPlanningPdfPresence[],
   includeTeam: boolean,
-  includeTalents: boolean
+  includeTalents: boolean,
+  teamHiddenByDay?: Record<string, true>
 ): string[] {
   const items: { sort: string; line: string }[] = [];
   if (includeTeam) {
     for (const p of team) {
       if (!isOnSite(p, day)) continue;
       if (isTeamBlocked(p, day)) continue;
+      if (isTeamHiddenByPlanningChoice(p, day, teamHiddenByDay)) continue;
       const name = displayName(p);
       items.push({ sort: name.toLowerCase(), line: name });
     }
@@ -459,8 +476,14 @@ function FieldLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PresenceCard({ p }: { p: CannesPlanningPdfPresence }) {
-  const stats = planningPresenceStats(p);
+function PresenceCard({
+  p,
+  teamHiddenByDay,
+}: {
+  p: CannesPlanningPdfPresence;
+  teamHiddenByDay?: Record<string, true>;
+}) {
+  const stats = planningPresenceStats(p, teamHiddenByDay);
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{displayName(p)}</Text>
@@ -538,6 +561,7 @@ export function CannesPlanningPdfDocument({
   includeTeam,
   includeTalents,
   includeEvents,
+  teamHiddenByDay,
 }: Props) {
   const gen = generatedAt.toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" });
   const teamChunks = chunkArray(teamPresences, 5);
@@ -592,11 +616,11 @@ export function CannesPlanningPdfDocument({
             </View>
             {includeTeam ? (
               <>
-                <DataRow label="Équipe sur place" values={CANNES_2026_DAYS.map((d) => teamDayStats(teamPresences, d).surPlace)} alt={false} />
-                <DataRow label="Équipe disponible" values={CANNES_2026_DAYS.map((d) => teamDayStats(teamPresences, d).dispo)} alt />
+                <DataRow label="Équipe sur place" values={CANNES_2026_DAYS.map((d) => teamDayStats(teamPresences, d, teamHiddenByDay).surPlace)} alt={false} />
+                <DataRow label="Équipe disponible" values={CANNES_2026_DAYS.map((d) => teamDayStats(teamPresences, d, teamHiddenByDay).dispo)} alt />
                 <DataRow
                   label="Absences déclarées"
-                  values={CANNES_2026_DAYS.map((d) => teamDayStats(teamPresences, d).indispo)}
+                  values={CANNES_2026_DAYS.map((d) => teamDayStats(teamPresences, d, teamHiddenByDay).indispo)}
                   alt={false}
                 />
               </>
@@ -612,7 +636,7 @@ export function CannesPlanningPdfDocument({
               <DataRow
                 label="Total sur site"
                 values={CANNES_2026_DAYS.map((d) => {
-                  const t = teamDayStats(teamPresences, d);
+                  const t = teamDayStats(teamPresences, d, teamHiddenByDay);
                   return t.surPlace + talentOnSiteCount(talentPresences, d);
                 })}
                 total
@@ -678,7 +702,8 @@ export function CannesPlanningPdfDocument({
                         teamPresences,
                         talentPresences,
                         includeTeam,
-                        includeTalents
+                        includeTalents,
+                        teamHiddenByDay
                       );
                       const fest = isFestivalUtcDay(day);
                       const wd = day.toLocaleDateString("fr-FR", { weekday: "long" });
@@ -733,7 +758,7 @@ export function CannesPlanningPdfDocument({
                 </View>
               </View>
               {chunk.map((p) => (
-                <PresenceCard key={p.id} p={p} />
+                <PresenceCard key={p.id} p={p} teamHiddenByDay={teamHiddenByDay} />
               ))}
               <PdfPageFooter />
             </Page>
