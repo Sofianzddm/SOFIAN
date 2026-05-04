@@ -597,6 +597,15 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
     };
   }, [officialWeekDays, officialHiddenByDay, rows, talentPresences]);
 
+  const presenceDaysLegend = useMemo(() => {
+    return rows
+      .map((p) => {
+        const days = CANNES_2026_DAYS.filter((d) => cellState(p, d).onPresenceWindow).length;
+        return { id: p.id, label: personLabel(p), days };
+      })
+      .sort((a, b) => b.days - a.days || a.label.localeCompare(b.label, "fr"));
+  }, [rows]);
+
   const addSingleDay = useCallback(async (presence: CannesPresence, day: Date) => {
     const dayKey = utcDayKey(day);
     const { onPresenceWindow, disponible } = cellState(presence, day);
@@ -1023,6 +1032,22 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
       <p className="mt-3 text-center text-xs text-[#1A1110]/50">
         Clic sur une carte pour ouvrir la fiche (vol, hôtel, créneaux longs).
       </p>
+      <div className="mt-3 rounded-lg border border-[#E5E0D8] bg-[#FCFAF8] p-3">
+        <p className="mb-2 text-xs font-semibold text-[#1A1110]/75">
+          Légende · Jours de présence par collaborateur
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {presenceDaysLegend.map((item) => (
+            <span
+              key={item.id}
+              className="inline-flex items-center gap-1 rounded-full border border-[#E5E0D8] bg-white px-2 py-1 text-[11px] text-[#1A1110]/80"
+            >
+              <span className="font-medium">{item.label}</span>
+              <span className="text-[#1A1110]/55">· {item.days} j</span>
+            </span>
+          ))}
+        </div>
+      </div>
 
       <div className="mt-8 border-t border-[#E5E0D8] pt-6">
         <h3 className="mb-3 text-sm font-semibold text-[#1A1110]">Kanban</h3>
