@@ -2,6 +2,7 @@ import path from "path";
 import React from "react";
 import { Document, Image, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import { CANNES_2026_DAYS, isUtcDayInIsoRange } from "@/lib/cannes/dates";
+import { eachUtcDayFromMonday, getCannesFestivalMondayWeeks } from "@/lib/cannes/festivalWeeks";
 
 const LOGO_PATH = path.join(process.cwd(), "public", "Logo.png");
 
@@ -281,6 +282,36 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 14, fontFamily: "Helvetica-Bold", color: C.ink, marginBottom: 6 },
   emptySub: { fontSize: 9, color: C.muted },
+  weekGridFrame: {
+    borderWidth: 1,
+    borderColor: C.line,
+    borderRadius: 6,
+    overflow: "hidden",
+    marginTop: 4,
+    minHeight: 300,
+  },
+  weekGridRow: { flexDirection: "row", flex: 1, minHeight: 298 },
+  weekCol: {
+    width: "14.28%",
+    borderRightWidth: 1,
+    borderRightColor: C.line,
+    paddingHorizontal: 5,
+    paddingTop: 8,
+    paddingBottom: 8,
+    minHeight: 298,
+  },
+  weekColLast: { borderRightWidth: 0 },
+  weekColFestival: { backgroundColor: "#FBF5F2" },
+  weekDayHead: {
+    fontFamily: "Helvetica-Bold",
+    fontSize: 8.5,
+    color: C.ink,
+    textTransform: "capitalize",
+    marginBottom: 2,
+  },
+  weekDateNum: { fontSize: 7.5, color: C.muted, marginBottom: 8 },
+  weekNamesBlock: { fontSize: 7, lineHeight: 1.4, color: C.ink },
+  weekNamesEmpty: { fontSize: 8, color: C.muted, marginTop: 4 },
 });
 
 function shortDay(d: Date) {
@@ -337,6 +368,45 @@ function displayName(p: CannesPlanningPdfPresence) {
   if (p.user) return `${p.user.prenom} ${p.user.nom}`;
   if (p.talent) return `${p.talent.prenom} ${p.talent.nom}`;
   return "—";
+}
+
+const FESTIVAL_DAY_KEYS = new Set(CANNES_2026_DAYS.map((d) => d.toISOString().slice(0, 10)));
+
+function isFestivalUtcDay(day: Date) {
+  return FESTIVAL_DAY_KEYS.has(day.toISOString().slice(0, 10));
+}
+
+function namesPresentOnDay(
+  day: Date,
+  team: CannesPlanningPdfPresence[],
+  talents: CannesPlanningPdfPresence[],
+  includeTeam: boolean,
+  includeTalents: boolean
+): string[] {
+  const items: { sort: string; line: string }[] = [];
+  if (includeTeam) {
+    for (const p of team) {
+      if (!isOnSite(p, day)) continue;
+      const name = displayName(p);
+      const line = isTeamBlocked(p, day) ? `${name} (indispo)` : name;
+      items.push({ sort: name.toLowerCase(), line });
+    }
+  }
+  if (includeTalents) {
+    for (const p of talents) {
+      if (!isOnSite(p, day)) continue;
+      const name = displayName(p);
+      items.push({ sort: name.toLowerCase(), line: name });
+    }
+  }
+  items.sort((a, b) => a.sort.localeCompare(b.sort, "fr"));
+  return items.map((i) => i.line);
+}
+
+function formatWeekRangeFrance(monday: Date, sunday: Date) {
+  const m = monday.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+  const s = sunday.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  return `${m} au ${s}`;
 }
 
 const COL_FIRST = "15%";
@@ -536,6 +606,87 @@ export function CannesPlanningPdfDocument({
           <PdfPageFooter landscape />
         </Page>
       ) : null}
+
+      {showSummaryTable
+        ? getCannesFestivalMondayWeeks().map((monday, wi) => {
+            const sunday = new Date(monday);
+            sunday.setUTCDate(monday.getUTCDate() + 6);
+            const days = eachUtcDayFromMonday(monday);
+            return (
+              <Page key={`week-agenda-${wi}`} size="A4" orientation="landscape" style={styles.pageLandscape}>
+                <View style={styles.accentTop} fixed />
+                <View style={styles.headerRow}>
+                  <View style={{ flex: 1, paddingRight: 16 }}>
+                    <Text style={styles.kicker}>Vue semaine</Text>
+                    <Text style={styles.titleLandscape}>
+                      {formatWeekRangeFrance(monday, sunday)}
+                    </Text>
+                    <Text style={styles.subtitle}>
+                      Colonnes lundi → dimanche · noms des personnes en présence sur place (fenêtre
+                      arrivée–départ enregistrée). Jours du festival sur fond légèrement teinté. (indispo) =
+                      présence sur place mais absence déclarée ce jour.
+                    </Text>
+                  </View>
+                  <Image src={LOGO_PATH} style={styles.logo} />
+                </View>
+                <View style={styles.sectionBar}>
+                  <View style={styles.sectionBarLine} />
+                  <View>
+                    <Text style={styles.sectionTitle}>Présences sur la semaine</Text>
+                    <Text style={styles.sectionHint}>
+                      {includeTeam && includeTalents
+                        ? "Équipe et talents mélangés, tri par ordre alphabétique"
+                        : includeTeam
+                          ? "Équipe uniquement"
+                          : "Talents uniquement"}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.weekGridFrame}>
+                  <View style={styles.weekGridRow}>
+                    {days.map((day, di) => {
+                      const names = namesPresentOnDay(
+                        day,
+                        teamPresences,
+                        talentPresences,
+                        includeTeam,
+                        includeTalents
+                      );
+                      const fest = isFestivalUtcDay(day);
+                      const wd = day.toLocaleDateString("fr-FR", { weekday: "long" });
+                      const dayTitle = wd.charAt(0).toUpperCase() + wd.slice(1);
+                      const num = day.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+                      const shown = names.slice(0, 24);
+                      const overflow = names.length - shown.length;
+                      return (
+                        <View
+                          key={day.toISOString()}
+                          style={[
+                            styles.weekCol,
+                            di === 6 ? styles.weekColLast : {},
+                            fest ? styles.weekColFestival : {},
+                          ]}
+                        >
+                          <Text style={styles.weekDayHead}>{dayTitle}</Text>
+                          <Text style={styles.weekDateNum}>{num}</Text>
+                          {names.length === 0 ? (
+                            <Text style={styles.weekNamesEmpty}>—</Text>
+                          ) : (
+                            <Text style={styles.weekNamesBlock}>
+                              {shown.join("\n")}
+                              {overflow > 0 ? `\n+ ${overflow} autre(s)` : ""}
+                            </Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+                <PdfPageFooter landscape />
+              </Page>
+            );
+          })
+        : null}
 
       {includeTeam && teamPresences.length > 0
         ? teamChunks.map((chunk, idx) => (
