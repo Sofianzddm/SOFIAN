@@ -7,8 +7,11 @@ import { flagsToSectionsSearchParam, filenameSlugForFlags } from "@/lib/cannes/p
 export async function downloadCannesPlanningPdf(flags: CannesPdfSectionFlags) {
   try {
     const qs = flagsToSectionsSearchParam(flags);
-    const url = qs ? `/api/cannes/planning-team/pdf?${qs}` : "/api/cannes/planning-team/pdf";
-    const res = await fetch(url, { credentials: "include" });
+    const sep = qs ? "&" : "";
+    const url = qs
+      ? `/api/cannes/planning-team/pdf?${qs}${sep}ts=${Date.now()}`
+      : `/api/cannes/planning-team/pdf?ts=${Date.now()}`;
+    const res = await fetch(url, { credentials: "include", cache: "no-store" });
     if (!res.ok) throw new Error();
     const blob = await res.blob();
     const blobUrl = URL.createObjectURL(blob);

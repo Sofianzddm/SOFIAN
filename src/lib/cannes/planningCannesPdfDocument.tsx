@@ -358,6 +358,28 @@ function timelineLine(p: CannesPlanningPdfPresence) {
   }).join(" ");
 }
 
+function isPresentForPlanning(p: CannesPlanningPdfPresence, day: Date) {
+  if (!isOnSite(p, day)) return false;
+  if (p.user) return !isTeamBlocked(p, day);
+  return true;
+}
+
+function planningPresenceStats(p: CannesPlanningPdfPresence) {
+  let total = 0;
+  let streak = 0;
+  let maxStreak = 0;
+  for (const d of CANNES_2026_DAYS) {
+    if (isPresentForPlanning(p, d)) {
+      total++;
+      streak++;
+      if (streak > maxStreak) maxStreak = streak;
+    } else {
+      streak = 0;
+    }
+  }
+  return { total, maxStreak };
+}
+
 function truncate(s: string | null | undefined, max: number) {
   if (!s) return "";
   const t = s.replace(/\s+/g, " ").trim();
@@ -438,6 +460,7 @@ function FieldLine({ label, value }: { label: string; value: string }) {
 }
 
 function PresenceCard({ p }: { p: CannesPlanningPdfPresence }) {
+  const stats = planningPresenceStats(p);
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{displayName(p)}</Text>
@@ -451,6 +474,11 @@ function PresenceCard({ p }: { p: CannesPlanningPdfPresence }) {
       <FieldLine label="Chambre" value={p.roomNumber || "—"} />
       <FieldLine label="Vol arrivée" value={p.flightArrival || "—"} />
       <FieldLine label="Vol départ" value={p.flightDeparture || "—"} />
+      <FieldLine
+        label="Présence festival"
+        value={`${stats.total}/${CANNES_2026_DAYS.length} jour(s)`}
+      />
+      <FieldLine label="Jours d’affilée (max)" value={`${stats.maxStreak} jour(s)`} />
       {p.notes ? <FieldLine label="Notes" value={truncate(p.notes, 480)} /> : null}
       {(p.teamUnavailabilities?.length ?? 0) > 0 ? (
         <FieldLine
