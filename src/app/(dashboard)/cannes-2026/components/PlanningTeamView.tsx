@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -30,6 +30,7 @@ type Props = { presences: CannesPresence[]; talentPresences: CannesPresence[]; i
 
 /** Données drag natif (tableau par ligne). */
 const MIME = "application/x-cannes-presence-id";
+const OFFICIAL_WEEK_STORAGE_KEY = "cannes2026:team:officialHiddenByDay:v1";
 
 const DOCK_ID = "dock" as const;
 
@@ -484,6 +485,29 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
   const festivalWeeks = useMemo(() => getCannesFestivalMondayWeeks(), []);
   const [officialWeekIndex, setOfficialWeekIndex] = useState(0);
   const [officialHiddenByDay, setOfficialHiddenByDay] = useState<Record<string, true>>({});
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(OFFICIAL_WEEK_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, true>;
+      if (!parsed || typeof parsed !== "object") return;
+      setOfficialHiddenByDay(parsed);
+    } catch {
+      // ignore parsing/localStorage errors
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        OFFICIAL_WEEK_STORAGE_KEY,
+        JSON.stringify(officialHiddenByDay)
+      );
+    } catch {
+      // ignore quota/localStorage errors
+    }
+  }, [officialHiddenByDay]);
 
   /** Tableau principal (HTML5) */
   const [draggingId, setDraggingId] = useState<string | null>(null);
