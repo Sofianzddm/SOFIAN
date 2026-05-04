@@ -33,10 +33,70 @@ type Props = {
   isAdmin: boolean;
 };
 
+type CalendarFilters = {
+  talentArrivals: boolean;
+  talentDepartures: boolean;
+  teamArrivals: boolean;
+  teamDepartures: boolean;
+  externalPresences: boolean;
+};
+
+type DayPresenceHighlights = {
+  talentArrivals: number;
+  talentDepartures: number;
+  teamArrivals: number;
+  teamDepartures: number;
+  externalPresences: number;
+  talentArrivalHours: string[];
+  talentDepartureHours: string[];
+  teamArrivalHours: string[];
+  teamDepartureHours: string[];
+};
+
+function normalizeHour(raw: string): string | null {
+  const m = raw.trim().match(/^(\d{1,2})[:hH](\d{2})$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function extractHourFromFlightText(value: string | null): string | null {
+  if (!value) return null;
+  const match = value.match(/\b([0-2]?\d[:hH][0-5]\d)\b/);
+  if (!match) return null;
+  return normalizeHour(match[1]);
+}
+
+function extractHourFromIso(value: string): string | null {
+  if (!value.includes("T")) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const hh = d.getUTCHours();
+  const mm = d.getUTCMinutes();
+  if (hh === 0 && mm === 0) return null;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function summarizeHours(hours: string[]): string {
+  if (hours.length === 0) return "";
+  const uniq = [...new Set(hours)].sort();
+  if (uniq.length <= 2) return uniq.join(", ");
+  return `${uniq.slice(0, 2).join(", ")} +${uniq.length - 2}`;
+}
+
 export default function WeekCalendarView({ events, presences, isAdmin }: Props) {
   const [weekIndex, setWeekIndex] = useState<0 | 1>(0);
   const [selectedEvent, setSelectedEvent] = useState<CannesEvent | null>(null);
   const [createSlot, setCreateSlot] = useState<{ date: string; time: string } | null>(null);
+  const [filters, setFilters] = useState<CalendarFilters>({
+    talentArrivals: true,
+    talentDepartures: true,
+    teamArrivals: true,
+    teamDepartures: true,
+    externalPresences: true,
+  });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const week = CANNES_WEEKS[weekIndex];
@@ -68,6 +128,91 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
     }
     return map;
   }, [presences, week]);
+
+  const dayHighlightsByKey = useMemo(() => {
+    const isExternalTeamPresence = (presence: CannesPresence) => {
+      if (!presence.userId || presence.talentId) return false;
+      const role = (presence.user?.role || "").toLowerCase();
+      return (
+        role.includes("prestat") ||
+        role.includes("extern") ||
+        role.includes("freelance") ||
+        role.includes("outside")
+      );
+    };
+
+    const map = new Map<string, DayPresenceHighlights>();
+    for (const day of week.days) {
+      map.set(day.date, {
+        talentArrivals: 0,
+        talentDepartures: 0,
+        teamArrivals: 0,
+        teamDepartures: 0,
+        externalPresences: 0,
+        talentArrivalHours: [],
+        talentDepartureHours: [],
+        teamArrivalHours: [],
+        teamDepartureHours: [],
+      });
+    }
+
+    for (const presence of presences) {
+      const arrivalDay = new Date(presence.arrivalDate).toISOString().slice(0, 10);
+      const departureDay = new Date(presence.departureDate).toISOString().slice(0, 10);
+      const isTalent = !!presence.talentId;
+      const isTeam = !!presence.userId && !presence.talentId;
+      const isExternal = isExternalTeamPresence(presence);
+      const arrivalHour = extractHourFromFlightText(presence.flightArrival) ?? extractHourFromIso(presence.arrivalDate);
+      const departureHour =
+        extractHourFromFlightText(presence.flightDeparture) ?? extractHourFromIso(presence.departureDate);
+
+      const arrivalEntry = map.get(arrivalDay);
+      if (arrivalEntry) {
+        if (isTalent) {
+          arrivalEntry.talentArrivals += 1;
+          if (arrivalHour) arrivalEntry.talentArrivalHours.push(arrivalHour);
+        }
+        if (isTeam) {
+          arrivalEntry.teamArrivals += 1;
+          if (arrivalHour) arrivalEntry.teamArrivalHours.push(arrivalHour);
+        }
+      }
+
+      const departureEntry = map.get(departureDay);
+      if (departureEntry) {
+        if (isTalent) {
+          departureEntry.talentDepartures += 1;
+          if (departureHour) departureEntry.talentDepartureHours.push(departureHour);
+        }
+        if (isTeam) {
+          departureEntry.teamDepartures += 1;
+          if (departureHour) departureEntry.teamDepartureHours.push(departureHour);
+        }
+      }
+
+      if (isExternal) {
+        const arrivalTs = new Date(presence.arrivalDate).getTime();
+        const departureTs = new Date(presence.departureDate).getTime();
+        for (const day of week.days) {
+          const dayTs = new Date(`${day.date}T12:00:00.000Z`).getTime();
+          if (dayTs >= arrivalTs && dayTs <= departureTs) {
+            const entry = map.get(day.date);
+            if (entry) entry.externalPresences += 1;
+          }
+        }
+      }
+    }
+
+    return map;
+  }, [presences, week]);
+
+  const filterButtons: Array<{ key: keyof CalendarFilters; label: string; activeClass: string }> = [
+    { key: "talentArrivals", label: "Arrivees talents", activeClass: "bg-[#FDE8E8] text-[#8B1E1E]" },
+    { key: "talentDepartures", label: "Departs talents", activeClass: "bg-[#FFEED8] text-[#8A4A00]" },
+    { key: "teamArrivals", label: "Arrivees equipe", activeClass: "bg-[#E8F0FE] text-[#204A8A]" },
+    { key: "teamDepartures", label: "Departs equipe", activeClass: "bg-[#EAF8E6] text-[#2E5B0F]" },
+    { key: "externalPresences", label: "Prestats externes", activeClass: "bg-[#F1EAFE] text-[#5F3B91]" },
+  ];
 
   const handleSlotClick = (e: React.MouseEvent<HTMLDivElement>, dayDate: string, inFestival: boolean) => {
     if (!isAdmin || !inFestival) return;
@@ -121,6 +266,32 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             ))}
           </div>
         </div>
+        <div className="border-b border-[#E5E0D8] px-6 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {filterButtons.map((filter) => {
+              const enabled = filters[filter.key];
+              return (
+                <button
+                  key={filter.key}
+                  type="button"
+                  onClick={() =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      [filter.key]: !prev[filter.key],
+                    }))
+                  }
+                  className={`rounded-full border px-3 py-1 text-[11px] font-medium transition ${
+                    enabled
+                      ? `border-transparent ${filter.activeClass}`
+                      : "border-[#E5E0D8] bg-white text-[#1A1110]/55 hover:text-[#1A1110]"
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="sticky top-0 z-20 grid grid-cols-[60px_repeat(7,1fr)] border-b border-[#E5E0D8] bg-white">
           <div />
@@ -130,6 +301,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             const monthShort = d.toLocaleDateString("fr-FR", { month: "short", timeZone: "UTC" });
             const evCount = eventsByDay.get(day.date)?.length ?? 0;
             const presCount = presenceCountByDay.get(day.date) ?? 0;
+            const highlights = dayHighlightsByKey.get(day.date);
             return (
               <div
                 key={day.date}
@@ -141,9 +313,66 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                 <div className="mt-1 font-[Spectral] text-2xl">{dayNum}</div>
                 <div className="text-[10px] text-[#1A1110]/50">{monthShort}</div>
                 {day.inFestival && (
-                  <div className="mt-1 text-[9px] text-[#1A1110]/40">
-                    {evCount} evt · {presCount} pers.
-                  </div>
+                  <>
+                    <div className="mt-1 text-[9px] text-[#1A1110]/40">
+                      {evCount} evt · {presCount} pers.
+                    </div>
+                    <div className="mt-1 flex flex-wrap justify-center gap-1">
+                      {filters.talentArrivals && (highlights?.talentArrivals ?? 0) > 0 && (
+                        <span
+                          title={
+                            highlights
+                              ? `Heures: ${summarizeHours(highlights.talentArrivalHours) || "non renseignees"}`
+                              : undefined
+                          }
+                          className="rounded-full bg-[#FDE8E8] px-1.5 py-0.5 text-[9px] text-[#8B1E1E]"
+                        >
+                          A T {highlights?.talentArrivals}
+                        </span>
+                      )}
+                      {filters.talentDepartures && (highlights?.talentDepartures ?? 0) > 0 && (
+                        <span
+                          title={
+                            highlights
+                              ? `Heures: ${summarizeHours(highlights.talentDepartureHours) || "non renseignees"}`
+                              : undefined
+                          }
+                          className="rounded-full bg-[#FFEED8] px-1.5 py-0.5 text-[9px] text-[#8A4A00]"
+                        >
+                          D T {highlights?.talentDepartures}
+                        </span>
+                      )}
+                      {filters.teamArrivals && (highlights?.teamArrivals ?? 0) > 0 && (
+                        <span
+                          title={
+                            highlights
+                              ? `Heures: ${summarizeHours(highlights.teamArrivalHours) || "non renseignees"}`
+                              : undefined
+                          }
+                          className="rounded-full bg-[#E8F0FE] px-1.5 py-0.5 text-[9px] text-[#204A8A]"
+                        >
+                          A E {highlights?.teamArrivals}
+                        </span>
+                      )}
+                      {filters.teamDepartures && (highlights?.teamDepartures ?? 0) > 0 && (
+                        <span
+                          title={
+                            highlights
+                              ? `Heures: ${summarizeHours(highlights.teamDepartureHours) || "non renseignees"}`
+                              : undefined
+                          }
+                          className="rounded-full bg-[#EAF8E6] px-1.5 py-0.5 text-[9px] text-[#2E5B0F]"
+                        >
+                          D E {highlights?.teamDepartures}
+                        </span>
+                      )}
+                      {filters.externalPresences && (highlights?.externalPresences ?? 0) > 0 && (
+                        <span className="rounded-full bg-[#F1EAFE] px-1.5 py-0.5 text-[9px] text-[#5F3B91]">
+                          Ext {highlights?.externalPresences}
+                        </span>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             );

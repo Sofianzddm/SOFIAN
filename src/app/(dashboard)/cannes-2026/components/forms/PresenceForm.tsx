@@ -15,6 +15,22 @@ type Props = {
   onClose: () => void;
 };
 
+function extractTimeFromDateLike(value?: string | null): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const hh = d.getUTCHours();
+  const mm = d.getUTCMinutes();
+  if (hh === 0 && mm === 0) return "";
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function withOptionalTime(date: string, time: string): string {
+  if (!date) return "";
+  if (!time) return date;
+  return `${date}T${time}:00.000Z`;
+}
+
 export default function PresenceForm({ initialData, forcedType, onClose }: Props) {
   const router = useRouter();
   const isEdit = Boolean(initialData?.id);
@@ -30,6 +46,8 @@ export default function PresenceForm({ initialData, forcedType, onClose }: Props
     talentId: initialData?.talentId || "",
     arrivalDate: initialData ? new Date(initialData.arrivalDate).toISOString().slice(0, 10) : "2026-05-12",
     departureDate: initialData ? new Date(initialData.departureDate).toISOString().slice(0, 10) : "2026-05-12",
+    arrivalTime: initialData ? extractTimeFromDateLike(initialData.arrivalDate) : "",
+    departureTime: initialData ? extractTimeFromDateLike(initialData.departureDate) : "",
     hotel: initialData?.hotel || "",
     hotelAddress: initialData?.hotelAddress || "",
     flightArrival: initialData?.flightArrival || "",
@@ -51,8 +69,11 @@ export default function PresenceForm({ initialData, forcedType, onClose }: Props
   async function submit() {
     setLoading(true);
     try {
+      const { arrivalTime, departureTime, ...rest } = form;
       const payload = {
-        ...form,
+        ...rest,
+        arrivalDate: withOptionalTime(form.arrivalDate, arrivalTime),
+        departureDate: withOptionalTime(form.departureDate, departureTime),
         userId: kind === "user" ? form.userId || null : null,
         talentId: kind === "talent" ? form.talentId || null : null,
       };
@@ -106,8 +127,36 @@ export default function PresenceForm({ initialData, forcedType, onClose }: Props
             {talents.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         )}
-        <input type="date" value={form.arrivalDate} onChange={(e) => setForm((p) => ({ ...p, arrivalDate: e.target.value }))} className="rounded border border-[#E5E0D8] p-2" />
-        <input type="date" value={form.departureDate} onChange={(e) => setForm((p) => ({ ...p, departureDate: e.target.value }))} className="rounded border border-[#E5E0D8] p-2" />
+        <div className="grid grid-cols-[1fr_120px] gap-2">
+          <input
+            type="date"
+            value={form.arrivalDate}
+            onChange={(e) => setForm((p) => ({ ...p, arrivalDate: e.target.value }))}
+            className="rounded border border-[#E5E0D8] p-2"
+          />
+          <input
+            type="time"
+            value={form.arrivalTime}
+            onChange={(e) => setForm((p) => ({ ...p, arrivalTime: e.target.value }))}
+            className="rounded border border-[#E5E0D8] p-2"
+            title="Heure d'arrivee"
+          />
+        </div>
+        <div className="grid grid-cols-[1fr_120px] gap-2">
+          <input
+            type="date"
+            value={form.departureDate}
+            onChange={(e) => setForm((p) => ({ ...p, departureDate: e.target.value }))}
+            className="rounded border border-[#E5E0D8] p-2"
+          />
+          <input
+            type="time"
+            value={form.departureTime}
+            onChange={(e) => setForm((p) => ({ ...p, departureTime: e.target.value }))}
+            className="rounded border border-[#E5E0D8] p-2"
+            title="Heure de depart"
+          />
+        </div>
         <input value={form.hotel} onChange={(e) => setForm((p) => ({ ...p, hotel: e.target.value }))} placeholder="Hotel" className="rounded border border-[#E5E0D8] p-2" />
         <input value={form.hotelAddress} onChange={(e) => setForm((p) => ({ ...p, hotelAddress: e.target.value }))} placeholder="Adresse hotel" className="rounded border border-[#E5E0D8] p-2" />
         <input value={form.flightArrival} onChange={(e) => setForm((p) => ({ ...p, flightArrival: e.target.value }))} placeholder="Vol arrivee" className="rounded border border-[#E5E0D8] p-2" />
