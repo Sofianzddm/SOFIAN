@@ -1,8 +1,18 @@
+import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { Resend } from "resend";
+import { render } from "@react-email/render";
 import { canReadContratMarqueReview } from "@/lib/contratMarqueAccess";
+import {
+  findJuristesContratMarque,
+  isContratMarqueExcludedNotificationEmail,
+} from "@/lib/contratMarqueNotifications";
+import { ContratMarqueNouveauCommentaireEmail } from "@/lib/emails/ContratMarqueNouveauCommentaireEmail";
+
+const MESSAGE_PREVIEW_MAX_LEN = 280;
 
 export async function POST(
   request: NextRequest,
@@ -27,7 +37,8 @@ export async function POST(
         id: true,
         accountManagerId: true,
         contratMarqueVersionActuelle: true,
-        talent: { select: { managerId: true } },
+        talent: { select: { managerId: true, prenom: true, nom: true } },
+        marque: { select: { nom: true } },
       },
     });
     if (!collab) {
@@ -68,6 +79,61 @@ export async function POST(
         ...(currentVersion ? { versionId: currentVersion.id } : {}),
       },
     });
+
+    const resendKey = process.env.RESEND_API_KEY?.trim();
+    if (resendKey) {
+      try {
+        const juristes = await findJuristesContratMarque();
+        const tmId = collab.talent.managerId;
+        const destinataires: { email: string | null; prenom: string | null }[] = juristes
+          .filter((j) => j.id !== user.id)
+          .map((j) => ({ email: j.email, prenom: j.prenom }));
+        if (tmId && tmId !== user.id) {
+          const tmUser = await prisma.user.findUnique({
+            where: { id: tmId },
+            select: { email: true, prenom: true },
+          });
+          if (tmUser) destinataires.push(tmUser);
+        }
+        const label = `${collab.talent.prenom} ${collab.talent.nom} x ${collab.marque.nom}`.trim();
+        const reviewPath = `/collaborations/${id}/contrat-marque`;
+        const rawBase = (process.env.NEXT_PUBLIC_BASE_URL || "https://app.glowupagence.fr").trim();
+        const reviewUrl = `${rawBase.replace(/\/$/, "")}${reviewPath}`;
+        const messagePreview =
+          contenu.length > MESSAGE_PREVIEW_MAX_LEN
+            ? contenu.slice(0, MESSAGE_PREVIEW_MAX_LEN) + "…"
+            : contenu;
+        const resend = new Resend(resendKey);
+        const seenTo = new Set<string>();
+        const subjectLine = `[Contrat marque] ${auteur} — ${label}`;
+        for (const dest of destinataires) {
+          const to = dest.email?.trim();
+          if (!to || isContratMarqueExcludedNotificationEmail(to)) continue;
+          const k = to.toLowerCase();
+          if (seenTo.has(k)) continue;
+          seenTo.add(k);
+          const recipientPrenom = dest.prenom?.trim() || "l'équipe";
+          const html = await render(
+            React.createElement(ContratMarqueNouveauCommentaireEmail, {
+              recipientPrenom,
+              talentMarqueLabel: label,
+              auteurLabel: auteur,
+              auteurRole,
+              messagePreview,
+              reviewUrl,
+            })
+          );
+          await resend.emails.send({
+            from: "Glow Up <contrat@glowupagence.fr>",
+            to,
+            subject: subjectLine,
+            html,
+          });
+        }
+      } catch (mailErr) {
+        console.error("Erreur envoi email commentaire contrat marque:", mailErr);
+      }
+    }
 
     return NextResponse.json(commentaire);
   } catch (error) {

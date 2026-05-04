@@ -6,6 +6,11 @@ import prisma from "@/lib/prisma";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { ContratMarqueApprouveEmail } from "@/lib/emails/ContratMarqueApprouveEmail";
+import {
+  findJuristesContratMarque,
+  isContratMarqueExcludedNotificationEmail,
+} from "@/lib/contratMarqueNotifications";
+import { ContratMarqueModificationsDemandeesEmail } from "@/lib/emails/ContratMarqueModificationsDemandeesEmail";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -281,14 +286,16 @@ export async function POST(
     const reviewPath = `/collaborations/${id}/contrat-marque`;
 
     if (statut === "APPROUVE") {
-      const admins = await prisma.user.findMany({
-        where: { role: "ADMIN", actif: true },
-        select: { id: true, email: true },
-      });
-      const notifs = admins.map((a) =>
+      const juristes = await findJuristesContratMarque();
+      const tmId = collabBefore.talent.managerId;
+      const recipientIds = new Map<string, string>();
+      juristes.forEach((j) => recipientIds.set(j.id, j.id));
+      if (tmId) recipientIds.set(tmId, tmId);
+
+      const notifs = [...recipientIds.keys()].map((userId) =>
         prisma.notification.create({
           data: {
-            userId: a.id,
+            userId,
             type: "CONTRAT_MARQUE_APPROUVE",
             titre: "✅ Contrat approuvé — signature requise",
             message: `${label} — Contrat approuvé par le juriste, signature requise.`,
@@ -309,44 +316,84 @@ export async function POST(
             reviewUrl,
           })
         );
-        await Promise.all(
-          admins
-            .filter((a) => a.email)
-            .map((a) =>
-              resend.emails.send({
-                from: "Glow Up <contrat@glowupagence.fr>",
-                to: a.email!,
-                subject: `✅ Contrat approuvé — ${label}`,
-                html,
-              })
-            )
-        );
+        const emailsOut: string[] = [];
+        const seen = new Set<string>();
+        const push = (raw: string | null | undefined) => {
+          const e = raw?.trim();
+          if (!e || isContratMarqueExcludedNotificationEmail(e)) return;
+          const k = e.toLowerCase();
+          if (seen.has(k)) return;
+          seen.add(k);
+          emailsOut.push(e);
+        };
+        for (const j of juristes) push(j.email);
+        if (tmId) {
+          const tm = await prisma.user.findUnique({
+            where: { id: tmId },
+            select: { email: true },
+          });
+          push(tm?.email);
+        }
+        for (const to of emailsOut) {
+          try {
+            await resend.emails.send({
+              from: "Glow Up <contrat@glowupagence.fr>",
+              to,
+              subject: `✅ Contrat approuvé — ${label}`,
+              html,
+            });
+          } catch (err) {
+            console.error("Erreur envoi email approbation contrat marque:", to, err);
+          }
+        }
       }
     }
 
     if (statut === "A_MODIFIER") {
-      const admins = await prisma.user.findMany({
-        where: { role: "ADMIN", actif: true },
-        select: { id: true },
-      });
       const tmId = collabBefore.talent.managerId;
-      const recipients = new Map<string, string>();
-      admins.forEach((a) => recipients.set(a.id, a.id));
-      if (tmId) recipients.set(tmId, tmId);
-
-      const notifs = [...recipients.keys()].map((userId) =>
-        prisma.notification.create({
+      if (!tmId) {
+        console.warn("POST contrat-marque/statut A_MODIFIER: pas de TM (managerId) sur le talent");
+      } else {
+        await prisma.notification.create({
           data: {
-            userId,
+            userId: tmId,
             type: "CONTRAT_MARQUE_MODIFICATIONS",
             titre: "⚠️ Modifications demandées sur le contrat marque",
             message: `${label} — Le juriste demande des modifications.`,
             lien: reviewPath,
             collabId: id,
           },
-        })
-      );
-      await Promise.all(notifs);
+        });
+      }
+
+      const resendKeyModif = process.env.RESEND_API_KEY?.trim();
+      if (resendKeyModif && tmId) {
+        const tmUser = await prisma.user.findUnique({
+          where: { id: tmId },
+          select: { email: true },
+        });
+        const to = tmUser?.email?.trim();
+        if (to && !isContratMarqueExcludedNotificationEmail(to)) {
+          try {
+            const resendModif = new Resend(resendKeyModif);
+            const reviewUrlModif = `${baseUrl()}${reviewPath}`;
+            const htmlModif = await render(
+              React.createElement(ContratMarqueModificationsDemandeesEmail, {
+                talentMarqueLabel: label,
+                reviewUrl: reviewUrlModif,
+              })
+            );
+            await resendModif.emails.send({
+              from: "Glow Up <contrat@glowupagence.fr>",
+              to,
+              subject: `⚠️ Modifications demandées — contrat marque (${label})`,
+              html: htmlModif,
+            });
+          } catch (err) {
+            console.error("Erreur envoi email modifications contrat marque:", to, err);
+          }
+        }
+      }
     }
 
     return NextResponse.json({
