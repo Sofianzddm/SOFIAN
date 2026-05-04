@@ -12,10 +12,10 @@ type Props = {
 };
 
 const ROOM_CONFIG = [
-  { id: "chambre-1", label: "Chambre 1", capacity: 1 },
-  { id: "chambre-2", label: "Chambre 2", capacity: 1 },
-  { id: "chambre-3", label: "Chambre 3", capacity: 1 },
-  { id: "chambre-4", label: "Chambre 4", capacity: 1 },
+  { id: "chambre-1", label: "Chambre 1 (x2)", capacity: 2 },
+  { id: "chambre-2", label: "Chambre 2 (x2)", capacity: 2 },
+  { id: "chambre-3", label: "Chambre 3 (x2)", capacity: 2 },
+  { id: "chambre-4", label: "Chambre 4 (x2)", capacity: 2 },
   { id: "chambre-5", label: "Chambre 5 (x4)", capacity: 4 },
 ] as const;
 
@@ -237,7 +237,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
       <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
         <p className="font-medium text-[#1A1110]">Organisateur villa Cannes 2026</p>
         <p className="mt-1 text-sm text-[#1A1110]/70">
-          5 chambres disponibles dont 1 chambre de 4 places. Assigne les talents puis controle les surcharges par date.
+          5 chambres disponibles (4 chambres de 2 places + 1 chambre de 4 places). Assigne les talents puis controle les surcharges par date.
         </p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           <span className="rounded-full bg-[#F5EBE0] px-3 py-1 text-[#1A1110]">{talentRows.length} talents</span>
