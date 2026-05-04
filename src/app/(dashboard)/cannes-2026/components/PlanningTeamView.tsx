@@ -50,11 +50,10 @@ function cellState(p: CannesPresence, day: Date) {
   return { onPresenceWindow, absenceDay, disponible };
 }
 
-/** Grille : vert = dispo ; rouge = indispo (ne pas placer) ; gris = hors fenêtre sur place. */
+/** Barres : rose = disponible ; noir = indisponible (hors fenêtre ou absence), comme avant. */
 function cellSurfaceClass(st: ReturnType<typeof cellState>) {
-  if (st.disponible) return "bg-[#4F9D6E]";
-  if (st.onPresenceWindow && st.absenceDay) return "bg-[#C84C4C]";
-  return "bg-[#D8D3CC]";
+  if (st.disponible) return "bg-[#C08B8B]";
+  return "bg-[#1A1110]";
 }
 
 function coveringUnavailability(
@@ -675,145 +674,124 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
         </div>
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-3 text-xs text-[#1A1110]/70">
+      <div className="mb-4 flex flex-wrap gap-4 text-xs text-[#1A1110]/70">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-6 rounded bg-[#4F9D6E]" /> Sur place et disponible
+          <span className="inline-block h-2 w-6 rounded bg-[#C08B8B]" /> Disponible
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-6 rounded bg-[#C84C4C]" /> Sur place, indisponible (pas de placement)
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-6 rounded bg-[#D8D3CC]" /> Hors fenêtre de présence
+          <span className="inline-block h-2 w-6 rounded bg-[#1A1110]" /> Indisponible
         </span>
       </div>
 
-      {isAdmin && (
-        <div className="mb-4 rounded-lg border border-dashed border-[#C08B8B]/60 bg-[#F5EBE0]/80 px-3 py-2 text-sm text-[#1A1110]/85">
-          <span className="font-medium text-[#1A1110]">Mode planning ludique · </span>
-          <strong className="text-[#4F9D6E]">Vert</strong> = disponible ; <strong className="text-[#C84C4C]">rouge</strong>{" "}
-          = indispo. Glisse les initiales sur un petit carré <em>vert</em> de la <strong>même carte</strong> pour
-          marquer une indispo, ou sur un <em>rouge</em> pour retirer une journée seule. Gris = hors fenêtre («
-          Impossible »).
-        </div>
-      )}
+      <div className="space-y-2">
+        {rows.map((p) => {
+          const label = personLabel(p);
+          const initials = personInitials(p);
 
-      <div className="rounded-lg border border-[#E5E0D8] bg-white p-2">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] font-medium uppercase tracking-wide text-[#1A1110]/55">
-          <span>12–23 mai</span>
-          <span className="tabular-nums">
-            {CANNES_2026_DAYS.map((d) => d.toLocaleDateString("fr-FR", { day: "2-digit" })).join(" ")}
-          </span>
-        </div>
-        <div className="space-y-2">
-          {rows.map((p) => {
-            const label = personLabel(p);
-            const initials = personInitials(p);
+          if (!isAdmin) {
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setSelectedId(p.id)}
+                className="w-full rounded-lg border border-[#E5E0D8] p-3 text-left transition hover:bg-[#F5EBE0]/50"
+              >
+                <p className="font-medium text-[#1A1110]">{label}</p>
+                <p className="text-sm text-[#1A1110]/70">
+                  {new Date(p.arrivalDate).toLocaleDateString("fr-FR")} -{" "}
+                  {new Date(p.departureDate).toLocaleDateString("fr-FR")} · {p.hotel || "Hotel non renseigne"}
+                </p>
+                <div className="mt-2 grid grid-cols-12 gap-1">
+                  {CANNES_2026_DAYS.map((d) => (
+                    <div
+                      key={utcDayKey(d)}
+                      title={utcDayKey(d)}
+                      className={`h-2 rounded ${cellSurfaceClass(cellState(p, d))}`}
+                    />
+                  ))}
+                </div>
+              </button>
+            );
+          }
 
-            if (!isAdmin) {
-              return (
+          const dayStrip = (
+            <div className="mt-2 grid grid-cols-12 gap-1">
+              {CANNES_2026_DAYS.map((d) => {
+                const st = cellState(p, d);
+                const { onPresenceWindow } = st;
+                const dayKey = utcDayKey(d);
+                const isHover =
+                  hoverDrop?.presenceId === p.id && hoverDrop.dayKey === dayKey && draggingId === p.id;
+                const invalidHover = isHover && draggingId === p.id && !onPresenceWindow && isAdmin;
+                const busy = tableBusyKey === `${p.id}:${dayKey}`;
+                const cls = cellSurfaceClass(st);
+                return (
+                  <div
+                    key={dayKey}
+                    role="button"
+                    aria-label={`${label} ${dayKey}`}
+                    onDragOver={(e) => {
+                      if (draggingId !== p.id) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      setHoverDrop({ presenceId: p.id, dayKey });
+                    }}
+                    onDragLeave={(e) => {
+                      const next = e.relatedTarget as Node | null;
+                      if (!next || !e.currentTarget.contains(next)) {
+                        setHoverDrop((h) => (h?.presenceId === p.id && h.dayKey === dayKey ? null : h));
+                      }
+                    }}
+                    onDrop={(e) => onDropCell(e, p, d)}
+                    title={dayKey}
+                    className={`relative min-h-[12px] rounded transition ${cls} ${
+                      draggingId === p.id ? "ring-1 ring-offset-1" : ""
+                    } ${invalidHover ? "ring-2 ring-red-600 ring-offset-1" : ""} ${
+                      isHover && !invalidHover ? "ring-2 ring-[#1A1110]/35 ring-offset-1" : ""
+                    } ${busy ? "opacity-60" : ""}`}
+                  >
+                    {busy ? (
+                      <span className="absolute inset-0 flex items-center justify-center text-[8px] font-semibold text-[#1A1110]/50">
+                        …
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          );
+
+          return (
+            <div
+              key={p.id}
+              className="flex gap-3 rounded-lg border border-[#E5E0D8] p-3 transition hover:bg-[#F5EBE0]/30"
+            >
+              <span
+                draggable
+                onDragStart={(e) => onDragStartNative(e, p.id)}
+                onDragEnd={onDragEndNative}
+                className="mt-0.5 flex h-10 w-10 shrink-0 cursor-grab select-none items-center justify-center rounded-full border-2 border-[#C08B8B] bg-[#C08B8B]/25 text-xs font-bold text-[#1A1110] active:cursor-grabbing"
+                title="Glisser vers un jour sur la bande à droite (même personne)"
+              >
+                {initials}
+              </span>
+              <div className="min-w-0 flex-1">
                 <button
-                  key={p.id}
                   type="button"
                   onClick={() => setSelectedId(p.id)}
-                  className="w-full rounded-lg border border-[#E5E0D8] p-3 text-left transition hover:bg-[#F5EBE0]/50"
+                  className="w-full rounded-md text-left transition hover:bg-[#F5EBE0]/60"
                 >
                   <p className="font-medium text-[#1A1110]">{label}</p>
                   <p className="text-sm text-[#1A1110]/70">
                     {new Date(p.arrivalDate).toLocaleDateString("fr-FR")} -{" "}
                     {new Date(p.departureDate).toLocaleDateString("fr-FR")} · {p.hotel || "Hotel non renseigne"}
                   </p>
-                  <div className="mt-2 grid grid-cols-12 gap-1">
-                    {CANNES_2026_DAYS.map((d) => (
-                      <div
-                        key={utcDayKey(d)}
-                        title={utcDayKey(d)}
-                        className={`min-h-[10px] rounded-sm ${cellSurfaceClass(cellState(p, d))}`}
-                      />
-                    ))}
-                  </div>
                 </button>
-              );
-            }
-
-            const dayStrip = (
-              <div className="mt-2 grid grid-cols-12 gap-1">
-                {CANNES_2026_DAYS.map((d) => {
-                  const st = cellState(p, d);
-                  const { onPresenceWindow } = st;
-                  const dayKey = utcDayKey(d);
-                  const isHover =
-                    hoverDrop?.presenceId === p.id && hoverDrop.dayKey === dayKey && draggingId === p.id;
-                  const invalidHover = isHover && draggingId === p.id && !onPresenceWindow && isAdmin;
-                  const busy = tableBusyKey === `${p.id}:${dayKey}`;
-                  const cls = cellSurfaceClass(st);
-                  return (
-                    <div
-                      key={dayKey}
-                      role="button"
-                      aria-label={`${label} ${dayKey}`}
-                      onDragOver={(e) => {
-                        if (draggingId !== p.id) return;
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "copy";
-                        setHoverDrop({ presenceId: p.id, dayKey });
-                      }}
-                      onDragLeave={(e) => {
-                        const next = e.relatedTarget as Node | null;
-                        if (!next || !e.currentTarget.contains(next)) {
-                          setHoverDrop((h) => (h?.presenceId === p.id && h.dayKey === dayKey ? null : h));
-                        }
-                      }}
-                      onDrop={(e) => onDropCell(e, p, d)}
-                      title={dayKey}
-                      className={`relative min-h-[12px] rounded-sm transition ${cls} ${
-                        draggingId === p.id ? "ring-1 ring-offset-1" : ""
-                      } ${invalidHover ? "ring-2 ring-red-600 ring-offset-1" : ""} ${
-                        isHover && !invalidHover ? "ring-2 ring-[#1A1110]/35 ring-offset-1" : ""
-                      } ${busy ? "opacity-60" : ""}`}
-                    >
-                      {busy ? (
-                        <span className="absolute inset-0 flex items-center justify-center text-[8px] font-semibold text-[#1A1110]/50">
-                          …
-                        </span>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                {dayStrip}
               </div>
-            );
-
-            return (
-              <div
-                key={p.id}
-                className="flex gap-3 rounded-lg border border-[#E5E0D8] p-3 transition hover:bg-[#F5EBE0]/30"
-              >
-                <span
-                  draggable
-                  onDragStart={(e) => onDragStartNative(e, p.id)}
-                  onDragEnd={onDragEndNative}
-                  className="mt-0.5 flex h-10 w-10 shrink-0 cursor-grab select-none items-center justify-center rounded-full border-2 border-[#C08B8B] bg-[#C08B8B]/25 text-xs font-bold text-[#1A1110] active:cursor-grabbing"
-                  title="Glisser vers un jour sur la bande à droite (même personne)"
-                >
-                  {initials}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(p.id)}
-                    className="w-full rounded-md text-left transition hover:bg-[#F5EBE0]/60"
-                  >
-                    <p className="font-medium text-[#1A1110]">{label}</p>
-                    <p className="text-sm text-[#1A1110]/70">
-                      {new Date(p.arrivalDate).toLocaleDateString("fr-FR")} -{" "}
-                      {new Date(p.departureDate).toLocaleDateString("fr-FR")} · {p.hotel || "Hotel non renseigne"}
-                    </p>
-                  </button>
-                  {dayStrip}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
       </div>
 
       <p className="mt-3 text-center text-xs text-[#1A1110]/50">
@@ -821,16 +799,12 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
       </p>
 
       <div className="mt-8 border-t border-[#E5E0D8] pt-6">
-        <h3 className="mb-1 text-sm font-semibold text-[#1A1110]">Vue Kanban (glisser-déposer)</h3>
-        <p className="mb-4 text-xs text-[#1A1110]/60">
-          Même données que la liste ci-dessus : piscine + colonnes par jour, pratique au tactile ou pour
-          visualiser les indispos groupées par date.
-        </p>
+        <h3 className="mb-3 text-sm font-semibold text-[#1A1110]">Kanban</h3>
         {isAdmin && (
-          <div className="mb-4 rounded-lg border border-dashed border-[#C08B8B]/40 bg-[#F5EBE0]/50 px-3 py-2 text-xs text-[#1A1110]/80">
-            Piscine → jour : indispo journée. Carte jour → piscine : retirer. Carte jour → autre jour :
-            déplacer. Créneaux multi-jours : fiche collaborateur.
-          </div>
+          <p className="mb-4 text-xs text-[#1A1110]/60">
+            Glisser-déposer : piscine → jour (indispo), carte → piscine (retirer), carte → autre jour (déplacer).
+            Créneaux sur plusieurs jours : fiche collaborateur.
+          </p>
         )}
         <TeamKanbanBoard
           rows={rows}
