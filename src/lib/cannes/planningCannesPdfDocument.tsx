@@ -387,9 +387,9 @@ function namesPresentOnDay(
   if (includeTeam) {
     for (const p of team) {
       if (!isOnSite(p, day)) continue;
+      if (isTeamBlocked(p, day)) continue;
       const name = displayName(p);
-      const line = isTeamBlocked(p, day) ? `${name} (indispo)` : name;
-      items.push({ sort: name.toLowerCase(), line });
+      items.push({ sort: name.toLowerCase(), line: name });
     }
   }
   if (includeTalents) {
@@ -622,9 +622,9 @@ export function CannesPlanningPdfDocument({
                       {formatWeekRangeFrance(monday, sunday)}
                     </Text>
                     <Text style={styles.subtitle}>
-                      Colonnes lundi → dimanche · noms des personnes en présence sur place (fenêtre
-                      arrivée–départ enregistrée). Jours du festival sur fond légèrement teinté. (indispo) =
-                      présence sur place mais absence déclarée ce jour.
+                      Colonnes lundi → dimanche · uniquement les personnes disponibles ce jour (sur place
+                      dans les dates enregistrées et sans absence déclarée). Jours du festival sur fond
+                      légèrement teinté.
                     </Text>
                   </View>
                   <Image src={LOGO_PATH} style={styles.logo} />
@@ -635,9 +635,9 @@ export function CannesPlanningPdfDocument({
                     <Text style={styles.sectionTitle}>Présences sur la semaine</Text>
                     <Text style={styles.sectionHint}>
                       {includeTeam && includeTalents
-                        ? "Équipe et talents mélangés, tri par ordre alphabétique"
+                        ? "Équipe et talents mélangés, tri alphabétique — les indisponibilités ne sont pas listées ici"
                         : includeTeam
-                          ? "Équipe uniquement"
+                          ? "Équipe uniquement — indisponibilités exclues de cette vue"
                           : "Talents uniquement"}
                     </Text>
                   </View>
