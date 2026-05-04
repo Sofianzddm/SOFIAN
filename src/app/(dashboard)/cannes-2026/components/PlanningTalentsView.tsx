@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
 import PlanningPdfExportModal from "./PlanningPdfExportModal";
+import PlanningPdfIndividualBulkModal from "./PlanningPdfIndividualBulkModal";
 import type { CannesPresence } from "../types";
 type Props = { presences: CannesPresence[]; isAdmin: boolean };
 
@@ -45,6 +46,11 @@ export default function PlanningTalentsView({ presences, isAdmin }: Props) {
           <PlanningPdfExportModal
             defaults={{ team: false, talents: true, events: false }}
             buttonLabel="Exporter PDF…"
+          />
+          <PlanningPdfIndividualBulkModal
+            presenceIds={rows.map((r) => r.id)}
+            baseFlags={{ team: false, talents: true, events: false }}
+            buttonLabel="PDF un par talent…"
           />
           <button
             type="button"

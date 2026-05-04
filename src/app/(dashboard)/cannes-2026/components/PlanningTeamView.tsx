@@ -24,9 +24,10 @@ import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
 import TeamUnavailabilitiesEditor from "./TeamUnavailabilitiesEditor";
 import PlanningPdfExportModal from "./PlanningPdfExportModal";
+import PlanningPdfIndividualBulkModal from "./PlanningPdfIndividualBulkModal";
 import type { CannesPresence, CannesTeamUnavailability } from "../types";
 
-type Props = { presences: CannesPresence[]; talentPresences: CannesPresence[]; isAdmin: boolean };
+type Props = { presences: CannesPresence[]; isAdmin: boolean };
 
 /** Données drag natif (tableau par ligne). */
 const MIME = "application/x-cannes-presence-id";
@@ -478,7 +479,7 @@ function TeamKanbanBoard({
   );
 }
 
-export default function PlanningTeamView({ presences, talentPresences, isAdmin }: Props) {
+export default function PlanningTeamView({ presences, isAdmin }: Props) {
   const router = useRouter();
   const [creatingPresence, setCreatingPresence] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -565,37 +566,6 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
       return next;
     });
   }, [officialWeekDays]);
-
-  const officialWeekRecap = useMemo(() => {
-    const perDay = officialWeekDays.map((day) => {
-      const dayKey = utcDayKey(day);
-      const talentsPresents = talentPresences.filter((p) => {
-        const st = cellState(p, day);
-        return st.onPresenceWindow;
-      }).length;
-      const hausLabsBoost = dayKey === "2026-05-17" ? 1 : 0;
-      const targetTeam = Math.ceil(talentsPresents / 4) + hausLabsBoost;
-      const availableCount = rows.filter((p) => {
-        const st = cellState(p, day);
-        return st.disponible && !officialHiddenByDay[`${p.id}:${dayKey}`];
-      }).length;
-      return {
-        day,
-        dayKey,
-        targetTeam,
-        availableCount,
-        missing: Math.max(0, targetTeam - availableCount),
-      };
-    });
-
-    const underStaffed = perDay.filter((d) => d.missing > 0);
-    return {
-      totalDays: perDay.length,
-      underStaffedCount: underStaffed.length,
-      totalMissing: underStaffed.reduce((acc, d) => acc + d.missing, 0),
-      worst: underStaffed.sort((a, b) => b.missing - a.missing)[0] ?? null,
-    };
-  }, [officialWeekDays, officialHiddenByDay, rows, talentPresences]);
 
   const officialSelectedDaysByPerson = useMemo(() => {
     if (officialWeekDays.length === 0) return [];
@@ -775,6 +745,13 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
             defaults={{ team: true, talents: false, events: false }}
             buttonLabel="Exporter PDF…"
             teamHiddenByDay={officialHiddenByDay}
+            teamPlanningExportOnly
+          />
+          <PlanningPdfIndividualBulkModal
+            presenceIds={rows.map((r) => r.id)}
+            baseFlags={{ team: true, talents: false, events: false }}
+            teamHiddenByDay={officialHiddenByDay}
+            buttonLabel="PDF un par collaborateur…"
           />
           {isAdmin && (
             <button
@@ -822,34 +799,15 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
             </button>
           </div>
           <div className="mb-3 rounded-lg border border-[#E5E0D8] bg-white px-3 py-2 text-xs text-[#1A1110]/80">
-            {officialWeekRecap.underStaffedCount === 0 ? (
-              <p>
-                Semaine couverte: aucun jour en sous-effectif (ratio 1/4, avec renfort Haus Labs le 17).
-              </p>
-            ) : (
-              <p>
-                {officialWeekRecap.underStaffedCount} jour(s) en sous-effectif · manque total:{" "}
-                {officialWeekRecap.totalMissing} collab
-                {officialWeekRecap.worst
-                  ? ` · plus critique: ${officialWeekRecap.worst.day.toLocaleDateString("fr-FR", {
-                      weekday: "short",
-                      day: "numeric",
-                      month: "short",
-                    })} (-${officialWeekRecap.worst.missing})`
-                  : ""}
-              </p>
-            )}
+            <p>
+              Vue <strong>équipe uniquement</strong> : tu choisis qui figure sur le planning officiel et dans
+              le PDF (les talents ne sont pas pris en compte ici).
+            </p>
           </div>
           <div className="grid gap-2 md:grid-cols-7">
             {officialWeekDays.map((day) => {
               const dayKey = utcDayKey(day);
               const inFestival = day >= CANNES_2026_START && day <= CANNES_2026_END;
-              const talentsPresents = talentPresences.filter((p) => {
-                const st = cellState(p, day);
-                return st.onPresenceWindow;
-              }).length;
-              const hausLabsBoost = dayKey === "2026-05-17" ? 1 : 0;
-              const targetTeam = Math.ceil(talentsPresents / 4) + hausLabsBoost;
               const available = rows.filter((p) => {
                 const st = cellState(p, day);
                 return st.disponible && !officialHiddenByDay[`${p.id}:${dayKey}`];
@@ -869,18 +827,8 @@ export default function PlanningTeamView({ presences, talentPresences, isAdmin }
                   <p className="mb-2 text-[11px] text-[#1A1110]/60">
                     {day.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
                   </p>
-                  <p className="mb-1 text-[11px] text-[#1A1110]/70">
-                    Talents: <strong>{talentsPresents}</strong> · Cible équipe: <strong>{targetTeam}</strong>
-                  </p>
-                  <p
-                    className={`mb-2 text-[10px] ${
-                      available.length < targetTeam ? "text-red-600" : "text-[#1A1110]/55"
-                    }`}
-                  >
-                    {available.length < targetTeam
-                      ? `Il manque ${targetTeam - available.length} collab`
-                      : `Couverture OK (${available.length}/${targetTeam})`}
-                    {hausLabsBoost > 0 ? " · +1 Haus Labs" : ""}
+                  <p className="mb-2 text-[11px] text-[#1A1110]/70">
+                    <strong>{available.length}</strong> collaborateur(s) retenu(s) pour le plan officiel / PDF.
                   </p>
                   <div className="space-y-1">
                     {available.length === 0 ? (

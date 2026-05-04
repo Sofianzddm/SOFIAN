@@ -9,6 +9,7 @@ import {
   type CannesPlanningPdfEvent,
   type CannesPlanningPdfPresence,
 } from "@/lib/cannes/planningCannesPdfDocument";
+import { filenameFragmentForPresence } from "@/lib/cannes/planningPdfFilename";
 import { filenameSlugForFlags, parseCannesPdfSectionsParam } from "@/lib/cannes/planningPdfSections";
 
 export async function GET(request: NextRequest) {
@@ -34,10 +35,35 @@ export async function GET(request: NextRequest) {
     ]);
 
     const raw = JSON.parse(JSON.stringify(presences)) as CannesPlanningPdfPresence[];
-    const teamPresences = raw.filter((p) => p.user);
-    const talentPresences = raw.filter((p) => p.talent);
+    const presenceIdParam = request.nextUrl.searchParams.get("presenceId")?.trim();
+
+    let teamPresences = raw.filter((p) => p.user);
+    let talentPresences = raw.filter((p) => p.talent);
 
     const sectionFlags = parseCannesPdfSectionsParam(request.nextUrl.searchParams.get("sections"));
+
+    let includeTeam = sectionFlags.team;
+    let includeTalents = sectionFlags.talents;
+    let includeEvents = sectionFlags.events;
+
+    if (presenceIdParam) {
+      const solo = raw.find((p) => p.id === presenceIdParam);
+      if (!solo) {
+        return NextResponse.json({ error: "Présence introuvable" }, { status: 404 });
+      }
+      if (!solo.user && !solo.talent) {
+        return NextResponse.json({ error: "Présence invalide" }, { status: 400 });
+      }
+      teamPresences = solo.user ? [solo] : [];
+      talentPresences = solo.talent ? [solo] : [];
+      includeTeam = !!solo.user && sectionFlags.team;
+      includeTalents = !!solo.talent && sectionFlags.talents;
+      includeEvents = sectionFlags.events;
+      if (!includeTeam && !includeTalents) {
+        if (solo.user) includeTeam = true;
+        else if (solo.talent) includeTalents = true;
+      }
+    }
     let teamHiddenByDay: Record<string, true> = {};
     const rawTeamHidden = request.nextUrl.searchParams.get("teamHidden");
     if (rawTeamHidden) {
@@ -73,14 +99,17 @@ export async function GET(request: NextRequest) {
         talentPresences,
         events,
         generatedAt: new Date(),
-        includeTeam: sectionFlags.team,
-        includeTalents: sectionFlags.talents,
-        includeEvents: sectionFlags.events,
+        includeTeam,
+        includeTalents,
+        includeEvents,
         teamHiddenByDay,
       }) as any
     );
 
-    const filename = `cannes-2026-${filenameSlugForFlags(sectionFlags)}-${new Date().toISOString().slice(0, 10)}.pdf`;
+    const dayStamp = new Date().toISOString().slice(0, 10);
+    const filename = presenceIdParam
+      ? `cannes-2026-${filenameFragmentForPresence(teamPresences[0] ?? talentPresences[0]!)}-${dayStamp}.pdf`
+      : `cannes-2026-${filenameSlugForFlags(sectionFlags)}-${dayStamp}.pdf`;
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {

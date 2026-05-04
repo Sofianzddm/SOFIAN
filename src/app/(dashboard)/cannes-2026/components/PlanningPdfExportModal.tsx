@@ -15,6 +15,8 @@ type Props = {
   buttonClassName?: string;
   /** Optionnel : masque jour/personne appliqué dans la vue officielle équipe. */
   teamHiddenByDay?: Record<string, true>;
+  /** Si true : export uniquement planning équipe (pas talents, pas agenda). */
+  teamPlanningExportOnly?: boolean;
 };
 
 const LABELS: Record<(typeof CANNES_PDF_SECTION_KEYS)[number], string> = {
@@ -23,11 +25,18 @@ const LABELS: Record<(typeof CANNES_PDF_SECTION_KEYS)[number], string> = {
   events: "Agenda (liste des événements)",
 };
 
+const TEAM_ONLY_EXPORT_FLAGS: CannesPdfSectionFlags = {
+  team: true,
+  talents: false,
+  events: false,
+};
+
 export default function PlanningPdfExportModal({
   defaults,
   buttonLabel = "Exporter PDF…",
   buttonClassName = "rounded border border-[#E5E0D8] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]",
   teamHiddenByDay,
+  teamPlanningExportOnly = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -35,22 +44,27 @@ export default function PlanningPdfExportModal({
 
   useEffect(() => {
     if (open) {
-      setFlags({
-        team: defaults.team,
-        talents: defaults.talents,
-        events: defaults.events,
-      });
+      setFlags(
+        teamPlanningExportOnly
+          ? { ...TEAM_ONLY_EXPORT_FLAGS }
+          : {
+              team: defaults.team,
+              talents: defaults.talents,
+              events: defaults.events,
+            }
+      );
     }
-  }, [open, defaults.team, defaults.talents, defaults.events]);
+  }, [open, defaults.team, defaults.talents, defaults.events, teamPlanningExportOnly]);
 
   async function runExport() {
-    if (!flags.team && !flags.talents && !flags.events) {
+    const exportFlags = teamPlanningExportOnly ? TEAM_ONLY_EXPORT_FLAGS : flags;
+    if (!exportFlags.team && !exportFlags.talents && !exportFlags.events) {
       toast.error("Cochez au moins une section à exporter");
       return;
     }
     setLoading(true);
     try {
-      await downloadCannesPlanningPdf(flags, { teamHiddenByDay });
+      await downloadCannesPlanningPdf(exportFlags, { teamHiddenByDay });
       setOpen(false);
     } finally {
       setLoading(false);
@@ -58,6 +72,7 @@ export default function PlanningPdfExportModal({
   }
 
   function toggle(key: keyof CannesPdfSectionFlags) {
+    if (teamPlanningExportOnly) return;
     setFlags((f) => ({ ...f, [key]: !f[key] }));
   }
 
@@ -68,24 +83,33 @@ export default function PlanningPdfExportModal({
       </button>
 
       <Modal open={open} title="Exporter en PDF" onClose={() => !loading && setOpen(false)}>
-        <p className="text-sm text-[#1A1110]/70">
-          Cochez les parties à inclure dans le fichier. La synthèse par jour n&apos;apparaît que si équipe
-          et/ou talents sont sélectionnés.
-        </p>
-        <div className="mt-4 space-y-3">
-          {CANNES_PDF_SECTION_KEYS.map((key) => (
-            <label key={key} className="flex cursor-pointer items-start gap-3 text-sm text-[#1A1110]">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={flags[key]}
-                onChange={() => toggle(key)}
-                disabled={loading}
-              />
-              <span>{LABELS[key]}</span>
-            </label>
-          ))}
-        </div>
+        {teamPlanningExportOnly ? (
+          <p className="text-sm text-[#1A1110]/70">
+            Export <strong>planning équipe uniquement</strong> : collaborateurs sur place (selon tes
+            retraits dans la vue semaine officielle), <strong>sans talents</strong> et <strong>sans agenda</strong>.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-[#1A1110]/70">
+              Cochez les parties à inclure dans le fichier. La synthèse par jour n&apos;apparaît que si équipe
+              et/ou talents sont sélectionnés.
+            </p>
+            <div className="mt-4 space-y-3">
+              {CANNES_PDF_SECTION_KEYS.map((key) => (
+                <label key={key} className="flex cursor-pointer items-start gap-3 text-sm text-[#1A1110]">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={flags[key]}
+                    onChange={() => toggle(key)}
+                    disabled={loading}
+                  />
+                  <span>{LABELS[key]}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
         <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"
