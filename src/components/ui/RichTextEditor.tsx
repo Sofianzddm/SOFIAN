@@ -122,8 +122,10 @@ export function RichTextEditor({
   });
 
   useEffect(() => {
-    if (editor && value && editor.getHTML() !== value) {
-      editor.commands.setContent(value);
+    if (!editor) return;
+    const nextValue = value || "";
+    if (editor.getHTML() !== nextValue) {
+      editor.commands.setContent(nextValue);
     }
   }, [editor, value]);
 

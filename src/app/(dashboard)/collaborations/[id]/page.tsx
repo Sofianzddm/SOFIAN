@@ -178,6 +178,25 @@ const TYPE_LABELS: Record<string, string> = {
   EVENT: "Event", SHOOTING: "Shooting", AMBASSADEUR: "Ambassadeur",
 };
 
+const ROLES_ANNULER_DEVIS = new Set(["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"]);
+
+function devisALieUneFactureActive(doc: DocumentInfo, docs: DocumentInfo[]): boolean {
+  return docs.some(
+    (d) =>
+      d.type === "FACTURE" &&
+      d.statut !== "ANNULE" &&
+      !d.avoirRef &&
+      d.factureRef === doc.reference
+  );
+}
+
+function canAnnulerDevisPourRefaire(doc: DocumentInfo, docs: DocumentInfo[], role: string): boolean {
+  if (doc.type !== "DEVIS" || doc.statut === "ANNULE" || doc.avoirRef) return false;
+  if (doc.signatureStatus === "SIGNED") return false;
+  if (devisALieUneFactureActive(doc, docs)) return false;
+  return ROLES_ANNULER_DEVIS.has(role);
+}
+
 function formatContratLivrablesText(livrables: Livrable[]): string {
   return livrables
     .map((l) => {
@@ -242,6 +261,10 @@ export default function CollabDetailPage() {
   const [showEditDocModal, setShowEditDocModal] = useState(false);
   const [editingDoc, setEditingDoc] = useState<DocumentInfo | null>(null);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [showAnnulerDevisModal, setShowAnnulerDevisModal] = useState(false);
+  const [devisToAnnuler, setDevisToAnnuler] = useState<DocumentInfo | null>(null);
+  const [motifAnnulerDevis, setMotifAnnulerDevis] = useState("");
+  const [annulerDevisLoading, setAnnulerDevisLoading] = useState(false);
   const [signatureDoc, setSignatureDoc] = useState<DocumentInfo | null>(null);
   const [signatureEmail, setSignatureEmail] = useState("");
   const [signatureSignerName, setSignatureSignerName] = useState("");
@@ -644,6 +667,43 @@ export default function CollabDetailPage() {
     setSignatureAgenceEmail("contrat@glowupagence.fr");
     setSignatureAgenceName(process.env.NEXT_PUBLIC_AGENCE_NOM || "Sofian Zeddam");
     setShowSignatureModal(true);
+  };
+
+  const openAnnulerDevisModal = (doc: DocumentInfo) => {
+    setDevisToAnnuler(doc);
+    setMotifAnnulerDevis("Régénération d'un nouveau devis");
+    setShowAnnulerDevisModal(true);
+  };
+
+  const closeAnnulerDevisModal = () => {
+    setShowAnnulerDevisModal(false);
+    setDevisToAnnuler(null);
+    setMotifAnnulerDevis("");
+  };
+
+  const confirmAnnulerDevis = async () => {
+    if (!devisToAnnuler) return;
+    const motif = motifAnnulerDevis.trim() || "Régénération d'un nouveau devis";
+    setAnnulerDevisLoading(true);
+    try {
+      const res = await fetch(`/api/documents/${devisToAnnuler.id}/annuler`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motif }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Erreur lors de l'annulation");
+        return;
+      }
+      closeAnnulerDevisModal();
+      await fetchCollab();
+    } catch (e) {
+      console.error(e);
+      alert("Erreur réseau");
+    } finally {
+      setAnnulerDevisLoading(false);
+    }
   };
 
   const handleSendSignature = async () => {
@@ -1503,6 +1563,16 @@ export default function CollabDetailPage() {
                             >
                               <Download className="w-4 h-4" />
                             </a>
+                            {!isAnnule && canAnnulerDevisPourRefaire(doc, existingDocs, roleForUi) && (
+                              <button
+                                type="button"
+                                onClick={() => openAnnulerDevisModal(doc)}
+                                className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                title="Annuler le devis pour en générer un nouveau"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -2098,6 +2168,43 @@ export default function CollabDetailPage() {
       </div>
 
       {/* Modals */}
+      {showAnnulerDevisModal && devisToAnnuler && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100">
+            <h3 className="text-lg font-bold text-glowup-licorice">Annuler le devis</h3>
+            <p className="text-sm text-gray-500 mt-2">
+              Le devis <span className="font-mono font-medium">{devisToAnnuler.reference}</span> sera marqué comme annulé. Vous pourrez ensuite générer un nouveau devis depuis cette page.
+            </p>
+            <label className="block text-sm font-medium text-gray-700 mt-4 mb-1.5">Motif (optionnel)</label>
+            <textarea
+              value={motifAnnulerDevis}
+              onChange={(e) => setMotifAnnulerDevis(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 resize-y"
+              placeholder="Ex. erreur de montant, mauvaise TVA…"
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={closeAnnulerDevisModal}
+                disabled={annulerDevisLoading}
+                className="flex-1 px-4 py-2.5 text-gray-700 bg-gray-100 rounded-xl text-sm font-semibold hover:bg-gray-200 disabled:opacity-50"
+              >
+                Retour
+              </button>
+              <button
+                type="button"
+                onClick={confirmAnnulerDevis}
+                disabled={annulerDevisLoading}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {annulerDevisLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Confirmer l&apos;annulation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showContratPreviewModal && collab && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl max-h-[90vh] overflow-y-auto">

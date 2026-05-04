@@ -5,10 +5,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { StatutDocument } from "@prisma/client";
+import { getTalentIdsAccessibles } from "@/lib/delegations";
+
+const ROLES_ANNULER_DEVIS = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"] as const;
 
 /**
  * POST /api/documents/[id]/annuler
- * Annule un document
+ * Annule un document (devis : mêmes rôles que la génération ; autres types : ADMIN uniquement)
  */
 export async function POST(
   request: NextRequest,
@@ -23,32 +26,21 @@ export async function POST(
 
     const user = session.user as { id: string; role: string };
 
-    // Seul ADMIN peut annuler
-    if (user.role !== "ADMIN") {
-      return NextResponse.json(
-        { error: "Seul un administrateur peut annuler un document" },
-        { status: 403 }
-      );
-    }
+    const body = await request.json().catch(() => ({}));
+    const motifBrut = typeof body?.motif === "string" ? body.motif.trim() : "";
 
-    const body = await request.json();
-    const { motif } = body;
-
-    if (!motif) {
-      return NextResponse.json(
-        { error: "Un motif d'annulation est requis" },
-        { status: 400 }
-      );
-    }
-
-    // Récupérer le document
     const document = await prisma.document.findUnique({
       where: { id },
+      include: {
+        collaboration: { select: { id: true, talentId: true } },
+      },
     });
 
     if (!document) {
       return NextResponse.json({ error: "Document non trouvé" }, { status: 404 });
     }
+
+    const isDevis = document.type === "DEVIS";
 
     if (document.statut === "ANNULE") {
       return NextResponse.json(
@@ -60,6 +52,68 @@ export async function POST(
     if (document.statut === "PAYE") {
       return NextResponse.json(
         { error: "Impossible d'annuler un document déjà payé. Créez un avoir." },
+        { status: 400 }
+      );
+    }
+
+    if (isDevis && document.signatureStatus === "SIGNED") {
+      return NextResponse.json(
+        { error: "Impossible d'annuler un devis signé par la marque." },
+        { status: 400 }
+      );
+    }
+
+    if (isDevis && document.collaborationId) {
+      const factureLiee = await prisma.document.findFirst({
+        where: {
+          collaborationId: document.collaborationId,
+          type: "FACTURE",
+          factureRef: document.reference,
+          statut: { notIn: ["ANNULE"] },
+        },
+      });
+      if (factureLiee) {
+        return NextResponse.json(
+          {
+            error: `Une facture (${factureLiee.reference}) a été générée à partir de ce devis. Traitez-la avant de supprimer le devis.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    let allowed = false;
+    if (user.role === "ADMIN") {
+      allowed = true;
+    } else if (isDevis && ROLES_ANNULER_DEVIS.includes(user.role as (typeof ROLES_ANNULER_DEVIS)[number])) {
+      if (user.role === "TM") {
+        const talentId = document.collaboration?.talentId;
+        if (talentId) {
+          const accessibles = await getTalentIdsAccessibles(user.id);
+          allowed = accessibles.includes(talentId);
+        }
+      } else {
+        allowed = true;
+      }
+    }
+
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          error: isDevis
+            ? "Vous n'avez pas les droits pour annuler ce devis"
+            : "Seul un administrateur peut annuler ce document",
+        },
+        { status: 403 }
+      );
+    }
+
+    const motif =
+      motifBrut || (isDevis ? "Annulation du devis (régénération)" : "");
+
+    if (!motif) {
+      return NextResponse.json(
+        { error: "Un motif d'annulation est requis" },
         { status: 400 }
       );
     }
