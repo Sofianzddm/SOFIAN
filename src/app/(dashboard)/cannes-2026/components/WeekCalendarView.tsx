@@ -67,6 +67,7 @@ type PresenceCalendarKind =
 
 type CalendarRenderableEvent = CannesEvent & {
   syntheticKind?: PresenceCalendarKind;
+  syntheticPresenceId?: string;
 };
 
 function normalizeHour(raw: string): string | null {
@@ -142,6 +143,7 @@ function earliestHour(hours: string[], fallback: string): string {
 export default function WeekCalendarView({ events, presences, isAdmin }: Props) {
   const [weekIndex, setWeekIndex] = useState<0 | 1>(0);
   const [selectedEvent, setSelectedEvent] = useState<CannesEvent | null>(null);
+  const [selectedSyntheticEvent, setSelectedSyntheticEvent] = useState<CalendarRenderableEvent | null>(null);
   const [createSlot, setCreateSlot] = useState<{ date: string; time: string } | null>(null);
   const [filters, setFilters] = useState<CalendarFilters>({
     talentArrivals: true,
@@ -279,7 +281,8 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
       title: string,
       startTime: string,
       description: string,
-      location: string
+      location: string,
+      presenceId: string
     ): CalendarRenderableEvent => ({
       id: `presence-${kind}-${dayDate}-${startTime}`,
       date: `${dayDate}T00:00:00.000Z`,
@@ -297,6 +300,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
       notes: null,
       attendees: [],
       syntheticKind: kind,
+      syntheticPresenceId: presenceId,
     });
 
     const pushDayItem = (dayKey: string, item: CalendarRenderableEvent) => {
@@ -324,7 +328,8 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             `Arrivee talent · ${name}`,
             arrivalHour || "09:00",
             `Arrivee talent ${name} · heure ${arrivalHour || "non renseignee"}`,
-            name
+            name,
+            presence.id
           )
         );
       }
@@ -338,7 +343,8 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             `Depart talent · ${name}`,
             departureHour || "18:00",
             `Depart talent ${name} · heure ${departureHour || "non renseignee"}`,
-            name
+            name,
+            presence.id
           )
         );
       }
@@ -352,7 +358,8 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             `Arrivee equipe · ${name}`,
             arrivalHour || "10:00",
             `Arrivee equipe ${name} · heure ${arrivalHour || "non renseignee"}`,
-            name
+            name,
+            presence.id
           )
         );
       }
@@ -366,7 +373,8 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             `Depart equipe · ${name}`,
             departureHour || "17:00",
             `Depart equipe ${name} · heure ${departureHour || "non renseignee"}`,
-            name
+            name,
+            presence.id
           )
         );
       }
@@ -385,7 +393,8 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                 `Prestat externe · ${name}`,
                 arrivalHour || "12:00",
                 `Presence externe ${name}`,
-                name
+                name,
+                presence.id
               )
             );
           }
@@ -616,7 +625,8 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                         key={ev.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!isSynthetic) setSelectedEvent(ev);
+                          if (isSynthetic) setSelectedSyntheticEvent(ev);
+                          else setSelectedEvent(ev);
                         }}
                         title={isSynthetic ? ev.description || undefined : undefined}
                         className={`absolute overflow-hidden rounded-md border-l-4 px-2 py-1 text-left text-[11px] shadow-sm transition hover:z-10 hover:shadow-md ${
@@ -655,6 +665,49 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
         isAdmin={isAdmin}
         onClose={() => setSelectedEvent(null)}
       />
+      <Modal open={!!selectedSyntheticEvent} title="Detail mouvement presence" onClose={() => setSelectedSyntheticEvent(null)}>
+        {selectedSyntheticEvent && (
+          <div className="space-y-3 text-sm text-[#1A1110]/85">
+            <p className="font-medium text-[#1A1110]">{selectedSyntheticEvent.title}</p>
+            <p>
+              {new Date(selectedSyntheticEvent.date).toLocaleDateString("fr-FR", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+              })}{" "}
+              · {selectedSyntheticEvent.startTime}
+              {selectedSyntheticEvent.endTime ? ` -> ${selectedSyntheticEvent.endTime}` : ""}
+            </p>
+            <p>{selectedSyntheticEvent.description || "-"}</p>
+            {(() => {
+              const presence = presences.find((p) => p.id === selectedSyntheticEvent.syntheticPresenceId);
+              if (!presence) return null;
+              const name = presence.talent
+                ? `${presence.talent.prenom ?? ""} ${presence.talent.nom ?? ""}`.trim()
+                : `${presence.user?.prenom ?? ""} ${presence.user?.nom ?? ""}`.trim();
+              return (
+                <div className="rounded-lg border border-[#E5E0D8] bg-[#FCFAF8] p-3">
+                  <p>
+                    <strong>Personne:</strong> {name || "-"}
+                  </p>
+                  <p>
+                    <strong>Hotel:</strong> {presence.hotel || "-"}
+                  </p>
+                  <p>
+                    <strong>Vol arrivee:</strong> {presence.flightArrival || "-"}
+                  </p>
+                  <p>
+                    <strong>Vol depart:</strong> {presence.flightDeparture || "-"}
+                  </p>
+                  <p>
+                    <strong>Notes:</strong> {presence.notes || "-"}
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </Modal>
       <Modal open={!!createSlot} title="Nouvel evenement" onClose={() => setCreateSlot(null)}>
         <EventForm
           mode="create"

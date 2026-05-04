@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CANNES_2026_DAYS } from "@/lib/cannes/dates";
@@ -18,6 +18,7 @@ const ROOM_CONFIG = [
   { id: "chambre-4", label: "Chambre 4 (x2)", capacity: 2 },
   { id: "chambre-5", label: "Chambre 5 (x4)", capacity: 4 },
 ] as const;
+const DAILY_OVERRIDES_STORAGE_KEY = "cannes-2026:rooms:daily-overrides:v1";
 
 function toDateOnly(dateStr: string) {
   const d = new Date(dateStr);
@@ -116,15 +117,38 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
   const [draftRooms, setDraftRooms] = useState<Record<string, string>>(() =>
     Object.fromEntries(presences.map((p) => [p.id, p.roomNumber || ""]))
   );
+  const [dailyRoomOverrides, setDailyRoomOverrides] = useState<Record<string, Record<string, string>>>({});
+  const [dailyDrag, setDailyDrag] = useState<{ presenceId: string; dayKey: string } | null>(null);
+  const [dailyDropTarget, setDailyDropTarget] = useState<string | null>(null);
 
   const talentRows = useMemo(() => presences.filter((p) => p.talent), [presences]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DAILY_OVERRIDES_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, Record<string, string>>;
+      if (parsed && typeof parsed === "object") setDailyRoomOverrides(parsed);
+    } catch {
+      // ignore localStorage parsing errors
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DAILY_OVERRIDES_STORAGE_KEY, JSON.stringify(dailyRoomOverrides));
+    } catch {
+      // ignore localStorage quota errors
+    }
+  }, [dailyRoomOverrides]);
 
   const occupancyByDay = useMemo(() => {
     return CANNES_2026_DAYS.map((day) => {
       const dayOnly = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+      const dayKey = dayOnly.toISOString().slice(0, 10);
       const roomOccupancy = ROOM_CONFIG.map((room) => {
         const occupants = talentRows.filter((p) => {
-          const assignedRoom = draftRooms[p.id] || p.roomNumber || "";
+          const assignedRoom = getEffectiveRoomForDay(p.id, dayKey);
           if (assignedRoom !== room.id) return false;
           const start = toDateOnly(p.arrivalDate);
           const end = toDateOnly(p.departureDate);
@@ -140,10 +164,11 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
 
       return {
         day,
+        dayKey,
         roomOccupancy,
       };
     });
-  }, [draftRooms, talentRows]);
+  }, [dailyRoomOverrides, draftRooms, talentRows]);
 
   const overbookedDaysCount = useMemo(() => {
     return occupancyByDay.filter((entry) =>
@@ -157,6 +182,22 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
 
   function getAssignedRoomId(presenceId: string) {
     return draftRooms[presenceId] || presences.find((p) => p.id === presenceId)?.roomNumber || "";
+  }
+
+  function getEffectiveRoomForDay(presenceId: string, dayKey: string) {
+    const dayOverride = dailyRoomOverrides[dayKey]?.[presenceId];
+    if (dayOverride !== undefined) return dayOverride;
+    return getAssignedRoomId(presenceId);
+  }
+
+  function moveRoomForSingleDay(presenceId: string, dayKey: string, roomId: string) {
+    setDailyRoomOverrides((prev) => ({
+      ...prev,
+      [dayKey]: {
+        ...(prev[dayKey] || {}),
+        [presenceId]: roomId,
+      },
+    }));
   }
 
   async function saveRoom(presenceId: string, roomId?: string) {
@@ -403,6 +444,12 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
 
       <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
         <p className="mb-3 font-medium text-[#1A1110]">Occupation par jour</p>
+        {isAdmin && (
+          <p className="mb-3 text-xs text-[#1A1110]/60">
+            Drag & drop actif par jour : déplace un talent d&apos;une chambre à l&apos;autre sans changer son
+            affectation globale.
+          </p>
+        )}
         <div className="space-y-3">
           {occupancyByDay.map((entry) => {
             const hasOverflow = entry.roomOccupancy.some((r) => r.occupants.length > r.capacity);
@@ -420,20 +467,54 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
                     return (
                       <div
                         key={room.roomId}
+                        onDragOver={(e) => {
+                          if (!isAdmin) return;
+                          e.preventDefault();
+                          setDailyDropTarget(`${entry.dayKey}:${room.roomId}`);
+                        }}
+                        onDrop={() => {
+                          if (!isAdmin || !dailyDrag || dailyDrag.dayKey !== entry.dayKey) return;
+                          moveRoomForSingleDay(dailyDrag.presenceId, entry.dayKey, room.roomId);
+                          setDailyDrag(null);
+                          setDailyDropTarget(null);
+                          toast.success("Affectation jour mise a jour");
+                        }}
+                        onDragLeave={() =>
+                          setDailyDropTarget((prev) =>
+                            prev === `${entry.dayKey}:${room.roomId}` ? null : prev
+                          )
+                        }
                         className={`rounded border px-3 py-2 text-sm ${
-                          overflow ? "border-[#E87878] bg-[#FDE4E4]" : "border-[#E5E0D8] bg-white"
+                          dailyDropTarget === `${entry.dayKey}:${room.roomId}`
+                            ? "border-[#1A1110] bg-[#F5EBE0]"
+                            : overflow
+                              ? "border-[#E87878] bg-[#FDE4E4]"
+                              : "border-[#E5E0D8] bg-white"
                         }`}
                       >
                         <p className="font-medium text-[#1A1110]">
                           {room.label} - {room.occupants.length}/{room.capacity}
                         </p>
-                        <p className="mt-1 text-[#1A1110]/70">
-                          {room.occupants.length > 0
-                            ? room.occupants
-                                .map((p) => `${p.talent?.prenom ?? ""} ${p.talent?.nom ?? ""}`.trim())
-                                .join(", ")
-                            : "Aucun talent"}
-                        </p>
+                        <div className="mt-1 space-y-1">
+                          {room.occupants.length > 0 ? (
+                            room.occupants.map((p) => (
+                              <button
+                                key={`${entry.dayKey}:${room.roomId}:${p.id}`}
+                                draggable={isAdmin}
+                                onDragStart={() => setDailyDrag({ presenceId: p.id, dayKey: entry.dayKey })}
+                                onDragEnd={() => {
+                                  setDailyDrag(null);
+                                  setDailyDropTarget(null);
+                                }}
+                                className="block w-full rounded border border-[#E5E0D8] bg-white px-2 py-1 text-left text-xs text-[#1A1110]/80 hover:bg-[#F5EBE0]"
+                              >
+                                {`${p.talent?.prenom ?? ""} ${p.talent?.nom ?? ""}`.trim()}
+                              </button>
+                            ))
+                          ) : (
+                            <p className="text-[#1A1110]/70">Aucun talent</p>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
