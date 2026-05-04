@@ -18,14 +18,15 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CANNES_2026_DAYS, isUtcDayInIsoRange } from "@/lib/cannes/dates";
+import { CANNES_2026_DAYS, CANNES_2026_END, CANNES_2026_START, isUtcDayInIsoRange } from "@/lib/cannes/dates";
+import { eachUtcDayFromMonday, getCannesFestivalMondayWeeks } from "@/lib/cannes/festivalWeeks";
 import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
 import TeamUnavailabilitiesEditor from "./TeamUnavailabilitiesEditor";
 import PlanningPdfExportModal from "./PlanningPdfExportModal";
 import type { CannesPresence, CannesTeamUnavailability } from "../types";
 
-type Props = { presences: CannesPresence[]; isAdmin: boolean };
+type Props = { presences: CannesPresence[]; talentPresences: CannesPresence[]; isAdmin: boolean };
 
 /** Données drag natif (tableau par ligne). */
 const MIME = "application/x-cannes-presence-id";
@@ -102,6 +103,12 @@ function parseDayId(id: string): string | null {
 
 function dayFromKey(dayKey: string): Date | undefined {
   return CANNES_2026_DAYS.find((d) => utcDayKey(d) === dayKey);
+}
+
+function weekRangeLabel(start: Date, end: Date): string {
+  const s = start.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  const e = end.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  return `${s} -> ${e}`;
 }
 
 function personLabel(p: CannesPresence) {
@@ -470,10 +477,13 @@ function TeamKanbanBoard({
   );
 }
 
-export default function PlanningTeamView({ presences, isAdmin }: Props) {
+export default function PlanningTeamView({ presences, talentPresences, isAdmin }: Props) {
   const router = useRouter();
   const [creatingPresence, setCreatingPresence] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const festivalWeeks = useMemo(() => getCannesFestivalMondayWeeks(), []);
+  const [officialWeekIndex, setOfficialWeekIndex] = useState(0);
+  const [officialHiddenByDay, setOfficialHiddenByDay] = useState<Record<string, true>>({});
 
   /** Tableau principal (HTML5) */
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -504,6 +514,64 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
     for (const p of rows) m.set(p.id, p);
     return m;
   }, [rows]);
+
+  const officialWeekDays = useMemo(() => {
+    const weekStart = festivalWeeks[officialWeekIndex] ?? festivalWeeks[0];
+    return weekStart ? eachUtcDayFromMonday(weekStart) : [];
+  }, [festivalWeeks, officialWeekIndex]);
+
+  const toggleOfficialPerson = useCallback((presenceId: string, dayKey: string) => {
+    const key = `${presenceId}:${dayKey}`;
+    setOfficialHiddenByDay((prev) => {
+      const next = { ...prev };
+      if (next[key]) delete next[key];
+      else next[key] = true;
+      return next;
+    });
+  }, []);
+
+  const resetOfficialWeek = useCallback(() => {
+    const daySet = new Set(officialWeekDays.map((d) => utcDayKey(d)));
+    setOfficialHiddenByDay((prev) => {
+      const next: Record<string, true> = {};
+      for (const k of Object.keys(prev)) {
+        const dayKey = k.split(":")[1] ?? "";
+        if (!daySet.has(dayKey)) next[k] = true;
+      }
+      return next;
+    });
+  }, [officialWeekDays]);
+
+  const officialWeekRecap = useMemo(() => {
+    const perDay = officialWeekDays.map((day) => {
+      const dayKey = utcDayKey(day);
+      const talentsPresents = talentPresences.filter((p) => {
+        const st = cellState(p, day);
+        return st.onPresenceWindow;
+      }).length;
+      const hausLabsBoost = dayKey === "2026-05-17" ? 1 : 0;
+      const targetTeam = Math.ceil(talentsPresents / 4) + hausLabsBoost;
+      const availableCount = rows.filter((p) => {
+        const st = cellState(p, day);
+        return st.disponible && !officialHiddenByDay[`${p.id}:${dayKey}`];
+      }).length;
+      return {
+        day,
+        dayKey,
+        targetTeam,
+        availableCount,
+        missing: Math.max(0, targetTeam - availableCount),
+      };
+    });
+
+    const underStaffed = perDay.filter((d) => d.missing > 0);
+    return {
+      totalDays: perDay.length,
+      underStaffedCount: underStaffed.length,
+      totalMissing: underStaffed.reduce((acc, d) => acc + d.missing, 0),
+      worst: underStaffed.sort((a, b) => b.missing - a.missing)[0] ?? null,
+    };
+  }, [officialWeekDays, officialHiddenByDay, rows, talentPresences]);
 
   const addSingleDay = useCallback(async (presence: CannesPresence, day: Date) => {
     const dayKey = utcDayKey(day);
@@ -673,6 +741,140 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
           )}
         </div>
       </div>
+
+      {officialWeekDays.length > 0 && (
+        <div className="mb-5 rounded-xl border border-[#E5E0D8] bg-[#FCFAF8] p-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setOfficialWeekIndex((i) => Math.max(0, i - 1))}
+                disabled={officialWeekIndex <= 0}
+                className="rounded-full border border-[#E5E0D8] px-2 py-1 text-xs disabled:opacity-40"
+              >
+                ←
+              </button>
+              <p className="text-sm font-semibold text-[#1A1110]">
+                Vue semaine officielle ·{" "}
+                {weekRangeLabel(officialWeekDays[0], officialWeekDays[officialWeekDays.length - 1])}
+              </p>
+              <button
+                type="button"
+                onClick={() => setOfficialWeekIndex((i) => Math.min(festivalWeeks.length - 1, i + 1))}
+                disabled={officialWeekIndex >= festivalWeeks.length - 1}
+                className="rounded-full border border-[#E5E0D8] px-2 py-1 text-xs disabled:opacity-40"
+              >
+                →
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={resetOfficialWeek}
+              className="rounded border border-[#E5E0D8] px-2 py-1 text-xs text-[#1A1110]/70 hover:bg-white"
+            >
+              Tout remettre (semaine)
+            </button>
+          </div>
+          <div className="mb-3 rounded-lg border border-[#E5E0D8] bg-white px-3 py-2 text-xs text-[#1A1110]/80">
+            {officialWeekRecap.underStaffedCount === 0 ? (
+              <p>
+                Semaine couverte: aucun jour en sous-effectif (ratio 1/4, avec renfort Haus Labs le 17).
+              </p>
+            ) : (
+              <p>
+                {officialWeekRecap.underStaffedCount} jour(s) en sous-effectif · manque total:{" "}
+                {officialWeekRecap.totalMissing} collab
+                {officialWeekRecap.worst
+                  ? ` · plus critique: ${officialWeekRecap.worst.day.toLocaleDateString("fr-FR", {
+                      weekday: "short",
+                      day: "numeric",
+                      month: "short",
+                    })} (-${officialWeekRecap.worst.missing})`
+                  : ""}
+              </p>
+            )}
+          </div>
+          <div className="grid gap-2 md:grid-cols-7">
+            {officialWeekDays.map((day) => {
+              const dayKey = utcDayKey(day);
+              const inFestival = day >= CANNES_2026_START && day <= CANNES_2026_END;
+              const talentsPresents = talentPresences.filter((p) => {
+                const st = cellState(p, day);
+                return st.onPresenceWindow;
+              }).length;
+              const hausLabsBoost = dayKey === "2026-05-17" ? 1 : 0;
+              const targetTeam = Math.ceil(talentsPresents / 4) + hausLabsBoost;
+              const available = rows.filter((p) => {
+                const st = cellState(p, day);
+                return st.disponible && !officialHiddenByDay[`${p.id}:${dayKey}`];
+              });
+              const removed = rows.filter((p) => {
+                const st = cellState(p, day);
+                return st.disponible && !!officialHiddenByDay[`${p.id}:${dayKey}`];
+              });
+              return (
+                <div
+                  key={dayKey}
+                  className={`rounded-lg border p-2 ${inFestival ? "border-[#E5E0D8] bg-[#FBF5F2]" : "border-[#EFEAE3] bg-white"}`}
+                >
+                  <p className="text-xs font-semibold text-[#1A1110]">
+                    {day.toLocaleDateString("fr-FR", { weekday: "long" })}
+                  </p>
+                  <p className="mb-2 text-[11px] text-[#1A1110]/60">
+                    {day.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                  </p>
+                  <p className="mb-1 text-[11px] text-[#1A1110]/70">
+                    Talents: <strong>{talentsPresents}</strong> · Cible équipe: <strong>{targetTeam}</strong>
+                  </p>
+                  <p
+                    className={`mb-2 text-[10px] ${
+                      available.length < targetTeam ? "text-red-600" : "text-[#1A1110]/55"
+                    }`}
+                  >
+                    {available.length < targetTeam
+                      ? `Il manque ${targetTeam - available.length} collab`
+                      : `Couverture OK (${available.length}/${targetTeam})`}
+                    {hausLabsBoost > 0 ? " · +1 Haus Labs" : ""}
+                  </p>
+                  <div className="space-y-1">
+                    {available.length === 0 ? (
+                      <p className="text-[11px] text-[#1A1110]/45">—</p>
+                    ) : (
+                      available.map((p) => (
+                        <button
+                          key={`${dayKey}-${p.id}-on`}
+                          type="button"
+                          onClick={() => toggleOfficialPerson(p.id, dayKey)}
+                          className="flex w-full items-center justify-between rounded border border-[#E5E0D8] bg-white px-2 py-1 text-left text-[11px] hover:bg-[#F5EBE0]/50"
+                        >
+                          <span className="truncate">{personLabel(p)}</span>
+                          <span className="ml-2 text-[#1A1110]/55">Retirer</span>
+                        </button>
+                      ))
+                    )}
+                    {removed.length > 0 && (
+                      <div className="pt-1">
+                        <p className="mb-1 text-[10px] uppercase tracking-wide text-[#1A1110]/45">Retirés</p>
+                        {removed.map((p) => (
+                          <button
+                            key={`${dayKey}-${p.id}-off`}
+                            type="button"
+                            onClick={() => toggleOfficialPerson(p.id, dayKey)}
+                            className="mb-1 flex w-full items-center justify-between rounded border border-dashed border-[#E5E0D8] bg-[#F8F4EF] px-2 py-1 text-left text-[11px] text-[#1A1110]/70 hover:bg-white"
+                          >
+                            <span className="truncate">{personLabel(p)}</span>
+                            <span className="ml-2">Remettre</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap gap-4 text-xs text-[#1A1110]/70">
         <span className="flex items-center gap-1.5">
