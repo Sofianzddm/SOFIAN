@@ -673,11 +673,6 @@ export function CannesPlanningPdfDocument({
                     <Text style={styles.titleLandscape}>
                       {formatWeekRangeFrance(monday, sunday)}
                     </Text>
-                    <Text style={styles.subtitle}>
-                      Colonnes lundi → dimanche · uniquement les personnes disponibles ce jour (sur place
-                      dans les dates enregistrées et sans absence déclarée). Jours du festival sur fond
-                      légèrement teinté.
-                    </Text>
                   </View>
                   <Image src={LOGO_PATH} style={styles.logo} />
                 </View>
