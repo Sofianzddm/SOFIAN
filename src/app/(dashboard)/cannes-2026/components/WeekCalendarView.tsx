@@ -115,6 +115,17 @@ function presenceLabel(presence: CannesPresence): string {
   return "Profil";
 }
 
+function isExternalTeamPresence(presence: CannesPresence): boolean {
+  if (!presence.userId || presence.talentId) return false;
+  const role = (presence.user?.role || "").toLowerCase();
+  return (
+    role.includes("prestat") ||
+    role.includes("extern") ||
+    role.includes("freelance") ||
+    role.includes("outside")
+  );
+}
+
 function plusOneHour(time: string): string {
   const [h, m] = time.split(":").map(Number);
   const total = Math.min(23 * 60 + 59, h * 60 + m + 60);
@@ -172,17 +183,6 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
   }, [presences, week]);
 
   const dayHighlightsByKey = useMemo(() => {
-    const isExternalTeamPresence = (presence: CannesPresence) => {
-      if (!presence.userId || presence.talentId) return false;
-      const role = (presence.user?.role || "").toLowerCase();
-      return (
-        role.includes("prestat") ||
-        role.includes("extern") ||
-        role.includes("freelance") ||
-        role.includes("outside")
-      );
-    };
-
     const map = new Map<string, DayPresenceHighlights>();
     for (const day of week.days) {
       map.set(day.date, {
@@ -271,6 +271,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
 
   const syntheticEventsByDay = useMemo(() => {
     const map = new Map<string, CalendarRenderableEvent[]>();
+    const weekDaySet = new Set(week.days.map((d) => d.date));
 
     const makeSyntheticEvent = (
       dayDate: string,
@@ -298,90 +299,102 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
       syntheticKind: kind,
     });
 
-    for (const day of week.days) {
-      const highlights = dayHighlightsByKey.get(day.date);
-      if (!highlights) continue;
+    const pushDayItem = (dayKey: string, item: CalendarRenderableEvent) => {
+      if (!map.has(dayKey)) map.set(dayKey, []);
+      map.get(dayKey)!.push(item);
+    };
 
-      const dayItems: CalendarRenderableEvent[] = [];
+    for (const presence of presences) {
+      const name = presenceLabel(presence);
+      const arrivalDay = new Date(presence.arrivalDate).toISOString().slice(0, 10);
+      const departureDay = new Date(presence.departureDate).toISOString().slice(0, 10);
+      const arrivalHour = extractHourFromFlightText(presence.flightArrival) ?? extractHourFromIso(presence.arrivalDate);
+      const departureHour =
+        extractHourFromFlightText(presence.flightDeparture) ?? extractHourFromIso(presence.departureDate);
+      const isTalent = !!presence.talentId;
+      const isTeam = !!presence.userId && !presence.talentId;
+      const isExternal = isExternalTeamPresence(presence);
 
-      if (filters.talentArrivals && highlights.talentArrivals > 0) {
-        const startTime = earliestHour(highlights.talentArrivalHours, "09:00");
-        dayItems.push(
+      if (isTalent && filters.talentArrivals && weekDaySet.has(arrivalDay)) {
+        pushDayItem(
+          arrivalDay,
           makeSyntheticEvent(
-            day.date,
+            arrivalDay,
             "talent-arrival",
-            `Arrivees talents (${highlights.talentArrivals})`,
-            startTime,
-            `Talents: ${summarizeNames(highlights.talentArrivalNames)} · Heures: ${
-              summarizeHours(highlights.talentArrivalHours) || "non renseignees"
-            }`,
-            summarizeNames(highlights.talentArrivalNames)
-          )
-        );
-      }
-      if (filters.talentDepartures && highlights.talentDepartures > 0) {
-        const startTime = earliestHour(highlights.talentDepartureHours, "18:00");
-        dayItems.push(
-          makeSyntheticEvent(
-            day.date,
-            "talent-departure",
-            `Departs talents (${highlights.talentDepartures})`,
-            startTime,
-            `Talents: ${summarizeNames(highlights.talentDepartureNames)} · Heures: ${
-              summarizeHours(highlights.talentDepartureHours) || "non renseignees"
-            }`,
-            summarizeNames(highlights.talentDepartureNames)
-          )
-        );
-      }
-      if (filters.teamArrivals && highlights.teamArrivals > 0) {
-        const startTime = earliestHour(highlights.teamArrivalHours, "10:00");
-        dayItems.push(
-          makeSyntheticEvent(
-            day.date,
-            "team-arrival",
-            `Arrivees equipe (${highlights.teamArrivals})`,
-            startTime,
-            `Equipe: ${summarizeNames(highlights.teamArrivalNames)} · Heures: ${
-              summarizeHours(highlights.teamArrivalHours) || "non renseignees"
-            }`,
-            summarizeNames(highlights.teamArrivalNames)
-          )
-        );
-      }
-      if (filters.teamDepartures && highlights.teamDepartures > 0) {
-        const startTime = earliestHour(highlights.teamDepartureHours, "17:00");
-        dayItems.push(
-          makeSyntheticEvent(
-            day.date,
-            "team-departure",
-            `Departs equipe (${highlights.teamDepartures})`,
-            startTime,
-            `Equipe: ${summarizeNames(highlights.teamDepartureNames)} · Heures: ${
-              summarizeHours(highlights.teamDepartureHours) || "non renseignees"
-            }`,
-            summarizeNames(highlights.teamDepartureNames)
-          )
-        );
-      }
-      if (filters.externalPresences && highlights.externalPresences > 0) {
-        dayItems.push(
-          makeSyntheticEvent(
-            day.date,
-            "external-presence",
-            `Prestats externes (${highlights.externalPresences})`,
-            "12:00",
-            `Prestats: ${summarizeNames(highlights.externalPresenceNames)}`,
-            summarizeNames(highlights.externalPresenceNames)
+            `Arrivee talent · ${name}`,
+            arrivalHour || "09:00",
+            `Arrivee talent ${name} · heure ${arrivalHour || "non renseignee"}`,
+            name
           )
         );
       }
 
-      if (dayItems.length > 0) map.set(day.date, dayItems);
+      if (isTalent && filters.talentDepartures && weekDaySet.has(departureDay)) {
+        pushDayItem(
+          departureDay,
+          makeSyntheticEvent(
+            departureDay,
+            "talent-departure",
+            `Depart talent · ${name}`,
+            departureHour || "18:00",
+            `Depart talent ${name} · heure ${departureHour || "non renseignee"}`,
+            name
+          )
+        );
+      }
+
+      if (isTeam && filters.teamArrivals && weekDaySet.has(arrivalDay)) {
+        pushDayItem(
+          arrivalDay,
+          makeSyntheticEvent(
+            arrivalDay,
+            "team-arrival",
+            `Arrivee equipe · ${name}`,
+            arrivalHour || "10:00",
+            `Arrivee equipe ${name} · heure ${arrivalHour || "non renseignee"}`,
+            name
+          )
+        );
+      }
+
+      if (isTeam && filters.teamDepartures && weekDaySet.has(departureDay)) {
+        pushDayItem(
+          departureDay,
+          makeSyntheticEvent(
+            departureDay,
+            "team-departure",
+            `Depart equipe · ${name}`,
+            departureHour || "17:00",
+            `Depart equipe ${name} · heure ${departureHour || "non renseignee"}`,
+            name
+          )
+        );
+      }
+
+      if (isExternal && filters.externalPresences) {
+        const startTs = new Date(presence.arrivalDate).getTime();
+        const endTs = new Date(presence.departureDate).getTime();
+        for (const day of week.days) {
+          const dayTs = new Date(`${day.date}T12:00:00.000Z`).getTime();
+          if (dayTs >= startTs && dayTs <= endTs) {
+            pushDayItem(
+              day.date,
+              makeSyntheticEvent(
+                day.date,
+                "external-presence",
+                `Prestat externe · ${name}`,
+                arrivalHour || "12:00",
+                `Presence externe ${name}`,
+                name
+              )
+            );
+          }
+        }
+      }
     }
 
     return map;
-  }, [dayHighlightsByKey, filters, week.days]);
+  }, [filters, presences, week.days]);
 
   const handleSlotClick = (e: React.MouseEvent<HTMLDivElement>, dayDate: string, inFestival: boolean) => {
     if (!isAdmin || !inFestival) return;
