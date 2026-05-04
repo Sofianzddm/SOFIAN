@@ -32,6 +32,7 @@ type Props = { presences: CannesPresence[]; isAdmin: boolean };
 /** Données drag natif (tableau par ligne). */
 const MIME = "application/x-cannes-presence-id";
 const OFFICIAL_WEEK_STORAGE_KEY = "cannes2026:team:officialHiddenByDay:v1";
+const OFFICIAL_WEEK_SERVER_KEY = "team-official-hidden-by-day";
 
 const DOCK_ID = "dock" as const;
 
@@ -119,6 +120,11 @@ function personLabel(p: CannesPresence) {
 
 function personInitials(p: CannesPresence) {
   return `${p.user?.prenom?.[0] ?? ""}${p.user?.nom?.[0] ?? ""}`.toUpperCase() || "?";
+}
+
+function isRecordOfTrue(value: unknown): value is Record<string, true> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.values(value).every((v) => v === true);
 }
 
 function PoolCard({
@@ -486,17 +492,61 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
   const festivalWeeks = useMemo(() => getCannesFestivalMondayWeeks(), []);
   const [officialWeekIndex, setOfficialWeekIndex] = useState(0);
   const [officialHiddenByDay, setOfficialHiddenByDay] = useState<Record<string, true>>({});
+  const [officialStateHydrated, setOfficialStateHydrated] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(OFFICIAL_WEEK_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, true>;
-      if (!parsed || typeof parsed !== "object") return;
-      setOfficialHiddenByDay(parsed);
-    } catch {
-      // ignore parsing/localStorage errors
-    }
+    let cancelled = false;
+    void (async () => {
+      let localState: Record<string, true> = {};
+      try {
+        const raw = window.localStorage.getItem(OFFICIAL_WEEK_STORAGE_KEY);
+        if (raw) {
+          const parsed: unknown = JSON.parse(raw);
+          if (isRecordOfTrue(parsed)) localState = parsed;
+        }
+      } catch {
+        // ignore parsing/localStorage errors
+      }
+
+      if (!cancelled) setOfficialHiddenByDay(localState);
+
+      let remoteState: Record<string, true> = {};
+      try {
+        const res = await fetch(`/api/cannes/shared-settings/${OFFICIAL_WEEK_SERVER_KEY}`, {
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const json = (await res.json()) as { value?: unknown };
+          if (isRecordOfTrue(json.value)) remoteState = json.value;
+        }
+      } catch {
+        // ignore initial remote load errors
+      }
+
+      const merged = { ...remoteState, ...localState };
+      if (!cancelled) setOfficialHiddenByDay(merged);
+
+      const shouldBackfillRemote =
+        Object.keys(merged).length > 0 &&
+        JSON.stringify(merged) !== JSON.stringify(remoteState);
+      if (shouldBackfillRemote) {
+        try {
+          await fetch(`/api/cannes/shared-settings/${OFFICIAL_WEEK_SERVER_KEY}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value: merged }),
+          });
+        } catch {
+          // ignore remote save errors, local state stays available
+        }
+      }
+
+      if (!cancelled) setOfficialStateHydrated(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -509,6 +559,20 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
       // ignore quota/localStorage errors
     }
   }, [officialHiddenByDay]);
+
+  useEffect(() => {
+    if (!officialStateHydrated) return;
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/cannes/shared-settings/${OFFICIAL_WEEK_SERVER_KEY}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: officialHiddenByDay }),
+      }).catch(() => {
+        // keep local state as source of truth if network fails
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [officialHiddenByDay, officialStateHydrated]);
 
   /** Tableau principal (HTML5) */
   const [draggingId, setDraggingId] = useState<string | null>(null);
