@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createElement } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { getServerSession } from "next-auth";
@@ -9,8 +9,9 @@ import {
   type CannesPlanningPdfEvent,
   type CannesPlanningPdfPresence,
 } from "@/lib/cannes/planningCannesPdfDocument";
+import { filenameSlugForFlags, parseCannesPdfSectionsParam } from "@/lib/cannes/planningPdfSections";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
@@ -36,6 +37,8 @@ export async function GET() {
     const teamPresences = raw.filter((p) => p.user);
     const talentPresences = raw.filter((p) => p.talent);
 
+    const sectionFlags = parseCannesPdfSectionsParam(request.nextUrl.searchParams.get("sections"));
+
     const events: CannesPlanningPdfEvent[] = eventsList.map((e) => ({
       id: e.id,
       date: e.date.toISOString(),
@@ -56,10 +59,13 @@ export async function GET() {
         talentPresences,
         events,
         generatedAt: new Date(),
+        includeTeam: sectionFlags.team,
+        includeTalents: sectionFlags.talents,
+        includeEvents: sectionFlags.events,
       }) as any
     );
 
-    const filename = `cannes-2026-planning-complet-${new Date().toISOString().slice(0, 10)}.pdf`;
+    const filename = `cannes-2026-${filenameSlugForFlags(sectionFlags)}-${new Date().toISOString().slice(0, 10)}.pdf`;
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {

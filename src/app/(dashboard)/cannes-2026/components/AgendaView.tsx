@@ -6,7 +6,7 @@ import Modal from "./Modal";
 import EventForm from "./forms/EventForm";
 import WeekCalendarView from "./WeekCalendarView";
 import AgendaListView from "./AgendaListView";
-import { downloadCannesPlanningPdf } from "../downloadPlanningPdf";
+import PlanningPdfExportModal from "./PlanningPdfExportModal";
 import type { CannesEvent, CannesPresence } from "../types";
 
 type Props = { events: CannesEvent[]; presences: CannesPresence[]; isAdmin: boolean };
@@ -40,13 +40,11 @@ export default function AgendaView({ events, presences, isAdmin }: Props) {
               <List size={14} /> Liste
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => void downloadCannesPlanningPdf()}
-            className="rounded-full border border-[#E5E0D8] bg-white px-4 py-2 text-xs font-medium text-[#1A1110] hover:bg-[#F5EBE0]"
-          >
-            Exporter PDF (complet)
-          </button>
+          <PlanningPdfExportModal
+            defaults={{ team: false, talents: false, events: true }}
+            buttonLabel="Exporter PDF…"
+            buttonClassName="rounded-full border border-[#E5E0D8] bg-white px-4 py-2 text-xs font-medium text-[#1A1110] hover:bg-[#F5EBE0]"
+          />
         </div>
 
         {isAdmin && (

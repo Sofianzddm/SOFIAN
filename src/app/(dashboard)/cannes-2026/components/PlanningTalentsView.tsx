@@ -5,7 +5,7 @@ import { CANNES_2026_DAYS } from "@/lib/cannes/dates";
 import { toast } from "sonner";
 import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
-import { downloadCannesPlanningPdf } from "../downloadPlanningPdf";
+import PlanningPdfExportModal from "./PlanningPdfExportModal";
 import type { CannesPresence } from "../types";
 type Props = { presences: CannesPresence[]; isAdmin: boolean };
 
@@ -42,13 +42,10 @@ export default function PlanningTalentsView({ presences, isAdmin }: Props) {
       <div className="mb-4 flex items-center justify-between">
         <p className="font-medium text-[#1A1110]">{rows.length} talents sur place</p>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void downloadCannesPlanningPdf()}
-            className="rounded border border-[#E5E0D8] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]"
-          >
-            Exporter PDF (complet)
-          </button>
+          <PlanningPdfExportModal
+            defaults={{ team: false, talents: true, events: false }}
+            buttonLabel="Exporter PDF…"
+          />
           <button
             type="button"
             onClick={() => void exportTalentsExcel()}

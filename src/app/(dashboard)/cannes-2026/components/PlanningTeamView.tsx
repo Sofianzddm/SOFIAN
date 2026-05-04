@@ -5,7 +5,7 @@ import { CANNES_2026_DAYS, isUtcDayInIsoRange } from "@/lib/cannes/dates";
 import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
 import TeamUnavailabilitiesEditor from "./TeamUnavailabilitiesEditor";
-import { downloadCannesPlanningPdf } from "../downloadPlanningPdf";
+import PlanningPdfExportModal from "./PlanningPdfExportModal";
 import type { CannesPresence } from "../types";
 type Props = { presences: CannesPresence[]; isAdmin: boolean };
 
@@ -24,13 +24,10 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="font-medium text-[#1A1110]">{rows.length} collaborateurs sur place</p>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void downloadCannesPlanningPdf()}
-            className="rounded border border-[#E5E0D8] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]"
-          >
-            Exporter PDF (equipe + talents)
-          </button>
+          <PlanningPdfExportModal
+            defaults={{ team: true, talents: false, events: false }}
+            buttonLabel="Exporter PDF…"
+          />
           {isAdmin && (
             <button
               type="button"
