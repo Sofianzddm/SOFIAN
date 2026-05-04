@@ -5,6 +5,7 @@ import { CANNES_2026_DAYS, isUtcDayInIsoRange } from "@/lib/cannes/dates";
 import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
 import TeamUnavailabilitiesEditor from "./TeamUnavailabilitiesEditor";
+import { downloadCannesPlanningPdf } from "../downloadPlanningPdf";
 import type { CannesPresence } from "../types";
 type Props = { presences: CannesPresence[]; isAdmin: boolean };
 
@@ -22,25 +23,32 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
     <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="font-medium text-[#1A1110]">{rows.length} collaborateurs sur place</p>
-        {isAdmin && (
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setCreatingPresence(true)}
-            className="rounded bg-[#1A1110] px-3 py-2 text-sm text-[#F5EBE0] hover:bg-[#C08B8B]"
+            type="button"
+            onClick={() => void downloadCannesPlanningPdf()}
+            className="rounded border border-[#E5E0D8] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]"
           >
-            + Ajouter une presence
+            Exporter PDF (equipe + talents)
           </button>
-        )}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setCreatingPresence(true)}
+              className="rounded bg-[#1A1110] px-3 py-2 text-sm text-[#F5EBE0] hover:bg-[#C08B8B]"
+            >
+              + Ajouter une presence
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-4 text-xs text-[#1A1110]/70">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-6 rounded bg-[#F5EBE0]" /> Hors présence
+          <span className="inline-block h-2 w-6 rounded bg-[#C08B8B]" /> Sur place et disponible
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-6 rounded bg-[#C08B8B]" /> Sur place
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-6 rounded bg-[#7C2D12]" /> Indisponible
+          <span className="inline-block h-2 w-6 rounded bg-[#1A1110]" /> Absent (hors dates presence ou absence declaree)
         </span>
       </div>
 
@@ -60,15 +68,13 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
             </p>
             <div className="mt-2 grid grid-cols-12 gap-1">
               {CANNES_2026_DAYS.map((d) => {
-                const active = new Date(p.arrivalDate) <= d && new Date(p.departureDate) >= d;
-                const unavs = p.teamUnavailabilities ?? [];
-                const blocked =
-                  active && unavs.some((u) => isUtcDayInIsoRange(d, u.startDate, u.endDate));
-                const cls = blocked
-                  ? "h-2 rounded bg-[#7C2D12]"
-                  : active
-                    ? "h-2 rounded bg-[#C08B8B]"
-                    : "h-2 rounded bg-[#F5EBE0]";
+                const onPresenceWindow =
+                  new Date(p.arrivalDate) <= d && new Date(p.departureDate) >= d;
+                const absenceDay = (p.teamUnavailabilities ?? []).some((u) =>
+                  isUtcDayInIsoRange(d, u.startDate, u.endDate)
+                );
+                const disponible = onPresenceWindow && !absenceDay;
+                const cls = disponible ? "h-2 rounded bg-[#C08B8B]" : "h-2 rounded bg-[#1A1110]";
                 return <div key={d.toISOString()} className={cls} />;
               })}
             </div>

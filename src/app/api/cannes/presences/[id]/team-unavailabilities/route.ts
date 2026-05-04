@@ -6,10 +6,6 @@ function utcDayKey(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-function rangesOverlapDayKeys(startA: Date, endA: Date, startB: Date, endB: Date) {
-  return utcDayKey(startA) <= utcDayKey(endB) && utcDayKey(endA) >= utcDayKey(startB);
-}
-
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, ctx: RouteCtx) {
@@ -40,13 +36,6 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
   }
   if (utcDayKey(startDate) > utcDayKey(endDate)) {
     return NextResponse.json({ error: "La date de début doit être avant la fin" }, { status: 400 });
-  }
-
-  if (!rangesOverlapDayKeys(startDate, endDate, presence.arrivalDate, presence.departureDate)) {
-    return NextResponse.json(
-      { error: "La période doit chevaucher les dates de présence sur place" },
-      { status: 400 }
-    );
   }
 
   const row = await prisma.cannesTeamUnavailability.create({

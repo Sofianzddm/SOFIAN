@@ -68,7 +68,7 @@ export default function TeamUnavailabilitiesEditor({ presence }: Props) {
     <div className="mt-6 border-t border-[#E5E0D8] pt-4">
       <p className="text-sm font-medium text-[#1A1110]">Indisponibilités</p>
       <p className="mt-1 text-xs text-[#1A1110]/60">
-        Périodes où la personne est sur le lieu mais ne peut pas être planifiée (congés, mission, etc.).
+        {`Dates libres (avant, pendant ou après la présence sur place). Le bandeau passe en noir dès qu'un jour est hors présence enregistrée ou couvert par une de ces périodes.`}
       </p>
 
       {list.length > 0 && (
