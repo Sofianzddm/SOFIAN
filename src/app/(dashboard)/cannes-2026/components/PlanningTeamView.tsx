@@ -27,6 +27,9 @@ import type { CannesPresence, CannesTeamUnavailability } from "../types";
 
 type Props = { presences: CannesPresence[]; isAdmin: boolean };
 
+/** Données drag natif (tableau par ligne). */
+const MIME = "application/x-cannes-presence-id";
+
 const DOCK_ID = "dock" as const;
 
 function utcDayKey(d: Date) {
@@ -45,6 +48,13 @@ function cellState(p: CannesPresence, day: Date) {
   );
   const disponible = onPresenceWindow && !absenceDay;
   return { onPresenceWindow, absenceDay, disponible };
+}
+
+/** Grille : vert = dispo ; rouge = indispo (ne pas placer) ; gris = hors fenêtre sur place. */
+function cellSurfaceClass(st: ReturnType<typeof cellState>) {
+  if (st.disponible) return "bg-[#4F9D6E]";
+  if (st.onPresenceWindow && st.absenceDay) return "bg-[#C84C4C]";
+  return "bg-[#D8D3CC]";
 }
 
 function coveringUnavailability(
@@ -282,11 +292,197 @@ function OverlayCard({ presence }: { presence: CannesPresence }) {
   );
 }
 
+function TeamKanbanBoard({
+  rows,
+  isAdmin,
+  busyKey,
+  presenceById,
+  addSingleDay,
+  removeSingleDayIfExact,
+  router,
+  runWithBusyKanban,
+  onOpenPresence,
+  sensors,
+  overlay,
+  setOverlay,
+}: {
+  rows: CannesPresence[];
+  isAdmin: boolean;
+  busyKey: string | null;
+  presenceById: Map<string, CannesPresence>;
+  addSingleDay: (presence: CannesPresence, day: Date) => Promise<boolean>;
+  removeSingleDayIfExact: (presence: CannesPresence, day: Date) => Promise<boolean>;
+  router: ReturnType<typeof useRouter>;
+  runWithBusyKanban: (key: string, fn: () => Promise<void>) => Promise<void>;
+  onOpenPresence: (id: string) => void;
+  sensors: ReturnType<typeof useSensors>;
+  overlay: null | { mode: "pool" | "chip"; presence: CannesPresence; dayKey?: string };
+  setOverlay: React.Dispatch<
+    React.SetStateAction<
+      null | { mode: "pool"; presence: CannesPresence } | { mode: "chip"; presence: CannesPresence; dayKey: string }
+    >
+  >;
+}) {
+  const onDragStart = useCallback(
+    (e: DragStartEvent) => {
+      const id = String(e.active.id);
+      const pid = parsePoolId(id);
+      if (pid) {
+        const p = presenceById.get(pid);
+        if (p) setOverlay({ mode: "pool", presence: p });
+        return;
+      }
+      const chip = parseChipId(id);
+      if (chip) {
+        const p = presenceById.get(chip.presenceId);
+        if (p) setOverlay({ mode: "chip", presence: p, dayKey: chip.dayKey });
+      }
+    },
+    [presenceById, setOverlay]
+  );
+
+  const onDragEnd = useCallback(
+    (e: DragEndEvent) => {
+      setOverlay(null);
+      const { active, over } = e;
+      if (!over || !isAdmin) return;
+
+      const activeId = String(active.id);
+      const overId = String(over.id);
+      const overDayKey = parseDayId(overId);
+      const overDock = overId === DOCK_ID;
+      const pidPool = parsePoolId(activeId);
+      const chip = parseChipId(activeId);
+
+      void runWithBusyKanban(overDayKey ? `col:${overDayKey}` : "dock", async () => {
+        if (pidPool) {
+          const presence = presenceById.get(pidPool);
+          if (!presence) return;
+          if (overDock) return;
+          if (overDayKey) {
+            const day = dayFromKey(overDayKey);
+            if (!day) return;
+            const ok = await addSingleDay(presence, day);
+            if (ok) router.refresh();
+          }
+          return;
+        }
+
+        if (chip) {
+          const presence = presenceById.get(chip.presenceId);
+          if (!presence) return;
+          const fromDay = dayFromKey(chip.dayKey);
+          if (!fromDay) return;
+
+          if (overDock) {
+            const changed = await removeSingleDayIfExact(presence, fromDay);
+            if (changed) router.refresh();
+            return;
+          }
+
+          if (overDayKey) {
+            if (overDayKey === chip.dayKey) return;
+            const toDay = dayFromKey(overDayKey);
+            if (!toDay) return;
+
+            const toState = cellState(presence, toDay);
+            if (!toState.onPresenceWindow) {
+              toast.error("Impossible — pas sur place ce jour-là");
+              return;
+            }
+            if (!toState.disponible) {
+              toast.error("Impossible — déjà indisponible sur ce jour");
+              return;
+            }
+
+            const removed = await removeSingleDayIfExact(presence, fromDay);
+            if (!removed) return;
+            const ok = await addSingleDay(presence, toDay);
+            if (ok) router.refresh();
+            else router.refresh();
+          }
+        }
+      });
+    },
+    [addSingleDay, isAdmin, presenceById, removeSingleDayIfExact, router, runWithBusyKanban, setOverlay]
+  );
+
+  const board = (
+    <div className="flex gap-2 overflow-x-auto pb-2">
+      <DockColumn isAdmin={isAdmin} busyKey={busyKey}>
+        {rows.map((p) => (
+          <PoolCard
+            key={p.id}
+            presence={p}
+            disabled={!isAdmin}
+            onOpen={() => onOpenPresence(p.id)}
+          />
+        ))}
+      </DockColumn>
+
+      {CANNES_2026_DAYS.map((d) => {
+        const dayKey = utcDayKey(d);
+        const entries = rows
+          .map((p) => {
+            const st = cellState(p, d);
+            if (!st.onPresenceWindow || !st.absenceDay) return null;
+            const cov = coveringUnavailability(p, d);
+            if (!cov) return null;
+            return { presence: p, kind: cov.kind as "single" | "range" };
+          })
+          .filter(Boolean) as { presence: CannesPresence; kind: "single" | "range" }[];
+
+        return (
+          <DayColumn key={dayKey} dayKey={dayKey} day={d} isAdmin={isAdmin} busyKey={busyKey}>
+            {entries.length === 0 ? (
+              <p className="py-4 text-center text-[10px] text-[#1A1110]/40">—</p>
+            ) : (
+              entries.map(({ presence, kind }) => (
+                <ColumnChip
+                  key={`${presence.id}-${dayKey}`}
+                  presence={presence}
+                  dayKey={dayKey}
+                  kind={kind}
+                  disabled={!isAdmin}
+                  onOpen={() => onOpenPresence(presence.id)}
+                />
+              ))
+            )}
+          </DayColumn>
+        );
+      })}
+    </div>
+  );
+
+  return isAdmin ? (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
+      {board}
+      <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.25,1,0.5,1)" }}>
+        {overlay ? <OverlayCard presence={overlay.presence} /> : null}
+      </DragOverlay>
+    </DndContext>
+  ) : (
+    board
+  );
+}
+
 export default function PlanningTeamView({ presences, isAdmin }: Props) {
   const router = useRouter();
   const [creatingPresence, setCreatingPresence] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  /** Tableau principal (HTML5) */
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [hoverDrop, setHoverDrop] = useState<{ presenceId: string; dayKey: string } | null>(null);
+  const [tableBusyKey, setTableBusyKey] = useState<string | null>(null);
+
+  /** Kanban (@dnd-kit) */
+  const [kanbanBusyKey, setKanbanBusyKey] = useState<string | null>(null);
   const [overlay, setOverlay] = useState<
     | null
     | { mode: "pool"; presence: CannesPresence }
@@ -356,151 +552,106 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
     return false;
   }, []);
 
-  const runWithBusy = useCallback(
-    async (key: string, fn: () => Promise<void>) => {
-      setBusyKey(key);
+  const runWithBusyKanban = useCallback(async (key: string, fn: () => Promise<void>) => {
+    setKanbanBusyKey(key);
+    try {
+      await fn();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erreur réseau");
+    } finally {
+      setKanbanBusyKey(null);
+    }
+  }, []);
+
+  const applyDropTable = useCallback(
+    async (presence: CannesPresence, day: Date) => {
+      const dayKey = utcDayKey(day);
+      const lock = `${presence.id}:${dayKey}`;
+      setTableBusyKey(lock);
       try {
-        await fn();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Erreur réseau");
-      } finally {
-        setBusyKey(null);
-      }
-    },
-    []
-  );
+        const { onPresenceWindow, absenceDay, disponible } = cellState(presence, day);
 
-  const onDragStart = useCallback(
-    (e: DragStartEvent) => {
-      const id = String(e.active.id);
-      const pid = parsePoolId(id);
-      if (pid) {
-        const p = presenceById.get(pid);
-        if (p) setOverlay({ mode: "pool", presence: p });
-        return;
-      }
-      const chip = parseChipId(id);
-      if (chip) {
-        const p = presenceById.get(chip.presenceId);
-        if (p) setOverlay({ mode: "chip", presence: p, dayKey: chip.dayKey });
-      }
-    },
-    [presenceById]
-  );
-
-  const onDragEnd = useCallback(
-    (e: DragEndEvent) => {
-      setOverlay(null);
-      const { active, over } = e;
-      if (!over || !isAdmin) return;
-
-      const activeId = String(active.id);
-      const overId = String(over.id);
-
-      const overDayKey = parseDayId(overId);
-      const overDock = overId === DOCK_ID;
-
-      const pidPool = parsePoolId(activeId);
-      const chip = parseChipId(activeId);
-
-      void runWithBusy(overDayKey ? `col:${overDayKey}` : "dock", async () => {
-        if (pidPool) {
-          const presence = presenceById.get(pidPool);
-          if (!presence) return;
-          if (overDock) return;
-          if (overDayKey) {
-            const day = dayFromKey(overDayKey);
-            if (!day) return;
-            const ok = await addSingleDay(presence, day);
-            if (ok) router.refresh();
-          }
+        if (!onPresenceWindow) {
+          toast.error("Impossible — pas sur place ce jour-là", {
+            description: "Tu ne peux marquer une indispo que dans la fenêtre d’arrivée / départ.",
+          });
           return;
         }
 
-        if (chip) {
-          const presence = presenceById.get(chip.presenceId);
-          if (!presence) return;
-          const fromDay = dayFromKey(chip.dayKey);
-          if (!fromDay) return;
+        if (disponible) {
+          const res = await fetch(`/api/cannes/presences/${presence.id}/team-unavailabilities`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ startDate: dayKey, endDate: dayKey, label: null }),
+          });
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            throw new Error((j as { error?: string }).error || "Erreur");
+          }
+          toast.success("Journée marquée indisponible");
+          router.refresh();
+          return;
+        }
 
-          if (overDock) {
-            const changed = await removeSingleDayIfExact(presence, fromDay);
-            if (changed) router.refresh();
+        if (absenceDay) {
+          const list = presence.teamUnavailabilities ?? [];
+          const exact = list.find((u) => isoDayKey(u.startDate) === dayKey && isoDayKey(u.endDate) === dayKey);
+          if (exact) {
+            const res = await fetch(`/api/cannes/team-unavailabilities/${exact.id}`, { method: "DELETE" });
+            if (!res.ok) throw new Error();
+            toast.success("Indispo retirée pour ce jour");
+            router.refresh();
             return;
           }
-
-          if (overDayKey) {
-            if (overDayKey === chip.dayKey) return;
-            const toDay = dayFromKey(overDayKey);
-            if (!toDay) return;
-
-            const toState = cellState(presence, toDay);
-            if (!toState.onPresenceWindow) {
-              toast.error("Impossible — pas sur place ce jour-là");
-              return;
-            }
-            if (!toState.disponible) {
-              toast.error("Impossible — déjà indisponible sur ce jour");
-              return;
-            }
-
-            const removed = await removeSingleDayIfExact(presence, fromDay);
-            if (!removed) return;
-            const ok = await addSingleDay(presence, toDay);
-            if (ok) router.refresh();
-            else router.refresh();
+          const spanning = list.find((u) => isUtcDayInIsoRange(day, u.startDate, u.endDate));
+          if (spanning) {
+            toast.error("Impossible ici", {
+              description:
+                "Ce jour fait partie d’un créneau multi-jours. Ouvre la fiche pour l’ajuster ou le retirer.",
+            });
+            return;
           }
         }
-      });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Erreur réseau");
+      } finally {
+        setTableBusyKey(null);
+      }
     },
-    [addSingleDay, isAdmin, presenceById, removeSingleDayIfExact, router, runWithBusy]
+    [router]
   );
 
-  const board = (
-    <div className="flex gap-2 overflow-x-auto pb-2">
-      <DockColumn isAdmin={isAdmin} busyKey={busyKey}>
-        {rows.map((p) => (
-          <PoolCard
-            key={p.id}
-            presence={p}
-            disabled={!isAdmin}
-            onOpen={() => setSelectedId(p.id)}
-          />
-        ))}
-      </DockColumn>
+  const onDragStartNative = useCallback(
+    (e: React.DragEvent, presenceId: string) => {
+      if (!isAdmin) return;
+      e.dataTransfer.setData(MIME, presenceId);
+      e.dataTransfer.setData("text/plain", presenceId);
+      e.dataTransfer.effectAllowed = "copyMove";
+      setDraggingId(presenceId);
+    },
+    [isAdmin]
+  );
 
-      {CANNES_2026_DAYS.map((d) => {
-        const dayKey = utcDayKey(d);
-        const entries = rows
-          .map((p) => {
-            const st = cellState(p, d);
-            if (!st.onPresenceWindow || !st.absenceDay) return null;
-            const cov = coveringUnavailability(p, d);
-            if (!cov) return null;
-            return { presence: p, kind: cov.kind as "single" | "range" };
-          })
-          .filter(Boolean) as { presence: CannesPresence; kind: "single" | "range" }[];
+  const onDragEndNative = useCallback(() => {
+    setDraggingId(null);
+    setHoverDrop(null);
+  }, []);
 
-        return (
-          <DayColumn key={dayKey} dayKey={dayKey} day={d} isAdmin={isAdmin} busyKey={busyKey}>
-            {entries.length === 0 ? (
-              <p className="py-4 text-center text-[10px] text-[#1A1110]/40">—</p>
-            ) : (
-              entries.map(({ presence, kind }) => (
-                <ColumnChip
-                  key={`${presence.id}-${dayKey}`}
-                  presence={presence}
-                  dayKey={dayKey}
-                  kind={kind}
-                  disabled={!isAdmin}
-                  onOpen={() => setSelectedId(presence.id)}
-                />
-              ))
-            )}
-          </DayColumn>
-        );
-      })}
-    </div>
+  const onDropCell = useCallback(
+    (e: React.DragEvent, presence: CannesPresence, day: Date) => {
+      e.preventDefault();
+      if (!isAdmin) return;
+      const raw = e.dataTransfer.getData(MIME) || e.dataTransfer.getData("text/plain");
+      if (raw !== presence.id) {
+        toast.message("Glisse sur la ligne de la même personne", {
+          description: "Chaque ligne = un collaborateur ; dépose sur un de ses jours.",
+        });
+        return;
+      }
+      void applyDropTable(presence, day);
+      onDragEndNative();
+    },
+    [applyDropTable, isAdmin, onDragEndNative]
   );
 
   return (
@@ -524,52 +675,41 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
         </div>
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-4 text-xs text-[#1A1110]/70">
+      <div className="mb-3 flex flex-wrap gap-3 text-xs text-[#1A1110]/70">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-6 rounded bg-[#C08B8B]" /> Sur place et disponible
+          <span className="inline-block h-2 w-6 rounded bg-[#4F9D6E]" /> Sur place et disponible
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-6 rounded bg-[#1A1110]" /> Indispo / hors présence
+          <span className="inline-block h-2 w-6 rounded bg-[#C84C4C]" /> Sur place, indisponible (pas de placement)
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-6 rounded bg-[#D8D3CC]" /> Hors fenêtre de présence
         </span>
       </div>
 
       {isAdmin && (
         <div className="mb-4 rounded-lg border border-dashed border-[#C08B8B]/60 bg-[#F5EBE0]/80 px-3 py-2 text-sm text-[#1A1110]/85">
-          <span className="font-medium text-[#1A1110]">Board Kanban · </span>
-          Glisse depuis la piscine vers un <em>jour</em> pour indiquer une indispo. Reprends une{" "}
-          <strong>carte jour</strong> (initiales) vers la piscine pour l’annuler, ou vers un{" "}
-          <strong>autre jour</strong> pour la déplacer. Tactile : appui long puis glisser. Créneaux
-          multi-jours : uniquement depuis la fiche.
+          <span className="font-medium text-[#1A1110]">Mode planning ludique · </span>
+          <strong className="text-[#4F9D6E]">Vert</strong> = disponible ; <strong className="text-[#C84C4C]">rouge</strong>{" "}
+          = indispo (tu ne peux pas placer). Glisse le cartouche sur un jour <em>vert</em> de ta ligne pour marquer
+          une indispo, ou sur un jour <em>rouge</em> pour retirer une journée seule. Gris = hors fenêtre sur place
+          (« Impossible »).
         </div>
       )}
 
-      {isAdmin ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-        >
-          {board}
-          <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.25,1,0.5,1)" }}>
-            {overlay ? <OverlayCard presence={overlay.presence} /> : null}
-          </DragOverlay>
-        </DndContext>
-      ) : (
-        board
-      )}
-
-      <div className="mt-4 overflow-x-auto rounded-lg border border-[#E5E0D8]">
-        <table className="w-full min-w-[640px] border-collapse text-[10px]">
-          <caption className="sr-only">Synthèse par personne</caption>
+      <div className="overflow-x-auto rounded-lg border border-[#E5E0D8]">
+        <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-[#E5E0D8] bg-[#F5EBE0]/60">
-              <th className="sticky left-0 z-[1] min-w-[100px] border-r border-[#E5E0D8] bg-[#F5EBE0]/95 px-1 py-1.5 text-left font-medium text-[#1A1110]/80">
-                Mini
+              <th className="sticky left-0 z-20 w-[140px] min-w-[140px] border-r border-[#E5E0D8] bg-[#F5EBE0]/95 px-2 py-2 text-left text-xs font-medium text-[#1A1110]/80">
+                Équipe
               </th>
               {CANNES_2026_DAYS.map((d) => (
-                <th key={utcDayKey(d)} className="px-0.5 py-1 font-medium text-[#1A1110]/70">
-                  {d.toLocaleDateString("fr-FR", { day: "numeric", month: "numeric" })}
+                <th key={utcDayKey(d)} className="px-1 py-2 text-center text-[10px] font-medium uppercase tracking-wide text-[#1A1110]/70">
+                  <div>{d.toLocaleDateString("fr-FR", { weekday: "short" })}</div>
+                  <div className="text-[11px] font-semibold normal-case text-[#1A1110]">
+                    {d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                  </div>
                 </th>
               ))}
             </tr>
@@ -577,23 +717,77 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
           <tbody>
             {rows.map((p) => {
               const label = personLabel(p);
+              const initials = personInitials(p);
               return (
                 <tr key={p.id} className="border-b border-[#E5E0D8] last:border-b-0">
-                  <td className="sticky left-0 z-[1] border-r border-[#E5E0D8] bg-white px-1 py-1">
+                  <td className="sticky left-0 z-10 border-r border-[#E5E0D8] bg-white px-2 py-2 align-middle">
                     <button
                       type="button"
                       onClick={() => setSelectedId(p.id)}
-                      className="max-w-[120px] truncate text-left text-[11px] font-medium text-[#1A1110] hover:underline"
+                      className="flex w-full min-w-0 items-center gap-2 rounded-lg text-left transition hover:bg-[#F5EBE0]/80"
                     >
-                      {label}
+                      <span
+                        draggable={isAdmin}
+                        onDragStart={(e) => onDragStartNative(e, p.id)}
+                        onDragEnd={onDragEndNative}
+                        className={`flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-full border-2 text-xs font-bold ${
+                          isAdmin
+                            ? "cursor-grab border-[#C08B8B] bg-[#C08B8B]/25 text-[#1A1110] active:cursor-grabbing"
+                            : "border-[#E5E0D8] bg-[#F5EBE0]/50 text-[#1A1110]/60"
+                        }`}
+                        title={isAdmin ? "Glisser vers un jour sur cette ligne" : undefined}
+                      >
+                        {initials}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-[#1A1110]">{label}</span>
+                        <span className="block truncate text-[10px] text-[#1A1110]/55">
+                          {new Date(p.arrivalDate).toLocaleDateString("fr-FR")} -{" "}
+                          {new Date(p.departureDate).toLocaleDateString("fr-FR")} · {p.hotel || "Hotel non renseigne"}
+                        </span>
+                      </span>
                     </button>
                   </td>
                   {CANNES_2026_DAYS.map((d) => {
-                    const { disponible } = cellState(p, d);
-                    const cls = disponible ? "bg-[#C08B8B]/90" : "bg-[#1A1110]";
+                    const st = cellState(p, d);
+                    const { onPresenceWindow } = st;
+                    const dayKey = utcDayKey(d);
+                    const isHover =
+                      hoverDrop?.presenceId === p.id && hoverDrop.dayKey === dayKey && draggingId === p.id;
+                    const invalidHover =
+                      isHover && draggingId === p.id && !onPresenceWindow && isAdmin;
+                    const busy = tableBusyKey === `${p.id}:${dayKey}`;
+                    const cls = cellSurfaceClass(st);
                     return (
-                      <td key={utcDayKey(d)} className="p-0.5">
-                        <div className={`mx-auto h-5 max-w-[36px] rounded-sm ${cls}`} title={utcDayKey(d)} />
+                      <td key={dayKey} className="p-1 align-middle">
+                        <div
+                          role={isAdmin ? "button" : undefined}
+                          aria-label={`${label} ${dayKey}`}
+                          onDragOver={(e) => {
+                            if (!isAdmin || draggingId !== p.id) return;
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "copy";
+                            setHoverDrop({ presenceId: p.id, dayKey });
+                          }}
+                          onDragLeave={(e) => {
+                            const next = e.relatedTarget as Node | null;
+                            if (!next || !e.currentTarget.contains(next)) {
+                              setHoverDrop((h) =>
+                                h?.presenceId === p.id && h.dayKey === dayKey ? null : h
+                              );
+                            }
+                          }}
+                          onDrop={(e) => onDropCell(e, p, d)}
+                          className={`relative flex h-12 min-h-[44px] w-full max-w-[52px] mx-auto items-center justify-center rounded-md transition ${cls} ${
+                            isAdmin && draggingId === p.id ? "ring-2 ring-offset-1" : ""
+                          } ${invalidHover ? "ring-red-600 ring-offset-2 ring-offset-white" : ""} ${
+                            isHover && !invalidHover ? "ring-2 ring-[#1A1110]/35 ring-offset-2 ring-offset-white" : ""
+                          } ${busy ? "opacity-60" : ""}`}
+                        >
+                          {busy ? (
+                            <span className="text-[10px] font-semibold text-[#1A1110]/55">…</span>
+                          ) : null}
+                        </div>
                       </td>
                     );
                   })}
@@ -605,8 +799,36 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
       </div>
 
       <p className="mt-3 text-center text-xs text-[#1A1110]/50">
-        Clic sur une carte ou une ligne du tableau pour la fiche (vol, hôtel, créneaux longs).
+        Clic sur une ligne pour ouvrir la fiche (vol, hôtel, créneaux longs).
       </p>
+
+      <div className="mt-8 border-t border-[#E5E0D8] pt-6">
+        <h3 className="mb-1 text-sm font-semibold text-[#1A1110]">Vue Kanban (glisser-déposer)</h3>
+        <p className="mb-4 text-xs text-[#1A1110]/60">
+          Même données que le tableau ci-dessus : piscine + colonnes par jour, pratique au tactile ou pour
+          visualiser les indispos groupées par date.
+        </p>
+        {isAdmin && (
+          <div className="mb-4 rounded-lg border border-dashed border-[#C08B8B]/40 bg-[#F5EBE0]/50 px-3 py-2 text-xs text-[#1A1110]/80">
+            Piscine → jour : indispo journée. Carte jour → piscine : retirer. Carte jour → autre jour :
+            déplacer. Créneaux multi-jours : fiche collaborateur.
+          </div>
+        )}
+        <TeamKanbanBoard
+          rows={rows}
+          isAdmin={isAdmin}
+          busyKey={kanbanBusyKey}
+          presenceById={presenceById}
+          addSingleDay={addSingleDay}
+          removeSingleDayIfExact={removeSingleDayIfExact}
+          router={router}
+          runWithBusyKanban={runWithBusyKanban}
+          onOpenPresence={setSelectedId}
+          sensors={sensors}
+          overlay={overlay}
+          setOverlay={setOverlay}
+        />
+      </div>
 
       <Modal open={creatingPresence} title="Ajouter une presence collaborateur" onClose={() => setCreatingPresence(false)}>
         <PresenceForm forcedType="user" onClose={() => setCreatingPresence(false)} />
