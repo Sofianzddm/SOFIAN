@@ -64,6 +64,7 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
   const role = currentUser.role;
   const canManage = role === "ADMIN" || role === "HEAD_OF_INFLUENCE";
   const isTmAssigne = collaboration.talent.managerId === currentUser.id;
+  const canUploadContract = canManage || isTmAssigne;
   const canComment = canManage || isTmAssigne;
   const canRead = canComment;
 
@@ -115,7 +116,7 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
         {statut === "AUCUN" && (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <p className="text-sm text-gray-400">Aucun contrat reçu.</p>
-            {canManage && (
+            {canUploadContract && (
               <>
                 <input
                   ref={fileInputRef}

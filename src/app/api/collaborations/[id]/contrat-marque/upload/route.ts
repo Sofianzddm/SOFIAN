@@ -25,10 +25,6 @@ export async function POST(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!["ADMIN", "HEAD_OF_INFLUENCE", "JURISTE"].includes(session.user.role)) {
-      return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
-    }
-
     const { id } = await params;
     const collaboration = await prisma.collaboration.findUnique({
       where: { id },
@@ -38,10 +34,21 @@ export async function POST(
         contratMarquePdfUrl: true,
         contratMarqueStatut: true,
         contratMarqueMode: true,
+        talent: {
+          select: {
+            managerId: true,
+          },
+        },
       },
     });
     if (!collaboration) {
       return NextResponse.json({ error: "Collaboration non trouvée" }, { status: 404 });
+    }
+    const canManageContract =
+      ["ADMIN", "HEAD_OF_INFLUENCE", "JURISTE"].includes(session.user.role) ||
+      (session.user.role === "TM" && collaboration.talent.managerId === session.user.id);
+    if (!canManageContract) {
+      return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
     }
 
     const formData = await request.formData();
