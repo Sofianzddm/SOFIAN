@@ -63,10 +63,6 @@ function getFestivalDayByKey(dayKey: string): Date | undefined {
   return CANNES_2026_DAYS.find((d) => parisDayKey(d) === dayKey);
 }
 
-function csvEscape(value: string) {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
 function presenceLabel(p: CannesPresence) {
   return `${p.talent?.prenom ?? ""} ${p.talent?.nom ?? ""}`.trim() || p.id;
 }
@@ -388,30 +384,37 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     }
   }
 
-  function exportRoomsReportCsv() {
-    const rows: string[] = [];
-    rows.push(
-      [
-        "date",
-        "chambre",
-        "capacite",
-        "occupation",
-        "composition",
-        "arrivees",
-        "departs",
-        "retours",
-        "restent",
-        "menage_statut",
-        "menage_detail",
-      ]
-        .map(csvEscape)
-        .join(",")
-    );
+  async function exportRoomsReportPdf() {
+    const { default: jsPDF } = await import("jspdf");
+    const pdf = new jsPDF("p", "mm", "a4");
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 10;
+    const maxWidth = pageWidth - margin * 2;
+    let y = margin;
 
+    const writeBlock = (text: string, size = 9, gapAfter = 2) => {
+      pdf.setFontSize(size);
+      const lines = pdf.splitTextToSize(text, maxWidth);
+      const blockHeight = lines.length * (size * 0.45) + gapAfter;
+      if (y + blockHeight > pageHeight - margin) {
+        pdf.addPage();
+        y = margin;
+      }
+      pdf.text(lines, margin, y);
+      y += blockHeight;
+    };
+
+    writeBlock(`Cannes 2026 - Export chambres (${new Date().toLocaleDateString("fr-FR")})`, 12, 3);
     const seenByRoom = new Map<string, Set<string>>();
 
     occupancyByDay.forEach((entry, index) => {
       const prevEntry = index > 0 ? occupancyByDay[index - 1] : null;
+      writeBlock(
+        `\n${formatParisDate(entry.day, { weekday: "long", day: "2-digit", month: "2-digit" }).toUpperCase()}`,
+        10,
+        1
+      );
 
       entry.roomOccupancy.forEach((room) => {
         const roomSeen = seenByRoom.get(room.roomId) || new Set<string>();
@@ -447,38 +450,17 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
           : partialCleaning
             ? "Changement partiel (au moins 1 occupant reste)"
             : "Aucun changement necessitant menage complet";
-
-        rows.push(
-          [
-            formatParisDate(entry.day, { weekday: "long", day: "2-digit", month: "2-digit" }),
-            room.label,
-            String(room.capacity),
-            `${room.occupants.length}/${room.capacity}`,
-            room.occupants.map(presenceLabel).join(" | "),
-            arrivals.map(presenceLabel).join(" | "),
-            departures.map(presenceLabel).join(" | "),
-            returns.map(presenceLabel).join(" | "),
-            stays.map(presenceLabel).join(" | "),
-            cleaningStatus,
-            cleaningDetail,
-          ]
-            .map(csvEscape)
-            .join(",")
-        );
+        writeBlock(`${room.label} - Occupation ${room.occupants.length}/${room.capacity}`, 9, 1);
+        writeBlock(`Composition: ${room.occupants.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
+        writeBlock(`Arrivees: ${arrivals.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
+        writeBlock(`Departs: ${departures.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
+        writeBlock(`Retours: ${returns.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
+        writeBlock(`Restent: ${stays.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
+        writeBlock(`Menage: ${cleaningStatus} - ${cleaningDetail}`, 8, 2);
       });
     });
-
-    const csvContent = rows.join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `cannes-2026-chambres-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success("Export chambres genere");
+    pdf.save(`cannes-2026-chambres-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+    toast.success("Export chambres PDF genere");
   }
 
   return (
@@ -522,10 +504,10 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
               {savingAll ? "Enregistrement..." : "Enregistrer toutes les affectations"}
             </button>
             <button
-              onClick={exportRoomsReportCsv}
+              onClick={() => void exportRoomsReportPdf()}
               className="rounded border border-[#1A1110] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]"
             >
-              Export chambres (arrivees/departs/retours/menage)
+              Export chambres PDF (arrivees/departs/retours/menage)
             </button>
           </div>
         )}
