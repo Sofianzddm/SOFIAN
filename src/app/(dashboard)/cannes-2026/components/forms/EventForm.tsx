@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { EVENT_TYPE_OPTIONS } from "../constants";
@@ -47,6 +47,8 @@ export default function EventForm({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [isDraggingPdf, setIsDraggingPdf] = useState(false);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
     date: initialData?.date
       ? new Date(initialData.date).toISOString().slice(0, 10)
@@ -85,6 +87,15 @@ export default function EventForm({
     } finally {
       setUploadingPdf(false);
     }
+  }
+
+  function handleDroppedPdf(file: File | null) {
+    if (!file) return;
+    if (!(file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+      toast.error("Le fichier doit etre un PDF");
+      return;
+    }
+    void uploadPdf(file);
   }
 
   async function submit() {
@@ -144,11 +155,41 @@ export default function EventForm({
           <input value={form.organizer} onChange={(e) => setForm((p) => ({ ...p, organizer: e.target.value }))} placeholder="Organisateur" className="rounded border border-[#E5E0D8] p-2" />
           <input value={form.dressCode} onChange={(e) => setForm((p) => ({ ...p, dressCode: e.target.value }))} placeholder="Dress code" className="rounded border border-[#E5E0D8] p-2" />
           <input type="url" value={form.invitationLink} onChange={(e) => setForm((p) => ({ ...p, invitationLink: e.target.value }))} placeholder="Lien invitation" className="rounded border border-[#E5E0D8] p-2 md:col-span-2" />
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => pdfInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                pdfInputRef.current?.click();
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDraggingPdf(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setIsDraggingPdf(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDraggingPdf(false);
+              handleDroppedPdf(e.dataTransfer.files?.[0] ?? null);
+            }}
+            className={`cursor-pointer rounded border border-dashed p-3 text-xs md:col-span-2 ${
+              isDraggingPdf ? "border-[#C08B8B] bg-[#FDF6F1]" : "border-[#E5E0D8] bg-[#FCFAF8]"
+            }`}
+          >
+            Glisse-depose ton PDF ici, ou clique pour le selectionner
+          </div>
           <input
+            ref={pdfInputRef}
             type="file"
             accept="application/pdf,.pdf"
-            onChange={(e) => void uploadPdf(e.target.files?.[0] ?? null)}
-            className="rounded border border-[#E5E0D8] p-2 md:col-span-2"
+            onChange={(e) => handleDroppedPdf(e.target.files?.[0] ?? null)}
+            className="hidden"
           />
           {uploadingPdf && <p className="text-xs text-[#1A1110]/60 md:col-span-2">Upload PDF en cours...</p>}
           <input type="url" value={form.pdfAttachmentUrl} onChange={(e) => setForm((p) => ({ ...p, pdfAttachmentUrl: e.target.value }))} placeholder="Piece jointe PDF (URL)" className="rounded border border-[#E5E0D8] p-2 md:col-span-2" />
