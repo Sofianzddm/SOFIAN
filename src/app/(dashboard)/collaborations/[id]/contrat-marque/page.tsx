@@ -3,7 +3,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { canAnnotateContratMarque, canReadContratMarqueReview } from "@/lib/contratMarqueAccess";
-import { annotationsForClient, commentairesForCurrentVersionOnly } from "@/lib/serializeContratMarqueReview";
+import {
+  annotationsForClient,
+  commentairesForCurrentVersionOnly,
+  livrablesForClient,
+} from "@/lib/serializeContratMarqueReview";
 import { buildContratMarqueVersionsForClient } from "@/lib/contratMarqueVersions";
 import ContratMarqueReviewClient from "@/components/contrat-marque/ContratMarqueReviewClient";
 
@@ -24,6 +28,7 @@ export default async function ContratMarqueReviewPage({
     include: {
       talent: true,
       marque: true,
+      livrables: { orderBy: { createdAt: "asc" } },
       contratMarqueAnnotations: { orderBy: { createdAt: "asc" } },
       contratMarqueCommentaires: { orderBy: { createdAt: "asc" } },
       contratMarqueVersions: {
@@ -52,6 +57,7 @@ export default async function ContratMarqueReviewPage({
       ? versions[versions.length - 1].annotations
       : annotationsForClient(collaboration.contratMarqueAnnotations);
   const commentaires = commentairesForCurrentVersionOnly(collaboration);
+  const livrables = livrablesForClient(collaboration.livrables);
 
   const currentUser = {
     id: user.id,
@@ -70,6 +76,7 @@ export default async function ContratMarqueReviewPage({
         readOnly={readOnly}
         initialAnnotations={initialAnnotations}
         initialCommentaires={commentaires}
+        livrables={livrables}
         versions={versions}
         showBackToCollab
       />

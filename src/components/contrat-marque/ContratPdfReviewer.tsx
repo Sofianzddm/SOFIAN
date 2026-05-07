@@ -32,7 +32,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { ContratMarqueVersionClient } from "@/lib/contratMarqueVersions";
 import { FixedPdfLoader } from "@/components/contrat-marque/FixedPdfLoader";
 import { PDFJS_DIST_WORKER_SRC } from "@/lib/pdfjsWorkerSrc";
-import { ChevronDown, ChevronUp, MessageSquare } from "lucide-react";
+import { ChevronDown, ChevronUp, MessageSquare, Package } from "lucide-react";
 
 const COLORS = [
   { label: "Jaune", value: "#FFE28F" },
@@ -62,6 +62,15 @@ type CommentRow = {
   createdAt: string;
 };
 
+type LivrableRow = {
+  id: string;
+  typeContenu: string;
+  label: string;
+  quantite: number;
+  description: string | null;
+  prixUnitaire: string;
+};
+
 type CollabShape = {
   id: string;
   reference: string;
@@ -86,6 +95,8 @@ export interface ContratPdfReviewerProps {
   readOnly?: boolean;
   initialAnnotations: AnnotationRow[];
   initialCommentaires: CommentRow[];
+  /** Livrables négociés sur la collaboration (référence pour la relecture). */
+  livrables?: LivrableRow[];
   /** Vide si pas encore de versioning (rétrocompat). */
   versions?: ContratMarqueVersionClient[];
   showBackToCollab?: boolean;
@@ -266,8 +277,10 @@ export default function ContratPdfReviewer({
   isJuristeContext,
   onStatutChange,
   versions: versionsProp,
+  livrables: livrablesProp,
 }: ContratPdfReviewerProps) {
   const versions = versionsProp ?? [];
+  const livrables = livrablesProp ?? [];
   const [selectedVersion, setSelectedVersion] = useState<ContratMarqueVersionClient | null>(() =>
     versions.length > 0 ? versions[versions.length - 1]! : null
   );
@@ -277,6 +290,7 @@ export default function ContratPdfReviewer({
   const [posting, setPosting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [infoOpen, setInfoOpen] = useState(true);
+  const [livrablesOpen, setLivrablesOpen] = useState(true);
   const highlighterRef = useRef<PdfHighlighter<IHighlight> | null>(null);
   const scrollToHighlightRef = useRef<((h: IHighlight) => void) | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1165,6 +1179,54 @@ export default function ContratPdfReviewer({
               ) : null}
             </section>
 
+            <section className="rounded-xl border border-gray-100 bg-gray-50/50">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium text-[#1A1110]"
+                onClick={() => setLivrablesOpen(!livrablesOpen)}
+              >
+                <span className="flex items-center gap-1.5">
+                  <Package className="h-4 w-4" />
+                  Livrables négociés
+                  <span className="text-[11px] font-normal text-gray-500">
+                    ({livrables.length})
+                  </span>
+                </span>
+                {livrablesOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+              {livrablesOpen ? (
+                <div className="px-3 pb-3 text-xs text-gray-700">
+                  {livrables.length === 0 ? (
+                    <p className="text-gray-500">Aucun livrable enregistré sur cette collaboration.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {livrables.map((l) => (
+                        <li
+                          key={l.id}
+                          className="flex items-start gap-2 rounded-lg border border-gray-100 bg-white px-2.5 py-1.5"
+                        >
+                          <span className="mt-0.5 inline-flex h-5 min-w-[28px] items-center justify-center rounded-md bg-[#1A1110] px-1.5 text-[11px] font-semibold text-white">
+                            {l.quantite}×
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-[#1A1110]">{l.label}</p>
+                            {l.description?.trim() ? (
+                              <p className="mt-0.5 text-[11px] text-gray-600 whitespace-pre-wrap">
+                                {l.description.trim()}
+                              </p>
+                            ) : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="mt-2 text-[10px] italic text-gray-500">
+                    Référence négociée : à comparer avec ce qui figure dans le contrat.
+                  </p>
+                </div>
+              ) : null}
+            </section>
+
             <section>
               <div className="mb-2 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-[#1A1110]">Annotations</h2>
@@ -1336,14 +1398,18 @@ export default function ContratPdfReviewer({
                   ))
                 )}
               </div>
-              {!readOnly && !isArchivedVersion ? (
+              {!isArchivedVersion ? (
                 <>
                   <textarea
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
                     rows={3}
                     className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
-                    placeholder="Message au fil général…"
+                    placeholder={
+                      readOnly
+                        ? "Laissez un message à l'équipe (visible par le juriste et l'agence)…"
+                        : "Message au fil général…"
+                    }
                   />
                   <button
                     type="button"

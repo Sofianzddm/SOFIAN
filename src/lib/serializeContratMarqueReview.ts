@@ -1,4 +1,49 @@
-import type { ContratMarqueAnnotation, ContratMarqueCommentaire } from "@prisma/client";
+import type {
+  CollabLivrable,
+  ContratMarqueAnnotation,
+  ContratMarqueCommentaire,
+} from "@prisma/client";
+
+const LIVRABLE_TYPE_LABELS: Record<string, string> = {
+  STORY: "Story",
+  STORY_CONCOURS: "Story Concours",
+  POST: "Post",
+  POST_CONCOURS: "Post Concours",
+  POST_COMMUN: "Post Commun",
+  POST_CROSSPOST: "IG Post Crosspost",
+  REEL: "Reel",
+  REEL_CROSSPOST: "IG Réel Crosspost",
+  REEL_CONCOURS: "IG Réel Jeu Concours",
+  TIKTOK_VIDEO: "Vidéo TikTok",
+  TIKTOK_VIDEO_CONCOURS: "TikTok Jeu Concours",
+  YOUTUBE_VIDEO: "Vidéo YouTube",
+  YOUTUBE_SHORT: "YouTube Short",
+  SNAPCHAT_STORY: "Snapchat Story",
+  SNAPCHAT_SPOTLIGHT: "Snapchat Spotlight",
+  EVENT: "Event",
+  SHOOTING: "Shooting",
+  AMBASSADEUR: "Ambassadeur",
+};
+
+export type LivrableRow = {
+  id: string;
+  typeContenu: string;
+  label: string;
+  quantite: number;
+  description: string | null;
+  prixUnitaire: string;
+};
+
+export function livrablesForClient(rows: CollabLivrable[]): LivrableRow[] {
+  return rows.map((l) => ({
+    id: l.id,
+    typeContenu: l.typeContenu,
+    label: LIVRABLE_TYPE_LABELS[l.typeContenu] ?? l.typeContenu,
+    quantite: l.quantite,
+    description: l.description,
+    prixUnitaire: l.prixUnitaire ? l.prixUnitaire.toString() : "",
+  }));
+}
 
 export type AnnotationRow = {
   id: string;
