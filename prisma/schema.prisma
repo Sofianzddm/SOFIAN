@@ -1470,11 +1470,38 @@ model DemandeEntrante {
   subject    String
   body       String   @db.Text
   date       DateTime
+  gmailThreadId  String?
+  gmailMessageId String?  @unique
+  talentEmail String?
+  talentName String?
+  category String?
+  confidence Float?
+  priority String? @default("MEDIUM")
+  extractedBrand String?
+  extractedBudget String?
+  extractedDeadline String?
+  extractedDeliverables String?
+  briefSummary String?
+  gmailSentMessageId String?
+  sentAt DateTime?
+  relance1SentAt DateTime?
+  relance2SentAt DateTime?
+  replied Boolean @default(false)
   status     String   @default("a_traiter")
   emailPret  String?  @db.Text
   sujetPret  String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model GmailToken {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  accessToken  String   @db.Text
+  refreshToken String   @db.Text
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model CastingListConfig {

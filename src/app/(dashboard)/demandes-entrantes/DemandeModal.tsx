@@ -37,6 +37,21 @@ export type DemandeEntrante = {
   status: string;
   emailPret: string | null;
   sujetPret: string | null;
+  talentEmail?: string | null;
+  talentName?: string | null;
+  category?: string | null;
+  confidence?: number | null;
+  priority?: string | null;
+  extractedBrand?: string | null;
+  extractedBudget?: string | null;
+  extractedDeadline?: string | null;
+  extractedDeliverables?: string | null;
+  briefSummary?: string | null;
+  gmailSentMessageId?: string | null;
+  sentAt?: string | null;
+  relance1SentAt?: string | null;
+  relance2SentAt?: string | null;
+  replied?: boolean;
 };
 
 type PresskitTalent = {
@@ -248,6 +263,7 @@ export default function DemandeModal({
   const [subject, setSubject] = useState("");
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
   const [saving, setSaving] = useState(false);
+  const [sendingGmail, setSendingGmail] = useState(false);
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis | null>(null);
@@ -571,6 +587,61 @@ export default function DemandeModal({
     }
   };
 
+  const sendFromLeynaMailbox = async () => {
+    if (!demande) return;
+    if (!subject.trim()) {
+      onError("L’objet de la réponse est obligatoire.");
+      return;
+    }
+    const htmlBody = editor?.getHTML() || "";
+    if (!htmlBody.trim()) {
+      onError("Le contenu de l'email est obligatoire.");
+      return;
+    }
+
+    setSendingGmail(true);
+    try {
+      const saveRes = await fetch(`/api/demandes-entrantes/${encodeURIComponent(demande.id)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "en_cours",
+          sujetPret: subject.trim(),
+          emailPret: htmlBody,
+        }),
+      });
+      const saveJson = await saveRes.json().catch(() => ({}));
+      if (!saveRes.ok) {
+        throw new Error(
+          typeof saveJson.error === "string" ? saveJson.error : "Impossible de sauvegarder avant envoi."
+        );
+      }
+
+      const sendRes = await fetch(`/api/demandes-entrantes/${encodeURIComponent(demande.id)}/send`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const sendJson = await sendRes.json().catch(() => ({}));
+      if (!sendRes.ok) {
+        if (sendJson.error === "gmail_not_connected") {
+          throw new Error(
+            "La boite Gmail de Leyna n'est pas connectée. Demandez à l'admin de la connecter dans Settings → Gmail"
+          );
+        }
+        throw new Error(typeof sendJson.error === "string" ? sendJson.error : "Envoi Gmail impossible.");
+      }
+
+      onSaved();
+      onSuccess("✅ Email envoyé depuis leyna@glowupagence.fr");
+      onClose();
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : "Erreur inattendue.");
+    } finally {
+      setSendingGmail(false);
+    }
+  };
+
   if (!open || !demande) return null;
 
   return (
@@ -600,6 +671,24 @@ export default function DemandeModal({
               Brief reçu
             </h3>
             <div className="space-y-2 text-sm">
+              <div
+                className="rounded-xl p-3 text-xs space-y-1"
+                style={{ backgroundColor: "color-mix(in srgb, #C8F285 35%, white)" }}
+              >
+                <p className="font-semibold" style={{ color: LICORICE }}>
+                  INFO
+                </p>
+                <p style={{ color: LICORICE }}>
+                  🎯 {demande.briefSummary?.trim() || "Résumé non disponible"}
+                </p>
+                <p style={{ color: LICORICE }}>👤 Talent : {demande.talentName?.trim() || "—"}</p>
+                <p style={{ color: LICORICE }}>🏢 Marque : {demande.extractedBrand?.trim() || "—"}</p>
+                <p style={{ color: LICORICE }}>💰 Budget : {demande.extractedBudget?.trim() || "—"}</p>
+                <p style={{ color: LICORICE }}>⏰ Deadline : {demande.extractedDeadline?.trim() || "—"}</p>
+                <p style={{ color: LICORICE }}>
+                  📦 Livrables : {demande.extractedDeliverables?.trim() || "—"}
+                </p>
+              </div>
               <span
                 className="inline-flex items-center px-2 py-1 rounded-full"
                 style={{ backgroundColor: OLD_LACE, color: LICORICE }}
@@ -791,7 +880,7 @@ export default function DemandeModal({
           <button
             type="button"
             onClick={() => save("en_cours")}
-            disabled={saving}
+            disabled={saving || sendingGmail}
             className="px-4 py-2 rounded-xl border text-sm"
             style={{ borderColor: OLD_ROSE, color: LICORICE }}
           >
@@ -800,13 +889,25 @@ export default function DemandeModal({
           <button
             type="button"
             onClick={() => save("pret")}
-            disabled={saving}
-            className="px-4 py-2 rounded-xl text-sm font-medium inline-flex items-center gap-2"
-            style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+            disabled={saving || sendingGmail}
+            className="px-4 py-2 rounded-xl border text-sm font-medium inline-flex items-center gap-2"
+            style={{ borderColor: OLD_ROSE, color: LICORICE, backgroundColor: OLD_LACE }}
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            Envoyer à Leyna ✓
+            📩 Notifier Leyna
           </button>
+          {Boolean(subject.trim()) && Boolean((editor?.getHTML() || "").trim()) && (
+            <button
+              type="button"
+              onClick={() => void sendFromLeynaMailbox()}
+              disabled={saving || sendingGmail}
+              className="px-4 py-2 rounded-xl text-sm font-medium inline-flex items-center gap-2"
+              style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+            >
+              {sendingGmail && <Loader2 className="w-4 h-4 animate-spin" />}
+              {sendingGmail ? "Envoi en cours..." : "🚀 Envoyer depuis la boite de Leyna"}
+            </button>
+          )}
         </div>
       </div>
       {talentDetailOpen && (

@@ -17,6 +17,21 @@ type DemandeEntranteRow = {
   status: string;
   emailPret: string | null;
   sujetPret: string | null;
+  talentEmail: string | null;
+  talentName: string | null;
+  category: string | null;
+  confidence: number | null;
+  priority: string | null;
+  extractedBrand: string | null;
+  extractedBudget: string | null;
+  extractedDeadline: string | null;
+  extractedDeliverables: string | null;
+  briefSummary: string | null;
+  gmailSentMessageId: string | null;
+  sentAt: Date | null;
+  relance1SentAt: Date | null;
+  relance2SentAt: Date | null;
+  replied: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -35,7 +50,32 @@ export async function GET(request: NextRequest) {
     }
 
     const rows = (await prisma.$queryRaw`
-      SELECT "id", "from", "subject", "body", "date", "status", "emailPret", "sujetPret", "createdAt", "updatedAt"
+      SELECT
+        "id",
+        "from",
+        "subject",
+        "body",
+        "date",
+        "status",
+        "emailPret",
+        "sujetPret",
+        "talentEmail",
+        "talentName",
+        "category",
+        "confidence",
+        "priority",
+        "extractedBrand",
+        "extractedBudget",
+        "extractedDeadline",
+        "extractedDeliverables",
+        "briefSummary",
+        "gmailSentMessageId",
+        "sentAt",
+        "relance1SentAt",
+        "relance2SentAt",
+        "replied",
+        "createdAt",
+        "updatedAt"
       FROM "DemandeEntrante"
       ORDER BY "date" DESC
     `) as DemandeEntranteRow[];

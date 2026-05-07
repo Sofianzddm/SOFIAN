@@ -12,18 +12,38 @@ const OLD_LACE = "#F5EBE0";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "ADMIN"] as const;
 
-type StatusCol = "a_traiter" | "en_cours" | "pret";
+type StatusCol = "a_traiter" | "en_cours" | "pret" | "envoye" | "repondu";
 
 function colTitle(col: StatusCol): string {
   if (col === "a_traiter") return "🔴 À traiter";
   if (col === "en_cours") return "🟡 En cours";
-  return "🟢 Prêt";
+  if (col === "pret") return "🟢 Prêt";
+  if (col === "envoye") return "📤 Envoyé";
+  return "💬 Répondu";
 }
 
 function colColor(col: StatusCol): string {
   if (col === "a_traiter") return OLD_ROSE;
   if (col === "en_cours") return "#D1B070";
-  return TEA_GREEN;
+  if (col === "pret") return TEA_GREEN;
+  if (col === "envoye") return "#0EA5E9";
+  return "#14532D";
+}
+
+function categoryBadgeStyle(category: string | null | undefined): { bg: string; fg: string; label: string } {
+  if (category === "COLLAB_PAID") return { bg: TEA_GREEN, fg: LICORICE, label: "COLLAB_PAID" };
+  if (category === "COLLAB_GIFTING") return { bg: OLD_ROSE, fg: "#FFFFFF", label: "COLLAB_GIFTING" };
+  if (category === "PRESS_KIT") return { bg: "#E5E7EB", fg: LICORICE, label: "PRESS_KIT" };
+  if (category === "EVENT_INVITE") return { bg: "#BFDBFE", fg: LICORICE, label: "EVENT_INVITE" };
+  return { bg: "#E5E7EB", fg: LICORICE, label: category || "NON_CAT" };
+}
+
+function priorityBadgeStyle(priority: string | null | undefined): { bg: string; fg: string; label: string } {
+  if (priority === "URGENT") return { bg: "#DC2626", fg: "#FFFFFF", label: "URGENT" };
+  if (priority === "HIGH") return { bg: "#F97316", fg: "#FFFFFF", label: "HIGH" };
+  if (priority === "MEDIUM") return { bg: "#FACC15", fg: LICORICE, label: "MEDIUM" };
+  if (priority === "LOW") return { bg: "#9CA3AF", fg: "#FFFFFF", label: "LOW" };
+  return { bg: "#FACC15", fg: LICORICE, label: priority || "MEDIUM" };
 }
 
 export default function DemandesEntrantesPage() {
@@ -116,7 +136,9 @@ export default function DemandesEntrantesPage() {
     const a_traiter = demandes.filter((d) => d.status === "a_traiter");
     const en_cours = demandes.filter((d) => d.status === "en_cours");
     const pret = demandes.filter((d) => d.status === "pret");
-    return { a_traiter, en_cours, pret };
+    const envoye = demandes.filter((d) => d.status === "envoye" || d.status === "relance_terminee");
+    const repondu = demandes.filter((d) => d.status === "repondu" || d.replied === true);
+    return { a_traiter, en_cours, pret, envoye, repondu };
   }, [demandes]);
 
   const totalATraiter = cols.a_traiter.length;
@@ -176,8 +198,8 @@ export default function DemandesEntrantesPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {(["a_traiter", "en_cours", "pret"] as StatusCol[]).map((col) => {
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        {(["a_traiter", "en_cours", "pret", "envoye", "repondu"] as StatusCol[]).map((col) => {
           const items = cols[col];
           return (
             <section
@@ -216,9 +238,39 @@ export default function DemandesEntrantesPage() {
                         borderLeft: `4px solid ${colColor(col)}`,
                       }}
                     >
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                        <span
+                          className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                          style={{
+                            backgroundColor: categoryBadgeStyle(d.category).bg,
+                            color: categoryBadgeStyle(d.category).fg,
+                          }}
+                        >
+                          {categoryBadgeStyle(d.category).label}
+                        </span>
+                        <span
+                          className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                          style={{
+                            backgroundColor: priorityBadgeStyle(d.priority).bg,
+                            color: priorityBadgeStyle(d.priority).fg,
+                          }}
+                        >
+                          {priorityBadgeStyle(d.priority).label}
+                        </span>
+                      </div>
                       <p className="text-sm font-semibold truncate" style={{ color: LICORICE }}>
                         {d.from}
                       </p>
+                      {d.talentName ? (
+                        <p className="text-xs mt-1 font-medium" style={{ color: LICORICE }}>
+                          👤 {d.talentName}
+                        </p>
+                      ) : null}
+                      {d.extractedBrand ? (
+                        <p className="text-xs mt-1" style={{ color: LICORICE }}>
+                          🏢 {d.extractedBrand}
+                        </p>
+                      ) : null}
                       <p className="text-sm truncate mt-0.5" style={{ color: LICORICE }}>
                         {d.subject}
                       </p>
@@ -226,9 +278,42 @@ export default function DemandesEntrantesPage() {
                         {new Date(d.date).toLocaleString("fr-FR")}
                       </p>
                       <p className="text-xs mt-2 opacity-90" style={{ color: LICORICE }}>
-                        {(d.body || "").slice(0, 50)}
-                        {(d.body || "").length > 50 ? "…" : ""}
+                        {(d.briefSummary || "").trim() || "Résumé non disponible."}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {d.status === "envoye" && (
+                          <span
+                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                            style={{ backgroundColor: "#0EA5E9", color: "#E0F2FE" }}
+                          >
+                            📤 Envoyé
+                          </span>
+                        )}
+                        {d.relance1SentAt && (
+                          <span
+                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                            style={{ backgroundColor: "#1D4ED8", color: "#DBEAFE" }}
+                          >
+                            🔄 Relance 1
+                          </span>
+                        )}
+                        {d.relance2SentAt && (
+                          <span
+                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                            style={{ backgroundColor: "#1E40AF", color: "#DBEAFE" }}
+                          >
+                            🔄 Relance 2
+                          </span>
+                        )}
+                        {(d.replied || d.status === "repondu") && (
+                          <span
+                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                            style={{ backgroundColor: "#14532D", color: "#DCFCE7" }}
+                          >
+                            ✅ Répondu
+                          </span>
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
