@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CANNES_2026_DAYS } from "@/lib/cannes/dates";
+import { CANNES_2026_DAYS, isUtcDayInIsoRange } from "@/lib/cannes/dates";
 import { toast } from "sonner";
 import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
@@ -78,7 +78,7 @@ export default function PlanningTalentsView({ presences, isAdmin }: Props) {
             </p>
             <div className="mt-2 grid grid-cols-12 gap-1">
               {CANNES_2026_DAYS.map((d) => {
-                const active = new Date(p.arrivalDate) <= d && new Date(p.departureDate) >= d;
+                const active = isUtcDayInIsoRange(d, p.arrivalDate, p.departureDate);
                 return <div key={d.toISOString()} className={`h-2 rounded ${active ? "bg-[#C8F285]" : "bg-[#F5EBE0]"}`} />;
               })}
             </div>
