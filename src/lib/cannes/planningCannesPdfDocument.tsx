@@ -320,12 +320,19 @@ function shortDay(d: Date) {
 }
 
 /**
- * Présence sur site = comparaison par jour UTC (clé `YYYY-MM-DD`), comme la vue talents/équipe.
- * Avant : comparaison timestamp à minuit UTC, qui excluait du PDF un talent arrivé en cours
- * de journée (ex. arrivée le 12 à 18:00) alors que le kanban le comptait présent le 12.
+ * Présence sur site avec sémantique hôtelière (clés `YYYY-MM-DD`, UTC) :
+ *   - jour d'arrivée : INCLUS (le talent occupe la chambre dès la nuit d'arrivée)
+ *   - jour de départ : EXCLU (check-out → la chambre n'est plus occupée cette nuit-là)
+ *   - séjour d'un seul jour (arrivée = départ) : compté ce jour-là.
+ * Cette règle évite de fausser le compte des chambres du jour J quand des talents
+ * font leur check-out ce jour-là (ils n'occupent pas leur chambre la nuit suivante).
  */
 function isOnSite(p: CannesPlanningPdfPresence, day: Date) {
-  return isUtcDayInIsoRange(day, p.arrivalDate, p.departureDate);
+  const dayKey = day.toISOString().slice(0, 10);
+  const arrKey = new Date(p.arrivalDate).toISOString().slice(0, 10);
+  const depKey = new Date(p.departureDate).toISOString().slice(0, 10);
+  if (arrKey === depKey) return dayKey === arrKey;
+  return dayKey >= arrKey && dayKey < depKey;
 }
 
 function isTeamBlocked(p: CannesPlanningPdfPresence, day: Date) {
@@ -418,33 +425,75 @@ function isFestivalUtcDay(day: Date) {
   return FESTIVAL_DAY_KEYS.has(day.toISOString().slice(0, 10));
 }
 
-function namesPresentOnDay(
+type KanbanDayStatus = "in" | "stay" | "out";
+
+type KanbanDayItem = {
+  name: string;
+  status: KanbanDayStatus;
+};
+
+/**
+ * Renvoie pour le jour donné les check-in (arrivée), check-out (départ)
+ * et personnes sur place ce soir. Les départs sont volontairement réintroduits
+ * dans la colonne — bien qu'exclus de "sur place ce soir" — pour que l'œil voie
+ * "qui part aujourd'hui" sans avoir à parcourir les fiches.
+ */
+function kanbanItemsForDay(
   day: Date,
   team: CannesPlanningPdfPresence[],
   talents: CannesPlanningPdfPresence[],
   includeTeam: boolean,
   includeTalents: boolean,
   teamHiddenByDay?: Record<string, true>
-): string[] {
-  const items: { sort: string; line: string }[] = [];
+): KanbanDayItem[] {
+  const dayKey = day.toISOString().slice(0, 10);
+
+  function statusFor(p: CannesPlanningPdfPresence): KanbanDayStatus | null {
+    const arrKey = new Date(p.arrivalDate).toISOString().slice(0, 10);
+    const depKey = new Date(p.departureDate).toISOString().slice(0, 10);
+    if (arrKey > depKey) return null;
+    if (arrKey === depKey) return dayKey === arrKey ? "stay" : null;
+    if (dayKey === arrKey) return "in";
+    if (dayKey === depKey) return "out";
+    if (dayKey > arrKey && dayKey < depKey) return "stay";
+    return null;
+  }
+
+  const items: { sort: string; name: string; status: KanbanDayStatus }[] = [];
+
   if (includeTeam) {
     for (const p of team) {
-      if (!isOnSite(p, day)) continue;
+      const status = statusFor(p);
+      if (!status) continue;
       if (isTeamBlocked(p, day)) continue;
       if (isTeamHiddenByPlanningChoice(p, day, teamHiddenByDay)) continue;
       const name = displayName(p);
-      items.push({ sort: name.toLowerCase(), line: name });
+      items.push({ sort: name.toLowerCase(), name, status });
     }
   }
+
   if (includeTalents) {
     for (const p of talents) {
-      if (!isOnSite(p, day)) continue;
+      const status = statusFor(p);
+      if (!status) continue;
       const name = displayName(p);
-      items.push({ sort: name.toLowerCase(), line: name });
+      items.push({ sort: name.toLowerCase(), name, status });
     }
   }
-  items.sort((a, b) => a.sort.localeCompare(b.sort, "fr"));
-  return items.map((i) => i.line);
+
+  // Ordre d'affichage : check-out d'abord (rapide à voir), puis check-in, puis sur place.
+  const order: Record<KanbanDayStatus, number> = { out: 0, in: 1, stay: 2 };
+  items.sort((a, b) => {
+    if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+    return a.sort.localeCompare(b.sort, "fr");
+  });
+  return items.map((i) => ({ name: i.name, status: i.status }));
+}
+
+function kanbanItemLine(item: KanbanDayItem): string {
+  if (item.status === "in") return `↓ ${item.name} (check-in)`;
+  if (item.status === "out") return `↑ ${item.name} (check-out)`;
+  return `  ${item.name}`;
 }
 
 function formatWeekRangeFrance(monday: Date, sunday: Date) {
@@ -658,7 +707,9 @@ export function CannesPlanningPdfDocument({
             </View>
           ) : null}
           <Text style={styles.footNote}>
-            Les chiffres « sur place » suivent les dates d&apos;arrivée et de départ de chaque présence.
+            Les chiffres « sur place » suivent une logique hôtelière : jour d&apos;arrivée inclus,
+            jour de départ exclu (check-out → chambre libérée). Pour une présence d&apos;un seul jour,
+            ce jour-là est compté.
           </Text>
           <PdfPageFooter landscape />
         </Page>
@@ -686,18 +737,19 @@ export function CannesPlanningPdfDocument({
                   <View>
                     <Text style={styles.sectionTitle}>Présences sur la semaine</Text>
                     <Text style={styles.sectionHint}>
-                      {includeTeam && includeTalents
-                        ? "Équipe et talents mélangés, tri alphabétique — les indisponibilités ne sont pas listées ici"
+                      {(includeTeam && includeTalents
+                        ? "Équipe et talents — indisponibilités équipe exclues"
                         : includeTeam
-                          ? "Équipe uniquement — indisponibilités exclues de cette vue"
-                          : "Talents uniquement"}
+                          ? "Équipe uniquement — indisponibilités exclues"
+                          : "Talents uniquement") +
+                        " · ↓ check-in (arrivée) · ↑ check-out (départ)"}
                     </Text>
                   </View>
                 </View>
                 <View style={styles.weekGridFrame}>
                   <View style={styles.weekGridRow}>
                     {days.map((day, di) => {
-                      const names = namesPresentOnDay(
+                      const items = kanbanItemsForDay(
                         day,
                         teamPresences,
                         talentPresences,
@@ -709,8 +761,8 @@ export function CannesPlanningPdfDocument({
                       const wd = day.toLocaleDateString("fr-FR", { weekday: "long" });
                       const dayTitle = wd.charAt(0).toUpperCase() + wd.slice(1);
                       const num = day.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-                      const shown = names.slice(0, 24);
-                      const overflow = names.length - shown.length;
+                      const shown = items.slice(0, 24);
+                      const overflow = items.length - shown.length;
                       return (
                         <View
                           key={day.toISOString()}
@@ -722,11 +774,11 @@ export function CannesPlanningPdfDocument({
                         >
                           <Text style={styles.weekDayHead}>{dayTitle}</Text>
                           <Text style={styles.weekDateNum}>{num}</Text>
-                          {names.length === 0 ? (
+                          {items.length === 0 ? (
                             <Text style={styles.weekNamesEmpty}>—</Text>
                           ) : (
                             <Text style={styles.weekNamesBlock}>
-                              {shown.join("\n")}
+                              {shown.map((item) => kanbanItemLine(item)).join("\n")}
                               {overflow > 0 ? `\n+ ${overflow} autre(s)` : ""}
                             </Text>
                           )}

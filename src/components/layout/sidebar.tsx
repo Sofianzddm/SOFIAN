@@ -59,6 +59,12 @@ const menuItems = [
     roles: ["ADMIN"],
   },
   {
+    label: "Cannes 2026",
+    href: "/cannes-2026",
+    icon: Briefcase,
+    roles: ["ADMIN", "STRATEGY_PLANNER", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"],
+  },
+  {
     label: "Pipeline prospection",
     href: "/strategy/projet-individuel-talent/pipeline",
     icon: Briefcase,
@@ -386,6 +392,12 @@ export function Sidebar() {
           {
             label: "Pipeline prospection",
             href: "/strategy/projet-individuel-talent/pipeline",
+            icon: Briefcase,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "Cannes 2026",
+            href: "/cannes-2026",
             icon: Briefcase,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],

@@ -64,8 +64,13 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // STRATEGY_PLANNER : accès limité à /strategy/*
-  if (effectiveRole === "STRATEGY_PLANNER" && !pathname.startsWith("/strategy")) {
+  // STRATEGY_PLANNER : accès limité à /strategy/* + /cannes-2026*
+  const isCannes2026Path = pathname === "/cannes-2026" || pathname.startsWith("/cannes-2026/");
+  if (
+    effectiveRole === "STRATEGY_PLANNER" &&
+    !pathname.startsWith("/strategy") &&
+    !isCannes2026Path
+  ) {
     return NextResponse.redirect(new URL("/strategy/projets/villa-cannes", request.url));
   }
   // Exception: pipeline prospection accessible à HEAD_OF_SALES / CASTING_MANAGER / HEAD_OF
