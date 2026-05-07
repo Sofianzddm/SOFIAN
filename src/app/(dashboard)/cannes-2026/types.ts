@@ -49,6 +49,7 @@ export type CannesEvent = {
   contactInfo: string | null;
   dressCode: string | null;
   invitationLink: string | null;
+  pdfAttachmentUrl: string | null;
   description: string | null;
   notes: string | null;
   attendees: CannesEventAttendee[];
@@ -67,5 +68,6 @@ export type CannesContact = {
   arrivalDate: string | null;
   departureDate: string | null;
   category: string;
+  pdfAttachmentUrl: string | null;
   notes: string | null;
 };

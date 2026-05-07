@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
       arrivalDate: body.arrivalDate ? new Date(body.arrivalDate) : null,
       departureDate: body.departureDate ? new Date(body.departureDate) : null,
       category: body.category || "AUTRE",
+      pdfAttachmentUrl: body.pdfAttachmentUrl || null,
       notes: body.notes || null,
     },
   });

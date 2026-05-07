@@ -71,6 +71,7 @@ export default function ContactsView({ contacts, isAdmin }: Props) {
               {c.phone && <a href={`tel:${c.phone}`}>Tel</a>}
               {c.email && <a href={`mailto:${c.email}`}>Email</a>}
               {c.instagram && <a href={`https://instagram.com/${c.instagram.replace("@", "")}`} target="_blank">IG</a>}
+              {c.pdfAttachmentUrl && <a href={c.pdfAttachmentUrl} target="_blank" rel="noreferrer">PDF</a>}
             </div>
           </button>
         ))}
@@ -92,6 +93,14 @@ export default function ContactsView({ contacts, isAdmin }: Props) {
               <p>Email : {editingContact.email || "-"}</p>
               <p>Instagram : {editingContact.instagram || "-"}</p>
               <p>Hotel : {editingContact.hotel || "-"}</p>
+              {editingContact.pdfAttachmentUrl && (
+                <p>
+                  Piece jointe PDF :{" "}
+                  <a className="underline" href={editingContact.pdfAttachmentUrl} target="_blank" rel="noreferrer">
+                    Ouvrir le PDF
+                  </a>
+                </p>
+              )}
               {editingContact.notes && <p>{editingContact.notes}</p>}
             </div>
           )

@@ -127,9 +127,9 @@ function isExternalTeamPresence(presence: CannesPresence): boolean {
   );
 }
 
-function plusOneHour(time: string): string {
+function addMinutesToTime(time: string, minutesToAdd: number): string {
   const [h, m] = time.split(":").map(Number);
-  const total = Math.min(23 * 60 + 59, h * 60 + m + 60);
+  const total = Math.min(23 * 60 + 59, h * 60 + m + Math.max(1, minutesToAdd));
   const hh = Math.floor(total / 60);
   const mm = total % 60;
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
@@ -282,12 +282,13 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
       startTime: string,
       description: string,
       location: string,
-      presenceId: string
+      presenceId: string,
+      durationMinutes = 60
     ): CalendarRenderableEvent => ({
       id: `presence-${kind}-${dayDate}-${startTime}`,
       date: `${dayDate}T00:00:00.000Z`,
       startTime,
-      endTime: plusOneHour(startTime),
+      endTime: addMinutesToTime(startTime, durationMinutes),
       title,
       type: "AUTRE",
       location,
@@ -296,6 +297,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
       contactInfo: null,
       dressCode: null,
       invitationLink: null,
+      pdfAttachmentUrl: null,
       description,
       notes: null,
       attendees: [],
@@ -359,7 +361,8 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             arrivalHour || "10:00",
             `Arrivee equipe ${name} · heure ${arrivalHour || "non renseignee"}`,
             name,
-            presence.id
+            presence.id,
+            5
           )
         );
       }
@@ -374,7 +377,8 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             departureHour || "17:00",
             `Depart equipe ${name} · heure ${departureHour || "non renseignee"}`,
             name,
-            presence.id
+            presence.id,
+            5
           )
         );
       }
@@ -619,6 +623,9 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                     const widthPct = 100 / ev._totalColumns;
                     const leftPct = ev._column * widthPct;
                     const isSynthetic = !!ev.syntheticKind;
+                    const isTeamMovementLine =
+                      ev.syntheticKind === "team-arrival" || ev.syntheticKind === "team-departure";
+                    const visualHeight = isTeamMovementLine ? 4 : height;
 
                     return (
                       <button
@@ -629,12 +636,12 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                           else setSelectedEvent(ev);
                         }}
                         title={isSynthetic ? ev.description || undefined : undefined}
-                        className={`absolute overflow-hidden rounded-md border-l-4 px-2 py-1 text-left text-[11px] shadow-sm transition hover:z-10 hover:shadow-md ${
+                        className={`absolute overflow-hidden border-l-4 px-2 py-1 text-left text-[11px] shadow-sm transition hover:z-10 hover:shadow-md ${
                           isSynthetic ? "border-dashed" : ""
-                        }`}
+                        } ${isTeamMovementLine ? "rounded-full px-0 py-0" : "rounded-md"}`}
                         style={{
                           top,
-                          height,
+                          height: visualHeight,
                           left: `calc(${leftPct}% + 2px)`,
                           width: `calc(${widthPct}% - 4px)`,
                           backgroundColor: colors.bg,
@@ -642,13 +649,17 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                           color: colors.text,
                         }}
                       >
-                        <div className="font-semibold leading-tight">
-                          {ev.startTime}
-                          {ev.endTime && !overflowsNextDay && ` - ${ev.endTime}`}
-                          {overflowsNextDay && ev.endTime && ` -> ${ev.endTime} +1`}
-                        </div>
-                        <div className="truncate font-medium leading-tight">{ev.title}</div>
-                        {height > 50 && <div className="mt-0.5 truncate text-[10px] opacity-80">{ev.location}</div>}
+                        {!isTeamMovementLine && (
+                          <>
+                            <div className="font-semibold leading-tight">
+                              {ev.startTime}
+                              {ev.endTime && !overflowsNextDay && ` - ${ev.endTime}`}
+                              {overflowsNextDay && ev.endTime && ` -> ${ev.endTime} +1`}
+                            </div>
+                            <div className="truncate font-medium leading-tight">{ev.title}</div>
+                            {height > 50 && <div className="mt-0.5 truncate text-[10px] opacity-80">{ev.location}</div>}
+                          </>
+                        )}
                       </button>
                     );
                   })}

@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS "CannesEvent" (
   "contactInfo" TEXT,
   "dressCode" TEXT,
   "invitationLink" TEXT,
+  "pdfAttachmentUrl" TEXT,
   "description" TEXT,
   "notes" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS "CannesContact" (
   "arrivalDate" TIMESTAMP(3),
   "departureDate" TIMESTAMP(3),
   "category" "CannesContactCategory" NOT NULL DEFAULT 'AUTRE',
+  "pdfAttachmentUrl" TEXT,
   "notes" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL
@@ -95,3 +97,10 @@ CREATE TABLE IF NOT EXISTS "CannesTeamUnavailability" (
   CONSTRAINT "CannesTeamUnavailability_presenceId_fkey" FOREIGN KEY ("presenceId") REFERENCES "CannesPresence"("id") ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS "CannesTeamUnavailability_presenceId_idx" ON "CannesTeamUnavailability"("presenceId");
+
+-- Compat base existante
+ALTER TABLE IF EXISTS "CannesEvent"
+  ADD COLUMN IF NOT EXISTS "pdfAttachmentUrl" TEXT;
+
+ALTER TABLE IF EXISTS "CannesContact"
+  ADD COLUMN IF NOT EXISTS "pdfAttachmentUrl" TEXT;

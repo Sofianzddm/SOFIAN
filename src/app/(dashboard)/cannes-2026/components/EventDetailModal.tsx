@@ -168,6 +168,7 @@ export default function EventDetailModal({ event, presences, isAdmin, onClose }:
           <p><strong>Contact :</strong> {currentEvent.contactInfo || "-"}</p>
           <p><strong>Dress code :</strong> {currentEvent.dressCode || "-"}</p>
           {currentEvent.invitationLink && <p><a className="text-[#1A1110] underline" href={currentEvent.invitationLink} target="_blank">Lien d'invitation</a></p>}
+          {currentEvent.pdfAttachmentUrl && <p><a className="text-[#1A1110] underline" href={currentEvent.pdfAttachmentUrl} target="_blank" rel="noreferrer">Piece jointe PDF</a></p>}
           {currentEvent.description && <p>{currentEvent.description}</p>}
         </section>
         {currentEvent.notes && <section className="rounded-lg bg-[#F5EBE0] p-3 text-sm">{currentEvent.notes}</section>}

@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       contactInfo: body.contactInfo || null,
       dressCode: body.dressCode || null,
       invitationLink: body.invitationLink || null,
+      pdfAttachmentUrl: body.pdfAttachmentUrl || null,
       description: body.description || null,
       notes: body.notes || null,
       createdById: user.id,

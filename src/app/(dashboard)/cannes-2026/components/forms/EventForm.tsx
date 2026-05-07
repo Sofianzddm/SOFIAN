@@ -21,6 +21,7 @@ type EventFormData = Partial<
     | "contactInfo"
     | "dressCode"
     | "invitationLink"
+    | "pdfAttachmentUrl"
     | "description"
     | "notes"
   >
@@ -45,6 +46,7 @@ export default function EventForm({
   const isEdit = mode ? mode === "edit" : Boolean(initialData?.id);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
   const [form, setForm] = useState({
     date: initialData?.date
       ? new Date(initialData.date).toISOString().slice(0, 10)
@@ -59,9 +61,31 @@ export default function EventForm({
     contactInfo: initialData?.contactInfo || "",
     dressCode: initialData?.dressCode || "",
     invitationLink: initialData?.invitationLink || "",
+    pdfAttachmentUrl: initialData?.pdfAttachmentUrl || "",
     description: initialData?.description || "",
     notes: initialData?.notes || "",
   });
+
+  async function uploadPdf(file: File | null) {
+    if (!file) return;
+    setUploadingPdf(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/cannes/upload-pdf", {
+        method: "POST",
+        body: fd,
+      });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error || "Upload impossible");
+      setForm((p) => ({ ...p, pdfAttachmentUrl: data.url! }));
+      toast.success("PDF uploadé");
+    } catch {
+      toast.error("Erreur lors de l'upload du PDF");
+    } finally {
+      setUploadingPdf(false);
+    }
+  }
 
   async function submit() {
     setLoading(true);
@@ -120,6 +144,19 @@ export default function EventForm({
           <input value={form.organizer} onChange={(e) => setForm((p) => ({ ...p, organizer: e.target.value }))} placeholder="Organisateur" className="rounded border border-[#E5E0D8] p-2" />
           <input value={form.dressCode} onChange={(e) => setForm((p) => ({ ...p, dressCode: e.target.value }))} placeholder="Dress code" className="rounded border border-[#E5E0D8] p-2" />
           <input type="url" value={form.invitationLink} onChange={(e) => setForm((p) => ({ ...p, invitationLink: e.target.value }))} placeholder="Lien invitation" className="rounded border border-[#E5E0D8] p-2 md:col-span-2" />
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={(e) => void uploadPdf(e.target.files?.[0] ?? null)}
+            className="rounded border border-[#E5E0D8] p-2 md:col-span-2"
+          />
+          {uploadingPdf && <p className="text-xs text-[#1A1110]/60 md:col-span-2">Upload PDF en cours...</p>}
+          <input type="url" value={form.pdfAttachmentUrl} onChange={(e) => setForm((p) => ({ ...p, pdfAttachmentUrl: e.target.value }))} placeholder="Piece jointe PDF (URL)" className="rounded border border-[#E5E0D8] p-2 md:col-span-2" />
+          {form.pdfAttachmentUrl && (
+            <a href={form.pdfAttachmentUrl} target="_blank" rel="noreferrer" className="text-xs underline md:col-span-2">
+              Ouvrir le PDF actuel
+            </a>
+          )}
           <textarea rows={2} value={form.contactInfo} onChange={(e) => setForm((p) => ({ ...p, contactInfo: e.target.value }))} placeholder="Contact" className="rounded border border-[#E5E0D8] p-2 md:col-span-2" />
           <textarea rows={3} value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} placeholder="Description" className="rounded border border-[#E5E0D8] p-2 md:col-span-2" />
           <textarea rows={3} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} placeholder="Notes" className="rounded border border-[#E5E0D8] p-2 md:col-span-2" />
