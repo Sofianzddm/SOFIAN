@@ -263,7 +263,6 @@ export default function DemandeModal({
   const [subject, setSubject] = useState("");
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
   const [saving, setSaving] = useState(false);
-  const [sendingGmail, setSendingGmail] = useState(false);
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis | null>(null);
@@ -551,7 +550,7 @@ export default function DemandeModal({
     }
   };
 
-  const save = async (status: "en_cours" | "pret") => {
+  const save = async (status: "a_traiter" | "en_cours" | "pret") => {
     if (!demande) return;
     if (!subject.trim()) {
       onError("L’objet de la réponse est obligatoire.");
@@ -584,61 +583,6 @@ export default function DemandeModal({
       onError(e instanceof Error ? e.message : "Erreur inattendue.");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const sendFromLeynaMailbox = async () => {
-    if (!demande) return;
-    if (!subject.trim()) {
-      onError("L’objet de la réponse est obligatoire.");
-      return;
-    }
-    const htmlBody = editor?.getHTML() || "";
-    if (!htmlBody.trim()) {
-      onError("Le contenu de l'email est obligatoire.");
-      return;
-    }
-
-    setSendingGmail(true);
-    try {
-      const saveRes = await fetch(`/api/demandes-entrantes/${encodeURIComponent(demande.id)}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "en_cours",
-          sujetPret: subject.trim(),
-          emailPret: htmlBody,
-        }),
-      });
-      const saveJson = await saveRes.json().catch(() => ({}));
-      if (!saveRes.ok) {
-        throw new Error(
-          typeof saveJson.error === "string" ? saveJson.error : "Impossible de sauvegarder avant envoi."
-        );
-      }
-
-      const sendRes = await fetch(`/api/demandes-entrantes/${encodeURIComponent(demande.id)}/send`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const sendJson = await sendRes.json().catch(() => ({}));
-      if (!sendRes.ok) {
-        if (sendJson.error === "gmail_not_connected") {
-          throw new Error(
-            "La boite Gmail de Leyna n'est pas connectée. Demandez à l'admin de la connecter dans Settings → Gmail"
-          );
-        }
-        throw new Error(typeof sendJson.error === "string" ? sendJson.error : "Envoi Gmail impossible.");
-      }
-
-      onSaved();
-      onSuccess("✅ Email envoyé depuis leyna@glowupagence.fr");
-      onClose();
-    } catch (e: unknown) {
-      onError(e instanceof Error ? e.message : "Erreur inattendue.");
-    } finally {
-      setSendingGmail(false);
     }
   };
 
@@ -880,7 +824,7 @@ export default function DemandeModal({
           <button
             type="button"
             onClick={() => save("en_cours")}
-            disabled={saving || sendingGmail}
+            disabled={saving}
             className="px-4 py-2 rounded-xl border text-sm"
             style={{ borderColor: OLD_ROSE, color: LICORICE }}
           >
@@ -888,26 +832,23 @@ export default function DemandeModal({
           </button>
           <button
             type="button"
+            onClick={() => save("a_traiter")}
+            disabled={saving}
+            className="px-4 py-2 rounded-xl border text-sm font-medium inline-flex items-center gap-2"
+            style={{ borderColor: OLD_ROSE, color: LICORICE, backgroundColor: OLD_LACE }}
+          >
+            Remettre à traiter
+          </button>
+          <button
+            type="button"
             onClick={() => save("pret")}
-            disabled={saving || sendingGmail}
+            disabled={saving}
             className="px-4 py-2 rounded-xl border text-sm font-medium inline-flex items-center gap-2"
             style={{ borderColor: OLD_ROSE, color: LICORICE, backgroundColor: OLD_LACE }}
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            📩 Notifier Leyna
+            📩 Envoyer à Leyna
           </button>
-          {Boolean(subject.trim()) && Boolean((editor?.getHTML() || "").trim()) && (
-            <button
-              type="button"
-              onClick={() => void sendFromLeynaMailbox()}
-              disabled={saving || sendingGmail}
-              className="px-4 py-2 rounded-xl text-sm font-medium inline-flex items-center gap-2"
-              style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
-            >
-              {sendingGmail && <Loader2 className="w-4 h-4 animate-spin" />}
-              {sendingGmail ? "Envoi en cours..." : "🚀 Envoyer depuis la boite de Leyna"}
-            </button>
-          )}
         </div>
       </div>
       {talentDetailOpen && (

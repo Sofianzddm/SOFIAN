@@ -5,7 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
-import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import TiptapUnderline from "@tiptap/extension-underline";
 
 type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 
@@ -49,6 +51,9 @@ export default function InboundDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [composerSubject, setComposerSubject] = useState("");
+  const [sendingFromLeyna, setSendingFromLeyna] = useState(false);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const role = (session?.user as { role?: string } | undefined)?.role || "";
   const forbidden = status !== "loading" && !ALLOWED.includes(role);
@@ -78,6 +83,29 @@ export default function InboundDetailPage() {
     if (showAll) return opportunity.bodyExcerpt;
     return opportunity.bodyExcerpt.slice(0, 800);
   }, [opportunity, showAll]);
+
+  const composerEditor = useEditor({
+    immediatelyRender: false,
+    extensions: [StarterKit, TiptapUnderline],
+    content: "<p></p>",
+    editorProps: {
+      attributes: {
+        class:
+          "min-h-[220px] max-h-[50vh] overflow-y-auto rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none",
+      },
+    },
+  });
+
+  useEffect(() => {
+    if (!composerOpen || !opportunity) return;
+    setComposerSubject(opportunity.draftEmailSubject || opportunity.subject || "");
+    composerEditor?.commands.setContent(opportunity.draftEmailBody || "<p></p>");
+  }, [composerOpen, opportunity, composerEditor]);
+
+  const showToast = (message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    window.setTimeout(() => setToast(null), 3200);
+  };
 
   if (status === "loading" || loading) {
     return (
@@ -181,8 +209,66 @@ export default function InboundDetailPage() {
     if (data?.opportunity) setOpportunity(data.opportunity as Opportunity);
   };
 
+  const sendFromLeyna = async () => {
+    if (!opportunity) return;
+    const subject = composerSubject.trim();
+    const bodyHtml = composerEditor?.getHTML() || "";
+    if (!subject) {
+      showToast("Objet obligatoire.", "error");
+      return;
+    }
+    if (!bodyHtml.trim()) {
+      showToast("Corps du mail obligatoire.", "error");
+      return;
+    }
+
+    setSendingFromLeyna(true);
+    try {
+      await saveDraft({ subject, bodyHtml });
+
+      const sendRes = await fetch(`/api/inbound/opportunities/${opportunity.id}/send`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject, htmlBody: bodyHtml }),
+      });
+      const sendJson = await sendRes.json().catch(() => ({}));
+      if (!sendRes.ok) {
+        if (sendJson.error === "gmail_not_connected") {
+          throw new Error(
+            "La boite Gmail de Leyna n'est pas connectée. Demandez à l'admin de la connecter dans Settings → Gmail"
+          );
+        }
+        throw new Error(typeof sendJson.error === "string" ? sendJson.error : "Envoi Gmail impossible.");
+      }
+
+      showToast("✅ Envoyé depuis leyna@glowupagence.fr", "success");
+      setComposerOpen(false);
+      setOpportunity((prev) => (prev ? { ...prev, status: "READY" } : prev));
+      window.setTimeout(() => {
+        router.push("/inbound");
+      }, 700);
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "Erreur envoi.", "error");
+    } finally {
+      setSendingFromLeyna(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
+      {toast && (
+        <div
+          className="fixed bottom-6 right-6 z-[220] rounded-xl border px-4 py-3 text-sm shadow-lg"
+          style={{
+            backgroundColor: toast.type === "success" ? "#C8F285" : "#FEE2E2",
+            borderColor: toast.type === "success" ? "#1A1110" : "#FCA5A5",
+            color: "#1A1110",
+          }}
+        >
+          {toast.message}
+        </div>
+      )}
       <Link href="/inbound" className="text-sm text-slate-500 hover:text-slate-800">← Retour aux opportunites inbound</Link>
 
       {opportunity.status === "CONVERTED" && (
@@ -289,46 +375,60 @@ export default function InboundDetailPage() {
         </aside>
       </div>
 
-      <CastingComposer
-        open={composerOpen}
-        contact={{
-          company: opportunity.extractedBrand || opportunity.senderDomain,
-          contacts: [
-            {
-              id: opportunity.id,
-              firstname: opportunity.senderName || "",
-              lastname: "",
-              email: opportunity.senderEmail,
-            },
-          ],
-          initialSubject: opportunity.draftEmailSubject || opportunity.subject || "",
-          initialBodyHtml: opportunity.draftEmailBody || "",
-          missionBrief: null,
-        }}
-        brandColumn={"todo"}
-        useHubspot={false}
-        onClose={() => setComposerOpen(false)}
-        onSaved={(state: "pret" | "en_cours" | "reset", draft?: { subject: string; bodyHtml: string }) => {
-          if (state === "reset") return;
-          void saveDraft(draft).catch((e: unknown) => {
-            const msg = e instanceof Error ? e.message : "Erreur sauvegarde brouillon";
-            window.alert(msg);
-          });
-        }}
-        onError={(msg) => window.alert(msg)}
-        onSuccess={() => {
-          void (async () => {
-            const res = await fetch(`/api/inbound/opportunities/${opportunity.id}`, {
-              cache: "no-store",
-              credentials: "include",
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok && data?.opportunity) {
-              setOpportunity(data.opportunity as Opportunity);
-            }
-          })();
-        }}
-      />
+      {composerOpen && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">Rédiger un mail</h3>
+              <button
+                type="button"
+                onClick={() => setComposerOpen(false)}
+                className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-700"
+              >
+                Fermer
+              </button>
+            </div>
+
+            <label className="mb-1 block text-sm font-medium text-slate-700">Objet</label>
+            <input
+              value={composerSubject}
+              onChange={(e) => setComposerSubject(e.target.value)}
+              className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              placeholder="Objet du mail"
+            />
+
+            <label className="mb-1 block text-sm font-medium text-slate-700">Corps</label>
+            <EditorContent editor={composerEditor} />
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void saveDraft({
+                    subject: composerSubject,
+                    bodyHtml: composerEditor?.getHTML() || "",
+                  }).catch((e: unknown) => {
+                    const msg = e instanceof Error ? e.message : "Erreur sauvegarde brouillon";
+                    showToast(msg, "error");
+                  });
+                }}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                disabled={sendingFromLeyna}
+              >
+                Enregistrer brouillon
+              </button>
+              <button
+                type="button"
+                onClick={() => void sendFromLeyna()}
+                disabled={sendingFromLeyna}
+                className="rounded-lg bg-[#C8F285] px-3 py-2 text-sm font-semibold text-[#1A1110] disabled:opacity-60"
+              >
+                {sendingFromLeyna ? "Envoi en cours..." : "🚀 Envoyer depuis Leyna"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

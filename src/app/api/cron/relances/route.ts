@@ -4,7 +4,8 @@ import { checkThreadForReply, sendGmail } from "@/lib/gmail";
 
 type RelanceRow = {
   id: string;
-  from: string;
+  kind: "demande" | "inbound";
+  toEmail: string;
   sujetPret: string | null;
   gmailSentMessageId: string | null;
   sentAt: Date | null;
@@ -28,8 +29,9 @@ export async function GET(request: NextRequest) {
 
   const rows = (await prisma.$queryRaw`
     SELECT
+      'demande'::text AS "kind",
       "id",
-      "from",
+      "from" AS "toEmail",
       "sujetPret",
       "gmailSentMessageId",
       "sentAt",
@@ -40,6 +42,23 @@ export async function GET(request: NextRequest) {
     WHERE "status" = 'envoye'
       AND "replied" = false
       AND "gmailSentMessageId" IS NOT NULL
+      AND "sentAt" IS NOT NULL
+    UNION ALL
+    SELECT
+      'inbound'::text AS "kind",
+      "id",
+      "senderEmail" AS "toEmail",
+      COALESCE("draftEmailSubject", "subject") AS "sujetPret",
+      "gmailSentMessageId",
+      "sentAt",
+      "relance1SentAt",
+      "relance2SentAt",
+      "replied"
+    FROM "inbound_opportunities"
+    WHERE "status" = 'traite'
+      AND "replied" = false
+      AND "gmailSentMessageId" IS NOT NULL
+      AND "sentAt" IS NOT NULL
   `) as RelanceRow[];
 
   const now = Date.now();
@@ -52,18 +71,26 @@ export async function GET(request: NextRequest) {
 
     const hasReply = await checkThreadForReply("leyna@glowupagence.fr", threadId);
     if (hasReply) {
-      await prisma.$executeRaw`
-        UPDATE "DemandeEntrante"
-        SET "replied" = true, "status" = 'repondu', "updatedAt" = NOW()
-        WHERE "id" = ${demande.id}
-      `;
+      if (demande.kind === "demande") {
+        await prisma.$executeRaw`
+          UPDATE "DemandeEntrante"
+          SET "replied" = true, "status" = 'repondu', "updatedAt" = NOW()
+          WHERE "id" = ${demande.id}
+        `;
+      } else {
+        await prisma.$executeRaw`
+          UPDATE "inbound_opportunities"
+          SET "replied" = true, "status" = 'repondu', "updatedAt" = NOW()
+          WHERE "id" = ${demande.id}
+        `;
+      }
       continue;
     }
 
     const sentAtMs = demande.sentAt ? new Date(demande.sentAt).getTime() : null;
     if (!sentAtMs) continue;
 
-    const to = extractEmail(demande.from);
+    const to = demande.kind === "demande" ? extractEmail(demande.toEmail) : demande.toEmail.trim();
     if (!to || !to.includes("@") || !demande.sujetPret) continue;
 
     if (now - sentAtMs >= j7Ms && !demande.relance2SentAt) {
@@ -75,14 +102,25 @@ export async function GET(request: NextRequest) {
           "<p>Bonjour,</p><p>Dernière relance de ma part, je reste disponible pour échanger si le sujet vous intéresse.</p><p>Belle journée,<br/>Leyna - Glow Up Agence</p>",
         threadId,
       });
-      await prisma.$executeRaw`
-        UPDATE "DemandeEntrante"
-        SET
-          "relance2SentAt" = NOW(),
-          "status" = 'relance_terminee',
-          "updatedAt" = NOW()
-        WHERE "id" = ${demande.id}
-      `;
+      if (demande.kind === "demande") {
+        await prisma.$executeRaw`
+          UPDATE "DemandeEntrante"
+          SET
+            "relance2SentAt" = NOW(),
+            "status" = 'relance_terminee',
+            "updatedAt" = NOW()
+          WHERE "id" = ${demande.id}
+        `;
+      } else {
+        await prisma.$executeRaw`
+          UPDATE "inbound_opportunities"
+          SET
+            "relance2SentAt" = NOW(),
+            "status" = 'relance_terminee',
+            "updatedAt" = NOW()
+          WHERE "id" = ${demande.id}
+        `;
+      }
       continue;
     }
 
@@ -95,11 +133,19 @@ export async function GET(request: NextRequest) {
           "<p>Bonjour,</p><p>Je me permets de revenir vers vous suite à mon message de quelques jours concernant une collaboration avec nos talents.</p><p>Avez-vous eu l'occasion d'en prendre connaissance ? Je reste disponible pour échanger.</p><p>Belle journée,<br/>Leyna - Glow Up Agence</p>",
         threadId,
       });
-      await prisma.$executeRaw`
-        UPDATE "DemandeEntrante"
-        SET "relance1SentAt" = NOW(), "updatedAt" = NOW()
-        WHERE "id" = ${demande.id}
-      `;
+      if (demande.kind === "demande") {
+        await prisma.$executeRaw`
+          UPDATE "DemandeEntrante"
+          SET "relance1SentAt" = NOW(), "updatedAt" = NOW()
+          WHERE "id" = ${demande.id}
+        `;
+      } else {
+        await prisma.$executeRaw`
+          UPDATE "inbound_opportunities"
+          SET "relance1SentAt" = NOW(), "updatedAt" = NOW()
+          WHERE "id" = ${demande.id}
+        `;
+      }
     }
   }
 
