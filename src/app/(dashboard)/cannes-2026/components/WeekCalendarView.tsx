@@ -625,7 +625,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                     const isSynthetic = !!ev.syntheticKind;
                     const isTeamMovementLine =
                       ev.syntheticKind === "team-arrival" || ev.syntheticKind === "team-departure";
-                    const visualHeight = isTeamMovementLine ? 4 : height;
+                    const visualHeight = isTeamMovementLine ? Math.max(22, height) : height;
 
                     return (
                       <button
@@ -638,7 +638,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                         title={isSynthetic ? ev.description || undefined : undefined}
                         className={`absolute overflow-hidden border-l-4 px-2 py-1 text-left text-[11px] shadow-sm transition hover:z-10 hover:shadow-md ${
                           isSynthetic ? "border-dashed" : ""
-                        } ${isTeamMovementLine ? "rounded-full px-0 py-0" : "rounded-md"}`}
+                        } ${isTeamMovementLine ? "rounded-md" : "rounded-md"}`}
                         style={{
                           top,
                           height: visualHeight,
@@ -649,16 +649,14 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                           color: colors.text,
                         }}
                       >
-                        {!isTeamMovementLine && (
-                          <>
-                            <div className="font-semibold leading-tight">
-                              {ev.startTime}
-                              {ev.endTime && !overflowsNextDay && ` - ${ev.endTime}`}
-                              {overflowsNextDay && ev.endTime && ` -> ${ev.endTime} +1`}
-                            </div>
-                            <div className="truncate font-medium leading-tight">{ev.title}</div>
-                            {height > 50 && <div className="mt-0.5 truncate text-[10px] opacity-80">{ev.location}</div>}
-                          </>
+                        <div className="font-semibold leading-tight">
+                          {ev.startTime}
+                          {ev.endTime && !overflowsNextDay && ` - ${ev.endTime}`}
+                          {overflowsNextDay && ev.endTime && ` -> ${ev.endTime} +1`}
+                        </div>
+                        <div className="truncate font-medium leading-tight">{ev.title}</div>
+                        {!isTeamMovementLine && height > 50 && (
+                          <div className="mt-0.5 truncate text-[10px] opacity-80">{ev.location}</div>
                         )}
                       </button>
                     );
