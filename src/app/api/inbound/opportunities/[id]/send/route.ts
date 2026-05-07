@@ -34,7 +34,7 @@ export async function POST(
     const { id } = await params;
     const opportunity = await prisma.inboundOpportunity.findUnique({
       where: { id },
-      select: { id: true, senderEmail: true },
+      select: { id: true, senderEmail: true, threadId: true },
     });
     if (!opportunity) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -47,6 +47,7 @@ export async function POST(
         to: opportunity.senderEmail,
         subject,
         htmlBody,
+        ...(opportunity.threadId ? { threadId: opportunity.threadId } : {}),
       });
     } catch (error) {
       if (error instanceof Error && error.message === "Gmail non connecté") {
@@ -60,6 +61,7 @@ export async function POST(
       SET
         "status" = 'traite',
         "gmailSentMessageId" = ${messageId},
+        "threadId" = ${opportunity.threadId || messageId},
         "sentAt" = NOW(),
         "updatedAt" = NOW()
       WHERE "id" = ${id}

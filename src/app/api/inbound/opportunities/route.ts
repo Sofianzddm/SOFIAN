@@ -61,39 +61,23 @@ export async function POST(req: NextRequest) {
     const data = parsed.data;
 
     const threadId = data.threadId?.trim() || null;
-    const existing = threadId
-      ? await prisma.inboundOpportunity.findFirst({
-          where: { threadId },
-          orderBy: { receivedAt: "desc" },
-          select: { id: true },
-        })
-      : await prisma.inboundOpportunity.findUnique({
-          where: { gmailMessageId: data.gmailMessageId },
-          select: { id: true },
-        });
-    if (existing) {
-      await prisma.inboundOpportunity.update({
-        where: { id: existing.id },
-        data: {
-          receivedAt: new Date(data.receivedAt),
-          senderEmail: data.senderEmail,
-          senderName: data.senderName || null,
-          senderDomain: data.senderDomain.toLowerCase().trim(),
-          bodyExcerpt: data.bodyExcerpt.slice(0, 3000),
-          subject: data.subject.trim(),
-          category: data.category,
-          confidence: data.confidence,
-          priority: data.priority,
-          extractedBrand: data.extractedBrand || null,
-          extractedTopic: data.extractedTopic || null,
-          extractedBudget: data.extractedBudget || null,
-          extractedDeadline: data.extractedDeadline || null,
-          extractedDeliverables: data.extractedDeliverables || null,
-          briefSummary: data.briefSummary || null,
-          threadId,
-        },
+    if (threadId) {
+      const existingThread = await prisma.inboundOpportunity.findFirst({
+        where: { threadId, NOT: { status: "NEW" } },
+        orderBy: { receivedAt: "desc" },
+        select: { id: true },
       });
-      return NextResponse.json({ ok: true, duplicate: true, id: existing.id });
+      if (existingThread) {
+        return NextResponse.json({ ok: true, duplicate: true, id: existingThread.id });
+      }
+    }
+
+    const existingMessage = await prisma.inboundOpportunity.findUnique({
+      where: { gmailMessageId: data.gmailMessageId },
+      select: { id: true },
+    });
+    if (existingMessage) {
+      return NextResponse.json({ ok: true, duplicate: true, id: existingMessage.id });
     }
 
     const matchedTalent = data.talentId
