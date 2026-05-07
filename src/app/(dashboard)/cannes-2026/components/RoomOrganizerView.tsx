@@ -23,7 +23,6 @@ const ROOM_CONFIG = [
   { id: "chambre-4", label: "Chambre 4 (x2)", capacity: 2 },
   { id: "chambre-5", label: "Chambre 5 (x4)", capacity: 4 },
 ] as const;
-const DAILY_OVERRIDES_STORAGE_KEY = "cannes-2026:rooms:daily-overrides:v1";
 const DAILY_OVERRIDES_SERVER_KEY = "room-daily-overrides";
 
 function formatShortDate(dateStr: string) {
@@ -36,17 +35,6 @@ function isRecordOfRoomOverrides(value: unknown): value is Record<string, Record
     if (!dayMap || typeof dayMap !== "object" || Array.isArray(dayMap)) return false;
     return Object.values(dayMap).every((roomId) => typeof roomId === "string");
   });
-}
-
-function mergeDailyOverrides(
-  base: Record<string, Record<string, string>>,
-  local: Record<string, Record<string, string>>
-) {
-  const merged: Record<string, Record<string, string>> = { ...base };
-  for (const [dayKey, dayMap] of Object.entries(local)) {
-    merged[dayKey] = { ...(merged[dayKey] || {}), ...dayMap };
-  }
-  return merged;
 }
 
 /**
@@ -156,7 +144,6 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     Object.fromEntries(presences.map((p) => [p.id, p.roomNumber || ""]))
   );
   const [dailyRoomOverrides, setDailyRoomOverrides] = useState<Record<string, Record<string, string>>>({});
-  const [dailyOverridesHydrated, setDailyOverridesHydrated] = useState(false);
   const [dailyDrag, setDailyDrag] = useState<{ presenceId: string; dayKey: string } | null>(null);
   const [dailyDropTarget, setDailyDropTarget] = useState<string | null>(null);
 
@@ -165,18 +152,6 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      let localState: Record<string, Record<string, string>> = {};
-      try {
-        const raw = window.localStorage.getItem(DAILY_OVERRIDES_STORAGE_KEY);
-        if (raw) {
-          const parsed: unknown = JSON.parse(raw);
-          if (isRecordOfRoomOverrides(parsed)) localState = parsed;
-        }
-      } catch {
-        // ignore localStorage parsing errors
-      }
-      if (!cancelled) setDailyRoomOverrides(localState);
-
       let remoteState: Record<string, Record<string, string>> = {};
       try {
         const res = await fetch(`/api/cannes/shared-settings/${DAILY_OVERRIDES_SERVER_KEY}`, {
@@ -189,54 +164,13 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
       } catch {
         // ignore remote load errors
       }
-
-      const merged = mergeDailyOverrides(remoteState, localState);
-      if (!cancelled) setDailyRoomOverrides(merged);
-
-      const shouldBackfillRemote =
-        Object.keys(merged).length > 0 &&
-        JSON.stringify(merged) !== JSON.stringify(remoteState);
-      if (shouldBackfillRemote) {
-        try {
-          await fetch(`/api/cannes/shared-settings/${DAILY_OVERRIDES_SERVER_KEY}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ value: merged }),
-          });
-        } catch {
-          // local state remains fallback if server sync fails
-        }
-      }
-
-      if (!cancelled) setDailyOverridesHydrated(true);
+      if (!cancelled) setDailyRoomOverrides(remoteState);
     })();
 
     return () => {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(DAILY_OVERRIDES_STORAGE_KEY, JSON.stringify(dailyRoomOverrides));
-    } catch {
-      // ignore localStorage quota errors
-    }
-  }, [dailyRoomOverrides]);
-
-  useEffect(() => {
-    if (!dailyOverridesHydrated) return;
-    const timer = window.setTimeout(() => {
-      void fetch(`/api/cannes/shared-settings/${DAILY_OVERRIDES_SERVER_KEY}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: dailyRoomOverrides }),
-      }).catch(() => {
-        // keep local state available if remote save fails
-      });
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [dailyOverridesHydrated, dailyRoomOverrides]);
 
   const occupancyByDay = useMemo(() => {
     return CANNES_2026_DAYS.map((day) => {
