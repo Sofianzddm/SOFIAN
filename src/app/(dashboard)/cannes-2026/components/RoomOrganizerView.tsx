@@ -389,78 +389,240 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     const pdf = new jsPDF("p", "mm", "a4");
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 10;
-    const maxWidth = pageWidth - margin * 2;
+    const margin = 12;
+    const contentWidth = pageWidth - margin * 2;
     let y = margin;
-
-    const writeBlock = (text: string, size = 9, gapAfter = 2) => {
-      pdf.setFontSize(size);
-      const lines = pdf.splitTextToSize(text, maxWidth);
-      const blockHeight = lines.length * (size * 0.45) + gapAfter;
-      if (y + blockHeight > pageHeight - margin) {
-        pdf.addPage();
-        y = margin;
-      }
-      pdf.text(lines, margin, y);
-      y += blockHeight;
+    const palette = {
+      bgSoft: [248, 241, 233] as const,
+      border: [218, 206, 195] as const,
+      title: [26, 17, 16] as const,
+      muted: [96, 90, 86] as const,
+      rose: [192, 139, 139] as const,
+      green: [91, 122, 56] as const,
+      amber: [166, 118, 44] as const,
     };
 
-    writeBlock(`Cannes 2026 - Export chambres (${new Date().toLocaleDateString("fr-FR")})`, 12, 3);
-    const seenByRoom = new Map<string, Set<string>>();
+    const ensureSpace = (needed: number) => {
+      if (y + needed <= pageHeight - margin) return;
+      pdf.addPage();
+      y = margin;
+    };
 
+    const drawSectionTitle = (title: string) => {
+      ensureSpace(10);
+      pdf.setTextColor(...palette.title);
+      pdf.setFontSize(12);
+      pdf.text(title, margin, y);
+      y += 5;
+      pdf.setDrawColor(...palette.border);
+      pdf.line(margin, y, margin + contentWidth, y);
+      y += 4;
+    };
+
+    const drawChip = (
+      label: string,
+      value: string,
+      color: readonly [number, number, number],
+      x: number,
+      w: number
+    ) => {
+      pdf.setDrawColor(...palette.border);
+      pdf.setFillColor(255, 255, 255);
+      pdf.roundedRect(x, y, w, 13, 2, 2, "FD");
+      pdf.setTextColor(...palette.muted);
+      pdf.setFontSize(7.5);
+      pdf.text(label.toUpperCase(), x + 2, y + 4.5);
+      pdf.setTextColor(...color);
+      pdf.setFontSize(10);
+      pdf.text(value, x + 2, y + 10);
+    };
+
+    const drawWrapped = (
+      text: string,
+      x: number,
+      w: number,
+      textY: number,
+      size = 7.7,
+      color: readonly [number, number, number] = palette.title
+    ) => {
+      pdf.setTextColor(...color);
+      pdf.setFontSize(size);
+      const lines = pdf.splitTextToSize(text || "-", w);
+      pdf.text(lines, x, textY);
+      return lines.length * (size * 0.42);
+    };
+
+    const summarizeRoom = (
+      room: (typeof occupancyByDay)[number]["roomOccupancy"][number],
+      prevEntry: (typeof occupancyByDay)[number] | null,
+      roomSeen: Set<string>
+    ) => {
+      const prevOccupants = prevEntry
+        ? roomOccupancyByDayKey.get(prevEntry.dayKey)?.get(room.roomId) || []
+        : [];
+      const prevIds = new Set(prevOccupants.map((p) => p.id));
+      const currIds = new Set(room.occupants.map((p) => p.id));
+      const arrivals = room.occupants.filter((p) => !prevIds.has(p.id));
+      const departures = prevOccupants.filter((p) => !currIds.has(p.id));
+      const stays = room.occupants.filter((p) => prevIds.has(p.id));
+      const returns = arrivals.filter((p) => roomSeen.has(p.id));
+      room.occupants.forEach((p) => roomSeen.add(p.id));
+      const prevWasFull =
+        prevEntry != null &&
+        prevOccupants.length >= ROOM_CONFIG.find((r) => r.id === room.roomId)!.capacity;
+      const hasTurnover = arrivals.length > 0 || departures.length > 0;
+      const fullCleaning = prevWasFull && stays.length === 0 && hasTurnover;
+      const partialCleaning = departures.length > 0 && stays.length > 0;
+      const status = fullCleaning ? "MENAGE COMPLET" : partialCleaning ? "MENAGE PARTIEL" : "STABLE";
+      return { arrivals, departures, stays, returns, status, fullCleaning };
+    };
+
+    ensureSpace(30);
+    pdf.setFillColor(...palette.bgSoft);
+    pdf.roundedRect(margin, y, contentWidth, 24, 3, 3, "F");
+    pdf.setTextColor(...palette.title);
+    pdf.setFontSize(15);
+    pdf.text("Cannes 2026 - Room Operations Report", margin + 4, y + 8);
+    pdf.setTextColor(...palette.muted);
+    pdf.setFontSize(9);
+    pdf.text(
+      `Genere le ${new Date().toLocaleDateString("fr-FR")} a ${new Date().toLocaleTimeString("fr-FR")}`,
+      margin + 4,
+      y + 14
+    );
+    pdf.text("Composition, mouvements et menage complet/partiel", margin + 4, y + 19);
+    y += 28;
+
+    const totalNights = occupancyByDay.reduce(
+      (acc, d) => acc + d.roomOccupancy.reduce((rAcc, r) => rAcc + r.occupants.length, 0),
+      0
+    );
+    const occupancyRate =
+      totalNights / (occupancyByDay.length * ROOM_CONFIG.reduce((acc, r) => acc + r.capacity, 0));
+    ensureSpace(18);
+    const chipWidth = (contentWidth - 6) / 3;
+    drawChip("Talents", String(talentRows.length), palette.title, margin, chipWidth);
+    drawChip("Nuits occupees", String(totalNights), palette.rose, margin + chipWidth + 3, chipWidth);
+    drawChip(
+      "Taux occupation",
+      `${Math.round(occupancyRate * 100)}%`,
+      palette.green,
+      margin + (chipWidth + 3) * 2,
+      chipWidth
+    );
+    y += 16;
+
+    const dailyStats: Array<{ occPct: number; turnover: number; full: number }> = [];
+    const seenByRoomForStats = new Map<string, Set<string>>();
     occupancyByDay.forEach((entry, index) => {
       const prevEntry = index > 0 ? occupancyByDay[index - 1] : null;
-      writeBlock(
-        `\n${formatParisDate(entry.day, { weekday: "long", day: "2-digit", month: "2-digit" }).toUpperCase()}`,
-        10,
-        1
-      );
-
+      const totalBeds = ROOM_CONFIG.reduce((acc, r) => acc + r.capacity, 0);
+      const occupiedBeds = entry.roomOccupancy.reduce((acc, room) => acc + room.occupants.length, 0);
+      let turnover = 0;
+      let full = 0;
       entry.roomOccupancy.forEach((room) => {
+        const roomSeen = seenByRoomForStats.get(room.roomId) || new Set<string>();
+        seenByRoomForStats.set(room.roomId, roomSeen);
+        const detail = summarizeRoom(room, prevEntry, roomSeen);
+        turnover += detail.arrivals.length + detail.departures.length;
+        if (detail.fullCleaning) full += 1;
+      });
+      dailyStats.push({ occPct: totalBeds > 0 ? occupiedBeds / totalBeds : 0, turnover, full });
+    });
+
+    drawSectionTitle("Synthese visuelle (2 semaines)");
+    ensureSpace(32);
+    const graphX = margin;
+    const graphY = y;
+    const graphW = contentWidth;
+    const graphH = 26;
+    pdf.setDrawColor(...palette.border);
+    pdf.rect(graphX, graphY, graphW, graphH);
+    const colW = graphW / Math.max(1, dailyStats.length);
+    const maxTurnover = Math.max(1, ...dailyStats.map((s) => s.turnover));
+    dailyStats.forEach((s, i) => {
+      const x = graphX + i * colW;
+      const occH = s.occPct * (graphH - 6);
+      const turnH = (s.turnover / maxTurnover) * (graphH - 6);
+      pdf.setFillColor(...palette.rose);
+      pdf.rect(x + colW * 0.15, graphY + graphH - occH - 2, colW * 0.28, occH, "F");
+      pdf.setFillColor(...palette.amber);
+      pdf.rect(x + colW * 0.57, graphY + graphH - turnH - 2, colW * 0.28, turnH, "F");
+      if (s.full > 0) {
+        pdf.setFillColor(...palette.green);
+        pdf.circle(x + colW * 0.5, graphY + 2.2, 0.9 + Math.min(1.6, s.full * 0.3), "F");
+      }
+    });
+    y += graphH + 6;
+    pdf.setFontSize(8);
+    pdf.setTextColor(...palette.muted);
+    pdf.text("Rose: occupation | Ambre: turnover | Point vert: menages complets", margin, y);
+    y += 6;
+
+    const seenByRoom = new Map<string, Set<string>>();
+    occupancyByDay.forEach((entry, index) => {
+      const prevEntry = index > 0 ? occupancyByDay[index - 1] : null;
+      drawSectionTitle(formatParisDate(entry.day, { weekday: "long", day: "2-digit", month: "2-digit" }));
+
+      const colGap = 3;
+      const colWCard = (contentWidth - colGap) / 2;
+      let leftY = y;
+      let rightY = y;
+
+      entry.roomOccupancy.forEach((room, idx) => {
         const roomSeen = seenByRoom.get(room.roomId) || new Set<string>();
         seenByRoom.set(room.roomId, roomSeen);
+        const detail = summarizeRoom(room, prevEntry, roomSeen);
+        const statusColor: readonly [number, number, number] =
+          detail.status === "MENAGE COMPLET"
+            ? palette.green
+            : detail.status === "MENAGE PARTIEL"
+              ? palette.amber
+              : palette.muted;
+        const lines = [
+          `Composition: ${room.occupants.map(presenceLabel).join(" | ") || "-"}`,
+          `Arrivees: ${detail.arrivals.map(presenceLabel).join(" | ") || "-"}`,
+          `Departs: ${detail.departures.map(presenceLabel).join(" | ") || "-"}`,
+          `Retours: ${detail.returns.map(presenceLabel).join(" | ") || "-"}`,
+          `Restent: ${detail.stays.map(presenceLabel).join(" | ") || "-"}`,
+        ];
+        const estimated = lines.reduce((acc, line) => acc + pdf.splitTextToSize(line, colWCard - 6).length, 0);
+        const cardH = 18 + estimated * 3.3;
+        const isLeft = idx % 2 === 0;
+        const x = isLeft ? margin : margin + colWCard + colGap;
+        const cardY = isLeft ? leftY : rightY;
+        if (cardY + cardH > pageHeight - margin) {
+          pdf.addPage();
+          y = margin;
+          leftY = y;
+          rightY = y;
+        }
+        const safeY = isLeft ? leftY : rightY;
+        pdf.setDrawColor(...palette.border);
+        pdf.setFillColor(255, 255, 255);
+        pdf.roundedRect(x, safeY, colWCard, cardH, 2, 2, "FD");
+        pdf.setFillColor(...palette.bgSoft);
+        pdf.roundedRect(x, safeY, colWCard, 7, 2, 2, "F");
+        pdf.setTextColor(...palette.title);
+        pdf.setFontSize(9);
+        pdf.text(`${room.label} (${room.occupants.length}/${room.capacity})`, x + 2, safeY + 4.5);
+        pdf.setTextColor(...statusColor);
+        pdf.setFontSize(8);
+        pdf.text(detail.status, x + colWCard - 2, safeY + 4.5, { align: "right" });
+        let textY = safeY + 10;
+        lines.forEach((line) => {
+          const used = drawWrapped(line, x + 2, colWCard - 4, textY);
+          textY += used + 0.8;
+        });
 
-        const prevOccupants = prevEntry
-          ? roomOccupancyByDayKey.get(prevEntry.dayKey)?.get(room.roomId) || []
-          : [];
-        const prevIds = new Set(prevOccupants.map((p) => p.id));
-        const currIds = new Set(room.occupants.map((p) => p.id));
-
-        const arrivals = room.occupants.filter((p) => !prevIds.has(p.id));
-        const departures = prevOccupants.filter((p) => !currIds.has(p.id));
-        const stays = room.occupants.filter((p) => prevIds.has(p.id));
-        const returns = arrivals.filter((p) => roomSeen.has(p.id));
-
-        room.occupants.forEach((p) => roomSeen.add(p.id));
-
-        const prevWasFull =
-          prevEntry != null &&
-          prevOccupants.length >= ROOM_CONFIG.find((r) => r.id === room.roomId)!.capacity;
-        const hasTurnover = arrivals.length > 0 || departures.length > 0;
-        const fullCleaning = prevWasFull && stays.length === 0 && hasTurnover;
-        const partialCleaning = departures.length > 0 && stays.length > 0;
-
-        const cleaningStatus = fullCleaning
-          ? "MENAGE_COMPLET"
-          : partialCleaning
-            ? "PAS_MENAGE_COMPLET"
-            : "STABLE";
-        const cleaningDetail = fullCleaning
-          ? "Chambre pleine veille + changement 100% occupants"
-          : partialCleaning
-            ? "Changement partiel (au moins 1 occupant reste)"
-            : "Aucun changement necessitant menage complet";
-        writeBlock(`${room.label} - Occupation ${room.occupants.length}/${room.capacity}`, 9, 1);
-        writeBlock(`Composition: ${room.occupants.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
-        writeBlock(`Arrivees: ${arrivals.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
-        writeBlock(`Departs: ${departures.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
-        writeBlock(`Retours: ${returns.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
-        writeBlock(`Restent: ${stays.map(presenceLabel).join(" | ") || "-"}`, 8, 1);
-        writeBlock(`Menage: ${cleaningStatus} - ${cleaningDetail}`, 8, 2);
+        if (isLeft) leftY = safeY + cardH + 3;
+        else rightY = safeY + cardH + 3;
       });
+      y = Math.max(leftY, rightY) + 2;
     });
+
     pdf.save(`cannes-2026-chambres-report-${new Date().toISOString().slice(0, 10)}.pdf`);
-    toast.success("Export chambres PDF genere");
+    toast.success("Export PDF professionnel genere");
   }
 
   return (
