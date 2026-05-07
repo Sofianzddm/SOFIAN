@@ -63,6 +63,14 @@ function getFestivalDayByKey(dayKey: string): Date | undefined {
   return CANNES_2026_DAYS.find((d) => parisDayKey(d) === dayKey);
 }
 
+function csvEscape(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function presenceLabel(p: CannesPresence) {
+  return `${p.talent?.prenom ?? ""} ${p.talent?.nom ?? ""}`.trim() || p.id;
+}
+
 function computeSmartAssignments(
   rows: CannesPresence[],
   baseAssignments: Record<string, string>
@@ -265,6 +273,15 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     ).length;
   }, [occupancyByDay]);
 
+  const roomOccupancyByDayKey = useMemo(() => {
+    return new Map(
+      occupancyByDay.map((entry) => [
+        entry.dayKey,
+        new Map(entry.roomOccupancy.map((room) => [room.roomId, room.occupants])),
+      ])
+    );
+  }, [occupancyByDay]);
+
   const unassignedCount = useMemo(() => {
     return talentRows.filter((p) => !(draftRooms[p.id] || p.roomNumber)).length;
   }, [draftRooms, talentRows]);
@@ -371,6 +388,99 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     }
   }
 
+  function exportRoomsReportCsv() {
+    const rows: string[] = [];
+    rows.push(
+      [
+        "date",
+        "chambre",
+        "capacite",
+        "occupation",
+        "composition",
+        "arrivees",
+        "departs",
+        "retours",
+        "restent",
+        "menage_statut",
+        "menage_detail",
+      ]
+        .map(csvEscape)
+        .join(",")
+    );
+
+    const seenByRoom = new Map<string, Set<string>>();
+
+    occupancyByDay.forEach((entry, index) => {
+      const prevEntry = index > 0 ? occupancyByDay[index - 1] : null;
+
+      entry.roomOccupancy.forEach((room) => {
+        const roomSeen = seenByRoom.get(room.roomId) || new Set<string>();
+        seenByRoom.set(room.roomId, roomSeen);
+
+        const prevOccupants = prevEntry
+          ? roomOccupancyByDayKey.get(prevEntry.dayKey)?.get(room.roomId) || []
+          : [];
+        const prevIds = new Set(prevOccupants.map((p) => p.id));
+        const currIds = new Set(room.occupants.map((p) => p.id));
+
+        const arrivals = room.occupants.filter((p) => !prevIds.has(p.id));
+        const departures = prevOccupants.filter((p) => !currIds.has(p.id));
+        const stays = room.occupants.filter((p) => prevIds.has(p.id));
+        const returns = arrivals.filter((p) => roomSeen.has(p.id));
+
+        room.occupants.forEach((p) => roomSeen.add(p.id));
+
+        const prevWasFull =
+          prevEntry != null &&
+          prevOccupants.length >= ROOM_CONFIG.find((r) => r.id === room.roomId)!.capacity;
+        const hasTurnover = arrivals.length > 0 || departures.length > 0;
+        const fullCleaning = prevWasFull && stays.length === 0 && hasTurnover;
+        const partialCleaning = departures.length > 0 && stays.length > 0;
+
+        const cleaningStatus = fullCleaning
+          ? "MENAGE_COMPLET"
+          : partialCleaning
+            ? "PAS_MENAGE_COMPLET"
+            : "STABLE";
+        const cleaningDetail = fullCleaning
+          ? "Chambre pleine veille + changement 100% occupants"
+          : partialCleaning
+            ? "Changement partiel (au moins 1 occupant reste)"
+            : "Aucun changement necessitant menage complet";
+
+        rows.push(
+          [
+            formatParisDate(entry.day, { weekday: "long", day: "2-digit", month: "2-digit" }),
+            room.label,
+            String(room.capacity),
+            `${room.occupants.length}/${room.capacity}`,
+            room.occupants.map(presenceLabel).join(" | "),
+            arrivals.map(presenceLabel).join(" | "),
+            departures.map(presenceLabel).join(" | "),
+            returns.map(presenceLabel).join(" | "),
+            stays.map(presenceLabel).join(" | "),
+            cleaningStatus,
+            cleaningDetail,
+          ]
+            .map(csvEscape)
+            .join(",")
+        );
+      });
+    });
+
+    const csvContent = rows.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `cannes-2026-chambres-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success("Export chambres genere");
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
@@ -410,6 +520,12 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
               className="rounded bg-[#1A1110] px-3 py-2 text-sm text-[#F5EBE0] hover:bg-[#C08B8B] disabled:opacity-50"
             >
               {savingAll ? "Enregistrement..." : "Enregistrer toutes les affectations"}
+            </button>
+            <button
+              onClick={exportRoomsReportCsv}
+              className="rounded border border-[#1A1110] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]"
+            >
+              Export chambres (arrivees/departs/retours/menage)
             </button>
           </div>
         )}
