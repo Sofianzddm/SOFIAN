@@ -19,7 +19,7 @@ type Props = {
   teamPlanningExportOnly?: boolean;
 };
 
-const LABELS: Record<(typeof CANNES_PDF_SECTION_KEYS)[number], string> = {
+const LABELS: Record<(typeof CANNES_PDF_SECTION_KEYS)[number], string> = { 
   team: "Planning équipe (synthèse + fiches)",
   talents: "Planning talents (synthèse + fiches)",
   events: "Agenda (liste des événements)",

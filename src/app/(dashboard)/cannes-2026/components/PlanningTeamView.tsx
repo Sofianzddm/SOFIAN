@@ -45,8 +45,9 @@ function isoDayKey(iso: string) {
 }
 
 function cellState(p: CannesPresence, day: Date) {
-  const onPresenceWindow =
-    new Date(p.arrivalDate) <= day && new Date(p.departureDate) >= day;
+  // Comparaison par jour UTC (clé YYYY-MM-DD) pour rester cohérent avec la vue talents
+  // et l'export PDF : un membre arrivant le jour J (même à 18h) est bien "sur place" le jour J.
+  const onPresenceWindow = isUtcDayInIsoRange(day, p.arrivalDate, p.departureDate);
   const absenceDay = (p.teamUnavailabilities ?? []).some((u) =>
     isUtcDayInIsoRange(day, u.startDate, u.endDate)
   );

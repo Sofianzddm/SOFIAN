@@ -319,8 +319,13 @@ function shortDay(d: Date) {
   return d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
 }
 
+/**
+ * Présence sur site = comparaison par jour UTC (clé `YYYY-MM-DD`), comme la vue talents/équipe.
+ * Avant : comparaison timestamp à minuit UTC, qui excluait du PDF un talent arrivé en cours
+ * de journée (ex. arrivée le 12 à 18:00) alors que le kanban le comptait présent le 12.
+ */
 function isOnSite(p: CannesPlanningPdfPresence, day: Date) {
-  return new Date(p.arrivalDate) <= day && new Date(p.departureDate) >= day;
+  return isUtcDayInIsoRange(day, p.arrivalDate, p.departureDate);
 }
 
 function isTeamBlocked(p: CannesPlanningPdfPresence, day: Date) {

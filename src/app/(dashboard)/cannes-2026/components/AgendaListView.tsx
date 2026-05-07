@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CANNES_2026_DAYS, formatDayLabel } from "@/lib/cannes/dates";
+import { CANNES_2026_DAYS, formatDayLabel, isUtcDayInIsoRange } from "@/lib/cannes/dates";
 import EventDetailModal from "./EventDetailModal";
 import type { CannesEvent, CannesPresence } from "../types";
 import { TYPE_COLORS } from "./constants";
@@ -15,10 +15,11 @@ export default function AgendaListView({ events, presences, isAdmin }: Props) {
     return CANNES_2026_DAYS.map((day) => {
       const iso = day.toISOString().slice(0, 10);
       const dayEvents = events.filter((e) => new Date(e.date).toISOString().slice(0, 10) === iso);
-      const onSiteCount = presences.filter((p) => {
-        const d = day.getTime();
-        return new Date(p.arrivalDate).getTime() <= d && new Date(p.departureDate).getTime() >= d;
-      }).length;
+      // Comparaison par jour UTC (YYYY-MM-DD) — sinon une arrivée en cours de journée
+      // (ex. 12 mai à 18h) ferait disparaître la personne du compteur du 12.
+      const onSiteCount = presences.filter((p) =>
+        isUtcDayInIsoRange(day, p.arrivalDate, p.departureDate)
+      ).length;
       return { day, dayEvents, onSiteCount };
     });
   }, [events, presences]);
