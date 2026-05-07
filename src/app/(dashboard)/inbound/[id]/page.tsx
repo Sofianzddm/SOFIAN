@@ -190,6 +190,37 @@ export default function InboundDetailPage() {
     });
   };
 
+  const insertTalentInMail = useCallback(
+    (talent: PresskitTalent) => {
+      if (!composerEditor) return;
+      const instagramUrl = getInstagramProfileUrl(talent.instagram);
+      const label = `${talent.prenom} ${talent.nom}`.trim();
+      if (instagramUrl) {
+        composerEditor.commands.insertContent(
+          `<a href="${instagramUrl}" target="_blank">${label}</a> `
+        );
+      } else {
+        composerEditor.commands.insertContent(`${label} `);
+      }
+    },
+    [composerEditor]
+  );
+
+  const insertSelectedTalentsInMail = useCallback(() => {
+    if (!composerEditor || selectedTalentsRaw.length === 0) return;
+    for (const talent of selectedTalentsRaw) {
+      const instagramUrl = getInstagramProfileUrl(talent.instagram);
+      const label = `${talent.prenom} ${talent.nom}`.trim();
+      if (instagramUrl) {
+        composerEditor.commands.insertContent(
+          `<a href="${instagramUrl}" target="_blank">${label}</a><br/>`
+        );
+      } else {
+        composerEditor.commands.insertContent(`${label}<br/>`);
+      }
+    }
+  }, [composerEditor, selectedTalentsRaw]);
+
   const runBrandResearch = useCallback(async () => {
     if (!opportunity) return;
     const brandName = (opportunity.extractedBrand || opportunity.senderDomain || "").trim();
@@ -574,6 +605,16 @@ export default function InboundDetailPage() {
                               <p className="truncate text-sm font-semibold text-slate-900">{t.prenom} {t.nom}</p>
                               <p className="truncate text-xs text-slate-500">{(t.niches || []).join(", ") || "—"}</p>
                               <p className="text-[11px] text-slate-600">IG {t.igFollowers || 0} · TT {t.ttFollowers || 0}</p>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  insertTalentInMail(t);
+                                }}
+                                className="mt-1 text-[11px] text-slate-700 underline"
+                              >
+                                Insérer dans le mail
+                              </button>
                               {t.instagram ? (
                                 <a
                                   href={getInstagramProfileUrl(t.instagram) || "#"}
@@ -594,6 +635,16 @@ export default function InboundDetailPage() {
                 </div>
               </div>
               <div className="lg:col-span-2">
+                <div className="mb-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={insertSelectedTalentsInMail}
+                    disabled={selectedTalentsRaw.length === 0}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-50"
+                  >
+                    Insérer tous les talents sélectionnés
+                  </button>
+                </div>
                 <EmailComposer
                   subject={composerSubject}
                   onSubjectChange={setComposerSubject}
