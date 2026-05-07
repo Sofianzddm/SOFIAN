@@ -263,6 +263,34 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     });
   }, [dailyRoomOverrides, draftRooms, talentRows, presences]);
 
+  const occupancyByDayForPdf = useMemo(() => {
+    return CANNES_2026_DAYS.map((day) => {
+      const dayKey = parisDayKey(day);
+      const roomOccupancy = ROOM_CONFIG.map((room) => {
+        const occupants = talentRows.filter((p) => {
+          // PDF: source unique = vue "Occupation par jour"
+          // => override jour si présent, sinon affectation persistée (roomNumber DB),
+          // sans tenir compte des brouillons de "Affectation des talents".
+          const assignedRoom = dailyRoomOverrides[dayKey]?.[p.id] ?? (p.roomNumber || "");
+          if (assignedRoom !== room.id) return false;
+          return occupiesHotelNightUtcDay(day, p.arrivalDate, p.departureDate);
+        });
+        return {
+          roomId: room.id,
+          label: room.label,
+          capacity: room.capacity,
+          occupants,
+        };
+      });
+
+      return {
+        day,
+        dayKey,
+        roomOccupancy,
+      };
+    });
+  }, [dailyRoomOverrides, talentRows]);
+
   const overbookedDaysCount = useMemo(() => {
     return occupancyByDay.filter((entry) =>
       entry.roomOccupancy.some((room) => room.occupants.length > room.capacity)
@@ -292,6 +320,20 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     return getAssignedRoomId(presenceId);
   }
 
+  async function persistDailyOverrides(next: Record<string, Record<string, string>>) {
+    setDailyRoomOverrides(next);
+    try {
+      const res = await fetch(`/api/cannes/shared-settings/${DAILY_OVERRIDES_SERVER_KEY}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: next }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      toast.error("Sauvegarde base impossible pour l'occupation jour");
+    }
+  }
+
   function moveRoomForSingleDay(presenceId: string, dayKey: string, roomId: string) {
     const presence = presences.find((p) => p.id === presenceId);
     const festivalDay = getFestivalDayByKey(dayKey);
@@ -302,13 +344,14 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
       );
       return;
     }
-    setDailyRoomOverrides((prev) => ({
-      ...prev,
+    const next = {
+      ...dailyRoomOverrides,
       [dayKey]: {
-        ...(prev[dayKey] || {}),
+        ...(dailyRoomOverrides[dayKey] || {}),
         [presenceId]: roomId,
       },
-    }));
+    };
+    void persistDailyOverrides(next);
   }
 
   async function saveRoom(presenceId: string, roomId?: string) {
@@ -493,12 +536,12 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     pdf.text("Composition, mouvements et menage complet/partiel", margin + 4, y + 19);
     y += 28;
 
-    const totalNights = occupancyByDay.reduce(
+    const totalNights = occupancyByDayForPdf.reduce(
       (acc, d) => acc + d.roomOccupancy.reduce((rAcc, r) => rAcc + r.occupants.length, 0),
       0
     );
     const occupancyRate =
-      totalNights / (occupancyByDay.length * ROOM_CONFIG.reduce((acc, r) => acc + r.capacity, 0));
+      totalNights / (occupancyByDayForPdf.length * ROOM_CONFIG.reduce((acc, r) => acc + r.capacity, 0));
     ensureSpace(18);
     const chipWidth = (contentWidth - 6) / 3;
     drawChip("Talents", String(talentRows.length), palette.title, margin, chipWidth);
@@ -514,8 +557,8 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
 
     const dailyStats: Array<{ occPct: number; turnover: number; full: number }> = [];
     const seenByRoomForStats = new Map<string, Set<string>>();
-    occupancyByDay.forEach((entry, index) => {
-      const prevEntry = index > 0 ? occupancyByDay[index - 1] : null;
+    occupancyByDayForPdf.forEach((entry, index) => {
+      const prevEntry = index > 0 ? occupancyByDayForPdf[index - 1] : null;
       const totalBeds = ROOM_CONFIG.reduce((acc, r) => acc + r.capacity, 0);
       const occupiedBeds = entry.roomOccupancy.reduce((acc, room) => acc + room.occupants.length, 0);
       let turnover = 0;
@@ -560,8 +603,8 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     y += 6;
 
     const seenByRoom = new Map<string, Set<string>>();
-    occupancyByDay.forEach((entry, index) => {
-      const prevEntry = index > 0 ? occupancyByDay[index - 1] : null;
+    occupancyByDayForPdf.forEach((entry, index) => {
+      const prevEntry = index > 0 ? occupancyByDayForPdf[index - 1] : null;
       drawSectionTitle(formatParisDate(entry.day, { weekday: "long", day: "2-digit", month: "2-digit" }));
 
       const colGap = 3;
