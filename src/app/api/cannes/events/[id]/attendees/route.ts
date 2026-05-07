@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/cannes/auth";
+import { requireCannesEditor } from "@/lib/cannes/auth";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error } = await requireAdmin();
+  const { error } = await requireCannesEditor();
   if (error) return error;
 
   const { id: eventId } = await params;
@@ -64,7 +64,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error } = await requireAdmin();
+  const { error } = await requireCannesEditor();
   if (error) return error;
 
   const { id: eventId } = await params;

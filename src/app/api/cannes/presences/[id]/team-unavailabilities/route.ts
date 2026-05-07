@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/cannes/auth";
+import { requireCannesEditor } from "@/lib/cannes/auth";
 
 function utcDayKey(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -9,7 +9,7 @@ function utcDayKey(d: Date) {
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, ctx: RouteCtx) {
-  const { error } = await requireAdmin();
+  const { error } = await requireCannesEditor();
   if (error) return error;
 
   const { id: presenceId } = await ctx.params;

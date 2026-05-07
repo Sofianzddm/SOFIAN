@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/cannes/auth";
+import { requireCannesEditor } from "@/lib/cannes/auth";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function DELETE(_req: Request, ctx: RouteCtx) {
-  const { error } = await requireAdmin();
+  const { error } = await requireCannesEditor();
   if (error) return error;
 
   const { id } = await ctx.params;
