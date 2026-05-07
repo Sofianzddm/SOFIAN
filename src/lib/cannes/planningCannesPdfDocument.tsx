@@ -1,7 +1,7 @@
 import path from "path";
 import React from "react";
 import { Document, Image, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
-import { CANNES_2026_DAYS, isUtcDayInIsoRange } from "@/lib/cannes/dates";
+import { CANNES_2026_DAYS, isUtcDayInIsoRange, occupiesHotelNightUtcDay } from "@/lib/cannes/dates";
 import { eachUtcDayFromMonday, getCannesFestivalMondayWeeks } from "@/lib/cannes/festivalWeeks";
 
 const LOGO_PATH = path.join(process.cwd(), "public", "Logo.png");
@@ -319,20 +319,8 @@ function shortDay(d: Date) {
   return d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
 }
 
-/**
- * Présence sur site avec sémantique hôtelière (clés `YYYY-MM-DD`, UTC) :
- *   - jour d'arrivée : INCLUS (le talent occupe la chambre dès la nuit d'arrivée)
- *   - jour de départ : EXCLU (check-out → la chambre n'est plus occupée cette nuit-là)
- *   - séjour d'un seul jour (arrivée = départ) : compté ce jour-là.
- * Cette règle évite de fausser le compte des chambres du jour J quand des talents
- * font leur check-out ce jour-là (ils n'occupent pas leur chambre la nuit suivante).
- */
 function isOnSite(p: CannesPlanningPdfPresence, day: Date) {
-  const dayKey = day.toISOString().slice(0, 10);
-  const arrKey = new Date(p.arrivalDate).toISOString().slice(0, 10);
-  const depKey = new Date(p.departureDate).toISOString().slice(0, 10);
-  if (arrKey === depKey) return dayKey === arrKey;
-  return dayKey >= arrKey && dayKey < depKey;
+  return occupiesHotelNightUtcDay(day, p.arrivalDate, p.departureDate);
 }
 
 function isTeamBlocked(p: CannesPlanningPdfPresence, day: Date) {

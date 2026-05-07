@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CANNES_2026_DAYS } from "@/lib/cannes/dates";
+import { CANNES_2026_DAYS, occupiesHotelNightUtcDay } from "@/lib/cannes/dates";
 import type { CannesPresence } from "../types";
 
 type Props = {
@@ -49,12 +49,18 @@ function mergeDailyOverrides(
   return merged;
 }
 
-function getDayKeysInRange(startDate: string, endDate: string) {
-  const start = toDateOnly(startDate);
-  const end = toDateOnly(endDate);
-  return CANNES_2026_DAYS.map((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()))
-    .filter((d) => d >= start && d <= end)
-    .map((d) => d.toISOString().slice(0, 10));
+/**
+ * Jours du festival où le talent occupe une nuit d’hôtel (jour d’arrivée inclus,
+ * jour de départ exclu — aligné PDF / organisateur).
+ */
+function getHotelNightDayKeys(arrivalDate: string, departureDate: string): string[] {
+  return CANNES_2026_DAYS.filter((d) => occupiesHotelNightUtcDay(d, arrivalDate, departureDate)).map((d) =>
+    d.toISOString().slice(0, 10)
+  );
+}
+
+function getFestivalDayByKey(dayKey: string): Date | undefined {
+  return CANNES_2026_DAYS.find((d) => d.toISOString().slice(0, 10) === dayKey);
 }
 
 function computeSmartAssignments(
@@ -76,7 +82,11 @@ function computeSmartAssignments(
   };
 
   for (const presence of byPriority) {
-    const dayKeys = getDayKeysInRange(presence.arrivalDate, presence.departureDate);
+    const dayKeys = getHotelNightDayKeys(presence.arrivalDate, presence.departureDate);
+    if (dayKeys.length === 0) {
+      result[presence.id] = "";
+      continue;
+    }
     const currentRoom = baseAssignments[presence.id] || presence.roomNumber || "";
 
     const feasibleRooms = ROOM_CONFIG.filter((room) =>
@@ -222,15 +232,12 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
 
   const occupancyByDay = useMemo(() => {
     return CANNES_2026_DAYS.map((day) => {
-      const dayOnly = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-      const dayKey = dayOnly.toISOString().slice(0, 10);
+      const dayKey = day.toISOString().slice(0, 10);
       const roomOccupancy = ROOM_CONFIG.map((room) => {
         const occupants = talentRows.filter((p) => {
           const assignedRoom = getEffectiveRoomForDay(p.id, dayKey);
           if (assignedRoom !== room.id) return false;
-          const start = toDateOnly(p.arrivalDate);
-          const end = toDateOnly(p.departureDate);
-          return dayOnly >= start && dayOnly <= end;
+          return occupiesHotelNightUtcDay(day, p.arrivalDate, p.departureDate);
         });
         return {
           roomId: room.id,
@@ -246,7 +253,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
         roomOccupancy,
       };
     });
-  }, [dailyRoomOverrides, draftRooms, talentRows]);
+  }, [dailyRoomOverrides, draftRooms, talentRows, presences]);
 
   const overbookedDaysCount = useMemo(() => {
     return occupancyByDay.filter((entry) =>
@@ -269,6 +276,15 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
   }
 
   function moveRoomForSingleDay(presenceId: string, dayKey: string, roomId: string) {
+    const presence = presences.find((p) => p.id === presenceId);
+    const festivalDay = getFestivalDayByKey(dayKey);
+    if (!presence || !festivalDay) return;
+    if (!occupiesHotelNightUtcDay(festivalDay, presence.arrivalDate, presence.departureDate)) {
+      toast.error(
+        "Ce talent ne passe pas la nuit à ce jour-là (check-out ou hors séjour). Affectation impossible."
+      );
+      return;
+    }
     setDailyRoomOverrides((prev) => ({
       ...prev,
       [dayKey]: {
@@ -357,6 +373,11 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
         <p className="font-medium text-[#1A1110]">Organisateur villa Cannes 2026</p>
         <p className="mt-1 text-sm text-[#1A1110]/70">
           5 chambres disponibles (4 chambres de 2 places + 1 chambre de 4 places). Assigne les talents puis controle les surcharges par date.
+          <span className="mt-1 block text-[#1A1110]/80">
+            Règle hôtel (comme le PDF) : la <strong>nuit</strong> du jour J compte si le talent est là ce soir — jour
+            d&apos;arrivée inclus, <strong>jour de départ exclu</strong> (check-out). On ne peut pas placer quelqu&apos;un
+            en chambre un jour où il ne dort pas sur place.
+          </span>
         </p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           <span className="rounded-full bg-[#F5EBE0] px-3 py-1 text-[#1A1110]">{talentRows.length} talents</span>
@@ -525,7 +546,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
         {isAdmin && (
           <p className="mb-3 text-xs text-[#1A1110]/60">
             Drag & drop actif par jour : déplace un talent d&apos;une chambre à l&apos;autre sans changer son
-            affectation globale.
+            affectation globale. Bloqué les jours de check-out (pas de nuit ce soir-là).
           </p>
         )}
         <div className="space-y-3">

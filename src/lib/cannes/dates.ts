@@ -28,3 +28,18 @@ export function isUtcDayInIsoRange(day: Date, rangeStartIso: string, rangeEndIso
   const e = new Date(rangeEndIso).toISOString().slice(0, 10);
   return k >= s && k <= e;
 }
+
+/**
+ * Nuit d’hôtel (planning chambres / PDF) : clés UTC `YYYY-MM-DD`.
+ * - Jour d’arrivée : inclus (première nuit).
+ * - Jour de départ : exclu (check-out, chambre libérée).
+ * - Arrivée et départ le même jour calendaire : ce jour compte une nuit.
+ */
+export function occupiesHotelNightUtcDay(day: Date, arrivalIso: string, departureIso: string): boolean {
+  const dayKey = day.toISOString().slice(0, 10);
+  const arrKey = new Date(arrivalIso).toISOString().slice(0, 10);
+  const depKey = new Date(departureIso).toISOString().slice(0, 10);
+  if (arrKey > depKey) return false;
+  if (arrKey === depKey) return dayKey === arrKey;
+  return dayKey >= arrKey && dayKey < depKey;
+}
