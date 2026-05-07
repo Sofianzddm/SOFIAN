@@ -2,14 +2,33 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
-import { EditorContent, useEditor } from "@tiptap/react";
+import Image from "next/image";
+import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import TiptapUnderline from "@tiptap/extension-underline";
+import EmailComposer, {
+  type BrandResearch,
+  type Talent,
+} from "@/app/(dashboard)/casting-outreach/EmailComposer";
+import { getInstagramProfileUrl } from "@/lib/social-links";
 
 type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
+
+type PresskitTalent = {
+  id: string;
+  prenom: string;
+  nom: string;
+  photo: string | null;
+  niches: string[];
+  instagram?: string | null;
+  igFollowers: number;
+  igEngagement: number;
+  ttFollowers: number;
+  ttEngagement: number;
+};
 
 type Opportunity = {
   id: string;
@@ -54,6 +73,14 @@ export default function InboundDetailPage() {
   const [composerSubject, setComposerSubject] = useState("");
   const [sendingFromLeyna, setSendingFromLeyna] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [talents, setTalents] = useState<PresskitTalent[]>([]);
+  const [loadingTalents, setLoadingTalents] = useState(false);
+  const [talentsError, setTalentsError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [brandResearch, setBrandResearch] = useState<BrandResearch | null>(null);
+  const [isResearching, setIsResearching] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
 
   const role = (session?.user as { role?: string } | undefined)?.role || "";
   const forbidden = status !== "loading" && !ALLOWED.includes(role);
@@ -100,12 +127,142 @@ export default function InboundDetailPage() {
     if (!composerOpen || !opportunity) return;
     setComposerSubject(opportunity.draftEmailSubject || opportunity.subject || "");
     composerEditor?.commands.setContent(opportunity.draftEmailBody || "<p></p>");
+    setSelectedIds(new Set());
+    setBrandResearch(null);
   }, [composerOpen, opportunity, composerEditor]);
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    let cancelled = false;
+    setLoadingTalents(true);
+    setTalentsError(null);
+    fetch("/api/talents?presskit=true", { credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(typeof j.message === "string" ? j.message : "Chargement des talents impossible.");
+        }
+        return res.json();
+      })
+      .then((data: { talents?: PresskitTalent[] }) => {
+        if (!cancelled) {
+          setTalents(Array.isArray(data.talents) ? data.talents : []);
+        }
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setTalentsError(e instanceof Error ? e.message : "Erreur réseau.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTalents(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [composerOpen]);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
     window.setTimeout(() => setToast(null), 3200);
   };
+
+  const selectedTalentsRaw = useMemo(
+    () => talents.filter((t) => selectedIds.has(t.id)),
+    [talents, selectedIds]
+  );
+
+  const selectedTalents: Talent[] = useMemo(
+    () =>
+      selectedTalentsRaw.map((t) => ({
+        id: t.id,
+        prenom: t.prenom,
+        nom: t.nom,
+        niches: t.niches,
+      })),
+    [selectedTalentsRaw]
+  );
+
+  const toggleTalent = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const runBrandResearch = useCallback(async () => {
+    if (!opportunity) return;
+    const brandName = (opportunity.extractedBrand || opportunity.senderDomain || "").trim();
+    if (!brandName) {
+      showToast("Nom de marque manquant pour la recherche.", "error");
+      return;
+    }
+    setIsResearching(true);
+    try {
+      const res = await fetch("/api/casting/brand-research", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Recherche impossible.");
+      }
+      setBrandResearch(data as BrandResearch);
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "Erreur réseau.", "error");
+    } finally {
+      setIsResearching(false);
+    }
+  }, [opportunity]);
+
+  const runGenerateEmail = useCallback(async () => {
+    if (!opportunity || !brandResearch) return;
+    if (selectedTalentsRaw.length === 0) {
+      showToast("Sélectionne au moins un talent.", "error");
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const res = await fetch("/api/casting/generate-email", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language: emailLanguage,
+          brandName: opportunity.extractedBrand || opportunity.senderDomain,
+          brandResearch,
+          talents: selectedTalentsRaw.map((t) => {
+            const followers = Math.max(t.igFollowers || 0, t.ttFollowers || 0);
+            const eng = t.igEngagement > 0 ? t.igEngagement : t.ttEngagement > 0 ? t.ttEngagement : undefined;
+            return {
+              name: `${t.prenom} ${t.nom}`.trim(),
+              niche: (t.niches || []).join(", ") || "—",
+              followers,
+              igFollowers: t.igFollowers || 0,
+              ttFollowers: t.ttFollowers || 0,
+              instagram: t.instagram ?? null,
+              ...(typeof eng === "number" ? { engagementRate: eng } : {}),
+            };
+          }),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Génération impossible.");
+      }
+      const nextSubject = typeof data.subject === "string" ? data.subject : "";
+      const nextBody = typeof data.body === "string" ? data.body : "";
+      setComposerSubject(nextSubject);
+      composerEditor?.commands.setContent(nextBody.startsWith("<") ? nextBody : `<p>${nextBody.replace(/\n/g, "<br/>")}</p>`);
+      showToast("Brouillon généré", "success");
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "Erreur réseau.", "error");
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [opportunity, brandResearch, selectedTalentsRaw, emailLanguage, composerEditor]);
 
   if (status === "loading" || loading) {
     return (
@@ -377,7 +534,7 @@ export default function InboundDetailPage() {
 
       {composerOpen && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+          <div className="w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-slate-900">Rédiger un mail</h3>
               <button
@@ -388,17 +545,75 @@ export default function InboundDetailPage() {
                 Fermer
               </button>
             </div>
-
-            <label className="mb-1 block text-sm font-medium text-slate-700">Objet</label>
-            <input
-              value={composerSubject}
-              onChange={(e) => setComposerSubject(e.target.value)}
-              className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-              placeholder="Objet du mail"
-            />
-
-            <label className="mb-1 block text-sm font-medium text-slate-700">Corps</label>
-            <EditorContent editor={composerEditor} />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="space-y-2 lg:col-span-1">
+                <h4 className="text-sm font-semibold text-slate-800">Talents</h4>
+                {talentsError && <p className="text-xs text-red-600">{talentsError}</p>}
+                <div className="max-h-[62vh] space-y-2 overflow-y-auto pr-1">
+                  {loadingTalents ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Chargement...
+                    </div>
+                  ) : (
+                    talents.map((t) => {
+                      const selected = selectedIds.has(t.id);
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => toggleTalent(t.id)}
+                          className="w-full rounded-xl border p-2 text-left"
+                          style={{ borderColor: selected ? "#C8F285" : "#E2E8F0", backgroundColor: selected ? "#F7FEE7" : "#fff" }}
+                        >
+                          <div className="flex items-start gap-2">
+                            <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-slate-200">
+                              {t.photo ? <Image src={t.photo} alt="" fill className="object-cover" sizes="48px" /> : null}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-slate-900">{t.prenom} {t.nom}</p>
+                              <p className="truncate text-xs text-slate-500">{(t.niches || []).join(", ") || "—"}</p>
+                              <p className="text-[11px] text-slate-600">IG {t.igFollowers || 0} · TT {t.ttFollowers || 0}</p>
+                              {t.instagram ? (
+                                <a
+                                  href={getInstagramProfileUrl(t.instagram) || "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-[11px] text-blue-600 underline"
+                                >
+                                  Instagram
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+              <div className="lg:col-span-2">
+                <EmailComposer
+                  subject={composerSubject}
+                  onSubjectChange={setComposerSubject}
+                  language={emailLanguage}
+                  onLanguageChange={setEmailLanguage}
+                  brandName={opportunity.extractedBrand || opportunity.senderDomain}
+                  brandResearch={brandResearch}
+                  onBrandResearch={() => {
+                    void runBrandResearch();
+                  }}
+                  isResearching={isResearching}
+                  talentsSelected={selectedTalents}
+                  isGenerating={isGenerating}
+                  onGenerate={() => {
+                    void runGenerateEmail();
+                  }}
+                  editor={composerEditor}
+                />
+              </div>
+            </div>
 
             <div className="mt-4 flex justify-end gap-2">
               <button

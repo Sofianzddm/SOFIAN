@@ -59,7 +59,7 @@ export async function POST(
     await prisma.$executeRaw`
       UPDATE "inbound_opportunities"
       SET
-        "status" = 'traite',
+        "status" = 'READY',
         "gmailSentMessageId" = ${messageId},
         "threadId" = ${opportunity.threadId || messageId},
         "sentAt" = NOW(),
