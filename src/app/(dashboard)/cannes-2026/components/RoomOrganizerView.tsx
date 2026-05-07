@@ -630,7 +630,8 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
       <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
         <p className="font-medium text-[#1A1110]">Organisateur villa Cannes 2026</p>
         <p className="mt-1 text-sm text-[#1A1110]/70">
-          5 chambres disponibles (4 chambres de 2 places + 1 chambre de 4 places). Assigne les talents puis controle les surcharges par date.
+          5 chambres disponibles (4 chambres de 2 places + 1 chambre de 4 places). Assigne les talents, puis
+          controle les surcharges et les mouvements jour par jour.
           <span className="mt-1 block text-[#1A1110]/80">
             Règle hôtel (comme le PDF) : la <strong>nuit</strong> du jour J compte si le talent est là ce soir — jour
             d&apos;arrivée inclus, <strong>jour de départ exclu</strong> (check-out). On ne peut pas placer quelqu&apos;un
@@ -673,6 +674,39 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
             </button>
           </div>
         )}
+      </div>
+
+      <div className="rounded-xl border border-[#E5E0D8] bg-[#FFFDF9] p-4 shadow-sm">
+        <p className="font-medium text-[#1A1110]">Guide de lecture rapide</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="rounded-lg border border-[#E5E0D8] bg-white p-3 text-sm text-[#1A1110]/80">
+            <p className="font-medium text-[#1A1110]">1) Affectation globale</p>
+            <p className="mt-1">
+              Choisit la chambre principale du talent sur toute sa periode. C&apos;est la base du planning.
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#E5E0D8] bg-white p-3 text-sm text-[#1A1110]/80">
+            <p className="font-medium text-[#1A1110]">2) Occupation par jour</p>
+            <p className="mt-1">
+              Permet les exceptions d&apos;un jour (drag & drop) sans casser l&apos;affectation globale.
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#E5E0D8] bg-white p-3 text-sm text-[#1A1110]/80">
+            <p className="font-medium text-[#1A1110]">3) Mouvements</p>
+            <p className="mt-1">
+              <strong>Arrivee</strong> = nouveau dans la chambre, <strong>Depart</strong> = sort de la chambre,
+              <strong> Retour</strong> = revient apres etre deja passe dans cette chambre, <strong>Reste</strong> =
+              occupant present la veille et aujourd&apos;hui.
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#E5E0D8] bg-white p-3 text-sm text-[#1A1110]/80">
+            <p className="font-medium text-[#1A1110]">4) Regle menage</p>
+            <p className="mt-1">
+              <strong>Menage complet</strong> si toute la composition change. Si au moins une personne reste, ce
+              n&apos;est <strong>pas</strong> un menage complet.
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
@@ -813,6 +847,11 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
             affectation globale. Bloqué les jours de check-out (pas de nuit ce soir-là).
           </p>
         )}
+        <div className="mb-3 flex flex-wrap gap-2 text-[11px]">
+          <span className="rounded-full bg-[#EAF6DA] px-2.5 py-1 text-[#2E5B0F]">Vert = OK capacite</span>
+          <span className="rounded-full bg-[#FDE4E4] px-2.5 py-1 text-[#8B1E1E]">Rouge = surcharge</span>
+          <span className="rounded-full bg-[#F5EBE0] px-2.5 py-1 text-[#1A1110]">x/y = occupants/capacite</span>
+        </div>
         <div className="space-y-3">
           {occupancyByDay.map((entry) => {
             const hasOverflow = entry.roomOccupancy.some((r) => r.occupants.length > r.capacity);
