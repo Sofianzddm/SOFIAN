@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CANNES_2026_DAYS, occupiesHotelNightUtcDay } from "@/lib/cannes/dates";
+import {
+  CANNES_2026_DAYS,
+  formatParisDate,
+  occupiesHotelNightUtcDay,
+  parisDayKey,
+} from "@/lib/cannes/dates";
 import type { CannesPresence } from "../types";
 
 type Props = {
@@ -21,13 +26,8 @@ const ROOM_CONFIG = [
 const DAILY_OVERRIDES_STORAGE_KEY = "cannes-2026:rooms:daily-overrides:v1";
 const DAILY_OVERRIDES_SERVER_KEY = "room-daily-overrides";
 
-function toDateOnly(dateStr: string) {
-  const d = new Date(dateStr);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
 function formatShortDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  return formatParisDate(dateStr, { day: "2-digit", month: "2-digit" });
 }
 
 function isRecordOfRoomOverrides(value: unknown): value is Record<string, Record<string, string>> {
@@ -54,13 +54,13 @@ function mergeDailyOverrides(
  * jour de départ exclu — aligné PDF / organisateur).
  */
 function getHotelNightDayKeys(arrivalDate: string, departureDate: string): string[] {
-  return CANNES_2026_DAYS.filter((d) => occupiesHotelNightUtcDay(d, arrivalDate, departureDate)).map((d) =>
-    d.toISOString().slice(0, 10)
+  return CANNES_2026_DAYS.filter((d) => occupiesHotelNightUtcDay(d, arrivalDate, departureDate)).map(
+    (d) => parisDayKey(d)
   );
 }
 
 function getFestivalDayByKey(dayKey: string): Date | undefined {
-  return CANNES_2026_DAYS.find((d) => d.toISOString().slice(0, 10) === dayKey);
+  return CANNES_2026_DAYS.find((d) => parisDayKey(d) === dayKey);
 }
 
 function computeSmartAssignments(
@@ -69,9 +69,13 @@ function computeSmartAssignments(
 ) {
   const occupancy: Record<string, Record<string, number>> = {};
   const byPriority = [...rows].sort((a, b) => {
-    const delta = toDateOnly(a.arrivalDate).getTime() - toDateOnly(b.arrivalDate).getTime();
-    if (delta !== 0) return delta;
-    return toDateOnly(b.departureDate).getTime() - toDateOnly(a.departureDate).getTime();
+    const aArr = parisDayKey(a.arrivalDate);
+    const bArr = parisDayKey(b.arrivalDate);
+    if (aArr !== bArr) return aArr < bArr ? -1 : 1;
+    const aDep = parisDayKey(a.departureDate);
+    const bDep = parisDayKey(b.departureDate);
+    if (aDep !== bDep) return aDep > bDep ? -1 : 1;
+    return 0;
   });
   const result: Record<string, string> = {};
 
@@ -232,7 +236,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
 
   const occupancyByDay = useMemo(() => {
     return CANNES_2026_DAYS.map((day) => {
-      const dayKey = day.toISOString().slice(0, 10);
+      const dayKey = parisDayKey(day);
       const roomOccupancy = ROOM_CONFIG.map((room) => {
         const occupants = talentRows.filter((p) => {
           const assignedRoom = getEffectiveRoomForDay(p.id, dayKey);
@@ -558,7 +562,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
                 className={`rounded border p-3 ${hasOverflow ? "border-[#F2AAAA] bg-[#FFF4F4]" : "border-[#E5E0D8]"}`}
               >
                 <p className="mb-2 text-sm font-medium text-[#1A1110]">
-                  {entry.day.toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "2-digit" })}
+                  {formatParisDate(entry.day, { weekday: "long", day: "2-digit", month: "2-digit" })}
                 </p>
                 <div className="grid gap-2 md:grid-cols-2">
                   {entry.roomOccupancy.map((room) => {

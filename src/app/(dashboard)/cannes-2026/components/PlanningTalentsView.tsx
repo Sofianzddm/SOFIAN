@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CANNES_2026_DAYS, isUtcDayInIsoRange } from "@/lib/cannes/dates";
+import { CANNES_2026_DAYS, formatParisDate, isUtcDayInIsoRange } from "@/lib/cannes/dates";
 import { toast } from "sonner";
 import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
@@ -74,7 +74,7 @@ export default function PlanningTalentsView({ presences, isAdmin }: Props) {
           <button key={p.id} onClick={() => setSelectedPresence(p)} className="w-full rounded border border-[#E5E0D8] p-3 text-left">
             <p className="font-medium text-[#1A1110]">{p.talent?.prenom} {p.talent?.nom}</p>
             <p className="text-sm text-[#1A1110]/70">
-              {new Date(p.arrivalDate).toLocaleDateString("fr-FR")} - {new Date(p.departureDate).toLocaleDateString("fr-FR")} · {p.hotel || "Hotel non renseigne"}
+              {formatParisDate(p.arrivalDate)} - {formatParisDate(p.departureDate)} · {p.hotel || "Hotel non renseigne"}
             </p>
             <div className="mt-2 grid grid-cols-12 gap-1">
               {CANNES_2026_DAYS.map((d) => {

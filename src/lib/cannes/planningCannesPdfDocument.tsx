@@ -1,7 +1,13 @@
 import path from "path";
 import React from "react";
 import { Document, Image, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
-import { CANNES_2026_DAYS, isUtcDayInIsoRange, occupiesHotelNightUtcDay } from "@/lib/cannes/dates";
+import {
+  CANNES_2026_DAYS,
+  CANNES_2026_TIMEZONE,
+  formatParisDate,
+  isUtcDayInIsoRange,
+  occupiesHotelNightUtcDay,
+} from "@/lib/cannes/dates";
 import { eachUtcDayFromMonday, getCannesFestivalMondayWeeks } from "@/lib/cannes/festivalWeeks";
 
 const LOGO_PATH = path.join(process.cwd(), "public", "Logo.png");
@@ -316,7 +322,7 @@ const styles = StyleSheet.create({
 });
 
 function shortDay(d: Date) {
-  return d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+  return formatParisDate(d, { weekday: "short", day: "numeric", month: "short" });
 }
 
 function isOnSite(p: CannesPlanningPdfPresence, day: Date) {
@@ -485,8 +491,8 @@ function kanbanItemLine(item: KanbanDayItem): string {
 }
 
 function formatWeekRangeFrance(monday: Date, sunday: Date) {
-  const m = monday.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
-  const s = sunday.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  const m = formatParisDate(monday, { day: "numeric", month: "long" });
+  const s = formatParisDate(sunday, { day: "numeric", month: "long", year: "numeric" });
   return `${m} au ${s}`;
 }
 
@@ -532,7 +538,7 @@ function PresenceCard({
       {p.user?.role ? <FieldLine label="Rôle" value={String(p.user.role)} /> : null}
       <FieldLine
         label="Période"
-        value={`${new Date(p.arrivalDate).toLocaleDateString("fr-FR")} → ${new Date(p.departureDate).toLocaleDateString("fr-FR")}`}
+        value={`${formatParisDate(p.arrivalDate)} → ${formatParisDate(p.departureDate)}`}
       />
       <FieldLine label="Hôtel" value={p.hotel || "—"} />
       {p.hotelAddress ? <FieldLine label="Adresse" value={truncate(p.hotelAddress, 220)} /> : null}
@@ -550,8 +556,8 @@ function PresenceCard({
           label="Absences"
           value={p
             .teamUnavailabilities!.map((u) => {
-              const a = new Date(u.startDate).toLocaleDateString("fr-FR");
-              const b = new Date(u.endDate).toLocaleDateString("fr-FR");
+              const a = formatParisDate(u.startDate);
+              const b = formatParisDate(u.endDate);
               const lab = u.label ? ` (${u.label})` : "";
               return `${a} – ${b}${lab}`;
             })
@@ -605,7 +611,11 @@ export function CannesPlanningPdfDocument({
   includeEvents,
   teamHiddenByDay,
 }: Props) {
-  const gen = generatedAt.toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" });
+  const gen = generatedAt.toLocaleString("fr-FR", {
+    dateStyle: "long",
+    timeStyle: "short",
+    timeZone: CANNES_2026_TIMEZONE,
+  });
   const teamChunks = chunkArray(teamPresences, 5);
   const talentChunks = chunkArray(talentPresences, 6);
   const eventChunks = chunkArray(events, 14);
@@ -746,9 +756,9 @@ export function CannesPlanningPdfDocument({
                         teamHiddenByDay
                       );
                       const fest = isFestivalUtcDay(day);
-                      const wd = day.toLocaleDateString("fr-FR", { weekday: "long" });
+                      const wd = formatParisDate(day, { weekday: "long" });
                       const dayTitle = wd.charAt(0).toUpperCase() + wd.slice(1);
-                      const num = day.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+                      const num = formatParisDate(day, { day: "numeric", month: "short" });
                       const shown = items.slice(0, 24);
                       const overflow = items.length - shown.length;
                       return (
@@ -855,7 +865,7 @@ export function CannesPlanningPdfDocument({
                   <Text style={[styles.evCell, { width: "10%", fontFamily: "Helvetica-Bold" }]}>Inv.</Text>
                 </View>
                 {chunk.map((ev, i) => {
-                  const d = new Date(ev.date).toLocaleDateString("fr-FR", {
+                  const d = formatParisDate(ev.date, {
                     weekday: "short",
                     day: "numeric",
                     month: "short",
