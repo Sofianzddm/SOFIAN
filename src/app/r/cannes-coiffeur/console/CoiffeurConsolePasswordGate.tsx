@@ -47,10 +47,10 @@ export default function CoiffeurConsolePasswordGate({ displayName, rememberDays 
         </div>
 
         <div className="glass-dark rounded-2xl p-5 shadow-2xl sm:p-7">
-          <p className="text-center text-xs uppercase tracking-[0.22em] text-glowup-lace/50">Salon Cannes 2026</p>
+          <p className="text-center text-xs uppercase tracking-[0.22em] text-glowup-lace/50">Glow Up · Coiffeur agence · Cannes</p>
           <h1 className="mt-3 text-center font-[Spectral] text-2xl text-glowup-lace">Accès réservé</h1>
           <p className="mt-3 text-center text-sm text-glowup-lace/65">
-            Bonjour {displayName}. Saisis le <strong className="text-glowup-lace">mot de passe salon</strong> communiqué
+            Bonjour {displayName}. Saisis le <strong className="text-glowup-lace">mot de passe planning coiffeur</strong> communiqué
             par Glow Up.
           </p>
           <p className="mt-2 text-center text-xs text-glowup-lace/45">

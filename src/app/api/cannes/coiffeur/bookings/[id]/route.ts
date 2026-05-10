@@ -50,17 +50,21 @@ export async function PATCH(
       "";
     const recipientName =
       guestName ||
-      (booking.talent ? `${booking.talent.prenom} ${booking.talent.nom}`.trim() : "");
+      (booking.talent ? `${booking.talent.prenom} ${booking.talent.nom}`.trim() : "") ||
+      "Client";
 
-    if (recipientEmail && recipientEmail.includes("@") && recipientName) {
-      await sendCoiffeurBookingCancellationEmail({
-        recipientEmail,
-        recipientName,
-        startsAt: booking.slot.startsAt,
-        endsAt: booking.slot.endsAt,
-        prestationTitle: booking.prestation?.title ?? null,
-      });
-    }
+    await sendCoiffeurBookingCancellationEmail({
+      recipientEmail,
+      recipientName,
+      startsAt: booking.slot.startsAt,
+      endsAt: booking.slot.endsAt,
+      prestationTitle: booking.prestation?.title ?? null,
+      stylistMeta: {
+        cancelSource: "staff",
+        guestEmail: guestEmail || booking.talent?.email?.trim().toLowerCase() || null,
+        notes: booking.notes ?? null,
+      },
+    });
   } catch (mailErr) {
     console.error("[cannes/coiffeur/bookings PATCH] email annulation", mailErr);
   }

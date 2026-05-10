@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { GlowUpLogo } from "@/components/ui/logo";
+import { getStylistFirstName, getStylistPhoneDisplay, getStylistTelHref } from "@/lib/cannes-coiffeur/stylist-contact";
 
 type BookingState =
   | { kind: "loading" }
@@ -16,6 +17,7 @@ type BookingState =
       guestName: string;
       guestEmail: string;
       displayStartParis: string;
+      cancellationBlocked: boolean;
     }
   | { kind: "cancel_done" };
 
@@ -47,6 +49,7 @@ export default function CannesCoiffeurManageClient() {
               guestName?: string;
               guestEmail?: string;
               displayStartParis?: string;
+              cancellationBlocked?: boolean;
             };
         if (cancelled) return;
         if (!res.ok || data.status === "not_found") {
@@ -65,6 +68,7 @@ export default function CannesCoiffeurManageClient() {
             guestName: data.guestName ?? "",
             guestEmail: data.guestEmail ?? "",
             displayStartParis: data.displayStartParis,
+            cancellationBlocked: data.cancellationBlocked === true,
           });
           return;
         }
@@ -144,20 +148,30 @@ export default function CannesCoiffeurManageClient() {
                 {state.guestName ? <p className="mt-2 text-glowup-lace/70">Nom : {state.guestName}</p> : null}
                 {state.guestEmail ? <p className="text-glowup-lace/70">Email : {state.guestEmail}</p> : null}
               </div>
+              {state.cancellationBlocked ? (
+                <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-100/95 sm:text-sm">
+                  Tu ne peux plus annuler en ligne à moins d&apos;une heure du rendez-vous. Pour un imprévu, appelle
+                  directement {getStylistFirstName()} (coiffeur à l'agence Glow Up) au{" "}
+                  <a href={getStylistTelHref()} className="font-semibold underline">
+                    {getStylistPhoneDisplay()}
+                  </a>
+                  .
+                </div>
+              ) : null}
               <div className="flex flex-col gap-3">
                 <button
                   type="button"
-                  disabled={submitting}
+                  disabled={submitting || state.cancellationBlocked}
                   onClick={() => void cancelBooking(false)}
-                  className="min-h-[46px] rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-70"
+                  className="min-h-[46px] rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {submitting ? "Annulation en cours…" : "Annuler ma réservation"}
                 </button>
                 <button
                   type="button"
-                  disabled={submitting}
+                  disabled={submitting || state.cancellationBlocked}
                   onClick={() => void cancelBooking(true)}
-                  className="min-h-[46px] rounded-lg border border-glowup-rose/45 px-4 py-2.5 text-sm font-medium text-glowup-lace disabled:opacity-70"
+                  className="min-h-[46px] rounded-lg border border-glowup-rose/45 px-4 py-2.5 text-sm font-medium text-glowup-lace disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Choisir un autre créneau
                 </button>

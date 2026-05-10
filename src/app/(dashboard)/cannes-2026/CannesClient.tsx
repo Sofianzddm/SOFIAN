@@ -110,7 +110,7 @@ export default function CannesClient({
                 rel="noopener noreferrer"
                 className="font-medium text-[#C08B8B] underline-offset-2 hover:underline"
               >
-                Ouvrir la vue salon
+                Ouvrir la vue coiffeur (agenda)
               </a>
               <span className="mt-1 block text-xs text-[#1A1110]/50">
                 Même outil avec un agenda semaine façon calendrier et le style de la page publique coiffeur.

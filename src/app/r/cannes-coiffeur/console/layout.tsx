@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
-  title: "Salon coiffeur · Cannes 2026 · Glow Up",
+  title: "Coiffeur agence · Cannes 2026 · Glow Up",
   description: "Agenda et gestion coiffeur — réservé aux comptes coiffeur et admin.",
 };
 

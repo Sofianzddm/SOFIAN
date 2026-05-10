@@ -13,6 +13,11 @@ import {
 } from "@react-email/components";
 
 import { formatParisTime } from "@/lib/cannes-coiffeur/formatParisTime";
+import {
+  getStylistFirstName,
+  getStylistPhoneDisplay,
+  getStylistTelHref,
+} from "@/lib/cannes-coiffeur/stylist-contact";
 
 const LOGO_URL = "https://app.glowupagence.fr/Logo.png";
 
@@ -89,7 +94,6 @@ export function CannesCoiffeurBookingConfirmationEmail({
             <Img src={LOGO_URL} alt="Glow Up" width={168} style={logoInv} />
             <Text style={eyebrow}>CANNES 2026</Text>
             <Text style={headline}>{internal ? "Nouvelle réservation" : "Rendez-vous confirmé"}</Text>
-            <Text style={subhead}>Coiffeur · Heure de Paris 🇫🇷</Text>
           </Section>
 
           <Section style={card}>
@@ -129,7 +133,9 @@ export function CannesCoiffeurBookingConfirmationEmail({
             {!internal && cancelUrl ? (
               <Section style={manageBox}>
                 <Text style={manageText}>
-                  Un imprévu ? Tu peux annuler ou modifier ta réservation à tout moment :
+                  Un imprévu ? Tu peux annuler (gratuitement) via ce lien jusqu’à{" "}
+                  <strong style={{ fontWeight: 700 }}>1 heure avant</strong> ton rendez-vous. Au-delà, appelle{" "}
+                  {getStylistFirstName()} directement au numéro indiqué plus bas.
                 </Text>
                 <Link href={cancelUrl} style={manageButton}>
                   Gérer ma réservation
@@ -137,10 +143,19 @@ export function CannesCoiffeurBookingConfirmationEmail({
               </Section>
             ) : null}
 
+            {!internal ? (
+              <Section style={contactBox}>
+                <Text style={contactLabel}>Ton coiffeur à l&apos;agence ({getStylistFirstName()})</Text>
+                <Link href={getStylistTelHref()} style={contactTel}>
+                  {getStylistPhoneDisplay()}
+                </Link>
+              </Section>
+            ) : null}
+
             <Text style={pMuted}>
               {internal
                 ? "Pour toute modification, contacte le talent ou ajuste le planning depuis l’outil coiffeur Cannes 2026."
-                : "En cas d’empêchement ou de changement, écris à ton contact Glow Up habituel le plus vite possible pour qu’on réorganise le créneau."}
+                : "En cas d’empêchement ou de changement, tu peux aussi écrire à ton contact Glow Up habituel."}
             </Text>
 
             <Hr style={hrSoft} />
@@ -216,19 +231,12 @@ const eyebrow: CSSProperties = {
 };
 
 const headline: CSSProperties = {
-  margin: "0 0 6px",
+  margin: 0,
   fontSize: "26px",
   lineHeight: 1.2,
   fontFamily: 'Georgia, "Times New Roman", serif',
   color: C.lace,
   fontWeight: 600,
-};
-
-const subhead: CSSProperties = {
-  margin: 0,
-  fontSize: "14px",
-  color: C.laceSoft,
-  opacity: 0.9,
 };
 
 const card: CSSProperties = {
@@ -364,6 +372,34 @@ const manageButton: CSSProperties = {
   borderRadius: "6px",
   fontSize: "13px",
   letterSpacing: "0.05em",
+};
+
+const contactBox: CSSProperties = {
+  marginTop: "12px",
+  marginBottom: "12px",
+  padding: "16px",
+  borderRadius: "10px",
+  border: `1px solid ${C.panelBorder}`,
+  backgroundColor: "rgba(232, 208, 143, 0.08)",
+  textAlign: "center",
+};
+
+const contactLabel: CSSProperties = {
+  margin: "0 0 8px",
+  fontSize: "11px",
+  letterSpacing: "0.12em",
+  textTransform: "uppercase",
+  color: C.roseLight,
+};
+
+const contactTel: CSSProperties = {
+  display: "inline-block",
+  marginTop: "4px",
+  fontSize: "20px",
+  fontWeight: 600,
+  color: C.lace,
+  letterSpacing: "0.04em",
+  textDecoration: "none",
 };
 
 const pMuted: CSSProperties = {

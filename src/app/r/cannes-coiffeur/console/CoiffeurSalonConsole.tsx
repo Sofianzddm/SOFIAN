@@ -47,7 +47,7 @@ type Tab = "agenda" | "prestations" | "dispos" | "photo";
 
 type Props = {
   displayName: string;
-  /** Mot de passe salon activé (`CANNES_COIFFEUR_CONSOLE_PASSWORD`) — affiche le bouton pour effacer le cookie. */
+  /** Mot de passe console coiffeur activé (`CANNES_COIFFEUR_CONSOLE_PASSWORD`) — affiche le bouton pour effacer le cookie. */
   salonPasswordActive?: boolean;
 };
 
@@ -255,8 +255,8 @@ export default function CoiffeurSalonConsole({ displayName, salonPasswordActive 
             <div className="flex w-full min-w-0 flex-1 items-center gap-3 sm:w-auto sm:items-start md:items-center md:gap-4">
               <button
                 type="button"
-                aria-label="Photo publique : ouvrir l’onglet Photo salon pour la modifier"
-                title="Photo affichée sur la page publique — modifier dans l’onglet « Photo salon »"
+                aria-label="Photo publique : ouvrir l’onglet Photo pour la modifier"
+                title="Photo affichée sur la page publique — modifier dans l’onglet « Photo »"
                 onClick={() => setTab("photo")}
                 className={`group shrink-0 rounded-xl border bg-black/20 transition hover:border-glowup-rose/45 hover:bg-black/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-glowup-rose-light/60 ${
                   portraitSrc ? "border-glowup-rose/20 p-0" : "border-glowup-rose/15"
@@ -280,7 +280,7 @@ export default function CoiffeurSalonConsole({ displayName, salonPasswordActive 
                 )}
               </button>
               <div className="min-w-0 text-center sm:text-left">
-                <p className="text-xs uppercase tracking-[0.22em] text-glowup-lace/50">Cannes 2026 · Salon</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-glowup-lace/50">Cannes 2026 · Coiffeur agence</p>
                 <h1 className="mt-1 font-[Spectral] text-[1.35rem] font-semibold leading-snug text-glowup-lace sm:text-2xl lg:text-3xl">
                   Ton espace coiffeur
                 </h1>
@@ -323,7 +323,7 @@ export default function CoiffeurSalonConsole({ displayName, salonPasswordActive 
               ["agenda", "Agenda"],
               ["prestations", "Prestations"],
               ["dispos", "Disponibilités"],
-              ["photo", "Photo salon"],
+              ["photo", "Photo publique"],
             ] as const
           ).map(([key, label]) => (
             <button

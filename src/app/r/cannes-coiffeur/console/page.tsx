@@ -32,7 +32,7 @@ export default async function CoiffeurConsolePage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-login px-6 text-center text-glowup-lace">
         <p className="max-w-md text-sm text-glowup-lace/85">
-          Mot de passe salon activé : configure <code className="text-glowup-rose-light">NEXTAUTH_SECRET</code> ou{" "}
+          Mot de passe console coiffeur activé : configure <code className="text-glowup-rose-light">NEXTAUTH_SECRET</code> ou{" "}
           <code className="text-glowup-rose-light">CANNES_COIFFEUR_CONSOLE_COOKIE_SECRET</code> sur ce déploiement pour
           signer le cookie de mémorisation.
         </p>

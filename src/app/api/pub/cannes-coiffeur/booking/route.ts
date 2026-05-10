@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { parsePublicToken } from "@/lib/cannes-coiffeur/cancellationToken";
 import { formatParisTime } from "@/lib/cannes-coiffeur/formatParisTime";
 import { checkRateLimit, getClientIp, isRateLimitBypassed } from "@/lib/cannes-coiffeur/rateLimit";
+import { COIFFEUR_PUBLIC_CANCEL_MIN_LEAD_MS } from "@/lib/cannes-coiffeur/stylist-contact";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ status: "cancelled" });
   }
 
+  const msUntilStart = booking.slot.startsAt.getTime() - Date.now();
+
   return NextResponse.json({
     status: "active",
     startsAt: booking.slot.startsAt.toISOString(),
@@ -45,5 +48,6 @@ export async function GET(req: NextRequest) {
     guestName: booking.guestName ?? "",
     guestEmail: booking.guestEmail ?? "",
     displayStartParis: formatParisTime(booking.slot.startsAt, "EEEE d MMMM yyyy · HH:mm"),
+    cancellationBlocked: msUntilStart >= 0 && msUntilStart < COIFFEUR_PUBLIC_CANCEL_MIN_LEAD_MS,
   });
 }

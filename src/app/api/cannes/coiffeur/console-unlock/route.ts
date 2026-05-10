@@ -16,7 +16,7 @@ function forbidden() {
   return NextResponse.json({ error: "Non autorise" }, { status: 403 });
 }
 
-/** Déverrouille la console salon après mot de passe (cookie HttpOnly pour mémoriser sur cet appareil). */
+/** Déverrouille la console coiffeur après mot de passe (cookie HttpOnly pour mémoriser sur cet appareil). */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return forbidden();
@@ -24,11 +24,11 @@ export async function POST(req: NextRequest) {
   if (role !== "ADMIN" && role !== "COIFFEUR") return forbidden();
 
   if (!isConsolePasswordConfigured()) {
-    return NextResponse.json({ error: "Mot de passe salon non configure" }, { status: 503 });
+    return NextResponse.json({ error: "Mot de passe console coiffeur non configuré" }, { status: 503 });
   }
   if (!consoleUnlockSecretConfigured()) {
     return NextResponse.json(
-      { error: "Configure NEXTAUTH_SECRET (ou CANNES_COIFFEUR_CONSOLE_COOKIE_SECRET) pour le cookie salon" },
+      { error: "Configure NEXTAUTH_SECRET (ou CANNES_COIFFEUR_CONSOLE_COOKIE_SECRET) pour le cookie console coiffeur" },
       { status: 503 }
     );
   }

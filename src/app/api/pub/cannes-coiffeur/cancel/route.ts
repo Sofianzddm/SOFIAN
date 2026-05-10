@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { parsePublicToken } from "@/lib/cannes-coiffeur/cancellationToken";
 import { checkRateLimit, getClientIp, isRateLimitBypassed } from "@/lib/cannes-coiffeur/rateLimit";
 import { sendCoiffeurBookingCancellationEmails } from "@/lib/cannes-coiffeur/coiffeurBookingEmails";
+import { COIFFEUR_PUBLIC_CANCEL_MIN_LEAD_MS, getStylistPhoneDisplay } from "@/lib/cannes-coiffeur/stylist-contact";
 
 export const dynamic = "force-dynamic";
 
@@ -56,8 +57,12 @@ export async function POST(req: NextRequest) {
     if (booking.cancelledAt || booking.status === CannesCoiffeurBookingStatus.CANCELLED) {
       return { kind: "already_cancelled" as const };
     }
-    if (booking.slot.startsAt.getTime() < Date.now()) {
+    const startsMs = booking.slot.startsAt.getTime();
+    if (startsMs <= Date.now()) {
       return { kind: "past" as const };
+    }
+    if (startsMs - Date.now() < COIFFEUR_PUBLIC_CANCEL_MIN_LEAD_MS) {
+      return { kind: "too_close" as const };
     }
 
     const now = new Date();
@@ -97,6 +102,14 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  if (result.kind === "too_close") {
+    return NextResponse.json(
+      {
+        error: `Annulation impossible moins d’une heure avant le rendez-vous. En cas d’urgence, contacte ${getStylistPhoneDisplay()}.`,
+      },
+      { status: 400 }
+    );
+  }
 
   try {
     const booking = result.booking;
@@ -112,6 +125,12 @@ export async function POST(req: NextRequest) {
         startsAt: booking.slot.startsAt,
         endsAt: booking.slot.endsAt,
         prestationTitle: booking.prestation?.title ?? null,
+        cancelledByTalent: true,
+        stylistMeta: {
+          cancelSource: "talent",
+          guestEmail: recipientEmail,
+          notes: booking.notes ?? null,
+        },
       });
     }
   } catch (mailErr) {

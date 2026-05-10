@@ -13,6 +13,11 @@ import "react-day-picker/style.css";
 import "./coiffeur-public-picker.css";
 
 import { formatParisTime, PARIS_TZ } from "@/lib/cannes-coiffeur/formatParisTime";
+import {
+  getStylistFirstName,
+  getStylistPhoneDisplay,
+  getStylistTelHref,
+} from "@/lib/cannes-coiffeur/stylist-contact";
 import { CoiffeurPublicProfileEncart } from "@/app/r/cannes-coiffeur/CoiffeurPublicProfileEncart";
 
 type PrestationPub = {
@@ -225,7 +230,7 @@ export default function CannesCoiffeurBookingClient({
           endsAt: pickedSlot.endsAt,
           guestName: name.trim(),
           guestEmail: email.trim(),
-          note: note.trim() || null,
+          note: note.trim(),
         }),
       });
       const j = (await res.json().catch(() => ({}))) as { error?: string; recap?: string };
@@ -283,8 +288,8 @@ export default function CannesCoiffeurBookingClient({
           </h1>
           <p className="mx-auto mt-3 max-w-xl px-0.5 text-center text-[0.9375rem] leading-relaxed text-glowup-lace/65 sm:text-sm md:text-base">
             <strong>Réservation sans compte.</strong> Toutes les heures sont en heure française (Paris). Choisis ta
-            prestation : la durée du rendez-vous et les créneaux proposés s&apos;adaptent. Puis indique nom et email et
-            confirme.
+            prestation : la durée du rendez-vous et les créneaux proposés s&apos;adaptent. Indique nom, email, et{" "}
+            <strong>ce que tu souhaites comme coupe ou style</strong> (obligatoire) avant de confirmer.
           </p>
 
           {done && (
@@ -494,16 +499,23 @@ export default function CannesCoiffeurBookingClient({
                             </div>
                             <div>
                               <label htmlFor="nte" className="mb-1.5 block text-xs font-medium text-glowup-lace">
-                                Précisions (facultatif)
+                                Ta coupe / ton style souhaité <span className="text-glowup-rose-light">(obligatoire)</span>
                               </label>
                               <textarea
                                 id="nte"
-                                rows={3}
+                                rows={4}
+                                required
+                                minLength={8}
                                 value={note}
                                 onChange={(e) => setNote(e.target.value)}
                                 className="w-full resize-none rounded-lg border border-glowup-rose/50 bg-glowup-lace/10 px-4 py-3 text-base text-glowup-lace transition-all duration-200 placeholder:text-glowup-lace/35 focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/30"
-                                placeholder="Allergies cuir chevelu, coupe souhaitée…"
+                                placeholder="Ex. coupe au carré, garder la longueur, frange, brushing, couleur…"
+                                aria-describedby="nte-hint"
                               />
+                              <p id="nte-hint" className="mt-1.5 text-[11px] leading-snug text-glowup-lace/45 sm:text-xs">
+                                Décris ce que tu veux (coupe, volume, contraintes) pour que le coiffeur de l'agence prépare ton
+                                rendez-vous.
+                              </p>
                             </div>
                             <button
                               type="submit"
@@ -531,6 +543,20 @@ export default function CannesCoiffeurBookingClient({
             </>
           )}
         </div>
+
+        <section className="mx-auto mb-6 max-w-md rounded-xl border border-glowup-rose/25 bg-black/25 px-4 py-4 text-center sm:py-5">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-glowup-lace/55">Glow Up · Cannes 2026 · Coiffeur agence</p>
+          <p className="mt-2 text-sm font-semibold text-glowup-lace">{getStylistFirstName()} — coiffeur à l'agence</p>
+          <a
+            href={getStylistTelHref()}
+            className="mt-3 inline-block text-xl font-semibold tracking-wide text-glowup-lace underline-offset-4 transition-colors hover:text-glowup-rose-light hover:underline"
+          >
+            {getStylistPhoneDisplay()}
+          </a>
+          <p className="mx-auto mt-2 max-w-sm text-[11px] leading-relaxed text-glowup-lace/45 sm:text-xs">
+            En cas de retard ou d’imprévu de dernière minute (&lt; 1 h avant le RDV).
+          </p>
+        </section>
 
         <p className="px-2 pb-2 text-center text-xs leading-relaxed text-glowup-lace/40 sm:text-sm">
           © 2026 Glow Up Agence ·{" "}

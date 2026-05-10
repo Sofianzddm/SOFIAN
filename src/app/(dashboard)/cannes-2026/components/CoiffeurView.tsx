@@ -197,7 +197,7 @@ export default function CoiffeurView() {
       <div className="rounded-xl border border-[#E5E0D8] bg-white p-6 shadow-sm">
         <h2 className="font-[Spectral] text-2xl text-[#1A1110]">Nouveau creneau</h2>
         <p className="mt-2 text-sm text-[#1A1110]/60">
-          Définis les plages où le salon coiffeur est disponible ; puis bloque un créneau libre avec le nom et l’email de
+          Définis les plages où le coiffeur à l&apos;agence est disponible ; puis bloque un créneau libre avec le nom et l’email de
           la personne (sans compte).
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

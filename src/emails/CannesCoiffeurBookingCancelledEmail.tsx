@@ -13,6 +13,11 @@ import {
 } from "@react-email/components";
 
 import { formatParisTime } from "@/lib/cannes-coiffeur/formatParisTime";
+import {
+  getStylistFirstName,
+  getStylistPhoneDisplay,
+  getStylistTelHref,
+} from "@/lib/cannes-coiffeur/stylist-contact";
 
 const LOGO_URL = "https://app.glowupagence.fr/Logo.png";
 
@@ -36,6 +41,8 @@ export interface CannesCoiffeurBookingCancelledEmailProps {
   prestationTitle: string;
   locationLine: string;
   appUrl: string;
+  /** Annulation via le lien public (talent) — texte de confirmation, pas « côté organisation ». */
+  cancelledByTalent?: boolean;
 }
 
 export function CannesCoiffeurBookingCancelledEmail({
@@ -45,13 +52,19 @@ export function CannesCoiffeurBookingCancelledEmail({
   prestationTitle,
   locationLine,
   appUrl,
+  cancelledByTalent = false,
 }: CannesCoiffeurBookingCancelledEmailProps) {
   const dateLine = formatParisTime(startsAt, "EEEE d MMMM yyyy");
   const startHm = formatParisTime(startsAt, "HH:mm");
   const endHm = formatParisTime(endsAt, "HH:mm");
   const first = recipientName.split(/\s+/)[0] || recipientName;
 
-  const preview = `Créneau coiffeur annulé (${startHm}) · Cannes 2026`;
+  const preview = cancelledByTalent
+    ? `Annulation confirmée (${startHm}) · Cannes 2026`
+    : `Créneau coiffeur annulé (${startHm}) · Cannes 2026`;
+
+  const badgeWrap = cancelledByTalent ? badgeTalent : badge;
+  const badgeLabel = cancelledByTalent ? "ANNULATION CONFIRMÉE" : "ANNULÉ PAR L’ORGANISATION";
 
   return (
     <Html lang="fr">
@@ -61,23 +74,37 @@ export function CannesCoiffeurBookingCancelledEmail({
       <Preview>{preview}</Preview>
       <Body style={body}>
         <Container style={container}>
-          <Section style={badge}>
-            <Text style={badgeText}>ANNULÉ PAR L’ORGANISATION</Text>
+          <Section style={badgeWrap}>
+            <Text style={cancelledByTalent ? badgeTextTalent : badgeText}>{badgeLabel}</Text>
           </Section>
 
           <Section style={header}>
             <Img src={LOGO_URL} alt="Glow Up" width={168} style={logoInv} />
             <Text style={eyebrow}>CANNES 2026</Text>
-            <Text style={headline}>Ton créneau coiffeur n’a plus lieu</Text>
-            <Text style={subhead}>Décision équipe salon / Glow Up · Heure de Paris 🇫🇷</Text>
+            <Text style={headline}>
+              {cancelledByTalent ? "Réservation annulée" : "Ton créneau coiffeur n’a plus lieu"}
+            </Text>
+            <Text style={subhead}>
+              {cancelledByTalent ? "Ta demande" : "Décision équipe Glow Up (agence)"}
+            </Text>
           </Section>
 
           <Section style={card}>
             <Text style={greeting}>Bonjour {first},</Text>
             <Text style={p}>
-              Pour information, ta réservation coiffeur a été annulée côté organisation (salon Glow Up Cannes). Le
-              créneau suivant est donc libéré — tu peux en choisir un autre depuis le lien communiqué par ton équipe si
-              c’est encore proposé.
+              {cancelledByTalent ? (
+                <>
+                  Nous te confirmons l’annulation de ta réservation coiffeur pour Cannes 2026. Le créneau est désormais
+                  libéré — tu pourras en réserver un autre via le lien public de réservation si tu le souhaites.
+                </>
+              ) : (
+                <>
+                  Pour information, ta réservation coiffeur a été annulée par l&apos;équipe Glow Up à l&apos;agence
+                  (organisation Cannes 2026). Le
+                  créneau suivant est donc libéré — tu peux en choisir un autre depuis le lien communiqué par ton équipe
+                  si c’est encore proposé.
+                </>
+              )}
             </Text>
 
             <Section style={cancelBox}>
@@ -98,9 +125,17 @@ export function CannesCoiffeurBookingCancelledEmail({
               <Text style={locationText}>{locationLine}</Text>
             </Section>
 
+            <Section style={contactBox}>
+              <Text style={contactLabel}>Coiffeur sur place ({getStylistFirstName()})</Text>
+              <Link href={getStylistTelHref()} style={contactTel}>
+                {getStylistPhoneDisplay()}
+              </Link>
+            </Section>
+
             <Text style={pMuted}>
-              Si tu pensais avoir encore ce rendez-vous ou que l’annulation est une erreur, contacte vite ton référent
-              Glow Up habituel avec ce message sous les yeux.
+              {cancelledByTalent
+                ? "Une question ou un souci ? Écris à ton référent Glow Up habituel."
+                : "Si tu pensais avoir encore ce rendez-vous ou que l’annulation est une erreur, contacte vite ton référent Glow Up habituel avec ce message sous les yeux."}
             </Text>
 
             <Hr style={hrSoft} />
@@ -142,6 +177,23 @@ const badgeText: CSSProperties = {
   fontWeight: 700,
   letterSpacing: "0.14em",
   color: "#ffd4d8",
+};
+
+const badgeTalent: CSSProperties = {
+  backgroundColor: "rgba(232, 208, 143, 0.12)",
+  border: "1px solid rgba(232, 208, 143, 0.4)",
+  borderRadius: "12px",
+  padding: "12px 18px",
+  marginBottom: "12px",
+  textAlign: "center",
+};
+
+const badgeTextTalent: CSSProperties = {
+  margin: 0,
+  fontSize: "12px",
+  fontWeight: 700,
+  letterSpacing: "0.14em",
+  color: "#e8d08f",
 };
 
 const header: CSSProperties = {
@@ -268,6 +320,32 @@ const locationText: CSSProperties = {
   fontSize: "13px",
   color: C.lace,
   opacity: 0.9,
+};
+
+const contactBox: CSSProperties = {
+  margin: "0 0 14px",
+  padding: "14px",
+  borderRadius: "10px",
+  border: `1px solid ${C.panelBorder}`,
+  backgroundColor: "rgba(232, 208, 143, 0.08)",
+  textAlign: "center",
+};
+
+const contactLabel: CSSProperties = {
+  margin: "0 0 6px",
+  fontSize: "11px",
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  color: "#e8d08f",
+};
+
+const contactTel: CSSProperties = {
+  display: "inline-block",
+  fontSize: "18px",
+  fontWeight: 600,
+  color: C.lace,
+  letterSpacing: "0.04em",
+  textDecoration: "none",
 };
 
 const pMuted: CSSProperties = {

@@ -18,7 +18,11 @@ const bookSchema = z.object({
   endsAt: z.string().datetime(),
   guestName: z.string().min(1).max(240).trim(),
   guestEmail: z.string().email().max(320).transform((e) => e.trim().toLowerCase()),
-  note: z.union([z.string().max(2000).trim(), z.null(), z.literal("")]).optional(),
+  note: z
+    .string()
+    .trim()
+    .min(8, "Merci de décrire ce que tu souhaites (coupe, style, longueur, frange…).")
+    .max(2000),
 });
 
 /** Date Paris yyyy-MM-DD pour une réservation donnée — alignée sur startsAt dans ce fuseau. */
@@ -98,7 +102,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const noteVal = input.note === "" || input.note == null ? null : input.note;
+  const noteVal = input.note;
   let cancellationToken: string | null = null;
 
   try {
@@ -150,6 +154,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Ce creneau vient d etre reserve, choisis-en un autre." },
         { status: 409 }
+      );
+    }
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
+      console.error(
+        "[pub/cannes-coiffeur/book] schéma BDD incomplet — exécuter prisma/sql/cannes_coiffeur_cancellation.sql sur Neon",
+        e.meta
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Configuration base de données incomplète. Exécute le script prisma/sql/cannes_coiffeur_cancellation.sql sur la même base que DATABASE_URL, puis réessaie.",
+        },
+        { status: 503 }
       );
     }
     console.error("[pub/cannes-coiffeur/book]", e);
