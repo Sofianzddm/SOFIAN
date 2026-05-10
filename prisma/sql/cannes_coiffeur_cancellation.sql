@@ -6,7 +6,7 @@
 
 ALTER TABLE "cannes_coiffeur_bookings"
   ADD COLUMN IF NOT EXISTS "cancellationToken" TEXT,
-  ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMP(3),
   ADD COLUMN IF NOT EXISTS "cancelledBy" TEXT;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "cannes_coiffeur_bookings_cancellation_token_uq"

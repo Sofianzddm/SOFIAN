@@ -8,7 +8,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: "Coiffeur Cannes 2026 · Glow Up",
-  description: "Réservation d’un créneau coiffeur (sans compte).",
+  description: "Réservation sans création de compte — créneaux en heure française, Cannes 2026.",
   robots: {
     index: false,
     follow: false,

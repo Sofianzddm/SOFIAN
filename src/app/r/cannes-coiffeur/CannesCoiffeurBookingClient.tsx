@@ -287,9 +287,11 @@ export default function CannesCoiffeurBookingClient({
             Réserver un créneau coiffeur
           </h1>
           <p className="mx-auto mt-3 max-w-xl px-0.5 text-center text-[0.9375rem] leading-relaxed text-glowup-lace/65 sm:text-sm md:text-base">
-            <strong>Réservation sans compte.</strong> Toutes les heures sont en heure française (Paris). Choisis ta
-            prestation : la durée du rendez-vous et les créneaux proposés s&apos;adaptent. Indique nom, email, et{" "}
-            <strong>ce que tu souhaites comme coupe ou style</strong> (obligatoire) avant de confirmer.
+            <strong>Réservation sans création de compte.</strong> Tous les créneaux sont affichés en heure française.
+            Choisissez votre horaire.
+          </p>
+          <p className="mx-auto mt-2 max-w-xl px-0.5 text-center text-[0.9375rem] leading-relaxed text-glowup-lace/65 sm:text-sm md:text-base">
+            <strong>Obligatoire :</strong> merci d&apos;indiquer le type de prestation souhaitée.
           </p>
 
           {done && (
@@ -546,7 +548,7 @@ export default function CannesCoiffeurBookingClient({
 
         <section className="mx-auto mb-6 max-w-md rounded-xl border border-glowup-rose/25 bg-black/25 px-4 py-4 text-center sm:py-5">
           <p className="text-[10px] uppercase tracking-[0.18em] text-glowup-lace/55">Glow Up · Cannes 2026 · Coiffeur agence</p>
-          <p className="mt-2 text-sm font-semibold text-glowup-lace">{getStylistFirstName()} — coiffeur à l'agence</p>
+          <p className="mt-2 text-sm font-semibold text-glowup-lace">{getStylistFirstName()}</p>
           <a
             href={getStylistTelHref()}
             className="mt-3 inline-block text-xl font-semibold tracking-wide text-glowup-lace underline-offset-4 transition-colors hover:text-glowup-rose-light hover:underline"

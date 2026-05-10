@@ -158,13 +158,13 @@ export async function POST(req: NextRequest) {
     }
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
       console.error(
-        "[pub/cannes-coiffeur/book] schéma BDD incomplet — exécuter prisma/sql/cannes_coiffeur_cancellation.sql sur Neon",
+        "[pub/cannes-coiffeur/book] schéma BDD incomplet — pnpm prisma migrate deploy (ou prisma/sql/cannes_coiffeur_cancellation.sql sur Neon)",
         e.meta
       );
       return NextResponse.json(
         {
           error:
-            "Configuration base de données incomplète. Exécute le script prisma/sql/cannes_coiffeur_cancellation.sql sur la même base que DATABASE_URL, puis réessaie.",
+            "La base de données n’est pas à jour. Déploie les migrations Prisma (`pnpm prisma migrate deploy`) ou exécute prisma/sql/cannes_coiffeur_cancellation.sql sur la même DATABASE_URL.",
         },
         { status: 503 }
       );
