@@ -9,13 +9,18 @@ export const dynamic = "force-dynamic";
 export default async function Page() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/login");
+  const role = session.user.role ?? "";
   const canEditCannes =
-    session.user.role === "ADMIN" ||
-    session.user.role === "STRATEGY_PLANNER" ||
-    session.user.role === "HEAD_OF_INFLUENCE" ||
-    session.user.role === "HEAD_OF_SALES";
+    role === "ADMIN" ||
+    role === "STRATEGY_PLANNER" ||
+    role === "HEAD_OF_INFLUENCE" ||
+    role === "HEAD_OF_SALES";
+  const coiffeurStaff = role === "ADMIN" || role === "COIFFEUR";
+  const coiffeurOnlyUser = role === "COIFFEUR";
 
-  const [events, contacts, presences] = await Promise.all([
+  const [events, contacts, presences] = coiffeurOnlyUser
+    ? [[], [], []]
+    : await Promise.all([
     prisma.cannesEvent.findMany({
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
       include: {
@@ -63,6 +68,8 @@ export default async function Page() {
   return (
     <CannesClient
       isAdmin={canEditCannes}
+      coiffeurStaff={coiffeurStaff}
+      coiffeurOnlyUser={coiffeurOnlyUser}
       initialEvents={JSON.parse(JSON.stringify(events))}
       initialContacts={JSON.parse(JSON.stringify(contacts))}
       initialPresences={JSON.parse(JSON.stringify(presences))}

@@ -140,6 +140,9 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
   const [savingAll, setSavingAll] = useState(false);
   const [draggedPresenceId, setDraggedPresenceId] = useState<string | null>(null);
   const [dropTargetRoom, setDropTargetRoom] = useState<string | null>(null);
+  const [persistedRooms, setPersistedRooms] = useState<Record<string, string>>(() =>
+    Object.fromEntries(presences.map((p) => [p.id, p.roomNumber || ""]))
+  );
   const [draftRooms, setDraftRooms] = useState<Record<string, string>>(() =>
     Object.fromEntries(presences.map((p) => [p.id, p.roomNumber || ""]))
   );
@@ -150,8 +153,14 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
   const talentRows = useMemo(() => presences.filter((p) => p.talent), [presences]);
 
   useEffect(() => {
+    const next = Object.fromEntries(presences.map((p) => [p.id, p.roomNumber || ""]));
+    setPersistedRooms(next);
+    setDraftRooms(next);
+  }, [presences]);
+
+  useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    const syncFromServer = async () => {
       let remoteState: Record<string, Record<string, string>> = {};
       try {
         const res = await fetch(`/api/cannes/shared-settings/${DAILY_OVERRIDES_SERVER_KEY}`, {
@@ -165,10 +174,27 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
         // ignore remote load errors
       }
       if (!cancelled) setDailyRoomOverrides(remoteState);
-    })();
+
+      try {
+        const presRes = await fetch("/api/cannes/presences", { cache: "no-store" });
+        if (presRes.ok) {
+          const rows = (await presRes.json()) as Array<{ id: string; roomNumber: string | null }>;
+          const nextPersisted = Object.fromEntries(rows.map((r) => [r.id, r.roomNumber || ""]));
+          if (!cancelled) setPersistedRooms(nextPersisted);
+        }
+      } catch {
+        // ignore presence sync errors
+      }
+    };
+
+    void syncFromServer();
+    const interval = window.setInterval(() => {
+      void syncFromServer();
+    }, 10000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -195,7 +221,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
         roomOccupancy,
       };
     });
-  }, [dailyRoomOverrides, draftRooms, talentRows, presences]);
+  }, [dailyRoomOverrides, persistedRooms, talentRows]);
 
   const occupancyByDayForPdf = useMemo(() => {
     return CANNES_2026_DAYS.map((day) => {
@@ -241,17 +267,21 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
   }, [occupancyByDay]);
 
   const unassignedCount = useMemo(() => {
-    return talentRows.filter((p) => !(draftRooms[p.id] || p.roomNumber)).length;
-  }, [draftRooms, talentRows]);
+    return talentRows.filter((p) => !(persistedRooms[p.id] || "")).length;
+  }, [persistedRooms, talentRows]);
+
+  function getPersistedRoomId(presenceId: string) {
+    return persistedRooms[presenceId] || "";
+  }
 
   function getAssignedRoomId(presenceId: string) {
-    return draftRooms[presenceId] || presences.find((p) => p.id === presenceId)?.roomNumber || "";
+    return draftRooms[presenceId] ?? getPersistedRoomId(presenceId);
   }
 
   function getEffectiveRoomForDay(presenceId: string, dayKey: string) {
     const dayOverride = dailyRoomOverrides[dayKey]?.[presenceId];
     if (dayOverride !== undefined) return dayOverride;
-    return getAssignedRoomId(presenceId);
+    return getPersistedRoomId(presenceId);
   }
 
   async function persistDailyOverrides(next: Record<string, Record<string, string>>) {
@@ -300,6 +330,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
         }),
       });
       if (!res.ok) throw new Error();
+      setPersistedRooms((prev) => ({ ...prev, [presenceId]: nextRoom || "" }));
       toast.success("Chambre mise a jour");
       router.refresh();
     } catch {
@@ -333,7 +364,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     if (!isAdmin) return;
     const changed = talentRows.filter((p) => {
       const nextRoom = draftRooms[p.id] || "";
-      const currentRoom = p.roomNumber || "";
+      const currentRoom = persistedRooms[p.id] || "";
       return nextRoom !== currentRoom;
     });
     if (changed.length === 0) {
@@ -345,13 +376,21 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
     try {
       await Promise.all(
         changed.map(async (p) => {
+          const nextRoom = draftRooms[p.id] || "";
           const res = await fetch(`/api/cannes/presences/${p.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ roomNumber: draftRooms[p.id] || null }),
+            body: JSON.stringify({ roomNumber: nextRoom || null }),
           });
           if (!res.ok) throw new Error(`Echec sur ${p.id}`);
         })
       );
+      setPersistedRooms((prev) => {
+        const next = { ...prev };
+        changed.forEach((p) => {
+          next[p.id] = draftRooms[p.id] || "";
+        });
+        return next;
+      });
       toast.success(`${changed.length} affectation(s) enregistree(s)`);
       router.refresh();
     } catch {
@@ -704,7 +743,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
             <p className="text-sm font-medium text-[#1A1110]">Non assignes</p>
             <div className="mt-2 space-y-2">
               {talentRows
-                .filter((p) => !getAssignedRoomId(p.id))
+                .filter((p) => !getPersistedRoomId(p.id))
                 .map((p) => (
                   <button
                     key={p.id}
@@ -726,7 +765,7 @@ export default function RoomOrganizerView({ presences, isAdmin }: Props) {
             </div>
           </div>
           {ROOM_CONFIG.map((room) => {
-            const occupants = talentRows.filter((p) => getAssignedRoomId(p.id) === room.id);
+            const occupants = talentRows.filter((p) => getPersistedRoomId(p.id) === room.id);
             const isOver = occupants.length > room.capacity;
             return (
               <div

@@ -15,15 +15,16 @@ function createPrismaClient() {
 
 let prisma = globalForPrisma.prisma ?? createPrismaClient();
 
-// En dev, le singleton (ou le premier new) peut être un client généré avant `prisma generate` :
-// sans delegate dossierProspection → .create / .findMany undefined.
-// Il faut rafraîchir même quand global était vide (premier import avec cache HMR bancal).
-if (
-  process.env.NODE_ENV !== "production" &&
-  typeof (prisma as unknown as { dossierProspection?: unknown }).dossierProspection ===
-    "undefined"
-) {
-  prisma = createPrismaClient();
+// En dev, le singleton peut être un PrismaClient généré *avant* `prisma generate` : les delegates
+// récents (ex. dossierProspection, cannesCoiffeurPrestation) restent alors `undefined`.
+if (process.env.NODE_ENV !== "production") {
+  const p = prisma as unknown as {
+    dossierProspection?: unknown;
+    cannesCoiffeurPrestation?: unknown;
+  };
+  if (typeof p.dossierProspection === "undefined" || typeof p.cannesCoiffeurPrestation === "undefined") {
+    prisma = createPrismaClient();
+  }
 }
 
 if (process.env.NODE_ENV !== "production") {

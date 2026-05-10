@@ -14,6 +14,8 @@ const CANNES_EDITOR_ROLES = new Set([
   "HEAD_OF_SALES",
 ]);
 
+const CANNES_COIFFEUR_STAFF_ROLES = new Set(["ADMIN", "COIFFEUR"]);
+
 export async function requireSession() {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -50,6 +52,24 @@ export async function requireCannesEditor() {
     return {
       error: NextResponse.json(
         { error: "Accès refusé - edition Cannes 2026 reservee aux roles autorises" },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { session };
+}
+
+/** Réservation coiffeur Cannes : admin agence ou compte coiffeur. */
+export async function requireCannesCoiffeurStaff() {
+  const { session, error } = await requireSession();
+  if (error) return { error };
+
+  const user = session!.user as SessionUser;
+  if (!CANNES_COIFFEUR_STAFF_ROLES.has(user.role || "")) {
+    return {
+      error: NextResponse.json(
+        { error: "Accès refusé - module coiffeur reserve aux administrateurs et coiffeurs" },
         { status: 403 }
       ),
     };

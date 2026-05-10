@@ -7,12 +7,15 @@ import ContactsView from "./components/ContactsView";
 import PlanningTeamView from "./components/PlanningTeamView";
 import PlanningTalentsView from "./components/PlanningTalentsView";
 import RoomOrganizerView from "./components/RoomOrganizerView";
+import CoiffeurView from "./components/CoiffeurView";
 import type { CannesContact, CannesEvent, CannesPresence } from "./types";
 
-type Tab = "agenda" | "contacts" | "team" | "talents" | "rooms";
+type Tab = "agenda" | "contacts" | "team" | "talents" | "rooms" | "coiffeur";
 
 type Props = {
   isAdmin: boolean;
+  coiffeurStaff: boolean;
+  coiffeurOnlyUser: boolean;
   initialEvents: CannesEvent[];
   initialContacts: CannesContact[];
   initialPresences: CannesPresence[];
@@ -20,11 +23,13 @@ type Props = {
 
 export default function CannesClient({
   isAdmin,
+  coiffeurStaff,
+  coiffeurOnlyUser,
   initialEvents,
   initialContacts,
   initialPresences,
 }: Props) {
-  const [tab, setTab] = useState<Tab>("agenda");
+  const [tab, setTab] = useState<Tab>(coiffeurOnlyUser ? "coiffeur" : "agenda");
   const teamPresences = useMemo(
     () => initialPresences.filter((p) => !!p.userId),
     [initialPresences]
@@ -33,6 +38,23 @@ export default function CannesClient({
     () => initialPresences.filter((p) => !!p.talentId),
     [initialPresences]
   );
+
+  const tabs = useMemo(() => {
+    if (coiffeurOnlyUser) {
+      return [["coiffeur", "Coiffeur"] as const];
+    }
+    const main: [Tab, string][] = [
+      ["agenda", "Agenda"],
+      ["contacts", "Contacts sur place"],
+      ["team", "Planning equipe"],
+      ["talents", "Planning talents"],
+      ["rooms", "Organisateur chambres"],
+    ];
+    if (coiffeurStaff) {
+      return [...main, ["coiffeur", "Coiffeur"]] as [Tab, string][];
+    }
+    return main;
+  }, [coiffeurOnlyUser, coiffeurStaff]);
 
   return (
     <>
@@ -54,13 +76,7 @@ export default function CannesClient({
             </div>
 
             <nav className="mt-8 flex gap-1 border-b border-[#E5E0D8]">
-              {[
-                ["agenda", "Agenda"],
-                ["contacts", "Contacts sur place"],
-                ["team", "Planning equipe"],
-                ["talents", "Planning talents"],
-                ["rooms", "Organisateur chambres"],
-              ].map(([key, label]) => (
+              {tabs.map(([key, label]) => (
                 <button
                   key={key}
                   onClick={() => setTab(key as Tab)}
@@ -86,6 +102,22 @@ export default function CannesClient({
           )}
           {tab === "talents" && <PlanningTalentsView presences={talentPresences} isAdmin={isAdmin} />}
           {tab === "rooms" && <RoomOrganizerView presences={talentPresences} isAdmin={isAdmin} />}
+          {tab === "coiffeur" && coiffeurStaff && (
+            <div className="mb-6 rounded-xl border border-[#E5E0D8] bg-white px-4 py-3 text-sm text-[#1A1110]/75 shadow-sm">
+              <a
+                href="/r/cannes-coiffeur/console"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-[#C08B8B] underline-offset-2 hover:underline"
+              >
+                Ouvrir la vue salon
+              </a>
+              <span className="mt-1 block text-xs text-[#1A1110]/50">
+                Même outil avec un agenda semaine façon calendrier et le style de la page publique coiffeur.
+              </span>
+            </div>
+          )}
+          {tab === "coiffeur" && <CoiffeurView />}
         </main>
       </div>
     </>

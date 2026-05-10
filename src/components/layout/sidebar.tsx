@@ -62,7 +62,7 @@ const menuItems = [
     label: "Cannes 2026",
     href: "/cannes-2026",
     icon: Briefcase,
-    roles: ["ADMIN", "STRATEGY_PLANNER", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"],
+    roles: ["ADMIN", "STRATEGY_PLANNER", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "COIFFEUR"],
   },
   {
     label: "Pipeline prospection",
@@ -548,6 +548,7 @@ function getRoleName(role: string): string {
     JURISTE: "Juriste",
     STRATEGY_PLANNER: "Strategy Planner",
     CASTING_MANAGER: "Casting Manager",
+    COIFFEUR: "Coiffeur",
   };
   return roleNames[role] || role;
 }

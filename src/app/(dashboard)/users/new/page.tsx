@@ -21,6 +21,11 @@ const roleOptions = [
   },
   { value: "CM", label: "Account Manager", description: "Prise en charge et traitement des demandes de gifts" },
   { value: "TALENT", label: "Talent", description: "Accès limité au portail talent" },
+  {
+    value: "COIFFEUR",
+    label: "Coiffeur",
+    description: "Planning coiffeur Cannes uniquement (pas d’autres modules)",
+  },
 ];
 
 export default function NewUserPage() {

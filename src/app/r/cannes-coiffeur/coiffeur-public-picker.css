@@ -1,0 +1,28 @@
+/* Surcharge locale react-day-picker (thème Glow Up dans encart clair mobile) */
+.coiffeur-public-rdp.rdp-root {
+  --rdp-accent-color: #b06f70;
+  --rdp-accent-background-color: rgba(176, 111, 112, 0.18);
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Petit iPhone : calendrier un peu plus compact sans descendre sous ~38px tactiles */
+@media (max-width: 374px) {
+  .coiffeur-public-rdp.rdp-root {
+    --rdp-day-height: 40px;
+    --rdp-day-width: 40px;
+    --rdp-day_button-height: 38px;
+    --rdp-day_button-width: 38px;
+    --rdp-weekday-padding: 0.25rem 0;
+  }
+}
+
+/* Tablettes / grands mobiles : garder une grille confortable */
+@media (min-width: 768px) {
+  .coiffeur-public-rdp.rdp-root {
+    --rdp-day-height: 46px;
+    --rdp-day-width: 46px;
+    --rdp-day_button-height: 44px;
+    --rdp-day_button-width: 44px;
+  }
+}

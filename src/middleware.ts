@@ -10,6 +10,21 @@ import { getToken } from "next-auth/jwt";
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  /** Page + APIs réservation coiffeur : ouvertes sans session ; blocage User-Agent Google + noindex explicite. */
+  if (pathname === "/r/cannes-coiffeur" || pathname.startsWith("/api/pub/cannes-coiffeur")) {
+    const ua = request.headers.get("user-agent") ?? "";
+    const googleCrawler =
+      /\b(?:Googlebot|AdsBot-Google|Mediapartners-Google|Google-InspectionTool|FeedFetcher-Google|GoogleProducer)\b/i.test(
+        ua
+      );
+    if (googleCrawler) {
+      return new NextResponse("Forbidden", { status: 403 });
+    }
+    const res = NextResponse.next();
+    res.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+    return res;
+  }
+
   // Webhooks externes : pas d'auth
   if (pathname.startsWith("/api/webhooks")) {
     return NextResponse.next();
@@ -47,6 +62,19 @@ export async function middleware(request: NextRequest) {
 
   const t = token as { role?: string; impersonatedRole?: string };
   const effectiveRole = t.impersonatedRole ?? t.role;
+
+  // Compte coiffeur : uniquement Cannes 2026 + API coiffeur + liste talents Cannes + auth
+  if (effectiveRole === "COIFFEUR") {
+    const allowed =
+      pathname === "/login" ||
+      pathname.startsWith("/api/auth") ||
+      pathname.startsWith("/cannes-2026") ||
+      pathname.startsWith("/api/cannes/coiffeur/") ||
+      pathname === "/api/cannes/talents-list";
+    if (!allowed) {
+      return NextResponse.redirect(new URL("/cannes-2026", request.url));
+    }
+  }
 
   if (pathname.startsWith("/juriste") && effectiveRole !== "JURISTE") {
     return NextResponse.redirect(new URL("/dashboard", request.url));
@@ -162,10 +190,15 @@ export const config = {
     "/casting-outreach/:path*",
     "/demandes-entrantes",
     "/demandes-entrantes/:path*",
+    "/cannes-2026",
+    "/cannes-2026/:path*",
     // Prospection (fichiers leads) — même session que le reste du dashboard
     "/prospection",
     "/prospection/:path*",
     // Inbound API: session requise sauf exceptions Bearer (gérées plus haut)
     "/api/inbound/:path*",
+    // Réservation coiffeur (public, sans session) — garde robots + header noindex
+    "/r/cannes-coiffeur",
+    "/api/pub/cannes-coiffeur/:path*",
   ],
 };

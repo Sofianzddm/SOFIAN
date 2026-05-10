@@ -1,0 +1,191 @@
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, #2d0808 0%, #0a0303 100%);
+  animation: introFadeOut 0.8s ease-in-out 2.6s forwards;
+}
+
+@keyframes introFadeOut {
+  to {
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+  }
+}
+
+.intro::before {
+  content: "";
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(232, 208, 143, 0.08) 0%, transparent 60%);
+  animation: pulseGlow 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+
+.intro::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.4 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.4;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+.logoContainer {
+  position: relative;
+  z-index: 2;
+  width: 60%;
+  max-width: 320px;
+  opacity: 0;
+  animation: logoAppear 0.6s ease-out 0.3s forwards;
+}
+
+@media (max-width: 480px) {
+  .logoContainer {
+    max-width: 240px;
+  }
+}
+
+@keyframes logoAppear {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.logoSvg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.logoSvg path {
+  fill: #f5ede0;
+  fill-opacity: 0;
+  stroke: #f5ede0;
+  stroke-width: 1.5;
+  stroke-dasharray: 2000;
+  stroke-dashoffset: 2000;
+  animation: drawStroke 1.4s cubic-bezier(0.65, 0, 0.35, 1) forwards, fillIn 0.6s ease-out forwards;
+}
+
+@keyframes drawStroke {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes fillIn {
+  to {
+    fill-opacity: 1;
+  }
+}
+
+.logoSvg path:nth-child(1) {
+  animation-delay: 0.4s, 1.4s;
+}
+.logoSvg path:nth-child(2) {
+  animation-delay: 0.5s, 1.5s;
+}
+.logoSvg path:nth-child(3) {
+  animation-delay: 0.6s, 1.6s;
+}
+.logoSvg path:nth-child(4) {
+  animation-delay: 0.7s, 1.7s;
+}
+.logoSvg path:nth-child(5) {
+  animation-delay: 0.8s, 1.8s;
+}
+.logoSvg path:nth-child(6) {
+  animation-delay: 0.9s, 1.9s;
+}
+
+.tagline {
+  position: relative;
+  z-index: 2;
+  margin-top: 32px;
+  color: #f5ede0;
+  font-size: 11px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  opacity: 0;
+  animation: taglineAppear 0.8s ease-out 1.6s forwards;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+@keyframes taglineAppear {
+  from {
+    opacity: 0;
+    letter-spacing: 0.2em;
+  }
+  to {
+    opacity: 0.9;
+    letter-spacing: 0.4em;
+  }
+}
+
+.taglineDivider {
+  display: inline-block;
+  width: 24px;
+  height: 1px;
+  background: #e8d08f;
+  transform: scaleX(0);
+  animation: dividerExpand 0.6s ease-out 1.8s forwards;
+  transform-origin: center;
+}
+
+@keyframes dividerExpand {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.counter {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  color: #e8d08f;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-family-secondary, -apple-system, sans-serif);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intro {
+    animation: none;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}

@@ -27,6 +27,7 @@ const roleOptions = [
   { value: "CASTING_MANAGER", label: "Casting Manager" },
   { value: "CM", label: "Account Manager" },
   { value: "TALENT", label: "Talent" },
+  { value: "COIFFEUR", label: "Coiffeur" },
 ];
 
 export default function EditUserPage() {
