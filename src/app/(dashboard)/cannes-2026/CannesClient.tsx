@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Toaster } from "sonner";
 import AgendaView from "./components/AgendaView";
 import ContactsView from "./components/ContactsView";
@@ -8,12 +8,14 @@ import PlanningTeamView from "./components/PlanningTeamView";
 import PlanningTalentsView from "./components/PlanningTalentsView";
 import RoomOrganizerView from "./components/RoomOrganizerView";
 import CoiffeurView from "./components/CoiffeurView";
+import LogisticsChecklistView from "./components/LogisticsChecklistView";
 import type { CannesContact, CannesEvent, CannesPresence } from "./types";
 
-type Tab = "agenda" | "contacts" | "team" | "talents" | "rooms" | "coiffeur";
+type Tab = "agenda" | "contacts" | "team" | "talents" | "rooms" | "logistics" | "coiffeur";
 
 type Props = {
   isAdmin: boolean;
+  isLogisticsAdmin: boolean;
   coiffeurStaff: boolean;
   coiffeurOnlyUser: boolean;
   initialEvents: CannesEvent[];
@@ -23,6 +25,7 @@ type Props = {
 
 export default function CannesClient({
   isAdmin,
+  isLogisticsAdmin,
   coiffeurStaff,
   coiffeurOnlyUser,
   initialEvents,
@@ -30,6 +33,10 @@ export default function CannesClient({
   initialPresences,
 }: Props) {
   const [tab, setTab] = useState<Tab>(coiffeurOnlyUser ? "coiffeur" : "agenda");
+
+  useEffect(() => {
+    if (!isLogisticsAdmin && tab === "logistics") setTab("agenda");
+  }, [isLogisticsAdmin, tab]);
   const teamPresences = useMemo(
     () => initialPresences.filter((p) => !!p.userId),
     [initialPresences]
@@ -49,12 +56,13 @@ export default function CannesClient({
       ["team", "Planning equipe"],
       ["talents", "Planning talents"],
       ["rooms", "Organisateur chambres"],
+      ...(isLogisticsAdmin ? ([["logistics", "Logistique"]] as [Tab, string][]) : []),
     ];
     if (coiffeurStaff) {
       return [...main, ["coiffeur", "Coiffeur"]] as [Tab, string][];
     }
     return main;
-  }, [coiffeurOnlyUser, coiffeurStaff]);
+  }, [coiffeurOnlyUser, coiffeurStaff, isLogisticsAdmin]);
 
   return (
     <>
@@ -102,6 +110,7 @@ export default function CannesClient({
           )}
           {tab === "talents" && <PlanningTalentsView presences={talentPresences} isAdmin={isAdmin} />}
           {tab === "rooms" && <RoomOrganizerView presences={talentPresences} isAdmin={isAdmin} />}
+          {tab === "logistics" && isLogisticsAdmin && <LogisticsChecklistView />}
           {tab === "coiffeur" && coiffeurStaff && (
             <div className="mb-6 rounded-xl border border-[#E5E0D8] bg-white px-4 py-3 text-sm text-[#1A1110]/75 shadow-sm">
               <a

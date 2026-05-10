@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/cannes/auth";
+import { requireAdmin, requireSession } from "@/lib/cannes/auth";
+
+const LOGISTICS_CHECKLIST_KEY = "logistics-checklist";
 
 const ALLOWED_KEYS = new Set([
   "team-official-hidden-by-day",
   "room-daily-overrides",
+  LOGISTICS_CHECKLIST_KEY,
 ]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -16,17 +19,22 @@ function isAllowedKey(key: string): boolean {
   return ALLOWED_KEYS.has(key);
 }
 
+async function requireAccessForKey(key: string) {
+  if (key === LOGISTICS_CHECKLIST_KEY) return requireAdmin();
+  return requireSession();
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
-  const { error } = await requireSession();
-  if (error) return error;
-
   const { key } = await params;
   if (!isAllowedKey(key)) {
     return NextResponse.json({ error: "Cle de configuration inconnue" }, { status: 404 });
   }
+
+  const { error } = await requireAccessForKey(key);
+  if (error) return error;
 
   const row = await prisma.cannesSharedSetting.findUnique({ where: { key } });
   return NextResponse.json({ key, value: row?.value ?? null });
@@ -36,13 +44,13 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
-  const { error } = await requireSession();
-  if (error) return error;
-
   const { key } = await params;
   if (!isAllowedKey(key)) {
     return NextResponse.json({ error: "Cle de configuration inconnue" }, { status: 404 });
   }
+
+  const { error } = await requireAccessForKey(key);
+  if (error) return error;
 
   const body = await req.json().catch(() => ({}));
   const value = (body as { value?: unknown }).value;

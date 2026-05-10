@@ -15,8 +15,9 @@ export default async function Page() {
     role === "STRATEGY_PLANNER" ||
     role === "HEAD_OF_INFLUENCE" ||
     role === "HEAD_OF_SALES";
-  const coiffeurStaff = role === "ADMIN" || role === "COIFFEUR";
-  const coiffeurOnlyUser = role === "COIFFEUR";
+  const coiffeurStaff = role === "ADMIN";
+  const isLogisticsAdmin = role === "ADMIN";
+  const coiffeurOnlyUser = false;
 
   const [events, contacts, presences] = coiffeurOnlyUser
     ? [[], [], []]
@@ -68,6 +69,7 @@ export default async function Page() {
   return (
     <CannesClient
       isAdmin={canEditCannes}
+      isLogisticsAdmin={isLogisticsAdmin}
       coiffeurStaff={coiffeurStaff}
       coiffeurOnlyUser={coiffeurOnlyUser}
       initialEvents={JSON.parse(JSON.stringify(events))}
