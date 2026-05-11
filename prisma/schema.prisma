@@ -2341,9 +2341,26 @@ model CannesPresence {
   talent               Talent?                    @relation("TalentCannesPresences", fields: [talentId], references: [id], onDelete: Cascade)
   attendances          CannesEventAttendee[]
   teamUnavailabilities CannesTeamUnavailability[]
+  planningSlots        CannesTeamPlanningSlot[]
 
   @@index([userId])
   @@index([talentId])
+}
+
+/// Mission ou poste interne sur un créneau horaire précis (fuseau affichage / saisie : Europe/Paris).
+model CannesTeamPlanningSlot {
+  id         String         @id @default(cuid())
+  presenceId String
+  presence   CannesPresence @relation(fields: [presenceId], references: [id], onDelete: Cascade)
+  startsAt   DateTime
+  endsAt     DateTime
+  title      String         @default("")
+  location   String?
+  notes      String?        @db.Text
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([presenceId, startsAt])
 }
 
 model CannesTeamUnavailability {

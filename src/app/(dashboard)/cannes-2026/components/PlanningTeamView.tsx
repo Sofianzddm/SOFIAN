@@ -18,16 +18,24 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CANNES_2026_DAYS, CANNES_2026_END, CANNES_2026_START, isUtcDayInIsoRange } from "@/lib/cannes/dates";
+import {
+  CANNES_2026_DAYS,
+  CANNES_2026_END,
+  CANNES_2026_START,
+  isUtcDayInIsoRange,
+  parisDayKey,
+} from "@/lib/cannes/dates";
 import { eachUtcDayFromMonday, getCannesFestivalMondayWeeks } from "@/lib/cannes/festivalWeeks";
 import Modal from "./Modal";
 import PresenceForm from "./forms/PresenceForm";
 import TeamUnavailabilitiesEditor from "./TeamUnavailabilitiesEditor";
+import TeamDayRoster from "./TeamDayRoster";
+import TeamHourlySlotsEditor from "./TeamHourlySlotsEditor";
 import PlanningPdfExportModal from "./PlanningPdfExportModal";
 import PlanningPdfIndividualBulkModal from "./PlanningPdfIndividualBulkModal";
-import type { CannesPresence, CannesTeamUnavailability } from "../types";
+import type { CannesEvent, CannesPresence, CannesTeamUnavailability } from "../types";
 
-type Props = { presences: CannesPresence[]; isAdmin: boolean };
+type Props = { presences: CannesPresence[]; events: CannesEvent[]; isAdmin: boolean };
 
 /** Données drag natif (tableau par ligne). */
 const MIME = "application/x-cannes-presence-id";
@@ -486,10 +494,16 @@ function TeamKanbanBoard({
   );
 }
 
-export default function PlanningTeamView({ presences, isAdmin }: Props) {
+export default function PlanningTeamView({ presences, events, isAdmin }: Props) {
   const router = useRouter();
   const [creatingPresence, setCreatingPresence] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const firstPlannerDayYmd = useMemo(
+    () => (CANNES_2026_DAYS[0] ? parisDayKey(CANNES_2026_DAYS[0]) : ""),
+    []
+  );
+  const [plannerDayYmd, setPlannerDayYmd] = useState(firstPlannerDayYmd);
+  const [plannerPickPresenceId, setPlannerPickPresenceId] = useState<string | null>(null);
   const festivalWeeks = useMemo(() => getCannesFestivalMondayWeeks(), []);
   const [officialWeekIndex, setOfficialWeekIndex] = useState(0);
   const [officialHiddenByDay, setOfficialHiddenByDay] = useState<Record<string, true>>({});
@@ -604,6 +618,25 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
     for (const p of rows) m.set(p.id, p);
     return m;
   }, [rows]);
+
+  /** Au chargement : premier jour du festival + premier collaborateur sur place (si aucun clic encore). */
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const d0 = CANNES_2026_DAYS[0];
+    if (!d0) return;
+    if (plannerDayYmd !== parisDayKey(d0)) return;
+    setPlannerPickPresenceId((prev) => {
+      if (prev !== null) return prev;
+      const first = rows.find((p) => {
+        const onPresenceWindow = isUtcDayInIsoRange(d0, p.arrivalDate, p.departureDate);
+        const absenceDay = (p.teamUnavailabilities ?? []).some((u) =>
+          isUtcDayInIsoRange(d0, u.startDate, u.endDate)
+        );
+        return onPresenceWindow && !absenceDay;
+      });
+      return first?.id ?? rows[0]?.id ?? null;
+    });
+  }, [rows, plannerDayYmd]);
 
   const officialWeekDays = useMemo(() => {
     const weekStart = festivalWeeks[officialWeekIndex] ?? festivalWeeks[0];
@@ -944,6 +977,31 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
         </span>
       </div>
 
+      <TeamDayRoster
+        rows={rows}
+        events={events}
+        selectedDayYmd={plannerDayYmd}
+        onSelectDay={(ymd, defaultPresenceId) => {
+          setPlannerDayYmd(ymd);
+          setPlannerPickPresenceId(defaultPresenceId ?? rows[0]?.id ?? null);
+        }}
+        onPickCollaborator={(id) => {
+          setPlannerPickPresenceId(id);
+        }}
+      />
+
+      <div className="mb-6 rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
+        <TeamHourlySlotsEditor
+          presences={rows}
+          events={events}
+          isAdmin={isAdmin}
+          rosterDayYmd={plannerDayYmd}
+          rosterPresenceId={plannerPickPresenceId}
+          onDayYmdChange={setPlannerDayYmd}
+          onPresenceIdChange={setPlannerPickPresenceId}
+        />
+      </div>
+
       <div className="space-y-2">
         {rows.map((p) => {
           const label = personLabel(p);
@@ -1110,6 +1168,15 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
               <>
                 <PresenceForm initialData={selectedPresence} onClose={() => setSelectedId(null)} />
                 <TeamUnavailabilitiesEditor presence={selectedPresence} />
+                <div className="mt-6 border-t border-[#E5E0D8] pt-4">
+                  <TeamHourlySlotsEditor
+                    presences={[selectedPresence]}
+                    events={events}
+                    isAdmin={isAdmin}
+                    lockedPresenceId={selectedPresence.id}
+                    compact
+                  />
+                </div>
               </>
             ) : (
               <div className="space-y-3 text-sm text-[#1A1110]/80">
@@ -1131,6 +1198,15 @@ export default function PlanningTeamView({ presences, isAdmin }: Props) {
                     </ul>
                   </div>
                 )}
+                <div className="mt-4 border-t border-[#E5E0D8] pt-4">
+                  <TeamHourlySlotsEditor
+                    presences={[selectedPresence]}
+                    events={events}
+                    isAdmin={false}
+                    lockedPresenceId={selectedPresence.id}
+                    compact
+                  />
+                </div>
               </div>
             )}
           </>

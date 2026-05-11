@@ -106,7 +106,7 @@ export default function CannesClient({
           )}
           {tab === "contacts" && <ContactsView contacts={initialContacts} isAdmin={isAdmin} />}
           {tab === "team" && (
-            <PlanningTeamView presences={teamPresences} isAdmin={isAdmin} />
+            <PlanningTeamView presences={teamPresences} events={initialEvents} isAdmin={isAdmin} />
           )}
           {tab === "talents" && <PlanningTalentsView presences={talentPresences} isAdmin={isAdmin} />}
           {tab === "rooms" && <RoomOrganizerView presences={talentPresences} isAdmin={isAdmin} />}

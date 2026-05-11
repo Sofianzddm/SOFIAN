@@ -6,6 +6,16 @@ export type CannesTeamUnavailability = {
   label: string | null;
 };
 
+export type CannesTeamPlanningSlot = {
+  id: string;
+  presenceId: string;
+  startsAt: string;
+  endsAt: string;
+  title: string;
+  location: string | null;
+  notes: string | null;
+};
+
 export type CannesPresence = {
   id: string;
   userId: string | null;
@@ -19,6 +29,7 @@ export type CannesPresence = {
   roomNumber: string | null;
   notes: string | null;
   teamUnavailabilities?: CannesTeamUnavailability[];
+  planningSlots?: CannesTeamPlanningSlot[];
   user: { id: string; prenom: string; nom: string; role?: string } | null;
   talent: {
     id: string;

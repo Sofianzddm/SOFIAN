@@ -62,6 +62,7 @@ export default async function Page() {
           },
         },
         teamUnavailabilities: { orderBy: { startDate: "asc" } },
+        planningSlots: { orderBy: { startsAt: "asc" } },
       },
     }),
   ]);
