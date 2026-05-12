@@ -1,9 +1,10 @@
 import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { getNextAuthSecret } from "@/lib/nextAuthSecret";
 
 export const COIFFEUR_CONSOLE_UNLOCK_COOKIE = "coiffeur_console_unlock";
 
 function hmacSecret(): string {
-  return (process.env.CANNES_COIFFEUR_CONSOLE_COOKIE_SECRET || process.env.NEXTAUTH_SECRET || "").trim();
+  return process.env.CANNES_COIFFEUR_CONSOLE_COOKIE_SECRET?.trim() || getNextAuthSecret();
 }
 
 export function consoleUnlockSecretConfigured(): boolean {

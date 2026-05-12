@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin, requireSession } from "@/lib/cannes/auth";
+import { requireCannesLogisticsAdmin, requireSession } from "@/lib/cannes/auth";
 
 const LOGISTICS_CHECKLIST_KEY = "logistics-checklist";
 
@@ -20,7 +20,7 @@ function isAllowedKey(key: string): boolean {
 }
 
 async function requireAccessForKey(key: string) {
-  if (key === LOGISTICS_CHECKLIST_KEY) return requireAdmin();
+  if (key === LOGISTICS_CHECKLIST_KEY) return requireCannesLogisticsAdmin();
   return requireSession();
 }
 

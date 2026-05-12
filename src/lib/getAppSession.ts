@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { getNextAuthSecret } from "@/lib/nextAuthSecret";
 import { prisma } from "@/lib/prisma";
 
 const IMPERSONATE_COOKIE = "impersonate_user_id";
@@ -81,8 +82,7 @@ export async function resolveProspectionActor(session: AppSession): Promise<{
  * 3) Cookie httpOnly d’impersonation admin (fenêtre courte après POST /impersonate).
  */
 export async function getAppSession(request: NextRequest): Promise<AppSession | null> {
-  const secret = process.env.NEXTAUTH_SECRET;
-  if (!secret) return null;
+  const secret = getNextAuthSecret();
 
   const debug = process.env.PROSPECTION_DEBUG === "1";
 

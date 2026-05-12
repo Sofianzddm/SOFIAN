@@ -53,14 +53,12 @@ type BubbleSpec = {
   surface: 0 | 1 | 2;
 };
 
-/** Halos radiaux discrets — uniquement pour le fond. */
 const BUBBLE_SURFACE_CLASS: Record<BubbleSpec["surface"], string> = {
   0: "bg-[radial-gradient(circle_at_32%_28%,rgba(245,237,224,0.14)_0%,rgba(196,139,140,0.07)_40%,transparent_70%)]",
   1: "bg-[radial-gradient(circle_at_68%_42%,rgba(176,111,112,0.11)_0%,rgba(34,1,1,0.14)_48%,transparent_74%)]",
   2: "bg-[radial-gradient(circle_at_48%_52%,rgba(245,237,224,0.1)_0%,rgba(176,111,112,0.05)_44%,transparent_68%)]",
 };
 
-/** Fond animé premium : nombreuses petites bulles floues + lumière de profondeur (l’UI reste celle d’avant). */
 const VILLA_TV_BUBBLES: BubbleSpec[] = Array.from({ length: 34 }, (_, i) => {
   const drifts = [1, 2, 3, 4] as const;
   const blurs = ["blur-lg", "blur-xl", "blur-2xl", "blur-3xl"] as const;

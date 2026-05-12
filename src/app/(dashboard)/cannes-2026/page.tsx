@@ -15,8 +15,10 @@ export default async function Page() {
     role === "STRATEGY_PLANNER" ||
     role === "HEAD_OF_INFLUENCE" ||
     role === "HEAD_OF_SALES";
-  const coiffeurStaff = role === "ADMIN";
-  const isLogisticsAdmin = role === "ADMIN";
+  const isCannesHeadCommercial =
+    role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES";
+  const coiffeurStaff = role === "ADMIN" || isCannesHeadCommercial;
+  const isLogisticsAdmin = role === "ADMIN" || isCannesHeadCommercial;
   const coiffeurOnlyUser = false;
 
   const [events, contacts, presences] = coiffeurOnlyUser
