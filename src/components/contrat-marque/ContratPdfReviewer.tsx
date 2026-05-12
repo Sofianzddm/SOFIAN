@@ -299,6 +299,8 @@ export default function ContratPdfReviewer({
   const [pdfPagesReady, setPdfPagesReady] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [signedDropActive, setSignedDropActive] = useState(false);
+  /** Mise en évidence quand un fichier est glissé au-dessus du viewer PDF (les enfants canvas bloquent souvent le drop sans phase capture). */
+  const [pdfViewerDropActive, setPdfViewerDropActive] = useState(false);
 
   useEffect(() => {
     console.log("ContratPdfReviewer monté côté client, pdfUrl:", pdfUrl);
@@ -359,8 +361,12 @@ export default function ContratPdfReviewer({
   /** Décisions juriste / admin uniquement sur la version courante (ou mode sans versioning). */
   const canActOnCurrentVersion = !isArchivedVersion;
 
+  /** Aligné sur `canManageContract` côté API upload (TM = manager du talent sur la collab). */
   const canShowUploadButton =
-    currentUser.role === "ADMIN" || currentUser.role === "HEAD_OF_INFLUENCE" || currentUser.role === "JURISTE";
+    currentUser.role === "ADMIN" ||
+    currentUser.role === "HEAD_OF_INFLUENCE" ||
+    currentUser.role === "JURISTE" ||
+    (currentUser.role === "TM" && collaboration.talent.managerId === currentUser.id);
   /** Barre avec sélecteur de versions et/ou upload (upload visible aussi sans lignes `ContratMarqueVersion`). */
   const showViewerToolbar = versions.length > 0 || canShowUploadButton;
 
@@ -405,6 +411,12 @@ export default function ContratPdfReviewer({
   useEffect(() => {
     console.log("highlights:", JSON.stringify(highlights, null, 2));
   }, [highlights]);
+
+  useEffect(() => {
+    const reset = () => setPdfViewerDropActive(false);
+    window.addEventListener("dragend", reset);
+    return () => window.removeEventListener("dragend", reset);
+  }, []);
 
   const highlightTransform = useCallback(
     (
@@ -1041,10 +1053,37 @@ export default function ContratPdfReviewer({
           <div
             ref={containerRef}
             className="min-h-0 flex-1 rounded-xl bg-gray-100"
+            onDragEnterCapture={(e) => {
+              if (!canShowUploadButton || isUploading) return;
+              const types = e.dataTransfer?.types;
+              if (!types || ![...types].includes("Files")) return;
+              setPdfViewerDropActive(true);
+            }}
+            onDragOverCapture={(e) => {
+              if (!canShowUploadButton || isUploading) return;
+              const types = e.dataTransfer?.types;
+              if (!types || ![...types].includes("Files")) return;
+              e.preventDefault();
+            }}
+            onDropCapture={(e) => {
+              if (!canShowUploadButton || isUploading) return;
+              const f = e.dataTransfer.files?.[0];
+              if (!f) return;
+              e.preventDefault();
+              e.stopPropagation();
+              setPdfViewerDropActive(false);
+              void uploadPdfFile(f);
+            }}
             style={{
               position: "relative",
               overflow: "auto",
               minHeight: 400,
+              ...(pdfViewerDropActive
+                ? {
+                    outline: "2px dashed #1A1110",
+                    outlineOffset: "2px",
+                  }
+                : {}),
             }}
           >
             <FixedPdfLoader
