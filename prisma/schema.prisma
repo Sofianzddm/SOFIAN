@@ -2399,6 +2399,25 @@ model CannesSharedSetting {
   @@map("cannes_shared_settings")
 }
 
+/// Annonces manuelles pour l’écran public `/r/cannes-villa-tv` (hors agenda Prisma).
+model CannesVillaTvBoardItem {
+  id        String   @id @default(cuid())
+  /// Jour Europe/Paris `YYYY-MM-DD` (fenêtre festival Cannes 2026)
+  dateYmd   String
+  /// Heure Paris `HH:mm` pour le tri sur la timeline TV
+  timeLabel String   @default("12:00")
+  /// Heure fin Paris optionnelle `HH:mm` (ex. 12:00 → 14:00)
+  endTimeLabel String?
+  title     String
+  body      String?  @db.Text
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dateYmd, sortOrder])
+  @@map("cannes_villa_tv_board_items")
+}
+
 /// Prestation coiffeur (durée + buffer servant à générer la grille comme sur Calendly).
 model CannesCoiffeurPrestation {
   id                String    @id @default(cuid())

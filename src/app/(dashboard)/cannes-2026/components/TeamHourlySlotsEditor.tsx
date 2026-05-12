@@ -13,6 +13,7 @@ import {
 } from "@/lib/cannes/teamPlanningSlotTimes";
 import { isCannesTaskNotesEmpty, sanitizeCannesTaskHtml } from "@/lib/cannes/cannesTaskNotes";
 
+import { downloadTeamIndividualKanbanPdf } from "../downloadPlanningPdf";
 import TeamCommonSlotForm from "./TeamCommonSlotForm";
 import { TeamTaskNotesDisplay, TeamTaskRichEditor } from "./TeamTaskRichEditor";
 
@@ -275,6 +276,16 @@ export default function TeamHourlySlotsEditor({
           <span className="italic">13h–14h</span> créa contenu — plusieurs blocs par jour pour chaque personne.
           Heures en <span className="font-medium">Europe/Paris</span>.
         </p>
+        {lockedPresenceId && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void downloadTeamIndividualKanbanPdf(lockedPresenceId)}
+            className="mt-2 rounded-lg border border-[#C08B8B]/50 bg-white px-3 py-1.5 text-xs font-medium text-[#1A1110] hover:bg-[#FDF8F5]"
+          >
+            Télécharger PDF kanban (toutes les journées)
+          </button>
+        )}
       </div>
 
       {!lockedPresenceId && !compact && (

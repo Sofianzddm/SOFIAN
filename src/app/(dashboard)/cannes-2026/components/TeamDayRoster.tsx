@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { CANNES_2026_DAYS, isUtcDayInIsoRange, parisDayKey } from "@/lib/cannes/dates";
 import { listCannesEventsForPresenceOnDay } from "@/lib/cannes/eventPresenceOnDay";
 import { formatParisLongHeadingFromYmd, formatParisYmd } from "@/lib/cannes/teamPlanningSlotTimes";
 
 import type { CannesEvent, CannesPresence } from "../types";
+import { downloadTeamDayIndividualPdfs } from "../downloadPlanningPdf";
+import { toast } from "sonner";
 
 function personLabel(p: CannesPresence) {
   return `${p.user?.prenom ?? ""} ${p.user?.nom ?? ""}`.trim() || "Sans nom";
@@ -30,6 +32,7 @@ type Props = {
   /** Événements onglet Agenda (participants = présences). */
   events: CannesEvent[];
   selectedDayYmd: string;
+  isAdmin?: boolean;
   /** `defaultPresenceId` = premier collaborateur sur place ce jour (pour ouvrir l’éditeur tout de suite). */
   onSelectDay: (ymd: string, defaultPresenceId: string | null) => void;
   onPickCollaborator: (presenceId: string) => void;
@@ -39,9 +42,12 @@ export default function TeamDayRoster({
   rows,
   events,
   selectedDayYmd,
+  isAdmin = false,
   onSelectDay,
   onPickCollaborator,
 }: Props) {
+  const [dayPdfBusy, setDayPdfBusy] = useState(false);
+
   const dayDate = useMemo(
     () => CANNES_2026_DAYS.find((d) => parisDayKey(d) === selectedDayYmd) ?? null,
     [selectedDayYmd]
@@ -102,9 +108,36 @@ export default function TeamDayRoster({
 
       {dayDate ? (
         <div className="mt-4 border-t border-[#E5E0D8] pt-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-[#C08B8B]">
-            {formatParisLongHeadingFromYmd(selectedDayYmd)}
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-[#C08B8B]">
+              {formatParisLongHeadingFromYmd(selectedDayYmd)}
+            </p>
+            {isAdmin ? (
+              <button
+                type="button"
+                disabled={dayPdfBusy || surPlace.length === 0}
+                onClick={() => {
+                  if (surPlace.length === 0) {
+                    toast.message("Personne sur place ce jour — rien à exporter.");
+                    return;
+                  }
+                  setDayPdfBusy(true);
+                  void downloadTeamDayIndividualPdfs(
+                    selectedDayYmd,
+                    surPlace.map((p) => p.id)
+                  ).finally(() => setDayPdfBusy(false));
+                }}
+                className="shrink-0 rounded-lg border border-[#C08B8B]/55 bg-[#FDF8F5] px-3 py-1.5 text-[11px] font-semibold text-[#1A1110] hover:bg-white disabled:opacity-50"
+                title="Un PDF par personne réellement sur place (créneaux + agenda, liste horaire)"
+              >
+                {dayPdfBusy
+                  ? "PDF…"
+                  : surPlace.length === 0
+                    ? "PDF (aucun sur place)"
+                    : `PDF — ${surPlace.length} fichier${surPlace.length > 1 ? "s" : ""} (sur place)`}
+              </button>
+            ) : null}
+          </div>
 
           <p className="mt-2 text-xs font-semibold text-[#1A1110]">
             Sur place ({surPlace.length}) — clique un nom pour ouvrir son planning en dessous

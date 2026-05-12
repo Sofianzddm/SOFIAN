@@ -33,6 +33,7 @@ import TeamDayRoster from "./TeamDayRoster";
 import TeamHourlySlotsEditor from "./TeamHourlySlotsEditor";
 import PlanningPdfExportModal from "./PlanningPdfExportModal";
 import PlanningPdfIndividualBulkModal from "./PlanningPdfIndividualBulkModal";
+import { downloadTeamIndividualKanbanPdf } from "../downloadPlanningPdf";
 import type { CannesEvent, CannesPresence, CannesTeamUnavailability } from "../types";
 
 type Props = { presences: CannesPresence[]; events: CannesEvent[]; isAdmin: boolean };
@@ -817,6 +818,33 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
     setHoverDrop(null);
   }, []);
 
+  const exportTeamSlotsExcel = useCallback(async () => {
+    try {
+      const res = await fetch("/api/cannes/team-planning-slots/export", {
+        method: "GET",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error || "Erreur export");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const cd = res.headers.get("Content-Disposition");
+      const m = cd?.match(/filename="([^"]+)"/);
+      link.download = m?.[1] ?? "cannes-2026-creneaux-equipe.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success("Export Excel téléchargé");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur lors de l'export Excel");
+    }
+  }, []);
+
   const onDropCell = useCallback(
     (e: React.DragEvent, presence: CannesPresence, day: Date) => {
       e.preventDefault();
@@ -850,7 +878,34 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
             baseFlags={{ team: true, talents: false, events: false }}
             teamHiddenByDay={officialHiddenByDay}
             buttonLabel="PDF un par collaborateur…"
+            offerKanbanSlotsPdf
           />
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => void exportTeamSlotsExcel()}
+              className="rounded border border-[#E5E0D8] px-3 py-2 text-sm text-[#1A1110] hover:bg-[#F5EBE0]"
+            >
+              Exporter Excel (créneaux)
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                const id = plannerPickPresenceId ?? rows[0]?.id;
+                if (!id) {
+                  toast.message("Sélectionne un collaborateur dans la liste du jour");
+                  return;
+                }
+                void downloadTeamIndividualKanbanPdf(id);
+              }}
+              className="rounded border border-[#C08B8B]/60 bg-[#FDF8F5] px-3 py-2 text-sm font-medium text-[#1A1110] hover:bg-white"
+              title="PDF du collaborateur actuellement mis en avant (liste jour ou éditeur)"
+            >
+              PDF kanban (sélection)
+            </button>
+          )}
           {isAdmin && (
             <button
               type="button"
@@ -981,6 +1036,7 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
         rows={rows}
         events={events}
         selectedDayYmd={plannerDayYmd}
+        isAdmin={isAdmin}
         onSelectDay={(ymd, defaultPresenceId) => {
           setPlannerDayYmd(ymd);
           setPlannerPickPresenceId(defaultPresenceId ?? rows[0]?.id ?? null);

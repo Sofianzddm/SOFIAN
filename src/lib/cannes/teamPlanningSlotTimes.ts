@@ -1,3 +1,4 @@
+import { addDays } from "date-fns";
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
 import { fr } from "date-fns/locale";
 
@@ -39,4 +40,16 @@ export function formatParisHhmmFromUtc(d: Date): string {
 export function formatParisLongHeadingFromYmd(ymd: string): string {
   const utc = fromZonedTime(`${ymd} 12:00:00`, PARIS_TZ);
   return formatInTimeZone(utc, PARIS_TZ, "EEEE d MMMM", { locale: fr });
+}
+
+/** [start, end) en UTC pour le jour civil `yyyy-MM-dd` à Paris. */
+export function parisDayBoundsUtc(ymd: string): { start: Date; end: Date } {
+  const start = fromZonedTime(`${ymd} 00:00:00`, PARIS_TZ);
+  const nextYmd = formatInTimeZone(
+    addDays(fromZonedTime(`${ymd} 12:00:00`, PARIS_TZ), 1),
+    PARIS_TZ,
+    "yyyy-MM-dd"
+  );
+  const end = fromZonedTime(`${nextYmd} 00:00:00`, PARIS_TZ);
+  return { start, end };
 }

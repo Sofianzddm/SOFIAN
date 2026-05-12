@@ -9,6 +9,7 @@ import PlanningTalentsView from "./components/PlanningTalentsView";
 import RoomOrganizerView from "./components/RoomOrganizerView";
 import CoiffeurView from "./components/CoiffeurView";
 import LogisticsChecklistView from "./components/LogisticsChecklistView";
+import CannesVillaTvBoardManager from "./components/CannesVillaTvBoardManager";
 import type { CannesContact, CannesEvent, CannesPresence } from "./types";
 
 type Tab = "agenda" | "contacts" | "team" | "talents" | "rooms" | "logistics" | "coiffeur";
@@ -75,6 +76,23 @@ export default function CannesClient({
                 <p className="text-xs uppercase tracking-[0.2em] text-[#C08B8B]">Festival de Cannes</p>
                 <h1 className="mt-1 font-[Spectral] text-4xl font-light text-[#1A1110]">Edition 2026</h1>
                 <p className="mt-2 text-sm text-[#1A1110]/60">12 -&gt; 23 mai 2026 · Espace partage Glow Up</p>
+                {!coiffeurOnlyUser && (
+                  <p className="mt-3 max-w-xl text-sm leading-relaxed text-[#1A1110]/65">
+                    <a
+                      href="/r/cannes-villa-tv"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-[#C08B8B] underline-offset-2 hover:underline"
+                    >
+                      Écran TV villa
+                    </a>
+                    {" "}
+                    — agenda (brunchs, dîners, soirées…) plus les messages ajoutés ci-dessous, sur 2 jours, sans grille
+                    planning équipe interne, mise à jour automatique toutes les 12&nbsp;s. À ouvrir sur le navigateur de
+                    la télé.
+                  </p>
+                )}
+                {isAdmin && !coiffeurOnlyUser ? <CannesVillaTvBoardManager /> : null}
               </div>
               {isAdmin && (
                 <span className="rounded-full bg-[#C8F285] px-3 py-1 text-xs font-medium text-[#1A1110]">

@@ -30,6 +30,37 @@ const config: Config = {
       },
       backgroundImage: {
         "gradient-login": "linear-gradient(180deg, #220101 0%, #3D1515 50%, rgba(176, 111, 112, 0.25) 100%)",
+        "villa-tv-depth":
+          "radial-gradient(ellipse 95% 60% at 50% -15%, rgba(245, 237, 224, 0.09), transparent 52%), radial-gradient(ellipse 80% 45% at 100% 30%, rgba(176, 111, 112, 0.08), transparent 50%), radial-gradient(ellipse 70% 50% at 0% 70%, rgba(34, 1, 1, 0.45), transparent 55%)",
+        "villa-tv-vignette": "radial-gradient(ellipse 75% 65% at 50% 50%, transparent 40%, rgba(0, 0, 0, 0.42) 100%)",
+      },
+      keyframes: {
+        "bubble-drift-1": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "25%": { transform: "translate(5vw, -4vh) scale(1.04)" },
+          "50%": { transform: "translate(2vw, 2.5vh) scale(0.97)" },
+          "75%": { transform: "translate(-4.5vw, -3vh) scale(1.03)" },
+        },
+        "bubble-drift-2": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "33%": { transform: "translate(-5vw, 3.5vh) scale(1.05)" },
+          "66%": { transform: "translate(4vw, -4vh) scale(0.96)" },
+        },
+        "bubble-drift-3": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "50%": { transform: "translate(-3.5vw, -5vh) scale(1.06)" },
+        },
+        "bubble-drift-4": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "40%": { transform: "translate(6vw, 2vh) scale(1.04)" },
+          "80%": { transform: "translate(-2vw, -3.5vh) scale(0.97)" },
+        },
+      },
+      animation: {
+        "bubble-drift-1": "bubble-drift-1 32s ease-in-out infinite",
+        "bubble-drift-2": "bubble-drift-2 36s ease-in-out infinite",
+        "bubble-drift-3": "bubble-drift-3 40s ease-in-out infinite",
+        "bubble-drift-4": "bubble-drift-4 34s ease-in-out infinite",
       },
     },
   },

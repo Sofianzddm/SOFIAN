@@ -23,3 +23,23 @@ export function isCannesTaskNotesEmpty(html: string): boolean {
     .trim();
   return plain.length === 0;
 }
+
+/** Texte plat pour cellule Excel / CSV (consignes HTML). */
+export function htmlToPlainTextForExport(html: string): string {
+  if (!html.trim()) return "";
+  let t = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<\/h[1-6]>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  t = t
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"');
+  t = t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").replace(/  +/g, " ").trim();
+  return t;
+}

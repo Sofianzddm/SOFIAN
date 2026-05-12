@@ -11,7 +11,12 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   /** Page + APIs réservation coiffeur : ouvertes sans session ; blocage User-Agent Google + noindex explicite. */
-  if (pathname === "/r/cannes-coiffeur" || pathname.startsWith("/api/pub/cannes-coiffeur")) {
+  if (
+    pathname === "/r/cannes-coiffeur" ||
+    pathname.startsWith("/api/pub/cannes-coiffeur") ||
+    pathname === "/r/cannes-villa-tv" ||
+    pathname.startsWith("/api/pub/cannes-villa-tv")
+  ) {
     const ua = request.headers.get("user-agent") ?? "";
     const googleCrawler =
       /\b(?:Googlebot|AdsBot-Google|Mediapartners-Google|Google-InspectionTool|FeedFetcher-Google|GoogleProducer)\b/i.test(
@@ -200,5 +205,7 @@ export const config = {
     // Réservation coiffeur (public, sans session) — garde robots + header noindex
     "/r/cannes-coiffeur",
     "/api/pub/cannes-coiffeur/:path*",
+    "/r/cannes-villa-tv",
+    "/api/pub/cannes-villa-tv/:path*",
   ],
 };
