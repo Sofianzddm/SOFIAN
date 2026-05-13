@@ -17,6 +17,7 @@ type TimelineItem =
       location: string;
       eventType: string;
       eventTypeLabel: string;
+      description: string | null;
       talents: string[];
       team: string[];
     }
@@ -335,6 +336,11 @@ export default function CannesVillaTvClient() {
                           {item.title}
                         </p>
                         <p className="mt-1 text-sm text-glowup-lace/70 sm:text-base">{item.location}</p>
+                        {item.description ? (
+                          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-glowup-lace/75 sm:text-base">
+                            {item.description}
+                          </p>
+                        ) : null}
                         {item.talents.length > 0 ? (
                           <div className="mt-3">
                             <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-glowup-lace/45">

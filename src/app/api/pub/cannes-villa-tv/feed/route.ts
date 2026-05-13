@@ -68,6 +68,7 @@ export type VillaTvTimelineItem =
       location: string;
       eventType: string;
       eventTypeLabel: string;
+      description: string | null;
       talents: string[];
       team: string[];
     }
@@ -153,6 +154,7 @@ export async function GET(req: Request) {
         location: e.location,
         eventType: e.type,
         eventTypeLabel: agendaTypeLabel(e.type),
+        description: e.description?.trim() ? e.description.trim() : null,
         talents,
         team,
       });
