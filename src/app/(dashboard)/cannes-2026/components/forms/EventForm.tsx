@@ -141,9 +141,21 @@ export default function EventForm({
           <input type="date" min="2026-05-12" max="2026-05-23" value={form.date} onChange={(e) => setForm((p) => ({ ...p, date: e.target.value }))} className="rounded border border-[#E5E0D8] p-2" />
           <input type="time" required value={form.startTime} onChange={(e) => setForm((p) => ({ ...p, startTime: e.target.value }))} className="rounded border border-[#E5E0D8] p-2" />
           <input type="time" value={form.endTime} onChange={(e) => setForm((p) => ({ ...p, endTime: e.target.value }))} className="rounded border border-[#E5E0D8] p-2" />
-          <select value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))} className="rounded border border-[#E5E0D8] p-2">
-            {EVENT_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+          <div className="md:col-span-2">
+            <select value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))} className="w-full rounded border border-[#E5E0D8] p-2">
+              {EVENT_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {form.type === "AUTRE" ? (
+              <p className="mt-1.5 text-xs text-[#1A1110]/55">
+                Le type « Autre » n’est pas diffusé sur l’écran TV Villa (<span className="font-mono">/r/cannes-villa-tv</span>) — pour y faire apparaître un message, utilise une annonce TV ou un autre type
+                d’événement.
+              </p>
+            ) : null}
+          </div>
           <input value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} placeholder="Titre" className="rounded border border-[#E5E0D8] p-2 md:col-span-2" />
           <input value={form.location} onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))} placeholder="Lieu" className="rounded border border-[#E5E0D8] p-2 md:col-span-2" />
         </div>

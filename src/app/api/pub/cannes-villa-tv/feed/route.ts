@@ -27,7 +27,8 @@ const AGENDA_TYPE_LABELS: Record<string, string> = {
 };
 
 function agendaTypeLabel(type: string): string {
-  return AGENDA_TYPE_LABELS[type] ?? type;
+  const key = String(type ?? "").trim().toUpperCase();
+  return AGENDA_TYPE_LABELS[key] ?? type;
 }
 
 function splitAttendeeNames(
@@ -104,7 +105,8 @@ export async function GET(req: Request) {
 
   const [events, boardItems] = await Promise.all([
     prisma.cannesEvent.findMany({
-      where: { date: { gte: tStart, lt: tEnd } },
+      /** Pas sur l’écran TV public : réservé au suivi interne (annonces TV ou autres types pour la villa). */
+      where: { date: { gte: tStart, lt: tEnd }, type: { not: "AUTRE" } },
       orderBy: [{ date: "asc" }, { startTime: "asc" }],
       include: {
         attendees: {

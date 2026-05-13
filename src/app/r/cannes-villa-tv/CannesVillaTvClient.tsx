@@ -229,7 +229,7 @@ export default function CannesVillaTvClient() {
               </h1>
               <p className="mt-1 text-sm text-glowup-lace/60 sm:text-base">
                 Brunchs, dîners, soirées, messages équipe (réunions, rappels…) · sans créneaux planning équipe interne
-                · Europe/Paris
+                · l’agenda en type « Autre » n’est pas diffusé ici · Europe/Paris
               </p>
             </div>
           </div>
