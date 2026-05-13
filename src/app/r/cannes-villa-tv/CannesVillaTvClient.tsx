@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatInTimeZone } from "date-fns-tz";
 import { fr } from "date-fns/locale";
 import { GlowUpLogo } from "@/components/ui/logo";
@@ -32,6 +32,11 @@ type TimelineItem =
 type FeedDay = { ymd: string; weekdayLabel: string; timeline: TimelineItem[] };
 
 const POLL_MS = 12_000;
+
+/** Vitesse de défilement auto sur TV (px/s) — confort lecture à distance. */
+const TV_AUTO_SCROLL_PX_PER_SEC = 26;
+/** Pause en bas / en haut avant inversion (ms). */
+const TV_AUTO_SCROLL_PAUSE_MS = 2800;
 
 const BUBBLE_DRIFT_CLASS = {
   1: "motion-safe:animate-bubble-drift-1",
@@ -81,6 +86,8 @@ export default function CannesVillaTvClient() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const scrollRegionRef = useRef<HTMLDivElement>(null);
+  const [tvScrollOverflow, setTvScrollOverflow] = useState(false);
 
   const clock = useMemo(
     () => formatInTimeZone(now, PARIS_TZ, "EEEE d MMMM yyyy · HH:mm:ss", { locale: fr }),
@@ -126,8 +133,69 @@ export default function CannesVillaTvClient() {
     return () => window.clearInterval(id);
   }, []);
 
+  /** Détecte si l’agenda dépasse la zone utile (pour défilement auto type kiosque TV). */
+  useEffect(() => {
+    const el = scrollRegionRef.current;
+    if (!el) return;
+    const measure = () => {
+      const overflow = el.scrollHeight > el.clientHeight + 6;
+      setTvScrollOverflow(overflow);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [days, err, loading]);
+
+  useEffect(() => {
+    const el = scrollRegionRef.current;
+    if (!el || !tvScrollOverflow) return;
+    if (typeof window === "undefined") return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (reduceMotion.matches) return;
+
+    let raf = 0;
+    let dir: 1 | -1 = 1;
+    let pauseUntil = 0;
+    let last = performance.now();
+
+    const tick = (now: number) => {
+      const dt = Math.min(64, now - last);
+      last = now;
+
+      const maxScroll = el.scrollHeight - el.clientHeight;
+      if (maxScroll <= 0) {
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+
+      if (now < pauseUntil) {
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+
+      const step = (TV_AUTO_SCROLL_PX_PER_SEC * dt) / 1000;
+      el.scrollTop += dir * step;
+
+      if (dir === 1 && el.scrollTop >= maxScroll - 2) {
+        el.scrollTop = maxScroll;
+        dir = -1;
+        pauseUntil = now + TV_AUTO_SCROLL_PAUSE_MS;
+      } else if (dir === -1 && el.scrollTop <= 2) {
+        el.scrollTop = 0;
+        dir = 1;
+        pauseUntil = now + TV_AUTO_SCROLL_PAUSE_MS;
+      }
+
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [tvScrollOverflow, days]);
+
   return (
-    <main className="relative flex min-h-dvh min-h-screen flex-col overflow-x-hidden bg-glowup-licorice pb-6 pt-[max(0.75rem,env(safe-area-inset-top))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
+    <main className="fixed inset-0 z-0 flex flex-col overflow-hidden bg-glowup-licorice pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.35rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden>
         <div className="absolute inset-0 bg-gradient-login" />
         <div className="absolute inset-0 bg-villa-tv-depth opacity-[0.58]" />
@@ -148,8 +216,8 @@ export default function CannesVillaTvClient() {
         ))}
       </div>
 
-      <div className="relative z-10 mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-2 sm:gap-7 sm:px-4">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col gap-4 px-2 sm:gap-6 sm:px-4">
+        <header className="shrink-0 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
             <GlowUpLogo className="h-auto w-36 shrink-0 text-glowup-lace sm:w-44 md:w-52" variant="light" />
             <div>
@@ -197,16 +265,20 @@ export default function CannesVillaTvClient() {
         </header>
 
         {err && (
-          <div className="rounded-xl border border-red-500/35 bg-red-500/15 px-4 py-3 text-center text-sm text-red-100">
+          <div className="shrink-0 rounded-xl border border-red-500/35 bg-red-500/15 px-4 py-3 text-center text-sm text-red-100">
             {err}
           </div>
         )}
 
-        <div className="grid flex-1 gap-5 lg:grid-cols-2 lg:gap-8">
+        <div
+          ref={scrollRegionRef}
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <div className="grid gap-5 pb-3 lg:grid-cols-2 lg:gap-8">
           {days.map((day) => (
             <section
               key={day.ymd}
-              className="glass-dark flex min-h-[320px] flex-col rounded-2xl border border-glowup-rose/20 p-4 shadow-2xl sm:min-h-[420px] sm:p-6 md:p-8"
+              className="glass-dark flex min-h-[280px] flex-col rounded-2xl border border-glowup-rose/20 p-4 shadow-2xl sm:min-h-[360px] sm:p-6 md:p-8"
             >
               <div className="mb-5 border-b border-glowup-rose/25 pb-4">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-glowup-lace/45">Journée</p>
@@ -309,11 +381,12 @@ export default function CannesVillaTvClient() {
               )}
             </section>
           ))}
-        </div>
+          </div>
 
-        <footer className="pb-4 text-center text-xs text-glowup-lace/40 sm:text-sm">
-          Glow Up · agenda Cannes et annonces équipe — pas de grille planning équipe interne
-        </footer>
+          <footer className="mt-4 pb-2 text-center text-xs text-glowup-lace/40 sm:text-sm">
+            Glow Up · agenda Cannes et annonces équipe — pas de grille planning équipe interne
+          </footer>
+        </div>
       </div>
     </main>
   );
