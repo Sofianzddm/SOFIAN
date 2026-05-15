@@ -15,17 +15,31 @@ type Props = {
   onClose: () => void;
 };
 
-type TalentOption = {
-  id: string;
-  name: string;
-};
+function presenceDisplayName(p: CannesPresence) {
+  if (p.user) return `${p.user.prenom} ${p.user.nom}`.trim();
+  return `${p.talent?.prenom || ""} ${p.talent?.nom || ""}`.trim();
+}
+
+function presencesOnEventDay(
+  event: CannesEvent,
+  presences: CannesPresence[],
+  localAttendees: CannesEvent["attendees"]
+) {
+  const eventDay = new Date(event.date).toISOString().slice(0, 10);
+  const existing = new Set((localAttendees || []).map((a) => a.presenceId));
+  return presences.filter((p) => {
+    if (existing.has(p.id)) return false;
+    const startDay = new Date(p.arrivalDate).toISOString().slice(0, 10);
+    const endDay = new Date(p.departureDate).toISOString().slice(0, 10);
+    return startDay <= eventDay && endDay >= eventDay;
+  });
+}
 
 export default function EventDetailModal({ event, presences, isAdmin, onClose }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [localAttendees, setLocalAttendees] = useState(event?.attendees || []);
   const [inviteValue, setInviteValue] = useState("");
-  const [talentOptions, setTalentOptions] = useState<TalentOption[]>([]);
 
   const currentEvent = event;
   const currentEventId = currentEvent?.id;
@@ -35,80 +49,44 @@ export default function EventDetailModal({ event, presences, isAdmin, onClose }:
     setLocalAttendees(event?.attendees || []);
   }, [event]);
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    fetch("/api/cannes/talents-list")
-      .then(async (res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        setTalentOptions(
-          (Array.isArray(data) ? data : []).map((t: { id: string; name: string }) => ({
-            id: t.id,
-            name: t.name,
-          }))
-        );
-      })
-      .catch(() => setTalentOptions([]));
-  }, [isAdmin]);
-
-  const available = useMemo(() => {
+  const availableTalentPresences = useMemo(() => {
     if (!currentEvent) return [];
-    const eventDay = new Date(currentEvent.date).toISOString().slice(0, 10);
-    const existing = new Set(localAttendees.map((a) => a.presenceId));
-    return presences.filter((p) => {
-      if (existing.has(p.id)) return false;
-      const startDay = new Date(p.arrivalDate).toISOString().slice(0, 10);
-      const endDay = new Date(p.departureDate).toISOString().slice(0, 10);
-      return startDay <= eventDay && endDay >= eventDay;
-    });
+    return presencesOnEventDay(currentEvent, presences, localAttendees).filter((p) => !!p.talentId);
   }, [currentEvent, localAttendees, presences]);
 
-  const availableTalents = useMemo(() => {
-    const attendeeTalentIds = new Set(
-      localAttendees
-        .map((a) => a.presence.talent?.id)
-        .filter((id): id is string => Boolean(id))
+  const availableTeamPresences = useMemo(() => {
+    if (!currentEvent) return [];
+    return presencesOnEventDay(currentEvent, presences, localAttendees).filter(
+      (p) => !!p.userId && !p.talentId
     );
-    return talentOptions.filter((t) => !attendeeTalentIds.has(t.id));
-  }, [localAttendees, talentOptions]);
+  }, [currentEvent, localAttendees, presences]);
 
   if (!currentEvent) return null;
 
   async function addAttendee() {
     if (!inviteValue || !currentEventId) return;
-    const [kind, value] = inviteValue.split(":");
-    if (!kind || !value) return;
+    const presenceId = inviteValue.startsWith("presence:") ? inviteValue.slice("presence:".length) : "";
+    if (!presenceId) return;
+
+    const selected = presences.find((p) => p.id === presenceId);
+    if (!selected) return;
 
     try {
-      let res: Response;
-
-      if (kind === "presence") {
-        const selected = presences.find((p) => p.id === value);
-        if (!selected) return;
-
-        setLocalAttendees((prev) => [...prev, { id: `tmp-${value}`, presenceId: value, presence: selected }]);
-        res = await fetch(`/api/cannes/events/${currentEventId}/attendees`, {
-          method: "POST",
-          body: JSON.stringify({ presenceId: value }),
-        });
-      } else if (kind === "talent") {
-        const eventDate = new Date(currentEvent.date).toISOString().slice(0, 10);
-        res = await fetch(`/api/cannes/events/${currentEventId}/attendees`, {
-          method: "POST",
-          body: JSON.stringify({ talentId: value, eventDate }),
-        });
-      } else {
-        return;
-      }
-
+      setLocalAttendees((prev) => [
+        ...prev,
+        { id: `tmp-${presenceId}`, presenceId, presence: selected },
+      ]);
+      const res = await fetch(`/api/cannes/events/${currentEventId}/attendees`, {
+        method: "POST",
+        body: JSON.stringify({ presenceId }),
+      });
       if (!res.ok) throw new Error();
       toast.success("Participant ajoute");
       setInviteValue("");
       router.refresh();
     } catch {
       toast.error("Erreur lors de l'ajout");
-      if (kind === "presence") {
-        setLocalAttendees((prev) => prev.filter((a) => a.presenceId !== value));
-      }
+      setLocalAttendees((prev) => prev.filter((a) => a.presenceId !== presenceId));
     }
   }
 
@@ -191,22 +169,20 @@ export default function EventDetailModal({ event, presences, isAdmin, onClose }:
             <div className="flex gap-2">
               <select value={inviteValue} onChange={(e) => setInviteValue(e.target.value)} className="w-full rounded border border-[#E5E0D8] p-2 text-sm">
                 <option value="">Ajouter une personne</option>
-                {availableTalents.length > 0 && (
-                  <optgroup label="Tous les talents">
-                    {availableTalents.map((t) => (
-                      <option key={`talent-${t.id}`} value={`talent:${t.id}`}>
-                        {t.name}
+                {availableTalentPresences.length > 0 && (
+                  <optgroup label="Talents sur place (ce jour)">
+                    {availableTalentPresences.map((p) => (
+                      <option key={`presence-${p.id}`} value={`presence:${p.id}`}>
+                        {presenceDisplayName(p)}
                       </option>
                     ))}
                   </optgroup>
                 )}
-                {available.length > 0 && (
-                  <optgroup label="Personnes deja sur place">
-                    {available.map((p) => (
+                {availableTeamPresences.length > 0 && (
+                  <optgroup label="Équipe sur place (ce jour)">
+                    {availableTeamPresences.map((p) => (
                       <option key={`presence-${p.id}`} value={`presence:${p.id}`}>
-                        {p.user
-                          ? `${p.user.prenom} ${p.user.nom}`
-                          : `${p.talent?.prenom || ""} ${p.talent?.nom || ""}`.trim()}
+                        {presenceDisplayName(p)}
                       </option>
                     ))}
                   </optgroup>
