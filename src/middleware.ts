@@ -16,6 +16,7 @@ export async function middleware(request: NextRequest) {
     pathname === "/r/cannes-coiffeur" ||
     pathname.startsWith("/api/pub/cannes-coiffeur") ||
     pathname === "/r/cannes-villa-tv" ||
+    pathname === "/r/cannes-villa-tv/agenda" ||
     pathname.startsWith("/api/pub/cannes-villa-tv")
   ) {
     const ua = request.headers.get("user-agent") ?? "";
@@ -207,6 +208,7 @@ export const config = {
     "/r/cannes-coiffeur",
     "/api/pub/cannes-coiffeur/:path*",
     "/r/cannes-villa-tv",
+    "/r/cannes-villa-tv/agenda",
     "/api/pub/cannes-villa-tv/:path*",
   ],
 };

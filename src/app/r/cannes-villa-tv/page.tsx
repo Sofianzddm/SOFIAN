@@ -1,5 +1,5 @@
-import CannesVillaTvClient from "./CannesVillaTvClient";
+import CannesMonteeMarchesBriefing from "./CannesMonteeMarchesBriefing";
 
 export default function CannesVillaTvPage() {
-  return <CannesVillaTvClient />;
+  return <CannesMonteeMarchesBriefing />;
 }

@@ -151,7 +151,7 @@ export default function EventForm({
             </select>
             {form.type === "AUTRE" ? (
               <p className="mt-1.5 text-xs text-[#1A1110]/55">
-                Le type « Autre » n’est pas diffusé sur l’écran TV Villa (<span className="font-mono">/r/cannes-villa-tv</span>) — pour y faire apparaître un message, utilise une annonce TV ou un autre type
+                Le type « Autre » n’est pas diffusé sur l’écran TV Villa (<span className="font-mono">/r/cannes-villa-tv/agenda</span>) — pour y faire apparaître un message, utilise une annonce TV ou un autre type
                 d’événement.
               </p>
             ) : null}

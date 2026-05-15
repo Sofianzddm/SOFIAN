@@ -79,7 +79,7 @@ export default function CannesClient({
                 {!coiffeurOnlyUser && (
                   <p className="mt-3 max-w-xl text-sm leading-relaxed text-[#1A1110]/65">
                     <a
-                      href="/r/cannes-villa-tv"
+                      href="/r/cannes-villa-tv/agenda"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="font-medium text-[#C08B8B] underline-offset-2 hover:underline"

@@ -148,7 +148,7 @@ export default function CannesVillaTvBoardManager() {
       <p className="text-sm font-semibold text-[#1A1110]">Messages sur l’écran TV villa</p>
       <p className="mt-1 text-xs text-[#1A1110]/55">
         Annonces manuelles (réunion villa, rappel transport, etc.) : créneau optionnel (ex. 12:00–14:00). Affichage sur{" "}
-        <span className="font-medium">/r/cannes-villa-tv</span> dans la chronologie du jour, avec l’agenda.
+        <span className="font-medium">/r/cannes-villa-tv/agenda</span> dans la chronologie du jour, avec l’agenda.
       </p>
 
       <form onSubmit={submit} className="mt-4 grid gap-3 border-t border-[#E5E0D8] pt-4 sm:grid-cols-2 lg:grid-cols-7">

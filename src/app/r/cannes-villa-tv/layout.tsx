@@ -7,9 +7,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Villa · Agenda Cannes 2026",
+  title: "Briefing · Montée des marches (présentation)",
   description:
-    "Brunchs, dîners, soirées et tout l’agenda Cannes sur deux prochains jours (Europe/Paris).",
+    "Talent briefing Glow Up — dress code, tapis rouge, communication et checklist pour la montée des marches.",
   robots: {
     index: false,
     follow: false,

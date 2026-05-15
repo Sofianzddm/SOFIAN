@@ -5,6 +5,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { fr } from "date-fns/locale";
 import { GlowUpLogo } from "@/components/ui/logo";
 import { Loader2, RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { PARIS_TZ } from "@/lib/cannes-coiffeur/formatParisTime";
 
 type TimelineItem =
@@ -232,6 +233,12 @@ export default function CannesVillaTvClient() {
                 Brunchs, dîners, soirées, messages équipe (réunions, rappels…) · sans créneaux planning équipe interne
                 · l’agenda en type « Autre » n’est pas diffusé ici · Europe/Paris
               </p>
+              <Link
+                href="/r/cannes-villa-tv"
+                className="mt-2 inline-block text-xs font-medium text-glowup-lace/80 underline-offset-2 hover:text-glowup-lace hover:underline"
+              >
+                Briefing montée des marches (équipe)
+              </Link>
             </div>
           </div>
           <div className="glass-dark flex flex-col items-stretch gap-2 rounded-2xl border border-glowup-rose/25 px-4 py-3 text-glowup-lace shadow-xl sm:min-w-[280px] sm:items-end">
