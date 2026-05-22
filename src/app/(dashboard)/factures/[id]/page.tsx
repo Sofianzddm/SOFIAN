@@ -34,9 +34,31 @@ import {
   Maximize2,
   MessageSquare,
   Trash2,
+  Link2,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  X,
 } from "lucide-react";
 
 type DocStatut = "BROUILLON" | "VALIDE" | "ENVOYE" | "PAYE" | "ANNULE" | "REFUSE";
+
+interface ReconcileTransaction {
+  id: string;
+  qontoId: string;
+  montant: number;
+  libelle: string;
+  reference: string | null;
+  dateTransaction: string;
+  emetteur: string | null;
+  emetteurIban: string | null;
+  associe: boolean;
+  document?: {
+    id: string;
+    reference: string;
+    type: string;
+  } | null;
+}
 
 interface DocDetail {
   id: string;
@@ -100,6 +122,17 @@ interface DocDetail {
     issueDate: string;
     status: string;
   } | null;
+  transactionsQonto?: Array<{
+    id: string;
+    qontoId: string;
+    montant: number | string;
+    libelle: string | null;
+    reference: string | null;
+    dateTransaction: string;
+    emetteur: string | null;
+    emetteurIban: string | null;
+    statut: string;
+  }>;
 }
 
 function formatMoney(amount: number, currency = "EUR") {
@@ -215,6 +248,13 @@ export default function FactureDetailPage() {
   const [commentContent, setCommentContent] = useState("");
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
+  const [reconcileSyncing, setReconcileSyncing] = useState(false);
+  const [reconcileSearch, setReconcileSearch] = useState("");
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
+  const [reconcileAssociating, setReconcileAssociating] = useState<string | null>(null);
+  const [reconcileTransactions, setReconcileTransactions] = useState<ReconcileTransaction[]>([]);
   const { data: session, status } = useSession();
   const sendRef = useRef<HTMLDivElement>(null);
   const downloadRef = useRef<HTMLDivElement>(null);
@@ -392,6 +432,94 @@ export default function FactureDetailPage() {
     }
   }, [id, annulerMotif, fetchDoc, handleAnnulerClose]);
 
+  const loadReconcileTransactions = useCallback(async () => {
+    setReconcileLoading(true);
+    setReconcileError(null);
+    try {
+      const r = await fetch("/api/qonto/transactions?nonAssociees=true", {
+        cache: "no-store",
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setReconcileError(data.error || "Impossible de charger les transactions");
+        setReconcileTransactions([]);
+        return;
+      }
+      const data = await r.json();
+      setReconcileTransactions(
+        (data.transactions || []).map((t: ReconcileTransaction) => ({
+          ...t,
+          montant: Number(t.montant),
+        }))
+      );
+    } catch (err) {
+      console.error("Erreur chargement transactions Qonto:", err);
+      setReconcileError("Erreur réseau");
+      setReconcileTransactions([]);
+    } finally {
+      setReconcileLoading(false);
+    }
+  }, []);
+
+  const handleReconcileOpen = useCallback(() => {
+    setReconcileOpen(true);
+    setReconcileSearch("");
+    void loadReconcileTransactions();
+  }, [loadReconcileTransactions]);
+
+  const handleReconcileSync = useCallback(async () => {
+    setReconcileSyncing(true);
+    setReconcileError(null);
+    try {
+      const r = await fetch("/api/qonto/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ daysBack: 30 }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setReconcileError(
+          data.details || data.error || "Erreur de synchronisation Qonto"
+        );
+        return;
+      }
+      await loadReconcileTransactions();
+    } catch (err) {
+      console.error("Erreur sync Qonto:", err);
+      setReconcileError("Erreur de synchronisation Qonto");
+    } finally {
+      setReconcileSyncing(false);
+    }
+  }, [loadReconcileTransactions]);
+
+  const handleAssociateTransaction = useCallback(
+    async (transactionId: string) => {
+      if (!id) return;
+      setReconcileAssociating(transactionId);
+      setReconcileError(null);
+      try {
+        const r = await fetch("/api/qonto/associate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transactionId, documentId: id }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setReconcileError(data.error || "Erreur lors de l'association");
+          return;
+        }
+        setReconcileOpen(false);
+        await fetchDoc();
+      } catch (err) {
+        console.error("Erreur association transaction:", err);
+        setReconcileError("Erreur lors de l'association");
+      } finally {
+        setReconcileAssociating(null);
+      }
+    },
+    [id, fetchDoc]
+  );
+
   const handlePipelineStep = useCallback(
     async (targetStatut: DocStatut) => {
       if (!doc || doc.statut === "ANNULE") return;
@@ -558,6 +686,17 @@ export default function FactureDetailPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {!isCancelled && doc.statut !== "PAYE" && isFacture && (session?.user as { role?: string })?.role === "ADMIN" && (
+                <button
+                  type="button"
+                  onClick={handleReconcileOpen}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[#1A1110] text-[#1A1110] text-sm font-medium hover:bg-[#1A1110] hover:text-white transition-colors"
+                  title="Rapprocher avec une transaction Qonto"
+                >
+                  <Link2 className="w-4 h-4" />
+                  Rapprocher
+                </button>
+              )}
               {!isCancelled && doc.statut !== "PAYE" && (session?.user as { role?: string })?.role === "ADMIN" && (
                 <button
                   type="button"
@@ -919,6 +1058,46 @@ export default function FactureDetailPage() {
               </div>
             </div>
 
+            {(session?.user as { role?: string })?.role === "ADMIN" &&
+              doc.transactionsQonto &&
+              doc.transactionsQonto.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <h3 className="font-semibold text-[#1A1110] flex items-center gap-2 text-sm">
+                      <Link2 className="w-4 h-4" />
+                      Rapprochement bancaire
+                    </h3>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
+                      <CheckCircle2 className="w-3 h-3" />
+                      {doc.transactionsQonto.length} transaction
+                      {doc.transactionsQonto.length > 1 ? "s" : ""} associée
+                      {doc.transactionsQonto.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-gray-100">
+                    {doc.transactionsQonto.map((t) => (
+                      <li key={t.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#1A1110] truncate">
+                            {t.emetteur || "Émetteur inconnu"}
+                          </p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {t.libelle || "—"}
+                          </p>
+                          <p className="text-xs text-gray-400 font-mono mt-0.5">
+                            {formatDate(t.dateTransaction)}
+                            {t.reference ? ` · ${t.reference}` : ""}
+                          </p>
+                        </div>
+                        <span className="text-sm font-semibold text-[#1A1110] tabular-nums">
+                          {formatMoney(Number(t.montant))}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
             {doc.notes && (
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
                 <h3 className="text-sm font-semibold text-[#1A1110] mb-2">Notes</h3>
@@ -1266,6 +1445,176 @@ export default function FactureDetailPage() {
         </div>
       )}
 
+      {/* Modale rapprochement Qonto */}
+      {reconcileOpen && doc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-200 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-[#1A1110] flex items-center gap-2">
+                  <Link2 className="w-5 h-5" />
+                  Rapprocher la facture {doc.reference}
+                </h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Sélectionnez une transaction Qonto à associer à cette facture (montant
+                  : <span className="font-medium text-[#1A1110]">{formatMoney(Number(doc.montantTTC))}</span>).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReconcileOpen(false)}
+                className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100"
+                aria-label="Fermer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Toolbar */}
+            <div className="px-6 py-3 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-gray-50/60">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="search"
+                  placeholder="Rechercher (libellé, émetteur, référence)"
+                  value={reconcileSearch}
+                  onChange={(e) => setReconcileSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-[#1A1110]"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleReconcileSync}
+                disabled={reconcileSyncing}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {reconcileSyncing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                {reconcileSyncing ? "Synchronisation…" : "Synchroniser Qonto"}
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto">
+              {reconcileError && (
+                <div className="mx-6 mt-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>{reconcileError}</span>
+                </div>
+              )}
+
+              {reconcileLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                (() => {
+                  const factureAmount = Number(doc.montantTTC);
+                  const lowerSearch = reconcileSearch.trim().toLowerCase();
+                  const filtered = reconcileTransactions.filter((t) => {
+                    if (!lowerSearch) return true;
+                    return (
+                      t.libelle?.toLowerCase().includes(lowerSearch) ||
+                      t.emetteur?.toLowerCase().includes(lowerSearch) ||
+                      t.reference?.toLowerCase().includes(lowerSearch)
+                    );
+                  });
+                  const suggestions = filtered.filter(
+                    (t) => Math.abs(Number(t.montant) - factureAmount) < 1
+                  );
+                  const others = filtered.filter(
+                    (t) => Math.abs(Number(t.montant) - factureAmount) >= 1
+                  );
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="px-6 py-12 text-center">
+                        <FileText className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                        <p className="text-sm font-medium text-gray-700">
+                          {reconcileTransactions.length === 0
+                            ? "Aucune transaction Qonto à rapprocher"
+                            : `Aucun résultat pour « ${reconcileSearch} »`}
+                        </p>
+                        {reconcileTransactions.length === 0 && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Cliquez sur « Synchroniser Qonto » pour récupérer les
+                            dernières transactions.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="px-6 py-4 space-y-6">
+                      {suggestions.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                            Correspondances par montant ({suggestions.length})
+                          </p>
+                          <div className="space-y-2">
+                            {suggestions.map((t) => (
+                              <ReconcileRow
+                                key={t.id}
+                                transaction={t}
+                                highlight
+                                associating={reconcileAssociating === t.id}
+                                onAssociate={() => handleAssociateTransaction(t.id)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {others.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                            {suggestions.length > 0
+                              ? "Autres transactions"
+                              : "Transactions disponibles"}{" "}
+                            ({others.length})
+                          </p>
+                          <div className="space-y-2">
+                            {others.map((t) => (
+                              <ReconcileRow
+                                key={t.id}
+                                transaction={t}
+                                associating={reconcileAssociating === t.id}
+                                onAssociate={() => handleAssociateTransaction(t.id)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 border-t border-gray-200 flex items-center justify-between bg-gray-50/60 rounded-b-xl">
+              <p className="text-xs text-gray-500">
+                Une fois associée, la facture passera en statut{" "}
+                <span className="font-medium text-[#1A1110]">Payé</span> et la marque
+                sera marquée comme nous ayant payés.
+              </p>
+              <button
+                type="button"
+                onClick={() => setReconcileOpen(false)}
+                className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-white"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal annulation */}
       {showAnnulerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
@@ -1299,6 +1648,78 @@ export default function FactureDetailPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReconcileRow({
+  transaction,
+  highlight,
+  associating,
+  onAssociate,
+}: {
+  transaction: ReconcileTransaction;
+  highlight?: boolean;
+  associating?: boolean;
+  onAssociate: () => void;
+}) {
+  const dateLabel = new Date(transaction.dateTransaction).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const amountLabel = new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+  }).format(Number(transaction.montant) || 0);
+
+  return (
+    <div
+      className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border px-4 py-3 transition-colors ${
+        highlight
+          ? "border-emerald-200 bg-emerald-50/50"
+          : "border-gray-200 bg-white"
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-[#1A1110] truncate">
+            {transaction.emetteur || "Émetteur inconnu"}
+          </span>
+          {highlight && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium">
+              <CheckCircle2 className="w-3 h-3" />
+              Montant identique
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-0.5 truncate">
+          {transaction.libelle || "—"}
+        </p>
+        <p className="text-xs text-gray-400 mt-0.5 font-mono">
+          {dateLabel}
+          {transaction.reference ? ` · ${transaction.reference}` : ""}
+        </p>
+      </div>
+      <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+        <span className="text-sm font-semibold text-[#1A1110] tabular-nums">
+          {amountLabel}
+        </span>
+        <button
+          type="button"
+          onClick={onAssociate}
+          disabled={associating}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1110] text-white text-xs font-medium hover:bg-black transition-colors disabled:opacity-50"
+        >
+          {associating ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Link2 className="w-3.5 h-3.5" />
+          )}
+          Associer
+        </button>
+      </div>
     </div>
   );
 }

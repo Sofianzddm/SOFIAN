@@ -61,6 +61,20 @@ export async function GET(
           include: { user: { select: { id: true, prenom: true, nom: true, email: true } } },
         },
         linkedQuote: true,
+        transactionsQonto: {
+          orderBy: { dateTransaction: "desc" },
+          select: {
+            id: true,
+            qontoId: true,
+            montant: true,
+            libelle: true,
+            reference: true,
+            dateTransaction: true,
+            emetteur: true,
+            emetteurIban: true,
+            statut: true,
+          },
+        },
       },
     });
 
@@ -81,6 +95,7 @@ export async function GET(
           datePaiement: null,
           referencePaiement: null,
           modePaiement: null,
+          transactionsQonto: [],
         };
 
     return NextResponse.json(payload);

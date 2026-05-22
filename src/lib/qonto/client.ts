@@ -37,15 +37,121 @@ export interface QontoTransactionsResponse {
   };
 }
 
-export class QontoClient {
-  private apiKey: string;
-  private baseUrl = "https://thirdparty.qonto.com/v2";
+export interface QontoBankAccount {
+  id: string;
+  slug: string;
+  iban: string;
+  bic?: string;
+  currency: string;
+  balance: number;
+  balance_cents: number;
+  authorized_balance: number;
+  authorized_balance_cents: number;
+  name?: string;
+  status: "active" | "closed";
+  main: boolean;
+}
 
-  constructor(apiKey: string) {
-    if (!apiKey) {
-      throw new Error("QONTO_API_KEY is required");
+export interface QontoOrganizationResponse {
+  organization: {
+    id: string;
+    slug: string;
+    legal_name: string;
+    bank_accounts: QontoBankAccount[];
+  };
+}
+
+/**
+ * Construit la valeur du header Authorization attendue par Qonto : `{login}:{secret}`
+ * (sans préfixe Bearer/Basic, sans encodage Base64).
+ */
+export function buildQontoAuthorization(): string {
+  const rawKey = process.env.QONTO_API_KEY?.trim();
+  const login =
+    process.env.QONTO_ORGANIZATION_SLUG?.trim() ||
+    process.env.QONTO_LOGIN?.trim();
+  const secret =
+    process.env.QONTO_SECRET_KEY?.trim() ||
+    process.env.QONTO_SECRET?.trim();
+
+  const normalize = (value: string) =>
+    value
+      .replace(/^["']|["']$/g, "")
+      .replace(/^(Bearer|Basic)\s+/i, "")
+      .trim();
+
+  if (rawKey) {
+    const normalized = normalize(rawKey);
+    if (normalized.includes(":")) {
+      return normalized;
     }
-    this.apiKey = apiKey;
+    if (login && secret) {
+      return `${normalize(login)}:${normalize(secret)}`;
+    }
+    if (login) {
+      return `${normalize(login)}:${normalized}`;
+    }
+    throw new Error(
+      "QONTO_API_KEY doit être au format login:secret, ou définir QONTO_ORGANIZATION_SLUG + QONTO_SECRET_KEY"
+    );
+  }
+
+  if (login && secret) {
+    return `${normalize(login)}:${normalize(secret)}`;
+  }
+
+  throw new Error(
+    "Variables Qonto manquantes : définir QONTO_API_KEY (login:secret) ou QONTO_ORGANIZATION_SLUG + QONTO_SECRET_KEY"
+  );
+}
+
+export class QontoClient {
+  private authorization: string;
+  private baseUrl = "https://thirdparty.qonto.com/v2";
+  private cachedBankAccountId: string | null = null;
+
+  constructor(authorization: string) {
+    if (!authorization?.includes(":")) {
+      throw new Error(
+        "Authorization Qonto invalide : format attendu login:secret"
+      );
+    }
+    this.authorization = authorization;
+  }
+
+  /**
+   * Récupère l'organisation + ses comptes bancaires.
+   */
+  async getOrganization(): Promise<QontoOrganizationResponse> {
+    return this.request<QontoOrganizationResponse>("/organization");
+  }
+
+  /**
+   * Récupère l'ID du compte bancaire principal (ou le premier actif).
+   * Utilisé automatiquement par getTransactions().
+   */
+  async getMainBankAccountId(): Promise<string> {
+    if (this.cachedBankAccountId) return this.cachedBankAccountId;
+
+    const envBankId = process.env.QONTO_BANK_ACCOUNT_ID?.trim();
+    if (envBankId) {
+      this.cachedBankAccountId = envBankId;
+      return envBankId;
+    }
+
+    const { organization } = await this.getOrganization();
+    const accounts = organization?.bank_accounts ?? [];
+    const main =
+      accounts.find((a) => a.main && a.status === "active") ||
+      accounts.find((a) => a.status === "active") ||
+      accounts[0];
+
+    if (!main?.id) {
+      throw new Error("Aucun compte bancaire Qonto trouvé pour l'organisation");
+    }
+
+    this.cachedBankAccountId = main.id;
+    return main.id;
   }
 
   /**
@@ -58,7 +164,7 @@ export class QontoClient {
       const response = await fetch(url, {
         ...options,
         headers: {
-          Authorization: `${this.apiKey}`,
+          Authorization: this.authorization,
           "Content-Type": "application/json",
           ...options.headers,
         },
@@ -78,6 +184,7 @@ export class QontoClient {
 
   /**
    * Récupérer les transactions (encaissements uniquement)
+   * Le bank_account_id (requis par l'API Qonto v2) est résolu automatiquement.
    */
   async getTransactions(params?: {
     settled_at_from?: string; // Format: YYYY-MM-DD
@@ -85,12 +192,21 @@ export class QontoClient {
     status?: "pending" | "reversed" | "declined" | "completed";
     per_page?: number;
     page?: number;
+    bank_account_id?: string;
   }): Promise<QontoTransactionsResponse> {
-    const queryParams = new URLSearchParams({
-      side: "credit", // Uniquement les encaissements (crédits)
-      per_page: String(params?.per_page || 100),
-      ...params,
-    } as any);
+    const bankAccountId =
+      params?.bank_account_id || (await this.getMainBankAccountId());
+
+    const queryParams = new URLSearchParams();
+    queryParams.set("bank_account_id", bankAccountId);
+    queryParams.set("side", "credit");
+    queryParams.set("per_page", String(params?.per_page || 100));
+    if (params?.settled_at_from)
+      queryParams.set("settled_at_from", params.settled_at_from);
+    if (params?.settled_at_to)
+      queryParams.set("settled_at_to", params.settled_at_to);
+    if (params?.status) queryParams.set("status[]", params.status);
+    if (params?.page) queryParams.set("page", String(params.page));
 
     return this.request<QontoTransactionsResponse>(
       `/transactions?${queryParams.toString()}`
@@ -126,11 +242,11 @@ export class QontoClient {
   }
 
   /**
-   * Test de connexion à l'API Qonto
+   * Test de connexion à l'API Qonto (ping /organization)
    */
   async testConnection(): Promise<boolean> {
     try {
-      await this.getTransactions({ per_page: 1 });
+      await this.getOrganization();
       return true;
     } catch (error) {
       console.error("Erreur test connexion Qonto:", error);
@@ -144,11 +260,7 @@ let qontoClient: QontoClient | null = null;
 
 export function getQontoClient(): QontoClient {
   if (!qontoClient) {
-    const apiKey = process.env.QONTO_API_KEY;
-    if (!apiKey) {
-      throw new Error("QONTO_API_KEY environment variable is not set");
-    }
-    qontoClient = new QontoClient(apiKey);
+    qontoClient = new QontoClient(buildQontoAuthorization());
   }
   return qontoClient;
 }
