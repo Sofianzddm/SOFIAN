@@ -22,6 +22,7 @@ interface TransactionQonto {
   dateTransaction: string;
   emetteur: string;
   emetteurIban: string;
+  statut?: "PENDING" | "SETTLED" | string;
   associe: boolean;
   document?: {
     id: string;
@@ -29,6 +30,13 @@ interface TransactionQonto {
     type: string;
   };
 }
+
+const PERIOD_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 30, label: "30 jours" },
+  { value: 90, label: "3 mois" },
+  { value: 180, label: "6 mois" },
+  { value: 365, label: "12 mois" },
+];
 
 interface Facture {
   id: string;
@@ -54,6 +62,7 @@ export default function ReconciliationPage() {
   const [associating, setAssociating] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [periodDays, setPeriodDays] = useState<number>(90);
 
   const fetchData = async () => {
     setLoading(true);
@@ -86,7 +95,7 @@ export default function ReconciliationPage() {
       const res = await fetch("/api/qonto/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ daysBack: 30 }),
+        body: JSON.stringify({ daysBack: periodDays }),
       });
 
       if (res.ok) {
@@ -200,18 +209,36 @@ export default function ReconciliationPage() {
               Associer les encaissements Qonto aux factures émises
             </p>
           </div>
-          <button
-            onClick={syncQonto}
-            disabled={syncing}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-          >
-            {syncing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-            {syncing ? "Synchronisation…" : "Synchroniser Qonto"}
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="sr-only" htmlFor="qonto-period">
+              Période
+            </label>
+            <select
+              id="qonto-period"
+              value={periodDays}
+              onChange={(e) => setPeriodDays(Number(e.target.value))}
+              disabled={syncing}
+              className="px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-200 focus:border-slate-300 disabled:opacity-50"
+            >
+              {PERIOD_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={syncQonto}
+              disabled={syncing}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {syncing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              {syncing ? "Synchronisation…" : "Synchroniser Qonto"}
+            </button>
+          </div>
         </div>
 
         {/* KPIs */}
@@ -313,6 +340,11 @@ export default function ReconciliationPage() {
                           </td>
                           <td className="py-3 px-4">
                             <span className="font-medium text-slate-900">{transaction.libelle}</span>
+                            {transaction.statut === "PENDING" && (
+                              <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 align-middle">
+                                En attente
+                              </span>
+                            )}
                             {transaction.reference && (
                               <span className="block text-xs text-slate-400 font-mono mt-0.5">
                                 {transaction.reference}

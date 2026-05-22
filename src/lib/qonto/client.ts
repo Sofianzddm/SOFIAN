@@ -187,9 +187,11 @@ export class QontoClient {
    * Le bank_account_id (requis par l'API Qonto v2) est résolu automatiquement.
    */
   async getTransactions(params?: {
-    settled_at_from?: string; // Format: YYYY-MM-DD
+    emitted_at_from?: string; // Format ISO 8601 (date d'émission)
+    emitted_at_to?: string;
+    settled_at_from?: string; // Format YYYY-MM-DD
     settled_at_to?: string;
-    status?: "pending" | "reversed" | "declined" | "completed";
+    statuses?: Array<"pending" | "reversed" | "declined" | "completed">;
     per_page?: number;
     page?: number;
     bank_account_id?: string;
@@ -201,11 +203,19 @@ export class QontoClient {
     queryParams.set("bank_account_id", bankAccountId);
     queryParams.set("side", "credit");
     queryParams.set("per_page", String(params?.per_page || 100));
+    if (params?.emitted_at_from)
+      queryParams.set("emitted_at_from", params.emitted_at_from);
+    if (params?.emitted_at_to)
+      queryParams.set("emitted_at_to", params.emitted_at_to);
     if (params?.settled_at_from)
       queryParams.set("settled_at_from", params.settled_at_from);
     if (params?.settled_at_to)
       queryParams.set("settled_at_to", params.settled_at_to);
-    if (params?.status) queryParams.set("status[]", params.status);
+    if (params?.statuses?.length) {
+      for (const status of params.statuses) {
+        queryParams.append("status[]", status);
+      }
+    }
     if (params?.page) queryParams.set("page", String(params.page));
 
     return this.request<QontoTransactionsResponse>(
@@ -221,24 +231,43 @@ export class QontoClient {
   }
 
   /**
-   * Synchroniser les transactions récentes
+   * Synchroniser les transactions récentes (entrants).
+   * - Récupère les transactions `completed` ET `pending` (les `declined`/`reversed` sont exclues).
+   * - Filtre sur la date d'émission (`emitted_at`) plutôt que sur la date de règlement,
+   *   pour inclure les paiements en attente de règlement.
+   * - Gère la pagination (jusqu'à `maxPages * 100` transactions).
+   *
    * @param daysBack Nombre de jours en arrière (défaut: 30)
+   * @param options.maxPages Sécurité anti-boucle infinie (défaut: 20 = 2000 transactions max)
    */
-  async syncRecentTransactions(daysBack: number = 30): Promise<QontoTransaction[]> {
+  async syncRecentTransactions(
+    daysBack: number = 30,
+    options: { maxPages?: number } = {}
+  ): Promise<QontoTransaction[]> {
+    const maxPages = options.maxPages ?? 20;
+
     const dateFrom = new Date();
     dateFrom.setDate(dateFrom.getDate() - daysBack);
+    dateFrom.setHours(0, 0, 0, 0);
 
-    const dateTo = new Date();
+    const all: QontoTransaction[] = [];
+    let page = 1;
 
-    const params = {
-      settled_at_from: dateFrom.toISOString().split("T")[0],
-      settled_at_to: dateTo.toISOString().split("T")[0],
-      status: "completed" as const,
-      per_page: 100,
-    };
+    while (page <= maxPages) {
+      const response = await this.getTransactions({
+        emitted_at_from: dateFrom.toISOString(),
+        statuses: ["completed", "pending"],
+        per_page: 100,
+        page,
+      });
 
-    const response = await this.getTransactions(params);
-    return response.transactions;
+      all.push(...response.transactions);
+
+      if (!response.meta?.next_page) break;
+      page = response.meta.next_page;
+    }
+
+    return all;
   }
 
   /**
