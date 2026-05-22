@@ -14,10 +14,21 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get("type");
     const statut = searchParams.get("statut");
 
+    const statutFilter =
+      statut && statut !== "ALL"
+        ? statut.includes(",")
+          ? {
+              statut: {
+                in: statut.split(",").map((s) => s.trim()).filter(Boolean) as any[],
+              },
+            }
+          : { statut: statut as any }
+        : {};
+
     const documents = await prisma.document.findMany({
       where: {
         ...(type && type !== "ALL" ? { type: type as any } : {}),
-        ...(statut && statut !== "ALL" ? { statut: statut as any } : {}),
+        ...statutFilter,
       },
       include: {
         collaboration: {

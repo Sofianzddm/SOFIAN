@@ -31,6 +31,18 @@ interface TransactionQonto {
   };
 }
 
+/** Factures éligibles au rapprochement (non payées, non annulées) */
+const FACTURE_STATUTS_RAPPROCHEMENT = "ENVOYE,VALIDE";
+
+function parseDocumentsList(data: unknown): Facture[] {
+  if (Array.isArray(data)) return data as Facture[];
+  if (data && typeof data === "object" && "documents" in data) {
+    const docs = (data as { documents?: unknown }).documents;
+    return Array.isArray(docs) ? (docs as Facture[]) : [];
+  }
+  return [];
+}
+
 const PERIOD_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 30, label: "30 jours" },
   { value: 90, label: "3 mois" },
@@ -69,17 +81,25 @@ export default function ReconciliationPage() {
     try {
       const [transactionsRes, facturesRes] = await Promise.all([
         fetch("/api/qonto/transactions"),
-        fetch("/api/documents?type=FACTURE&statut=ENVOYE,EN_ATTENTE"),
+        fetch(`/api/documents?type=FACTURE&statut=${FACTURE_STATUTS_RAPPROCHEMENT}`),
       ]);
 
       if (transactionsRes.ok) {
         const data = await transactionsRes.json();
         setTransactions(data.transactions || []);
+      } else {
+        console.error("Erreur chargement transactions Qonto:", transactionsRes.status);
       }
 
       if (facturesRes.ok) {
         const data = await facturesRes.json();
-        setFactures(data.documents || []);
+        const list = parseDocumentsList(data).filter(
+          (f) => f.statut !== "PAYE" && f.statut !== "ANNULE"
+        );
+        setFactures(list);
+      } else {
+        console.error("Erreur chargement factures:", facturesRes.status);
+        setFactures([]);
       }
     } catch (error) {
       console.error("Erreur fetch:", error);
@@ -143,11 +163,14 @@ export default function ReconciliationPage() {
   };
 
   const getSuggestions = (transaction: TransactionQonto): Facture[] => {
+    const montantTransaction = Number(transaction.montant);
     return factures.filter((facture) => {
-      const montantFacture = Number(facture.montantTTC);
-      const montantTransaction = transaction.montant;
-      const difference = Math.abs(montantFacture - montantTransaction);
-      return difference < 1;
+      const ttc = Number(facture.montantTTC);
+      const ht = Number(facture.montantHT ?? 0);
+      return (
+        Math.abs(ttc - montantTransaction) < 1 ||
+        (ht > 0 && Math.abs(ht - montantTransaction) < 1)
+      );
     });
   };
 
@@ -186,8 +209,8 @@ export default function ReconciliationPage() {
   const filteredNonAssociees = search
     ? transactionsNonAssociees.filter(
         (t) =>
-          t.libelle.toLowerCase().includes(search.toLowerCase()) ||
-          t.emetteur.toLowerCase().includes(search.toLowerCase()) ||
+          t.libelle?.toLowerCase().includes(search.toLowerCase()) ||
+          (t.emetteur ?? "").toLowerCase().includes(search.toLowerCase()) ||
           t.reference?.toLowerCase().includes(search.toLowerCase())
       )
     : transactionsNonAssociees;
@@ -320,20 +343,21 @@ export default function ReconciliationPage() {
                           className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
                         >
                           <td className="py-2 px-4">
-                            {(suggestions.length > 0 || factures.length > 0) && (
-                              <button
-                                type="button"
-                                onClick={() => setExpandedId(isExpanded ? null : transaction.id)}
-                                className="p-1 rounded hover:bg-slate-200 text-slate-500"
-                                aria-label={isExpanded ? "Replier" : "Associer à une facture"}
-                              >
-                                {isExpanded ? (
-                                  <ChevronDown className="w-4 h-4" />
-                                ) : (
-                                  <ChevronRight className="w-4 h-4" />
-                                )}
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedId(isExpanded ? null : transaction.id)
+                              }
+                              className="p-1 rounded hover:bg-slate-200 text-slate-500"
+                              aria-expanded={isExpanded}
+                              aria-label={isExpanded ? "Replier" : "Associer à une facture"}
+                            >
+                              {isExpanded ? (
+                                <ChevronDown className="w-4 h-4" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4" />
+                              )}
+                            </button>
                           </td>
                           <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
                             {formatDate(transaction.dateTransaction)}
@@ -356,15 +380,15 @@ export default function ReconciliationPage() {
                             {formatMoney(transaction.montant)}
                           </td>
                           <td className="py-3 px-4 text-right">
-                            {(suggestions.length > 0 || factures.length > 0) && (
-                              <button
-                                type="button"
-                                onClick={() => setExpandedId(isExpanded ? null : transaction.id)}
-                                className="text-xs font-medium text-slate-700 hover:text-slate-900"
-                              >
-                                {isExpanded ? "Masquer" : "Associer"}
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedId(isExpanded ? null : transaction.id)
+                              }
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors"
+                            >
+                              {isExpanded ? "Masquer" : "Associer"}
+                            </button>
                           </td>
                         </tr>
                         {isExpanded && (
@@ -419,7 +443,9 @@ export default function ReconciliationPage() {
                                   <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
                                     {factures.length === 0 ? (
                                       <p className="px-4 py-3 text-sm text-slate-500">
-                                        Aucune facture en attente de paiement
+                                        Aucune facture envoyée ou validée en attente de paiement
+                                        (statuts ENVOYE / VALIDE). Créez ou envoyez une facture
+                                        depuis la fiche collaboration.
                                       </p>
                                     ) : (
                                       factures.map((facture) => (
