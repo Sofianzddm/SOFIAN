@@ -11,6 +11,9 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  Eye,
+  X,
+  ExternalLink,
 } from "lucide-react";
 
 interface TransactionQonto {
@@ -75,6 +78,7 @@ export default function ReconciliationPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [periodDays, setPeriodDays] = useState<number>(90);
+  const [previewFacture, setPreviewFacture] = useState<Facture | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -183,6 +187,20 @@ export default function ReconciliationPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (!previewFacture) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreviewFacture(null);
+    };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [previewFacture]);
 
   if (session?.user?.role !== "ADMIN") {
     return (
@@ -419,18 +437,29 @@ export default function ReconciliationPage() {
                                               {formatMoney(Number(facture.montantHT ?? facture.montantTTC))}
                                             </span>
                                           </div>
-                                          <button
-                                            onClick={() => associer(transaction.id, facture.id)}
-                                            disabled={associating === transaction.id}
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-md hover:bg-slate-800 disabled:opacity-50"
-                                          >
-                                            {associating === transaction.id ? (
-                                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                            ) : (
-                                              <Link2 className="w-3.5 h-3.5" />
-                                            )}
-                                            Associer
-                                          </button>
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => setPreviewFacture(facture)}
+                                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-700 text-xs font-medium rounded-md hover:bg-slate-50"
+                                              title="Aperçu de la facture"
+                                            >
+                                              <Eye className="w-3.5 h-3.5" />
+                                              Voir
+                                            </button>
+                                            <button
+                                              onClick={() => associer(transaction.id, facture.id)}
+                                              disabled={associating === transaction.id}
+                                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-md hover:bg-slate-800 disabled:opacity-50"
+                                            >
+                                              {associating === transaction.id ? (
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                              ) : (
+                                                <Link2 className="w-3.5 h-3.5" />
+                                              )}
+                                              Associer
+                                            </button>
+                                          </div>
                                         </div>
                                       ))}
                                     </div>
@@ -464,13 +493,24 @@ export default function ReconciliationPage() {
                                               {formatMoney(Number(facture.montantHT ?? facture.montantTTC))}
                                             </span>
                                           </div>
-                                          <button
-                                            onClick={() => associer(transaction.id, facture.id)}
-                                            disabled={associating === transaction.id}
-                                            className="shrink-0 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
-                                          >
-                                            Associer
-                                          </button>
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={() => setPreviewFacture(facture)}
+                                              className="p-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                                              title="Aperçu de la facture"
+                                              aria-label={`Aperçu ${facture.reference}`}
+                                            >
+                                              <Eye className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                              onClick={() => associer(transaction.id, facture.id)}
+                                              disabled={associating === transaction.id}
+                                              className="text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
+                                            >
+                                              Associer
+                                            </button>
+                                          </div>
                                         </div>
                                       ))
                                     )}
@@ -532,7 +572,29 @@ export default function ReconciliationPage() {
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
-                      <td />
+                      <td className="py-3 px-4 text-right">
+                        {transaction.document && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPreviewFacture({
+                                id: transaction.document!.id,
+                                reference: transaction.document!.reference,
+                                montantTTC: transaction.montant,
+                                dateEmission: transaction.dateTransaction,
+                                dateEcheance: transaction.dateTransaction,
+                                statut: "PAYE",
+                                collaboration: null,
+                              })
+                            }
+                            className="p-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                            title={`Aperçu ${transaction.document.reference}`}
+                            aria-label={`Aperçu ${transaction.document.reference}`}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -546,6 +608,65 @@ export default function ReconciliationPage() {
           </div>
         )}
       </div>
+
+      {previewFacture && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setPreviewFacture(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
+              <div className="min-w-0">
+                <p className="font-semibold text-slate-900 truncate">
+                  {previewFacture.reference}
+                </p>
+                <p className="text-xs text-slate-500 truncate">
+                  {previewFacture.collaboration?.marque?.nom ?? "Facture libre"}
+                  {" · "}
+                  {formatMoney(
+                    Number(previewFacture.montantHT ?? previewFacture.montantTTC)
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={`/api/documents/${previewFacture.id}/pdf`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-md text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  title="Ouvrir dans un nouvel onglet"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Onglet
+                </a>
+                <a
+                  href={`/factures/${previewFacture.id}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-md text-xs font-medium hover:bg-slate-800"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Fiche facture
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewFacture(null)}
+                  className="p-1.5 rounded-md text-slate-500 hover:bg-slate-100"
+                  aria-label="Fermer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <iframe
+              src={`/api/documents/${previewFacture.id}/pdf`}
+              title={`Aperçu ${previewFacture.reference}`}
+              className="flex-1 w-full border-0 bg-slate-100"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
