@@ -315,18 +315,18 @@ export function Sidebar() {
   if (userRole === "JURISTE") {
     return (
       <aside
-        className={`fixed left-0 top-0 h-screen bg-white border-r border-gray-200 transition-all duration-300 z-40 ${
+        className={`fixed left-0 top-0 h-screen bg-white border-r border-gray-200 transition-all duration-300 z-40 flex flex-col ${
           collapsed ? "w-20" : "w-64"
         }`}
       >
-        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-100">
+        <div className="h-16 flex-shrink-0 flex items-center justify-between px-4 border-b border-gray-100">
           {collapsed ? (
             <GlowUpIcon className="h-8 w-auto mx-auto" variant="dark" />
           ) : (
             <GlowUpLogo className="h-8 w-auto" variant="dark" />
           )}
         </div>
-        <nav className="p-4 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain p-4 space-y-1">
           <Link
             href="/juriste"
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
@@ -345,24 +345,26 @@ export function Sidebar() {
             {!collapsed && <span className="font-medium text-sm">Contrats à relire</span>}
           </Link>
         </nav>
-        {!collapsed && (
-          <div className="absolute bottom-16 left-4 right-4">
-            <div className="px-3 py-2 bg-gray-50 rounded-lg">
-              <p className="text-xs text-gray-500">Connecté en tant que</p>
-              <p className="text-sm font-medium text-glowup-licorice">{getRoleName(userRole)}</p>
+        <div className="flex-shrink-0 relative border-t border-gray-100 pb-12">
+          {!collapsed && (
+            <div className="px-4 pt-3">
+              <div className="px-3 py-2 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500">Connecté en tant que</p>
+                <p className="text-sm font-medium text-glowup-licorice">{getRoleName(userRole)}</p>
+              </div>
             </div>
-          </div>
-        )}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="absolute bottom-4 right-0 translate-x-1/2 bg-white border border-gray-200 rounded-full p-1.5 shadow-sm hover:bg-glowup-lace transition-colors"
-        >
-          {collapsed ? (
-            <ChevronRight className="w-4 h-4 text-gray-600" />
-          ) : (
-            <ChevronLeft className="w-4 h-4 text-gray-600" />
           )}
-        </button>
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="absolute bottom-4 right-0 translate-x-1/2 bg-white border border-gray-200 rounded-full p-1.5 shadow-sm hover:bg-glowup-lace transition-colors"
+          >
+            {collapsed ? (
+              <ChevronRight className="w-4 h-4 text-gray-600" />
+            ) : (
+              <ChevronLeft className="w-4 h-4 text-gray-600" />
+            )}
+          </button>
+        </div>
       </aside>
     );
   }
@@ -419,12 +421,12 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-screen bg-white border-r border-gray-200 transition-all duration-300 z-40 ${
+      className={`fixed left-0 top-0 h-screen bg-white border-r border-gray-200 transition-all duration-300 z-40 flex flex-col ${
         collapsed ? "w-20" : "w-64"
       }`}
     >
       {/* Logo */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-gray-100">
+      <div className="h-16 flex-shrink-0 flex items-center justify-between px-4 border-b border-gray-100">
         {collapsed ? (
           <GlowUpIcon className="h-8 w-auto mx-auto" variant="dark" />
         ) : (
@@ -436,7 +438,7 @@ export function Sidebar() {
       {(userRole === "TM" || userRole === "HEAD_OF_INFLUENCE") &&
         delegationsRecues.length > 0 && !collapsed && (
           <div
-            className="mx-3 mt-3 mb-1 rounded-xl px-3 py-2.5"
+            className="flex-shrink-0 mx-3 mt-3 mb-1 rounded-xl px-3 py-2.5"
             style={{
               background: "rgba(200,242,133,0.1)",
               border: "1px solid rgba(200,242,133,0.2)",
@@ -464,8 +466,8 @@ export function Sidebar() {
           </div>
         )}
 
-      {/* Menu */}
-      <nav className="p-4 space-y-1">
+      {/* Menu — zone scrollable sur petits écrans / nombreux items */}
+      <nav className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain p-4 space-y-1">
         {userRole === "STRATEGY_PLANNER" && !collapsed && (
           <div className="px-3 pt-1 pb-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
@@ -510,27 +512,28 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Indicateur de rôle (petit badge en bas) */}
-      {!collapsed && (
-        <div className="absolute bottom-16 left-4 right-4">
-          <div className="px-3 py-2 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-500">Connecté en tant que</p>
-            <p className="text-sm font-medium text-glowup-licorice">{getRoleName(userRole)}</p>
+      {/* Pied de sidebar : rôle + bouton replier (hors zone scroll) */}
+      <div className="flex-shrink-0 relative border-t border-gray-100 pb-12">
+        {!collapsed && (
+          <div className="px-4 pt-3">
+            <div className="px-3 py-2 bg-gray-50 rounded-lg">
+              <p className="text-xs text-gray-500">Connecté en tant que</p>
+              <p className="text-sm font-medium text-glowup-licorice">{getRoleName(userRole)}</p>
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Collapse button */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="absolute bottom-4 right-0 translate-x-1/2 bg-white border border-gray-200 rounded-full p-1.5 shadow-sm hover:bg-glowup-lace transition-colors"
-      >
-        {collapsed ? (
-          <ChevronRight className="w-4 h-4 text-gray-600" />
-        ) : (
-          <ChevronLeft className="w-4 h-4 text-gray-600" />
         )}
-      </button>
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="absolute bottom-4 right-0 translate-x-1/2 bg-white border border-gray-200 rounded-full p-1.5 shadow-sm hover:bg-glowup-lace transition-colors"
+          aria-label={collapsed ? "Déplier le menu" : "Replier le menu"}
+        >
+          {collapsed ? (
+            <ChevronRight className="w-4 h-4 text-gray-600" />
+          ) : (
+            <ChevronLeft className="w-4 h-4 text-gray-600" />
+          )}
+        </button>
+      </div>
     </aside>
   );
 }
