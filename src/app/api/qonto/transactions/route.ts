@@ -47,6 +47,13 @@ export async function GET(request: NextRequest) {
             reference: true,
             type: true,
             montantTTC: true,
+            collaboration: {
+              select: {
+                id: true,
+                reference: true,
+                marque: { select: { nom: true } },
+              },
+            },
           },
         },
       },

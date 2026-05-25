@@ -14,6 +14,7 @@ import {
   Eye,
   X,
   ExternalLink,
+  Briefcase,
 } from "lucide-react";
 
 interface TransactionQonto {
@@ -31,6 +32,11 @@ interface TransactionQonto {
     id: string;
     reference: string;
     type: string;
+    collaboration?: {
+      id: string;
+      reference: string;
+      marque: { nom: string };
+    } | null;
   };
 }
 
@@ -584,7 +590,7 @@ export default function ReconciliationPage() {
                                 dateEmission: transaction.dateTransaction,
                                 dateEcheance: transaction.dateTransaction,
                                 statut: "PAYE",
-                                collaboration: null,
+                                collaboration: transaction.document!.collaboration ?? null,
                               })
                             }
                             className="p-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100"
@@ -632,6 +638,16 @@ export default function ReconciliationPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {previewFacture.collaboration && (
+                  <a
+                    href={`/collaborations/${previewFacture.collaboration.id}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-md text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    title={`Collaboration ${previewFacture.collaboration.reference}`}
+                  >
+                    <Briefcase className="w-3.5 h-3.5" />
+                    Voir la collaboration associée
+                  </a>
+                )}
                 <a
                   href={`/api/documents/${previewFacture.id}/pdf`}
                   target="_blank"
