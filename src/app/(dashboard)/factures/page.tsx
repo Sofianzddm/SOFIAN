@@ -19,10 +19,13 @@ import {
   FileCheck,
   AlertTriangle,
   Clock,
+  Mail,
+  Bell,
 } from "lucide-react";
+import { formatMontant } from "@/lib/devises";
 
 // Types
-type TabType = "invoices" | "quotes";
+type TabType = "invoices" | "quotes" | "relances";
 type PeriodType = "3m" | "6m" | "year" | "all";
 
 function toMonthKey(dateValue: string | null | undefined): string | null {
@@ -44,17 +47,22 @@ interface DocumentInfo {
   statut: string;
   titre?: string | null;
   clientNom?: string | null;
+  clientEmail?: string | null;
   montantHT: number;
   montantTTC: number;
+  devise?: string;
   dateEmission: string | null;
   dateEcheance: string | null;
   createdAt: string;
+  relance1SentAt?: string | null;
+  relance2SentAt?: string | null;
+  relance3SentAt?: string | null;
   collaboration: {
     id: string;
     reference: string;
     talent: { id: string; prenom: string; nom: string };
     marque: { id: string; nom: string };
-    marqueContact: { id: string; prenom: string; nom: string } | null;
+    marqueContact: { id: string; prenom: string; nom: string; email?: string | null } | null;
   } | null;
 }
 
@@ -105,6 +113,7 @@ function documentToQuoteInfo(d: {
   dateEcheance: string | null;
   montantHT: unknown;
   montantTTC: unknown;
+  devise?: string | null;
   collaboration?: {
     id: string;
     reference: string;
@@ -126,7 +135,7 @@ function documentToQuoteInfo(d: {
     validUntil,
     totalHT: Number(d.montantHT ?? 0),
     totalTTC: Number(d.montantTTC ?? 0),
-    currency: "EUR",
+    currency: (d.devise || "EUR").toUpperCase(),
     status: DOC_STATUT_TO_QUOTE_STATUS[d.statut] ?? "DRAFT",
     marque: d.collaboration?.marque ?? { id: "", nom: "-" },
     marqueContact: d.collaboration?.marqueContact ?? null,
@@ -156,7 +165,8 @@ export default function FacturesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const tab = (searchParams.get("tab") === "quotes" ? "quotes" : "invoices") as TabType;
+  const tabParam = searchParams.get("tab");
+  const tab = (tabParam === "quotes" ? "quotes" : tabParam === "relances" ? "relances" : "invoices") as TabType;
   const setTab = useCallback(
     (t: TabType) => {
       const u = new URLSearchParams(searchParams.toString());
@@ -299,7 +309,7 @@ export default function FacturesPage() {
   useEffect(() => {
     if (status !== "authenticated") return;
     setLoading(true);
-    if (tab === "invoices") {
+    if (tab === "invoices" || tab === "relances") {
       fetchFactures().finally(() => setLoading(false));
     } else {
       fetchQuotes().finally(() => setLoading(false));
@@ -310,6 +320,22 @@ export default function FacturesPage() {
   useEffect(() => {
     if (tab !== "quotes") return;
     if (statutFilter !== "all" && !QUOTE_STATUS_VALUES.includes(statutFilter)) {
+      setStatutFilter("all");
+    }
+  }, [tab, statutFilter]);
+
+  // À l’ouverture de l’onglet Relances, remettre le filtre statut à "Tout" si pas une valeur relance
+  useEffect(() => {
+    if (tab !== "relances") return;
+    if (statutFilter !== "all" && !["R1", "R2", "R3", "DONE"].includes(statutFilter)) {
+      setStatutFilter("all");
+    }
+  }, [tab, statutFilter]);
+
+  // Lorsque l'on quitte l'onglet relances, on reset un filtre R1/R2/R3/DONE
+  useEffect(() => {
+    if (tab === "relances") return;
+    if (["R1", "R2", "R3", "DONE"].includes(statutFilter)) {
       setStatutFilter("all");
     }
   }, [tab, statutFilter]);
@@ -367,6 +393,113 @@ export default function FacturesPage() {
     const start = (page - 1) * perPage;
     return facturesSorted.slice(start, start + perPage);
   }, [facturesSorted, page, perPage]);
+
+  // ============================================
+  // Relances : factures en retard non payées, avec niveau de relance disponible
+  // ============================================
+  const relancesItems = useMemo(() => {
+    const now = new Date();
+    const docs = Array.isArray(documents) ? documents : [];
+    return docs
+      .filter((d) => String(d.type).toUpperCase() === "FACTURE")
+      .filter((d) => d.statut === "ENVOYE")
+      .map((d) => {
+        const echeance = d.dateEcheance ? new Date(d.dateEcheance) : null;
+        if (!echeance || echeance >= now) return null;
+        const joursRetard = Math.max(1, Math.floor((now.getTime() - echeance.getTime()) / 86400000));
+        // Niveau suivant disponible
+        let nextLevel: 1 | 2 | 3 | null = null;
+        if (!d.relance1SentAt) nextLevel = 1;
+        else if (!d.relance2SentAt && joursRetard >= 30) nextLevel = 2;
+        else if (!d.relance3SentAt && joursRetard >= 60) nextLevel = 3;
+        // Seuils théoriques attendus
+        const nextEligibleIn =
+          d.relance1SentAt && !d.relance2SentAt
+            ? Math.max(0, 30 - joursRetard)
+            : d.relance2SentAt && !d.relance3SentAt
+              ? Math.max(0, 60 - joursRetard)
+              : 0;
+        return { doc: d, joursRetard, nextLevel, nextEligibleIn };
+      })
+      .filter((x): x is { doc: DocumentInfo; joursRetard: number; nextLevel: 1 | 2 | 3 | null; nextEligibleIn: number } => x !== null);
+  }, [documents]);
+
+  const relancesFiltered = useMemo(() => {
+    let list = [...relancesItems];
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      list = list.filter(({ doc }) =>
+        doc.reference.toLowerCase().includes(q) ||
+        (doc.titre ?? "").toLowerCase().includes(q) ||
+        (doc.clientNom ?? "").toLowerCase().includes(q) ||
+        (doc.collaboration?.marque?.nom ?? "").toLowerCase().includes(q)
+      );
+    }
+    if (statutFilter !== "all") {
+      if (statutFilter === "R1") list = list.filter((x) => x.nextLevel === 1);
+      else if (statutFilter === "R2") list = list.filter((x) => x.nextLevel === 2);
+      else if (statutFilter === "R3") list = list.filter((x) => x.nextLevel === 3);
+      else if (statutFilter === "DONE") list = list.filter((x) => x.nextLevel === null);
+    }
+    // Tri : niveau dispo en premier, puis plus gros retard
+    list.sort((a, b) => {
+      const aDone = a.nextLevel === null ? 1 : 0;
+      const bDone = b.nextLevel === null ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      return b.joursRetard - a.joursRetard;
+    });
+    return list;
+  }, [relancesItems, debouncedSearch, statutFilter]);
+
+  const relancesPaginated = useMemo(() => {
+    const start = (page - 1) * perPage;
+    return relancesFiltered.slice(start, start + perPage);
+  }, [relancesFiltered, page, perPage]);
+
+  const relancesStats = useMemo(() => {
+    return {
+      total: relancesItems.length,
+      r1: relancesItems.filter((x) => x.nextLevel === 1).length,
+      r2: relancesItems.filter((x) => x.nextLevel === 2).length,
+      r3: relancesItems.filter((x) => x.nextLevel === 3).length,
+    };
+  }, [relancesItems]);
+
+  const [relanceLoadingId, setRelanceLoadingId] = useState<string | null>(null);
+  const [relanceToast, setRelanceToast] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+
+  const handleSendRelance = useCallback(
+    async (docId: string, level: 1 | 2 | 3) => {
+      const ordinal = level === 1 ? "1ère" : level === 2 ? "2ème" : "3ème";
+      if (!window.confirm(`Envoyer la ${ordinal} relance par email depuis comptabilite@glowupagence.fr ?`)) {
+        return;
+      }
+      setRelanceLoadingId(docId);
+      try {
+        const r = await fetch(`/api/documents/${docId}/relance`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ level }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setRelanceToast({ kind: "error", message: data.error || "Erreur lors de l'envoi de la relance" });
+        } else {
+          setRelanceToast({
+            kind: "success",
+            message: `${ordinal} relance envoyée à ${data.sentTo ?? "le client"}`,
+          });
+          await fetchFactures();
+        }
+      } catch (e) {
+        setRelanceToast({ kind: "error", message: e instanceof Error ? e.message : "Erreur réseau" });
+      } finally {
+        setRelanceLoadingId(null);
+        setTimeout(() => setRelanceToast(null), 6000);
+      }
+    },
+    [fetchFactures]
+  );
 
   const quotesFiltered = useMemo(() => {
     let list = [...(quotesData?.quotes ?? [])];
@@ -440,7 +573,13 @@ export default function FacturesPage() {
 
   const totalFactures = facturesSorted.length;
   const totalQuotes = quotesSorted.length;
-  const totalPages = Math.max(1, Math.ceil((tab === "invoices" ? totalFactures : totalQuotes) / perPage));
+  const totalRelances = relancesFiltered.length;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(
+      (tab === "invoices" ? totalFactures : tab === "relances" ? totalRelances : totalQuotes) / perPage
+    )
+  );
 
   const toggleSort = (field: string) => {
     if (sortBy === field) setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
@@ -527,7 +666,8 @@ export default function FacturesPage() {
   }
 
   const isInvoices = tab === "invoices";
-  const title = isInvoices ? "Liste des factures" : "Liste des devis";
+  const isRelances = tab === "relances";
+  const title = isRelances ? "Relances factures" : isInvoices ? "Liste des factures" : "Liste des devis";
   const badgeFacturesEncours = stats?.facturesEnAttente ?? 0;
   const badgeFacturesRetard = stats?.facturesEnRetard ?? 0;
   const badgeDevisAttente = quotesData?.stats.enAttente ?? 0;
@@ -552,13 +692,30 @@ export default function FacturesPage() {
                 </span>
               </>
             )}
-            {!isInvoices && (
+            {tab === "quotes" && (
               <>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700">
                   En attente : {badgeDevisAttente}
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-600">
                   Expiré : {badgeDevisExpire}
+                </span>
+              </>
+            )}
+            {isRelances && (
+              <>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-700">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  À relancer : {relancesStats.total}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700">
+                  1ère relance : {relancesStats.r1}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-orange-50 text-orange-700">
+                  2ème relance : {relancesStats.r2}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-100 text-red-700">
+                  3ème relance : {relancesStats.r3}
                 </span>
               </>
             )}
@@ -646,10 +803,29 @@ export default function FacturesPage() {
             onClick={() => setTab("quotes")}
             className="relative px-4 py-3 text-sm font-medium transition-colors"
           >
-            <span className={!isInvoices ? "text-glowup-licorice" : "text-gray-500 hover:text-gray-700"}>
+            <span className={tab === "quotes" ? "text-glowup-licorice" : "text-gray-500 hover:text-gray-700"}>
               Devis
             </span>
-            {!isInvoices && (
+            {tab === "quotes" && (
+              <span
+                className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-gradient-to-r from-[#1A1110] to-[#C08B8B]"
+                aria-hidden
+              />
+            )}
+          </button>
+          <button
+            onClick={() => setTab("relances")}
+            className="relative px-4 py-3 text-sm font-medium transition-colors flex items-center gap-2"
+          >
+            <span className={isRelances ? "text-glowup-licorice" : "text-gray-500 hover:text-gray-700"}>
+              Relances
+            </span>
+            {relancesStats.total > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold bg-red-500 text-white">
+                {relancesStats.total}
+              </span>
+            )}
+            {isRelances && (
               <span
                 className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-gradient-to-r from-[#1A1110] to-[#C08B8B]"
                 aria-hidden
@@ -730,6 +906,14 @@ export default function FacturesPage() {
                     <option value="EN_RETARD">En retard</option>
                     <option value="ANNULE">Annulé</option>
                   </>
+                ) : isRelances ? (
+                  <>
+                    <option value="all">Toutes</option>
+                    <option value="R1">1ère relance à faire</option>
+                    <option value="R2">2ème relance à faire</option>
+                    <option value="R3">3ème relance à faire</option>
+                    <option value="DONE">3 relances déjà envoyées</option>
+                  </>
                 ) : (
                   <>
                     <option value="all">Tout</option>
@@ -749,6 +933,23 @@ export default function FacturesPage() {
           )}
         </div>
       </div>
+
+      {/* Toast relance */}
+      {relanceToast && (
+        <div
+          className={`rounded-lg px-4 py-3 flex items-start gap-3 text-sm ${
+            relanceToast.kind === "success"
+              ? "bg-emerald-50 border border-emerald-200 text-emerald-800"
+              : "bg-red-50 border border-red-200 text-red-700"
+          }`}
+        >
+          {relanceToast.kind === "success" ? <Check className="w-4 h-4 mt-0.5" /> : <AlertTriangle className="w-4 h-4 mt-0.5" />}
+          <div className="flex-1">{relanceToast.message}</div>
+          <button onClick={() => setRelanceToast(null)} className="text-current/70 hover:text-current">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Table + loading */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -862,13 +1063,13 @@ export default function FacturesPage() {
                             <ClientCell marqueId={marqueId} marqueNom={marqueNom} contact={contact} isCancelled={isCancelled} />
                           </td>
                           <td className="py-4 px-4 text-right text-sm hidden lg:table-cell">
-                            {formatMoney(Number(doc.montantHT))}
+                            {formatMoney(Number(doc.montantHT), doc.devise)}
                           </td>
                           <td className="py-4 px-4 text-right text-sm hidden lg:table-cell">
-                            {formatMoney(Number(doc.montantTTC))}
+                            {formatMoney(Number(doc.montantTTC), doc.devise)}
                           </td>
                           <td className={`py-4 px-4 text-right text-sm font-semibold ${restantDu > 0 ? "text-red-600" : "text-green-600"}`}>
-                            {restantDu === 0 ? "0,00 €" : formatMoney(restantDu)}
+                            {restantDu === 0 ? formatMoney(0, doc.devise) : formatMoney(restantDu, doc.devise)}
                           </td>
                         </tr>
                       );
@@ -890,6 +1091,21 @@ export default function FacturesPage() {
               />
             </>
           )
+        ) : isRelances ? (
+          <RelancesTab
+            items={relancesPaginated}
+            totalItems={totalRelances}
+            page={page}
+            perPage={perPage}
+            onPageChange={setPage}
+            onPerPageChange={(v) => {
+              setPerPage(v);
+              setPage(1);
+            }}
+            onSendRelance={handleSendRelance}
+            loadingId={relanceLoadingId}
+            statutFilter={statutFilter}
+          />
         ) : quotesPaginated.length === 0 ? (
           <div className="text-center py-16">
             <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
@@ -968,8 +1184,8 @@ export default function FacturesPage() {
                         <td className="py-3 px-4 text-sm text-gray-600 hidden lg:table-cell">
                           {q.talent ? `${q.talent.prenom} ${q.talent.nom}` : "-"}
                         </td>
-                        <td className="py-3 px-4 text-right text-sm hidden lg:table-cell">{formatMoney(q.totalHT)}</td>
-                        <td className="py-3 px-4 text-right text-sm font-medium">{formatMoney(q.totalTTC)}</td>
+                        <td className="py-3 px-4 text-right text-sm hidden lg:table-cell">{formatMoney(q.totalHT, q.currency)}</td>
+                        <td className="py-3 px-4 text-right text-sm font-medium">{formatMoney(q.totalTTC, q.currency)}</td>
                       </tr>
                     );
                   })}
@@ -1185,12 +1401,13 @@ function FooterTotalsFactures({
     montantHT?: number;
     montantTTC?: number;
     statut?: string;
+    devise?: string | null;
   }>;
 }) {
   const list = Array.isArray(items) ? items : [];
   const byCurrency: Record<string, { ht: number; ttc: number; restantDu: number }> = {};
   list.forEach((item) => {
-    const cur = "EUR";
+    const cur = (item.devise || "EUR").toUpperCase();
     if (!byCurrency[cur]) byCurrency[cur] = { ht: 0, ttc: 0, restantDu: 0 };
     byCurrency[cur].ht += Number(item.montantHT ?? 0);
     byCurrency[cur].ttc += Number(item.montantTTC ?? 0);
@@ -1205,9 +1422,9 @@ function FooterTotalsFactures({
         {entries.map(([cur, { ht, ttc, restantDu }]) => (
           <div key={cur} className="flex items-center gap-4">
             <span className="font-medium text-[#1A1110]">
-              {cur} : Total HT {formatMoney(ht)} | Total TTC {formatMoney(ttc)} | Restant dû{" "}
+              {cur} : Total HT {formatMoney(ht, cur)} | Total TTC {formatMoney(ttc, cur)} | Restant dû{" "}
               <span className={restantDu > 0 ? "font-semibold text-red-600" : "text-green-600"}>
-                {formatMoney(restantDu)}
+                {formatMoney(restantDu, cur)}
               </span>
             </span>
           </div>
@@ -1221,12 +1438,15 @@ function FooterTotals({
   items,
   type,
 }: {
-  items: Array<{ montantHT?: number; montantTTC?: number; totalHT?: number; totalTTC?: number; currency?: string }>;
+  items: Array<{ montantHT?: number; montantTTC?: number; totalHT?: number; totalTTC?: number; currency?: string; devise?: string | null }>;
   type: "invoice" | "quote";
 }) {
   const byCurrency: Record<string, { ht: number; ttc: number }> = {};
   items.forEach((item) => {
-    const currency = type === "invoice" ? "EUR" : (item.currency || "EUR");
+    const currency =
+      type === "invoice"
+        ? ((item as any).devise || "EUR").toUpperCase()
+        : (item.currency || "EUR").toUpperCase();
     if (!byCurrency[currency]) byCurrency[currency] = { ht: 0, ttc: 0 };
     if (type === "invoice") {
       byCurrency[currency].ht += Number((item as any).montantHT ?? 0);
@@ -1242,7 +1462,7 @@ function FooterTotals({
     <div className="border-t border-gray-100 bg-gray-50/50 px-4 py-3 flex flex-wrap gap-6 text-sm">
       {entries.map(([cur, { ht, ttc }]) => (
         <span key={cur} className="font-medium text-glowup-licorice">
-          {cur} : HT {formatMoney(ht)} — TTC {formatMoney(ttc)}
+          {cur} : HT {formatMoney(ht, cur)} — TTC {formatMoney(ttc, cur)}
         </span>
       ))}
     </div>
@@ -1411,9 +1631,210 @@ function NouvelleFactureModal({
   );
 }
 
-function formatMoney(amount: number, currency = "EUR") {
-  return new Intl.NumberFormat("fr-FR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount || 0) + (currency === "EUR" ? " €" : currency === "GBP" ? " £" : " $");
+function formatMoney(amount: number, currency: string | null | undefined = "EUR") {
+  return formatMontant(amount, currency);
+}
+
+// ============================================
+// Composant : Onglet Relances
+// ============================================
+function RelancesTab({
+  items,
+  totalItems,
+  page,
+  perPage,
+  onPageChange,
+  onPerPageChange,
+  onSendRelance,
+  loadingId,
+  statutFilter,
+}: {
+  items: Array<{
+    doc: DocumentInfo;
+    joursRetard: number;
+    nextLevel: 1 | 2 | 3 | null;
+    nextEligibleIn: number;
+  }>;
+  totalItems: number;
+  page: number;
+  perPage: number;
+  onPageChange: (p: number) => void;
+  onPerPageChange: (p: number) => void;
+  onSendRelance: (id: string, level: 1 | 2 | 3) => void;
+  loadingId: string | null;
+  statutFilter: string;
+}) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
+
+  if (items.length === 0) {
+    return (
+      <div className="text-center py-16 px-4">
+        <Bell className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+        <p className="text-gray-500 font-medium">
+          {statutFilter === "all"
+            ? "Aucune facture en retard 🎉"
+            : "Aucune facture ne correspond à ce filtre"}
+        </p>
+        <p className="text-sm text-gray-400 mt-2">
+          Les factures envoyées dont la date d&apos;échéance est dépassée apparaîtront ici.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50/50">
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Facture n°</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Client</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Émise le</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Échéance</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Retard</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Relances envoyées</th>
+              <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase">Montant TTC</th>
+              <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(({ doc, joursRetard, nextLevel, nextEligibleIn }) => {
+              const r1 = doc.relance1SentAt ? new Date(doc.relance1SentAt) : null;
+              const r2 = doc.relance2SentAt ? new Date(doc.relance2SentAt) : null;
+              const r3 = doc.relance3SentAt ? new Date(doc.relance3SentAt) : null;
+              const marqueNom = doc.collaboration?.marque?.nom ?? doc.clientNom ?? "—";
+              const isLoading = loadingId === doc.id;
+              return (
+                <tr key={doc.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="py-4 px-4">
+                    <Link href={`/factures/${doc.id}`} className="font-mono text-sm font-medium text-[#1A1110] hover:underline">
+                      {doc.reference}
+                    </Link>
+                  </td>
+                  <td className="py-4 px-4 text-sm text-[#1A1110]">
+                    <div className="font-medium">{marqueNom}</div>
+                    {doc.collaboration?.marqueContact?.email && (
+                      <div className="text-xs text-gray-500 truncate max-w-[200px]">
+                        {doc.collaboration.marqueContact.email}
+                      </div>
+                    )}
+                    {!doc.collaboration?.marqueContact?.email && doc.clientEmail && (
+                      <div className="text-xs text-gray-500 truncate max-w-[200px]">{doc.clientEmail}</div>
+                    )}
+                  </td>
+                  <td className="py-4 px-4 text-sm text-gray-600 hidden md:table-cell">
+                    {doc.dateEmission ? new Date(doc.dateEmission).toLocaleDateString("fr-FR") : "—"}
+                  </td>
+                  <td className="py-4 px-4 text-sm text-gray-600 hidden md:table-cell">
+                    {doc.dateEcheance ? new Date(doc.dateEcheance).toLocaleDateString("fr-FR") : "—"}
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-red-50 text-red-700 px-2.5 py-0.5 text-xs font-semibold">
+                      <Clock className="w-3 h-3" />
+                      {joursRetard} j
+                    </span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <div className="flex items-center gap-1.5">
+                      <RelanceDot done={!!r1} label="1" date={r1} />
+                      <RelanceDot done={!!r2} label="2" date={r2} />
+                      <RelanceDot done={!!r3} label="3" date={r3} />
+                    </div>
+                  </td>
+                  <td className="py-4 px-4 text-right text-sm font-semibold text-red-600">
+                    {formatMoney(Number(doc.montantTTC), doc.devise)}
+                  </td>
+                  <td className="py-4 px-4 text-right">
+                    {nextLevel ? (
+                      <button
+                        type="button"
+                        onClick={() => onSendRelance(doc.id, nextLevel)}
+                        disabled={isLoading}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                          nextLevel === 1
+                            ? "bg-amber-500 hover:bg-amber-600 text-white"
+                            : nextLevel === 2
+                              ? "bg-orange-500 hover:bg-orange-600 text-white"
+                              : "bg-red-600 hover:bg-red-700 text-white"
+                        }`}
+                        title={`Envoyer depuis comptabilite@glowupagence.fr`}
+                      >
+                        {isLoading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Mail className="w-3.5 h-3.5" />
+                        )}
+                        {nextLevel === 1 ? "Faire 1ère relance" : nextLevel === 2 ? "Faire 2ème relance" : "Faire 3ème relance"}
+                      </button>
+                    ) : nextEligibleIn > 0 ? (
+                      <span className="text-xs text-gray-500 italic">
+                        Prochaine relance dans {nextEligibleIn} j
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500 italic">3 relances envoyées</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="border-t border-gray-100 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-3 text-sm text-gray-600">
+          <span>
+            {totalItems === 0 ? "0" : `${(page - 1) * perPage + 1} à ${Math.min(page * perPage, totalItems)}`} sur {totalItems}
+          </span>
+          <select
+            value={perPage}
+            onChange={(e) => onPerPageChange(Number(e.target.value))}
+            className="border border-gray-200 rounded-md px-2 py-1.5 text-sm bg-white"
+          >
+            {PER_PAGE_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {n} / page
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onPageChange(page - 1)}
+            disabled={page <= 1}
+            className="p-2 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            <ChevronRight className="w-4 h-4 rotate-180" />
+          </button>
+          <span className="px-3 text-sm text-gray-600">
+            Page {page} / {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => onPageChange(page + 1)}
+            disabled={page >= totalPages}
+            className="p-2 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function RelanceDot({ done, label, date }: { done: boolean; label: string; date: Date | null }) {
+  return (
+    <div
+      title={done && date ? `Envoyée le ${date.toLocaleDateString("fr-FR")}` : `Relance ${label} non envoyée`}
+      className={`flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold border ${
+        done
+          ? "bg-emerald-500 text-white border-emerald-600"
+          : "bg-gray-100 text-gray-400 border-gray-200"
+      }`}
+    >
+      {label}
+    </div>
+  );
 }

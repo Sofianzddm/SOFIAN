@@ -9,6 +9,7 @@ import {
   renderCommentWithMentions,
   type MentionableUser,
 } from "@/components/MentionTextarea";
+import { formatMontant } from "@/lib/devises";
 import {
   ArrowLeft,
   Loader2,
@@ -66,6 +67,7 @@ interface DocDetail {
   type: string;
   statut: DocStatut;
   titre?: string | null;
+  devise?: string | null;
   montantHT: number | string;
   tauxTVA: number | string;
   montantTVA: number | string;
@@ -135,13 +137,8 @@ interface DocDetail {
   }>;
 }
 
-function formatMoney(amount: number, currency = "EUR") {
-  return (
-    new Intl.NumberFormat("fr-FR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Number(amount) || 0) + (currency === "EUR" ? " €" : "")
-  );
+function formatMoney(amount: number, currency: string | null | undefined = "EUR") {
+  return formatMontant(amount, currency);
 }
 
 function formatDate(s: string | null) {
@@ -822,7 +819,7 @@ export default function FactureDetailPage() {
             ) : (
               clientName
             )}{" "}
-            de {formatMoney(Number(doc.montantTTC))} TTC
+            de {formatMoney(Number(doc.montantTTC), doc.devise)} TTC
           </p>
 
           {/* Pipeline — étape "Payé" visible uniquement pour les ADMIN (info confidentielle) */}
@@ -1022,9 +1019,9 @@ export default function FactureDetailPage() {
                             {String(line.description ?? line.libelle ?? "—")}
                           </td>
                           <td className="py-3 px-4 text-right">{Number(line.quantite ?? 1)}</td>
-                          <td className="py-3 px-4 text-right">{formatMoney(Number(line.prixUnitaire ?? 0))}</td>
+                          <td className="py-3 px-4 text-right">{formatMoney(Number(line.prixUnitaire ?? 0), doc.devise)}</td>
                           <td className="py-3 px-4 text-right font-medium">
-                            {formatMoney(Number(line.totalHT ?? line.montantHT ?? 0))}
+                            {formatMoney(Number(line.totalHT ?? line.montantHT ?? 0), doc.devise)}
                           </td>
                         </tr>
                       ))
@@ -1041,20 +1038,20 @@ export default function FactureDetailPage() {
               <div className="px-4 py-4 border-t border-gray-100 space-y-1 text-sm text-right">
                 <div className="flex justify-end gap-4">
                   <span className="text-gray-500">Total HT</span>
-                  <span className="font-medium w-24">{formatMoney(Number(doc.montantHT))}</span>
+                  <span className="font-medium w-24">{formatMoney(Number(doc.montantHT), doc.devise)}</span>
                 </div>
                 <div className="flex justify-end gap-4">
                   <span className="text-gray-500">TVA ({Number(doc.tauxTVA) || 0} %)</span>
-                  <span className="font-medium w-24">{formatMoney(Number(doc.montantTVA))}</span>
+                  <span className="font-medium w-24">{formatMoney(Number(doc.montantTVA), doc.devise)}</span>
                 </div>
                 <div className="flex justify-end gap-4">
                   <span className="text-gray-500">Total TTC</span>
-                  <span className="font-medium w-24">{formatMoney(Number(doc.montantTTC))}</span>
+                  <span className="font-medium w-24">{formatMoney(Number(doc.montantTTC), doc.devise)}</span>
                 </div>
               </div>
               <div className="px-4 py-3 bg-[#1A1110] rounded-b-xl flex justify-between items-center">
                 <span className="font-bold text-white text-lg">NET À PAYER</span>
-                <span className="font-bold text-white text-lg">{formatMoney(Number(doc.montantTTC))}</span>
+                <span className="font-bold text-white text-lg">{formatMoney(Number(doc.montantTTC), doc.devise)}</span>
               </div>
             </div>
 
@@ -1384,7 +1381,7 @@ export default function FactureDetailPage() {
                   className="flex-1 px-3 py-2 text-sm"
                   placeholder="0,00"
                 />
-                <span className="px-3 py-2 bg-gray-50 text-gray-500 text-sm">€</span>
+                <span className="px-3 py-2 bg-gray-50 text-gray-500 text-sm">{doc?.devise || "EUR"}</span>
               </div>
             </div>
             <div>
@@ -1458,7 +1455,7 @@ export default function FactureDetailPage() {
                 </h3>
                 <p className="text-sm text-gray-500 mt-0.5">
                   Sélectionnez une transaction Qonto à associer à cette facture (montant
-                  : <span className="font-medium text-[#1A1110]">{formatMoney(Number(doc.montantTTC))}</span>).
+                  : <span className="font-medium text-[#1A1110]">{formatMoney(Number(doc.montantTTC), doc.devise)}</span>).
                 </p>
               </div>
               <button

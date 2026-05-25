@@ -50,7 +50,18 @@ export async function GET(request: NextRequest) {
             id: true,
             reference: true,
             talent: { select: { id: true, prenom: true, nom: true } },
-            marque: { select: { id: true, nom: true } },
+            marque: {
+              select: {
+                id: true,
+                nom: true,
+                contacts: {
+                  where: { email: { not: null } },
+                  select: { id: true, prenom: true, nom: true, email: true, principal: true },
+                  orderBy: { principal: "desc" },
+                  take: 1,
+                },
+              },
+            },
           },
         },
       },
@@ -268,28 +279,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       stats: statsPayload,
       // Liste complète pour la page factures (toutes les factures, avec collaboration optionnelle)
-      documents: documents.map((d) => ({
-        id: d.id,
-        reference: d.reference,
-        type: d.type,
-        statut: maskStatutDoc(d.statut),
-        titre: d.titre ?? null,
-        montantHT: Number(d.montantHT),
-        montantTTC: Number(d.montantTTC),
-        dateEmission: d.dateEmission,
-        dateEcheance: d.dateEcheance,
-        createdAt: d.createdAt,
-        clientNom: d.clientNom ?? null,
-        collaboration: d.collaboration
-          ? {
-              id: d.collaboration.id,
-              reference: d.collaboration.reference,
-              talent: d.collaboration.talent,
-              marque: d.collaboration.marque,
-              marqueContact: null,
-            }
-          : null,
-      })),
+      documents: documents.map((d) => {
+        const principalContact = d.collaboration?.marque?.contacts?.[0] ?? null;
+        return {
+          id: d.id,
+          reference: d.reference,
+          type: d.type,
+          statut: maskStatutDoc(d.statut),
+          titre: d.titre ?? null,
+          montantHT: Number(d.montantHT),
+          montantTTC: Number(d.montantTTC),
+          devise: d.devise || "EUR",
+          dateEmission: d.dateEmission,
+          dateEcheance: d.dateEcheance,
+          createdAt: d.createdAt,
+          clientNom: d.clientNom ?? null,
+          clientEmail: d.clientEmail ?? null,
+          relance1SentAt: d.relance1SentAt,
+          relance2SentAt: d.relance2SentAt,
+          relance3SentAt: d.relance3SentAt,
+          collaboration: d.collaboration
+            ? {
+                id: d.collaboration.id,
+                reference: d.collaboration.reference,
+                talent: d.collaboration.talent,
+                marque: d.collaboration.marque ? { id: d.collaboration.marque.id, nom: d.collaboration.marque.nom } : null,
+                marqueContact: principalContact
+                  ? { id: principalContact.id, prenom: principalContact.prenom, nom: principalContact.nom, email: principalContact.email }
+                  : null,
+              }
+            : null,
+        };
+      }),
       // Filtrer les factures sans collaboration (au cas où)
       facturesMarques: facturesMarques
         .filter((f) => f.collaboration !== null)

@@ -1157,7 +1157,10 @@ model Document {
   tauxTVA       Decimal   @db.Decimal(5, 2) @default(20)
   montantTVA    Decimal   @db.Decimal(10, 2)
   montantTTC    Decimal   @db.Decimal(10, 2)
-  
+
+  // Devise du document (EUR par défaut). Permet d'émettre des factures en devises étrangères.
+  devise        String    @default("EUR")
+
   typeTVA       TypeTVA   @default(FRANCE)
   mentionTVA    String?
   
@@ -1182,6 +1185,11 @@ model Document {
   
   modePaiement  String?   @default("Virement")
   referencePaiement String?
+
+  // Relances client (factures en retard) — 1ère / 2ème / 3ème
+  relance1SentAt DateTime?
+  relance2SentAt DateTime?
+  relance3SentAt DateTime?
   
   pdfBase64     String?   @db.Text
   fichierUrl    String?
@@ -1566,18 +1574,26 @@ model TransactionQonto {
   associe           Boolean   @default(false)
   documentId        String?
   document          Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
-  
+
+  // Paiement hors plateforme : la transaction ne concerne pas le business GlowUp
+  // (remboursement, virement perso, opération d'une autre activité, etc.)
+  // Une fois marquée, la transaction n'apparaît plus dans la liste à réconcilier.
+  horsPlateforme    Boolean   @default(false)
+  horsPlateformeAt  DateTime?
+  horsPlateformeNote String?
+
   // Métadonnées brutes Qonto
   metadata          Json?
-  
+
   // Timestamps
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
-  
+
   @@index([documentId])
   @@index([associe])
   @@index([dateTransaction])
   @@index([statut])
+  @@index([horsPlateforme])
   @@map("transactions_qonto")
 }
 

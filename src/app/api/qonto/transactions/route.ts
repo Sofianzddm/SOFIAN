@@ -26,6 +26,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const associeOnly = searchParams.get("associe") === "true";
     const nonAssocieOnly = searchParams.get("nonAssociees") === "true";
+    // Par défaut, on masque les transactions marquées "hors plateforme"
+    // (virement perso, autre activité, etc.) pour qu'elles ne polluent plus
+    // la réconciliation. Passer ?includeHorsPlateforme=true pour les afficher.
+    const includeHorsPlateforme =
+      searchParams.get("includeHorsPlateforme") === "true";
+    const horsPlateformeOnly =
+      searchParams.get("horsPlateforme") === "true";
 
     // Build where clause
     const where: any = {};
@@ -34,6 +41,12 @@ export async function GET(request: NextRequest) {
       where.associe = true;
     } else if (nonAssocieOnly) {
       where.associe = false;
+    }
+
+    if (horsPlateformeOnly) {
+      where.horsPlateforme = true;
+    } else if (!includeHorsPlateforme) {
+      where.horsPlateforme = false;
     }
 
     // Récupérer les transactions

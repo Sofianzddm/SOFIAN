@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { LISTE_PAYS } from "@/lib/pays";
 import { getTypeTVA, MENTIONS_TVA } from "@/lib/documents/config";
+import { DEVISES, formatMontant, type DeviseCode } from "@/lib/devises";
 
 interface LignePrestation {
   description: string;
@@ -58,6 +59,8 @@ export default function FacturerPage() {
     },
   ]);
 
+  const [devise, setDevise] = useState<DeviseCode>("EUR");
+
   useEffect(() => {
     fetchCollaboration();
   }, []);
@@ -84,6 +87,9 @@ export default function FacturerPage() {
           siret: data.marque?.siret || "",
           numeroTVA: data.marque?.numeroTVA || "",
         });
+        if (data.marque?.devise && typeof data.marque.devise === "string") {
+          setDevise(data.marque.devise.toUpperCase() as DeviseCode);
+        }
 
         // 1) Si un devis existe pour cette collab, on reprend ses infos (lignes, TVA, échéance, notes)
         const devisSummary =
@@ -105,6 +111,10 @@ export default function FacturerPage() {
                   : prev.dateEcheance,
                 notes: devis.notes || prev.notes,
               }));
+
+              if (devis.devise && typeof devis.devise === "string") {
+                setDevise(devis.devise.toUpperCase() as DeviseCode);
+              }
 
               // Lignes : copier celles du devis
               if (devis.lignes && Array.isArray(devis.lignes) && devis.lignes.length > 0) {
@@ -238,6 +248,7 @@ export default function FacturerPage() {
           })),
           typeTVA: getTypeTVA(billingData.pays.trim(), billingData.numeroTVA.trim() || null),
           mentionTVA: tvaRegime.mention ?? undefined,
+          devise,
         }),
       });
 
@@ -416,6 +427,26 @@ export default function FacturerPage() {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent"
                 />
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Devise de la facture
+                </label>
+                <select
+                  value={devise}
+                  onChange={(e) => setDevise(e.target.value as DeviseCode)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent bg-white"
+                >
+                  {DEVISES.map((d) => (
+                    <option key={d.code} value={d.code}>
+                      {d.code} — {d.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Les lignes, totaux et le PDF seront libellés dans cette devise.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -478,7 +509,7 @@ export default function FacturerPage() {
                   {/* Total + Actions */}
                   <div className="col-span-4 md:col-span-3 flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold text-gray-900">
-                      {(ligne.quantite * ligne.prixUnitaire).toFixed(2)} €
+                      {formatMontant(ligne.quantite * ligne.prixUnitaire, devise)}
                     </span>
                     {lignes.length > 1 && (
                       <button
@@ -519,31 +550,27 @@ export default function FacturerPage() {
                 <div className="flex justify-between items-center pb-3 border-b border-white/20">
                   <span className="text-white/80">Total HT</span>
                   <span className="text-xl font-bold">
-                    {new Intl.NumberFormat("fr-FR", {
-                      style: "currency",
-                      currency: "EUR",
-                    }).format(totaux.montantHT)}
+                    {formatMontant(totaux.montantHT, devise)}
                   </span>
                 </div>
 
                 <div className="flex justify-between items-center pb-3 border-b border-white/20">
                   <span className="text-white/80">TVA {tvaRegime.tauxTVA}%{tvaRegime.mention ? " (intracom.)" : ""}</span>
                   <span className="text-lg font-semibold">
-                    {new Intl.NumberFormat("fr-FR", {
-                      style: "currency",
-                      currency: "EUR",
-                    }).format(totaux.montantTVA)}
+                    {formatMontant(totaux.montantTVA, devise)}
                   </span>
                 </div>
 
                 <div className="flex justify-between items-center pt-3">
                   <span className="text-lg font-bold">Total TTC</span>
                   <span className="text-2xl font-bold">
-                    {new Intl.NumberFormat("fr-FR", {
-                      style: "currency",
-                      currency: "EUR",
-                    }).format(totaux.montantTTC)}
+                    {formatMontant(totaux.montantTTC, devise)}
                   </span>
+                </div>
+
+                <div className="flex justify-between items-center pt-2 text-xs text-white/70">
+                  <span>Devise</span>
+                  <span className="font-semibold text-white">{devise}</span>
                 </div>
               </div>
             </div>

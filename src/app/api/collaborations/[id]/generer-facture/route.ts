@@ -9,6 +9,7 @@ import { createElement } from "react";
 import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
+import { getDeviseInfo } from "@/lib/devises";
 
 export async function POST(
   request: NextRequest,
@@ -31,7 +32,8 @@ export async function POST(
       );
     }
     const body = await request.json();
-    const { titre, dateEcheance, notes, lignes, billing } = body;
+    const { titre, dateEcheance, notes, lignes, billing, devise } = body;
+    const deviseCode = getDeviseInfo(devise).code;
 
     // Validation
     if (!titre || !lignes || lignes.length === 0) {
@@ -121,6 +123,7 @@ export async function POST(
       titre,
       dateDocument: new Date().toISOString(),
       dateEcheance: dateEcheance || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      devise: deviseCode,
       emetteur: {
         nom: AGENCE_CONFIG.raisonSociale,
         adresse: AGENCE_CONFIG.adresse,
@@ -187,6 +190,7 @@ export async function POST(
         dateValidation: new Date(),
         collaborationId: collab.id,
         createdById: user.id,
+        devise: deviseCode,
       },
     });
 

@@ -12,6 +12,7 @@ import {
   type FactureData,
   type LigneFacture,
 } from "@/lib/documents/templates/FactureTemplate";
+import { getDeviseInfo } from "@/lib/devises";
 
 interface LigneInput {
   description: string;
@@ -74,6 +75,7 @@ export async function PATCH(
       lignes,
       notes,
       pays,
+      devise,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -86,7 +88,10 @@ export async function PATCH(
       lignes: LigneInput[];
       notes?: string;
       pays?: string;
+      devise?: string;
     };
+
+    const deviseCode = getDeviseInfo(devise ?? (existing as any).devise).code;
 
     if (!clientNom || !lignes || !Array.isArray(lignes) || lignes.length === 0) {
       return NextResponse.json(
@@ -180,6 +185,7 @@ export async function PATCH(
       titre: objet || existing.titre || existing.reference,
       dateDocument: dateDoc.toISOString(),
       dateEcheance: dateEcheanceDocument.toISOString(),
+      devise: deviseCode,
       emetteur: {
         nom: AGENCE_CONFIG.raisonSociale,
         adresse: AGENCE_CONFIG.adresse,
@@ -236,6 +242,7 @@ export async function PATCH(
         clientEmail: clientEmail ?? null,
         clientAdresse: clientAdresse ?? null,
         clientPays: paysClient,
+        devise: deviseCode,
       },
     });
 

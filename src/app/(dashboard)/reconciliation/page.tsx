@@ -15,6 +15,8 @@ import {
   X,
   ExternalLink,
   Briefcase,
+  EyeOff,
+  Undo2,
 } from "lucide-react";
 
 interface TransactionQonto {
@@ -28,6 +30,9 @@ interface TransactionQonto {
   emetteurIban: string;
   statut?: "PENDING" | "SETTLED" | string;
   associe: boolean;
+  horsPlateforme?: boolean;
+  horsPlateformeAt?: string | null;
+  horsPlateformeNote?: string | null;
   document?: {
     id: string;
     reference: string;
@@ -81,16 +86,18 @@ export default function ReconciliationPage() {
   const [transactions, setTransactions] = useState<TransactionQonto[]>([]);
   const [factures, setFactures] = useState<Facture[]>([]);
   const [associating, setAssociating] = useState<string | null>(null);
+  const [markingHorsPlateforme, setMarkingHorsPlateforme] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [periodDays, setPeriodDays] = useState<number>(90);
   const [previewFacture, setPreviewFacture] = useState<Facture | null>(null);
+  const [showHorsPlateforme, setShowHorsPlateforme] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const [transactionsRes, facturesRes] = await Promise.all([
-        fetch("/api/qonto/transactions"),
+        fetch("/api/qonto/transactions?includeHorsPlateforme=true"),
         fetch(`/api/documents?type=FACTURE&statut=${FACTURE_STATUTS_RAPPROCHEMENT}`),
       ]);
 
@@ -172,6 +179,41 @@ export default function ReconciliationPage() {
     }
   };
 
+  const marquerHorsPlateforme = async (
+    transactionId: string,
+    horsPlateforme: boolean
+  ) => {
+    if (horsPlateforme) {
+      const ok = window.confirm(
+        "Marquer ce paiement comme « hors plateforme » ?\n\n" +
+          "Il n'apparaîtra plus dans la liste des transactions à réconcilier. " +
+          "Utilisez ceci pour les virements perso, remboursements ou paiements d'une autre activité."
+      );
+      if (!ok) return;
+    }
+
+    setMarkingHorsPlateforme(transactionId);
+    try {
+      const res = await fetch("/api/qonto/hors-plateforme", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transactionId, horsPlateforme }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Erreur lors du marquage");
+        return;
+      }
+      await fetchData();
+      setExpandedId(null);
+    } catch (error) {
+      console.error("Erreur hors plateforme:", error);
+      alert("Erreur lors du marquage");
+    } finally {
+      setMarkingHorsPlateforme(null);
+    }
+  };
+
   const getSuggestions = (transaction: TransactionQonto): Facture[] => {
     const montantTransaction = Number(transaction.montant);
     return factures.filter((facture) => {
@@ -228,8 +270,13 @@ export default function ReconciliationPage() {
     );
   }
 
-  const transactionsNonAssociees = transactions.filter((t) => !t.associe);
-  const transactionsAssociees = transactions.filter((t) => t.associe);
+  const transactionsHorsPlateforme = transactions.filter((t) => t.horsPlateforme);
+  const transactionsNonAssociees = transactions.filter(
+    (t) => !t.associe && !t.horsPlateforme
+  );
+  const transactionsAssociees = transactions.filter(
+    (t) => t.associe && !t.horsPlateforme
+  );
   const filteredNonAssociees = search
     ? transactionsNonAssociees.filter(
         (t) =>
@@ -241,6 +288,10 @@ export default function ReconciliationPage() {
 
   const totalNonAssocie = transactionsNonAssociees.reduce((s, t) => s + t.montant, 0);
   const totalAssocie = transactionsAssociees.reduce((s, t) => s + t.montant, 0);
+  const totalHorsPlateforme = transactionsHorsPlateforme.reduce(
+    (s, t) => s + t.montant,
+    0
+  );
   const totalFacturesAttente = factures.reduce((s, f) => s + Number(f.montantHT ?? f.montantTTC), 0);
 
   return (
@@ -419,6 +470,26 @@ export default function ReconciliationPage() {
                           <tr className="bg-slate-50/80">
                             <td colSpan={6} className="py-0 px-0">
                               <div className="px-4 py-4 border-t border-slate-200">
+                                <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-200">
+                                  <p className="text-xs text-slate-500">
+                                    Ce paiement ne concerne pas GlowUp&nbsp;? (virement perso, autre activité, remboursement…)
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      marquerHorsPlateforme(transaction.id, true)
+                                    }
+                                    disabled={markingHorsPlateforme === transaction.id}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 text-xs font-medium rounded-md hover:bg-white hover:text-slate-900 disabled:opacity-50"
+                                  >
+                                    {markingHorsPlateforme === transaction.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <EyeOff className="w-3.5 h-3.5" />
+                                    )}
+                                    Paiement hors plateforme
+                                  </button>
+                                </div>
                                 {suggestions.length > 0 && (
                                   <div className="mb-4">
                                     <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
@@ -609,6 +680,92 @@ export default function ReconciliationPage() {
             {transactionsAssociees.length > 15 && (
               <div className="px-5 py-2 border-t border-slate-100 text-xs text-slate-500">
                 Affichage des 15 dernières. Total : {transactionsAssociees.length} réconciliées.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Paiements hors plateforme */}
+        {transactionsHorsPlateforme.length > 0 && (
+          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mt-8">
+            <button
+              type="button"
+              onClick={() => setShowHorsPlateforme((v) => !v)}
+              className="w-full px-5 py-4 border-b border-slate-200 flex items-center justify-between hover:bg-slate-50/50 transition-colors"
+            >
+              <div className="flex items-center gap-2 text-left">
+                <EyeOff className="w-4 h-4 text-slate-400" />
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Paiements hors plateforme
+                  <span className="text-slate-400 font-normal ml-2">
+                    ({transactionsHorsPlateforme.length})
+                  </span>
+                </h2>
+                <span className="text-xs text-slate-500 ml-2 tabular-nums">
+                  {formatMoney(totalHorsPlateforme)}
+                </span>
+              </div>
+              {showHorsPlateforme ? (
+                <ChevronDown className="w-4 h-4 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              )}
+            </button>
+            {showHorsPlateforme && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/80">
+                      <th className="text-left py-3 px-4 font-medium text-slate-600">Date</th>
+                      <th className="text-left py-3 px-4 font-medium text-slate-600">Libellé</th>
+                      <th className="text-left py-3 px-4 font-medium text-slate-600">Émetteur</th>
+                      <th className="text-right py-3 px-4 font-medium text-slate-600">Montant</th>
+                      <th className="text-right py-3 px-4 font-medium text-slate-600 w-40">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactionsHorsPlateforme.map((transaction) => (
+                      <tr
+                        key={transaction.id}
+                        className="border-b border-slate-100 last:border-0 hover:bg-slate-50/30"
+                      >
+                        <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                          {formatDate(transaction.dateTransaction)}
+                        </td>
+                        <td className="py-3 px-4 text-slate-700">
+                          {transaction.libelle}
+                          {transaction.reference && (
+                            <span className="block text-xs text-slate-400 font-mono mt-0.5">
+                              {transaction.reference}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600">{transaction.emetteur}</td>
+                        <td className="py-3 px-4 text-right font-medium text-slate-900 tabular-nums">
+                          {formatMoney(transaction.montant)}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              marquerHorsPlateforme(transaction.id, false)
+                            }
+                            disabled={markingHorsPlateforme === transaction.id}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md disabled:opacity-50"
+                            title="Réintégrer dans la réconciliation"
+                          >
+                            {markingHorsPlateforme === transaction.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Undo2 className="w-3.5 h-3.5" />
+                            )}
+                            Réintégrer
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
