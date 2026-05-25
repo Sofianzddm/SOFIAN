@@ -1215,9 +1215,13 @@ model Document {
   // Devis lié (si ce document est issu d'un devis)
   linkedQuote   Quote?            @relation("QuoteInvoice")
   
-  // Relation transactions Qonto
+  // Relation transactions Qonto (legacy : un seul lien direct)
+  // Conservée pour compat. Le vrai lien N↔N passe par TransactionDocumentMatch.
   transactionsQonto TransactionQonto[]
-  
+
+  // Rapprochements bancaires (1 facture peut être payée par N transactions Qonto, partiellement)
+  transactionMatches TransactionDocumentMatch[]
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   
@@ -1571,9 +1575,16 @@ model TransactionQonto {
   statut            String    @default("PENDING") // PENDING, SETTLED, DECLINED
   
   // Association avec facture
+  // associe = true UNIQUEMENT lorsque la transaction est intégralement rapprochée
+  // (somme des matches ≈ montant). Sinon elle reste dans la liste à réconcilier
+  // (rapprochement partiel possible).
   associe           Boolean   @default(false)
+  // Legacy : référence à 1 seule facture (gardée pour compat, miroir du 1er match)
   documentId        String?
   document          Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  // Rapprochements N↔N : une transaction peut couvrir plusieurs factures
+  matches           TransactionDocumentMatch[]
 
   // Paiement hors plateforme : la transaction ne concerne pas le business GlowUp
   // (remboursement, virement perso, opération d'une autre activité, etc.)
@@ -1595,6 +1606,31 @@ model TransactionQonto {
   @@index([statut])
   @@index([horsPlateforme])
   @@map("transactions_qonto")
+}
+
+// Table de jointure N↔N pour le rapprochement bancaire.
+// Une transaction Qonto peut être allouée à plusieurs factures, et inversement
+// une facture peut être réglée par plusieurs transactions (paiements partiels).
+// `montant` = part de la transaction allouée à cette facture (en devise tx).
+model TransactionDocumentMatch {
+  id            String           @id @default(cuid())
+
+  transactionId String
+  transaction   TransactionQonto @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  documentId    String
+  document      Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  montant       Decimal          @db.Decimal(10, 2)
+  modePaiement  String?
+
+  createdAt     DateTime         @default(now())
+  createdById   String?
+
+  @@unique([transactionId, documentId])
+  @@index([transactionId])
+  @@index([documentId])
+  @@map("transaction_document_matches")
 }
 
 // ============================================

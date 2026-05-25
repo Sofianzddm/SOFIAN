@@ -43,6 +43,9 @@ export async function GET(request: NextRequest) {
             },
           },
         },
+        transactionMatches: {
+          select: { id: true, montant: true, transactionId: true },
+        },
       },
       orderBy: {
         createdAt: "desc",

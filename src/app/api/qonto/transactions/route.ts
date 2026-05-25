@@ -69,14 +69,49 @@ export async function GET(request: NextRequest) {
             },
           },
         },
+        matches: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            document: {
+              select: {
+                id: true,
+                reference: true,
+                type: true,
+                montantTTC: true,
+                statut: true,
+                collaboration: {
+                  select: {
+                    id: true,
+                    reference: true,
+                    marque: { select: { nom: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
       take: 100, // Limit pour éviter de surcharger
     });
 
+    // Enrichit chaque transaction d'un montantAlloue / restant pour faciliter l'UI.
+    const enriched = transactions.map((t) => {
+      const totalAlloue = t.matches.reduce(
+        (sum, m) => sum + Number(m.montant),
+        0
+      );
+      const montant = Number(t.montant);
+      return {
+        ...t,
+        totalAlloue: Number(totalAlloue.toFixed(2)),
+        restant: Number(Math.max(0, montant - totalAlloue).toFixed(2)),
+      };
+    });
+
     return NextResponse.json({
       success: true,
-      transactions,
-      count: transactions.length,
+      transactions: enriched,
+      count: enriched.length,
     });
   } catch (error) {
     console.error("Erreur GET /api/qonto/transactions:", error);

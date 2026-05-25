@@ -75,6 +75,24 @@ export async function GET(
             statut: true,
           },
         },
+        transactionMatches: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            transaction: {
+              select: {
+                id: true,
+                qontoId: true,
+                montant: true,
+                libelle: true,
+                reference: true,
+                dateTransaction: true,
+                emetteur: true,
+                emetteurIban: true,
+                statut: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -96,6 +114,7 @@ export async function GET(
           referencePaiement: null,
           modePaiement: null,
           transactionsQonto: [],
+          transactionMatches: [],
         };
 
     return NextResponse.json(payload);

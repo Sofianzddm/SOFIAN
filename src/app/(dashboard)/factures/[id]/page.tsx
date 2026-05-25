@@ -135,6 +135,23 @@ interface DocDetail {
     emetteurIban: string | null;
     statut: string;
   }>;
+  transactionMatches?: Array<{
+    id: string;
+    montant: number | string;
+    modePaiement: string | null;
+    createdAt: string;
+    transaction: {
+      id: string;
+      qontoId: string;
+      montant: number | string;
+      libelle: string | null;
+      reference: string | null;
+      dateTransaction: string;
+      emetteur: string | null;
+      emetteurIban: string | null;
+      statut: string;
+    };
+  }>;
 }
 
 function formatMoney(amount: number, currency: string | null | undefined = "EUR") {
@@ -498,7 +515,10 @@ export default function FactureDetailPage() {
         const r = await fetch("/api/qonto/associate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transactionId, documentId: id }),
+          body: JSON.stringify({
+            transactionId,
+            matches: [{ documentId: id }],
+          }),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -1056,44 +1076,83 @@ export default function FactureDetailPage() {
             </div>
 
             {(session?.user as { role?: string })?.role === "ADMIN" &&
-              doc.transactionsQonto &&
-              doc.transactionsQonto.length > 0 && (
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                    <h3 className="font-semibold text-[#1A1110] flex items-center gap-2 text-sm">
-                      <Link2 className="w-4 h-4" />
-                      Rapprochement bancaire
-                    </h3>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
-                      <CheckCircle2 className="w-3 h-3" />
-                      {doc.transactionsQonto.length} transaction
-                      {doc.transactionsQonto.length > 1 ? "s" : ""} associée
-                      {doc.transactionsQonto.length > 1 ? "s" : ""}
-                    </span>
-                  </div>
-                  <ul className="divide-y divide-gray-100">
-                    {doc.transactionsQonto.map((t) => (
-                      <li key={t.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-[#1A1110] truncate">
-                            {t.emetteur || "Émetteur inconnu"}
-                          </p>
-                          <p className="text-xs text-gray-500 truncate">
-                            {t.libelle || "—"}
-                          </p>
-                          <p className="text-xs text-gray-400 font-mono mt-0.5">
-                            {formatDate(t.dateTransaction)}
-                            {t.reference ? ` · ${t.reference}` : ""}
-                          </p>
-                        </div>
-                        <span className="text-sm font-semibold text-[#1A1110] tabular-nums">
-                          {formatMoney(Number(t.montant))}
+              (() => {
+                const matches = doc.transactionMatches ?? [];
+                if (matches.length === 0) return null;
+                const totalEncaisse = matches.reduce(
+                  (s, m) => s + Number(m.montant),
+                  0
+                );
+                const totalDu = Number(doc.montantTTC);
+                const reste = Math.max(0, totalDu - totalEncaisse);
+                const isFullyPaid = reste <= 0.005;
+                return (
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                      <h3 className="font-semibold text-[#1A1110] flex items-center gap-2 text-sm">
+                        <Link2 className="w-4 h-4" />
+                        Rapprochement bancaire
+                      </h3>
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                          isFullyPaid
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3 h-3" />
+                        {matches.length} transaction
+                        {matches.length > 1 ? "s" : ""}
+                        {isFullyPaid ? " · payé" : " · partiel"}
+                      </span>
+                    </div>
+                    <ul className="divide-y divide-gray-100">
+                      {matches.map((m) => {
+                        const t = m.transaction;
+                        return (
+                          <li
+                            key={m.id}
+                            className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-[#1A1110] truncate">
+                                {t.emetteur || "Émetteur inconnu"}
+                              </p>
+                              <p className="text-xs text-gray-500 truncate">
+                                {t.libelle || "—"}
+                              </p>
+                              <p className="text-xs text-gray-400 font-mono mt-0.5">
+                                {formatDate(t.dateTransaction)}
+                                {t.reference ? ` · ${t.reference}` : ""}
+                                {m.modePaiement ? ` · ${m.modePaiement}` : ""}
+                              </p>
+                            </div>
+                            <div className="flex flex-col sm:items-end">
+                              <span className="text-sm font-semibold text-[#1A1110] tabular-nums">
+                                {formatMoney(Number(m.montant), doc.devise)}
+                              </span>
+                              {Number(m.montant) !== Number(t.montant) && (
+                                <span className="text-[11px] text-gray-400 tabular-nums">
+                                  /{" "}
+                                  {formatMoney(Number(t.montant), doc.devise)} encaissé
+                                </span>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {!isFullyPaid && (
+                      <div className="px-4 py-2 border-t border-gray-100 bg-amber-50/40 text-xs text-amber-800 flex items-center justify-between">
+                        <span>Restant dû</span>
+                        <span className="font-semibold tabular-nums">
+                          {formatMoney(reste, doc.devise)}
                         </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
             {doc.notes && (
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
