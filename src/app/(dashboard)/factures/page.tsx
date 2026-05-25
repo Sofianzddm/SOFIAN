@@ -42,6 +42,8 @@ interface DocumentInfo {
   reference: string;
   type: "DEVIS" | "FACTURE" | "AVOIR";
   statut: string;
+  titre?: string | null;
+  clientNom?: string | null;
   montantHT: number;
   montantTTC: number;
   dateEmission: string | null;
@@ -339,8 +341,11 @@ export default function FacturesPage() {
       list = list.filter(
         (d) =>
           d.reference.toLowerCase().includes(q) ||
+          (d.titre ?? "").toLowerCase().includes(q) ||
+          (d.clientNom ?? "").toLowerCase().includes(q) ||
           (d.collaboration?.marque?.nom ?? "").toLowerCase().includes(q) ||
-          `${d.collaboration?.talent?.prenom ?? ""} ${d.collaboration?.talent?.nom ?? ""}`.toLowerCase().includes(q)
+          `${d.collaboration?.talent?.prenom ?? ""} ${d.collaboration?.talent?.nom ?? ""}`.toLowerCase().includes(q) ||
+          `${d.collaboration?.marqueContact?.prenom ?? ""} ${d.collaboration?.marqueContact?.nom ?? ""}`.toLowerCase().includes(q)
       );
     }
     return list;
@@ -662,7 +667,7 @@ export default function FacturesPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Rechercher..."
+                placeholder={isInvoices ? "Rechercher (n°, objet, client, talent, contact)..." : "Rechercher (n°, objet, client, talent)..."}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-glowup-rose"

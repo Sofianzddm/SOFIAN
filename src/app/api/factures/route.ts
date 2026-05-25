@@ -273,6 +273,7 @@ export async function GET(request: NextRequest) {
         reference: d.reference,
         type: d.type,
         statut: maskStatutDoc(d.statut),
+        titre: d.titre ?? null,
         montantHT: Number(d.montantHT),
         montantTTC: Number(d.montantTTC),
         dateEmission: d.dateEmission,
