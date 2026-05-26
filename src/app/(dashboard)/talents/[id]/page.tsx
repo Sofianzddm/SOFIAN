@@ -37,6 +37,7 @@ import {
   Check,
   X,
   Send,
+  RefreshCw,
 } from "lucide-react";
 import { formatPercent } from "@/lib/format";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
@@ -149,7 +150,14 @@ export default function TalentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"instagram" | "tiktok">("instagram");
   const [kitMediaOpen, setKitMediaOpen] = useState(false);
-  
+
+  // Refresh stats Instagram/TikTok via Apify
+  const [refreshingStats, setRefreshingStats] = useState(false);
+  const [refreshFeedback, setRefreshFeedback] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+
   // Upload photo state
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
@@ -208,6 +216,77 @@ export default function TalentDetailPage() {
       }
     } catch (error) {
       console.error("Erreur:", error);
+    }
+  };
+
+  const handleRefreshStats = async () => {
+    if (!talent?.id || refreshingStats) return;
+    setRefreshingStats(true);
+    setRefreshFeedback(null);
+    try {
+      const res = await fetch(`/api/talents/${talent.id}/refresh-stats`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setRefreshFeedback({
+          type: "error",
+          message: data.error ?? "Erreur lors de la mise à jour des stats.",
+        });
+        return;
+      }
+
+      const ig = data.instagram as
+        | { ok: boolean; after: number | null; evol: number | null; error?: string }
+        | undefined;
+      const tt = data.tiktok as
+        | { ok: boolean; after: number | null; evol: number | null; error?: string }
+        | undefined;
+
+      const parts: string[] = [];
+      if (ig?.ok && typeof ig.after === "number") {
+        parts.push(
+          `Instagram : ${ig.after.toLocaleString("fr-FR")} abonnés${
+            ig.evol !== null && ig.evol !== 0
+              ? ` (${ig.evol > 0 ? "+" : ""}${ig.evol}%)`
+              : ""
+          }`
+        );
+      }
+      if (tt?.ok && typeof tt.after === "number") {
+        parts.push(
+          `TikTok : ${tt.after.toLocaleString("fr-FR")} abonnés${
+            tt.evol !== null && tt.evol !== 0
+              ? ` (${tt.evol > 0 ? "+" : ""}${tt.evol}%)`
+              : ""
+          }`
+        );
+      }
+
+      if (parts.length === 0) {
+        const reasons = [ig?.error, tt?.error].filter(Boolean).join(" — ");
+        setRefreshFeedback({
+          type: "error",
+          message: reasons || "Aucune stat n'a pu être récupérée.",
+        });
+      } else {
+        setRefreshFeedback({
+          type: "success",
+          message: `Stats mises à jour. ${parts.join(" · ")}`,
+        });
+        // Recharge la fiche pour afficher les nouvelles valeurs
+        await fetchTalent();
+      }
+    } catch (e) {
+      console.error("refresh stats error", e);
+      setRefreshFeedback({
+        type: "error",
+        message: "Erreur réseau lors de la mise à jour.",
+      });
+    } finally {
+      setRefreshingStats(false);
+      setTimeout(() => setRefreshFeedback(null), 6000);
     }
   };
 
@@ -461,6 +540,21 @@ export default function TalentDetailPage() {
                 <Camera className="w-5 h-5" />
               </button>
             )}
+            {canUpdateStats && (talent.instagram || talent.tiktok) && (
+              <button
+                type="button"
+                onClick={handleRefreshStats}
+                disabled={refreshingStats}
+                className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Mettre à jour les abonnés Instagram & TikTok"
+              >
+                {refreshingStats ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-5 h-5" />
+                )}
+              </button>
+            )}
             {(canUpdateStats && (isMyTalent || role !== "TM")) && (
               <Link 
                 href={`/talents/${talent.id}/stats`}
@@ -501,6 +595,21 @@ export default function TalentDetailPage() {
             )}
           </div>
         </div>
+
+        {/* Toast feedback rafraîchissement stats */}
+        {refreshFeedback && (
+          <div className="relative z-10 max-w-7xl mx-auto px-6 mt-3">
+            <div
+              className={`text-sm rounded-2xl px-4 py-2.5 backdrop-blur-md ${
+                refreshFeedback.type === "success"
+                  ? "bg-emerald-500/15 text-emerald-100 border border-emerald-400/30"
+                  : "bg-red-500/15 text-red-100 border border-red-400/30"
+              }`}
+            >
+              {refreshFeedback.message}
+            </div>
+          </div>
+        )}
 
         {/* Hero Content */}
         <div className="relative z-10 max-w-7xl mx-auto px-6 pb-32 pt-8">
