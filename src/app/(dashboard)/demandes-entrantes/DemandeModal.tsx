@@ -586,6 +586,64 @@ export default function DemandeModal({
     }
   };
 
+  const sendNow = async () => {
+    if (!demande) return;
+    if (!subject.trim()) {
+      onError("L’objet de la réponse est obligatoire.");
+      return;
+    }
+    const html = editor?.getHTML() || "";
+    if (!html || html === "<p></p>") {
+      onError("Le contenu du mail est vide.");
+      return;
+    }
+    if (!confirm("Envoyer ce mail maintenant depuis leyna@glowupagence.fr ?")) return;
+
+    setSaving(true);
+    try {
+      const patchRes = await fetch(`/api/demandes-entrantes/${encodeURIComponent(demande.id)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: demande.status,
+          sujetPret: subject.trim(),
+          emailPret: html,
+        }),
+      });
+      const patchData = await patchRes.json().catch(() => ({}));
+      if (!patchRes.ok) {
+        throw new Error(
+          typeof patchData.error === "string" ? patchData.error : "Sauvegarde impossible avant envoi."
+        );
+      }
+
+      const sendRes = await fetch(
+        `/api/demandes-entrantes/${encodeURIComponent(demande.id)}/send`,
+        { method: "POST", credentials: "include" }
+      );
+      const sendData = await sendRes.json().catch(() => ({}));
+      if (!sendRes.ok) {
+        if (sendData.error === "gmail_not_connected") {
+          throw new Error(
+            "Gmail de Leyna non connecté. Va dans Settings → Gmail pour le connecter."
+          );
+        }
+        throw new Error(
+          typeof sendData.error === "string" ? sendData.error : "Erreur d'envoi Gmail."
+        );
+      }
+
+      onSaved();
+      onSuccess("Mail envoyé depuis leyna@glowupagence.fr ✉️");
+      onClose();
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : "Erreur inattendue.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!open || !demande) return null;
 
   return (
@@ -848,6 +906,17 @@ export default function DemandeModal({
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
             📩 Envoyer à Leyna
+          </button>
+          <button
+            type="button"
+            onClick={() => void sendNow()}
+            disabled={saving || Boolean(demande?.sentAt)}
+            className="px-4 py-2 rounded-xl text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-60"
+            style={{ backgroundColor: LICORICE, color: TEA_GREEN }}
+            title={demande?.sentAt ? "Déjà envoyé" : "Envoyer directement depuis leyna@glowupagence.fr"}
+          >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            🚀 Envoyer maintenant
           </button>
         </div>
       </div>
