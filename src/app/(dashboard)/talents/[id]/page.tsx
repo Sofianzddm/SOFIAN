@@ -238,30 +238,18 @@ export default function TalentDetailPage() {
       }
 
       const ig = data.instagram as
-        | { ok: boolean; after: number | null; evol: number | null; error?: string }
+        | { ok: boolean; after: number | null; error?: string }
         | undefined;
       const tt = data.tiktok as
-        | { ok: boolean; after: number | null; evol: number | null; error?: string }
+        | { ok: boolean; after: number | null; error?: string }
         | undefined;
 
       const parts: string[] = [];
       if (ig?.ok && typeof ig.after === "number") {
-        parts.push(
-          `Instagram : ${ig.after.toLocaleString("fr-FR")} abonnés${
-            ig.evol !== null && ig.evol !== 0
-              ? ` (${ig.evol > 0 ? "+" : ""}${ig.evol}%)`
-              : ""
-          }`
-        );
+        parts.push(`Instagram : ${ig.after.toLocaleString("fr-FR")} abonnés`);
       }
       if (tt?.ok && typeof tt.after === "number") {
-        parts.push(
-          `TikTok : ${tt.after.toLocaleString("fr-FR")} abonnés${
-            tt.evol !== null && tt.evol !== 0
-              ? ` (${tt.evol > 0 ? "+" : ""}${tt.evol}%)`
-              : ""
-          }`
-        );
+        parts.push(`TikTok : ${tt.after.toLocaleString("fr-FR")} abonnés`);
       }
 
       if (parts.length === 0) {

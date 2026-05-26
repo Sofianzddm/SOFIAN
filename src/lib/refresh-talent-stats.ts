@@ -8,7 +8,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { fetchInstagramProfile, fetchTiktokProfile } from "@/lib/social-stats";
 
 export interface RefreshResult {
@@ -17,7 +17,6 @@ export interface RefreshResult {
     handle: string | null;
     before: number | null;
     after: number | null;
-    evol: number | null;
     ok: boolean;
     error?: string;
   };
@@ -25,22 +24,10 @@ export interface RefreshResult {
     handle: string | null;
     before: number | null;
     after: number | null;
-    evol: number | null;
     ok: boolean;
     error?: string;
   };
   changed: boolean;
-}
-
-/**
- * Calcule l'évolution en pourcentage entre deux valeurs.
- * Renvoie un nombre avec 2 décimales (ex: 4.32 = +4.32%).
- * Renvoie 0 si l'ancienne valeur est null/0 et qu'on a une nouvelle valeur.
- */
-function computeEvol(prev: number | null | undefined, next: number): number {
-  if (!prev || prev <= 0) return 0;
-  const evol = ((next - prev) / prev) * 100;
-  return Math.round(evol * 100) / 100;
 }
 
 export async function refreshTalentSocialStats(
@@ -76,8 +63,8 @@ export async function refreshTalentSocialStats(
       : Promise.resolve({ followers: null, ok: false, error: "pas de handle TT" } as const),
   ]);
 
-  // On ne met à jour en DB que les champs réellement récupérés (on n'écrase
-  // pas une stat manuelle valide par null si Apify a échoué).
+  // On ne met à jour QUE le nombre d'abonnés. Le pourcentage d'évolution
+  // (igFollowersEvol / ttFollowersEvol) reste 100 % saisi manuellement par le TM.
   const updateData: Prisma.TalentStatsUpdateInput = { lastUpdate: new Date() };
   const createData: Prisma.TalentStatsCreateInput = {
     talent: { connect: { id: talentId } },
@@ -86,23 +73,15 @@ export async function refreshTalentSocialStats(
 
   let changed = false;
 
-  let igEvol: number | null = null;
   if (igSnap.ok && typeof igSnap.followers === "number") {
-    igEvol = computeEvol(prevIg, igSnap.followers);
     updateData.igFollowers = igSnap.followers;
-    updateData.igFollowersEvol = new Prisma.Decimal(igEvol);
     createData.igFollowers = igSnap.followers;
-    createData.igFollowersEvol = new Prisma.Decimal(igEvol);
     if (igSnap.followers !== prevIg) changed = true;
   }
 
-  let ttEvol: number | null = null;
   if (ttSnap.ok && typeof ttSnap.followers === "number") {
-    ttEvol = computeEvol(prevTt, ttSnap.followers);
     updateData.ttFollowers = ttSnap.followers;
-    updateData.ttFollowersEvol = new Prisma.Decimal(ttEvol);
     createData.ttFollowers = ttSnap.followers;
-    createData.ttFollowersEvol = new Prisma.Decimal(ttEvol);
     if (ttSnap.followers !== prevTt) changed = true;
   }
 
@@ -121,7 +100,6 @@ export async function refreshTalentSocialStats(
       handle: talent.instagram,
       before: prevIg,
       after: igSnap.ok ? igSnap.followers : null,
-      evol: igSnap.ok ? igEvol : null,
       ok: igSnap.ok,
       error: igSnap.ok ? undefined : igSnap.error,
     },
@@ -129,7 +107,6 @@ export async function refreshTalentSocialStats(
       handle: talent.tiktok,
       before: prevTt,
       after: ttSnap.ok ? ttSnap.followers : null,
-      evol: ttSnap.ok ? ttEvol : null,
       ok: ttSnap.ok,
       error: ttSnap.ok ? undefined : ttSnap.error,
     },
