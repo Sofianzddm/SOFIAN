@@ -97,6 +97,7 @@ export async function PUT(
     }
 
     const userRole = session.user.role;
+    const userId = (session.user as { id?: string }).id;
     
     // Vérifier les permissions
     if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"].includes(userRole)) {
@@ -107,6 +108,23 @@ export async function PUT(
 
     const { id } = await params;
     const data = await request.json();
+
+    // Un TM ne peut modifier que ses propres talents.
+    if (userRole === "TM") {
+      const existing = await prisma.talent.findUnique({
+        where: { id },
+        select: { managerId: true },
+      });
+      if (!existing) {
+        return NextResponse.json({ error: "Talent non trouvé" }, { status: 404 });
+      }
+      if (existing.managerId !== userId) {
+        return NextResponse.json(
+          { error: "Vous ne pouvez modifier que vos propres talents" },
+          { status: 403 }
+        );
+      }
+    }
 
     // Séparer les champs Talent, Stats et Tarifs
     const talentData: any = {};

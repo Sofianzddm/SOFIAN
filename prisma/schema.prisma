@@ -378,6 +378,14 @@ model Talent {
   
   photo         String?
   
+  // Photos additionnelles pour le Kit Media public (/kit/[slug])
+  // - Slot 0..2 : bandeau présentation (3 photos)
+  // - Slot 3..5 : colonne Instagram analytics (3 photos)
+  // - Slot 6..8 : colonne TikTok analytics (3 photos)
+  // - Slot 9    : photo bonus (lookbook ou réserve)
+  // Si un slot est vide / null, on affiche un carré crème vide.
+  kitPhotos     String[]  @default([])
+  
   // Réseaux sociaux
   instagram     String?
   tiktok        String?

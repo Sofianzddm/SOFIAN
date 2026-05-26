@@ -40,6 +40,8 @@ import {
 } from "lucide-react";
 import { formatPercent } from "@/lib/format";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
+import KitPhotosManager from "@/components/talent/KitPhotosManager";
+import { talentSlug } from "@/lib/talent-slug";
 
 interface TalentDetail {
   id: string;
@@ -146,6 +148,7 @@ export default function TalentDetailPage() {
   const [talent, setTalent] = useState<TalentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"instagram" | "tiktok">("instagram");
+  const [kitMediaOpen, setKitMediaOpen] = useState(false);
   
   // Upload photo state
   const [uploading, setUploading] = useState(false);
@@ -153,6 +156,12 @@ export default function TalentDetailPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [demanderTarifsLoading, setDemanderTarifsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Bio edit state
+  const [editingBio, setEditingBio] = useState(false);
+  const [bioDraft, setBioDraft] = useState("");
+  const [savingBio, setSavingBio] = useState(false);
+  const [bioError, setBioError] = useState<string | null>(null);
 
   const user = session?.user as { id: string; role: string } | undefined;
   const role = user?.role || "";
@@ -163,6 +172,8 @@ export default function TalentDetailPage() {
   const canUpdateStats = role === "TM" || role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canUploadPhoto = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "TM";
   const isMyTalent = talent?.managerId === userId;
+  // Le TM peut modifier la bio uniquement de ses propres talents.
+  const canEditBio = canEditTalent || (role === "TM" && isMyTalent);
 
   useEffect(() => {
     if (params.id) fetchTalent();
@@ -218,6 +229,43 @@ export default function TalentDetailPage() {
       setDemanderTarifsLoading(false);
     }
   };
+
+  // ========== EDIT BIO (présentation) ==========
+  const handleStartEditBio = () => {
+    setBioDraft(talent?.presentation ?? "");
+    setBioError(null);
+    setEditingBio(true);
+  };
+
+  const handleCancelEditBio = () => {
+    setEditingBio(false);
+    setBioDraft("");
+    setBioError(null);
+  };
+
+  const handleSaveBio = async () => {
+    if (!talent) return;
+    setSavingBio(true);
+    setBioError(null);
+    try {
+      const res = await fetch(`/api/talents/${talent.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ presentation: bioDraft.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Erreur lors de l'enregistrement");
+      }
+      setTalent({ ...talent, presentation: bioDraft.trim() || null });
+      setEditingBio(false);
+    } catch (e: any) {
+      setBioError(e?.message || "Erreur lors de l'enregistrement");
+    } finally {
+      setSavingBio(false);
+    }
+  };
+  // ========== FIN EDIT BIO ==========
 
   // ========== UPLOAD PHOTO (Direct Cloudinary) ==========
   const handlePhotoClick = () => {
@@ -403,6 +451,16 @@ export default function TalentDetailPage() {
             <button className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105" title="Télécharger Media Kit">
               <Download className="w-5 h-5" />
             </button>
+            {canUploadPhoto && (
+              <button
+                type="button"
+                onClick={() => setKitMediaOpen(true)}
+                className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+                title="Kit Media — 10 photos"
+              >
+                <Camera className="w-5 h-5" />
+              </button>
+            )}
             {(canUpdateStats && (isMyTalent || role !== "TM")) && (
               <Link 
                 href={`/talents/${talent.id}/stats`}
@@ -649,15 +707,77 @@ export default function TalentDetailPage() {
         )}
 
         {/* Présentation */}
-        {talent.presentation && (
+        {(talent.presentation || canEditBio) && (
           <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-8 border border-gray-100">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-glowup-rose/10 rounded-xl">
-                <Sparkles className="w-5 h-5 text-glowup-rose" />
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-glowup-rose/10 rounded-xl">
+                  <Sparkles className="w-5 h-5 text-glowup-rose" />
+                </div>
+                <h2 className="text-lg font-bold text-glowup-licorice">À propos</h2>
               </div>
-              <h2 className="text-lg font-bold text-glowup-licorice">À propos</h2>
+              {canEditBio && !editingBio && (
+                <button
+                  type="button"
+                  onClick={handleStartEditBio}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-glowup-rose hover:bg-glowup-rose/10 rounded-xl transition-colors"
+                  title="Modifier la bio"
+                >
+                  <Pencil className="w-4 h-4" />
+                  {talent.presentation ? "Modifier" : "Ajouter"}
+                </button>
+              )}
             </div>
-            <p className="text-gray-600 leading-relaxed text-lg">{talent.presentation}</p>
+
+            {editingBio ? (
+              <div className="space-y-3">
+                <textarea
+                  value={bioDraft}
+                  onChange={(e) => setBioDraft(e.target.value)}
+                  rows={5}
+                  maxLength={2000}
+                  placeholder="Joviale et pleine d'entrain, elle partage quotidiennement ses looks à sa communauté..."
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all resize-none text-gray-700 leading-relaxed"
+                  autoFocus
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-gray-400">
+                    {bioDraft.length}/2000 caractères
+                  </p>
+                  <div className="flex items-center gap-2">
+                    {bioError && (
+                      <span className="text-xs text-red-600 mr-2">{bioError}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleCancelEditBio}
+                      disabled={savingBio}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      <X className="w-4 h-4" />
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveBio}
+                      disabled={savingBio}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-glowup-rose text-white text-sm font-medium rounded-xl hover:bg-glowup-rose-dark transition-colors shadow-sm shadow-glowup-rose/25 disabled:opacity-50"
+                    >
+                      {savingBio ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Check className="w-4 h-4" />
+                      )}
+                      Enregistrer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : talent.presentation ? (
+              <p className="text-gray-600 leading-relaxed text-lg whitespace-pre-wrap">{talent.presentation}</p>
+            ) : (
+              <p className="text-gray-400 italic">Aucune présentation pour l'instant. Cliquez sur « Ajouter » pour en rédiger une.</p>
+            )}
           </div>
         )}
 
@@ -1256,6 +1376,105 @@ export default function TalentDetailPage() {
               </Link>
             </>
           )}
+        </div>
+      </div>
+
+      {/* Modale Kit Media — ouverte depuis le bouton appareil photo du header */}
+      {kitMediaOpen && (
+        <KitMediaModal
+          talentId={talent.id}
+          slug={talentSlug(talent.prenom, talent.nom)}
+          onClose={() => setKitMediaOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// MODALE KIT MEDIA
+// ============================================
+function KitMediaModal({
+  talentId,
+  slug,
+  onClose,
+}: {
+  talentId: string;
+  slug: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const url =
+    typeof window !== "undefined" ? `${window.location.origin}/kit/${slug}` : "";
+
+  // Fermeture sur Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-50 w-full max-w-3xl rounded-3xl shadow-2xl flex flex-col"
+        style={{ maxHeight: "calc(100vh - 24px)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header (sticky en haut grâce au flex column) */}
+        <div className="bg-gradient-to-br from-[#220101] to-[#5C2A30] rounded-t-3xl px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between gap-3 shrink-0">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.25em] text-white/60 mb-1">
+              Kit Media public
+            </p>
+            <p className="text-xs sm:text-sm text-white font-medium truncate">
+              {url || `glowupagence.fr/kit/${slug}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (!url) return;
+                navigator.clipboard?.writeText(url);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-medium transition-colors"
+            >
+              {copied ? "✓ Copié" : "Copier"}
+            </button>
+            <Link
+              href={`/kit/${slug}`}
+              target="_blank"
+              className="px-3 py-1.5 rounded-full bg-white text-[#220101] hover:bg-white/90 text-xs sm:text-sm font-medium transition-colors inline-flex items-center gap-1.5"
+            >
+              Voir
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-full text-white/80 hover:bg-white/10 transition-colors"
+              title="Fermer (Esc)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Body — scroll interne */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5">
+          <KitPhotosManager talentId={talentId} />
         </div>
       </div>
     </div>
