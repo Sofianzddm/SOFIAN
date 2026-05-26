@@ -62,8 +62,10 @@ export async function POST(req: NextRequest) {
 
     const threadId = data.threadId?.trim() || null;
     if (threadId) {
+      // Une seule opportunité par fil Gmail (quelque soit le statut)
+      // évite de spammer Inbound avec 4× "Re: Lazartigue" pour le même thread.
       const existingThread = await prisma.inboundOpportunity.findFirst({
-        where: { threadId, NOT: { status: "NEW" } },
+        where: { threadId },
         orderBy: { receivedAt: "desc" },
         select: { id: true },
       });
