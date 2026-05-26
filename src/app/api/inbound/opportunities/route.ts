@@ -7,7 +7,13 @@ import { sendInboundNotificationEmail } from "@/lib/emails/inbound-notification"
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
 type AllowedRole = (typeof ALLOWED_ROLES)[number];
-const ALLOWED_CATEGORIES = new Set(["COLLAB_PAID", "PRESS_KIT", "EVENT_INVITE", "OTHER"]);
+const ALLOWED_CATEGORIES = new Set([
+  "COLLAB_PAID",
+  "COLLAB_GIFTING",
+  "PRESS_KIT",
+  "EVENT_INVITE",
+  "OTHER",
+]);
 
 const InboundPayloadSchema = z.object({
   talentEmail: z.string().email(),
@@ -21,7 +27,7 @@ const InboundPayloadSchema = z.object({
   gmailMessageId: z.string().min(1),
   threadId: z.string().nullable().optional(),
   receivedAt: z.string().datetime(),
-  category: z.enum(["COLLAB_PAID", "PRESS_KIT", "EVENT_INVITE", "OTHER"]),
+  category: z.enum(["COLLAB_PAID", "COLLAB_GIFTING", "PRESS_KIT", "EVENT_INVITE", "OTHER"]),
   confidence: z.number().min(0).max(1),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
   extractedBrand: z.string().nullable().optional(),

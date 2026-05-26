@@ -14,6 +14,7 @@ import EmailComposer, {
   type Talent,
 } from "@/app/(dashboard)/casting-outreach/EmailComposer";
 import { getInstagramProfileUrl } from "@/lib/social-links";
+import { inboundCategoryLabel } from "@/lib/inbound-categories";
 
 type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 
@@ -441,7 +442,7 @@ export default function InboundDetailPage() {
         <aside className="xl:col-span-2 space-y-3">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="font-semibold text-slate-900">Classification</h2>
-            <p className="mt-2 text-sm text-slate-700">Categorie: <strong>{opportunity.category}</strong></p>
+            <p className="mt-2 text-sm text-slate-700">Categorie: <strong>{inboundCategoryLabel(opportunity.category)}</strong></p>
             <p className="text-sm text-slate-700">Priorite: <strong>{opportunity.priority}</strong></p>
             <div className="mt-2">
               <div className="mb-1 text-xs text-slate-500">Confiance ({Math.round(opportunity.confidence * 100)}%)</div>

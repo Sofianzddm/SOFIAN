@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2, Mail, Search, Calendar, ExternalLink, X } from "lucide-react";
+import { inboundCategoryLabel } from "@/lib/inbound-categories";
 
 type Mail = {
   id: string;
@@ -272,7 +273,7 @@ export default function CastingMailsSentPage() {
                   </td>
                   <td className="px-4 py-3 align-top">
                     <span className="rounded-full bg-[#F5EBE0] px-2 py-1 text-xs text-[#1A1110]">
-                      {m.category}
+                      {inboundCategoryLabel(m.category)}
                     </span>
                   </td>
                   <td className="px-4 py-3 align-top">

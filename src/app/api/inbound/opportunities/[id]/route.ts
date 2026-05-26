@@ -3,7 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
-const ALLOWED_CATEGORIES = new Set(["COLLAB_PAID", "PRESS_KIT", "EVENT_INVITE", "OTHER"]);
+const ALLOWED_CATEGORIES = new Set([
+  "COLLAB_PAID",
+  "COLLAB_GIFTING",
+  "PRESS_KIT",
+  "EVENT_INVITE",
+  "OTHER",
+]);
 
 export async function GET(
   req: NextRequest,

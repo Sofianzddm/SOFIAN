@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2, Mail, Filter, Trash2 } from "lucide-react";
+import { inboundCategoryLabel } from "@/lib/inbound-categories";
 
 type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 type InboundPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
@@ -184,7 +185,7 @@ export default function InboundPage() {
                   <div className="text-xs text-slate-500">{o.senderName || o.senderEmail}</div>
                 </td>
                 <td className="px-4 py-3 text-slate-700">{o.subject.slice(0, 60)}</td>
-                <td className="px-4 py-3"><span className="rounded-full bg-[#F5EBE0] px-2 py-1 text-xs text-[#1A1110]">{o.category}</span></td>
+                <td className="px-4 py-3"><span className="rounded-full bg-[#F5EBE0] px-2 py-1 text-xs text-[#1A1110]">{inboundCategoryLabel(o.category)}</span></td>
                 <td className="px-4 py-3"><span className="rounded-full bg-[#C8F285]/50 px-2 py-1 text-xs text-[#1A1110]">{o.priority}</span></td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
