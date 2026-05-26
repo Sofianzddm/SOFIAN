@@ -34,6 +34,28 @@ export async function middleware(request: NextRequest) {
     return res;
   }
 
+  /**
+   * Kit Media public (/kit/[slug]) — Confidentiel.
+   * Accessible UNIQUEMENT via lien direct, JAMAIS indexable :
+   *   - 403 pour les principaux bots de recherche (Google, Bing, Yandex, Baidu, etc.)
+   *   - X-Robots-Tag: noindex pour les autres
+   * Les bots de preview (Slack, FB, Twitter, LinkedIn, WhatsApp) restent autorisés
+   * pour que le partage du lien sur ces canaux affiche bien une vignette.
+   */
+  if (pathname.startsWith("/kit/") || pathname.startsWith("/api/kit/")) {
+    const ua = request.headers.get("user-agent") ?? "";
+    const searchEngineCrawler =
+      /\b(?:Googlebot|AdsBot-Google|Mediapartners-Google|Google-InspectionTool|FeedFetcher-Google|GoogleProducer|bingbot|BingPreview|msnbot|DuckDuckBot|DuckDuckGo-Favicons-Bot|Baiduspider|YandexBot|YandexImages|YandexMobileBot|Sogou|Exabot|Applebot|ia_archiver|SeznamBot|Qwantify|PetalBot|Bytespider)\b/i.test(
+        ua
+      );
+    if (searchEngineCrawler) {
+      return new NextResponse("Forbidden", { status: 403 });
+    }
+    const res = NextResponse.next();
+    res.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+    return res;
+  }
+
   // Webhooks externes : pas d'auth
   if (pathname.startsWith("/api/webhooks")) {
     return NextResponse.next();
@@ -218,5 +240,8 @@ export const config = {
     // Dashboard interne rapports stats activations
     "/activation-stats",
     "/activation-stats/:path*",
+    // Kit Media public (confidentiel : accessible par lien direct, jamais indexé)
+    "/kit/:path*",
+    "/api/kit/:path*",
   ],
 };
