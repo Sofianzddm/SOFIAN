@@ -176,8 +176,8 @@ export default function TalentDetailPage() {
 
   const canEditTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canDeleteTalent = role === "ADMIN";
-  const canUpdateStats = role === "TM" || role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
-  const canUploadPhoto = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "TM";
+  const canUpdateStats = role === "TM" || role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES";
+  const canUploadPhoto = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES" || role === "TM";
   const isMyTalent = talent?.managerId === userId;
   // Le TM peut modifier la bio uniquement de ses propres talents.
   const canEditBio = canEditTalent || (role === "TM" && isMyTalent);
