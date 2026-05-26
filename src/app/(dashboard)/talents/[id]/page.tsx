@@ -528,21 +528,6 @@ export default function TalentDetailPage() {
                 <Camera className="w-5 h-5" />
               </button>
             )}
-            {canUpdateStats && (talent.instagram || talent.tiktok) && (
-              <button
-                type="button"
-                onClick={handleRefreshStats}
-                disabled={refreshingStats}
-                className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed"
-                title="Mettre à jour les abonnés Instagram & TikTok"
-              >
-                {refreshingStats ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-5 h-5" />
-                )}
-              </button>
-            )}
             {(canUpdateStats && (isMyTalent || role !== "TM")) && (
               <Link 
                 href={`/talents/${talent.id}/stats`}
@@ -955,6 +940,13 @@ export default function TalentDetailPage() {
                       evolution={stats?.igFollowersEvol}
                       gradient="from-pink-500 to-rose-500"
                       icon={<Users className="w-6 h-6" />}
+                      onRefresh={
+                        canUpdateStats && talent.instagram
+                          ? handleRefreshStats
+                          : undefined
+                      }
+                      refreshing={refreshingStats}
+                      refreshTitle="Mettre à jour automatiquement les abonnés Instagram"
                     />
                     <StatCard 
                       label="Engagement" 
@@ -1038,6 +1030,13 @@ export default function TalentDetailPage() {
                       evolution={stats?.ttFollowersEvol}
                       gradient="from-gray-700 to-gray-900"
                       icon={<Users className="w-6 h-6" />}
+                      onRefresh={
+                        canUpdateStats && talent.tiktok
+                          ? handleRefreshStats
+                          : undefined
+                      }
+                      refreshing={refreshingStats}
+                      refreshTitle="Mettre à jour automatiquement les abonnés TikTok"
                     />
                     <StatCard 
                       label="Engagement" 
@@ -1590,6 +1589,9 @@ function StatCard(
     evolutionSuffix = "%", 
     gradient,
     icon,
+    onRefresh,
+    refreshing,
+    refreshTitle,
   }: {
     label: string;
     value: string;
@@ -1597,6 +1599,9 @@ function StatCard(
     evolutionSuffix?: string;
     gradient: string;
     icon: React.ReactNode;
+    onRefresh?: () => void;
+    refreshing?: boolean;
+    refreshTitle?: string;
   }
 ) {
   return (
@@ -1605,12 +1610,29 @@ function StatCard(
       <div className="relative">
         <div className="flex items-center justify-between mb-3">
           <div className="p-2 bg-white/20 rounded-xl">{icon}</div>
-          {evolution !== undefined && evolution !== null && (
-            <span className={`flex items-center gap-1 text-sm font-medium ${evolution >= 0 ? "text-emerald-200" : "text-red-200"}`}>
-              {evolution >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-              {evolution >= 0 ? "+" : ""}{evolution}{evolutionSuffix}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {evolution !== undefined && evolution !== null && (
+              <span className={`flex items-center gap-1 text-sm font-medium ${evolution >= 0 ? "text-emerald-200" : "text-red-200"}`}>
+                {evolution >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                {evolution >= 0 ? "+" : ""}{evolution}{evolutionSuffix}
+              </span>
+            )}
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={refreshing}
+                title={refreshTitle ?? "Mettre à jour automatiquement"}
+                className="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {refreshing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
         <p className="text-3xl font-bold">{value}</p>
         <p className="text-white/70 text-sm mt-1">{label}</p>
