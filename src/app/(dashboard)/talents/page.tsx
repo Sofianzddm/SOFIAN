@@ -20,6 +20,9 @@ import {
   GripVertical,
   BookOpen,
   X,
+  Camera,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 
 // Types
@@ -96,6 +99,18 @@ export default function TalentsPage() {
   const [savingBookOrder, setSavingBookOrder] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
+  // Bulk import Instagram photos (ADMIN)
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkOverwrite, setBulkOverwrite] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkCancel, setBulkCancel] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{
+    current: number;
+    total: number;
+    currentName: string;
+    done: { id: string; name: string; ok: boolean; error?: string; count?: number }[];
+  }>({ current: 0, total: 0, currentName: "", done: [] });
+
   useEffect(() => {
     fetchTalents();
   }, []);
@@ -122,6 +137,85 @@ export default function TalentsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Liste des talents éligibles à l'import bulk (handle Instagram renseigné).
+  const bulkEligible = talents.filter((t) => !!t.instagram);
+
+  const runBulkInstagramImport = async () => {
+    if (bulkRunning) return;
+    setBulkRunning(true);
+    setBulkCancel(false);
+    setBulkProgress({
+      current: 0,
+      total: bulkEligible.length,
+      currentName: "",
+      done: [],
+    });
+
+    for (let i = 0; i < bulkEligible.length; i++) {
+      if (bulkCancel) break;
+      const t = bulkEligible[i];
+      const name = `${t.prenom} ${t.nom}`;
+      setBulkProgress((p) => ({ ...p, current: i + 1, currentName: name }));
+
+      try {
+        const res = await fetch(`/api/talents/${t.id}/instagram-import`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ overwrite: bulkOverwrite }),
+        });
+        const data = await res.json().catch(() => ({} as Record<string, unknown>));
+        if (!res.ok) {
+          setBulkProgress((p) => ({
+            ...p,
+            done: [
+              ...p.done,
+              {
+                id: t.id,
+                name,
+                ok: false,
+                error:
+                  (data.error as string | undefined) ??
+                  `Erreur ${res.status}`,
+              },
+            ],
+          }));
+        } else {
+          setBulkProgress((p) => ({
+            ...p,
+            done: [
+              ...p.done,
+              {
+                id: t.id,
+                name,
+                ok: true,
+                count:
+                  typeof data.imported === "number"
+                    ? (data.imported as number)
+                    : undefined,
+              },
+            ],
+          }));
+        }
+      } catch (e) {
+        setBulkProgress((p) => ({
+          ...p,
+          done: [
+            ...p.done,
+            {
+              id: t.id,
+              name,
+              ok: false,
+              error: e instanceof Error ? e.message : "Erreur réseau",
+            },
+          ],
+        }));
+      }
+    }
+
+    setBulkRunning(false);
+    setBulkProgress((p) => ({ ...p, currentName: "" }));
   };
 
   const isTm = (role === "TM" || role === "HEAD_OF_INFLUENCE") && !!user?.id;
@@ -203,6 +297,18 @@ export default function TalentsPage() {
         </div>
         
         <div className="flex items-center gap-2">
+          {/* Import bulk photos Instagram — ADMIN uniquement */}
+          {role === "ADMIN" && (
+            <button
+              type="button"
+              onClick={() => setBulkOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#f09433] via-[#e6683c] to-[#bc1888] text-white rounded-lg hover:opacity-90 transition-opacity shadow-sm"
+              title="Importer en masse les photos Instagram des talents (kit media)"
+            >
+              <Camera className="w-4 h-4" />
+              Photos Insta · tous
+            </button>
+          )}
           {/* Ordre du book - ADMIN et HEAD_OF uniquement (pas Head of Influence) */}
           {canReorderBook && (
             <button
@@ -760,6 +866,224 @@ export default function TalentsPage() {
           </table>
         )}
       </div>
+
+      {/* Modale Bulk Instagram Import — ADMIN */}
+      {bulkOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => {
+            if (!bulkRunning) setBulkOpen(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-xl w-full max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b">
+              <div>
+                <h2 className="text-lg font-semibold text-glowup-licorice flex items-center gap-2">
+                  <Instagram className="w-5 h-5 text-pink-500" />
+                  Importer les photos Instagram
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Remplit les 9 premiers slots du Kit Media des talents
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={bulkRunning}
+                onClick={() => setBulkOpen(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1">
+              {/* Pré-run : choix + confirmation */}
+              {!bulkRunning && bulkProgress.done.length === 0 && (
+                <>
+                  <p className="text-sm text-gray-700 mb-4">
+                    <strong>{bulkEligible.length}</strong> talent(s) avec un
+                    handle Instagram seront traités. Chaque import prend
+                    environ <strong>20 à 40 secondes</strong> (scraping Apify +
+                    upload Cloudinary).
+                  </p>
+
+                  <label className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100 cursor-pointer mb-4">
+                    <input
+                      type="checkbox"
+                      checked={bulkOverwrite}
+                      onChange={(e) => setBulkOverwrite(e.target.checked)}
+                      className="mt-0.5 accent-pink-500"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-glowup-licorice">
+                        Remplacer les photos existantes
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Par défaut, seuls les slots vides sont remplis (les
+                        photos déjà mises manuellement sont conservées).
+                      </p>
+                    </div>
+                  </label>
+
+                  <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <p>
+                      Garde cet onglet ouvert pendant toute la durée du
+                      traitement (
+                      {Math.ceil((bulkEligible.length * 30) / 60)} min environ).
+                      Tu peux annuler à tout moment, les talents déjà traités
+                      restent enregistrés.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* En cours */}
+              {bulkRunning && (
+                <>
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
+                      <span>
+                        {bulkProgress.current} / {bulkProgress.total}
+                      </span>
+                      <span className="text-pink-600 font-medium">
+                        {Math.round(
+                          (bulkProgress.current / Math.max(1, bulkProgress.total)) *
+                            100
+                        )}
+                        %
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#f09433] via-[#e6683c] to-[#bc1888] transition-all"
+                        style={{
+                          width: `${
+                            (bulkProgress.current /
+                              Math.max(1, bulkProgress.total)) *
+                            100
+                          }%`,
+                        }}
+                      />
+                    </div>
+                    {bulkProgress.currentName && (
+                      <p className="text-xs text-gray-500 mt-2 flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        En cours&nbsp;: {bulkProgress.currentName}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Résultats (en cours ou terminé) */}
+              {bulkProgress.done.length > 0 && (
+                <div className="mt-3 space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                  {bulkProgress.done.map((d) => (
+                    <div
+                      key={d.id}
+                      className={`flex items-start gap-2 text-sm p-2 rounded-lg ${
+                        d.ok ? "bg-emerald-50" : "bg-red-50"
+                      }`}
+                    >
+                      {d.ok ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`font-medium truncate ${
+                            d.ok ? "text-emerald-800" : "text-red-800"
+                          }`}
+                        >
+                          {d.name}
+                        </p>
+                        {d.ok ? (
+                          <p className="text-xs text-emerald-700">
+                            {typeof d.count === "number"
+                              ? `${d.count} photo(s) importée(s)`
+                              : "OK"}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-red-700 truncate">
+                            {d.error}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Récap final */}
+              {!bulkRunning && bulkProgress.done.length > 0 && (
+                <div className="mt-4 p-3 rounded-lg bg-gray-50 border border-gray-100 text-sm text-gray-700">
+                  <strong>{bulkProgress.done.filter((d) => d.ok).length}</strong>{" "}
+                  succès ·{" "}
+                  <strong>{bulkProgress.done.filter((d) => !d.ok).length}</strong>{" "}
+                  échec(s) sur {bulkProgress.done.length} talent(s).
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 p-4 border-t">
+              {/* Actions selon l'état */}
+              {!bulkRunning && bulkProgress.done.length === 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setBulkOpen(false)}
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkEligible.length === 0}
+                    onClick={runBulkInstagramImport}
+                    className="px-4 py-2 bg-gradient-to-r from-[#f09433] via-[#e6683c] to-[#bc1888] text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  >
+                    Lancer pour {bulkEligible.length} talent(s)
+                  </button>
+                </>
+              )}
+
+              {bulkRunning && (
+                <button
+                  type="button"
+                  onClick={() => setBulkCancel(true)}
+                  className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg font-medium"
+                >
+                  Arrêter après ce talent
+                </button>
+              )}
+
+              {!bulkRunning && bulkProgress.done.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBulkOpen(false);
+                    setBulkProgress({
+                      current: 0,
+                      total: 0,
+                      currentName: "",
+                      done: [],
+                    });
+                    fetchTalents();
+                  }}
+                  className="px-4 py-2 bg-glowup-rose text-white rounded-lg hover:bg-glowup-rose/90 font-medium"
+                >
+                  Terminer
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modale Ordre du book */}
       {showBookOrderModal && (
