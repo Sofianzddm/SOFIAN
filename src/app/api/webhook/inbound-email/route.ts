@@ -122,6 +122,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, id: existing[0].id, action: "already_exists" });
     }
 
+    // Un seul enregistrement par fil Gmail (évite 4× "Re: Lazartigue" pour le même thread)
+    if (threadId) {
+      const existingThread = (await prisma.$queryRaw`
+        SELECT "id"
+        FROM "DemandeEntrante"
+        WHERE "gmailThreadId" = ${threadId}
+        LIMIT 1
+      `) as ExistingRow[];
+
+      if (Array.isArray(existingThread) && existingThread.length > 0) {
+        return NextResponse.json({
+          success: true,
+          id: existingThread[0].id,
+          action: "duplicate_thread",
+        });
+      }
+    }
+
     const inserted = (await prisma.$queryRaw`
       INSERT INTO "DemandeEntrante"
       (
