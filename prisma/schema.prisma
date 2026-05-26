@@ -668,6 +668,9 @@ model InboundOpportunity {
   draftEmailSubject String?
   draftEmailBody    String? @db.Text
 
+  gmailSentMessageId String?
+  sentAt             DateTime?
+
   status            InboundStatus @default(NEW)
 
   convertedToProspectionId String? @unique

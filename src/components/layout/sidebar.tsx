@@ -78,6 +78,12 @@ const menuItems = [
     roles: ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"],
   },
   {
+    label: "Mails Casting envoyés",
+    href: "/casting-mails-sent",
+    icon: Mail,
+    roles: ["HEAD_OF_SALES", "ADMIN", "CASTING_MANAGER"],
+  },
+  {
     label: "Demandes Entrantes",
     href: "/demandes-entrantes",
     icon: Mail,

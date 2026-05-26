@@ -5,7 +5,9 @@
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "next dev",
+    "dev:clean": "node scripts/stop-dev-server.mjs && node scripts/reset-dev-cache.mjs && next dev",
     "dev:webpack": "next dev --webpack",
+    "prebuild": "node scripts/stop-dev-server.mjs",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",

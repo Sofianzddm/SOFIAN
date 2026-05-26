@@ -308,61 +308,6 @@ export default function InboundDetailPage() {
   const canAct = opportunity.status === "NEW" || opportunity.status === "IN_REVIEW";
   const canDelete = opportunity.status !== "CONVERTED";
 
-  const convert = async () => {
-    if (!window.confirm("Cette opportunite sera convertie en Prospection et assignee automatiquement a la Head of Sales. Confirmer ?")) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/inbound/opportunities/${opportunity.id}/convert`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      router.push(`/prospection/${data.prospectionId}`);
-    } catch (e: any) {
-      window.alert(e?.message || "Erreur conversion");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const archive = async () => {
-    const reason = window.prompt("Raison d'archivage (optionnel):", "");
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/inbound/opportunities/${opportunity.id}/archive`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: reason || "" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      router.push("/inbound");
-    } catch (e: any) {
-      window.alert(e?.message || "Erreur archivage");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const markReady = async () => {
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/inbound/opportunities/${opportunity.id}/mark-ready`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      router.push("/inbound");
-    } catch (e: any) {
-      window.alert(e?.message || "Erreur marquage");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const removeOpportunity = async () => {
     if (!window.confirm("Supprimer definitivement cette opportunite inbound ?")) return;
     if (!window.confirm("Cette action est irreversible. Confirmer la suppression ?")) return;
@@ -528,32 +473,19 @@ export default function InboundDetailPage() {
           {(canAct || canDelete) && (
             <div className="rounded-xl border border-slate-200 bg-white p-4">
               {canAct && (
-                <>
-                  <button
-                    disabled={submitting}
-                    onClick={() => setComposerOpen(true)}
-                    className="mb-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
-                  >
-                    Rediger un mail
-                  </button>
-                  <button disabled={submitting} onClick={convert} className="w-full rounded-lg bg-[#C8F285] px-3 py-2 text-sm font-semibold text-[#1A1110] disabled:opacity-60">
-                    Convertir en Prospection
-                  </button>
-                  <button disabled={submitting} onClick={archive} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60">
-                    Archiver
-                  </button>
-                  {opportunity.status === "NEW" && (
-                    <button disabled={submitting} onClick={markReady} className="mt-2 w-full rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 disabled:opacity-60">
-                      ✅ Marquer comme pret
-                    </button>
-                  )}
-                </>
+                <button
+                  disabled={submitting}
+                  onClick={() => setComposerOpen(true)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
+                >
+                  Rediger un mail
+                </button>
               )}
               {canDelete && (
                 <button
                   disabled={submitting}
                   onClick={removeOpportunity}
-                  className="mt-2 w-full rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-60"
+                  className={`${canAct ? "mt-2" : ""} w-full rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-60`}
                 >
                   Supprimer definitivement
                 </button>
