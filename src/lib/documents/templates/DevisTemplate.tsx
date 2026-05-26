@@ -10,6 +10,7 @@ import {
   Image,
 } from "@react-pdf/renderer";
 import path from "path";
+import { formatMontant, getDeviseInfo } from "@/lib/devises";
 
 // Couleurs Glow Up Agency
 const COLORS = {
@@ -362,6 +363,8 @@ interface DevisData {
   titre: string;
   dateDocument: string;
   dateEcheance: string;
+  // Code ISO 4217 de la devise (EUR par défaut)
+  devise?: string;
   emetteur: {
     nom: string;
     adresse: string;
@@ -397,15 +400,9 @@ interface DevisData {
   commentaires?: string;
 }
 
-const formatMoney = (amount: number) => {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-    useGrouping: true, // Active le séparateur de milliers
-  }).format(amount).replace(/\u202F/g, ' '); // Remplace l'espace fine par une espace normale
-};
+// Le capital social est toujours libellé en EUR (siège France), peu importe la
+// devise du devis. On garde donc une helper dédiée.
+const formatMoneyEUR = (amount: number) => formatMontant(amount, "EUR");
 
 const formatDate = (dateStr: string) => {
   const date = new Date(dateStr);
@@ -417,6 +414,8 @@ const formatDate = (dateStr: string) => {
 };
 
 export function DevisTemplate({ data }: { data: DevisData }) {
+  const devise = getDeviseInfo(data.devise).code;
+  const formatMoney = (amount: number) => formatMontant(amount, devise);
   return (
     <Document>
       {/* PAGE 1 : Devis */}
@@ -432,7 +431,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
               {"\n"}
               {data.emetteur.codePostal} {data.emetteur.ville} - {data.emetteur.pays}
               {"\n\n"}
-              Capital de {formatMoney(data.emetteur.capital)}
+              Capital de {formatMoneyEUR(data.emetteur.capital)}
               {"\n"}
               Siret : {data.emetteur.siret}
               {"\n"}
@@ -655,7 +654,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
             {"\n"}
             N°TVA {data.emetteur.tva} - SIREN {data.emetteur.siret} - RCS {data.emetteur.rcs}
             {"\n"}
-            Capital de {formatMoney(data.emetteur.capital)} - APE {data.emetteur.ape}
+            Capital de {formatMoneyEUR(data.emetteur.capital)} - APE {data.emetteur.ape}
           </Text>
           <Text style={styles.pageNumber}>1/3</Text>
         </View>
@@ -715,7 +714,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
             {"\n"}
             N°TVA {data.emetteur.tva} - SIREN {data.emetteur.siret} - RCS {data.emetteur.rcs}
             {"\n"}
-            Capital de {formatMoney(data.emetteur.capital)} - APE {data.emetteur.ape}
+            Capital de {formatMoneyEUR(data.emetteur.capital)} - APE {data.emetteur.ape}
           </Text>
           <Text style={styles.pageNumber}>2/3</Text>
         </View>
@@ -771,7 +770,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
             {"\n"}
             N°TVA {data.emetteur.tva} - SIREN {data.emetteur.siret} - RCS {data.emetteur.rcs}
             {"\n"}
-            Capital de {formatMoney(data.emetteur.capital)} - APE {data.emetteur.ape}
+            Capital de {formatMoneyEUR(data.emetteur.capital)} - APE {data.emetteur.ape}
           </Text>
           <Text style={styles.pageNumber}>3/3</Text>
         </View>

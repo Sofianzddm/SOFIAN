@@ -55,6 +55,7 @@ export function documentToPDFData(document: any): FactureData | DevisData {
     titre: document.titre || "",
     dateDocument: document.dateDocument?.toISOString() || new Date().toISOString(),
     dateEcheance: document.dateEcheance?.toISOString() || new Date().toISOString(),
+    devise: document.devise || "EUR",
     
     emetteur: {
       nom: AGENCE_CONFIG.raisonSociale,

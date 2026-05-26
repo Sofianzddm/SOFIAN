@@ -36,8 +36,12 @@ export async function GET(
 
     // Pour les factures libres (sans collaboration), on force la régénération
     // pour garantir un rendu aligné (dont bloc RIB).
+    // On force aussi la régénération si la devise n'est pas EUR car les anciens
+    // PDF en cache ont pu être générés avant le support multi-devises.
+    const deviseDoc = (document as any).devise as string | null | undefined;
     const shouldForceRegenerate =
-      document.type === "FACTURE" && !document.collaborationId;
+      (document.type === "FACTURE" && !document.collaborationId) ||
+      (!!deviseDoc && deviseDoc !== "EUR");
 
     // Si le PDF existe déjà en base64, on le retourne (sauf cas forcé)
     if (document.pdfBase64 && !shouldForceRegenerate) {
