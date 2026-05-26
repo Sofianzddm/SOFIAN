@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import EmailComposer, { type BrandResearch, type Talent } from "../casting-outreach/EmailComposer";
+import { resolveTalentPlaceholders, talentToHtmlLink } from "@/lib/talent-email-links";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -414,8 +415,22 @@ export default function DemandeModal({
         prenom: t.prenom,
         nom: t.nom,
         niches: t.niches,
+        instagram: t.instagram ?? null,
       })),
     [selectedTalentsRaw]
+  );
+
+  const resolveMailHtml = useCallback(
+    (html: string) => resolveTalentPlaceholders(html, selectedTalentsRaw),
+    [selectedTalentsRaw]
+  );
+
+  const insertTalentInMail = useCallback(
+    (t: PresskitTalent) => {
+      if (!editor) return;
+      editor.commands.insertContent(`${talentToHtmlLink(t)} `);
+    },
+    [editor]
   );
 
   const toggleTalent = (id: string) => {
@@ -541,7 +556,8 @@ export default function DemandeModal({
       const nextSubject = typeof data.subject === "string" ? data.subject : "";
       const nextBody = typeof data.body === "string" ? data.body : "";
       setSubject(nextSubject);
-      editor?.commands.setContent(plainTextToEmailHtml(nextBody));
+      const html = resolveTalentPlaceholders(plainTextToEmailHtml(nextBody), selectedTalentsRaw);
+      editor?.commands.setContent(html);
       onSuccess("Brouillon généré");
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -565,7 +581,7 @@ export default function DemandeModal({
         body: JSON.stringify({
           status,
           sujetPret: subject.trim(),
-          emailPret: editor?.getHTML() || "",
+          emailPret: resolveMailHtml(editor?.getHTML() || ""),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -592,9 +608,16 @@ export default function DemandeModal({
       onError("L’objet de la réponse est obligatoire.");
       return;
     }
-    const html = editor?.getHTML() || "";
-    if (!html || html === "<p></p>") {
+    const rawHtml = editor?.getHTML() || "";
+    if (!rawHtml || rawHtml === "<p></p>") {
       onError("Le contenu du mail est vide.");
+      return;
+    }
+    const html = resolveMailHtml(rawHtml);
+    if (/\{\{\s*talent_\d+\s*\}\}/i.test(html)) {
+      onError(
+        "Des jetons {{talent_N}} n'ont pas pu être remplacés. Vérifie la sélection des talents (ordre = n° du jeton)."
+      );
       return;
     }
     if (!confirm("Envoyer ce mail maintenant depuis leyna@glowupagence.fr ?")) return;
@@ -785,6 +808,18 @@ export default function DemandeModal({
                             <p className="text-xs mt-1 opacity-80" style={{ color: LICORICE }}>
                               {primaryTalentStat(t)}
                             </p>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                insertTalentInMail(t);
+                              }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              className="mt-1 text-[11px] underline"
+                              style={{ color: LICORICE }}
+                            >
+                              Insérer dans le mail
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -862,6 +897,7 @@ export default function DemandeModal({
               isGenerating={isGenerating}
               onGenerate={runGenerateEmail}
               editor={editor}
+              talentInsertMode="instagram"
             />
           </div>
         </div>

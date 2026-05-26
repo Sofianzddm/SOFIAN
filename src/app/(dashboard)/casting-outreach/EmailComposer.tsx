@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, type Editor } from "@tiptap/react";
 import { Bold, Eye, Link as LinkIcon, List, ListOrdered, Loader2, Pencil, Italic, Underline as UnderlineIcon } from "lucide-react";
+import { talentToHtmlLink } from "@/lib/talent-email-links";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -28,6 +29,7 @@ export type Talent = {
   prenom?: string;
   nom?: string;
   niches?: string[];
+  instagram?: string | null;
 };
 
 export interface EmailComposerProps {
@@ -43,6 +45,8 @@ export interface EmailComposerProps {
   isGenerating: boolean;
   onGenerate: () => void;
   editor: Editor | null;
+  /** hubspot = jetons {{talent_N}} (casting HubSpot). instagram = liens cliquables (envoi Gmail direct). */
+  talentInsertMode?: "hubspot" | "instagram";
 }
 
 export default function EmailComposer({
@@ -58,6 +62,7 @@ export default function EmailComposer({
   isGenerating,
   onGenerate,
   editor,
+  talentInsertMode = "hubspot",
 }: EmailComposerProps) {
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
   const [lastField, setLastField] = useState<"subject" | "body">("body");
@@ -66,13 +71,17 @@ export default function EmailComposer({
   const [customTalentIndex, setCustomTalentIndex] = useState<string>("");
 
   const talentTokensFromSelection = useMemo<
-    { token: string; label: string }[]
+    { token: string; label: string; html?: string }[]
   >(() => {
     return talentsSelected.map((t, i) => {
       const name = `${t.prenom || ""} ${t.nom || ""}`.trim() || `Talent ${i + 1}`;
-      return { token: `{{talent_${i + 1}}}`, label: name };
+      const token = `{{talent_${i + 1}}}`;
+      if (talentInsertMode === "instagram") {
+        return { token, label: name, html: talentToHtmlLink(t) };
+      }
+      return { token, label: name };
     });
-  }, [talentsSelected]);
+  }, [talentsSelected, talentInsertMode]);
 
   useEffect(() => {
     if (!editor) return;
@@ -271,7 +280,9 @@ export default function EmailComposer({
             ))}
           </div>
           <p className="text-[10px] uppercase tracking-wide" style={{ color: OLD_ROSE }}>
-            Talents (optionnel) — ordre = sélection ; <code className="font-mono">{'{{talent_N}}'}</code> pour tout N
+            {talentInsertMode === "instagram"
+              ? "Talents — insère un lien Instagram cliquable (ordre = sélection)"
+              : "Talents (optionnel) — ordre = sélection ; {{talent_N}} pour tout N"}
           </p>
           <div className="max-h-40 overflow-y-auto flex flex-wrap gap-1.5 pr-1">
             {talentTokensFromSelection.length === 0 ? (
@@ -283,14 +294,22 @@ export default function EmailComposer({
                 <button
                   key={v.token}
                   type="button"
-                  onClick={() => insertVariable(v.token)}
-                  className="text-xs px-2 py-1 rounded-lg border font-mono text-left max-w-full"
+                  onClick={() => {
+                    if (talentInsertMode === "instagram" && v.html && lastField === "body") {
+                      editor?.chain().focus().insertContent(`${v.html} `).run();
+                      return;
+                    }
+                    insertVariable(v.token);
+                  }}
+                  className="text-xs px-2 py-1 rounded-lg border text-left max-w-full"
                   style={{ borderColor: OLD_ROSE, backgroundColor: "white", color: LICORICE }}
                   title={v.label}
                 >
-                  <span className="block truncate">{v.token}</span>
+                  <span className="block truncate font-mono">
+                    {talentInsertMode === "instagram" ? v.label : v.token}
+                  </span>
                   <span className="block text-[10px] font-sans opacity-80 font-normal normal-case truncate">
-                    {v.label}
+                    {talentInsertMode === "instagram" ? "Lien Instagram" : v.label}
                   </span>
                 </button>
               ))
