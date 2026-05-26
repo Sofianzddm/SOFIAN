@@ -27,7 +27,14 @@ export interface ImportedPhoto {
 
 /**
  * Récupère les N dernières publications photo d'un compte Instagram public.
- * Filtre automatiquement les vidéos (on veut des photos).
+ *
+ * On ne garde QUE les vrais posts photo :
+ *   - `Image`   : post photo simple
+ *   - `Sidecar` : carousel (on prend la 1ʳᵉ image)
+ *
+ * On exclut strictement :
+ *   - `Video`  / Reels (leur couverture est une vignette de vidéo, pas une photo)
+ *   - tout post qui contient un `videoUrl` ou un `productType` indiquant un Reel
  */
 export async function fetchInstagramPhotos(
   handle: string,
@@ -45,8 +52,9 @@ export async function fetchInstagramPhotos(
     throw new Error("Handle Instagram vide");
   }
 
-  // On demande un peu plus que `count` pour pouvoir filtrer les vidéos.
-  const resultsLimit = Math.min(count * 2, 40);
+  // On demande beaucoup plus que `count` pour avoir assez de vraies photos
+  // après filtrage des Reels/vidéos (qui peuvent représenter 50 à 80% du feed).
+  const resultsLimit = Math.min(count * 6, 80);
 
   const response = await fetch(`${APIFY_ENDPOINT}?token=${token}`, {
     method: "POST",
@@ -66,18 +74,30 @@ export async function fetchInstagramPhotos(
 
   const items = (await response.json()) as Array<{
     type?: string;
+    productType?: string;
     displayUrl?: string;
     imageUrl?: string;
     images?: string[];
     caption?: string;
     timestamp?: string;
     videoUrl?: string;
+    isVideo?: boolean;
   }>;
 
   const photos: ImportedPhoto[] = [];
   for (const it of items) {
-    // On préfère un Image / Sidecar (carousel). On évite les vidéos.
-    if (it.type === "Video" && !it.displayUrl && !it.imageUrl) continue;
+    const type = (it.type || "").toLowerCase();
+    const productType = (it.productType || "").toLowerCase();
+
+    const isVideoOrReel =
+      type === "video" ||
+      it.isVideo === true ||
+      Boolean(it.videoUrl) ||
+      productType === "clips" ||
+      productType === "igtv";
+
+    if (isVideoOrReel) continue;
+    if (type !== "image" && type !== "sidecar") continue;
 
     const url =
       it.displayUrl ||
