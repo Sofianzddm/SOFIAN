@@ -17,7 +17,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/pub/cannes-coiffeur") ||
     pathname === "/r/cannes-villa-tv" ||
     pathname === "/r/cannes-villa-tv/agenda" ||
-    pathname.startsWith("/api/pub/cannes-villa-tv")
+    pathname.startsWith("/api/pub/cannes-villa-tv") ||
+    pathname.startsWith("/r/activations/") ||
+    pathname.startsWith("/api/pub/activation-stats/")
   ) {
     const ua = request.headers.get("user-agent") ?? "";
     const googleCrawler =
@@ -210,5 +212,11 @@ export const config = {
     "/r/cannes-villa-tv",
     "/r/cannes-villa-tv/agenda",
     "/api/pub/cannes-villa-tv/:path*",
+    // Rapports stats activations (portail client public)
+    "/r/activations/:path*",
+    "/api/pub/activation-stats/:path*",
+    // Dashboard interne rapports stats activations
+    "/activation-stats",
+    "/activation-stats/:path*",
   ],
 };

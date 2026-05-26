@@ -341,6 +341,7 @@ model User {
   cannesPresences  CannesPresence[] @relation("UserCannesPresences")
   coiffeurSlotsCreated   CannesCoiffeurSlot[]   @relation("CannesCoiffeurSlotCreator")
   coiffeurBookingsPlaced CannesCoiffeurBooking[] @relation("CannesCoiffeurBookingCreator")
+  activationReportsCreated ActivationReport[]    @relation("ActivationReportCreatedBy")
 
   @@map("users")
 }
@@ -439,6 +440,7 @@ model Talent {
   dinnerCandidates DinnerCreatorCandidate[]
   cannesPresences CannesPresence[] @relation("TalentCannesPresences")
   cannesCoiffeurBookings CannesCoiffeurBooking[]
+  activationReportTalents ActivationReportTalent[]
 
   @@map("talents")
 }
@@ -2548,4 +2550,64 @@ model CannesCoiffeurBooking {
   @@index([talentId])
   @@index([prestationId])
   @@map("cannes_coiffeur_bookings")
+}
+
+// =============================================
+// ACTIVATION STATS REPORTS (envoi screenshots stats au client)
+// =============================================
+
+/// Rapport stats d'une activation : on choisit le nom, on selectionne des talents,
+/// on glisse-depose les screenshots des stats. Un lien client protege par mot de
+/// passe est genere pour le partage externe.
+model ActivationReport {
+  id                String   @id @default(cuid())
+  name              String   // Nom de l'activation (ex. "Sephora Cannes 2026")
+  clientAccessToken String   @unique
+  passwordHash      String
+
+  createdById       String
+  createdBy         User     @relation("ActivationReportCreatedBy", fields: [createdById], references: [id])
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  talents           ActivationReportTalent[]
+
+  @@index([createdById])
+  @@map("activation_reports")
+}
+
+model ActivationReportTalent {
+  id        String   @id @default(cuid())
+
+  reportId  String
+  report    ActivationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  talentId  String
+  talent    Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  screenshots ActivationReportScreenshot[]
+
+  @@unique([reportId, talentId])
+  @@index([reportId])
+  @@index([talentId])
+  @@map("activation_report_talents")
+}
+
+model ActivationReportScreenshot {
+  id             String   @id @default(cuid())
+
+  reportTalentId String
+  reportTalent   ActivationReportTalent @relation(fields: [reportTalentId], references: [id], onDelete: Cascade)
+
+  imageUrl       String
+  label          String?
+  position       Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([reportTalentId])
+  @@map("activation_report_screenshots")
 }

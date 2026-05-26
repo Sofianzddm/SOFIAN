@@ -26,6 +26,7 @@ import {
   Briefcase,
   Mail,
   BadgeDollarSign,
+  BarChart3,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -146,6 +147,12 @@ const menuItems = [
     label: "Gifts",
     href: "/gifts",
     icon: Gift,
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"],
+  },
+  {
+    label: "Stats activations",
+    href: "/activation-stats",
+    icon: BarChart3,
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"],
   },
   {
