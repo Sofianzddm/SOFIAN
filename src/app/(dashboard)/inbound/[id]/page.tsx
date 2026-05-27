@@ -463,6 +463,13 @@ export default function InboundDetailPage() {
               : "Un mail a déjà été envoyé à cette adresse récemment."
           );
         }
+        if (sendJson.error === "gmail_send_failed") {
+          throw new Error(
+            typeof sendJson.message === "string"
+              ? sendJson.message
+              : "Gmail a refusé l'envoi."
+          );
+        }
         throw new Error(typeof sendJson.error === "string" ? sendJson.error : "Envoi Gmail impossible.");
       }
 

@@ -77,6 +77,10 @@ export async function POST(
       }
     }
 
+    // IMPORTANT : on n'envoie PAS avec opportunity.threadId — c'est l'id du
+    // thread dans la boîte du *talent* (ex: agathe@…), pas dans celle de
+    // Leyna. Gmail rejette alors avec 404/400. Leyna crée un nouveau thread
+    // dans sa propre boîte ; la marque reçoit le mail normalement.
     let messageId = "";
     try {
       messageId = await sendGmail({
@@ -84,13 +88,17 @@ export async function POST(
         to: opportunity.senderEmail,
         subject,
         htmlBody,
-        ...(opportunity.threadId ? { threadId: opportunity.threadId } : {}),
       });
     } catch (error) {
       if (error instanceof Error && error.message === "Gmail non connecté") {
         return NextResponse.json({ error: "gmail_not_connected" }, { status: 400 });
       }
-      throw error;
+      const message = error instanceof Error ? error.message : "Échec envoi Gmail";
+      console.error("POST /api/inbound/opportunities/[id]/send gmail error:", message);
+      return NextResponse.json(
+        { error: "gmail_send_failed", message },
+        { status: 502 }
+      );
     }
 
     await prisma.$executeRaw`
@@ -98,7 +106,7 @@ export async function POST(
       SET
         "status" = 'READY',
         "gmailSentMessageId" = ${messageId},
-        "threadId" = ${opportunity.threadId || messageId},
+        "threadId" = ${messageId},
         "sentAt" = NOW(),
         "updatedAt" = NOW()
       WHERE "id" = ${id}

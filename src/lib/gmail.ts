@@ -144,9 +144,29 @@ export async function sendGmail(options: {
     }),
   });
 
-  const sendJson = (await sendResponse.json().catch(() => null)) as { id?: string } | null;
+  const rawText = await sendResponse.text();
+  let sendJson: { id?: string; error?: { code?: number; message?: string; status?: string } } | null = null;
+  try {
+    sendJson = rawText ? (JSON.parse(rawText) as typeof sendJson) : null;
+  } catch {
+    sendJson = null;
+  }
+
   if (!sendResponse.ok || !sendJson?.id) {
-    throw new Error("Échec envoi Gmail");
+    const gmailMessage =
+      sendJson?.error?.message ||
+      rawText.slice(0, 500) ||
+      "Réponse Gmail vide";
+    const gmailStatus = sendJson?.error?.status || sendJson?.error?.code || sendResponse.status;
+    console.error("[gmail.sendGmail] échec", {
+      httpStatus: sendResponse.status,
+      gmailStatus,
+      gmailMessage,
+      from: options.fromEmail,
+      to: options.to,
+      threadId: options.threadId || null,
+    });
+    throw new Error(`Gmail a refusé l'envoi (${gmailStatus}) : ${gmailMessage}`);
   }
 
   return sendJson.id;
