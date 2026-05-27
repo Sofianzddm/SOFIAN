@@ -672,6 +672,20 @@ model InboundOpportunity {
   gmailSentMessageId String?
   sentAt             DateTime?
 
+  // Tracking ouvertures (pixel) et clics (lien réécrit)
+  openedAt           DateTime?
+  lastOpenAt         DateTime?
+  openCount          Int       @default(0)
+  clickedAt          DateTime?
+  lastClickAt        DateTime?
+  lastClickUrl       String?
+  clickCount         Int       @default(0)
+
+  // Relances automatiques (cron quotidien 8h)
+  relance1SentAt     DateTime?
+  relance2SentAt     DateTime?
+  replied            Boolean   @default(false)
+
   status            InboundStatus @default(NEW)
 
   convertedToProspectionId String? @unique
@@ -695,6 +709,7 @@ model InboundOpportunity {
   @@index([talentId])
   @@index([senderDomain])
   @@index([threadId])
+  @@index([openedAt])
   @@map("inbound_opportunities")
 }
 

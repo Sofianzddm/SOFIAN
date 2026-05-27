@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { sendGmail } from "@/lib/gmail";
+import { injectInboundTracking } from "@/lib/email-tracking";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "ADMIN"] as const;
 const COOLDOWN_DAYS = 20;
@@ -81,13 +82,17 @@ export async function POST(
     // thread dans la boîte du *talent* (ex: agathe@…), pas dans celle de
     // Leyna. Gmail rejette alors avec 404/400. Leyna crée un nouveau thread
     // dans sa propre boîte ; la marque reçoit le mail normalement.
+    // Tracking ouvertures (pixel) + clics (liens réécrits). Invisible côté
+    // destinataire ; on garde le htmlBody original pour l'affichage modale.
+    const trackedHtmlBody = injectInboundTracking(htmlBody, id);
+
     let messageId = "";
     try {
       messageId = await sendGmail({
         fromEmail: "leyna@glowupagence.fr",
         to: opportunity.senderEmail,
         subject,
-        htmlBody,
+        htmlBody: trackedHtmlBody,
       });
     } catch (error) {
       if (error instanceof Error && error.message === "Gmail non connecté") {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Loader2, Mail, Search, Calendar, ExternalLink, X } from "lucide-react";
+import { Loader2, Mail, Search, Calendar, ExternalLink, X, Eye, MousePointerClick, Clock, CheckCircle2, AlertCircle } from "lucide-react";
 import { inboundCategoryLabel } from "@/lib/inbound-categories";
 
 type Mail = {
@@ -25,6 +25,16 @@ type Mail = {
   status: string;
   category: string;
   priority: string;
+  openedAt: string | null;
+  lastOpenAt: string | null;
+  openCount: number;
+  clickedAt: string | null;
+  lastClickAt: string | null;
+  lastClickUrl: string | null;
+  clickCount: number;
+  relance1SentAt: string | null;
+  relance2SentAt: string | null;
+  replied: boolean;
   talent: {
     id: string;
     prenom: string;
@@ -68,12 +78,320 @@ function relativeDate(dateStr: string) {
   return `il y a ${months} mois`;
 }
 
+/**
+ * Calcule la date prévisionnelle de la prochaine relance auto.
+ * Le cron tourne tous les jours à 8h (Europe/Paris) :
+ *  - R1 part dès que sentAt + 3 jours est passé
+ *  - R2 part dès que sentAt + 7 jours est passé
+ * Si l'échéance est dépassée, on retourne le prochain passage du cron (demain 8h).
+ */
+function computeNextRelance(
+  sentAt: string | null,
+  relance1SentAt: string | null,
+  relance2SentAt: string | null,
+  replied: boolean
+): { level: 1 | 2; scheduledAt: Date; isOverdue: boolean } | null {
+  if (!sentAt || replied || relance2SentAt) return null;
+  const sent = new Date(sentAt);
+  const addDays = (d: Date, n: number) => {
+    const out = new Date(d);
+    out.setDate(out.getDate() + n);
+    return out;
+  };
+  const now = new Date();
+  const level: 1 | 2 = relance1SentAt ? 2 : 1;
+  const eligibleAt = addDays(sent, level === 1 ? 3 : 7);
+  if (eligibleAt > now) return { level, scheduledAt: eligibleAt, isOverdue: false };
+  // Échéance passée → prochaine exécution du cron (8h Europe/Paris).
+  const next8h = new Date(now);
+  if (now.getHours() >= 8) next8h.setDate(next8h.getDate() + 1);
+  next8h.setHours(8, 0, 0, 0);
+  return { level, scheduledAt: next8h, isOverdue: true };
+}
+
+function formatRelativeFuture(date: Date): string {
+  const diffMs = date.getTime() - Date.now();
+  if (diffMs <= 0) return "imminente";
+  const minutes = Math.round(diffMs / (1000 * 60));
+  if (minutes < 60) return `dans ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `dans ${hours}h`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return "demain";
+  return `dans ${days}j`;
+}
+
 function StatCard({ label, value, hint }: { label: string; value: number; hint?: string }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
       <p className="mt-1 text-3xl font-semibold text-slate-900">{value}</p>
       {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
+    </div>
+  );
+}
+
+function RelanceTimeline({ mail }: { mail: Mail }) {
+  const next = computeNextRelance(
+    mail.sentAt,
+    mail.relance1SentAt,
+    mail.relance2SentAt,
+    mail.replied
+  );
+
+  type Step = {
+    label: string;
+    state: "done" | "pending" | "skipped" | "stopped";
+    date?: string;
+    hint?: string;
+  };
+
+  const steps: Step[] = [
+    {
+      label: "Mail initial envoyé",
+      state: "done",
+      date: mail.sentAt
+        ? `${formatDate(mail.sentAt)} (${relativeDate(mail.sentAt)})`
+        : undefined,
+    },
+  ];
+
+  if (mail.replied) {
+    steps.push({
+      label: "Client a répondu — relances stoppées",
+      state: "stopped",
+      hint: "Détecté automatiquement par le cron via Gmail.",
+    });
+  } else {
+    if (mail.relance1SentAt) {
+      steps.push({
+        label: "Relance 1 envoyée (J+3)",
+        state: "done",
+        date: `${formatDate(mail.relance1SentAt)} (${relativeDate(mail.relance1SentAt)})`,
+      });
+    } else if (next?.level === 1) {
+      steps.push({
+        label: "Relance 1 (J+3)",
+        state: "pending",
+        date: `Prévue ${formatRelativeFuture(next.scheduledAt)} — ${next.scheduledAt.toLocaleString(
+          "fr-FR",
+          { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
+        )}`,
+        hint: next.isOverdue
+          ? "Échéance dépassée, partira au prochain cron (8h)."
+          : "Cron quotidien à 8h.",
+      });
+    }
+
+    if (mail.relance2SentAt) {
+      steps.push({
+        label: "Relance 2 envoyée (J+7) — dernière",
+        state: "done",
+        date: `${formatDate(mail.relance2SentAt)} (${relativeDate(mail.relance2SentAt)})`,
+      });
+    } else if (mail.relance1SentAt && next?.level === 2) {
+      steps.push({
+        label: "Relance 2 (J+7) — dernière",
+        state: "pending",
+        date: `Prévue ${formatRelativeFuture(next.scheduledAt)} — ${next.scheduledAt.toLocaleString(
+          "fr-FR",
+          { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
+        )}`,
+        hint: next.isOverdue
+          ? "Échéance dépassée, partira au prochain cron (8h)."
+          : "Cron quotidien à 8h.",
+      });
+    } else if (!mail.relance1SentAt && !next) {
+      // cas rare : pas de sentAt, on n'affiche rien d'autre
+    } else if (!mail.relance1SentAt) {
+      steps.push({
+        label: "Relance 2 (J+7) — dernière",
+        state: "skipped",
+        hint: "S'enchaînera après la relance 1.",
+      });
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        Relances automatiques
+      </p>
+      <ol className="space-y-2">
+        {steps.map((s, idx) => (
+          <li key={idx} className="flex items-start gap-2">
+            <span
+              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
+                s.state === "done"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : s.state === "pending"
+                    ? "bg-slate-100 text-slate-500"
+                    : s.state === "stopped"
+                      ? "bg-sky-100 text-sky-700"
+                      : "bg-slate-50 text-slate-400"
+              }`}
+            >
+              {s.state === "done" ? (
+                <CheckCircle2 className="h-3 w-3" />
+              ) : s.state === "stopped" ? (
+                <CheckCircle2 className="h-3 w-3" />
+              ) : (
+                <Clock className="h-3 w-3" />
+              )}
+            </span>
+            <div className="flex-1">
+              <p
+                className={`font-medium ${
+                  s.state === "skipped" ? "text-slate-400" : "text-slate-800"
+                }`}
+              >
+                {s.label}
+              </p>
+              {s.date ? <p className="text-slate-600">{s.date}</p> : null}
+              {s.hint ? <p className="text-[11px] text-slate-400">{s.hint}</p> : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function RelanceStatus({
+  sentAt,
+  relance1SentAt,
+  relance2SentAt,
+  replied,
+}: {
+  sentAt: string | null;
+  relance1SentAt: string | null;
+  relance2SentAt: string | null;
+  replied: boolean;
+}) {
+  if (replied) {
+    return (
+      <div
+        className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700"
+        title="Le client a répondu, plus aucune relance ne sera envoyée."
+      >
+        <CheckCircle2 className="h-3 w-3" />
+        Stoppée — client a répondu
+      </div>
+    );
+  }
+
+  if (relance2SentAt) {
+    return (
+      <div className="flex flex-col gap-1 text-xs">
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+          <CheckCircle2 className="h-3 w-3" />
+          R1 + R2 envoyées
+        </span>
+        <span className="text-[11px] text-slate-500">
+          R2 : {relativeDate(relance2SentAt)}
+        </span>
+      </div>
+    );
+  }
+
+  const next = computeNextRelance(sentAt, relance1SentAt, relance2SentAt, replied);
+
+  return (
+    <div className="flex flex-col gap-1 text-xs">
+      {relance1SentAt ? (
+        <span
+          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700"
+          title={`Envoyée le ${formatDate(relance1SentAt)}`}
+        >
+          <CheckCircle2 className="h-3 w-3" />
+          R1 · {relativeDate(relance1SentAt)}
+        </span>
+      ) : null}
+      {next ? (
+        <span
+          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${
+            next.isOverdue
+              ? "border-amber-200 bg-amber-50 text-amber-700"
+              : "border-slate-200 bg-slate-50 text-slate-600"
+          }`}
+          title={`Programmée le ${next.scheduledAt.toLocaleString("fr-FR", {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          })} (cron quotidien 8h)`}
+        >
+          {next.isOverdue ? (
+            <AlertCircle className="h-3 w-3" />
+          ) : (
+            <Clock className="h-3 w-3" />
+          )}
+          R{next.level} {formatRelativeFuture(next.scheduledAt)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function EngagementBadges({
+  openCount,
+  lastOpenAt,
+  clickCount,
+  lastClickAt,
+}: {
+  openCount: number;
+  lastOpenAt: string | null;
+  clickCount: number;
+  lastClickAt: string | null;
+}) {
+  const opened = openCount > 0;
+  const clicked = clickCount > 0;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+          opened
+            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+            : "bg-slate-50 text-slate-400 border border-slate-200"
+        }`}
+        title={
+          opened && lastOpenAt
+            ? `Dernière ouverture : ${new Date(lastOpenAt).toLocaleString("fr-FR")}`
+            : "Pas encore ouvert"
+        }
+      >
+        <Eye className="h-3 w-3" />
+        {opened ? (
+          <span>
+            Ouvert{openCount > 1 ? ` · ${openCount}×` : ""}
+            {lastOpenAt ? ` · ${relativeDate(lastOpenAt)}` : ""}
+          </span>
+        ) : (
+          <span>Non ouvert</span>
+        )}
+      </span>
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+          clicked
+            ? "bg-amber-50 text-amber-700 border border-amber-200"
+            : "bg-slate-50 text-slate-400 border border-slate-200"
+        }`}
+        title={
+          clicked && lastClickAt
+            ? `Dernier clic : ${new Date(lastClickAt).toLocaleString("fr-FR")}`
+            : "Aucun clic"
+        }
+      >
+        <MousePointerClick className="h-3 w-3" />
+        {clicked ? (
+          <span>
+            Cliqué{clickCount > 1 ? ` · ${clickCount}×` : ""}
+          </span>
+        ) : (
+          <span>Aucun clic</span>
+        )}
+      </span>
     </div>
   );
 }
@@ -211,6 +529,8 @@ export default function CastingMailsSentPage() {
               <th className="px-4 py-3 text-left">Talent</th>
               <th className="px-4 py-3 text-left">Marque / Expéditeur</th>
               <th className="px-4 py-3 text-left">Objet envoyé</th>
+              <th className="px-4 py-3 text-left">Engagement</th>
+              <th className="px-4 py-3 text-left">Relances auto</th>
               <th className="px-4 py-3 text-left">Catégorie</th>
               <th className="px-4 py-3 text-left">Priorité</th>
               <th className="px-4 py-3 text-right">Actions</th>
@@ -219,13 +539,13 @@ export default function CastingMailsSentPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center">
+                <td colSpan={9} className="px-4 py-12 text-center">
                   <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#C08B8B]" />
                 </td>
               </tr>
             ) : (data?.mails.length ?? 0) === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
+                <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
                   Aucun mail envoyé sur cette période.
                 </td>
               </tr>
@@ -270,6 +590,22 @@ export default function CastingMailsSentPage() {
                     <div className="mt-1 text-xs text-slate-500">
                       Mail original : {m.subject.slice(0, 80)}
                     </div>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <EngagementBadges
+                      openCount={m.openCount}
+                      lastOpenAt={m.lastOpenAt}
+                      clickCount={m.clickCount}
+                      lastClickAt={m.lastClickAt}
+                    />
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <RelanceStatus
+                      sentAt={m.sentAt}
+                      relance1SentAt={m.relance1SentAt}
+                      relance2SentAt={m.relance2SentAt}
+                      replied={m.replied}
+                    />
                   </td>
                   <td className="px-4 py-3 align-top">
                     <span className="rounded-full bg-[#F5EBE0] px-2 py-1 text-xs text-[#1A1110]">
@@ -352,6 +688,83 @@ export default function CastingMailsSentPage() {
                 <p>
                   <strong>Mail original reçu :</strong> {openMail.subject}
                 </p>
+              </div>
+
+              <RelanceTimeline mail={openMail} />
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div
+                  className={`rounded-lg border p-3 text-xs ${
+                    openMail.openCount > 0
+                      ? "border-emerald-200 bg-emerald-50/60"
+                      : "border-slate-200 bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Eye className="h-3.5 w-3.5 text-emerald-700" />
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                      Ouvertures
+                    </p>
+                  </div>
+                  {openMail.openCount > 0 ? (
+                    <div className="mt-1 space-y-0.5 text-slate-700">
+                      <p>
+                        <strong>{openMail.openCount}</strong> ouverture
+                        {openMail.openCount > 1 ? "s" : ""}
+                      </p>
+                      {openMail.openedAt ? (
+                        <p>1ère ouverture : {formatDate(openMail.openedAt)}</p>
+                      ) : null}
+                      {openMail.lastOpenAt &&
+                      openMail.lastOpenAt !== openMail.openedAt ? (
+                        <p>Dernière : {formatDate(openMail.lastOpenAt)}</p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-slate-500">Pas encore ouvert.</p>
+                  )}
+                </div>
+
+                <div
+                  className={`rounded-lg border p-3 text-xs ${
+                    openMail.clickCount > 0
+                      ? "border-amber-200 bg-amber-50/60"
+                      : "border-slate-200 bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <MousePointerClick className="h-3.5 w-3.5 text-amber-700" />
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                      Clics
+                    </p>
+                  </div>
+                  {openMail.clickCount > 0 ? (
+                    <div className="mt-1 space-y-0.5 text-slate-700">
+                      <p>
+                        <strong>{openMail.clickCount}</strong> clic
+                        {openMail.clickCount > 1 ? "s" : ""}
+                      </p>
+                      {openMail.lastClickAt ? (
+                        <p>Dernier clic : {formatDate(openMail.lastClickAt)}</p>
+                      ) : null}
+                      {openMail.lastClickUrl ? (
+                        <p className="truncate">
+                          Lien :{" "}
+                          <a
+                            href={openMail.lastClickUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline hover:text-slate-900"
+                          >
+                            {openMail.lastClickUrl}
+                          </a>
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-slate-500">Aucun lien cliqué.</p>
+                  )}
+                </div>
               </div>
 
               <div>
