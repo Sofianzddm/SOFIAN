@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { verifyInboundAuth } from "@/lib/inbound-auth";
@@ -67,9 +68,24 @@ export async function POST(req: NextRequest) {
     const data = parsed.data;
 
     const threadId = data.threadId?.trim() || null;
+
+    // Dédoublon : on ne bloque JAMAIS sauf si exactement le même mail est
+    // déjà dans Inbound (sinon les "Re: ..." du même thread créeraient des
+    // doublons visibles dans le dashboard).
+    // - Même `gmailMessageId` → c'est le même mail, on renvoie l'id existant.
+    // - Même `threadId` déjà importé dans Inbound → on renvoie l'id existant
+    //   (évite 4× "Re: Lazartigue" pour le même fil).
+    // - L'anti-spam "ne pas relancer le même sender 2x en 20j" est géré à
+    //   l'envoi (POST .../[id]/send), pas à la réception.
+    const existingMessage = await prisma.inboundOpportunity.findUnique({
+      where: { gmailMessageId: data.gmailMessageId },
+      select: { id: true },
+    });
+    if (existingMessage) {
+      return NextResponse.json({ ok: true, duplicate: true, id: existingMessage.id });
+    }
+
     if (threadId) {
-      // Une seule opportunité par fil Gmail (quelque soit le statut)
-      // évite de spammer Inbound avec 4× "Re: Lazartigue" pour le même thread.
       const existingThread = await prisma.inboundOpportunity.findFirst({
         where: { threadId },
         orderBy: { receivedAt: "desc" },
@@ -80,14 +96,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const existingMessage = await prisma.inboundOpportunity.findUnique({
-      where: { gmailMessageId: data.gmailMessageId },
-      select: { id: true },
-    });
-    if (existingMessage) {
-      return NextResponse.json({ ok: true, duplicate: true, id: existingMessage.id });
-    }
-
     const matchedTalent = data.talentId
       ? await prisma.talent.findUnique({ where: { id: data.talentId }, select: { id: true } })
       : await prisma.talent.findFirst({
@@ -95,30 +103,48 @@ export async function POST(req: NextRequest) {
           select: { id: true },
         });
 
-    const opportunity = await prisma.inboundOpportunity.create({
-      data: {
-        talentEmail: data.talentEmail,
-        talentName: data.talentName,
-        talentId: matchedTalent?.id || null,
-        senderEmail: data.senderEmail,
-        senderName: data.senderName || null,
-        senderDomain: data.senderDomain.toLowerCase().trim(),
-        subject: data.subject.trim(),
-        bodyExcerpt: data.bodyExcerpt.slice(0, 3000),
-        gmailMessageId: data.gmailMessageId,
-        threadId,
-        receivedAt: new Date(data.receivedAt),
-        category: data.category,
-        confidence: data.confidence,
-        priority: data.priority,
-        extractedBrand: data.extractedBrand || null,
-        extractedTopic: data.extractedTopic || null,
-        extractedBudget: data.extractedBudget || null,
-        extractedDeadline: data.extractedDeadline || null,
-        extractedDeliverables: data.extractedDeliverables || null,
-        briefSummary: data.briefSummary || null,
-      },
-    });
+    let opportunity;
+    try {
+      opportunity = await prisma.inboundOpportunity.create({
+        data: {
+          talentEmail: data.talentEmail,
+          talentName: data.talentName,
+          talentId: matchedTalent?.id || null,
+          senderEmail: data.senderEmail,
+          senderName: data.senderName || null,
+          senderDomain: data.senderDomain.toLowerCase().trim(),
+          subject: data.subject.trim(),
+          bodyExcerpt: data.bodyExcerpt.slice(0, 3000),
+          gmailMessageId: data.gmailMessageId,
+          threadId,
+          receivedAt: new Date(data.receivedAt),
+          category: data.category,
+          confidence: data.confidence,
+          priority: data.priority,
+          extractedBrand: data.extractedBrand || null,
+          extractedTopic: data.extractedTopic || null,
+          extractedBudget: data.extractedBudget || null,
+          extractedDeadline: data.extractedDeadline || null,
+          extractedDeliverables: data.extractedDeliverables || null,
+          briefSummary: data.briefSummary || null,
+        },
+      });
+    } catch (createError) {
+      // Course entre deux POST simultanés (scanner Apps Script) : le 2e échoue sur la contrainte unique.
+      if (
+        createError instanceof Prisma.PrismaClientKnownRequestError &&
+        createError.code === "P2002"
+      ) {
+        const raced = await prisma.inboundOpportunity.findUnique({
+          where: { gmailMessageId: data.gmailMessageId },
+          select: { id: true },
+        });
+        if (raced) {
+          return NextResponse.json({ ok: true, duplicate: true, id: raced.id });
+        }
+      }
+      throw createError;
+    }
 
     const recipients = await prisma.user.findMany({
       where: { role: { in: [...ALLOWED_ROLES] }, actif: true },

@@ -41,6 +41,8 @@ export async function POST(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
+    // Cooldown : on bloque si on a déjà envoyé un mail à exactement ce
+    // senderEmail dans les 20 derniers jours (peu importe l'opportunité).
     const senderEmail = (opportunity.senderEmail || "").toLowerCase().trim();
     if (senderEmail) {
       const since = new Date(Date.now() - COOLDOWN_DAYS * 24 * 60 * 60 * 1000);

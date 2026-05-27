@@ -111,6 +111,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, action: "marked_replied" });
     }
 
+    // Politique : on ne bloque JAMAIS la création d'une demande entrante.
+    // Seul dédoublon strict : même `gmailMessageId` (= même mail Gmail), pour
+    // éviter d'avoir 2 lignes identiques en BDD. Les relances "Re: ..." dans
+    // un thread existant créent bien une nouvelle ligne — la protection
+    // anti-spam est gérée à l'envoi, pas à la réception.
     const existing = (await prisma.$queryRaw`
       SELECT "id"
       FROM "DemandeEntrante"
@@ -120,24 +125,6 @@ export async function POST(request: NextRequest) {
 
     if (Array.isArray(existing) && existing.length > 0) {
       return NextResponse.json({ success: true, id: existing[0].id, action: "already_exists" });
-    }
-
-    // Un seul enregistrement par fil Gmail (évite 4× "Re: Lazartigue" pour le même thread)
-    if (threadId) {
-      const existingThread = (await prisma.$queryRaw`
-        SELECT "id"
-        FROM "DemandeEntrante"
-        WHERE "gmailThreadId" = ${threadId}
-        LIMIT 1
-      `) as ExistingRow[];
-
-      if (Array.isArray(existingThread) && existingThread.length > 0) {
-        return NextResponse.json({
-          success: true,
-          id: existingThread[0].id,
-          action: "duplicate_thread",
-        });
-      }
     }
 
     const inserted = (await prisma.$queryRaw`
