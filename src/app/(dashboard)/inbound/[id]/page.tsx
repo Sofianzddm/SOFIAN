@@ -9,6 +9,7 @@ import Image from "next/image";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import TiptapUnderline from "@tiptap/extension-underline";
+import TiptapLink from "@tiptap/extension-link";
 import EmailComposer, {
   type BrandResearch,
   type Talent,
@@ -116,7 +117,18 @@ export default function InboundDetailPage() {
 
   const composerEditor = useEditor({
     immediatelyRender: false,
-    extensions: [StarterKit, TiptapUnderline],
+    extensions: [
+      StarterKit.configure({ link: false }),
+      TiptapUnderline,
+      TiptapLink.configure({
+        openOnClick: false,
+        autolink: false,
+        HTMLAttributes: {
+          target: "_blank",
+          rel: "noopener noreferrer",
+        },
+      }),
+    ],
     content: "<p></p>",
     editorProps: {
       attributes: {

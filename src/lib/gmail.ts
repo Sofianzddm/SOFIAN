@@ -16,6 +16,17 @@ function toBase64Url(input: string): string {
     .replace(/=+$/g, "");
 }
 
+/**
+ * Encode un en-tête MIME en RFC 2047 si nécessaire (caractères non-ASCII).
+ * Sans ça, Gmail interprète parfois le sujet en latin-1 et affiche des
+ * mojibakes type "DA©couvre" au lieu de "Découvre".
+ */
+function encodeMimeHeader(value: string): string {
+  if (/^[\x00-\x7F]*$/.test(value)) return value;
+  const base64 = Buffer.from(value, "utf-8").toString("base64");
+  return `=?UTF-8?B?${base64}?=`;
+}
+
 export async function getValidAccessToken(email: string): Promise<string> {
   const token = await prisma.gmailToken.findUnique({ where: { email } });
   if (!token) {
@@ -111,11 +122,12 @@ export async function sendGmail(options: {
   const finalBody = appendSignature(options.htmlBody, signature);
 
   const message = [
-    `From: Leyna Khaled <${options.fromEmail}>`,
+    `From: ${encodeMimeHeader("Leyna Khaled")} <${options.fromEmail}>`,
     `To: ${options.to}`,
-    `Subject: ${options.subject}`,
+    `Subject: ${encodeMimeHeader(options.subject)}`,
     "MIME-Version: 1.0",
     "Content-Type: text/html; charset=utf-8",
+    "Content-Transfer-Encoding: 8bit",
     "",
     finalBody,
   ].join("\r\n");
