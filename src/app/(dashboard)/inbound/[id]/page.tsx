@@ -74,6 +74,7 @@ export default function InboundDetailPage() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerSubject, setComposerSubject] = useState("");
   const [sendingFromLeyna, setSendingFromLeyna] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [talents, setTalents] = useState<PresskitTalent[]>([]);
   const [loadingTalents, setLoadingTalents] = useState(false);
@@ -390,6 +391,55 @@ export default function InboundDetailPage() {
     }
   };
 
+  const sendTestToSelf = async () => {
+    if (!opportunity) return;
+    const subject = composerSubject.trim();
+    const rawHtml = composerEditor?.getHTML() || "";
+    if (!subject) {
+      showToast("Objet obligatoire.", "error");
+      return;
+    }
+    if (!rawHtml.trim()) {
+      showToast("Corps du mail obligatoire.", "error");
+      return;
+    }
+    const bodyHtml = resolveTalentPlaceholders(rawHtml, selectedTalentsRaw);
+    if (/\{\{\s*talent_\d+\s*\}\}/i.test(bodyHtml)) {
+      showToast(
+        "Des jetons {{talent_N}} n'ont pas pu être remplacés. Vérifie la sélection des talents.",
+        "error"
+      );
+      return;
+    }
+
+    setSendingTest(true);
+    try {
+      const res = await fetch(
+        `/api/inbound/opportunities/${opportunity.id}/test-send`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject, htmlBody: bodyHtml }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.error === "gmail_not_connected") {
+          throw new Error(
+            "La boite Gmail de Leyna n'est pas connectée. Demandez à l'admin de la connecter."
+          );
+        }
+        throw new Error(typeof data.error === "string" ? data.error : "Envoi test impossible.");
+      }
+      showToast(`✅ Test envoyé à ${data.to || "ton email"}`, "success");
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "Erreur envoi test.", "error");
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {toast && (
@@ -614,14 +664,23 @@ export default function InboundDetailPage() {
                   });
                 }}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
-                disabled={sendingFromLeyna}
+                disabled={sendingFromLeyna || sendingTest}
               >
                 Enregistrer brouillon
               </button>
               <button
                 type="button"
+                onClick={() => void sendTestToSelf()}
+                disabled={sendingFromLeyna || sendingTest}
+                className="rounded-lg border border-[#C08B8B] bg-white px-3 py-2 text-sm font-medium text-[#1A1110] disabled:opacity-60"
+                title="Envoie le mail de test à ton adresse, sans changer le statut de l'opportunité"
+              >
+                {sendingTest ? "Envoi test..." : "✉️ M'envoyer un test"}
+              </button>
+              <button
+                type="button"
                 onClick={() => void sendFromLeyna()}
-                disabled={sendingFromLeyna}
+                disabled={sendingFromLeyna || sendingTest}
                 className="rounded-lg bg-[#C8F285] px-3 py-2 text-sm font-semibold text-[#1A1110] disabled:opacity-60"
               >
                 {sendingFromLeyna ? "Envoi en cours..." : "🚀 Envoyer depuis Leyna"}
