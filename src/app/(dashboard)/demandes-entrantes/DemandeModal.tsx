@@ -537,6 +537,11 @@ export default function DemandeModal({
     }
     setIsGenerating(true);
     try {
+      const fromHeader = (demande?.from || "").trim();
+      const senderDisplayName = fromHeader.includes("<")
+        ? fromHeader.split("<")[0].trim().replace(/^"|"$/g, "")
+        : fromHeader.split("@")[0]?.trim() || "";
+      const senderFirstName = senderDisplayName.split(/\s+/)[0]?.trim();
       const res = await fetch("/api/casting/generate-email", {
         method: "POST",
         credentials: "include",
@@ -545,6 +550,10 @@ export default function DemandeModal({
           language: emailLanguage,
           brandName,
           brandResearch: briefAsBrandResearch,
+          recipient: {
+            firstName: senderFirstName || undefined,
+            brandName,
+          },
           talents: selectedTalentsRaw.map((t) => {
             const followers = Math.max(t.igFollowers || 0, t.ttFollowers || 0);
             const eng =
@@ -633,6 +642,12 @@ export default function DemandeModal({
     if (/\{\{\s*talent_\d+\s*\}\}/i.test(html)) {
       onError(
         "Des jetons {{talent_N}} n'ont pas pu être remplacés. Vérifie la sélection des talents (ordre = n° du jeton)."
+      );
+      return;
+    }
+    if (/\{\{\s*(?:contact|owner)\./i.test(html) || /\{\{\s*(?:contact|owner)\./i.test(subject)) {
+      onError(
+        "Des jetons HubSpot ({{ contact.* }} ou {{ owner.* }}) sont restés dans l'email. Remplace-les par les vraies valeurs avant l'envoi."
       );
       return;
     }

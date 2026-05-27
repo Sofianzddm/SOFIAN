@@ -264,21 +264,23 @@ export default function EmailComposer({
 
       {previewMode === "edit" && (
         <div className="space-y-2">
-          <div className="flex flex-wrap gap-1.5">
-            {VARIABLES_CONTACT_OWNER.map((v) => (
-              <button
-                key={v.token}
-                type="button"
-                onClick={() => insertVariable(v.token)}
-                className="text-xs px-2 py-1.5 rounded-lg border font-mono text-left max-w-full"
-                style={{ borderColor: OLD_ROSE, backgroundColor: "white", color: LICORICE }}
-                title={`${v.label} — ${v.token}`}
-              >
-                <span className="block truncate">{v.token}</span>
-                <span className="block text-[10px] font-sans opacity-80 font-normal normal-case">{v.label}</span>
-              </button>
-            ))}
-          </div>
+          {talentInsertMode !== "instagram" && (
+            <div className="flex flex-wrap gap-1.5">
+              {VARIABLES_CONTACT_OWNER.map((v) => (
+                <button
+                  key={v.token}
+                  type="button"
+                  onClick={() => insertVariable(v.token)}
+                  className="text-xs px-2 py-1.5 rounded-lg border font-mono text-left max-w-full"
+                  style={{ borderColor: OLD_ROSE, backgroundColor: "white", color: LICORICE }}
+                  title={`${v.label} — ${v.token}`}
+                >
+                  <span className="block truncate">{v.token}</span>
+                  <span className="block text-[10px] font-sans opacity-80 font-normal normal-case">{v.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <p className="text-[10px] uppercase tracking-wide" style={{ color: OLD_ROSE }}>
             {talentInsertMode === "instagram"
               ? "Talents — insère un lien Instagram cliquable (ordre = sélection)"

@@ -263,6 +263,10 @@ export default function InboundDetailPage() {
     }
     setIsGenerating(true);
     try {
+      const senderFirstName = (opportunity.senderName || "")
+        .trim()
+        .split(/\s+/)[0]
+        ?.trim();
       const res = await fetch("/api/casting/generate-email", {
         method: "POST",
         credentials: "include",
@@ -271,6 +275,10 @@ export default function InboundDetailPage() {
           language: emailLanguage,
           brandName: opportunity.extractedBrand || opportunity.senderDomain,
           brandResearch,
+          recipient: {
+            firstName: senderFirstName || undefined,
+            brandName: opportunity.extractedBrand || opportunity.senderDomain,
+          },
           talents: selectedTalentsRaw.map((t) => {
             const followers = Math.max(t.igFollowers || 0, t.ttFollowers || 0);
             const eng = t.igEngagement > 0 ? t.igEngagement : t.ttEngagement > 0 ? t.ttEngagement : undefined;
@@ -369,6 +377,13 @@ export default function InboundDetailPage() {
       );
       return;
     }
+    if (/\{\{\s*(?:contact|owner)\./i.test(bodyHtml) || /\{\{\s*(?:contact|owner)\./i.test(subject)) {
+      showToast(
+        "Des jetons HubSpot ({{ contact.* }} ou {{ owner.* }}) sont restés dans l'email. Remplace-les par les vraies valeurs avant l'envoi.",
+        "error"
+      );
+      return;
+    }
 
     setSendingFromLeyna(true);
     try {
@@ -419,6 +434,13 @@ export default function InboundDetailPage() {
     if (/\{\{\s*talent_\d+\s*\}\}/i.test(bodyHtml)) {
       showToast(
         "Des jetons {{talent_N}} n'ont pas pu être remplacés. Vérifie la sélection des talents.",
+        "error"
+      );
+      return;
+    }
+    if (/\{\{\s*(?:contact|owner)\./i.test(bodyHtml) || /\{\{\s*(?:contact|owner)\./i.test(subject)) {
+      showToast(
+        "Des jetons HubSpot ({{ contact.* }} ou {{ owner.* }}) sont restés dans l'email. Remplace-les par les vraies valeurs avant l'envoi.",
         "error"
       );
       return;

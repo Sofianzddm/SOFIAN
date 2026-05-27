@@ -31,6 +31,16 @@ export interface GenerateEmailBody {
     influenceStrategy: string;
   };
   talents: TalentPayload[];
+  /**
+   * Quand fourni, l'IA utilise directement ces valeurs à la place des jetons
+   * HubSpot {{ contact.firstname }} / {{ contact.company }}. Utile pour les
+   * envois Gmail directs (inbound, demandes-entrantes) où les jetons HubSpot
+   * ne sont pas remplacés.
+   */
+  recipient?: {
+    firstName?: string;
+    brandName?: string;
+  };
 }
 
 function normalizeForIncludes(s: string): string {
@@ -109,6 +119,18 @@ export async function POST(request: NextRequest) {
     const language: "fr" | "en" = body.language === "en" ? "en" : "fr";
     const { newProducts, brandPositioning } = body.brandResearch;
 
+    const recipientFirstName =
+      typeof body.recipient?.firstName === "string"
+        ? body.recipient.firstName.trim()
+        : "";
+    const recipientBrandName =
+      typeof body.recipient?.brandName === "string"
+        ? body.recipient.brandName.trim()
+        : "";
+    const useDirectRecipient = Boolean(recipientFirstName || recipientBrandName);
+    const firstNameToken = recipientFirstName || "{{ contact.firstname }}";
+    const brandNameToken = recipientBrandName || "{{ contact.company }}";
+
     function formatFollowersCompact(n: number): string {
       if (!Number.isFinite(n) || n <= 0) return "0";
       if (n >= 1_000_000) {
@@ -159,13 +181,19 @@ New products / collections to prioritize: ${newProducts}
 Positioning: ${brandPositioning}
 Available talents: ${talentsString} (the variable already contains complete HTML links in the form Firstname Lastname)
 
-MANDATORY HUBSPOT VARIABLES:
+${
+          useDirectRecipient
+            ? `RECIPIENT (use these EXACT values, do NOT use any HubSpot tokens like {{ contact.firstname }} or {{ contact.company }}):
+- First name: ${firstNameToken}
+- Brand: ${brandNameToken} (only bold it when you use it)`
+            : `MANDATORY HUBSPOT VARIABLES:
 {{ contact.firstname }}
-{{ contact.company }} (only bold it when you use it)
+{{ contact.company }} (only bold it when you use it)`
+        }
 
 STYLE TO REPLICATE (recommended structure but stay fluid):
-- MUST start with: "Hi {{ contact.firstname }},"
-- First sentence: a natural, elegant variation around "We immediately thought of {{ contact.company }} while reviewing our talents." OR a more direct product-led opener if the brand is very lifestyle/organic (example for VEJA: "When we saw Jitsu launching...").
+- MUST start with: "Hi ${firstNameToken},"
+- First sentence: a natural, elegant variation around "We immediately thought of ${brandNameToken} while reviewing our talents." OR a more direct product-led opener if the brand is very lifestyle/organic (example for VEJA: "When we saw Jitsu launching...").
 - Mention the strongest new launch very specifically, ideally starting with "Your" for a personal and direct tone. Keep it short, elegant, and impactful.
 - Explain the fit in a natural, precise, and compelling way (2-3 sentences max).
 - Transition: "It made us think of a few creators who could be a perfect match for your world:" (you may vary the wording slightly if the brand tone calls for it).
@@ -209,13 +237,19 @@ Nouveautés / collections à citer en priorité : ${newProducts}
 Positionnement : ${brandPositioning}
 Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme Prénom Nom)
 
-VARIABLES HUBSPOT OBLIGATOIRES :
+${
+          useDirectRecipient
+            ? `DESTINATAIRE (utilise EXACTEMENT ces valeurs, n'utilise AUCUN jeton HubSpot du type {{ contact.firstname }} ou {{ contact.company }}) :
+- Prénom : ${firstNameToken}
+- Marque : ${brandNameToken} (mettre en gras uniquement quand tu l'utilises)`
+            : `VARIABLES HUBSPOT OBLIGATOIRES :
 {{ contact.firstname }}
-{{ contact.company }} (mettre en gras uniquement quand tu l’utilises)
+{{ contact.company }} (mettre en gras uniquement quand tu l'utilises)`
+        }
 
 STYLE À REPRODUIRE (structure recommandée mais fluide) :
-- Commencer OBLIGATOIREMENT par : "Bonjour {{ contact.firstname }},"
-- Première phrase : une variation naturelle et élégante autour de "On a immédiatement pensé à {{ contact.company }} en regardant nos talents." OU une accroche plus directe sur le produit si la marque est très lifestyle/organique (ex. pour VEJA : "En voyant le Jitsu sortir…").
+- Commencer OBLIGATOIREMENT par : "Bonjour ${firstNameToken},"
+- Première phrase : une variation naturelle et élégante autour de "On a immédiatement pensé à ${brandNameToken} en regardant nos talents." OU une accroche plus directe sur le produit si la marque est très lifestyle/organique (ex. pour VEJA : "En voyant le Jitsu sortir…").
 - Citer précisément la nouveauté la plus forte en commençant idéalement par "Votre" pour un ton personnel et direct. Phrase courte, élégante et impactante.
 - Expliquer le fit de façon naturelle, précise et séduisante (2-3 phrases max).
 - Transition : "Ça nous a fait penser à quelques créateurs qui pourraient parfaitement correspondre à votre univers :" (tu peux varier légèrement la formule si le ton de la marque le demande).
