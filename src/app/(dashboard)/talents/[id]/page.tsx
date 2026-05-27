@@ -679,6 +679,15 @@ export default function TalentDetailPage() {
             >
               <Share2 className="w-5 h-5" />
             </Link>
+            <Link
+              href={`/tarifs/${talentSlug(talent.prenom, talent.nom)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+              title="Ouvrir la Grille Tarifaire publique dans un nouvel onglet"
+            >
+              <Euro className="w-5 h-5" />
+            </Link>
             {canUploadPhoto && (
               <button
                 type="button"

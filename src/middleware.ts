@@ -35,14 +35,22 @@ export async function middleware(request: NextRequest) {
   }
 
   /**
-   * Kit Media public (/kit/[slug]) — Confidentiel.
-   * Accessible UNIQUEMENT via lien direct, JAMAIS indexable :
+   * Pages publiques confidentielles (Kit Media + Grille Tarifaire) :
+   *   /kit/[slug]      + /api/kit/[slug]
+   *   /tarifs/[slug]   + /api/tarifs/[slug]
+   *
+   * Accessibles UNIQUEMENT via lien direct, JAMAIS indexables :
    *   - 403 pour les principaux bots de recherche (Google, Bing, Yandex, Baidu, etc.)
    *   - X-Robots-Tag: noindex pour les autres
    * Les bots de preview (Slack, FB, Twitter, LinkedIn, WhatsApp) restent autorisés
    * pour que le partage du lien sur ces canaux affiche bien une vignette.
    */
-  if (pathname.startsWith("/kit/") || pathname.startsWith("/api/kit/")) {
+  if (
+    pathname.startsWith("/kit/") ||
+    pathname.startsWith("/api/kit/") ||
+    pathname.startsWith("/tarifs/") ||
+    pathname.startsWith("/api/tarifs/")
+  ) {
     const ua = request.headers.get("user-agent") ?? "";
     const searchEngineCrawler =
       /\b(?:Googlebot|AdsBot-Google|Mediapartners-Google|Google-InspectionTool|FeedFetcher-Google|GoogleProducer|bingbot|BingPreview|msnbot|DuckDuckBot|DuckDuckGo-Favicons-Bot|Baiduspider|YandexBot|YandexImages|YandexMobileBot|Sogou|Exabot|Applebot|ia_archiver|SeznamBot|Qwantify|PetalBot|Bytespider)\b/i.test(
@@ -243,5 +251,8 @@ export const config = {
     // Kit Media public (confidentiel : accessible par lien direct, jamais indexé)
     "/kit/:path*",
     "/api/kit/:path*",
+    // Grille tarifaire publique (mêmes règles que le Kit Media)
+    "/tarifs/:path*",
+    "/api/tarifs/:path*",
   ],
 };
