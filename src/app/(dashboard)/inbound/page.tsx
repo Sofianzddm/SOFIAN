@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2, Mail, Filter, Trash2 } from "lucide-react";
-import { inboundCategoryLabel } from "@/lib/inbound-categories";
+import { inboundCategoryLabel, INBOUND_CATEGORY_LABELS, type InboundCategory } from "@/lib/inbound-categories";
 
 type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 type InboundPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
@@ -43,6 +43,7 @@ export default function InboundPage() {
   const [statusFilter, setStatusFilter] = useState<"NEW" | "READY">("NEW");
   const [priorityFilter, setPriorityFilter] = useState<InboundPriority | "ALL">("ALL");
   const [talentFilter, setTalentFilter] = useState<string>("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<InboundCategory | "ALL">("ALL");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const role = (session?.user as { role?: string } | undefined)?.role || "";
@@ -81,9 +82,10 @@ export default function InboundPage() {
       items.filter((o) => {
         if (priorityFilter !== "ALL" && o.priority !== priorityFilter) return false;
         if (talentFilter !== "ALL" && o.talentId !== talentFilter) return false;
+        if (categoryFilter !== "ALL" && o.category !== categoryFilter) return false;
         return true;
       }),
-    [items, priorityFilter, talentFilter]
+    [items, priorityFilter, talentFilter, categoryFilter]
   );
 
   const removeOpportunity = async (id: string) => {
@@ -160,6 +162,29 @@ export default function InboundPage() {
             <option key={t.id} value={t.id}>{t.name}</option>
           ))}
         </select>
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value as InboundCategory | "ALL")}
+          className="rounded border border-slate-300 px-2 py-1 text-sm"
+        >
+          <option value="ALL">Toutes catégories</option>
+          {(Object.keys(INBOUND_CATEGORY_LABELS) as InboundCategory[]).map((c) => (
+            <option key={c} value={c}>
+              {INBOUND_CATEGORY_LABELS[c]}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setCategoryFilter((prev) => (prev === "COLLAB_PAID" ? "ALL" : "COLLAB_PAID"))}
+          className={`rounded-lg px-3 py-1 text-xs font-medium ${
+            categoryFilter === "COLLAB_PAID"
+              ? "bg-[#C8F285] text-[#1A1110]"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          Collabs payées
+        </button>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
