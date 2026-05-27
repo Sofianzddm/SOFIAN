@@ -20,6 +20,17 @@ import { resolveTalentPlaceholders, talentToTiptapNode } from "@/lib/talent-emai
 
 type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 
+type RecentSendEntry = {
+  id: string;
+  sentAt: string;
+  subject: string;
+  senderEmail: string;
+  senderName: string | null;
+  senderDomain: string;
+  extractedBrand: string | null;
+  talentName: string;
+};
+
 type PresskitTalent = {
   id: string;
   prenom: string;
@@ -85,6 +96,11 @@ export default function InboundDetailPage() {
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
+  const [recentSends, setRecentSends] = useState<{
+    windowDays: number;
+    sameEmail: RecentSendEntry[];
+    sameDomain: RecentSendEntry[];
+  } | null>(null);
 
   const role = (session?.user as { role?: string } | undefined)?.role || "";
   const forbidden = status !== "loading" && !ALLOWED.includes(role);
@@ -108,6 +124,35 @@ export default function InboundDetailPage() {
       }
     })();
   }, [params?.id, forbidden, status]);
+
+  useEffect(() => {
+    if (forbidden || !params?.id || status === "loading") return;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/inbound/opportunities/${params.id}/recent-sends?days=20`,
+          { cache: "no-store", credentials: "include" }
+        );
+        if (!res.ok) {
+          setRecentSends(null);
+          return;
+        }
+        const data = await res.json();
+        setRecentSends({
+          windowDays: data.windowDays || 20,
+          sameEmail: Array.isArray(data.sameEmail) ? data.sameEmail : [],
+          sameDomain: Array.isArray(data.sameDomain) ? data.sameDomain : [],
+        });
+      } catch {
+        setRecentSends(null);
+      }
+    })();
+  }, [params?.id, forbidden, status]);
+
+  const daysSince = (iso: string): number => {
+    const ms = Date.now() - new Date(iso).getTime();
+    return Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
+  };
 
   const bodyText = useMemo(() => {
     if (!opportunity) return "";
@@ -556,6 +601,49 @@ export default function InboundDetailPage() {
             ) : null}
           </div>
 
+          {recentSends && (recentSends.sameEmail.length > 0 || recentSends.sameDomain.length > 0) && (
+            <div className="space-y-2">
+              {recentSends.sameEmail.length > 0 && (
+                <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm">
+                  <p className="font-semibold text-red-800">
+                    ⚠️ Déjà contacté il y a {daysSince(recentSends.sameEmail[0].sentAt)} jours
+                  </p>
+                  <p className="mt-1 text-red-700">
+                    Tu as déjà envoyé un mail à <strong>{recentSends.sameEmail[0].senderEmail}</strong> dans les {recentSends.windowDays} derniers jours.
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs text-red-700">
+                    {recentSends.sameEmail.slice(0, 3).map((s) => (
+                      <li key={s.id}>
+                        <Link href={`/inbound/${s.id}`} className="underline hover:text-red-900">
+                          {new Date(s.sentAt).toLocaleDateString("fr-FR")} — {s.subject || "(sans objet)"}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {recentSends.sameDomain.length > 0 && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
+                  <p className="font-semibold text-amber-800">
+                    ℹ️ Marque déjà contactée il y a {daysSince(recentSends.sameDomain[0].sentAt)} jours
+                  </p>
+                  <p className="mt-1 text-amber-700">
+                    Un mail a déjà été envoyé à un autre contact du domaine <strong>@{recentSends.sameDomain[0].senderDomain}</strong>.
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs text-amber-700">
+                    {recentSends.sameDomain.slice(0, 3).map((s) => (
+                      <li key={s.id}>
+                        <Link href={`/inbound/${s.id}`} className="underline hover:text-amber-900">
+                          {new Date(s.sentAt).toLocaleDateString("fr-FR")} — {s.senderEmail} — {s.subject || "(sans objet)"}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
           {(canAct || canDelete) && (
             <div className="rounded-xl border border-slate-200 bg-white p-4">
               {canAct && (
@@ -594,6 +682,28 @@ export default function InboundDetailPage() {
                 Fermer
               </button>
             </div>
+            {recentSends && (recentSends.sameEmail.length > 0 || recentSends.sameDomain.length > 0) && (
+              <div className="mb-3 space-y-2">
+                {recentSends.sameEmail.length > 0 && (
+                  <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                    <strong>⚠️ Attention :</strong> tu as déjà envoyé un mail à{" "}
+                    <strong>{recentSends.sameEmail[0].senderEmail}</strong> il y a{" "}
+                    {daysSince(recentSends.sameEmail[0].sentAt)} jours
+                    {recentSends.sameEmail.length > 1
+                      ? ` (${recentSends.sameEmail.length} fois au total dans les ${recentSends.windowDays} derniers jours)`
+                      : ""}
+                    .
+                  </div>
+                )}
+                {recentSends.sameDomain.length > 0 && recentSends.sameEmail.length === 0 && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <strong>ℹ️ Info :</strong> un mail a déjà été envoyé à un autre contact de{" "}
+                    <strong>@{recentSends.sameDomain[0].senderDomain}</strong> il y a{" "}
+                    {daysSince(recentSends.sameDomain[0].sentAt)} jours.
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div className="space-y-2 lg:col-span-1">
                 <h4 className="text-sm font-semibold text-slate-800">Talents</h4>
