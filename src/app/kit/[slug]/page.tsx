@@ -13,6 +13,104 @@ import {
 const POLL_INTERVAL_MS = 30_000;
 
 // ============================================
+// I18N
+// ============================================
+type Lang = "fr" | "en";
+
+const LANG_STORAGE_KEY = "glowup.kit.lang";
+
+const translations = {
+  fr: {
+    // Badge live
+    liveLabel: "Live",
+    syncing: "Sync…",
+    refreshNow: "Actualiser maintenant",
+    justNow: "à l'instant",
+    minutesShort: "min",
+    // Toggle
+    switchToEnglish: "Voir en anglais",
+    switchToFrench: "Voir en français",
+    // Cover
+    kitMediaLabel: "Kit Media",
+    contentCreator: "Créateur de contenu",
+    // Présentation
+    presentationFooter: "Présentation",
+    presentationTitle: "Présentation",
+    presentationFallback: "Présentation à venir.",
+    contact: "Contact",
+    location: "Localisation",
+    selectedClients: "Selected clients",
+    // Analytics
+    instagramAnalyticsTitle: "INSTAGRAM ANALYTIQUE",
+    tiktokAnalyticsTitle: "TIKTOK ANALYTIQUE",
+    instagramFooter: "Statistiques Instagram",
+    tiktokFooter: "Statistiques TikTok",
+    last30Days: "30 derniers jours",
+    followers: "ABONNÉS",
+    community: "Communauté",
+    engagementRate: "Tx d'engagement",
+    genders: "GENRES",
+    women: "FEMMES",
+    men: "HOMMES",
+    mainAgeRange: "TRANCHE D'ÂGE PRINCIPALE",
+    mainLocations: "LIEUX PRINCIPAUX",
+    france: "FRANCE",
+    others: "Autres",
+    // Closing
+    address: "Adresse",
+    socials: "Réseaux",
+    // États
+    loading: "Chargement…",
+    notFoundTitle: "Kit media introuvable",
+    notFoundDesc: "Le lien que vous avez utilisé n'est plus valide.",
+  },
+  en: {
+    liveLabel: "Live",
+    syncing: "Sync…",
+    refreshNow: "Refresh now",
+    justNow: "just now",
+    minutesShort: "min",
+    switchToEnglish: "View in English",
+    switchToFrench: "View in French",
+    kitMediaLabel: "Media Kit",
+    contentCreator: "Content creator",
+    presentationFooter: "About",
+    presentationTitle: "About",
+    presentationFallback: "About text coming soon.",
+    contact: "Contact",
+    location: "Location",
+    selectedClients: "Selected clients",
+    instagramAnalyticsTitle: "INSTAGRAM ANALYTICS",
+    tiktokAnalyticsTitle: "TIKTOK ANALYTICS",
+    instagramFooter: "Instagram analytics",
+    tiktokFooter: "TikTok analytics",
+    last30Days: "Last 30 days",
+    followers: "FOLLOWERS",
+    community: "Community",
+    engagementRate: "Engagement rate",
+    genders: "GENDERS",
+    women: "WOMEN",
+    men: "MEN",
+    mainAgeRange: "MAIN AGE RANGE",
+    mainLocations: "MAIN LOCATIONS",
+    france: "FRANCE",
+    others: "Others",
+    address: "Address",
+    socials: "Socials",
+    loading: "Loading…",
+    notFoundTitle: "Media kit not found",
+    notFoundDesc: "The link you used is no longer valid.",
+  },
+} as const;
+
+// On élargit le type des valeurs en `string` pour que fr et en
+// restent assignables au même `Dictionary` (sinon `as const` créerait
+// des types littéraux incompatibles entre les deux variantes).
+type Dictionary = {
+  readonly [K in keyof (typeof translations)["fr"]]: string;
+};
+
+// ============================================
 // TYPES
 // ============================================
 
@@ -167,10 +265,12 @@ function LiveBadge({
   lastSyncAt,
   isRefreshing,
   onRefresh,
+  t,
 }: {
   lastSyncAt: number | null;
   isRefreshing: boolean;
   onRefresh: () => void;
+  t: Dictionary;
 }) {
   const [, force] = useState(0);
   useEffect(() => {
@@ -181,10 +281,10 @@ function LiveBadge({
   function relativeTime(ts: number | null): string {
     if (!ts) return "—";
     const diff = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-    if (diff < 5) return "à l'instant";
+    if (diff < 5) return t.justNow;
     if (diff < 60) return `${diff}s`;
     const minutes = Math.floor(diff / 60);
-    if (minutes < 60) return `${minutes} min`;
+    if (minutes < 60) return `${minutes} ${t.minutesShort}`;
     const hours = Math.floor(minutes / 60);
     return `${hours} h`;
   }
@@ -196,7 +296,7 @@ function LiveBadge({
         onClick={onRefresh}
         disabled={isRefreshing}
         className="group flex items-center gap-2 rounded-full bg-white/10 hover:bg-white/15 active:bg-white/20 backdrop-blur-md border border-white/15 px-3 py-1.5 transition-colors disabled:opacity-70"
-        title="Actualiser maintenant"
+        title={t.refreshNow}
       >
         <span className="relative inline-flex h-2 w-2">
           {!isRefreshing && (
@@ -209,12 +309,57 @@ function LiveBadge({
           />
         </span>
         <span className="text-[10px] uppercase tracking-[0.25em] text-white/80 font-switzer">
-          {isRefreshing ? "Sync…" : "Live"}
+          {isRefreshing ? t.syncing : t.liveLabel}
         </span>
         <span className="text-[10px] text-white/40 font-switzer hidden sm:inline">
           · {relativeTime(lastSyncAt)}
         </span>
       </button>
+    </div>
+  );
+}
+
+// ============================================
+// LANG TOGGLE
+// ============================================
+//
+// Bouton flottant en haut à gauche pour basculer entre FR et EN.
+// Le choix est persisté en localStorage pour suivre l'utilisateur
+// d'un kit à l'autre.
+//
+function LangToggle({
+  lang,
+  onChange,
+}: {
+  lang: Lang;
+  onChange: (l: Lang) => void;
+}) {
+  return (
+    <div className="fixed top-3 left-3 z-50 sm:top-4 sm:left-4">
+      <div className="flex items-center rounded-full bg-white/10 backdrop-blur-md border border-white/15 p-1">
+        <button
+          type="button"
+          onClick={() => onChange("fr")}
+          className={`px-2.5 py-1 rounded-full text-[10px] font-switzer tracking-[0.2em] uppercase transition-colors ${
+            lang === "fr"
+              ? "bg-white/85 text-[#220101]"
+              : "text-white/70 hover:text-white"
+          }`}
+        >
+          FR
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange("en")}
+          className={`px-2.5 py-1 rounded-full text-[10px] font-switzer tracking-[0.2em] uppercase transition-colors ${
+            lang === "en"
+              ? "bg-white/85 text-[#220101]"
+              : "text-white/70 hover:text-white"
+          }`}
+        >
+          EN
+        </button>
+      </div>
     </div>
   );
 }
@@ -428,14 +573,14 @@ function PageA4({
 // SECTIONS
 // ============================================
 
-function CoverPage({ talent }: { talent: KitTalent }) {
+function CoverPage({ talent, t }: { talent: KitTalent; t: Dictionary }) {
   return (
     <PageA4
       // Dégradé linéaire bordeaux qui colle au PDF Manon Delsol :
       // rouge bordeaux moyen en haut → noir bordeaux en bas.
       background="linear-gradient(180deg, #A75858 0%, #843A3A 22%, #5E2424 48%, #341212 76%, #1A0808 100%)"
       textColor="#F5EDE0"
-      pageLabel="Kit Media"
+      pageLabel={t.kitMediaLabel}
       pageNumber={String(new Date().getFullYear())}
     >
       <div className="absolute inset-0 flex flex-col">
@@ -484,7 +629,7 @@ function CoverPage({ talent }: { talent: KitTalent }) {
         {/* Rôle + niches */}
         <div className="pb-[90px] px-[36px] text-center text-[#F5EDE0]">
           <p className="text-[14px] font-spectral-light-italic">
-            Créatrice de contenu
+            {t.contentCreator}
           </p>
           {talent.niches.length > 0 && (
             <p className="mt-[22px] text-[10px] font-switzer tracking-[0.55em] uppercase">
@@ -500,10 +645,25 @@ function CoverPage({ talent }: { talent: KitTalent }) {
   );
 }
 
-function PresentationPage({ talent }: { talent: KitTalent }) {
+function PresentationPage({
+  talent,
+  t,
+  lang,
+}: {
+  talent: KitTalent;
+  t: Dictionary;
+  lang: Lang;
+}) {
   const ttHandle = talent.tiktok?.replace(/^@/, "");
   const igUrl = getInstagramProfileUrl(talent.instagram);
   const ttUrl = ttHandle ? `https://tiktok.com/@${ttHandle}` : null;
+
+  // Bascule du texte de présentation : version EN si dispo, sinon
+  // fallback sur la version FR pour ne jamais laisser un kit vide.
+  const presentationText =
+    lang === "en"
+      ? talent.presentationEn || talent.presentation
+      : talent.presentation;
 
   // Localisation : "VILLE, PAYS" — on enlève les préfixes "soorts-" etc.
   // et on évite la duplication France/France.
@@ -521,7 +681,7 @@ function PresentationPage({ talent }: { talent: KitTalent }) {
   return (
     <PageA4
       background={C.cream}
-      pageLabel="Présentation"
+      pageLabel={t.presentationFooter}
       pageNumber="02"
     >
       <div className="absolute inset-0 flex flex-col">
@@ -558,7 +718,7 @@ function PresentationPage({ talent }: { talent: KitTalent }) {
             {talent.email && (
               <div>
                 <p className="text-[8px] uppercase tracking-[0.25em] mb-[6px] font-switzer">
-                  Contact
+                  {t.contact}
                 </p>
                 <a
                   href={`mailto:${talent.email}`}
@@ -572,7 +732,7 @@ function PresentationPage({ talent }: { talent: KitTalent }) {
             {localisation && (
               <div>
                 <p className="text-[8px] uppercase tracking-[0.25em] mb-[6px] font-switzer">
-                  Localisation
+                  {t.location}
                 </p>
                 <p className="text-[10px] font-spectral-light tracking-wide leading-snug">
                   {localisation}
@@ -610,7 +770,7 @@ function PresentationPage({ talent }: { talent: KitTalent }) {
           {/* Texte présentation + selected clients */}
           <div className="flex flex-col min-h-0">
             <p className="text-[9px] uppercase tracking-[0.2em] text-[#220101] font-switzer mb-[6px]">
-              Présentation
+              {t.presentationTitle}
             </p>
             <div
               className="h-px mb-[12px]"
@@ -623,13 +783,13 @@ function PresentationPage({ talent }: { talent: KitTalent }) {
                 lineHeight: 1.55,
               }}
             >
-              {talent.presentation || "Présentation à venir."}
+              {presentationText || t.presentationFallback}
             </p>
 
             {talent.selectedClients.length > 0 && (
               <div className="mt-[24px]">
                 <p className="text-[9px] uppercase tracking-[0.2em] text-[#220101] font-switzer mb-[6px]">
-                  Selected clients
+                  {t.selectedClients}
                 </p>
                 <div
                   className="h-px mb-[12px]"
@@ -655,17 +815,17 @@ function AnalyticsPage({
   platform,
   stats,
   pageNumber,
+  t,
 }: {
   talent: KitTalent;
   platform: "instagram" | "tiktok";
   stats: PlatformStats;
   pageNumber: string;
+  t: Dictionary;
 }) {
   const isIg = platform === "instagram";
-  const title = isIg ? "INSTAGRAM ANALYTIQUE" : "TIKTOK ANALYTIQUE";
-  const footerLabel = isIg
-    ? "Statistiques Instagram"
-    : "Statistiques TikTok";
+  const title = isIg ? t.instagramAnalyticsTitle : t.tiktokAnalyticsTitle;
+  const footerLabel = isIg ? t.instagramFooter : t.tiktokFooter;
 
   const handleUrl = isIg
     ? getInstagramProfileUrl(talent.instagram)
@@ -707,20 +867,20 @@ function AnalyticsPage({
               {title}
             </h2>
             <p className="text-[#220101] text-[9px] uppercase tracking-[0.25em] font-switzer mt-[2px]">
-              30 derniers jours
+              {t.last30Days}
             </p>
 
             {/* ABONNÉS */}
             <div className="mt-[42px]">
               <p className="text-[#220101] text-[12px] font-spectral-light font-bold tracking-wide mb-[10px]">
-                ABONNÉS
+                {t.followers}
               </p>
               <div className="grid grid-cols-2 gap-4 mb-[8px]">
                 <p className="text-[8px] uppercase tracking-[0.22em] text-[#220101]/70 font-switzer">
-                  Communauté
+                  {t.community}
                 </p>
                 <p className="text-[8px] uppercase tracking-[0.22em] text-[#220101]/70 font-switzer">
-                  Tx d&apos;engagement
+                  {t.engagementRate}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-4 items-center">
@@ -744,10 +904,10 @@ function AnalyticsPage({
             {(stats.genreFemme !== null || stats.genreHomme !== null) && (
               <div className="mt-[28px]">
                 <p className="text-[#220101] text-[12px] font-spectral-light font-bold tracking-wide mb-[6px]">
-                  GENRES
+                  {t.genders}
                 </p>
-                <StatBarRow label="FEMMES" value={stats.genreFemme} />
-                <StatBarRow label="HOMMES" value={stats.genreHomme} />
+                <StatBarRow label={t.women} value={stats.genreFemme} />
+                <StatBarRow label={t.men} value={stats.genreHomme} />
               </div>
             )}
 
@@ -759,7 +919,7 @@ function AnalyticsPage({
               stats.age45Plus !== null) && (
               <div className="mt-[24px]">
                 <p className="text-[#220101] text-[12px] font-spectral-light font-bold tracking-wide mb-[6px]">
-                  TRANCHE D&apos;ÂGE PRINCIPALE
+                  {t.mainAgeRange}
                 </p>
                 <StatBarRow label="13-17" value={stats.age13_17} />
                 <StatBarRow label="18-24" value={stats.age18_24} />
@@ -775,12 +935,12 @@ function AnalyticsPage({
             {stats.locFrance !== null && (
               <div className="mt-[24px]">
                 <p className="text-[#220101] text-[12px] font-spectral-light font-bold tracking-wide mb-[6px]">
-                  LIEUX PRINCIPAUX
+                  {t.mainLocations}
                 </p>
-                <StatBarRow label="FRANCE" value={stats.locFrance} />
+                <StatBarRow label={t.france} value={stats.locFrance} />
                 {stats.locAutre && (
                   <p className="text-[9px] text-[#220101]/60 font-switzer mt-[6px]">
-                    Autres : {stats.locAutre}
+                    {t.others} : {stats.locAutre}
                   </p>
                 )}
               </div>
@@ -804,7 +964,7 @@ function AnalyticsPage({
   );
 }
 
-function ClosingPage() {
+function ClosingPage({ t }: { t: Dictionary }) {
   return (
     <PageA4
       // Dégradé inverse du cover : noir bordeaux en haut → rouge bordeaux moyen en bas
@@ -847,7 +1007,7 @@ function ClosingPage() {
         <div className="space-y-[28px] w-full max-w-[300px]">
           <div>
             <p className="text-[9px] uppercase tracking-[0.3em] mb-[8px] opacity-70 font-switzer">
-              Adress
+              {t.address}
             </p>
             <p className="text-[11px] font-spectral-light leading-relaxed">
               1330 Avenue Guilibert de la Lauziere,
@@ -858,7 +1018,7 @@ function ClosingPage() {
 
           <div>
             <p className="text-[9px] uppercase tracking-[0.3em] mb-[8px] opacity-70 font-switzer">
-              Contact
+              {t.contact}
             </p>
             <a
               href="mailto:s.zeddam@glowupagence.fr"
@@ -870,7 +1030,7 @@ function ClosingPage() {
 
           <div>
             <p className="text-[9px] uppercase tracking-[0.3em] mb-[10px] opacity-70 font-switzer">
-              Socials
+              {t.socials}
             </p>
             <div className="flex flex-col gap-[6px] items-center">
               <a
@@ -914,6 +1074,29 @@ export default function KitMediaPage() {
   const [notFound, setNotFound] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Langue d'affichage. Initialisée à "fr" puis hydratée côté client
+  // depuis localStorage pour ne pas casser le SSR.
+  const [lang, setLang] = useState<Lang>("fr");
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(LANG_STORAGE_KEY);
+      if (saved === "fr" || saved === "en") {
+        setLang(saved);
+      }
+    } catch {
+      // localStorage inaccessible (mode privé Safari…) : on garde "fr"
+    }
+  }, []);
+  const handleLangChange = useCallback((next: Lang) => {
+    setLang(next);
+    try {
+      window.localStorage.setItem(LANG_STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }, []);
+  const t = translations[lang];
 
   // On garde l'état d'annulation dans une ref pour pouvoir l'utiliser
   // depuis les handlers visibility / interval.
@@ -1052,18 +1235,16 @@ export default function KitMediaPage() {
       {loading ? (
         <div className="min-h-screen bg-[#1a0808] flex items-center justify-center">
           <div className="text-[#F5EDE0] text-xs tracking-[0.3em] uppercase font-switzer">
-            Chargement…
+            {t.loading}
           </div>
         </div>
       ) : notFound || !talent ? (
         <div className="min-h-screen bg-[#1a0808] flex flex-col items-center justify-center px-6 text-center text-[#F5EDE0]">
           <GlowUpLogo className="h-8 mb-6" color="#F5EDE0" />
           <h1 className="text-3xl font-spectral-light mb-3">
-            Kit media introuvable
+            {t.notFoundTitle}
           </h1>
-          <p className="opacity-60 font-spectral-light">
-            Le lien que vous avez utilisé n&apos;est plus valide.
-          </p>
+          <p className="opacity-60 font-spectral-light">{t.notFoundDesc}</p>
         </div>
       ) : (
         <main
@@ -1073,23 +1254,28 @@ export default function KitMediaPage() {
               "radial-gradient(120% 80% at 50% 0%, #2a1313 0%, #150909 50%, #0c0606 100%)",
           }}
         >
+          {/* Bascule de langue */}
+          <LangToggle lang={lang} onChange={handleLangChange} />
+
           {/* Indicateur "live" discret */}
           <LiveBadge
             lastSyncAt={lastSyncAt}
             isRefreshing={isRefreshing}
             onRefresh={() => fetchTalent({ showSpinner: true })}
+            t={t}
           />
 
           {/* Conteneur des pages A4 */}
           <div className="mx-auto py-8 sm:py-12 md:py-16 px-3 sm:px-6 md:px-8 flex flex-col items-center gap-8 sm:gap-12 md:gap-16">
-            <CoverPage talent={talent} />
-            <PresentationPage talent={talent} />
+            <CoverPage talent={talent} t={t} />
+            <PresentationPage talent={talent} t={t} lang={lang} />
             {talent.instagramStats && talent.instagramStats.followers ? (
               <AnalyticsPage
                 talent={talent}
                 platform="instagram"
                 stats={talent.instagramStats}
                 pageNumber="03"
+                t={t}
               />
             ) : null}
             {talent.tiktokStats && talent.tiktokStats.followers ? (
@@ -1098,9 +1284,10 @@ export default function KitMediaPage() {
                 platform="tiktok"
                 stats={talent.tiktokStats}
                 pageNumber="04"
+                t={t}
               />
             ) : null}
-            <ClosingPage />
+            <ClosingPage t={t} />
           </div>
         </main>
       )}
