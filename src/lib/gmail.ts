@@ -145,9 +145,13 @@ export async function sendGmail(options: {
   });
 
   const rawText = await sendResponse.text();
-  let sendJson: { id?: string; error?: { code?: number; message?: string; status?: string } } | null = null;
+  type GmailSendResponse = {
+    id?: string;
+    error?: { code?: number; message?: string; status?: string };
+  };
+  let sendJson: GmailSendResponse | null = null;
   try {
-    sendJson = rawText ? (JSON.parse(rawText) as typeof sendJson) : null;
+    sendJson = rawText ? (JSON.parse(rawText) as GmailSendResponse) : null;
   } catch {
     sendJson = null;
   }
