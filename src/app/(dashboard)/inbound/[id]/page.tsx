@@ -15,6 +15,7 @@ import EmailComposer, {
 } from "@/app/(dashboard)/casting-outreach/EmailComposer";
 import { getInstagramProfileUrl } from "@/lib/social-links";
 import { inboundCategoryLabel } from "@/lib/inbound-categories";
+import { resolveTalentPlaceholders, talentToHtmlLink } from "@/lib/talent-email-links";
 
 type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 
@@ -194,15 +195,7 @@ export default function InboundDetailPage() {
   const insertTalentInMail = useCallback(
     (talent: PresskitTalent) => {
       if (!composerEditor) return;
-      const instagramUrl = getInstagramProfileUrl(talent.instagram);
-      const label = `${talent.prenom} ${talent.nom}`.trim();
-      if (instagramUrl) {
-        composerEditor.commands.insertContent(
-          `<a href="${instagramUrl}" target="_blank">${label}</a> `
-        );
-      } else {
-        composerEditor.commands.insertContent(`${label} `);
-      }
+      composerEditor.commands.insertContent(`${talentToHtmlLink(talent)} `);
     },
     [composerEditor]
   );
@@ -210,15 +203,7 @@ export default function InboundDetailPage() {
   const insertSelectedTalentsInMail = useCallback(() => {
     if (!composerEditor || selectedTalentsRaw.length === 0) return;
     for (const talent of selectedTalentsRaw) {
-      const instagramUrl = getInstagramProfileUrl(talent.instagram);
-      const label = `${talent.prenom} ${talent.nom}`.trim();
-      if (instagramUrl) {
-        composerEditor.commands.insertContent(
-          `<a href="${instagramUrl}" target="_blank">${label}</a><br/>`
-        );
-      } else {
-        composerEditor.commands.insertContent(`${label}<br/>`);
-      }
+      composerEditor.commands.insertContent(`${talentToHtmlLink(talent)}<br/>`);
     }
   }, [composerEditor, selectedTalentsRaw]);
 
@@ -346,13 +331,21 @@ export default function InboundDetailPage() {
   const sendFromLeyna = async () => {
     if (!opportunity) return;
     const subject = composerSubject.trim();
-    const bodyHtml = composerEditor?.getHTML() || "";
+    const rawHtml = composerEditor?.getHTML() || "";
     if (!subject) {
       showToast("Objet obligatoire.", "error");
       return;
     }
-    if (!bodyHtml.trim()) {
+    if (!rawHtml.trim()) {
       showToast("Corps du mail obligatoire.", "error");
+      return;
+    }
+    const bodyHtml = resolveTalentPlaceholders(rawHtml, selectedTalentsRaw);
+    if (/\{\{\s*talent_\d+\s*\}\}/i.test(bodyHtml)) {
+      showToast(
+        "Des jetons {{talent_N}} n'ont pas pu être remplacés. Vérifie la sélection des talents (ordre = n° du jeton).",
+        "error"
+      );
       return;
     }
 
@@ -595,6 +588,7 @@ export default function InboundDetailPage() {
                     void runGenerateEmail();
                   }}
                   editor={composerEditor}
+                  talentInsertMode="instagram"
                 />
               </div>
             </div>
