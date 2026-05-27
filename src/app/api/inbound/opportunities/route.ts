@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        if (user.email) {
+        if (user.email && opportunity.category === "COLLAB_PAID") {
           await sendInboundNotificationEmail({
             to: user.email,
             recipientName: user.prenom || "L'equipe",
