@@ -402,8 +402,17 @@ export default function InboundDetailPage() {
     if (data?.opportunity) setOpportunity(data.opportunity as Opportunity);
   };
 
+  const recentSendBlocked = (recentSends?.sameEmail?.length || 0) > 0;
+  const recentSendBlockedMessage = recentSendBlocked && recentSends
+    ? `Un mail a déjà été envoyé à ${recentSends.sameEmail[0].senderEmail} il y a ${daysSince(recentSends.sameEmail[0].sentAt)} jour(s). Renvoi bloqué pendant ${recentSends.windowDays} jours.`
+    : "";
+
   const sendFromLeyna = async () => {
     if (!opportunity) return;
+    if (recentSendBlocked) {
+      showToast(recentSendBlockedMessage, "error");
+      return;
+    }
     const subject = composerSubject.trim();
     const rawHtml = composerEditor?.getHTML() || "";
     if (!subject) {
@@ -445,6 +454,13 @@ export default function InboundDetailPage() {
         if (sendJson.error === "gmail_not_connected") {
           throw new Error(
             "La boite Gmail de Leyna n'est pas connectée. Demandez à l'admin de la connecter dans Settings → Gmail"
+          );
+        }
+        if (sendJson.error === "recent_send_blocked") {
+          throw new Error(
+            typeof sendJson.message === "string"
+              ? sendJson.message
+              : "Un mail a déjà été envoyé à cette adresse récemment."
           );
         }
         throw new Error(typeof sendJson.error === "string" ? sendJson.error : "Envoi Gmail impossible.");
@@ -824,10 +840,15 @@ export default function InboundDetailPage() {
               <button
                 type="button"
                 onClick={() => void sendFromLeyna()}
-                disabled={sendingFromLeyna || sendingTest}
+                disabled={sendingFromLeyna || sendingTest || recentSendBlocked}
                 className="rounded-lg bg-[#C8F285] px-3 py-2 text-sm font-semibold text-[#1A1110] disabled:opacity-60"
+                title={recentSendBlocked ? recentSendBlockedMessage : undefined}
               >
-                {sendingFromLeyna ? "Envoi en cours..." : "🚀 Envoyer depuis Leyna"}
+                {recentSendBlocked
+                  ? "⛔ Envoi bloqué (déjà contacté)"
+                  : sendingFromLeyna
+                    ? "Envoi en cours..."
+                    : "🚀 Envoyer depuis Leyna"}
               </button>
             </div>
           </div>

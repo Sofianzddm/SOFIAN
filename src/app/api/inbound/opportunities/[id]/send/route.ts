@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { sendGmail } from "@/lib/gmail";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "ADMIN"] as const;
+const COOLDOWN_DAYS = 20;
 
 type RequestBody = {
   subject?: unknown;
@@ -38,6 +39,40 @@ export async function POST(
     });
     if (!opportunity) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const senderEmail = (opportunity.senderEmail || "").toLowerCase().trim();
+    if (senderEmail) {
+      const since = new Date(Date.now() - COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
+      const previous = await prisma.inboundOpportunity.findFirst({
+        where: {
+          id: { not: id },
+          sentAt: { gte: since, not: null },
+          senderEmail: { equals: senderEmail, mode: "insensitive" },
+        },
+        select: { id: true, sentAt: true, subject: true },
+        orderBy: { sentAt: "desc" },
+      });
+      if (previous && previous.sentAt) {
+        const daysAgo = Math.max(
+          1,
+          Math.round((Date.now() - previous.sentAt.getTime()) / (24 * 60 * 60 * 1000))
+        );
+        return NextResponse.json(
+          {
+            error: "recent_send_blocked",
+            message: `Un mail a déjà été envoyé à ${opportunity.senderEmail} il y a ${daysAgo} jour(s). Renvoi bloqué pendant ${COOLDOWN_DAYS} jours.`,
+            previous: {
+              id: previous.id,
+              sentAt: previous.sentAt.toISOString(),
+              subject: previous.subject,
+              daysAgo,
+            },
+            cooldownDays: COOLDOWN_DAYS,
+          },
+          { status: 409 }
+        );
+      }
     }
 
     let messageId = "";
