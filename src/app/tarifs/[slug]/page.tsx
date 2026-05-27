@@ -97,9 +97,10 @@ function formatEvol(
   const value = Math.abs(n)
     .toFixed(n === 0 ? 0 : 2)
     .replace(".", ",");
-  const suffix = unit === "PT" ? " PT" : "%";
+  const suffix = unit === "PT" ? "PT" : "%";
+  // Maquette : « ▲ 2,09% » / « ▲ 0,17PT » (espace après le triangle).
   return {
-    label: `${positive ? "▲" : "▼"} ${positive ? "+" : "-"}${value}${suffix}`,
+    label: `${positive ? "▲" : "▼"} ${value}${suffix}`,
     positive,
   };
 }
@@ -112,18 +113,16 @@ function formatTarif(value: number | null): string {
 }
 
 // ============================================
-// COULEURS
+// COULEURS (calées sur la maquette Claire Perrier)
 // ============================================
 const C = {
-  bordeauxTop: "#A36868",
-  bordeauxMid: "#7C3D3D",
-  bordeauxBottom: "#3F1717",
-  black: "#0B0707",
-  cream: "#F1E5D2", // texte clair / bordure
-  creamSoft: "#E8C9B9", // teinte rosée bordure cadre
-  lime: "#C9D77A", // tarifs
-  evolGreen: "#E5F2B5",
-  evolGreenInk: "#4a5d23",
+  black: "#000000",
+  cream: "#F5EDE0",
+  borderWhite: "rgba(255,255,255,0.55)",
+  borderWhiteInner: "rgba(255,255,255,0.28)",
+  line: "rgba(255,255,255,0.22)",
+  evolGreen: "#D9E58F",
+  evolGreenInk: "#1a1a1a",
 } as const;
 
 // ============================================
@@ -311,10 +310,11 @@ function EvolBadge({
   if (!evol) return null;
   return (
     <span
-      className="inline-flex items-center text-[9.5px] font-switzer px-[6px] py-[2px] leading-none rounded-[3px]"
+      className="inline-flex items-center text-[9px] font-switzer px-[5px] py-[3px] leading-none"
       style={{
         backgroundColor: C.evolGreen,
         color: C.evolGreenInk,
+        borderRadius: 2,
       }}
     >
       {evol.label}
@@ -344,16 +344,16 @@ function StatLine({
   value: string;
   evol: number | null;
   evolUnit?: "%" | "PT";
-  /** "K" suffixé en plus petit pour la community ("95k"). */
+  /** "k" suffixé en plus petit (« 95k »). */
   suffix?: string;
 }) {
   return (
-    <div className="flex items-center gap-[10px]">
+    <div className="flex items-center gap-[8px] flex-wrap">
       <PlatformIconForStat platform={platform} />
-      <span className="text-[15px] font-switzer text-[#F5EDE0] leading-none flex items-baseline">
+      <span className="text-[14px] font-switzer text-[#F5EDE0] leading-none flex items-baseline">
         {value}
         {suffix && (
-          <span className="text-[10px] ml-[1px] opacity-80">{suffix}</span>
+          <span className="text-[11px] ml-[1px]">{suffix}</span>
         )}
       </span>
       <EvolBadge value={evol} unit={evolUnit} />
@@ -383,49 +383,61 @@ type TarifRowDef = {
   label: string;
 };
 
-// Ordre d'affichage des prestations (calé sur la maquette).
+// Toutes les prestations gérées en base. Les lignes dont le tarif est vide
+// (null ou 0) sont filtrées avant l'affichage, donc la grille s'adapte
+// automatiquement à ce qui est renseigné sur la fiche talent.
 const TARIF_ROWS: TarifRowDef[] = [
-  { key: "tarifStory", platform: "instagram", label: "Story" },
-  { key: "tarifStoryConcours", platform: "instagram", label: "Story Concours" },
-  { key: "tarifPost", platform: "instagram", label: "Post" },
-  { key: "tarifPostConcours", platform: "instagram", label: "Concours" },
-  { key: "tarifPostCommun", platform: "instagram", label: "Post Commun" },
-  { key: "tarifPostCrosspost", platform: "instagram", label: "Post Crosspost" },
-  { key: "tarifReel", platform: "instagram", label: "Reel" },
-  { key: "tarifReelCrosspost", platform: "instagram", label: "Reel Crosspost" },
-  { key: "tarifReelConcours", platform: "instagram", label: "Reel Concours" },
-  { key: "tarifYoutubeShort", platform: "youtube", label: "Short" },
-  { key: "tarifYoutubeVideo", platform: "youtube", label: "Intégration" },
-  { key: "tarifTiktokVideo", platform: "tiktok", label: "Vidéo" },
-  { key: "tarifTiktokConcours", platform: "tiktok", label: "Vidéo Concours" },
-  { key: "tarifSnapchatStory", platform: "snapchat", label: "Snap Story" },
-  {
-    key: "tarifSnapchatSpotlight",
-    platform: "snapchat",
-    label: "Snap Spotlight",
-  },
-  { key: "tarifEvent", platform: "event", label: "Event" },
-  { key: "tarifShooting", platform: "event", label: "Shooting" },
-  { key: "tarifAmbassadeur", platform: "event", label: "Ambassadeur" },
+  // Instagram
+  { key: "tarifStory", platform: "instagram", label: "STORY" },
+  { key: "tarifStoryConcours", platform: "instagram", label: "STORY CONCOURS" },
+  { key: "tarifPost", platform: "instagram", label: "POST" },
+  { key: "tarifPostConcours", platform: "instagram", label: "POST CONCOURS" },
+  { key: "tarifPostCommun", platform: "instagram", label: "POST COMMUN" },
+  { key: "tarifPostCrosspost", platform: "instagram", label: "POST CROSSPOST" },
+  { key: "tarifReel", platform: "instagram", label: "REEL" },
+  { key: "tarifReelCrosspost", platform: "instagram", label: "REEL CROSSPOST" },
+  { key: "tarifReelConcours", platform: "instagram", label: "REEL CONCOURS" },
+  // YouTube
+  { key: "tarifYoutubeShort", platform: "youtube", label: "SHORT" },
+  { key: "tarifYoutubeVideo", platform: "youtube", label: "INTÉGRATION" },
+  // TikTok
+  { key: "tarifTiktokVideo", platform: "tiktok", label: "VIDÉO" },
+  { key: "tarifTiktokConcours", platform: "tiktok", label: "VIDÉO CONCOURS" },
+  // Snapchat
+  { key: "tarifSnapchatStory", platform: "snapchat", label: "STORY" },
+  { key: "tarifSnapchatSpotlight", platform: "snapchat", label: "SPOTLIGHT" },
+  // Autres
+  { key: "tarifEvent", platform: "event", label: "EVENT" },
+  { key: "tarifShooting", platform: "event", label: "SHOOTING" },
+  { key: "tarifAmbassadeur", platform: "event", label: "AMBASSADEUR" },
 ];
 
 function PlatformLabel({
   platform,
+  compactSize = 17,
 }: {
   platform: TarifRowDef["platform"];
+  /** Taille de la signature "Instagram" — réduite quand la grille est dense. */
+  compactSize?: number;
 }) {
   if (platform === "instagram") {
     return (
-      <span className="font-spectral-medium-italic text-[15px] text-[#F5EDE0] leading-none">
+      <span
+        className="font-spectral-medium-italic text-[#F5EDE0] leading-none"
+        style={{ fontSize: compactSize }}
+      >
         Instagram
       </span>
     );
   }
   if (platform === "youtube") {
     return (
-      <span className="inline-flex items-center gap-[6px]">
+      <span className="inline-flex items-center gap-[7px]">
         <YouTubeGlyph badge />
-        <span className="font-switzer text-[12px] text-[#F5EDE0] italic">
+        <span
+          className="font-switzer text-[#F5EDE0]"
+          style={{ fontSize: 11, fontStyle: "italic" }}
+        >
           YouTube
         </span>
       </span>
@@ -433,20 +445,29 @@ function PlatformLabel({
   }
   if (platform === "tiktok") {
     return (
-      <span className="inline-flex items-center gap-[6px]">
-        <TikTokGlyph className="w-[12px] h-[12px]" color="#F5EDE0" />
-        <span className="font-switzer text-[12px] text-[#F5EDE0]">TikTok</span>
+      <span className="inline-flex items-center gap-[7px]">
+        <TikTokGlyph className="w-[13px] h-[13px]" color="#F5EDE0" />
+        <span className="font-switzer text-[11px] text-[#F5EDE0]">TikTok</span>
       </span>
     );
   }
   if (platform === "snapchat") {
     return (
-      <span className="font-switzer text-[12px] text-[#F5EDE0]">Snapchat</span>
+      <span
+        className="font-switzer text-[#F5EDE0]"
+        style={{ fontSize: 11, letterSpacing: "0.04em" }}
+      >
+        Snapchat
+      </span>
     );
   }
+  // "event" : prestations physiques (Event / Shooting / Ambassadeur).
   return (
-    <span className="font-switzer text-[12px] text-[#F5EDE0] uppercase tracking-[0.15em]">
-      Event
+    <span
+      className="font-switzer text-[#F5EDE0] uppercase"
+      style={{ fontSize: 9.5, letterSpacing: "0.22em" }}
+    >
+      Prestation
     </span>
   );
 }
@@ -522,96 +543,89 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
           "0 30px 90px rgba(0,0,0,0.45), 0 6px 18px rgba(0,0,0,0.25)",
       }}
     >
-      {/* Cadre fin crème/rosé qui frame toute la page comme sur la maquette */}
+      {/* Double cadre blanc (maquette) */}
       <div
-        className="absolute inset-[10px] pointer-events-none z-20"
-        style={{
-          border: `1px solid ${C.creamSoft}`,
-          opacity: 0.55,
-        }}
+        className="absolute inset-[12px] pointer-events-none z-30"
+        style={{ border: `1px solid ${C.borderWhite}` }}
+      />
+      <div
+        className="absolute inset-[16px] pointer-events-none z-30"
+        style={{ border: `1px solid ${C.borderWhiteInner}` }}
       />
 
       <div className="absolute inset-0 flex flex-col">
-        {/* ===========================
-            ZONE BORDEAUX (audience)
-            =========================== */}
+        {/* Zone haute : dégradé bordeaux → noir.
+            Multi-stops avec courbe douce pour éviter les bandes visibles
+            et créer une transition cinématographique vers la section noire. */}
         <section
-          className="relative"
+          className="relative flex flex-col shrink-0"
           style={{
-            flex: "0 0 44%",
-            background:
-              "linear-gradient(180deg, #A36868 0%, #8B4A4A 30%, #6E3030 65%, #4B1C1C 100%)",
+            background: [
+              // Léger halo radial chaud en haut pour adoucir l'arrivée du bordeaux
+              "radial-gradient(120% 80% at 50% -10%, rgba(196,128,128,0.55) 0%, rgba(196,128,128,0) 60%)",
+              // Dégradé principal vertical, courbe progressive bordeaux → noir
+              "linear-gradient(180deg, #A86C6C 0%, #9C5C5C 10%, #8D4848 22%, #783636 36%, #5F2727 52%, #461B1B 66%, #2E1212 78%, #1A0A0A 88%, #0A0404 96%, #000000 100%)",
+            ].join(", "),
           }}
         >
-          {/* Logo Glow Up */}
-          <div className="pt-[28px] flex justify-center">
-            <GlowUpLogo className="h-[12px]" color="#F5EDE0" />
+          <div className="pt-[32px] flex justify-center shrink-0">
+            <GlowUpLogo className="h-[13px]" color={C.cream} />
           </div>
 
-          <div className="mt-[28px] px-[40px] grid grid-cols-[1fr_220px] gap-[18px]">
-            {/* COLONNE GAUCHE */}
-            <div className="flex flex-col">
-              {/* Nom */}
+          <div className="mt-[24px] px-[44px] pb-[28px] grid grid-cols-[1fr_220px] gap-[22px] items-start">
+            <div className="flex flex-col min-w-0">
               <h1
-                className="font-spectral-medium-italic text-[#F5EDE0] leading-none"
-                style={{ fontSize: 26, letterSpacing: 0 }}
+                className="font-spectral-medium-italic text-[#F5EDE0] leading-[1.05]"
+                style={{ fontSize: 28 }}
               >
                 {talent.prenom}{" "}
-                <span className="uppercase tracking-[0.04em]">
-                  {talent.nom}
-                </span>
+                <span className="uppercase">{talent.nom}</span>
               </h1>
 
-              {/* Niches */}
               {talent.niches.length > 0 && (
                 <p
-                  className="mt-[10px] text-[#F5EDE0]/85 font-switzer uppercase"
-                  style={{
-                    fontSize: 9,
-                    letterSpacing: "0.32em",
-                  }}
+                  className="mt-[12px] text-[#F5EDE0] font-switzer uppercase"
+                  style={{ fontSize: 8.5, letterSpacing: "0.28em" }}
                 >
                   {talent.niches
                     .slice(0, 3)
                     .map((n) => n.toUpperCase())
-                    .join("  /  ")}
+                    .join(" / ")}
                   {" /"}
                 </p>
               )}
 
-              {/* Rôle */}
               <p
-                className="mt-[6px] text-[#F5EDE0] font-spectral-light-italic"
-                style={{ fontSize: 13 }}
+                className="mt-[8px] text-[#F5EDE0] font-spectral-light-italic"
+                style={{ fontSize: 14 }}
               >
                 Créatrice de contenu
               </p>
 
-              {/* Bloc stats : COMMUNAUTÉ + TX ENGAGEMENT */}
               {audienceRows.length > 0 && (
-                <div className="mt-[24px] grid grid-cols-2 gap-x-[28px] gap-y-[10px]">
-                  {/* En-têtes colonnes */}
-                  <p
-                    className="text-[#F5EDE0]/75 font-switzer uppercase"
-                    style={{ fontSize: 8.5, letterSpacing: "0.22em" }}
-                  >
-                    Communauté
-                  </p>
-                  <p
-                    className="text-[#F5EDE0]/75 font-switzer uppercase"
-                    style={{ fontSize: 8.5, letterSpacing: "0.22em" }}
-                  >
-                    Tx d'engagement
-                  </p>
+                <div className="mt-[28px]">
+                  <div className="grid grid-cols-2 gap-x-[36px] mb-[14px]">
+                    <p
+                      className="text-[#F5EDE0]/80 font-switzer uppercase"
+                      style={{ fontSize: 8, letterSpacing: "0.24em" }}
+                    >
+                      Communauté
+                    </p>
+                    <p
+                      className="text-[#F5EDE0]/80 font-switzer uppercase"
+                      style={{ fontSize: 8, letterSpacing: "0.2em" }}
+                    >
+                      Tx d&apos;engagement
+                    </p>
+                  </div>
 
                   {audienceRows.map((row) => {
                     const split = splitFormatted(row.data.followers);
                     return (
                       <div
                         key={row.platform}
-                        className="contents text-[#F5EDE0]"
+                        className="grid grid-cols-2 gap-x-[36px] items-center mb-[12px] last:mb-0"
                       >
-                        {/* col 1 : community */}
                         <StatLine
                           platform={row.platform}
                           value={split.value}
@@ -619,9 +633,8 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
                           evol={row.data.followersEvol}
                           evolUnit="%"
                         />
-                        {/* col 2 : engagement */}
-                        <div className="flex items-center gap-[10px]">
-                          <span className="text-[15px] font-switzer text-[#F5EDE0] leading-none">
+                        <div className="flex items-center gap-[8px]">
+                          <span className="text-[14px] font-switzer text-[#F5EDE0] leading-none">
                             {formatPercent(row.data.engagement, 2)}
                           </span>
                           <EvolBadge
@@ -635,9 +648,8 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
                 </div>
               )}
 
-              {/* Liens réseaux */}
               {audienceRows.length > 0 && (
-                <div className="mt-[26px] flex flex-wrap gap-x-[28px] gap-y-[6px]">
+                <div className="mt-[22px] flex flex-wrap gap-x-[32px] gap-y-[6px]">
                   {audienceRows.map((row) =>
                     row.profileUrl ? (
                       <a
@@ -645,19 +657,16 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
                         href={row.profileUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[#F5EDE0] font-switzer underline underline-offset-[3px] hover:opacity-80"
-                        style={{
-                          fontSize: 11,
-                          letterSpacing: "0.22em",
-                        }}
+                        className="text-[#F5EDE0] font-spectral-light underline underline-offset-[4px] hover:opacity-80 uppercase"
+                        style={{ fontSize: 11, letterSpacing: "0.2em" }}
                       >
                         {row.label}
                       </a>
                     ) : (
                       <span
                         key={row.platform}
-                        className="text-[#F5EDE0]/70 font-switzer underline underline-offset-[3px]"
-                        style={{ fontSize: 11, letterSpacing: "0.22em" }}
+                        className="text-[#F5EDE0]/75 font-spectral-light underline underline-offset-[4px] uppercase"
+                        style={{ fontSize: 11, letterSpacing: "0.2em" }}
                       >
                         {row.label}
                       </span>
@@ -667,10 +676,9 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
               )}
             </div>
 
-            {/* COLONNE DROITE — Photo */}
             <div
-              className="relative w-full overflow-hidden"
-              style={{ aspectRatio: "5 / 6" }}
+              className="relative w-full overflow-hidden shrink-0"
+              style={{ aspectRatio: "4 / 5" }}
             >
               {talent.photo ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -678,11 +686,11 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
                   src={talent.photo}
                   alt={`${talent.prenom} ${talent.nom}`}
                   className="w-full h-full object-cover"
-                  style={{ objectPosition: "center 18%" }}
+                  style={{ objectPosition: "center 20%" }}
                 />
               ) : (
-                <div className="w-full h-full bg-gradient-to-br from-[#5C2424] to-[#2A0F0F] flex items-center justify-center">
-                  <span className="text-4xl text-[#F5EDE0]/40 font-spectral-light tracking-[0.3em]">
+                <div className="w-full h-full bg-[#4A2222] flex items-center justify-center">
+                  <span className="text-4xl text-[#F5EDE0]/35 font-spectral-light">
                     {talent.prenom.charAt(0)}
                     {talent.nom.charAt(0)}
                   </span>
@@ -692,90 +700,122 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
           </div>
         </section>
 
-        {/* ===========================
-            ZONE NOIRE (grille tarifaire)
-            =========================== */}
+        {/* Séparateur horizontal : trait fin avec halo bordeaux discret pour
+            adoucir la jonction entre les deux zones. */}
+        <div
+          className="shrink-0 relative w-full z-10"
+          style={{ height: 1 }}
+        >
+          {/* Halo soft au-dessus pour fondre la fin du bordeaux */}
+          <div
+            className="absolute left-0 right-0 -top-[40px] h-[40px] pointer-events-none"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 100%)",
+            }}
+          />
+          {/* Halo soft en dessous pour amorcer le noir */}
+          <div
+            className="absolute left-0 right-0 top-[1px] h-[60px] pointer-events-none"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(90,30,30,0.35) 0%, rgba(0,0,0,0) 100%)",
+            }}
+          />
+          {/* Le trait lui-même */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(90deg, rgba(245,237,224,0) 0%, rgba(245,237,224,0.35) 18%, rgba(245,237,224,0.45) 50%, rgba(245,237,224,0.35) 82%, rgba(245,237,224,0) 100%)",
+            }}
+          />
+        </div>
+
+        {/* Zone basse : fond noir + grille tarifaire */}
         <section
-          className="relative flex-1"
+          className="relative flex-1 flex flex-col"
           style={{ backgroundColor: C.black }}
         >
-          <div className="absolute inset-0 px-[40px] pt-[26px] pb-[36px] flex flex-col">
-            {/* Header */}
+          <div className="flex-1 px-[44px] pt-[28px] pb-[40px] flex flex-col">
             <h2
-              className="text-center font-switzer text-[#F5EDE0]"
-              style={{
-                fontSize: 13,
-                letterSpacing: "0.32em",
-              }}
+              className="text-center font-spectral-light text-[#F5EDE0] shrink-0"
+              style={{ fontSize: 14, letterSpacing: "0.12em" }}
             >
-              <span className="opacity-70 mr-[10px]">◆</span>
+              <span className="opacity-60 mx-[8px]">•</span>
               GRILLE TARIFAIRE {year}
-              <span className="opacity-70 ml-[10px]">◆</span>
+              <span className="opacity-60 mx-[8px]">•</span>
             </h2>
 
-            {/* Table */}
-            <div className="mt-[22px] flex-1 min-h-0 flex flex-col">
-              {/* En-têtes */}
+            <div className="mt-[24px] flex-1 min-h-0 flex flex-col">
               <div
-                className="grid grid-cols-[170px_1fr_120px] items-center text-[#F5EDE0]/70 font-switzer uppercase pb-[10px]"
-                style={{ fontSize: 8.5, letterSpacing: "0.25em" }}
+                className="grid grid-cols-[148px_1fr_108px] items-end pb-[12px] text-[#F5EDE0]/65 font-switzer uppercase shrink-0"
+                style={{ fontSize: 7.5, letterSpacing: "0.28em" }}
               >
                 <span>Plateforme</span>
-                <span>Prestations</span>
+                <span className="text-center">Prestations</span>
                 <span className="text-right">Tarifs</span>
               </div>
-              <div
-                className="h-px"
-                style={{ backgroundColor: "#F5EDE0", opacity: 0.18 }}
-              />
+              <div className="h-px shrink-0" style={{ background: C.line }} />
 
               {tarifRows.length === 0 ? (
                 <div className="flex-1 flex items-center justify-center">
-                  <p
-                    className="text-[#F5EDE0]/55 font-spectral-light-italic"
-                    style={{ fontSize: 12 }}
-                  >
+                  <p className="text-[#F5EDE0]/50 font-spectral-light-italic text-[12px]">
                     Grille tarifaire à venir.
                   </p>
                 </div>
               ) : (
-                <div className="flex-1 min-h-0 flex flex-col justify-start">
-                  {tarifRows.map((row, idx) => (
-                    <div key={row.key}>
-                      <div className="grid grid-cols-[170px_1fr_120px] items-center py-[10px]">
-                        <PlatformLabel platform={row.platform} />
-                        <span
-                          className="text-[#F5EDE0]/95 font-switzer uppercase"
-                          style={{
-                            fontSize: 10.5,
-                            letterSpacing: "0.18em",
-                          }}
-                        >
-                          {row.label}
-                        </span>
-                        <span
-                          className="text-right font-switzer"
-                          style={{
-                            fontSize: 12,
-                            color: C.lime,
-                            letterSpacing: "0.02em",
-                          }}
-                        >
-                          {formatTarif(row.value)}
-                        </span>
-                      </div>
-                      {idx < tarifRows.length - 1 && (
-                        <div
-                          className="h-px"
-                          style={{
-                            backgroundColor: "#F5EDE0",
-                            opacity: 0.1,
-                          }}
-                        />
-                      )}
+                (() => {
+                  // Pas vertical adapté au nombre de lignes pour garder une
+                  // grille bien aérée même quand toutes les prestations sont
+                  // renseignées (jusqu'à 18 lignes en théorie).
+                  const n = tarifRows.length;
+                  const padY = n <= 9 ? 11 : n <= 12 ? 8 : n <= 15 ? 6 : 5;
+                  const labelSize = n <= 12 ? 9.5 : 8.5;
+                  const priceSize = n <= 12 ? 13 : 12;
+                  const platformSize = n <= 12 ? 17 : 15;
+                  return (
+                    <div className="flex-1 flex flex-col">
+                      {tarifRows.map((row, idx) => (
+                        <div key={row.key} className="shrink-0">
+                          <div
+                            className="grid grid-cols-[148px_1fr_108px] items-center"
+                            style={{
+                              paddingTop: padY,
+                              paddingBottom: padY,
+                            }}
+                          >
+                            <PlatformLabel
+                              platform={row.platform}
+                              compactSize={platformSize}
+                            />
+                            <span
+                              className="text-center text-[#F5EDE0] font-switzer uppercase"
+                              style={{
+                                fontSize: labelSize,
+                                letterSpacing: "0.2em",
+                              }}
+                            >
+                              {row.label}
+                            </span>
+                            <span
+                              className="text-right font-spectral-medium-italic text-[#F5EDE0]"
+                              style={{ fontSize: priceSize }}
+                            >
+                              {formatTarif(row.value)}
+                            </span>
+                          </div>
+                          {idx < tarifRows.length - 1 && (
+                            <div
+                              className="h-px"
+                              style={{ background: C.line }}
+                            />
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  );
+                })()
               )}
             </div>
           </div>
