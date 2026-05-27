@@ -22,7 +22,7 @@ import {
   X,
 } from "lucide-react";
 import EmailComposer, { type BrandResearch, type Talent } from "../casting-outreach/EmailComposer";
-import { resolveTalentPlaceholders, talentToHtmlLink } from "@/lib/talent-email-links";
+import { resolveTalentPlaceholders, talentToTiptapNode } from "@/lib/talent-email-links";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -428,7 +428,11 @@ export default function DemandeModal({
   const insertTalentInMail = useCallback(
     (t: PresskitTalent) => {
       if (!editor) return;
-      editor.commands.insertContent(`${talentToHtmlLink(t)} `);
+      editor
+        .chain()
+        .focus()
+        .insertContent([talentToTiptapNode(t), { type: "text", text: " " }])
+        .run();
     },
     [editor]
   );

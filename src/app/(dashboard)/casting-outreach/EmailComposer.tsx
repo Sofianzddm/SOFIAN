@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, type Editor } from "@tiptap/react";
 import { Bold, Eye, Link as LinkIcon, List, ListOrdered, Loader2, Pencil, Italic, Underline as UnderlineIcon } from "lucide-react";
-import { talentToHtmlLink } from "@/lib/talent-email-links";
+import { talentToTiptapNode } from "@/lib/talent-email-links";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -71,13 +71,13 @@ export default function EmailComposer({
   const [customTalentIndex, setCustomTalentIndex] = useState<string>("");
 
   const talentTokensFromSelection = useMemo<
-    { token: string; label: string; html?: string }[]
+    { token: string; label: string; node?: Record<string, unknown> }[]
   >(() => {
     return talentsSelected.map((t, i) => {
       const name = `${t.prenom || ""} ${t.nom || ""}`.trim() || `Talent ${i + 1}`;
       const token = `{{talent_${i + 1}}}`;
       if (talentInsertMode === "instagram") {
-        return { token, label: name, html: talentToHtmlLink(t) };
+        return { token, label: name, node: talentToTiptapNode(t) };
       }
       return { token, label: name };
     });
@@ -295,8 +295,16 @@ export default function EmailComposer({
                   key={v.token}
                   type="button"
                   onClick={() => {
-                    if (talentInsertMode === "instagram" && v.html && lastField === "body") {
-                      editor?.chain().focus().insertContent(`${v.html} `).run();
+                    if (talentInsertMode === "instagram") {
+                      if (v.node && lastField === "body") {
+                        editor
+                          ?.chain()
+                          .focus()
+                          .insertContent([v.node, { type: "text", text: " " }])
+                          .run();
+                        return;
+                      }
+                      insertVariable(v.label);
                       return;
                     }
                     insertVariable(v.token);

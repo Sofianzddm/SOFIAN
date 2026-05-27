@@ -15,7 +15,7 @@ import EmailComposer, {
 } from "@/app/(dashboard)/casting-outreach/EmailComposer";
 import { getInstagramProfileUrl } from "@/lib/social-links";
 import { inboundCategoryLabel } from "@/lib/inbound-categories";
-import { resolveTalentPlaceholders, talentToHtmlLink } from "@/lib/talent-email-links";
+import { resolveTalentPlaceholders, talentToTiptapNode } from "@/lib/talent-email-links";
 
 type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 
@@ -195,7 +195,11 @@ export default function InboundDetailPage() {
   const insertTalentInMail = useCallback(
     (talent: PresskitTalent) => {
       if (!composerEditor) return;
-      composerEditor.commands.insertContent(`${talentToHtmlLink(talent)} `);
+      composerEditor
+        .chain()
+        .focus()
+        .insertContent([talentToTiptapNode(talent), { type: "text", text: " " }])
+        .run();
     },
     [composerEditor]
   );
@@ -203,7 +207,11 @@ export default function InboundDetailPage() {
   const insertSelectedTalentsInMail = useCallback(() => {
     if (!composerEditor || selectedTalentsRaw.length === 0) return;
     for (const talent of selectedTalentsRaw) {
-      composerEditor.commands.insertContent(`${talentToHtmlLink(talent)}<br/>`);
+      composerEditor
+        .chain()
+        .focus()
+        .insertContent([talentToTiptapNode(talent), { type: "hardBreak" }])
+        .run();
     }
   }, [composerEditor, selectedTalentsRaw]);
 

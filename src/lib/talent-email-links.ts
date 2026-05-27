@@ -11,14 +11,36 @@ export function talentDisplayName(t: TalentLinkInput): string {
   return label || "Talent";
 }
 
+export function talentInstagramUrl(t: TalentLinkInput): string | null {
+  return getInstagramProfileUrl(t.instagram);
+}
+
 /** Lien HTML cliquable vers Instagram, en gras (ou texte gras seul si pas d'@). */
 export function talentToHtmlLink(t: TalentLinkInput): string {
   const label = talentDisplayName(t);
-  const url = getInstagramProfileUrl(t.instagram);
+  const url = talentInstagramUrl(t);
   if (url) {
     return `<a href="${url}" target="_blank" rel="noopener noreferrer"><strong>${label}</strong></a>`;
   }
   return `<strong>${label}</strong>`;
+}
+
+/**
+ * Représentation Tiptap d'un nom de talent : nœud texte avec marques
+ * `bold` + `link` (vers Instagram si dispo). Garantit que la mark `link`
+ * est bien appliquée, sans dépendre du parsing HTML.
+ */
+export function talentToTiptapNode(t: TalentLinkInput): Record<string, unknown> {
+  const label = talentDisplayName(t);
+  const url = talentInstagramUrl(t);
+  const marks: Array<Record<string, unknown>> = [{ type: "bold" }];
+  if (url) {
+    marks.push({
+      type: "link",
+      attrs: { href: url, target: "_blank", rel: "noopener noreferrer" },
+    });
+  }
+  return { type: "text", text: label, marks };
 }
 
 /** Remplace {{talent_1}}, {{talent_2}}, … par les vrais liens (ordre = sélection). */
