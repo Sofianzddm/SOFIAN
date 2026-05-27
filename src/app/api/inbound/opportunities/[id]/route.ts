@@ -72,12 +72,14 @@ export async function PATCH(
       typeof body.draftEmailBody === "string" ? body.draftEmailBody : "";
 
     const { id } = await params;
+    // On ne change PAS le statut quand on sauvegarde un brouillon : l'opportunité
+    // reste dans l'onglet "Nouvelles". Seul l'envoi effectif (POST .../send)
+    // bascule en READY.
     const updated = await prisma.inboundOpportunity.update({
       where: { id },
       data: {
         draftEmailSubject: draftEmailSubject || null,
         draftEmailBody: draftEmailBody || null,
-        status: "IN_REVIEW",
       },
       include: {
         talent: { select: { id: true, prenom: true, nom: true, photo: true } },
