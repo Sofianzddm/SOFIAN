@@ -2264,6 +2264,21 @@ model ContactMission {
   clientLanguage      String?
   clientContacts      Json?
   deadlineAt          DateTime?
+  scheduledSendAt     DateTime?
+  sentAt              DateTime?
+  sentMessageIds      Json?
+  sendError           String?               @db.Text
+  relanceSentAt       DateTime?
+  relanceMessageIds   Json?
+  relanceError        String?               @db.Text
+  replied             Boolean               @default(false)
+  openedAt            DateTime?
+  lastOpenAt          DateTime?
+  openCount           Int                   @default(0)
+  clickedAt           DateTime?
+  lastClickAt         DateTime?
+  lastClickUrl        String?               @db.Text
+  clickCount          Int                   @default(0)
   createdById         String
   createdBy           User                  @relation("ContactMissionCreatedBy", fields: [createdById], references: [id])
   createdAt           DateTime              @default(now())
@@ -2272,6 +2287,8 @@ model ContactMission {
   @@index([campaignId, stage, createdAt])
   @@index([talentId])
   @@index([targetBrandKey, status, createdAt])
+  @@index([scheduledSendAt])
+  @@index([sentAt, replied, relanceSentAt])
   @@map("contact_missions")
 }
 

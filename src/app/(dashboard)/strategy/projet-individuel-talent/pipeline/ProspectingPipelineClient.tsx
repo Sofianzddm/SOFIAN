@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 
@@ -36,7 +36,23 @@ type Mission = {
   draftEmailBody?: string | null;
   clientLanguage?: "FR" | "EN" | null;
   clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }> | null;
+  scheduledSendAt?: string | null;
+  sentAt?: string | null;
+  sendError?: string | null;
+  relanceSentAt?: string | null;
+  relanceError?: string | null;
+  replied?: boolean;
+  openCount?: number;
+  openedAt?: string | null;
+  clickCount?: number;
+  clickedAt?: string | null;
   updatedAt?: string;
+};
+
+type ScheduledSend = {
+  missionId: string;
+  brandLabel: string;
+  scheduledAt: number;
 };
 
 type ContactDraft = { firstname: string; lastname: string; email: string; role: string };
@@ -123,6 +139,9 @@ export function ProspectingPipelineClient() {
   const [contactFormByMission, setContactFormByMission] = useState<
     Record<string, { open: boolean; contacts: ContactDraft[] }>
   >({});
+  const [scheduledSends, setScheduledSends] = useState<ScheduledSend[]>([]);
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const sendingMissionIdsRef = useRef<Set<string>>(new Set());
 
   const visibleStages = useMemo(() => allowedColumns(role), [role]);
   const isCastingManager = role === "CASTING_MANAGER";
@@ -182,6 +201,70 @@ export function ProspectingPipelineClient() {
     void loadMissions().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTalentId, role]);
+
+  useEffect(() => {
+    const hydrated: ScheduledSend[] = missions
+      .filter((m) => m.scheduledSendAt && !m.sentAt && m.stage === "TO_SEND")
+      .map((m) => ({
+        missionId: m.id,
+        brandLabel: `${m.creatorName} → ${m.targetBrand}`,
+        scheduledAt: new Date(m.scheduledSendAt!).getTime(),
+      }));
+    setScheduledSends((prev) => {
+      const byId = new Map(prev.map((s) => [s.missionId, s]));
+      for (const s of hydrated) byId.set(s.missionId, s);
+      for (const id of Array.from(byId.keys())) {
+        const stillPlanned = missions.find(
+          (m) => m.id === id && m.scheduledSendAt && !m.sentAt && m.stage === "TO_SEND"
+        );
+        if (!stillPlanned) byId.delete(id);
+      }
+      return Array.from(byId.values());
+    });
+  }, [missions]);
+
+  useEffect(() => {
+    if (scheduledSends.length === 0) return;
+    const interval = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [scheduledSends.length]);
+
+  useEffect(() => {
+    for (const planned of scheduledSends) {
+      if (sendingMissionIdsRef.current.has(planned.missionId)) continue;
+      if (planned.scheduledAt > nowTick) continue;
+      sendingMissionIdsRef.current.add(planned.missionId);
+      void (async () => {
+        try {
+          const res = await fetch(
+            `/api/strategy/contact-missions/${planned.missionId}/send-now`,
+            { method: "POST", credentials: "include" }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            const succ = Number(data.succeeded ?? 0);
+            const fail = Number(data.failed ?? 0);
+            if (succ > 0 && fail === 0) {
+              setSuccess(`Mail envoyé depuis Leyna (${succ} destinataire${succ > 1 ? "s" : ""}).`);
+            } else if (succ > 0) {
+              setSuccess(`Envoi partiel : ${succ} ok, ${fail} échec(s).`);
+            } else {
+              setError(data.errors?.join(" | ") || "Aucun mail envoyé.");
+            }
+          } else if (res.status !== 409) {
+            setError(data.error || "Envoi automatique impossible.");
+          }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Erreur réseau pendant l'envoi auto.");
+        } finally {
+          sendingMissionIdsRef.current.delete(planned.missionId);
+          setScheduledSends((prev) => prev.filter((s) => s.missionId !== planned.missionId));
+          await loadMissions().catch(() => {});
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduledSends, nowTick]);
 
   async function patchMission(
     missionId: string,
@@ -250,9 +333,98 @@ export function ProspectingPipelineClient() {
         ...prev,
         [m.id]: { open: false, contacts: [{ firstname: "", lastname: "", email: "", role: "" }] },
       }));
-      setSuccess(`${cleaned.length} contact(s) client enregistré(s) avec succès.`);
       await loadMissions();
+
+      // Déclenche immédiatement l'envoi auto depuis la boîte de Leyna :
+      // 1 mail par contact, dans 30s, avec possibilité d'annuler.
+      // Si le brouillon n'est pas prêt côté casting, l'API renverra une
+      // erreur claire et on garde juste la confirmation contacts enregistrés.
+      try {
+        const sendRes = await fetch(
+          `/api/strategy/contact-missions/${m.id}/schedule-send`,
+          { method: "POST", credentials: "include" }
+        );
+        const sendData = await sendRes.json().catch(() => ({}));
+        if (sendRes.ok) {
+          const scheduledAt = sendData.scheduledSendAt
+            ? new Date(sendData.scheduledSendAt).getTime()
+            : Date.now() + 30000;
+          setScheduledSends((prev) => [
+            ...prev.filter((s) => s.missionId !== m.id),
+            {
+              missionId: m.id,
+              brandLabel: `${m.creatorName} → ${m.targetBrand}`,
+              scheduledAt,
+            },
+          ]);
+          setSuccess(
+            `${cleaned.length} contact(s) enregistré(s). Envoi auto dans 30s depuis leyna@glowupagence.fr.`
+          );
+          await loadMissions();
+        } else {
+          setSuccess(
+            `${cleaned.length} contact(s) enregistré(s). Envoi auto en attente : ${
+              sendData.error || "le brouillon n'est pas encore prêt."
+            }`
+          );
+        }
+      } catch {
+        setSuccess(
+          `${cleaned.length} contact(s) enregistré(s) (envoi auto en attente, brouillon non prêt).`
+        );
+      }
     } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function scheduleSend(m: Mission) {
+    setUpdatingId(m.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/strategy/contact-missions/${m.id}/schedule-send`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Planification impossible.");
+      const scheduledAt = data.scheduledSendAt
+        ? new Date(data.scheduledSendAt).getTime()
+        : Date.now() + 30000;
+      setScheduledSends((prev) => [
+        ...prev.filter((s) => s.missionId !== m.id),
+        {
+          missionId: m.id,
+          brandLabel: `${m.creatorName} → ${m.targetBrand}`,
+          scheduledAt,
+        },
+      ]);
+      setSuccess(`Envoi programmé dans 30s vers ${m.targetBrand} (boîte Leyna).`);
+      await loadMissions();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function cancelSend(missionId: string) {
+    setUpdatingId(missionId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/strategy/contact-missions/${missionId}/cancel-send`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Annulation impossible.");
+      setScheduledSends((prev) => prev.filter((s) => s.missionId !== missionId));
+      setSuccess("Envoi annulé. La carte est revenue en « Rédigé ».");
+      await loadMissions();
+    } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
       setUpdatingId(null);
@@ -451,7 +623,38 @@ export function ProspectingPipelineClient() {
                       Rappel 72h: relance client à faire
                     </p>
                   )}
-                  {m.status === "RELANCED" && (
+                  {(() => {
+                    const planned = scheduledSends.find((s) => s.missionId === m.id);
+                    if (!planned) return null;
+                    const remaining = Math.max(0, Math.ceil((planned.scheduledAt - nowTick) / 1000));
+                    return (
+                      <p className="mt-1 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                        Envoi auto dans {remaining}s
+                      </p>
+                    );
+                  })()}
+                  {m.sentAt && (
+                    <p className="mt-1 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                      Envoyé via Leyna le {new Date(m.sentAt).toLocaleDateString("fr-FR")}
+                      {typeof m.openCount === "number" && m.openCount > 0 ? ` · ${m.openCount} ouverture${m.openCount > 1 ? "s" : ""}` : ""}
+                    </p>
+                  )}
+                  {m.relanceSentAt && (
+                    <p className="mt-1 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                      Relance J+3 envoyée le {new Date(m.relanceSentAt).toLocaleDateString("fr-FR")}
+                    </p>
+                  )}
+                  {m.replied && (
+                    <p className="mt-1 inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-700">
+                      Réponse client reçue
+                    </p>
+                  )}
+                  {m.sendError && (
+                    <p className="mt-1 text-[11px] text-red-600" title={m.sendError}>
+                      Erreur d'envoi (partielle) — voir détails
+                    </p>
+                  )}
+                  {m.status === "RELANCED" && !m.relanceSentAt && (
                     <p className="mt-1 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
                       Relancé
                     </p>
@@ -485,6 +688,33 @@ export function ProspectingPipelineClient() {
                         {updatingId === m.id ? "Ouverture..." : "Rédiger"}
                       </button>
                     )}
+                    {role === "CASTING_MANAGER" && stage === "DRAFTED_FOR_VALIDATION" && (
+                      <button
+                        type="button"
+                        disabled={updatingId === m.id}
+                        onClick={() => void openComposer(m)}
+                        className="rounded px-2 py-1 text-xs"
+                        style={
+                          isCastingManager
+                            ? { border: `1px solid ${OLD_ROSE}`, backgroundColor: OLD_LACE, color: LICORICE }
+                            : { border: "1px solid #D1D5DB" }
+                        }
+                      >
+                        {updatingId === m.id ? "Ouverture..." : "Revoir le mail"}
+                      </button>
+                    )}
+                    {(role === "ADMIN" || role === "HEAD_OF" || role === "STRATEGY_PLANNER") &&
+                      (stage === "DRAFTED_FOR_VALIDATION" || stage === "TO_SEND" || stage === "SENT") &&
+                      (m.draftEmailSubject || m.draftEmailBody) && (
+                        <button
+                          type="button"
+                          disabled={updatingId === m.id}
+                          onClick={() => void openComposer(m)}
+                          className="rounded border border-gray-300 px-2 py-1 text-xs"
+                        >
+                          {updatingId === m.id ? "Ouverture..." : "Afficher mail"}
+                        </button>
+                      )}
                     {role === "HEAD_OF_SALES" && stage === "DRAFTED_FOR_VALIDATION" && (
                       <>
                         <button
@@ -498,33 +728,37 @@ export function ProspectingPipelineClient() {
                         <button
                           type="button"
                           disabled={updatingId === m.id}
-                          onClick={() => void patchMission(m.id, { stage: "TO_SEND", status: "APPROVED_BY_SALES" })}
+                          onClick={() => void scheduleSend(m)}
                           className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700"
+                          title="Valide et déclenche l'envoi auto depuis leyna@glowupagence.fr dans 30s"
                         >
-                          Valider (à envoyer)
+                          {updatingId === m.id ? "Validation..." : "Valider → envoi auto"}
                         </button>
                       </>
                     )}
-                    {role === "HEAD_OF_SALES" && stage === "TO_SEND" && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={updatingId === m.id}
-                          onClick={() => void openComposer(m)}
-                          className="rounded border border-gray-300 px-2 py-1 text-xs"
-                        >
-                          {updatingId === m.id ? "Ouverture..." : "Afficher mail"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={updatingId === m.id}
-                          onClick={() => void patchMission(m.id, { stage: "SENT", status: "SENT" })}
-                          className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
-                        >
-                          Marquer envoyé
-                        </button>
-                      </>
-                    )}
+                    {(role === "HEAD_OF_SALES" || role === "ADMIN" || role === "HEAD_OF") &&
+                      stage === "TO_SEND" && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={updatingId === m.id}
+                            onClick={() => void openComposer(m)}
+                            className="rounded border border-gray-300 px-2 py-1 text-xs"
+                          >
+                            {updatingId === m.id ? "Ouverture..." : "Afficher mail"}
+                          </button>
+                          {m.scheduledSendAt && !m.sentAt && (
+                            <button
+                              type="button"
+                              disabled={updatingId === m.id}
+                              onClick={() => void cancelSend(m.id)}
+                              className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700"
+                            >
+                              Annuler l'envoi
+                            </button>
+                          )}
+                        </>
+                      )}
                     {(role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_SALES" || role === "STRATEGY_PLANNER") &&
                       stage === "SENT" &&
                       reminderDue && (
@@ -718,6 +952,35 @@ export function ProspectingPipelineClient() {
       )}
       {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      {scheduledSends.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 flex w-[360px] flex-col gap-2">
+          {scheduledSends.map((planned) => {
+            const remaining = Math.max(0, Math.ceil((planned.scheduledAt - nowTick) / 1000));
+            return (
+              <div
+                key={planned.missionId}
+                className="rounded-xl border border-blue-200 bg-white p-3 shadow-lg"
+              >
+                <p className="text-sm font-semibold text-blue-900">
+                  Envoi auto dans {remaining}s
+                </p>
+                <p className="mt-1 text-xs text-gray-600">
+                  {planned.brandLabel} · depuis leyna@glowupagence.fr
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void cancelSend(planned.missionId)}
+                  disabled={remaining <= 0}
+                  className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <CastingComposer
         open={composerOpen}

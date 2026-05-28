@@ -11,6 +11,14 @@
     {
       "path": "/api/cron/refresh-social-stats",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/send-scheduled-casting",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/casting-relances",
+      "schedule": "0 8 * * *"
     }
   ]
 }
