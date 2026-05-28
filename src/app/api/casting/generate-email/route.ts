@@ -164,9 +164,9 @@ export async function POST(request: NextRequest) {
             ? `, ${t.engagementRate}% engagement`
             : "";
         if (instagramUrl) {
-          return `- <a href='${instagramUrl}'>${t.name}</a> (${stats} – ${t.niche}${eng})`;
+          return `- <a href='${instagramUrl}'><strong>${t.name}</strong></a> (${stats} – ${t.niche}${eng})`;
         }
-        return `- ${t.name} (${stats} – ${t.niche}${eng})`;
+        return `- <strong>${t.name}</strong> (${stats} – ${t.niche}${eng})`;
       })
       .join("\n\n");
 
@@ -179,7 +179,7 @@ CURRENT CONTEXT: April 2026
 Brand: ${brandName}
 New products / collections to prioritize: ${newProducts}
 Positioning: ${brandPositioning}
-Available talents: ${talentsString} (the variable already contains complete HTML links in the form Firstname Lastname)
+Available talents: ${talentsString} (the variable already contains complete HTML links in the form <a><strong>Firstname Lastname</strong></a>; keep them as-is, do NOT remove the bold or the link)
 
 ${
           useDirectRecipient
@@ -235,7 +235,7 @@ CONTEXTE ACTUEL : avril 2026
 Marque : ${brandName}
 Nouveautés / collections à citer en priorité : ${newProducts}
 Positionnement : ${brandPositioning}
-Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme Prénom Nom)
+Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme <a><strong>Prénom Nom</strong></a> ; conserve-les tels quels, NE retire jamais le gras ni le lien)
 
 ${
           useDirectRecipient

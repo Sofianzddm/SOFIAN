@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import EmailComposer from "./EmailComposer";
-import { getInstagramProfileUrl } from "@/lib/social-links";
+import { talentToTiptapNode } from "@/lib/talent-email-links";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -693,14 +693,14 @@ export default function CastingComposer({
   const insertTalentLink = useCallback(
     (t: PresskitTalent) => {
       if (!editor) return;
-      const instagramUrl = getInstagramProfileUrl(t.instagram);
-      if (instagramUrl) {
-        editor.commands.insertContent(
-          `<a href="${instagramUrl}" target="_blank">${t.prenom} ${t.nom}</a> `
-        );
-      } else {
-        editor.commands.insertContent(`${t.prenom} ${t.nom} `);
-      }
+      editor
+        .chain()
+        .focus()
+        .insertContent([
+          talentToTiptapNode({ prenom: t.prenom, nom: t.nom, instagram: t.instagram }),
+          { type: "text", text: " " },
+        ])
+        .run();
       setLastField("body");
     },
     [editor]
