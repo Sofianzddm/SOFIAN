@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { Loader2, RefreshCw, Mail } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 
 type Role = "STRATEGY_PLANNER" | "CASTING_MANAGER" | "HEAD_OF_SALES" | "HEAD_OF" | "ADMIN";
@@ -522,19 +523,34 @@ export function ProspectingPipelineClient() {
               Choisis un talent pour voir toutes les marques contactées.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-            style={
-              isCastingManager
-                ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
-                : undefined
-            }
-          >
-            <RefreshCw className="h-4 w-4" />
-            Rafraîchir
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/strategy/projet-individuel-talent/mails-envoyes"
+              className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              style={
+                isCastingManager
+                  ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
+                  : { borderColor: "#D1D5DB", backgroundColor: "#fff", color: "#111827" }
+              }
+              title="Voir les mails envoyés, ouvertures, clics et relances prévues"
+            >
+              <Mail className="h-4 w-4" />
+              Mails envoyés
+            </Link>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              style={
+                isCastingManager
+                  ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
+                  : undefined
+              }
+            >
+              <RefreshCw className="h-4 w-4" />
+              Rafraîchir
+            </button>
+          </div>
         </div>
         <div className="mt-3">
           <select
