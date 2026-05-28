@@ -77,10 +77,32 @@ export function upgradeInstagramLinksToBold(html: string): string {
 }
 
 /**
+ * Nettoie les espaces parasites :
+ *  - &nbsp; collés à un lien/strong → espace simple
+ *  - espaces ou nbsp DANS un <strong> ou <a> juste avant la fin → supprimés
+ *  - doubles espaces autour d'un lien talent → simple
+ */
+function normalizeWhitespaceAroundLinks(html: string): string {
+  if (!html) return html;
+  let out = html;
+  out = out.replace(/\u00a0/g, " ");
+  out = out.replace(/(<strong>)\s+/gi, "$1");
+  out = out.replace(/\s+(<\/strong>)/gi, "$1");
+  out = out.replace(/(<a\b[^>]*>)\s+/gi, "$1");
+  out = out.replace(/\s+(<\/a>)/gi, "$1");
+  out = out.replace(/ {2,}(<a\b)/gi, " $1");
+  out = out.replace(/(<\/a>) {2,}/gi, "$1 ");
+  out = out.replace(/ {2,}(<strong>)/gi, " $1");
+  out = out.replace(/(<\/strong>) {2,}/gi, "$1 ");
+  return out;
+}
+
+/**
  * Met à niveau le HTML d'un brouillon avant envoi :
  * - jetons {{talent_N}}
  * - liens vers le nom du talent sans gras → format inbound (gras + Instagram)
  * - filet : tout lien Instagram sans gras dans le corps
+ * - normalisation des espaces parasites autour des liens
  */
 export function upgradeTalentLinksInHtml(html: string, talents: TalentLinkInput[]): string {
   if (!html) return html;
@@ -105,5 +127,6 @@ export function upgradeTalentLinksInHtml(html: string, talents: TalentLinkInput[
     out = out.replace(strongOnly, () => talentToHtmlLink(t));
   }
 
-  return upgradeInstagramLinksToBold(out);
+  out = upgradeInstagramLinksToBold(out);
+  return normalizeWhitespaceAroundLinks(out);
 }
