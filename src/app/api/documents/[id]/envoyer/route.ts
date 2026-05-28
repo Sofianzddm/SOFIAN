@@ -9,7 +9,7 @@ import { StatutDocument } from "@prisma/client";
 
 /**
  * POST /api/documents/[id]/envoyer
- * Valide et envoie un document (BROUILLON → ENVOYE)
+ * Valide et envoie un document (BROUILLON → ENVOYE, VALIDE → ENVOYE)
  */
 export async function POST(
   request: NextRequest,
@@ -49,19 +49,21 @@ export async function POST(
       return NextResponse.json({ error: "Document non trouvé" }, { status: 404 });
     }
 
-    if (document.statut !== "BROUILLON") {
+    // On accepte BROUILLON et VALIDE (Enregistré). Tout autre statut (ENVOYE/PAYE/ANNULE/REFUSE) est invalide.
+    if (document.statut !== "BROUILLON" && document.statut !== "VALIDE") {
       return NextResponse.json(
         { error: `Ce document est déjà au statut ${document.statut}` },
         { status: 400 }
       );
     }
 
-    // Mettre à jour le document
+    // Pour une facture, ne pas écraser la dateEmission existante (sinon le numéro d'échéance / les relances se décalent).
+    // Pour un BROUILLON, on (ré)initialise la dateEmission au moment de l'envoi.
     const updatedDocument = await prisma.document.update({
       where: { id },
       data: {
         statut: "ENVOYE" as StatutDocument,
-        dateEmission: new Date(),
+        ...(document.statut === "BROUILLON" ? { dateEmission: new Date() } : {}),
       },
     });
 

@@ -357,7 +357,12 @@ export default function FacturesPage() {
     }
     if (statutFilter !== "all") {
       if (statutFilter === "EN_RETARD") {
-        list = list.filter((d) => d.statut === "ENVOYE" && d.dateEcheance && new Date(d.dateEcheance) < now);
+        list = list.filter(
+          (d) =>
+            (d.statut === "ENVOYE" || d.statut === "VALIDE") &&
+            d.dateEcheance &&
+            new Date(d.dateEcheance) < now
+        );
       } else {
         list = list.filter((d) => d.statut === statutFilter);
       }
@@ -396,13 +401,15 @@ export default function FacturesPage() {
 
   // ============================================
   // Relances : factures en retard non payées, avec niveau de relance disponible
+  // On inclut les factures ENVOYE et VALIDE (Enregistré) : tant qu'elles ne sont
+  // pas PAYE/ANNULE/REFUSE et que l'échéance est dépassée, on doit pouvoir relancer.
   // ============================================
   const relancesItems = useMemo(() => {
     const now = new Date();
     const docs = Array.isArray(documents) ? documents : [];
     return docs
       .filter((d) => String(d.type).toUpperCase() === "FACTURE")
-      .filter((d) => d.statut === "ENVOYE")
+      .filter((d) => d.statut === "ENVOYE" || d.statut === "VALIDE")
       .map((d) => {
         const echeance = d.dateEcheance ? new Date(d.dateEcheance) : null;
         if (!echeance || echeance >= now) return null;
@@ -1016,7 +1023,7 @@ export default function FacturesPage() {
                   </thead>
                   <tbody>
                     {facturesPaginated.map((doc) => {
-                      const isLate = doc.statut === "ENVOYE" && doc.dateEcheance && new Date(doc.dateEcheance) < new Date();
+                      const isLate = (doc.statut === "ENVOYE" || doc.statut === "VALIDE") && doc.dateEcheance && new Date(doc.dateEcheance) < new Date();
                       const restantDu = doc.statut === "PAYE" ? 0 : Number(doc.montantTTC ?? 0);
                       const isCancelled = doc.statut === "ANNULE";
                       const marqueId = doc.collaboration?.marque?.id;

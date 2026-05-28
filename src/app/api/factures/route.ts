@@ -207,20 +207,22 @@ export async function GET(request: NextRequest) {
     // ALERTES
     // ============================================
     
-    // Factures marques en retard (envoyées depuis + de 30j)
+    // Factures marques en retard (échéance dépassée, non payées)
+    // On inclut ENVOYE et VALIDE (Enregistré) car dans le workflow actuel les factures
+    // restent souvent en VALIDE même quand elles ont été transmises à la marque.
     const facturesEnRetard = await prisma.document.count({
       where: {
         type: "FACTURE",
-        statut: "ENVOYE",
+        statut: { in: ["ENVOYE", "VALIDE"] },
         dateEcheance: { lt: now },
       },
     });
 
-    // Factures marques en attente de paiement
+    // Factures marques en attente de paiement (non payées)
     const facturesEnAttente = await prisma.document.count({
       where: {
         type: "FACTURE",
-        statut: "ENVOYE",
+        statut: { in: ["ENVOYE", "VALIDE"] },
       },
     });
 
@@ -327,7 +329,12 @@ export async function GET(request: NextRequest) {
             },
             montantHT: Number(f.montantHT),
             montantTTC: Number(f.montantTTC),
-            statut: f.dateEcheance && new Date(f.dateEcheance) < now && baseStatut === "ENVOYE" ? "EN_RETARD" : baseStatut,
+            statut:
+              f.dateEcheance &&
+              new Date(f.dateEcheance) < now &&
+              (baseStatut === "ENVOYE" || baseStatut === "VALIDE")
+                ? "EN_RETARD"
+                : baseStatut,
             dateEmission: f.dateEmission,
             dateEcheance: f.dateEcheance,
           };

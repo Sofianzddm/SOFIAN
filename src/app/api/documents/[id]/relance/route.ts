@@ -73,9 +73,11 @@ export async function POST(
     if (document.statut === "ANNULE") {
       return NextResponse.json({ error: "Cette facture est annulée" }, { status: 400 });
     }
-    if (document.statut !== "ENVOYE") {
+    // On accepte ENVOYE et VALIDE (Enregistré) : dans le workflow actuel les factures
+    // restent souvent en VALIDE même après avoir été transmises à la marque.
+    if (document.statut !== "ENVOYE" && document.statut !== "VALIDE") {
       return NextResponse.json(
-        { error: "La facture doit être au statut « Envoyé » pour pouvoir lancer une relance" },
+        { error: "La facture doit être au statut « Envoyé » ou « Enregistré » pour pouvoir lancer une relance" },
         { status: 400 }
       );
     }
