@@ -54,3 +54,56 @@ export function resolveTalentPlaceholders(html: string, talents: TalentLinkInput
   });
   return out;
 }
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Anciens brouillons : <a href="instagram…">Prénom Nom</a> sans <strong>.
+ * On enveloppe le texte du lien en gras (sans toucher aux liens déjà corrects).
+ */
+export function upgradeInstagramLinksToBold(html: string): string {
+  if (!html) return html;
+  return html.replace(
+    /<a\b([^>]*\bhref\s*=\s*["'][^"']*instagram[^"']*["'][^>]*)>([\s\S]*?)<\/a>/gi,
+    (full, attrs, inner) => {
+      if (/<strong\b/i.test(inner)) return full;
+      const text = inner.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+      if (!text) return full;
+      return `<a${attrs}><strong>${text}</strong></a>`;
+    }
+  );
+}
+
+/**
+ * Met à niveau le HTML d'un brouillon avant envoi :
+ * - jetons {{talent_N}}
+ * - liens vers le nom du talent sans gras → format inbound (gras + Instagram)
+ * - filet : tout lien Instagram sans gras dans le corps
+ */
+export function upgradeTalentLinksInHtml(html: string, talents: TalentLinkInput[]): string {
+  if (!html) return html;
+  let out = resolveTalentPlaceholders(html, talents);
+
+  for (const t of talents) {
+    const label = talentDisplayName(t);
+    if (!label || label === "Talent") continue;
+    const esc = escapeRegex(label);
+
+    const plainTalentLink = new RegExp(
+      `<a\\b([^>]*?)>\\s*(${esc})\\s*</a>`,
+      "gi"
+    );
+    out = out.replace(plainTalentLink, (full) => {
+      if (/<strong\b/i.test(full)) return full;
+      return talentToHtmlLink(t);
+    });
+
+    const strongOnly = new RegExp(`<strong>\\s*(${esc})\\s*</strong>`, "gi");
+    if (!talentInstagramUrl(t)) continue;
+    out = out.replace(strongOnly, () => talentToHtmlLink(t));
+  }
+
+  return upgradeInstagramLinksToBold(out);
+}

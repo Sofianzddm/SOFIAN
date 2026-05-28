@@ -19,6 +19,10 @@
 import { prisma } from "@/lib/prisma";
 import { sendGmail } from "@/lib/gmail";
 import { injectCastingTracking } from "@/lib/casting-tracking";
+import {
+  type TalentLinkInput,
+  upgradeTalentLinksInHtml,
+} from "@/lib/talent-email-links";
 
 export const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 export const LEYNA_OWNER_FIRSTNAME = "Leyna";
@@ -159,6 +163,25 @@ export async function preflightCastingSend(
   return { ok: true, contacts: reachable };
 }
 
+/** Talent(s) lies a la mission pour mettre a jour les liens du brouillon a l'envoi. */
+async function loadMissionTalentsForSend(mission: {
+  talentId?: string | null;
+  creatorName?: string | null;
+}): Promise<TalentLinkInput[]> {
+  if (mission.talentId) {
+    const talent = await prisma.talent.findUnique({
+      where: { id: mission.talentId },
+      select: { prenom: true, nom: true, instagram: true },
+    });
+    if (talent) return [talent];
+  }
+  const name = String(mission.creatorName || "").trim();
+  if (!name) return [];
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return [];
+  return [{ prenom: parts[0], nom: parts.slice(1).join(" ") || null, instagram: null }];
+}
+
 /**
  * Envoi reel : pour chaque contact recevable (non bloque par cooldown),
  * remplace les variables, injecte le tracking, envoie via Gmail.
@@ -171,7 +194,9 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   }
 
   const subjectTpl = String(mission.draftEmailSubject || "").trim();
-  const bodyTpl = String(mission.draftEmailBody || "").trim();
+  const bodyRaw = String(mission.draftEmailBody || "").trim();
+  const missionTalents = await loadMissionTalentsForSend(mission);
+  const bodyTpl = upgradeTalentLinksInHtml(bodyRaw, missionTalents);
   const allContacts = parseCastingContacts(mission.clientContacts);
   const emails = allContacts.map((c) => c.email!);
   const blocked = await findEmailsBlockedByCooldown(emails, missionId);
@@ -238,6 +263,7 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       sentMessageIds: mergedMessages,
       sendError: outcome.errors.length > 0 ? outcome.errors.join(" | ") : null,
       scheduledSendAt: null,
+      ...(outcome.succeeded > 0 && bodyTpl !== bodyRaw ? { draftEmailBody: bodyTpl } : {}),
     },
   });
 
