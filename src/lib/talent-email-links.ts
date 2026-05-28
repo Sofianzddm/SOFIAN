@@ -98,6 +98,25 @@ function normalizeWhitespaceAroundLinks(html: string): string {
 }
 
 /**
+ * Retire les paragraphes / <br> / espaces vides en tête et en queue du HTML.
+ * Sinon TipTap injecte souvent un `<p></p>` initial qui se traduit par une
+ * ligne blanche visible avant "Bonjour" cote destinataire.
+ */
+export function trimEmailHtmlEdges(html: string): string {
+  if (!html) return html;
+  let out = html.trim();
+  const emptyLeading = /^\s*(?:<p>\s*(?:&nbsp;|\u00a0|<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|&nbsp;|\u00a0)+/i;
+  while (emptyLeading.test(out)) {
+    out = out.replace(emptyLeading, "").trim();
+  }
+  const emptyTrailing = /(?:<p>\s*(?:&nbsp;|\u00a0|<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|&nbsp;|\u00a0)+\s*$/i;
+  while (emptyTrailing.test(out)) {
+    out = out.replace(emptyTrailing, "").trim();
+  }
+  return out;
+}
+
+/**
  * Met à niveau le HTML d'un brouillon avant envoi :
  * - jetons {{talent_N}}
  * - liens vers le nom du talent sans gras → format inbound (gras + Instagram)
@@ -128,5 +147,6 @@ export function upgradeTalentLinksInHtml(html: string, talents: TalentLinkInput[
   }
 
   out = upgradeInstagramLinksToBold(out);
-  return normalizeWhitespaceAroundLinks(out);
+  out = normalizeWhitespaceAroundLinks(out);
+  return trimEmailHtmlEdges(out);
 }
