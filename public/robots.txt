@@ -1,3 +1,12 @@
 # Bloquer l'indexation de app.glowupagence.fr
+# Règle globale : aucun chemin ne doit jamais être indexé.
 User-agent: *
 Disallow: /
+
+# Defense-in-depth : même si la règle globale ci-dessus venait à être
+# assouplie un jour, ces chemins doivent rester strictement non-indexables.
+# (Pages publiques confidentielles : accessibles uniquement par lien direct.)
+Disallow: /tarifs/
+Disallow: /api/tarifs/
+Disallow: /kit/
+Disallow: /api/kit/
