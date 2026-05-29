@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowLeft,
+  BellOff,
+  BellRing,
 } from "lucide-react";
 import { addBusinessDays, isBusinessDay } from "@/lib/business-days";
 
@@ -51,6 +53,7 @@ type SentMission = {
   clickCount: number;
   relanceSentAt: string | null;
   relanceError: string | null;
+  relanceCancelledAt: string | null;
   replied: boolean;
 };
 
@@ -63,6 +66,7 @@ type ApiResponse = {
 type Period = "all" | "week" | "month";
 
 const ALLOWED = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF", "CASTING_MANAGER", "STRATEGY_PLANNER"];
+const CAN_MANAGE_RELANCE = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF", "STRATEGY_PLANNER"];
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr);
@@ -97,9 +101,10 @@ function relativeDate(dateStr: string) {
 function computeNextRelance(
   sentAt: string | null,
   relanceSentAt: string | null,
-  replied: boolean
+  replied: boolean,
+  relanceCancelledAt: string | null = null
 ): { scheduledAt: Date; isOverdue: boolean } | null {
-  if (!sentAt || replied || relanceSentAt) return null;
+  if (!sentAt || replied || relanceSentAt || relanceCancelledAt) return null;
   const sent = new Date(sentAt);
   const eligibleAt = addBusinessDays(sent, RELANCE_BUSINESS_DAYS);
   const now = new Date();
@@ -141,10 +146,12 @@ function RelanceStatus({
   sentAt,
   relanceSentAt,
   replied,
+  relanceCancelledAt,
 }: {
   sentAt: string | null;
   relanceSentAt: string | null;
   replied: boolean;
+  relanceCancelledAt: string | null;
 }) {
   if (replied) {
     return (
@@ -170,7 +177,19 @@ function RelanceStatus({
     );
   }
 
-  const next = computeNextRelance(sentAt, relanceSentAt, replied);
+  if (relanceCancelledAt) {
+    return (
+      <div
+        className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700"
+        title={`Stoppée manuellement le ${formatDate(relanceCancelledAt)}`}
+      >
+        <BellOff className="h-3 w-3" />
+        Stoppée manuellement
+      </div>
+    );
+  }
+
+  const next = computeNextRelance(sentAt, relanceSentAt, replied, relanceCancelledAt);
   if (!next) return <span className="text-xs text-slate-400">—</span>;
 
   return (
@@ -223,8 +242,20 @@ function RelanceTimeline({ mail }: { mail: SentMission }) {
       state: "done",
       date: `${formatDate(mail.relanceSentAt)} (${relativeDate(mail.relanceSentAt)})`,
     });
+  } else if (mail.relanceCancelledAt) {
+    steps.push({
+      label: "Relance auto stoppée manuellement",
+      state: "stopped",
+      date: `${formatDate(mail.relanceCancelledAt)} (${relativeDate(mail.relanceCancelledAt)})`,
+      hint: "Tu peux la réactiver à tout moment depuis la table ou la pipeline.",
+    });
   } else {
-    const next = computeNextRelance(mail.sentAt, mail.relanceSentAt, mail.replied);
+    const next = computeNextRelance(
+      mail.sentAt,
+      mail.relanceSentAt,
+      mail.replied,
+      mail.relanceCancelledAt
+    );
     if (next) {
       steps.push({
         label: "Relance J+3",
@@ -340,9 +371,67 @@ export default function PipelineMailsEnvoyesPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [openMail, setOpenMail] = useState<SentMission | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
   const role = (session?.user as { role?: string } | undefined)?.role || "";
   const forbidden = status !== "loading" && !ALLOWED.includes(role);
+  const canManageRelance = CAN_MANAGE_RELANCE.includes(role);
+
+  async function toggleRelance(mail: SentMission, action: "cancel" | "resume") {
+    setTogglingId(mail.id);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/strategy/contact-missions/${mail.id}/cancel-relance`, {
+        method: action === "cancel" ? "POST" : "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Action impossible.");
+      setFeedback({
+        kind: "success",
+        message:
+          action === "cancel"
+            ? `Relance auto stoppée pour ${mail.targetBrand}.`
+            : `Relance auto réactivée pour ${mail.targetBrand}.`,
+      });
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          mails: prev.mails.map((m) =>
+            m.id === mail.id
+              ? {
+                  ...m,
+                  relanceCancelledAt:
+                    action === "cancel"
+                      ? json.mission?.relanceCancelledAt ?? new Date().toISOString()
+                      : null,
+                }
+              : m
+          ),
+        };
+      });
+      setOpenMail((prev) =>
+        prev && prev.id === mail.id
+          ? {
+              ...prev,
+              relanceCancelledAt:
+                action === "cancel"
+                  ? json.mission?.relanceCancelledAt ?? new Date().toISOString()
+                  : null,
+            }
+          : prev
+      );
+    } catch (e) {
+      setFeedback({
+        kind: "error",
+        message: e instanceof Error ? e.message : "Erreur réseau.",
+      });
+    } finally {
+      setTogglingId(null);
+    }
+  }
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -467,6 +556,18 @@ export default function PipelineMailsEnvoyesPage() {
         </div>
       </div>
 
+      {feedback ? (
+        <div
+          className={`rounded-lg border px-3 py-2 text-sm ${
+            feedback.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-red-200 bg-red-50 text-red-800"
+          }`}
+        >
+          {feedback.message}
+        </div>
+      ) : null}
+
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="w-full min-w-[1024px] text-sm">
           <thead className="bg-slate-50 text-slate-600">
@@ -560,17 +661,47 @@ export default function PipelineMailsEnvoyesPage() {
                       sentAt={m.sentAt}
                       relanceSentAt={m.relanceSentAt}
                       replied={m.replied}
+                      relanceCancelledAt={m.relanceCancelledAt}
                     />
                   </td>
                   <td className="px-4 py-3 align-top text-right">
-                    <button
-                      type="button"
-                      onClick={() => setOpenMail(m)}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-                    >
-                      <Mail className="h-3.5 w-3.5" />
-                      Voir le mail
-                    </button>
+                    <div className="flex flex-col items-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setOpenMail(m)}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                        Voir le mail
+                      </button>
+                      {canManageRelance &&
+                        !m.replied &&
+                        !m.relanceSentAt && (
+                          m.relanceCancelledAt ? (
+                            <button
+                              type="button"
+                              disabled={togglingId === m.id}
+                              onClick={() => void toggleRelance(m, "resume")}
+                              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                              title="Réactiver la relance automatique J+3"
+                            >
+                              <BellRing className="h-3.5 w-3.5" />
+                              Réactiver relance
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={togglingId === m.id}
+                              onClick={() => void toggleRelance(m, "cancel")}
+                              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                              title="Stopper la relance automatique J+3"
+                            >
+                              <BellOff className="h-3.5 w-3.5" />
+                              Stopper relance
+                            </button>
+                          )
+                        )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -675,6 +806,32 @@ export default function PipelineMailsEnvoyesPage() {
               </div>
 
               <RelanceTimeline mail={openMail} />
+
+              {canManageRelance && !openMail.replied && !openMail.relanceSentAt ? (
+                <div className="flex justify-end">
+                  {openMail.relanceCancelledAt ? (
+                    <button
+                      type="button"
+                      disabled={togglingId === openMail.id}
+                      onClick={() => void toggleRelance(openMail, "resume")}
+                      className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                    >
+                      <BellRing className="h-3.5 w-3.5" />
+                      Réactiver la relance auto J+3
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={togglingId === openMail.id}
+                      onClick={() => void toggleRelance(openMail, "cancel")}
+                      className="inline-flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      <BellOff className="h-3.5 w-3.5" />
+                      Stopper la relance auto J+3
+                    </button>
+                  )}
+                </div>
+              ) : null}
 
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div

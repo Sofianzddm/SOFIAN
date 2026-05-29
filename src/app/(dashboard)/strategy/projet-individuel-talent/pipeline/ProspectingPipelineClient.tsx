@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw, Mail } from "lucide-react";
+import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import { hasBusinessDaysElapsed } from "@/lib/business-days";
 
@@ -43,6 +43,7 @@ type Mission = {
   sendError?: string | null;
   relanceSentAt?: string | null;
   relanceError?: string | null;
+  relanceCancelledAt?: string | null;
   replied?: boolean;
   openCount?: number;
   openedAt?: string | null;
@@ -412,6 +413,32 @@ export function ProspectingPipelineClient() {
     }
   }
 
+  async function toggleRelanceCancellation(m: Mission, action: "cancel" | "resume") {
+    setUpdatingId(m.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/strategy/contact-missions/${m.id}/cancel-relance`, {
+        method: action === "cancel" ? "POST" : "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Action impossible.");
+      }
+      setSuccess(
+        action === "cancel"
+          ? `Relance auto stoppée pour ${m.creatorName} → ${m.targetBrand}.`
+          : `Relance auto réactivée pour ${m.creatorName} → ${m.targetBrand}.`
+      );
+      await loadMissions();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   async function cancelSend(missionId: string) {
     setUpdatingId(missionId);
     setError(null);
@@ -666,8 +693,21 @@ export function ProspectingPipelineClient() {
                     </p>
                   )}
                   {m.replied && (
-                    <p className="mt-1 inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-700">
-                      Réponse client reçue
+                    <p
+                      className="mt-1 inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700"
+                      title="Le client a répondu, les relances auto sont stoppées."
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      Client a répondu — relances stoppées
+                    </p>
+                  )}
+                  {!m.replied && m.relanceCancelledAt && !m.relanceSentAt && (
+                    <p
+                      className="mt-1 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+                      title={`Stoppée manuellement le ${new Date(m.relanceCancelledAt).toLocaleString("fr-FR")}`}
+                    >
+                      <BellOff className="h-3 w-3" />
+                      Relance auto stoppée
                     </p>
                   )}
                   {m.sendError && (
@@ -791,6 +831,34 @@ export function ProspectingPipelineClient() {
                         >
                           Relancer
                         </button>
+                      )}
+                    {(role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_SALES" || role === "STRATEGY_PLANNER") &&
+                      stage === "SENT" &&
+                      !m.replied &&
+                      !m.relanceSentAt && (
+                        m.relanceCancelledAt ? (
+                          <button
+                            type="button"
+                            disabled={updatingId === m.id}
+                            onClick={() => void toggleRelanceCancellation(m, "resume")}
+                            className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
+                            title="Réactiver la relance automatique J+3"
+                          >
+                            <BellRing className="h-3 w-3" />
+                            Réactiver relance
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={updatingId === m.id}
+                            onClick={() => void toggleRelanceCancellation(m, "cancel")}
+                            className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700"
+                            title="Stopper la relance automatique J+3"
+                          >
+                            <BellOff className="h-3 w-3" />
+                            Stopper relance
+                          </button>
+                        )
                       )}
                     {role === "ADMIN" && (
                       <button

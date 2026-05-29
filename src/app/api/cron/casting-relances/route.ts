@@ -44,6 +44,9 @@ export async function GET(request: NextRequest) {
       sentAt: { lte: sqlCutoff, not: null },
       relanceSentAt: null,
       replied: false,
+      // L'utilisateur peut stopper manuellement la relance auto depuis le pipeline
+      // ou la page "Mails envoyés". Si `relanceCancelledAt` est defini, on saute.
+      relanceCancelledAt: null,
     },
     select: { id: true, sentMessageIds: true, sentAt: true },
     take: 100,

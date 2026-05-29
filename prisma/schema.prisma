@@ -335,6 +335,7 @@ model User {
   dinnerEvents DinnerCandidateEvent[]
   dinnerComments DinnerCandidateComment[]
   contactMissionsCreated ContactMission[] @relation("ContactMissionCreatedBy")
+  contactMissionsRelanceCancelled ContactMission[] @relation("ContactMissionRelanceCancelledBy")
   prospectingCampaignsCreated TalentProspectingCampaign[] @relation("TalentProspectingCampaignCreatedBy")
   inboundConverted InboundOpportunity[] @relation("InboundConvertedBy")
   inboundArchived  InboundOpportunity[] @relation("InboundArchivedBy")
@@ -2271,6 +2272,9 @@ model ContactMission {
   relanceSentAt       DateTime?
   relanceMessageIds   Json?
   relanceError        String?               @db.Text
+  relanceCancelledAt  DateTime?
+  relanceCancelledBy  User?                 @relation("ContactMissionRelanceCancelledBy", fields: [relanceCancelledById], references: [id])
+  relanceCancelledById String?
   replied             Boolean               @default(false)
   openedAt            DateTime?
   lastOpenAt          DateTime?
@@ -2289,6 +2293,7 @@ model ContactMission {
   @@index([targetBrandKey, status, createdAt])
   @@index([scheduledSendAt])
   @@index([sentAt, replied, relanceSentAt])
+  @@index([relanceCancelledAt])
   @@map("contact_missions")
 }
 

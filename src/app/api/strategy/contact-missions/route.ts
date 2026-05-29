@@ -130,6 +130,7 @@ export async function GET(request: NextRequest) {
           sendError: m.sendError ?? null,
           relanceSentAt: m.relanceSentAt ?? null,
           relanceError: m.relanceError ?? null,
+          relanceCancelledAt: m.relanceCancelledAt ?? null,
           replied: m.replied ?? false,
           openCount: m.openCount ?? 0,
           openedAt: m.openedAt ?? null,
