@@ -20,6 +20,10 @@ import {
 import { useSession } from "next-auth/react";
 import EmailComposer from "./EmailComposer";
 import { talentToTiptapNode } from "@/lib/talent-email-links";
+import {
+  normalizeEditorHtmlForEmail,
+  plainTextToEmailHtml,
+} from "@/lib/email-body-html";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -151,35 +155,12 @@ type BrandResearchState = {
   influenceStrategy: string;
 };
 
-/** **gras** Markdown → <strong>, puis paragraphes HTML */
-function markdownBoldToStrong(s: string): string {
-  return s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-}
-
-/** Corps email généré : HTML si déjà balisé, sinon Markdown léger (**gras**) + paragraphes */
-function plainTextToEmailHtml(text: string): string {
-  const t = text.trim();
-  if (!t) return "<p></p>";
-  if (t.startsWith("<")) return t;
-  const withBold = markdownBoldToStrong(t);
-
-  const normalized = withBold.replace(/\r\n/g, "\n");
-  const hasBlankLine = /\n\s*\n/.test(normalized);
-  const rawParagraphs = hasBlankLine ? normalized.split(/\n\s*\n+/) : [normalized];
-
-  return rawParagraphs
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-    .map((p) => `<p style="margin:0;">${p.replace(/\n/g, "<br/>")}</p>`)
-    .join("");
-}
-
-/** Corps stocké côté HubSpot → contenu éditable TipTap */
+/** Corps stocké (mission / HubSpot) → contenu éditable TipTap */
 function hubspotBodyToEditorHtml(raw: string | undefined): string {
   const t = (raw ?? "").trim();
   if (!t) return "<p></p>";
   if (t.startsWith("<")) return t;
-  return plainTextToEmailHtml(t);
+  return plainTextToEmailHtml(t) || "<p></p>";
 }
 
 function missionStatusLabel(
@@ -603,7 +584,7 @@ export default function CastingComposer({
       const subjectNext = typeof data.subject === "string" ? data.subject : "";
       const bodyNext = typeof data.body === "string" ? data.body : "";
       setSubject(subjectNext);
-      const html = plainTextToEmailHtml(bodyNext);
+      const html = plainTextToEmailHtml(bodyNext) || "<p></p>";
       editor?.commands.setContent(html);
       setEditorEmpty(!editor?.getText().trim());
       setBodyTick((n) => n + 1);
@@ -628,27 +609,7 @@ export default function CastingComposer({
       selectedTalents,
       ownerFirstName
     );
-    // TipTap génère du HTML (<p>, <br>) plutôt que des "\n".
-    // Pour l'aperçu, on veut respecter :
-    // - une nouvelle ligne : <br />
-    // - une ligne vide (paragraphe vide) : <br /><br />
-    const EMPTY_P = "__EMPTY_P__";
-    const P_SPLIT = "__P_SPLIT__";
-
-    return previewBody
-      // Paragraphes vides (souvent "<p><br></p>") → marqueur
-      .replace(/<p[^>]*>\s*(?:<br\s*\/?>)?\s*<\/p>/gi, EMPTY_P)
-      // Frontières </p><p> → marqueur
-      .replace(/<\/p>\s*<p[^>]*>/gi, P_SPLIT)
-      // Supprimer <p> restants
-      .replace(/<p[^>]*>/gi, "")
-      .replace(/<\/p>/gi, "")
-      // Marqueurs → retours
-      .replace(new RegExp(EMPTY_P, "g"), "<br /><br />")
-      .replace(new RegExp(P_SPLIT, "g"), "<br />")
-      // Normaliser les <br> / "\n"
-      .replace(/<br\s*\/?>/gi, "<br />")
-      .replace(/\n/g, "<br />");
+    return normalizeEditorHtmlForEmail(previewBody);
   }, [contact, selectedTalents, editor, bodyTick, ownerFirstName, previewRecipient]);
 
   const toggleTalent = (id: string) => {
@@ -713,7 +674,7 @@ export default function CastingComposer({
     setTalentDetailLoading(false);
   };
 
-  const getBodyHtml = () => editor?.getHTML() ?? "";
+  const getBodyHtml = () => normalizeEditorHtmlForEmail(editor?.getHTML() ?? "");
 
   useEffect(() => {
     if (!editor) return;
@@ -1120,7 +1081,10 @@ export default function CastingComposer({
                     <div
                       className="prose prose-sm max-w-none text-sm min-h-[200px] border-t pt-3"
                       style={{ color: LICORICE }}
-                      dangerouslySetInnerHTML={{ __html: (editor?.getHTML() || "<p>—</p>").replace(/\n/g, "<br />") }}
+                      dangerouslySetInnerHTML={{
+                        __html:
+                          normalizeEditorHtmlForEmail(editor?.getHTML() || "") || "—",
+                      }}
                     />
                   </div>
                 </section>

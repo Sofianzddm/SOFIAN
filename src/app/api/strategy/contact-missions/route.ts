@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { normalizeMissionBrandKey, parseMissionPriority } from "@/lib/contact-missions";
+import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
 
 const ALLOWED_ROLES = [
   "STRATEGY_PLANNER",
@@ -329,7 +330,10 @@ export async function PATCH(request: NextRequest) {
     const nextStage = String(body.stage || "").trim().toUpperCase();
     const draftEmailSubject =
       body.draftEmailSubject === undefined ? undefined : String(body.draftEmailSubject || "").trim();
-    const draftEmailBody = body.draftEmailBody === undefined ? undefined : String(body.draftEmailBody || "").trim();
+    const draftEmailBody =
+      body.draftEmailBody === undefined
+        ? undefined
+        : normalizeEditorHtmlForEmail(String(body.draftEmailBody || ""));
     const clientLanguage =
       body.clientLanguage === undefined ? undefined : String(body.clientLanguage || "").trim().toUpperCase();
     if (!missionId) {

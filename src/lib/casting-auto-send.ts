@@ -23,6 +23,7 @@ import {
   type TalentLinkInput,
   upgradeTalentLinksInHtml,
 } from "@/lib/talent-email-links";
+import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
 
 export const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 export const LEYNA_OWNER_FIRSTNAME = "Leyna";
@@ -202,7 +203,9 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   const subjectTpl = String(mission.draftEmailSubject || "").trim();
   const bodyRaw = String(mission.draftEmailBody || "").trim();
   const missionTalents = await loadMissionTalentsForSend(mission);
-  const bodyTpl = upgradeTalentLinksInHtml(bodyRaw, missionTalents);
+  const bodyTpl = normalizeEditorHtmlForEmail(
+    upgradeTalentLinksInHtml(bodyRaw, missionTalents)
+  );
   const allContacts = parseCastingContacts(mission.clientContacts);
   const emails = allContacts.map((c) => c.email!);
   const blocked = await findEmailsBlockedByCooldown(emails, missionId);
@@ -313,9 +316,11 @@ export async function executeCastingRelance(missionId: string): Promise<{
       (c) => (c.email || "").toLowerCase() === email.toLowerCase()
     );
     const firstname = contact?.firstname || "";
-    const body = `<p>Bonjour${firstname ? ` ${firstname}` : ""},</p><p>Je me permets de revenir vers vous suite a mon message de quelques jours concernant une collaboration avec <strong>${String(
-      mission.targetBrand || ""
-    )}</strong>.</p><p>Avez-vous eu le temps d'y jeter un oeil ? Je reste a votre disposition pour echanger.</p><p>Belle journee,<br/>Leyna - Glow Up Agence</p>`;
+    const body = normalizeEditorHtmlForEmail(
+      `<p>Bonjour${firstname ? ` ${firstname}` : ""},</p><p>Je me permets de revenir vers vous suite a mon message de quelques jours concernant une collaboration avec <strong>${String(
+        mission.targetBrand || ""
+      )}</strong>.</p><p>Avez-vous eu le temps d'y jeter un oeil ? Je reste a votre disposition pour echanger.</p><p>Belle journee,<br/>Leyna - Glow Up Agence</p>`
+    );
     const trackedBody = injectCastingTracking(body, missionId);
     try {
       const messageId = await sendGmail({
