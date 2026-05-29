@@ -17,6 +17,9 @@ import {
   AlertCircle,
   ArrowLeft,
 } from "lucide-react";
+import { addBusinessDays, isBusinessDay } from "@/lib/business-days";
+
+const RELANCE_BUSINESS_DAYS = 3;
 
 type Recipient = { firstname: string; lastname: string; email: string; role: string };
 
@@ -87,8 +90,9 @@ function relativeDate(dateStr: string) {
 }
 
 /**
- * Relance unique J+3 : on calcule l'échéance et on indique si elle est passée
- * (auquel cas elle partira au prochain cron 8h).
+ * Relance unique J+3 (jours ouvrés Lun-Ven, Europe/Paris) : on calcule
+ * l'échéance et on indique si elle est passée (auquel cas elle partira
+ * au prochain cron 8h, en sautant éventuellement le week-end).
  */
 function computeNextRelance(
   sentAt: string | null,
@@ -97,13 +101,17 @@ function computeNextRelance(
 ): { scheduledAt: Date; isOverdue: boolean } | null {
   if (!sentAt || replied || relanceSentAt) return null;
   const sent = new Date(sentAt);
-  const eligibleAt = new Date(sent);
-  eligibleAt.setDate(eligibleAt.getDate() + 3);
+  const eligibleAt = addBusinessDays(sent, RELANCE_BUSINESS_DAYS);
   const now = new Date();
   if (eligibleAt > now) return { scheduledAt: eligibleAt, isOverdue: false };
+  // Échéance dépassée : prochain cron à 8h, en sautant week-end
+  // (le cron tourne tous les jours mais les jours non ouvrés on n'envoie pas).
   const next8h = new Date(now);
   if (now.getHours() >= 8) next8h.setDate(next8h.getDate() + 1);
   next8h.setHours(8, 0, 0, 0);
+  while (!isBusinessDay(next8h)) {
+    next8h.setDate(next8h.getDate() + 1);
+  }
   return { scheduledAt: next8h, isOverdue: true };
 }
 

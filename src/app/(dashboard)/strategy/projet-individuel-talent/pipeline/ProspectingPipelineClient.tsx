@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2, RefreshCw, Mail } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
+import { hasBusinessDaysElapsed } from "@/lib/business-days";
 
 type Role = "STRATEGY_PLANNER" | "CASTING_MANAGER" | "HEAD_OF_SALES" | "HEAD_OF" | "ADMIN";
 type Stage =
@@ -58,8 +59,7 @@ type ScheduledSend = {
 
 type ContactDraft = { firstname: string; lastname: string; email: string; role: string };
 
-const REMINDER_DELAY_HOURS = 72;
-const REMINDER_DELAY_MS = REMINDER_DELAY_HOURS * 60 * 60 * 1000;
+const REMINDER_BUSINESS_DAYS = 3;
 
 type TalentOption = { id: string; name: string };
 const ALL_TALENTS = "__ALL_TALENTS__";
@@ -486,11 +486,12 @@ export function ProspectingPipelineClient() {
   }, [missions]);
 
   const sentReminderCount = useMemo(() => {
-    const now = Date.now();
+    const now = new Date();
     return grouped.SENT.filter((mission) => {
-      const lastUpdate = mission.updatedAt ? new Date(mission.updatedAt).getTime() : NaN;
-      if (!Number.isFinite(lastUpdate)) return false;
-      return now - lastUpdate >= REMINDER_DELAY_MS;
+      if (!mission.updatedAt) return false;
+      const lastUpdate = new Date(mission.updatedAt);
+      if (Number.isNaN(lastUpdate.getTime())) return false;
+      return hasBusinessDaysElapsed(lastUpdate, REMINDER_BUSINESS_DAYS, now);
     }).length;
   }, [grouped.SENT]);
 
@@ -607,14 +608,18 @@ export function ProspectingPipelineClient() {
             </div>
             {stage === "SENT" && sentReminderCount > 0 && (
               <p className="mt-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1">
-                {sentReminderCount} relance{sentReminderCount > 1 ? "s" : ""} à faire (72h sans réponse)
+                {sentReminderCount} relance{sentReminderCount > 1 ? "s" : ""} à faire (3 jours ouvrés sans réponse)
               </p>
             )}
             <div className={isCastingManager ? "mt-3 space-y-3 overflow-y-auto" : "mt-2 space-y-2"}>
               {grouped[stage].map((m) => (
                 (() => {
-                  const lastUpdate = m.updatedAt ? new Date(m.updatedAt).getTime() : NaN;
-                  const reminderDue = m.stage === "SENT" && Number.isFinite(lastUpdate) && Date.now() - lastUpdate >= REMINDER_DELAY_MS;
+                  const lastUpdate = m.updatedAt ? new Date(m.updatedAt) : null;
+                  const reminderDue =
+                    m.stage === "SENT" &&
+                    lastUpdate !== null &&
+                    !Number.isNaN(lastUpdate.getTime()) &&
+                    hasBusinessDaysElapsed(lastUpdate, REMINDER_BUSINESS_DAYS);
                   return (
                 <article
                   key={m.id}
@@ -636,7 +641,7 @@ export function ProspectingPipelineClient() {
                   </p>
                   {reminderDue && (
                     <p className="mt-1 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                      Rappel 72h: relance client à faire
+                      Rappel 3 jours ouvrés : relance client à faire
                     </p>
                   )}
                   {(() => {

@@ -27,7 +27,13 @@ import {
 export const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 export const LEYNA_OWNER_FIRSTNAME = "Leyna";
 export const CASTING_COOLDOWN_DAYS = 20;
-export const CASTING_RELANCE_DELAY_MS = 3 * 24 * 60 * 60 * 1000;
+/**
+ * Délai avant la relance automatique J+3 (jours ouvrés Lun-Ven en Europe/Paris).
+ * On utilise des jours ouvrés pour éviter de relancer le week-end ou
+ * d'envoyer une relance « pile » alors que le destinataire n'a pas eu
+ * de vrai jour de travail entre les deux mails.
+ */
+export const CASTING_RELANCE_BUSINESS_DAYS = 3;
 export const CASTING_SEND_DELAY_MS = 30 * 1000;
 
 export type CastingContact = {

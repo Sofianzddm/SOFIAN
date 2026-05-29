@@ -2,16 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { checkThreadForReply } from "@/lib/gmail";
 import {
-  CASTING_RELANCE_DELAY_MS,
+  CASTING_RELANCE_BUSINESS_DAYS,
   LEYNA_FROM_EMAIL,
   executeCastingRelance,
 } from "@/lib/casting-auto-send";
+import { hasBusinessDaysElapsed, isBusinessDay } from "@/lib/business-days";
 
 /**
- * Relance J+3 : pour toutes les missions envoyees il y a au moins 3 jours,
- * pas encore relancees, on verifie via l'API Gmail si le thread a recu une
- * reponse. Si oui : on flag `replied=true`. Sinon : on envoie une relance
- * courte dans le meme thread.
+ * Relance J+3 : pour toutes les missions envoyees il y a au moins
+ * `CASTING_RELANCE_BUSINESS_DAYS` jours ouvres (Lun-Ven, Europe/Paris),
+ * pas encore relancees, on verifie via l'API Gmail si le thread a recu
+ * une reponse. Si oui : on flag `replied=true`. Sinon : on envoie une
+ * relance courte dans le meme thread.
  *
  * Frequence : quotidien (cf. vercel.json), ideal le matin.
  */
@@ -21,19 +23,35 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Non autorise" }, { status: 401 });
   }
 
-  const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
-  const cutoff = new Date(Date.now() - CASTING_RELANCE_DELAY_MS);
+  const now = new Date();
+  // On ne relance pas le samedi/dimanche : la relance partira au prochain
+  // jour ouvre (cron quotidien 8h, cf. vercel.json).
+  if (!isBusinessDay(now)) {
+    return NextResponse.json({ processed: 0, skipped: "weekend" });
+  }
 
-  const candidates = await contactMissionModel.findMany({
+  const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
+  // Pre-filtre SQL large : N jours ouvres = au minimum N jours calendaires
+  // (cas Lun-Jeu) et au maximum N + 2 (cas Jeu-Mar). On filtre donc sur le
+  // minimum (N jours calendaires) pour ne rien rater, puis on affine en
+  // memoire avec `hasBusinessDaysElapsed` pour exclure les missions envoyees
+  // juste avant le week-end.
+  const sqlCutoff = new Date(now.getTime() - CASTING_RELANCE_BUSINESS_DAYS * 24 * 60 * 60 * 1000);
+
+  const rawCandidates = await contactMissionModel.findMany({
     where: {
       stage: "SENT",
-      sentAt: { lte: cutoff, not: null },
+      sentAt: { lte: sqlCutoff, not: null },
       relanceSentAt: null,
       replied: false,
     },
-    select: { id: true, sentMessageIds: true },
+    select: { id: true, sentMessageIds: true, sentAt: true },
     take: 100,
   });
+
+  const candidates = (rawCandidates as Array<{ id: string; sentMessageIds: unknown; sentAt: Date | null }>).filter(
+    (row) => row.sentAt && hasBusinessDaysElapsed(new Date(row.sentAt), CASTING_RELANCE_BUSINESS_DAYS, now)
+  );
 
   const results: Array<{
     id: string;

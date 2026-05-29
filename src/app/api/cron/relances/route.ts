@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { checkThreadForReply, sendGmail } from "@/lib/gmail";
+import { hasBusinessDaysElapsed, isBusinessDay } from "@/lib/business-days";
+
+const RELANCE_1_BUSINESS_DAYS = 3;
+const RELANCE_2_BUSINESS_DAYS = 7;
 
 type RelanceRow = {
   id: string;
@@ -25,6 +29,12 @@ export async function GET(request: NextRequest) {
   const auth = request.headers.get("authorization") || "";
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  }
+
+  // On ne relance pas le samedi/dimanche : l'échéance courante reprendra
+  // le lundi matin au prochain passage du cron.
+  if (!isBusinessDay(new Date())) {
+    return NextResponse.json({ processed: 0, skipped: "weekend" });
   }
 
   const rows = (await prisma.$queryRaw`
@@ -61,9 +71,7 @@ export async function GET(request: NextRequest) {
       AND "sentAt" IS NOT NULL
   `) as RelanceRow[];
 
-  const now = Date.now();
-  const j3Ms = 3 * 24 * 60 * 60 * 1000;
-  const j7Ms = 7 * 24 * 60 * 60 * 1000;
+  const nowDate = new Date();
 
   for (const demande of rows) {
     const threadId = demande.gmailSentMessageId;
@@ -87,13 +95,16 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
-    const sentAtMs = demande.sentAt ? new Date(demande.sentAt).getTime() : null;
-    if (!sentAtMs) continue;
+    const sentAtDate = demande.sentAt ? new Date(demande.sentAt) : null;
+    if (!sentAtDate) continue;
 
     const to = demande.kind === "demande" ? extractEmail(demande.toEmail) : demande.toEmail.trim();
     if (!to || !to.includes("@") || !demande.sujetPret) continue;
 
-    if (now - sentAtMs >= j7Ms && !demande.relance2SentAt) {
+    if (
+      hasBusinessDaysElapsed(sentAtDate, RELANCE_2_BUSINESS_DAYS, nowDate) &&
+      !demande.relance2SentAt
+    ) {
       await sendGmail({
         fromEmail: "leyna@glowupagence.fr",
         to,
@@ -124,7 +135,10 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
-    if (now - sentAtMs >= j3Ms && !demande.relance1SentAt) {
+    if (
+      hasBusinessDaysElapsed(sentAtDate, RELANCE_1_BUSINESS_DAYS, nowDate) &&
+      !demande.relance1SentAt
+    ) {
       await sendGmail({
         fromEmail: "leyna@glowupagence.fr",
         to,
