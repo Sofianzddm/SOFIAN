@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, type Editor } from "@tiptap/react";
-import { Bold, Eye, Link as LinkIcon, List, ListOrdered, Loader2, Pencil, Italic, Underline as UnderlineIcon } from "lucide-react";
+import { Bold, Eye, Link as LinkIcon, List, ListOrdered, Loader2, Pencil, Italic, Underline as UnderlineIcon, Languages } from "lucide-react";
 import { talentToTiptapNode } from "@/lib/talent-email-links";
+import { plainTextToEmailHtml } from "@/lib/email-body-html";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -103,6 +104,8 @@ export default function EmailComposer({
   const [bodyTick, setBodyTick] = useState(0);
   const subjectInputRef = useRef<HTMLInputElement>(null);
   const [customTalentIndex, setCustomTalentIndex] = useState<string>("");
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
 
   const talentTokensFromSelection = useMemo<
     { token: string; label: string; node?: Record<string, unknown> }[]
@@ -172,6 +175,52 @@ export default function EmailComposer({
       return;
     }
     editor.chain().focus().extendMarkRange("link").setLink({ href: trimmed }).run();
+  };
+
+  const translateEmail = async () => {
+    if (!editor) return;
+    const currentSubject = subject.trim();
+    const currentBody = editor.getHTML().trim();
+    if (!currentSubject && (!currentBody || currentBody === "<p></p>")) {
+      setTranslateError("Rédige d'abord un objet ou un corps avant de traduire.");
+      return;
+    }
+    const targetLanguage: "fr" | "en" = language === "fr" ? "en" : "fr";
+    setIsTranslating(true);
+    setTranslateError(null);
+    try {
+      const res = await fetch("/api/casting/translate-email", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: currentSubject,
+          bodyHtml: currentBody,
+          targetLanguage,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        subject?: string;
+        body?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Traduction impossible.");
+      }
+      const nextSubject = typeof data.subject === "string" ? data.subject : "";
+      const nextBody = typeof data.body === "string" ? data.body : "";
+      onSubjectChange(nextSubject);
+      const html = nextBody.startsWith("<")
+        ? nextBody
+        : plainTextToEmailHtml(nextBody) || "<p></p>";
+      editor.commands.setContent(html);
+      setBodyTick((n) => n + 1);
+      onLanguageChange(targetLanguage);
+    } catch (e: unknown) {
+      setTranslateError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setIsTranslating(false);
+    }
   };
 
   const words = useMemo(() => {
@@ -483,6 +532,35 @@ export default function EmailComposer({
                   <>✍️ Rediger automatiquement</>
                 )}
               </button>
+              <button
+                type="button"
+                onClick={translateEmail}
+                disabled={isTranslating}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border-2 disabled:opacity-50 transition-colors"
+                style={{
+                  borderColor: LICORICE,
+                  backgroundColor: "white",
+                  color: LICORICE,
+                }}
+                title={language === "fr" ? "Traduire en anglais" : "Traduire en français"}
+              >
+                {isTranslating ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    Traduction...
+                  </>
+                ) : (
+                  <>
+                    <Languages className="w-3.5 h-3.5" />
+                    {language === "fr" ? "Traduire en EN" : "Traduire en FR"}
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+          {translateError && (
+            <div className="px-3 py-1.5 text-xs border-b" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`, color: "#991B1B", backgroundColor: "#FEF2F2" }}>
+              {translateError}
             </div>
           )}
           <div className="relative" onClick={() => setLastField("body")}>
