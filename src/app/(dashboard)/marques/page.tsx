@@ -63,10 +63,17 @@ export default function MarquesPage() {
   const fetchMarques = async () => {
     try {
       const res = await fetch("/api/marques");
-      const data = await res.json();
-      setMarques(data);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        console.error("Erreur GET marques:", data);
+        setMarques([]);
+        return;
+      }
+      // L'API renvoie un tableau ; en cas d'erreur serveur c'est souvent { message: "..." }
+      setMarques(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Erreur:", error);
+      setMarques([]);
     } finally {
       setLoading(false);
     }
@@ -126,7 +133,7 @@ export default function MarquesPage() {
           </div>
           <div>
             <p className="text-2xl font-bold text-glowup-licorice">
-              {marques.reduce((acc, m) => acc + m._count.collaborations, 0)}
+              {marques.reduce((acc, m) => acc + (m._count?.collaborations ?? 0), 0)}
             </p>
             <p className="text-sm text-gray-500">Collaborations totales</p>
           </div>
@@ -196,7 +203,8 @@ export default function MarquesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredMarques.map((marque) => {
-            const contactPrincipal = marque.contacts.find((c) => c.principal) || marque.contacts[0];
+            const contactPrincipal =
+              marque.contacts?.find((c) => c.principal) || marque.contacts?.[0];
             return (
               <div
                 key={marque.id}
@@ -250,14 +258,14 @@ export default function MarquesPage() {
                     <div className="flex items-center gap-1.5">
                       <Handshake className="w-4 h-4 text-gray-400" />
                       <span className="text-sm font-medium text-glowup-licorice">
-                        {marque._count.collaborations}
+                        {marque._count?.collaborations ?? 0}
                       </span>
                       <span className="text-xs text-gray-500">collabs</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Users className="w-4 h-4 text-gray-400" />
                       <span className="text-sm font-medium text-glowup-licorice">
-                        {marque.contacts.length}
+                        {marque.contacts?.length ?? 0}
                       </span>
                       <span className="text-xs text-gray-500">contacts</span>
                     </div>
