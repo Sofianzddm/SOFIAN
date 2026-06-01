@@ -42,17 +42,20 @@ export async function GET(request: NextRequest) {
       where.statut = { not: "PERDU" };
     }
 
-    // Cloisonnement collabs privées (pôle Sales) :
+    // Cloisonnement strict pôle Sales :
+    // - HEAD_OF_SALES : ne voit QUE ses propres collabs (pôle Sales 100% séparé)
     // - ADMIN : voit tout
     // - Autres : voient les publiques OU celles qu'ils ont créées eux-mêmes
-    if (user.role !== "ADMIN") {
+    if (user.role === "HEAD_OF_SALES") {
+      where.createdById = user.id;
+    } else if (user.role !== "ADMIN") {
       where.OR = [
         { isPrivate: false },
         { createdById: user.id },
       ];
     }
 
-    // Filtre "mes collabs" (utile pour la HoS qui veut filtrer ses collabs privées)
+    // Filtre "mes collabs" forcé (utile pour endpoint type dashboard)
     if (mineOnly) {
       where.createdById = user.id;
       delete where.OR;
