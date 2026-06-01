@@ -136,7 +136,11 @@ export type ScheduleSendPreflight =
  * Verifie qu'une mission peut etre envoyee :
  *  - sujet + corps non vides
  *  - au moins 1 contact valide
+ *  - au moins 1 contact pas encore contacte sur cette mission
  *  - les emails ne sont pas tous bloques par le cooldown
+ *
+ * Si la mission est deja partiellement envoyee, seuls les nouveaux
+ * contacts (absents de `sentMessageIds`) sont consideres.
  */
 export async function preflightCastingSend(
   mission: {
@@ -144,6 +148,7 @@ export async function preflightCastingSend(
     draftEmailSubject: string | null;
     draftEmailBody: string | null;
     clientContacts: unknown;
+    sentMessageIds?: unknown;
   }
 ): Promise<ScheduleSendPreflight> {
   const subject = String(mission.draftEmailSubject || "").trim();
@@ -158,13 +163,24 @@ export async function preflightCastingSend(
       error: "Aucun contact client valide (prenom + email obligatoires).",
     };
   }
-  const emails = contacts.map((c) => c.email!);
+  const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
+  const newContacts = contacts.filter(
+    (c) => !alreadySent.has((c.email || "").toLowerCase())
+  );
+  if (newContacts.length === 0) {
+    return {
+      ok: false,
+      error:
+        "Tous les contacts ont deja recu le mail sur cette mission. Ajoute un nouveau contact pour declencher un envoi.",
+    };
+  }
+  const emails = newContacts.map((c) => c.email!);
   const blocked = await findEmailsBlockedByCooldown(emails, mission.id);
-  const reachable = contacts.filter((c) => !blocked.has((c.email || "").toLowerCase()));
+  const reachable = newContacts.filter((c) => !blocked.has((c.email || "").toLowerCase()));
   if (reachable.length === 0) {
     return {
       ok: false,
-      error: `Tous les contacts ont deja recu un mail dans les ${CASTING_COOLDOWN_DAYS} derniers jours.`,
+      error: `Tous les nouveaux contacts ont deja recu un mail (autre mission) dans les ${CASTING_COOLDOWN_DAYS} derniers jours.`,
     };
   }
   return { ok: true, contacts: reachable };
@@ -190,8 +206,31 @@ async function loadMissionTalentsForSend(mission: {
 }
 
 /**
- * Envoi reel : pour chaque contact recevable (non bloque par cooldown),
- * remplace les variables, injecte le tracking, envoie via Gmail.
+ * Set des emails deja envoyes avec SUCCES sur la mission (presents dans
+ * `sentMessageIds` sans `error`). Ces emails ne seront pas re-envoyes : on
+ * permet ainsi d'ajouter de nouveaux contacts apres l'envoi initial et de
+ * leur envoyer le mail sans rejouer l'envoi sur les destinataires deja
+ * contactes.
+ */
+function extractAlreadySentEmails(sentMessageIds: unknown): Set<string> {
+  if (!sentMessageIds || typeof sentMessageIds !== "object") return new Set();
+  const out = new Set<string>();
+  for (const [email, record] of Object.entries(
+    sentMessageIds as Record<string, SentMessageRecord>
+  )) {
+    if (record?.messageId && !record.error) {
+      out.add(email.toLowerCase());
+    }
+  }
+  return out;
+}
+
+/**
+ * Envoi reel : pour chaque contact recevable (non bloque par cooldown ni
+ * deja contacte avec succes sur cette mission), remplace les variables,
+ * injecte le tracking, envoie via Gmail. Si la mission est deja SENT et
+ * qu'on ajoute un nouveau contact, seuls les nouveaux contacts recoivent
+ * le mail. Les anciennes lignes de `sentMessageIds` sont preservees.
  */
 export async function executeCastingSend(missionId: string): Promise<SendOutcome> {
   const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
@@ -207,7 +246,11 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     upgradeTalentLinksInHtml(bodyRaw, missionTalents)
   );
   const allContacts = parseCastingContacts(mission.clientContacts);
-  const emails = allContacts.map((c) => c.email!);
+  const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
+  const newContacts = allContacts.filter(
+    (c) => !alreadySent.has((c.email || "").toLowerCase())
+  );
+  const emails = newContacts.map((c) => c.email!);
   const blocked = await findEmailsBlockedByCooldown(emails, missionId);
 
   const outcome: SendOutcome = {
@@ -218,7 +261,7 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     byEmail: {},
   };
 
-  for (const contact of allContacts) {
+  for (const contact of newContacts) {
     const email = (contact.email || "").toLowerCase();
     if (!email) continue;
     outcome.attempted += 1;
@@ -263,12 +306,20 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       : {};
   const mergedMessages = { ...previousMessages, ...outcome.byEmail };
 
+  // Si la mission etait deja envoyee, on garde le sentAt initial pour ne
+  // pas faire repartir le compteur des relances J+3 a zero. On ne touche
+  // pas non plus au stage / status (qui sont deja SENT ou apres).
+  const wasAlreadySent = Boolean(mission.sentAt);
+  const stageUpdate = wasAlreadySent
+    ? {}
+    : outcome.succeeded > 0
+    ? { stage: "SENT" as const, status: "SENT" as const, sentAt: new Date() }
+    : {};
+
   await contactMissionModel.update({
     where: { id: missionId },
     data: {
-      stage: outcome.succeeded > 0 ? "SENT" : mission.stage,
-      status: outcome.succeeded > 0 ? "SENT" : mission.status,
-      sentAt: outcome.succeeded > 0 ? new Date() : mission.sentAt,
+      ...stageUpdate,
       sentMessageIds: mergedMessages,
       sendError: outcome.errors.length > 0 ? outcome.errors.join(" | ") : null,
       scheduledSendAt: null,

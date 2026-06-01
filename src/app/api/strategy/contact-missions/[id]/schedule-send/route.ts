@@ -34,17 +34,23 @@ export async function POST(
       draftEmailSubject: mission.draftEmailSubject,
       draftEmailBody: mission.draftEmailBody,
       clientContacts: mission.clientContacts,
+      sentMessageIds: mission.sentMessageIds,
     });
     if (!preflight.ok) {
       return NextResponse.json({ error: preflight.error }, { status: 400 });
     }
 
+    // Si la mission est deja envoyee (cas reenvoi pour nouveaux contacts),
+    // on ne redescend pas le stage en TO_SEND : on garde la carte dans
+    // "Envoye" et on programme juste l'envoi additionnel.
+    const wasAlreadySent = Boolean(mission.sentAt);
     const scheduledSendAt = new Date(Date.now() + CASTING_SEND_DELAY_MS);
     const updated = await contactMissionModel.update({
       where: { id },
       data: {
-        stage: "TO_SEND",
-        status: "APPROVED_BY_SALES",
+        ...(wasAlreadySent
+          ? {}
+          : { stage: "TO_SEND" as const, status: "APPROVED_BY_SALES" as const }),
         scheduledSendAt,
         sendError: null,
       },

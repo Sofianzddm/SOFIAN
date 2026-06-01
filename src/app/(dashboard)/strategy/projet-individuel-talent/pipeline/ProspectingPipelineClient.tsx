@@ -318,6 +318,18 @@ export function ProspectingPipelineClient() {
     setSuccess(null);
     try {
       const currentContacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
+      const existingEmails = new Set(
+        currentContacts
+          .map((c) => String(c?.email || "").trim().toLowerCase())
+          .filter(Boolean)
+      );
+      // Pour décider du message de succès, on calcule combien de contacts
+      // sont vraiment nouveaux. Sur une mission déjà envoyée, seuls les
+      // nouveaux contacts recevront effectivement le mail (le backend skip
+      // ceux déjà présents dans `sentMessageIds`).
+      const newlyAdded = cleaned.filter((c) => !existingEmails.has(c.email));
+      const isAlreadySent = Boolean(m.sentAt);
+
       const byEmail = new Map<string, { firstname?: string; lastname?: string; email?: string; role?: string }>();
       for (const c of currentContacts) {
         const email = String(c?.email || "").trim().toLowerCase();
@@ -337,10 +349,20 @@ export function ProspectingPipelineClient() {
       }));
       await loadMissions();
 
+      // Si aucun email réellement nouveau et que la mission est déjà envoyée,
+      // pas la peine d'appeler schedule-send (le backend renverra une erreur
+      // « tous déjà contactés »). On s'arrête sur un message d'info.
+      if (isAlreadySent && newlyAdded.length === 0) {
+        setSuccess(
+          `${cleaned.length} contact(s) enregistré(s). Aucun envoi à faire : ces emails ont déjà été contactés sur cette carte.`
+        );
+        return;
+      }
+
       // Déclenche immédiatement l'envoi auto depuis la boîte de Leyna :
-      // 1 mail par contact, dans 30s, avec possibilité d'annuler.
-      // Si le brouillon n'est pas prêt côté casting, l'API renverra une
-      // erreur claire et on garde juste la confirmation contacts enregistrés.
+      // 1 mail par contact, dans 30s, avec possibilité d'annuler. Sur une
+      // mission déjà envoyée, le backend n'enverra qu'aux NOUVEAUX contacts
+      // (les anciens présents dans sentMessageIds sont automatiquement skippés).
       try {
         const sendRes = await fetch(
           `/api/strategy/contact-missions/${m.id}/schedule-send`,
@@ -351,6 +373,12 @@ export function ProspectingPipelineClient() {
           const scheduledAt = sendData.scheduledSendAt
             ? new Date(sendData.scheduledSendAt).getTime()
             : Date.now() + 30000;
+          const recipientsCount =
+            typeof sendData.reachableContacts === "number"
+              ? sendData.reachableContacts
+              : isAlreadySent
+              ? newlyAdded.length
+              : cleaned.length;
           setScheduledSends((prev) => [
             ...prev.filter((s) => s.missionId !== m.id),
             {
@@ -359,9 +387,15 @@ export function ProspectingPipelineClient() {
               scheduledAt,
             },
           ]);
-          setSuccess(
-            `${cleaned.length} contact(s) enregistré(s). Envoi auto dans 30s depuis leyna@glowupagence.fr.`
-          );
+          if (isAlreadySent) {
+            setSuccess(
+              `${cleaned.length} contact(s) enregistré(s). Envoi dans 30s uniquement au${recipientsCount > 1 ? "x" : ""} ${recipientsCount} nouveau${recipientsCount > 1 ? "x" : ""} contact${recipientsCount > 1 ? "s" : ""} (les ${existingEmails.size} déjà contacté${existingEmails.size > 1 ? "s" : ""} sont ignoré${existingEmails.size > 1 ? "s" : ""}).`
+            );
+          } else {
+            setSuccess(
+              `${cleaned.length} contact(s) enregistré(s). Envoi auto dans 30s depuis leyna@glowupagence.fr.`
+            );
+          }
           await loadMissions();
         } else {
           setSuccess(

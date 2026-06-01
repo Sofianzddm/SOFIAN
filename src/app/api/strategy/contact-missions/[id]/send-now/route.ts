@@ -33,15 +33,15 @@ export async function POST(
     if (!mission) {
       return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
     }
-    if (mission.sentAt) {
-      return NextResponse.json({ error: "Mail deja envoye." }, { status: 409 });
-    }
     if (!mission.scheduledSendAt) {
       return NextResponse.json(
         { error: "Aucun envoi planifie (annulation deja effectuee ?)." },
         { status: 409 }
       );
     }
+    // NB : on n'interdit plus le cas `mission.sentAt` defini : c'est le
+    // scenario "j'ajoute un contact apres l'envoi initial" et seules les
+    // adresses non encore contactees recevront le mail (cf. executeCastingSend).
 
     const outcome = await executeCastingSend(id);
 

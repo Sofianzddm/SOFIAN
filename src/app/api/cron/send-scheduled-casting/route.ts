@@ -18,11 +18,15 @@ export async function GET(request: NextRequest) {
   const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
   const now = new Date();
 
+  // On ramasse :
+  //  - les premiers envois (stage TO_SEND, sentAt null)
+  //  - et les renvois pour nouveaux contacts (mission deja SENT, stage SENT
+  //    mais avec un scheduledSendAt actif declenche par l'ajout d'un contact).
+  // `executeCastingSend` ignore en interne les emails deja contactes avec succes.
   const due = await contactMissionModel.findMany({
     where: {
       scheduledSendAt: { lte: now, not: null },
-      sentAt: null,
-      stage: "TO_SEND",
+      stage: { in: ["TO_SEND", "SENT"] },
     },
     select: { id: true },
     take: 50,
