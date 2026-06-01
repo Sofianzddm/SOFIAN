@@ -111,6 +111,7 @@ export async function POST(
           commissionEuros,
           montantNet,
           statut: "GAGNE", // Directement gagné puisque validé
+          createdById: nego.tmId, // Traçabilité : TM auteur de la négo (collab non privée)
           livrables: {
             create: nego.livrables.map((l) => ({
               typeContenu: l.typeContenu,

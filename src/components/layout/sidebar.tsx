@@ -117,7 +117,7 @@ const menuItems = [
     label: "Collaborations",
     href: "/collaborations",
     icon: Handshake,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "TALENT"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "TALENT"],
   },
   {
     label: "Négociations",

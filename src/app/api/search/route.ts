@@ -72,14 +72,27 @@ export async function GET(request: NextRequest) {
       : Promise.resolve([]);
 
     // Recherche collaborations
-    const collaborationsPromise = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"].includes(userRole)
+    // Cloisonnement pôle Sales : on filtre les privées (sauf si user = créateur ou ADMIN)
+    const collaborationsPromise = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "HEAD_OF_SALES"].includes(userRole)
       ? prisma.collaboration.findMany({
           where: {
-            OR: [
-              { reference: { contains: query, mode: "insensitive" } },
-              { talent: { prenom: { contains: query, mode: "insensitive" } } },
-              { talent: { nom: { contains: query, mode: "insensitive" } } },
-              { marque: { nom: { contains: query, mode: "insensitive" } } },
+            AND: [
+              {
+                OR: [
+                  { reference: { contains: query, mode: "insensitive" } },
+                  { talent: { prenom: { contains: query, mode: "insensitive" } } },
+                  { talent: { nom: { contains: query, mode: "insensitive" } } },
+                  { marque: { nom: { contains: query, mode: "insensitive" } } },
+                ],
+              },
+              userRole === "ADMIN"
+                ? {}
+                : {
+                    OR: [
+                      { isPrivate: false },
+                      { createdById: session.user.id },
+                    ],
+                  },
             ],
           },
           select: {

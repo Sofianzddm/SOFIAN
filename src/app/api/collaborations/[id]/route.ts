@@ -5,6 +5,22 @@ import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { logDelegationActivite } from "@/lib/delegations";
 
+/**
+ * Cloisonnement pôle Sales : seuls le créateur, ADMIN et JURISTE (pour les contrats marque)
+ * peuvent accéder à une collaboration privée.
+ */
+function canAccessPrivateCollab(
+  collab: { isPrivate: boolean; createdById: string | null; contratMarquePdfUrl?: string | null },
+  user: { id: string; role?: string }
+): boolean {
+  if (!collab.isPrivate) return true;
+  if (user.role === "ADMIN") return true;
+  if (collab.createdById && collab.createdById === user.id) return true;
+  // Le juriste accède aux collabs privées seulement pour traiter un contrat marque déjà déposé
+  if (user.role === "JURISTE" && collab.contratMarquePdfUrl) return true;
+  return false;
+}
+
 // GET - Détail d'une collaboration
 export async function GET(
   request: NextRequest,
@@ -124,11 +140,17 @@ export async function GET(
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
-    const userRole = (session.user as { role?: string }).role;
+    const user = session.user as { id: string; role?: string };
+    const userRole = user.role;
     if (userRole === "JURISTE") {
       if (!collaboration.contratMarquePdfUrl) {
         return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
       }
+    }
+
+    // Cloisonnement pôle Sales : on renvoie 404 (et pas 403) pour ne pas révéler l'existence
+    if (!canAccessPrivateCollab(collaboration, user)) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
     const isAdmin = userRole === "ADMIN";
@@ -172,6 +194,18 @@ export async function PATCH(
     const userRole = session.user.role;
     const { id } = await params;
     const data = await request.json();
+
+    // Cloisonnement pôle Sales : vérifier l'accès avant toute modification
+    const existingCollab = await prisma.collaboration.findUnique({
+      where: { id },
+      select: { isPrivate: true, createdById: true },
+    });
+    if (!existingCollab) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
+    if (!canAccessPrivateCollab(existingCollab, { id: session.user.id, role: userRole })) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
 
     // Vérifier les permissions pour le statut "PAYE" et marquePayeeAt (ADMIN uniquement)
     if (data.statut === "PAYE" || data.marquePayeeAt !== undefined) {
@@ -325,8 +359,25 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
     const { id } = await params;
     const data = await request.json();
+
+    // Cloisonnement pôle Sales : vérifier l'accès avant toute modification
+    const existingCollab = await prisma.collaboration.findUnique({
+      where: { id },
+      select: { isPrivate: true, createdById: true, commissionPercent: true },
+    });
+    if (!existingCollab) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
+    if (!canAccessPrivateCollab(existingCollab, { id: session.user.id, role: session.user.role })) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
 
     const livrables = Array.isArray(data.livrables) ? data.livrables : [];
     // Recalculer montantBrut côté serveur à partir des livrables (évite incohérence négo / ajout livrable)
@@ -336,11 +387,9 @@ export async function PUT(
       0
     );
 
-    const existing = await prisma.collaboration.findUnique({
-      where: { id },
-      select: { commissionPercent: true },
-    });
-    const commissionPercent = existing ? Number(existing.commissionPercent ?? 0) : parseFloat(data.commissionPercent) || 0;
+    const commissionPercent = existingCollab.commissionPercent != null
+      ? Number(existingCollab.commissionPercent)
+      : parseFloat(data.commissionPercent) || 0;
     const commissionEuros = (montantBrut * commissionPercent) / 100;
     const montantNet = montantBrut - commissionEuros;
 
@@ -418,7 +467,19 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    
+
+    // Cloisonnement pôle Sales : la HoS ne peut supprimer que ses propres collabs privées
+    const existingCollab = await prisma.collaboration.findUnique({
+      where: { id },
+      select: { isPrivate: true, createdById: true },
+    });
+    if (!existingCollab) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
+    if (!canAccessPrivateCollab(existingCollab, { id: session.user.id, role: userRole })) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
+
     // Les livrables sont supprimés en cascade (onDelete: Cascade)
     await prisma.collaboration.delete({
       where: { id: id },

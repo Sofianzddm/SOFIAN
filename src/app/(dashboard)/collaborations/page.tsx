@@ -17,6 +17,7 @@ import {
   Loader2,
   Package,
   Download,
+  Lock,
 } from "lucide-react";
 
 interface Livrable {
@@ -34,6 +35,8 @@ interface Collaboration {
   invoiceObject?: string | null;
   invoiceDate?: string | null;
   source: string;
+  isPrivate?: boolean;
+  createdById?: string | null;
   livrables: Livrable[];
   montantBrut: number;
   commissionPercent: number;
@@ -413,6 +416,15 @@ export default function CollaborationsPage() {
                         }`}>
                           {collab.source === "INBOUND" ? "IN" : "OUT"}
                         </span>
+                        {collab.isPrivate && (
+                          <span
+                            title="Collaboration privée (pôle Sales)"
+                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium bg-purple-50 text-purple-700 border border-purple-200"
+                          >
+                            <Lock className="w-2.5 h-2.5" />
+                            Privée
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="py-3 px-4">

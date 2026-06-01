@@ -19,6 +19,8 @@ import {
   Trash2,
   Package,
   Search,
+  Lock,
+  Eye,
 } from "lucide-react";
 import { LISTE_PAYS } from "@/lib/pays";
 
@@ -93,6 +95,9 @@ export default function NewCollaborationPage() {
   // Détection du rôle
   const user = session?.user as { id: string; role: string; name: string } | undefined;
   const isTM = user?.role === "TM";
+  const isHoS = user?.role === "HEAD_OF_SALES";
+  // Rôles qui peuvent créer des collabs privées (pôle Sales, cloisonnées des TM)
+  const canSetPrivate = isHoS || user?.role === "ADMIN" || user?.role === "HEAD_OF";
 
   const [formData, setFormData] = useState({
     talentId: searchParams.get("talent") || "",
@@ -100,7 +105,16 @@ export default function NewCollaborationPage() {
     description: "",
     commissionPercent: "",
     isLongTerme: false,
+    // Par défaut : cochée pour la HoS (vraie séparation Sales/TM), décochée sinon
+    isPrivate: false,
   });
+
+  // Activer "Privée" par défaut dès qu'on détecte une HoS
+  useEffect(() => {
+    if (isHoS) {
+      setFormData((prev) => ({ ...prev, isPrivate: true }));
+    }
+  }, [isHoS]);
 
   // Bloc facturation client — toujours rempli à la création de collab
   const [billingData, setBillingData] = useState({
@@ -314,6 +328,7 @@ export default function NewCollaborationPage() {
         body: JSON.stringify({
           ...formData,
           marqueId: marque.id,
+          isPrivate: canSetPrivate ? formData.isPrivate : false,
           livrables: validLivrables.map((l) => ({
             typeContenu: l.typeContenu,
             quantite: l.quantite,
@@ -554,6 +569,95 @@ export default function NewCollaborationPage() {
               </div>
             </div>
           </div>
+
+          {/* Visibilité (cloisonnement pôle Sales) */}
+          {canSetPrivate && (
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">
+                Visibilité
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, isPrivate: true }))}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    formData.isPrivate
+                      ? "border-purple-500 bg-purple-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`p-2 rounded-lg ${
+                        formData.isPrivate ? "bg-purple-100" : "bg-gray-100"
+                      }`}
+                    >
+                      <Lock
+                        className={`w-4 h-4 ${
+                          formData.isPrivate ? "text-purple-600" : "text-gray-400"
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <p
+                        className={`font-medium ${
+                          formData.isPrivate ? "text-purple-700" : "text-gray-700"
+                        }`}
+                      >
+                        Privée (Sales)
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Visible uniquement par toi et l'ADMIN
+                      </p>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, isPrivate: false }))}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    !formData.isPrivate
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`p-2 rounded-lg ${
+                        !formData.isPrivate ? "bg-blue-100" : "bg-gray-100"
+                      }`}
+                    >
+                      <Eye
+                        className={`w-4 h-4 ${
+                          !formData.isPrivate ? "text-blue-600" : "text-gray-400"
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <p
+                        className={`font-medium ${
+                          !formData.isPrivate ? "text-blue-700" : "text-gray-700"
+                        }`}
+                      >
+                        Publique
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Visible par les Talent Managers concernés
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+              {isHoS && formData.isPrivate && (
+                <p className="mt-3 text-xs text-purple-600 flex items-center gap-2">
+                  <Lock className="w-3 h-3" />
+                  Cette collab sera invisible pour les Talent Managers (cloisonnement
+                  Sales / Influence)
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Source */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">

@@ -307,6 +307,7 @@ model User {
   commentairesGift      CommentaireGift[]
   
   collabsGerees         Collaboration[]         @relation("AccountManagerCollabs")
+  collabsCreees         Collaboration[]         @relation("CollaborationCreatedBy")
   // Historique documents / devis
   quotesCreated         Quote[]
   documentEvents        DocumentEvent[]
@@ -954,7 +955,14 @@ model Collaboration {
   accountManagerId  String?
   accountManager    User?   @relation("AccountManagerCollabs", fields: [accountManagerId], references: [id])
   dateAssignationAM DateTime?
-  
+
+  // Créateur de la collab (utilisé pour cloisonner les collabs privées Sales)
+  createdById   String?
+  createdBy     User?   @relation("CollaborationCreatedBy", fields: [createdById], references: [id])
+
+  // Si true → collab privée (pôle Sales) : invisible pour les TM et autres rôles non-créateurs/non-ADMIN
+  isPrivate     Boolean   @default(false)
+
   livrables     CollabLivrable[]
   
   source            Source    @default(INBOUND)
@@ -1016,6 +1024,8 @@ model Collaboration {
   @@index([marqueId])
   @@index([statut])
   @@index([accountManagerId])
+  @@index([createdById])
+  @@index([isPrivate])
   @@map("collaborations")
 }
 

@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
     const user = session.user as { id: string; role: string };
     const { searchParams } = new URL(request.url);
     const accountManagerId = searchParams.get("accountManagerId");
+    const mineOnly = searchParams.get("mine") === "true";
 
     const where: any = {};
 
@@ -40,7 +41,23 @@ export async function GET(request: NextRequest) {
       where.talentId = { in: mesTalents.map((t) => t.id) };
       where.statut = { not: "PERDU" };
     }
-    
+
+    // Cloisonnement collabs privées (pôle Sales) :
+    // - ADMIN : voit tout
+    // - Autres : voient les publiques OU celles qu'ils ont créées eux-mêmes
+    if (user.role !== "ADMIN") {
+      where.OR = [
+        { isPrivate: false },
+        { createdById: user.id },
+      ];
+    }
+
+    // Filtre "mes collabs" (utile pour la HoS qui veut filtrer ses collabs privées)
+    if (mineOnly) {
+      where.createdById = user.id;
+      delete where.OR;
+    }
+
     // Filtrer par Account Manager si spécifié (pour ADMIN uniquement)
     if (accountManagerId && user.role === "ADMIN") {
       where.accountManagerId = accountManagerId;
@@ -144,12 +161,23 @@ export async function POST(request: NextRequest) {
     // Vérification d'accès au talent : TM relai ou rôles libres uniquement
     const user = session.user as { id: string; role?: string };
     const role = user.role ?? "";
-    const rolesLibres = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"];
+    // HEAD_OF_SALES peut créer des collabs (privées) pour n'importe quel talent
+    const rolesLibres = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"];
     if (!rolesLibres.includes(role)) {
       const talentIds = await getTalentIdsAccessibles(user.id);
       if (!talentIds.includes(data.talentId)) {
         return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
       }
+    }
+
+    // Visibilité : seuls HEAD_OF_SALES, ADMIN et HEAD_OF peuvent créer des collabs privées (pôle Sales)
+    const rolesAutorisantPrivee = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"];
+    let isPrivate = false;
+    if (data.isPrivate === true && rolesAutorisantPrivee.includes(role)) {
+      isPrivate = true;
+    } else if (role === "HEAD_OF_SALES" && data.isPrivate === undefined) {
+      // Sécurité : si la HoS oublie le flag, on cloisonne par défaut
+      isPrivate = true;
     }
 
     // Validation facturation client : doit toujours être remplie pour toute création de collab (pour devis / facture)
@@ -199,6 +227,8 @@ export async function POST(request: NextRequest) {
         montantNet: parseFloat(data.montantNet) || 0,
         isLongTerme: data.isLongTerme || false,
         statut: "EN_COURS", // Création manuelle = déjà en cours ; le TM peut mettre "Publié" en 1 clic
+        createdById: user.id,
+        isPrivate,
         livrables: {
           create: data.livrables.map((l: any) => ({
             typeContenu: l.typeContenu,
@@ -216,15 +246,18 @@ export async function POST(request: NextRequest) {
     });
 
     // Log d'activité de délégation (création collab)
-    logDelegationActivite({
-      talentId: collaboration.talentId,
-      auteurId: session.user.id,
-      type: "COLLAB_CREEE",
-      entiteType: "COLLAB",
-      entiteId: collaboration.id,
-      entiteRef: collaboration.reference,
-      detail: "Nouvelle collaboration créée",
-    }).catch(console.error);
+    // ⚠️ Pas de log si la collab est privée (pôle Sales) pour ne pas la révéler aux TM
+    if (!isPrivate) {
+      logDelegationActivite({
+        talentId: collaboration.talentId,
+        auteurId: session.user.id,
+        type: "COLLAB_CREEE",
+        entiteType: "COLLAB",
+        entiteId: collaboration.id,
+        entiteRef: collaboration.reference,
+        detail: "Nouvelle collaboration créée",
+      }).catch(console.error);
+    }
 
     return NextResponse.json(collaboration, { status: 201 });
   } catch (error) {

@@ -149,6 +149,7 @@ export async function POST(
         commissionEuros,
         montantNet,
         statut: "GAGNE",
+        createdById: nego.tmId,
         livrables: {
           create: nego.livrables.map((l) => ({
             typeContenu: l.typeContenu,
