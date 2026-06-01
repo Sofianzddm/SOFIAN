@@ -599,6 +599,68 @@ model Marque {
   @@map("marques")
 }
 
+// Suggestions de dédoublonnage générées par le cron IA (revue humaine ou fusion auto).
+model MarqueDedupeSuggestion {
+  id        String   @id @default(cuid())
+  runId     String
+  groupKey  String
+  // Snapshot JSON : [{ id, nom, slug, secteur, counts }]
+  marquesSnapshot Json
+  marqueIds String[]
+
+  verdict   MarqueDedupeVerdict
+  confidence Float
+  reasoning  String @db.Text
+
+  recommendedTargetId  String?
+  recommendedSourceIds String[]
+
+  status    MarqueDedupeSuggestionStatus @default(PENDING)
+  dryRun    Boolean  @default(true)
+  mergedAt  DateTime?
+  reviewedAt DateTime?
+  reviewedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([groupKey])
+  @@index([runId])
+  @@index([createdAt])
+  @@map("marque_dedupe_suggestions")
+}
+
+// Décisions mémorisées (ne plus reproposer une paire/groupe rejeté).
+model MarqueDedupeDecision {
+  id        String   @id @default(cuid())
+  pairKey   String   @unique
+  marqueIdA String
+  marqueIdB String
+  verdict   MarqueDedupeVerdict
+  source    String   // AI_CRON, HUMAN_UI
+  reasoning String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([marqueIdA])
+  @@index([marqueIdB])
+  @@map("marque_dedupe_decisions")
+}
+
+enum MarqueDedupeVerdict {
+  MERGE
+  KEEP_SEPARATE
+  NEEDS_REVIEW
+}
+
+enum MarqueDedupeSuggestionStatus {
+  PENDING
+  AUTO_MERGED
+  APPROVED
+  REJECTED
+  DISCARDED
+}
+
 // Mémorise toutes les variantes d'écriture d'un nom de marque (ex: "Nike", "Nike France", "NIKE Inc.")
 // pour que le résolveur trouve la bonne fiche au prochain passage.
 model MarqueAlias {
