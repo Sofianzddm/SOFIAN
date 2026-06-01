@@ -1102,6 +1102,7 @@ export default function CastingComposer({
                   isGenerating={isGenerating}
                   onGenerate={runGenerateEmail}
                   editor={editor}
+                  showPipelineVariables={Boolean(contact?.missionBrief)}
                 />
               )}
             </div>

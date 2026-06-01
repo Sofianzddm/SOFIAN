@@ -17,6 +17,33 @@ const VARIABLES_CONTACT_OWNER: { token: string; label: string }[] = [
   { token: "{{ owner.firstname }}", label: "Prenom de la sales" },
 ];
 
+// Boutons mis en avant pour le pipeline talent uniquement (cf prop
+// `showPipelineVariables` ci-dessous). Le clic insere le jeton dans l'objet
+// ou le corps; le jeton est remplace par la valeur du destinataire saisie
+// dans « Ajouter contact client » au moment de l'envoi (cf casting-auto-send).
+const PIPELINE_VARIABLES: { token: string; label: string; hint: string }[] = [
+  {
+    token: "{{ contact.firstname }}",
+    label: "PRÉNOM",
+    hint: "Prénom saisi dans Ajouter contact client",
+  },
+  {
+    token: "{{contact.lastname}}",
+    label: "NOM",
+    hint: "Nom saisi dans Ajouter contact client",
+  },
+  {
+    token: "{{ contact.company }}",
+    label: "MARQUE",
+    hint: "Nom de la marque ciblée",
+  },
+  {
+    token: "{{ owner.firstname }}",
+    label: "MOI",
+    hint: "Prénom de l'expéditrice (Leyna)",
+  },
+];
+
 export type BrandResearch = {
   recentCampaigns: string;
   newProducts: string;
@@ -47,6 +74,12 @@ export interface EmailComposerProps {
   editor: Editor | null;
   /** hubspot = jetons {{talent_N}} (casting HubSpot). instagram = liens cliquables (envoi Gmail direct). */
   talentInsertMode?: "hubspot" | "instagram";
+  /**
+   * Affiche en plus une rangee de gros boutons (PRENOM, NOM, MARQUE, MOI)
+   * tres visibles, utilises uniquement dans le composer ouvert depuis le
+   * pipeline prospection talent. Pas affiche dans le casting-outreach inbound.
+   */
+  showPipelineVariables?: boolean;
 }
 
 export default function EmailComposer({
@@ -63,6 +96,7 @@ export default function EmailComposer({
   onGenerate,
   editor,
   talentInsertMode = "hubspot",
+  showPipelineVariables = false,
 }: EmailComposerProps) {
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
   const [lastField, setLastField] = useState<"subject" | "body">("body");
@@ -264,7 +298,45 @@ export default function EmailComposer({
 
       {previewMode === "edit" && (
         <div className="space-y-2">
-          {talentInsertMode !== "instagram" && (
+          {showPipelineVariables && talentInsertMode !== "instagram" && (
+            <div
+              className="rounded-xl border p-2.5"
+              style={{
+                borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                backgroundColor: "white",
+              }}
+            >
+              <p
+                className="text-[10px] uppercase tracking-wide mb-1.5"
+                style={{ color: OLD_ROSE }}
+              >
+                Variables — clique pour insérer dans{" "}
+                <strong>{lastField === "subject" ? "l'objet" : "le corps"}</strong>{" "}
+                (remplacé automatiquement à l'envoi avec le contact saisi
+                dans « Ajouter contact client »)
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {PIPELINE_VARIABLES.map((v) => (
+                  <button
+                    key={v.token}
+                    type="button"
+                    onClick={() => insertVariable(v.token)}
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border-2 font-semibold transition-colors hover:shadow-sm"
+                    style={{
+                      borderColor: TEA_GREEN,
+                      backgroundColor: `color-mix(in srgb, ${TEA_GREEN} 35%, white)`,
+                      color: LICORICE,
+                    }}
+                    title={`${v.hint} — insère ${v.token}`}
+                  >
+                    <span className="text-[11px]">+</span>
+                    <span className="tracking-wide">{v.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {!showPipelineVariables && talentInsertMode !== "instagram" && (
             <div className="flex flex-wrap gap-1.5">
               {VARIABLES_CONTACT_OWNER.map((v) => (
                 <button
