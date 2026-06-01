@@ -25,7 +25,9 @@ import {
   CreditCard,
   Clock,
   Banknote,
+  Activity,
 } from "lucide-react";
+import { MarqueCrmTab } from "./MarqueCrmTab";
 
 interface MarqueDetail {
   id: string;
@@ -75,7 +77,9 @@ export default function MarqueDetailPage() {
   const router = useRouter();
   const [marque, setMarque] = useState<MarqueDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "contacts" | "facturation" | "collabs">("overview");
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "activite" | "contacts" | "facturation" | "collabs"
+  >("activite");
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
 
   useEffect(() => {
@@ -250,6 +254,7 @@ export default function MarqueDetailPage() {
         <div className="border-b border-gray-100">
           <nav className="flex gap-1 px-4">
             {[
+              { id: "activite", label: "Activité 360°", icon: Activity },
               { id: "overview", label: "Aperçu", icon: Building2 },
               { id: "contacts", label: "Contacts", icon: Users },
               { id: "facturation", label: "Facturation", icon: CreditCard },
@@ -272,6 +277,8 @@ export default function MarqueDetailPage() {
         </div>
 
         <div className="p-6">
+          {activeTab === "activite" && <MarqueCrmTab marqueId={marque.id} />}
+
           {/* Overview Tab */}
           {activeTab === "overview" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
