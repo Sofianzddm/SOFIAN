@@ -1,11 +1,13 @@
+import { marqueSlug } from "@/lib/marque-resolver";
+
+/**
+ * @deprecated Utiliser `marqueSlug()` depuis `@/lib/marque-resolver`.
+ * Conservé pour compat ascendante : alias strict de `marqueSlug` afin que les
+ * `ContactMission.targetBrandKey` historiques restent cohérents avec
+ * `Marque.slug`.
+ */
 export function normalizeMissionBrandKey(value: string): string {
-  const t = value.trim();
-  if (!t) return "";
-  return t
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "");
+  return marqueSlug(value);
 }
 
 export function parseMissionPriority(value: unknown): "LOW" | "MEDIUM" | "HIGH" | "URGENT" {

@@ -553,6 +553,9 @@ model Marque {
   id            String    @id @default(cuid())
   
   nom           String
+  // Clé canonique pour la déduplication (générée via marqueSlug()).
+  // Nullable pendant la migration ; un index unique sera ajouté après backfill.
+  slug          String?
   secteur       String?
   siteWeb       String?
   notes         String?   @db.Text
@@ -581,13 +584,36 @@ model Marque {
   updatedAt     DateTime  @updatedAt
   
   contacts      MarqueContact[]
+  aliases       MarqueAlias[]
   collaborations Collaboration[]
   negociations  Negociation[]
   prospections  Prospection[]
   demandesGift  DemandeGift[]
   quotes        Quote[]
   
+  @@index([slug])
   @@map("marques")
+}
+
+// Mémorise toutes les variantes d'écriture d'un nom de marque (ex: "Nike", "Nike France", "NIKE Inc.")
+// pour que le résolveur trouve la bonne fiche au prochain passage.
+model MarqueAlias {
+  id        String   @id @default(cuid())
+  marqueId  String
+  marque    Marque   @relation(fields: [marqueId], references: [id], onDelete: Cascade)
+  // Forme normalisée (marqueSlug) de l'alias — utilisée pour la recherche.
+  slug      String
+  // Libellé original tel que saisi (pour debug / affichage).
+  label     String
+  // D'où vient cet alias : INBOUND, CONTACT_MISSION, NEGOCIATION, COLLABORATION,
+  // OPPORTUNITE_MARQUE, DEMANDE_GIFT, DEMANDE_ENTRANTE, MANUAL, IMPORT.
+  source    String
+  createdAt DateTime @default(now())
+
+  @@unique([slug, marqueId])
+  @@index([slug])
+  @@index([marqueId])
+  @@map("marque_aliases")
 }
 
 model MarqueContact {
