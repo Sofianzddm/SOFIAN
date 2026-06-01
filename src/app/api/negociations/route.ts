@@ -8,6 +8,7 @@ import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { NewNegociationEmail } from "@/lib/emails/NewNegociationEmail";
+import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
 
 // GET - Liste des négociations (filtrée par rôle)
 export async function GET(request: NextRequest) {
@@ -122,7 +123,21 @@ export async function POST(request: NextRequest) {
     const reference = `NEG-${year}-${String(compteur.dernierNumero).padStart(4, "0")}`;
 
     const nomMarqueSaisi = data.nomMarqueSaisi ? String(data.nomMarqueSaisi).trim() : null;
-    const marqueId = data.marqueId || null;
+    let marqueId: string | null = data.marqueId || null;
+    if (!marqueId && nomMarqueSaisi) {
+      const resolved = await findOrCreateMarque({
+        name: nomMarqueSaisi,
+        source: "NEGOCIATION",
+      });
+      marqueId = resolved.marqueId;
+      if (data.emailContact || data.contactMarque) {
+        await ensureMarqueContact({
+          marqueId,
+          email: data.emailContact || null,
+          nom: data.contactMarque || null,
+        });
+      }
+    }
     // TM ne gère que les entrants → forcer INBOUND côté serveur
     const source: "INBOUND" | "OUTBOUND" =
       isTM ? "INBOUND" : data.source === "OUTBOUND" ? "OUTBOUND" : "INBOUND";

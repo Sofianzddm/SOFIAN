@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionAndContact } from "../route";
+import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
 
 export async function POST(
   request: NextRequest,
@@ -58,13 +59,28 @@ export async function POST(
     if (notes) briefParts.push(`Notes conversion: ${notes}`);
     const brief = briefParts.length > 0 ? briefParts.join("\n\n") : null;
 
+    const brandLabel = marqueNom || contact.nomOpportunite;
+    let marqueId: string | null = null;
+    if (brandLabel?.trim()) {
+      const resolved = await findOrCreateMarque({
+        name: brandLabel.trim(),
+        source: "PROSPECTION",
+      });
+      marqueId = resolved.marqueId;
+      await ensureMarqueContact({
+        marqueId,
+        email: contact.email || null,
+        nom: [contact.prenom, contact.nom].filter(Boolean).join(" ") || null,
+      });
+    }
+
     const negociation = await prisma.negociation.create({
       data: {
         reference,
         tmId: session.user.id,
         talentId,
-        marqueId: null,
-        nomMarqueSaisi: marqueNom || contact.nomOpportunite,
+        marqueId,
+        nomMarqueSaisi: marqueId ? null : brandLabel,
         contactMarque:
           [contact.prenom, contact.nom].filter(Boolean).join(" ") || null,
         emailContact: contact.email || null,

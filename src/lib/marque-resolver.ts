@@ -235,3 +235,102 @@ export async function findMarqueByName(
   if (byAlias) return { marqueId: byAlias, matchedBy: "alias" };
   return null;
 }
+
+export type EnsureMarqueContactInput = {
+  marqueId: string;
+  email?: string | null;
+  nom?: string | null;
+  prenom?: string | null;
+  poste?: string | null;
+  principal?: boolean;
+};
+
+/**
+ * Ajoute un contact marque s'il n'existe pas déjà (dédup par email).
+ */
+export async function ensureMarqueContact(
+  input: EnsureMarqueContactInput,
+  client: TxClient = prisma
+): Promise<void> {
+  const email = input.email?.trim().toLowerCase();
+  const nom = (input.nom || input.email?.split("@")[0] || "Contact").trim();
+  if (!nom && !email) return;
+
+  if (email) {
+    const existing = await client.marqueContact.findFirst({
+      where: { marqueId: input.marqueId, email: { equals: email, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (existing) return;
+  }
+
+  await client.marqueContact.create({
+    data: {
+      marqueId: input.marqueId,
+      nom,
+      prenom: input.prenom?.trim() || null,
+      email: email || null,
+      poste: input.poste?.trim() || null,
+      principal: input.principal ?? false,
+    },
+  });
+}
+
+export type LinkMarqueFromBrandInput = {
+  brandName: string;
+  source: MarqueAliasSource;
+  createDefaults?: FindOrCreateMarqueInput["createDefaults"];
+  contact?: {
+    email?: string | null;
+    nom?: string | null;
+    prenom?: string | null;
+    poste?: string | null;
+  };
+};
+
+/**
+ * Résout/crée la marque + contact optionnel — point d'entrée unique pour tous les flux.
+ */
+export async function linkMarqueFromBrandName(
+  input: LinkMarqueFromBrandInput,
+  client: TxClient = prisma
+): Promise<FindOrCreateMarqueResult | null> {
+  const name = input.brandName?.trim();
+  if (!name) return null;
+
+  const resolved = await findOrCreateMarque(
+    {
+      name,
+      source: input.source,
+      createDefaults: input.createDefaults,
+    },
+    client
+  );
+
+  if (input.contact && (input.contact.email || input.contact.nom)) {
+    await ensureMarqueContact(
+      {
+        marqueId: resolved.marqueId,
+        email: input.contact.email,
+        nom: input.contact.nom,
+        prenom: input.contact.prenom,
+        poste: input.contact.poste,
+      },
+      client
+    );
+  }
+
+  return resolved;
+}
+
+/** Parse "Marie Dupont" → { prenom, nom } */
+export function parseSenderName(senderName: string | null | undefined): {
+  prenom: string | null;
+  nom: string;
+} {
+  const raw = (senderName || "").trim();
+  if (!raw) return { prenom: null, nom: "Contact" };
+  const parts = raw.split(/\s+/);
+  if (parts.length === 1) return { prenom: null, nom: parts[0] };
+  return { prenom: parts[0], nom: parts.slice(1).join(" ") };
+}

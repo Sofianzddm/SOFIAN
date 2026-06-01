@@ -279,72 +279,72 @@ enum InboundStatus {
 // ============================================
 
 model User {
-  id            String       @id @default(cuid())
-  email         String       @unique
-  password      String
-  prenom        String
-  nom           String
-  role          Role
-  departement   Departement?
-  telephone     String?
-  actif         Boolean      @default(true)
-  
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  
-  talent        Talent?      @relation("UserTalent")
-  talentsGeres  Talent[]     @relation("ManagerTalents")
-  
-  negociations      Negociation[]   @relation("TMNegociations")
-  negosValidees     Negociation[]   @relation("ValidateurNegociations")
-  negoCommentaires  NegoCommentaire[]
-  
-  prospections      Prospection[]
-  documentsCreated  Document[]      @relation("DocumentCreateur")
-  
-  demandesGiftCreees    DemandeGift[]           @relation("TMDemandeGift")
-  demandesGiftGerees    DemandeGift[]           @relation("AMDemandeGift")
-  commentairesGift      CommentaireGift[]
-  
-  collabsGerees         Collaboration[]         @relation("AccountManagerCollabs")
-  collabsCreees         Collaboration[]         @relation("CollaborationCreatedBy")
+  id          String       @id @default(cuid())
+  email       String       @unique
+  password    String
+  prenom      String
+  nom         String
+  role        Role
+  departement Departement?
+  telephone   String?
+  actif       Boolean      @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  talent       Talent?  @relation("UserTalent")
+  talentsGeres Talent[] @relation("ManagerTalents")
+
+  negociations     Negociation[]     @relation("TMNegociations")
+  negosValidees    Negociation[]     @relation("ValidateurNegociations")
+  negoCommentaires NegoCommentaire[]
+
+  prospections     Prospection[]
+  documentsCreated Document[]    @relation("DocumentCreateur")
+
+  demandesGiftCreees DemandeGift[]     @relation("TMDemandeGift")
+  demandesGiftGerees DemandeGift[]     @relation("AMDemandeGift")
+  commentairesGift   CommentaireGift[]
+
+  collabsGerees         Collaboration[]        @relation("AccountManagerCollabs")
+  collabsCreees         Collaboration[]        @relation("CollaborationCreatedBy")
   // Historique documents / devis
   quotesCreated         Quote[]
   documentEvents        DocumentEvent[]
   documentComments      DocumentComment[]
   collaborationComments CollaborationComment[]
   notifications         Notification[]
-  objectifsRecus       Objectif[]     @relation("ObjectifsRecus")
-  objectifsCrees       Objectif[]     @relation("ObjectifsCrees")
+  objectifsRecus        Objectif[]             @relation("ObjectifsRecus")
+  objectifsCrees        Objectif[]             @relation("ObjectifsCrees")
 
-  fichiersProspection  FichierProspection[]
-  dossiersProspection  DossierProspection[]
+  fichiersProspection FichierProspection[]
+  dossiersProspection DossierProspection[]
 
   prospectionCommentaires ProspectionCommentaire[]
   prospectionHistoriques  ProspectionHistorique[]
 
-  delegationsEmises  DelegationTM[] @relation("DelegationsEmises")
-  delegationsRecues  DelegationTM[] @relation("DelegationsRecues")
+  delegationsEmises DelegationTM[] @relation("DelegationsEmises")
+  delegationsRecues DelegationTM[] @relation("DelegationsRecues")
 
   delegationActivites DelegationActivite[]
 
-  contratMarqueAnnotations     ContratMarqueAnnotation[]
-  contratMarqueCommentairesAuteur ContratMarqueCommentaire[] @relation("ContratMarqueCommentaireAuteur")
-  dinnerCampaignsCreated DinnerCampaign[] @relation("DinnerCampaignCreatedBy")
-  dinnerCandidatesCreated DinnerCreatorCandidate[] @relation("DinnerCandidateCreatedBy")
-  dinnerCandidatesUpdated DinnerCreatorCandidate[] @relation("DinnerCandidateUpdatedBy")
-  dinnerEvents DinnerCandidateEvent[]
-  dinnerComments DinnerCandidateComment[]
-  contactMissionsCreated ContactMission[] @relation("ContactMissionCreatedBy")
-  contactMissionsRelanceCancelled ContactMission[] @relation("ContactMissionRelanceCancelledBy")
-  prospectingCampaignsCreated TalentProspectingCampaign[] @relation("TalentProspectingCampaignCreatedBy")
-  inboundConverted InboundOpportunity[] @relation("InboundConvertedBy")
-  inboundArchived  InboundOpportunity[] @relation("InboundArchivedBy")
-  inboundMarkedReady InboundOpportunity[] @relation("InboundMarkedReadyBy")
-  cannesPresences  CannesPresence[] @relation("UserCannesPresences")
-  coiffeurSlotsCreated   CannesCoiffeurSlot[]   @relation("CannesCoiffeurSlotCreator")
-  coiffeurBookingsPlaced CannesCoiffeurBooking[] @relation("CannesCoiffeurBookingCreator")
-  activationReportsCreated ActivationReport[]    @relation("ActivationReportCreatedBy")
+  contratMarqueAnnotations        ContratMarqueAnnotation[]
+  contratMarqueCommentairesAuteur ContratMarqueCommentaire[]  @relation("ContratMarqueCommentaireAuteur")
+  dinnerCampaignsCreated          DinnerCampaign[]            @relation("DinnerCampaignCreatedBy")
+  dinnerCandidatesCreated         DinnerCreatorCandidate[]    @relation("DinnerCandidateCreatedBy")
+  dinnerCandidatesUpdated         DinnerCreatorCandidate[]    @relation("DinnerCandidateUpdatedBy")
+  dinnerEvents                    DinnerCandidateEvent[]
+  dinnerComments                  DinnerCandidateComment[]
+  contactMissionsCreated          ContactMission[]            @relation("ContactMissionCreatedBy")
+  contactMissionsRelanceCancelled ContactMission[]            @relation("ContactMissionRelanceCancelledBy")
+  prospectingCampaignsCreated     TalentProspectingCampaign[] @relation("TalentProspectingCampaignCreatedBy")
+  inboundConverted                InboundOpportunity[]        @relation("InboundConvertedBy")
+  inboundArchived                 InboundOpportunity[]        @relation("InboundArchivedBy")
+  inboundMarkedReady              InboundOpportunity[]        @relation("InboundMarkedReadyBy")
+  cannesPresences                 CannesPresence[]            @relation("UserCannesPresences")
+  coiffeurSlotsCreated            CannesCoiffeurSlot[]        @relation("CannesCoiffeurSlotCreator")
+  coiffeurBookingsPlaced          CannesCoiffeurBooking[]     @relation("CannesCoiffeurBookingCreator")
+  activationReportsCreated        ActivationReport[]          @relation("ActivationReportCreatedBy")
 
   @@map("users")
 }
@@ -354,63 +354,63 @@ model User {
 // ============================================
 
 model Talent {
-  id            String    @id @default(cuid())
-  
-  userId        String?   @unique
-  user          User?     @relation("UserTalent", fields: [userId], references: [id])
-  
-  managerId     String
-  manager       User      @relation("ManagerTalents", fields: [managerId], references: [id])
-  
+  id String @id @default(cuid())
+
+  userId String? @unique
+  user   User?   @relation("UserTalent", fields: [userId], references: [id])
+
+  managerId String
+  manager   User   @relation("ManagerTalents", fields: [managerId], references: [id])
+
   // Infos personnelles
   prenom        String
   nom           String
   email         String
   telephone     String?
   dateNaissance DateTime?
-  
-  bio           String?   @db.Text
-  presentation  String?   @db.Text
-  presentationEn String?  @db.Text
-  
+
+  bio            String? @db.Text
+  presentation   String? @db.Text
+  presentationEn String? @db.Text
+
   // Adresse complète
-  adresse       String?
-  codePostal    String?
-  ville         String?
-  pays          String?   @default("France")
-  
-  photo         String?
-  
+  adresse    String?
+  codePostal String?
+  ville      String?
+  pays       String? @default("France")
+
+  photo String?
+
   // Photos additionnelles pour le Kit Media public (/kit/[slug])
   // - Slot 0..2 : bandeau présentation (3 photos)
   // - Slot 3..5 : colonne Instagram analytics (3 photos)
   // - Slot 6..8 : colonne TikTok analytics (3 photos)
   // - Slot 9    : photo bonus (lookbook ou réserve)
   // Si un slot est vide / null, on affiche un carré crème vide.
-  kitPhotos     String[]  @default([])
-  
+  kitPhotos String[] @default([])
+
   // Réseaux sociaux
-  instagram     String?
-  tiktok        String?
-  youtube       String?
-  snapchat      String?
-  
-  niches        String[]
+  instagram String?
+  tiktok    String?
+  youtube   String?
+  snapchat  String?
+
+  niches          String[]
   selectedClients String[]
-  
+
   // Commissions
-  commissionInbound   Decimal  @default(20)
-  commissionOutbound  Decimal  @default(30)
-  
+  commissionInbound  Decimal @default(20)
+  commissionOutbound Decimal @default(30)
+
   // Infos facturation (pour le portail talent)
-  siret             String?
-  iban              String?
-  bic               String?
-  titulaireCompte   String?
-  nomBanque         String?
-  formeJuridique    String?   // Auto-entrepreneur, SASU, EURL, etc.
-  raisonSociale     String?
-  numeroTVA         String?
+  siret           String?
+  iban            String?
+  bic             String?
+  titulaireCompte String?
+  nomBanque       String?
+  formeJuridique  String? // Auto-entrepreneur, SASU, EURL, etc.
+  raisonSociale   String?
+  numeroTVA       String?
 
   // Contact d'urgence
   contactUrgenceNom  String?
@@ -419,38 +419,38 @@ model Talent {
 
   telephoneSecondaire String?
   nationalite         String?
-  notesInternes      String?   @db.Text
+  notesInternes       String? @db.Text
 
-  dateArrivee   DateTime  @default(now())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  isArchived    Boolean   @default(false)
-  orderBook     Int       @default(0)   // Ordre d'affichage dans le talent book (plus petit = plus haut)
-  moyenneVuesStory Int?   // Vues moyennes story (pour calculateur CPM)
-  moyenneVuesSnap  Int?   // Vues moyennes Snap (pour calculateur CPM Snap Vidéo)
+  dateArrivee      DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  isArchived       Boolean  @default(false)
+  orderBook        Int      @default(0) // Ordre d'affichage dans le talent book (plus petit = plus haut)
+  moyenneVuesStory Int? // Vues moyennes story (pour calculateur CPM)
+  moyenneVuesSnap  Int? // Vues moyennes Snap (pour calculateur CPM Snap Vidéo)
 
-  stats         TalentStats?
-  tarifs        TalentTarifs?
-  collaborations Collaboration[]
-  negociations  Negociation[]
-  talentbookEvents TalentbookEvent[]
-  demandesGift  DemandeGift[]
-  presskitTalents PressKitTalent[]
-  partnerTalents  PartnerTalent[]
-  agencyProjects AgencyProjectTalent[]
+  stats                 TalentStats?
+  tarifs                TalentTarifs?
+  collaborations        Collaboration[]
+  negociations          Negociation[]
+  talentbookEvents      TalentbookEvent[]
+  demandesGift          DemandeGift[]
+  presskitTalents       PressKitTalent[]
+  partnerTalents        PartnerTalent[]
+  agencyProjects        AgencyProjectTalent[]
   partnerTarifOverrides PartnerTarifOverride[]
-  contactMissions ContactMission[]
-  prospectingCampaigns TalentProspectingCampaign[]
-  inboundOpportunities InboundOpportunity[]
-  quotes        Quote[]
-  prospectionContacts ProspectionContact[]
+  contactMissions       ContactMission[]
+  prospectingCampaigns  TalentProspectingCampaign[]
+  inboundOpportunities  InboundOpportunity[]
+  quotes                Quote[]
+  prospectionContacts   ProspectionContact[]
 
-  delegations DelegationTM[]
-  delegationActivites DelegationActivite[]
-  participantsVilla ParticipantVilla[]
-  dinnerCandidates DinnerCreatorCandidate[]
-  cannesPresences CannesPresence[] @relation("TalentCannesPresences")
-  cannesCoiffeurBookings CannesCoiffeurBooking[]
+  delegations             DelegationTM[]
+  delegationActivites     DelegationActivite[]
+  participantsVilla       ParticipantVilla[]
+  dinnerCandidates        DinnerCreatorCandidate[]
+  cannesPresences         CannesPresence[]         @relation("TalentCannesPresences")
+  cannesCoiffeurBookings  CannesCoiffeurBooking[]
   activationReportTalents ActivationReportTalent[]
 
   @@map("talents")
@@ -461,52 +461,52 @@ model Talent {
 // ============================================
 
 model TalentStats {
-  id            String    @id @default(cuid())
-  
-  talentId      String    @unique
-  talent        Talent    @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  
-  igFollowers           Int?
-  igFollowersEvol       Decimal?
-  igEngagement          Decimal?
-  igEngagementEvol      Decimal?
-  igGenreFemme          Decimal?
-  igGenreHomme          Decimal?
-  igAge13_17            Decimal?
-  igAge18_24            Decimal?
-  igAge25_34            Decimal?
-  igAge35_44            Decimal?
-  igAge45Plus           Decimal?
-  igLocFrance           Decimal?
-  igLocAutre            String?
-  
-  ttFollowers           Int?
-  ttFollowersEvol       Decimal?
-  ttEngagement          Decimal?
-  ttEngagementEvol      Decimal?
-  ttGenreFemme          Decimal?
-  ttGenreHomme          Decimal?
-  ttAge13_17            Decimal?
-  ttAge18_24            Decimal?
-  ttAge25_34            Decimal?
-  ttAge35_44            Decimal?
-  ttAge45Plus           Decimal?
-  ttLocFrance           Decimal?
-  ttLocAutre            String?
-  
-  ytAbonnes             Int?
-  ytAbonnesEvol         Decimal?
+  id String @id @default(cuid())
+
+  talentId String @unique
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  igFollowers      Int?
+  igFollowersEvol  Decimal?
+  igEngagement     Decimal?
+  igEngagementEvol Decimal?
+  igGenreFemme     Decimal?
+  igGenreHomme     Decimal?
+  igAge13_17       Decimal?
+  igAge18_24       Decimal?
+  igAge25_34       Decimal?
+  igAge35_44       Decimal?
+  igAge45Plus      Decimal?
+  igLocFrance      Decimal?
+  igLocAutre       String?
+
+  ttFollowers      Int?
+  ttFollowersEvol  Decimal?
+  ttEngagement     Decimal?
+  ttEngagementEvol Decimal?
+  ttGenreFemme     Decimal?
+  ttGenreHomme     Decimal?
+  ttAge13_17       Decimal?
+  ttAge18_24       Decimal?
+  ttAge25_34       Decimal?
+  ttAge35_44       Decimal?
+  ttAge45Plus      Decimal?
+  ttLocFrance      Decimal?
+  ttLocAutre       String?
+
+  ytAbonnes     Int?
+  ytAbonnesEvol Decimal?
 
   // Stories / vues lien – saisis manuellement par le TM
-  storyViews30d         Int?
-  storyViews7d          Int?
-  storyLinkClicks30d    Int?
-  storyScreenshots      Json?
-  
-  lastUpdate    DateTime  @default(now())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  
+  storyViews30d      Int?
+  storyViews7d       Int?
+  storyLinkClicks30d Int?
+  storyScreenshots   Json?
+
+  lastUpdate DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
   @@map("talent_stats")
 }
 
@@ -515,32 +515,32 @@ model TalentStats {
 // ============================================
 
 model TalentTarifs {
-  id            String    @id @default(cuid())
-  
-  talentId      String    @unique
-  talent        Talent    @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  
-  tarifStory            Decimal?
-  tarifStoryConcours    Decimal?
-  tarifPost             Decimal?
-  tarifPostConcours     Decimal?
-  tarifPostCommun       Decimal?
-  tarifPostCrosspost    Decimal?
-  tarifReel             Decimal?
-  tarifReelCrosspost    Decimal?
-  tarifReelConcours     Decimal?
-  tarifTiktokVideo      Decimal?
-  tarifTiktokConcours   Decimal?
-  tarifYoutubeVideo     Decimal?
-  tarifYoutubeShort     Decimal?
-  tarifSnapchatStory    Decimal?
-  tarifSnapchatSpotlight Decimal?
-  tarifEvent            Decimal?
-  tarifShooting         Decimal?
-  tarifAmbassadeur      Decimal?
+  id String @id @default(cuid())
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  talentId String @unique
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  tarifStory             Decimal?
+  tarifStoryConcours     Decimal?
+  tarifPost              Decimal?
+  tarifPostConcours      Decimal?
+  tarifPostCommun        Decimal?
+  tarifPostCrosspost     Decimal?
+  tarifReel              Decimal?
+  tarifReelCrosspost     Decimal?
+  tarifReelConcours      Decimal?
+  tarifTiktokVideo       Decimal?
+  tarifTiktokConcours    Decimal?
+  tarifYoutubeVideo      Decimal?
+  tarifYoutubeShort      Decimal?
+  tarifSnapchatStory     Decimal?
+  tarifSnapchatSpotlight Decimal?
+  tarifEvent             Decimal?
+  tarifShooting          Decimal?
+  tarifAmbassadeur       Decimal?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("talent_tarifs")
 }
@@ -550,47 +550,51 @@ model TalentTarifs {
 // ============================================
 
 model Marque {
-  id            String    @id @default(cuid())
-  
-  nom           String
+  id String @id @default(cuid())
+
+  nom     String
   // Clé canonique pour la déduplication (générée via marqueSlug()).
   // Nullable pendant la migration ; un index unique sera ajouté après backfill.
-  slug          String?
-  secteur       String?
-  siteWeb       String?
-  notes         String?   @db.Text
-  
-  raisonSociale     String?
-  formeJuridique    String?
-  siret             String?
-  numeroTVA         String?
-  tvaIntracom       String?
-  
+  slug    String?
+  secteur String?
+  siteWeb String?
+  notes   String? @db.Text
+
+  raisonSociale  String?
+  formeJuridique String?
+  siret          String?
+  numeroTVA      String?
+  tvaIntracom    String?
+
   adresseRue        String?
   adresseComplement String?
   codePostal        String?
   ville             String?
-  pays              String?   @default("France")
-  
-  delaiPaiement     Int?      @default(30)
-  modePaiement      String?
-  devise            String?   @default("EUR")
-  
-  premiereCollabAt  DateTime?
-  sourceInitiale    Source?
-  prospectePar      String?
-  
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  
-  contacts      MarqueContact[]
-  aliases       MarqueAlias[]
-  collaborations Collaboration[]
-  negociations  Negociation[]
-  prospections  Prospection[]
-  demandesGift  DemandeGift[]
-  quotes        Quote[]
-  
+  pays              String? @default("France")
+
+  delaiPaiement Int?    @default(30)
+  modePaiement  String?
+  devise        String? @default("EUR")
+
+  premiereCollabAt DateTime?
+  sourceInitiale   Source?
+  prospectePar     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contacts             MarqueContact[]
+  aliases              MarqueAlias[]
+  collaborations       Collaboration[]
+  negociations         Negociation[]
+  prospections         Prospection[]
+  demandesGift         DemandeGift[]
+  quotes               Quote[]
+  inboundOpportunities InboundOpportunity[]
+  contactMissions      ContactMission[]
+  opportunitesMarque   OpportuniteMarque[]
+  demandesEntrantes    DemandeEntrante[]
+
   @@index([slug])
   @@map("marques")
 }
@@ -617,20 +621,21 @@ model MarqueAlias {
 }
 
 model MarqueContact {
-  id            String    @id @default(cuid())
-  
-  marqueId      String
-  marque        Marque    @relation(fields: [marqueId], references: [id], onDelete: Cascade)
-  
-  prenom        String?
-  nom           String
-  email         String?
-  telephone     String?
-  poste         String?
-  principal     Boolean   @default(false)
-  
-  createdAt     DateTime  @default(now())
-  quotes        Quote[]
+  id String @id @default(cuid())
+
+  marqueId String
+  marque   Marque @relation(fields: [marqueId], references: [id], onDelete: Cascade)
+
+  prenom    String?
+  nom       String
+  email     String?
+  telephone String?
+  poste     String?
+  principal Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  quotes    Quote[]
+
   @@map("marque_contacts")
 }
 
@@ -639,27 +644,27 @@ model MarqueContact {
 // ============================================
 
 model Prospection {
-  id            String    @id @default(cuid())
-  
-  reference     String    @unique
-  
-  userId        String
-  user          User      @relation(fields: [userId], references: [id])
-  
-  marqueId      String
-  marque        Marque    @relation(fields: [marqueId], references: [id])
-  
-  statut        StatutProspection @default(NOUVEAU)
-  
-  notes         String?   @db.Text
-  dateContact   DateTime?
-  dateRelance   DateTime?
-  
+  id String @id @default(cuid())
+
+  reference String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  marqueId String
+  marque   Marque @relation(fields: [marqueId], references: [id])
+
+  statut StatutProspection @default(NOUVEAU)
+
+  notes       String?   @db.Text
+  dateContact DateTime?
+  dateRelance DateTime?
+
   montantEstime Decimal?
-  
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([userId])
   @@index([marqueId])
   @@index([statut])
@@ -667,70 +672,73 @@ model Prospection {
 }
 
 model InboundOpportunity {
-  id                String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  talentEmail       String
-  talentName        String
-  talentId          String?
-  talent            Talent?  @relation(fields: [talentId], references: [id])
+  talentEmail String
+  talentName  String
+  talentId    String?
+  talent      Talent? @relation(fields: [talentId], references: [id])
 
-  senderEmail       String
-  senderName        String?
-  senderDomain      String
+  senderEmail  String
+  senderName   String?
+  senderDomain String
 
-  subject           String
-  bodyExcerpt       String   @db.Text
-  gmailMessageId    String   @unique
-  threadId          String?
-  receivedAt        DateTime
+  subject        String
+  bodyExcerpt    String   @db.Text
+  gmailMessageId String   @unique
+  threadId       String?
+  receivedAt     DateTime
 
-  category          InboundCategory
-  confidence        Float
-  priority          InboundPriority @default(MEDIUM)
+  category   InboundCategory
+  confidence Float
+  priority   InboundPriority @default(MEDIUM)
 
-  extractedBrand    String?
-  extractedTopic    String?
-  extractedBudget   String?
-  extractedDeadline String?
+  extractedBrand        String?
+  extractedTopic        String?
+  extractedBudget       String?
+  extractedDeadline     String?
   extractedDeliverables String? @db.Text
-  briefSummary      String? @db.Text
-  draftEmailSubject String?
-  draftEmailBody    String? @db.Text
+  briefSummary          String? @db.Text
+  draftEmailSubject     String?
+  draftEmailBody        String? @db.Text
+
+  marqueId String?
+  marque   Marque? @relation(fields: [marqueId], references: [id], onDelete: SetNull)
 
   gmailSentMessageId String?
   sentAt             DateTime?
 
   // Tracking ouvertures (pixel) et clics (lien réécrit)
-  openedAt           DateTime?
-  lastOpenAt         DateTime?
-  openCount          Int       @default(0)
-  clickedAt          DateTime?
-  lastClickAt        DateTime?
-  lastClickUrl       String?
-  clickCount         Int       @default(0)
+  openedAt     DateTime?
+  lastOpenAt   DateTime?
+  openCount    Int       @default(0)
+  clickedAt    DateTime?
+  lastClickAt  DateTime?
+  lastClickUrl String?
+  clickCount   Int       @default(0)
 
   // Relances automatiques (cron quotidien 8h)
-  relance1SentAt     DateTime?
-  relance2SentAt     DateTime?
-  replied            Boolean   @default(false)
+  relance1SentAt DateTime?
+  relance2SentAt DateTime?
+  replied        Boolean   @default(false)
 
-  status            InboundStatus @default(NEW)
+  status InboundStatus @default(NEW)
 
-  convertedToProspectionId String? @unique
-  convertedAt       DateTime?
-  convertedById     String?
-  convertedBy       User?    @relation("InboundConvertedBy", fields: [convertedById], references: [id])
+  convertedToProspectionId String?   @unique
+  convertedAt              DateTime?
+  convertedById            String?
+  convertedBy              User?     @relation("InboundConvertedBy", fields: [convertedById], references: [id])
 
-  archivedAt        DateTime?
-  archivedById      String?
-  archivedBy        User?    @relation("InboundArchivedBy", fields: [archivedById], references: [id])
-  archivedReason    String?
-  markedReadyAt     DateTime?
-  markedReadyById   String?
-  markedReadyBy     User?    @relation("InboundMarkedReadyBy", fields: [markedReadyById], references: [id])
+  archivedAt      DateTime?
+  archivedById    String?
+  archivedBy      User?     @relation("InboundArchivedBy", fields: [archivedById], references: [id])
+  archivedReason  String?
+  markedReadyAt   DateTime?
+  markedReadyById String?
+  markedReadyBy   User?     @relation("InboundMarkedReadyBy", fields: [markedReadyById], references: [id])
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([receivedAt])
@@ -738,6 +746,7 @@ model InboundOpportunity {
   @@index([senderDomain])
   @@index([threadId])
   @@index([openedAt])
+  @@index([marqueId])
   @@map("inbound_opportunities")
 }
 
@@ -746,19 +755,19 @@ model InboundOpportunity {
 // ============================================
 
 model FichierProspection {
-  id        String   @id @default(cuid())
-  titre     String
-  mois      Int
-  annee     Int
+  id    String @id @default(cuid())
+  titre String
+  mois  Int
+  annee Int
 
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   // Dossier optionnel de classement
   dossierId String?
   dossier   DossierProspection? @relation(fields: [dossierId], references: [id])
 
-  contacts  ProspectionContact[]
+  contacts ProspectionContact[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -769,14 +778,14 @@ model FichierProspection {
 }
 
 model DossierProspection {
-  id        String   @id @default(cuid())
-  nom       String
+  id  String @id @default(cuid())
+  nom String
 
   // Propriétaire du dossier (HEAD/ADMIN peuvent voir tous)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  fichiers  FichierProspection[]
+  fichiers FichierProspection[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -786,31 +795,31 @@ model DossierProspection {
 }
 
 model ProspectionContact {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  fichierId    String
-  fichier      FichierProspection @relation(fields: [fichierId], references: [id], onDelete: Cascade)
+  fichierId String
+  fichier   FichierProspection @relation(fields: [fichierId], references: [id], onDelete: Cascade)
 
-  talentId     String?
-  talent       Talent?  @relation(fields: [talentId], references: [id])
+  talentId String?
+  talent   Talent? @relation(fields: [talentId], references: [id])
 
-  nomOpportunite  String
-  prenom          String?
-  nom             String?
-  email           String?
-  montantBrut     Decimal? @default(0)
-  statut          StatutProspectionContact @default(EN_ATTENTE)
-  notes           String?   @db.Text
+  nomOpportunite String
+  prenom         String?
+  nom            String?
+  email          String?
+  montantBrut    Decimal?                 @default(0)
+  statut         StatutProspectionContact @default(EN_ATTENTE)
+  notes          String?                  @db.Text
 
   // Prochaine action (rappels type NoCRM)
-  prochainStatut   StatutAction?
-  prochainDate     DateTime?
-  actionPrevue     String?   @db.Text
-  derniereFait     String?   @db.Text
-  actionUpdatedAt  DateTime?
+  prochainStatut  StatutAction?
+  prochainDate    DateTime?
+  actionPrevue    String?       @db.Text
+  derniereFait    String?       @db.Text
+  actionUpdatedAt DateTime?
 
-  commentaires    ProspectionCommentaire[]
-  historique      ProspectionHistorique[]
+  commentaires ProspectionCommentaire[]
+  historique   ProspectionHistorique[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -822,33 +831,33 @@ model ProspectionContact {
 }
 
 model ProspectionCommentaire {
-  id         String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  contactId  String
-  contact    ProspectionContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   ProspectionContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  auteurId   String
-  auteur     User     @relation(fields: [auteurId], references: [id])
+  auteurId String
+  auteur   User   @relation(fields: [auteurId], references: [id])
 
-  contenu    String
-  createdAt  DateTime @default(now())
+  contenu   String
+  createdAt DateTime @default(now())
 
   @@index([contactId])
   @@map("prospection_commentaires")
 }
 
 model ProspectionHistorique {
-  id         String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  contactId  String
-  contact    ProspectionContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   ProspectionContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  auteurId   String
-  auteur     User     @relation(fields: [auteurId], references: [id])
+  auteurId String
+  auteur   User   @relation(fields: [auteurId], references: [id])
 
-  type       String   // "CREATION", "STATUT_CHANGE", "COMMENTAIRE"
-  detail     String   // ex: "Statut changé : EN_ATTENTE → EN_NEGOC"
-  createdAt  DateTime @default(now())
+  type      String // "CREATION", "STATUT_CHANGE", "COMMENTAIRE"
+  detail    String // ex: "Statut changé : EN_ATTENTE → EN_NEGOC"
+  createdAt DateTime @default(now())
 
   @@index([contactId])
   @@map("prospection_historique")
@@ -859,57 +868,57 @@ model ProspectionHistorique {
 // ============================================
 
 model Negociation {
-  id            String    @id @default(cuid())
-  
-  reference     String    @unique
-  
-  tmId          String
-  tm            User      @relation("TMNegociations", fields: [tmId], references: [id])
-  
-  talentId      String
-  talent        Talent    @relation(fields: [talentId], references: [id])
-  
-  marqueId      String?
-  marque        Marque?   @relation(fields: [marqueId], references: [id])
-  nomMarqueSaisi String?  // Nom saisi en négo ; à la validation → find-or-create marque (évite doublons)
-  
-  contactMarque     String?
-  emailContact      String?
-  
-  source        Source    @default(INBOUND)
-  
-  brief         String?   @db.Text
-  
-  livrables     NegoLivrable[]
-  
-  budgetMarque      Decimal?
-  budgetSouhaite    Decimal?
-  budgetFinal       Decimal?
-  
-  dateContact       DateTime  @default(now())
-  dateDeadline      DateTime?
-  
-  statut            StatutNego  @default(BROUILLON)
-  
-  validePar         String?
-  validateur        User?     @relation("ValidateurNegociations", fields: [validePar], references: [id])
-  dateValidation    DateTime?
-  raisonRefus       String?
-  
-  collaborationId   String?   @unique
-  collaboration     Collaboration? @relation(fields: [collaborationId], references: [id])
-  
-  commentaires      NegoCommentaire[]
-  
+  id String @id @default(cuid())
+
+  reference String @unique
+
+  tmId String
+  tm   User   @relation("TMNegociations", fields: [tmId], references: [id])
+
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id])
+
+  marqueId       String?
+  marque         Marque? @relation(fields: [marqueId], references: [id])
+  nomMarqueSaisi String? // Nom saisi en négo ; à la validation → find-or-create marque (évite doublons)
+
+  contactMarque String?
+  emailContact  String?
+
+  source Source @default(INBOUND)
+
+  brief String? @db.Text
+
+  livrables NegoLivrable[]
+
+  budgetMarque   Decimal?
+  budgetSouhaite Decimal?
+  budgetFinal    Decimal?
+
+  dateContact  DateTime  @default(now())
+  dateDeadline DateTime?
+
+  statut StatutNego @default(BROUILLON)
+
+  validePar      String?
+  validateur     User?     @relation("ValidateurNegociations", fields: [validePar], references: [id])
+  dateValidation DateTime?
+  raisonRefus    String?
+
+  collaborationId String?        @unique
+  collaboration   Collaboration? @relation(fields: [collaborationId], references: [id])
+
+  commentaires NegoCommentaire[]
+
   // Tracking des modifications
-  modifiedSinceReview  Boolean   @default(false)
-  lastModifiedAt       DateTime  @default(now())
-  reviewedAt           DateTime?
-  dateSubmitted        DateTime?
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
+  modifiedSinceReview Boolean   @default(false)
+  lastModifiedAt      DateTime  @default(now())
+  reviewedAt          DateTime?
+  dateSubmitted       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([tmId])
   @@index([talentId])
   @@index([marqueId])
@@ -922,20 +931,20 @@ model Negociation {
 // ============================================
 
 model NegoLivrable {
-  id              String   @id @default(cuid())
-  
-  negociationId   String
-  negociation     Negociation @relation(fields: [negociationId], references: [id], onDelete: Cascade)
-  
-  typeContenu     String   // Texte libre pour plus de flexibilité
-  quantite        Int       @default(1)
-  prixDemande     Decimal?
-  prixSouhaite    Decimal?
-  prixFinal       Decimal?
-  description     String?
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id String @id @default(cuid())
+
+  negociationId String
+  negociation   Negociation @relation(fields: [negociationId], references: [id], onDelete: Cascade)
+
+  typeContenu  String // Texte libre pour plus de flexibilité
+  quantite     Int      @default(1)
+  prixDemande  Decimal?
+  prixSouhaite Decimal?
+  prixFinal    Decimal?
+  description  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([negociationId])
   @@map("nego_livrables")
@@ -946,18 +955,18 @@ model NegoLivrable {
 // ============================================
 
 model NegoCommentaire {
-  id              String   @id @default(cuid())
-  
-  negociationId   String
-  negociation     Negociation @relation(fields: [negociationId], references: [id], onDelete: Cascade)
-  
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  
-  contenu         String   @db.Text
-  
-  createdAt       DateTime @default(now())
-  
+  id String @id @default(cuid())
+
+  negociationId String
+  negociation   Negociation @relation(fields: [negociationId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  contenu String @db.Text
+
+  createdAt DateTime @default(now())
+
   @@index([negociationId])
   @@map("nego_commentaires")
 }
@@ -967,84 +976,86 @@ model NegoCommentaire {
 // ============================================
 
 model Collaboration {
-  id            String    @id @default(cuid())
-  
-  reference     String    @unique
-  
-  talentId      String
-  talent        Talent    @relation(fields: [talentId], references: [id])
-  
-  marqueId      String
-  marque        Marque    @relation(fields: [marqueId], references: [id])
-  
+  id String @id @default(cuid())
+
+  reference String @unique
+
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id])
+
+  marqueId String
+  marque   Marque @relation(fields: [marqueId], references: [id])
+
   // Account Manager assigné pour le suivi (après deal HEAD_OF_SALES)
   accountManagerId  String?
-  accountManager    User?   @relation("AccountManagerCollabs", fields: [accountManagerId], references: [id])
+  accountManager    User?     @relation("AccountManagerCollabs", fields: [accountManagerId], references: [id])
   dateAssignationAM DateTime?
 
   // Créateur de la collab (utilisé pour cloisonner les collabs privées Sales)
-  createdById   String?
-  createdBy     User?   @relation("CollaborationCreatedBy", fields: [createdById], references: [id])
+  createdById String?
+  createdBy   User?   @relation("CollaborationCreatedBy", fields: [createdById], references: [id])
 
   // Si true → collab privée (pôle Sales) : invisible pour les TM et autres rôles non-créateurs/non-ADMIN
-  isPrivate     Boolean   @default(false)
+  isPrivate Boolean @default(false)
 
-  livrables     CollabLivrable[]
-  
-  source            Source    @default(INBOUND)
-  description       String?   @db.Text
-  
-  montantBrut       Decimal   @default(0)
-  commissionPercent Decimal   @default(20)
-  commissionEuros   Decimal   @default(0)
-  montantNet        Decimal   @default(0)
-  
-  statut            StatutCollab  @default(NEGO)
-  raisonPerdu       String?
-  
-  lienPublication   String?
-  datePublication   DateTime?
-  
-  factureTalentUrl      String?
-  factureTalentRecueAt  DateTime?
-  factureValidee        Boolean   @default(false)
-  factureValideeAt      DateTime?
-  
-  marquePayeeAt     DateTime?   // Date à laquelle la marque (client) nous a payés
-  paidAt            DateTime?   // Date à laquelle nous avons payé le talent
-  
-  isLongTerme       Boolean   @default(false)
-  
-  marqueNotifiee    Boolean   @default(false)
+  livrables CollabLivrable[]
+
+  source      Source  @default(INBOUND)
+  description String? @db.Text
+
+  montantBrut       Decimal @default(0)
+  commissionPercent Decimal @default(20)
+  commissionEuros   Decimal @default(0)
+  montantNet        Decimal @default(0)
+
+  statut      StatutCollab @default(NEGO)
+  raisonPerdu String?
+
+  lienPublication String?
+  datePublication DateTime?
+
+  factureTalentUrl     String?
+  factureTalentRecueAt DateTime?
+  factureValidee       Boolean   @default(false)
+  factureValideeAt     DateTime?
+
+  marquePayeeAt DateTime? // Date à laquelle la marque (client) nous a payés
+  paidAt        DateTime? // Date à laquelle nous avons payé le talent
+
+  isLongTerme Boolean @default(false)
+
+  marqueNotifiee Boolean @default(false)
 
   contratSubmissionId  String?
-  contratStatut        String  @default("NON_ENVOYE")
+  contratStatut        String    @default("NON_ENVOYE")
   contratEnvoyeAt      DateTime?
   contratTalentSigneAt DateTime?
   contratSigneAt       DateTime?
-  
-  contratMarquePdfUrl         String?
-  contratMarqueStatut         String   @default("AUCUN")
-  contratMarqueEnvoyeJuristeAt DateTime?
-  contratMarqueApprouveAt     DateTime?
-  contratMarqueSigneAt        DateTime?
-  contratMarqueMode           String?
-  /** Date du dépôt du PDF / scan officiellement signé (glisser-déposer « version finale signée »). */
+
+  contratMarquePdfUrl                   String?
+  contratMarqueStatut                   String    @default("AUCUN")
+  contratMarqueEnvoyeJuristeAt          DateTime?
+  contratMarqueApprouveAt               DateTime?
+  contratMarqueSigneAt                  DateTime?
+  contratMarqueMode                     String?
+  /**
+   * Date du dépôt du PDF / scan officiellement signé (glisser-déposer « version finale signée »).
+   */
   contratMarquePdfOfficielSigneDeposeAt DateTime?
 
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  negociation       Negociation?
-  
-  cycles            CollabCycle[]
-  documents         Document[]
-  quotes            Quote[]
-  comments          CollaborationComment[]
-  contratMarqueCommentaires ContratMarqueCommentaire[]
-  contratMarqueAnnotations  ContratMarqueAnnotation[]
-  contratMarqueVersions     ContratMarqueVersion[]
-  contratMarqueVersionActuelle Int @default(0)
+  negociation Negociation?
+
+  cycles                       CollabCycle[]
+  documents                    Document[]
+  quotes                       Quote[]
+  comments                     CollaborationComment[]
+  contratMarqueCommentaires    ContratMarqueCommentaire[]
+  contratMarqueAnnotations     ContratMarqueAnnotation[]
+  contratMarqueVersions        ContratMarqueVersion[]
+  contratMarqueVersionActuelle Int                        @default(0)
 
   @@index([talentId])
   @@index([marqueId])
@@ -1056,16 +1067,16 @@ model Collaboration {
 }
 
 model ContratMarqueVersion {
-  id              String        @id @default(cuid())
-  collaborationId String
-  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
-  numero          Int
-  pdfUrl          String
-  statut          String        @default("EN_ATTENTE_JURISTE")
-  uploadedAt      DateTime      @default(now())
-  approuveAt      DateTime?
-  modifDemandeAt  DateTime?
-  annotations            ContratMarqueAnnotation[]
+  id                        String                     @id @default(cuid())
+  collaborationId           String
+  collaboration             Collaboration              @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  numero                    Int
+  pdfUrl                    String
+  statut                    String                     @default("EN_ATTENTE_JURISTE")
+  uploadedAt                DateTime                   @default(now())
+  approuveAt                DateTime?
+  modifDemandeAt            DateTime?
+  annotations               ContratMarqueAnnotation[]
   contratMarqueCommentaires ContratMarqueCommentaire[]
 
   @@unique([collaborationId, numero])
@@ -1074,17 +1085,17 @@ model ContratMarqueVersion {
 }
 
 model ContratMarqueCommentaire {
-  id              String   @id @default(cuid())
+  id              String                @id @default(cuid())
   collaborationId String
-  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  collaboration   Collaboration         @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
   versionId       String?
   version         ContratMarqueVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
   auteurId        String
-  auteurUser      User     @relation("ContratMarqueCommentaireAuteur", fields: [auteurId], references: [id])
+  auteurUser      User                  @relation("ContratMarqueCommentaireAuteur", fields: [auteurId], references: [id])
   auteur          String
   auteurRole      String
-  contenu         String   @db.Text
-  createdAt       DateTime @default(now())
+  contenu         String                @db.Text
+  createdAt       DateTime              @default(now())
 
   @@index([collaborationId])
   @@index([auteurId])
@@ -1093,19 +1104,19 @@ model ContratMarqueCommentaire {
 }
 
 model ContratMarqueAnnotation {
-  id              String        @id
+  id              String                @id
   collaborationId String
-  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  collaboration   Collaboration         @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
   auteurId        String
-  auteur          User          @relation(fields: [auteurId], references: [id])
+  auteur          User                  @relation(fields: [auteurId], references: [id])
   auteurNom       String
   auteurRole      String
   content         Json
   position        Json
-  color           String        @default("#FFE28F")
-  type            String        @default("text")
-  resolved        Boolean       @default(false)
-  createdAt       DateTime      @default(now())
+  color           String                @default("#FFE28F")
+  type            String                @default("text")
+  resolved        Boolean               @default(false)
+  createdAt       DateTime              @default(now())
   versionId       String?
   version         ContratMarqueVersion? @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
@@ -1117,27 +1128,27 @@ model ContratMarqueAnnotation {
 
 // Commentaires sur les collaborations (conversation interne)
 model CollaborationComment {
-  id              String   @id @default(cuid())
+  id              String                 @id @default(cuid())
   collaborationId String
-  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+  collaboration   Collaboration          @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
   userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  content         String   @db.Text
+  user            User                   @relation(fields: [userId], references: [id])
+  content         String                 @db.Text
   mentions        CollabCommentMention[]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
   @@index([collaborationId])
   @@map("collaboration_comments")
 }
 
 model CollabCommentMention {
-  id          String   @id @default(cuid())
+  id          String               @id @default(cuid())
   commentId   String
   comment     CollaborationComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
   userId      String
   mentionedBy String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime             @default(now())
 
   @@unique([commentId, userId])
   @@index([userId])
@@ -1149,18 +1160,18 @@ model CollabCommentMention {
 // ============================================
 
 model CollabLivrable {
-  id              String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   collaborationId String
   collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
-  
-  typeContenu     String   // Texte libre pour plus de flexibilité
-  quantite        Int       @default(1)
-  prixUnitaire    Decimal
-  description     String?
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+
+  typeContenu  String // Texte libre pour plus de flexibilité
+  quantite     Int     @default(1)
+  prixUnitaire Decimal
+  description  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([collaborationId])
   @@map("collab_livrables")
@@ -1171,33 +1182,33 @@ model CollabLivrable {
 // ============================================
 
 model CollabCycle {
-  id            String    @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   collaborationId String
   collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
-  
-  numero        Int
-  description   String?
-  
-  dateDebut     DateTime?
-  dateFin       DateTime?
-  
-  montantBrut       Decimal
-  commissionEuros   Decimal
-  montantNet        Decimal
-  
-  statut        StatutCycle   @default(A_VENIR)
-  
-  lienPublication   String?
-  datePublication   DateTime?
-  
-  factureTalentUrl      String?
-  factureTalentRecueAt  DateTime?
-  paidAt                DateTime?
-  
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  
+
+  numero      Int
+  description String?
+
+  dateDebut DateTime?
+  dateFin   DateTime?
+
+  montantBrut     Decimal
+  commissionEuros Decimal
+  montantNet      Decimal
+
+  statut StatutCycle @default(A_VENIR)
+
+  lienPublication String?
+  datePublication DateTime?
+
+  factureTalentUrl     String?
+  factureTalentRecueAt DateTime?
+  paidAt               DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([collaborationId])
   @@map("collab_cycles")
 }
@@ -1207,80 +1218,80 @@ model CollabCycle {
 // ============================================
 
 model Document {
-  id            String    @id @default(cuid())
-  
-  reference     String    @unique
-  
-  type          TypeDocument
-  statut        StatutDocument  @default(BROUILLON)
-  
+  id String @id @default(cuid())
+
+  reference String @unique
+
+  type   TypeDocument
+  statut StatutDocument @default(BROUILLON)
+
   collaborationId String?
   collaboration   Collaboration? @relation(fields: [collaborationId], references: [id], onDelete: SetNull)
-  
-  titre         String?
-  
-  montantHT     Decimal   @db.Decimal(10, 2)
-  tauxTVA       Decimal   @db.Decimal(5, 2) @default(20)
-  montantTVA    Decimal   @db.Decimal(10, 2)
-  montantTTC    Decimal   @db.Decimal(10, 2)
+
+  titre String?
+
+  montantHT  Decimal @db.Decimal(10, 2)
+  tauxTVA    Decimal @default(20) @db.Decimal(5, 2)
+  montantTVA Decimal @db.Decimal(10, 2)
+  montantTTC Decimal @db.Decimal(10, 2)
 
   // Devise du document (EUR par défaut). Permet d'émettre des factures en devises étrangères.
-  devise        String    @default("EUR")
+  devise String @default("EUR")
 
-  typeTVA       TypeTVA   @default(FRANCE)
-  mentionTVA    String?
-  
-  lignes        Json?
+  typeTVA    TypeTVA @default(FRANCE)
+  mentionTVA String?
+
+  lignes Json?
 
   // Factures libres (non liées à une collaboration)
   clientNom     String?
   clientEmail   String?
   clientAdresse String?
   clientPays    String?
-  
-  dateDocument  DateTime  @default(now())
-  dateEmission  DateTime  @default(now())
-  dateEcheance  DateTime?
-  datePaiement  DateTime?
+
+  dateDocument   DateTime  @default(now())
+  dateEmission   DateTime  @default(now())
+  dateEcheance   DateTime?
+  datePaiement   DateTime?
   dateValidation DateTime?
-  
-  factureRef    String?
-  avoirRef      String?
-  
-  poClient      String?
-  
-  modePaiement  String?   @default("Virement")
+
+  factureRef String?
+  avoirRef   String?
+
+  poClient String?
+
+  modePaiement      String? @default("Virement")
   referencePaiement String?
 
   // Relances client (factures en retard) — 1ère / 2ème / 3ème
   relance1SentAt DateTime?
   relance2SentAt DateTime?
   relance3SentAt DateTime?
-  
-  pdfBase64     String?   @db.Text
-  fichierUrl    String?
-  
-  notes         String?   @db.Text
-  
-  // Signature électronique DocuSeal
-  signatureStatus         String?   // PENDING, SIGNED, DECLINED
-  signatureSubmissionId   String?   // ID DocuSeal
-  signatureSentAt         DateTime?
-  signatureSignedAt       DateTime?
-  signatureSignerEmail    String?
-  signedDocumentUrl      String?   // URL du PDF signé (DocuSeal)
-  signaturesCount        Int       @default(0)  // nb de signatures reçues
-  signaturesTotal        Int       @default(2) // nb total de signataires
 
-  createdById   String?
-  createdBy     User?     @relation("DocumentCreateur", fields: [createdById], references: [id])
-  
+  pdfBase64  String? @db.Text
+  fichierUrl String?
+
+  notes String? @db.Text
+
+  // Signature électronique DocuSeal
+  signatureStatus       String? // PENDING, SIGNED, DECLINED
+  signatureSubmissionId String? // ID DocuSeal
+  signatureSentAt       DateTime?
+  signatureSignedAt     DateTime?
+  signatureSignerEmail  String?
+  signedDocumentUrl     String? // URL du PDF signé (DocuSeal)
+  signaturesCount       Int       @default(0) // nb de signatures reçues
+  signaturesTotal       Int       @default(2) // nb total de signataires
+
+  createdById String?
+  createdBy   User?   @relation("DocumentCreateur", fields: [createdById], references: [id])
+
   // Historique et commentaires
-  events        DocumentEvent[]   @relation("DocumentEvents")
-  comments      DocumentComment[] @relation("DocumentComments")
+  events      DocumentEvent[]   @relation("DocumentEvents")
+  comments    DocumentComment[] @relation("DocumentComments")
   // Devis lié (si ce document est issu d'un devis)
-  linkedQuote   Quote?            @relation("QuoteInvoice")
-  
+  linkedQuote Quote?            @relation("QuoteInvoice")
+
   // Relation transactions Qonto (legacy : un seul lien direct)
   // Conservée pour compat. Le vrai lien N↔N passe par TransactionDocumentMatch.
   transactionsQonto TransactionQonto[]
@@ -1288,9 +1299,9 @@ model Document {
   // Rapprochements bancaires (1 facture peut être payée par N transactions Qonto, partiellement)
   transactionMatches TransactionDocumentMatch[]
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([collaborationId])
   @@index([type, statut])
   @@index([dateEcheance])
@@ -1304,51 +1315,51 @@ model Document {
 // ============================================
 
 model Quote {
-  id              String       @id @default(cuid())
-  reference       String       @unique    // ex: D-2026-59
+  id        String @id @default(cuid())
+  reference String @unique // ex: D-2026-59
 
   collaborationId String?
   collaboration   Collaboration? @relation(fields: [collaborationId], references: [id])
 
-  marqueId        String
-  marque          Marque        @relation(fields: [marqueId], references: [id])
+  marqueId String
+  marque   Marque @relation(fields: [marqueId], references: [id])
 
   marqueContactId String?
   marqueContact   MarqueContact? @relation(fields: [marqueContactId], references: [id])
 
-  talentId        String?
-  talent          Talent?       @relation(fields: [talentId], references: [id])
+  talentId String?
+  talent   Talent? @relation(fields: [talentId], references: [id])
 
-  object          String
-  issueDate       DateTime      @default(now())
-  validUntil      DateTime
+  object     String
+  issueDate  DateTime @default(now())
+  validUntil DateTime
 
-  totalHT         Float         @default(0)
-  totalTVA        Float         @default(0)
-  totalTTC        Float         @default(0)
-  currency        String        @default("EUR")
-  tvaRate         Float         @default(20.0)
+  totalHT  Float  @default(0)
+  totalTVA Float  @default(0)
+  totalTTC Float  @default(0)
+  currency String @default("EUR")
+  tvaRate  Float  @default(20.0)
 
-  status          QuoteStatus   @default(DRAFT)
-  items           QuoteItem[]
+  status QuoteStatus @default(DRAFT)
+  items  QuoteItem[]
 
   // Lien vers facture (Document) si converti
-  invoiceId       String?       @unique
-  invoice         Document?     @relation("QuoteInvoice", fields: [invoiceId], references: [id])
-  convertedAt     DateTime?
+  invoiceId   String?   @unique
+  invoice     Document? @relation("QuoteInvoice", fields: [invoiceId], references: [id])
+  convertedAt DateTime?
 
-  pdfUrl          String?
-  notes           String?
+  pdfUrl String?
+  notes  String?
 
   // Historique
-  events          DocumentEvent[]   @relation("QuoteEvents")
-  comments        DocumentComment[] @relation("QuoteComments")
+  events   DocumentEvent[]   @relation("QuoteEvents")
+  comments DocumentComment[] @relation("QuoteComments")
 
-  createdBy       String
-  createdByUser   User          @relation(fields: [createdBy], references: [id])
+  createdBy     String
+  createdByUser User   @relation(fields: [createdBy], references: [id])
 
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([marqueId])
   @@index([status])
@@ -1356,40 +1367,40 @@ model Quote {
 }
 
 model QuoteItem {
-  id          String  @id @default(cuid())
-  quoteId     String
-  quote       Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  quoteId String
+  quote   Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   reference   String?
   designation String
-  quantity    Float    @default(1)
+  quantity    Float   @default(1)
   unitPriceHT Float
-  discount    Float    @default(0)
-  tvaRate     Float    @default(20.0)
+  discount    Float   @default(0)
+  tvaRate     Float   @default(20.0)
   totalHT     Float
-  sortOrder   Int      @default(0)
+  sortOrder   Int     @default(0)
 
   @@index([quoteId])
 }
 
 // Historique des événements sur documents (factures) et devis
 model DocumentEvent {
-  id          String   @id @default(cuid())
+  id String @id @default(cuid())
 
   // Lien vers un document (facture / devis PDF généré) ou un devis Quote
-  documentId  String?
-  document    Document? @relation("DocumentEvents", fields: [documentId], references: [id], onDelete: Cascade)
+  documentId String?
+  document   Document? @relation("DocumentEvents", fields: [documentId], references: [id], onDelete: Cascade)
 
-  quoteId     String?
-  quote       Quote?    @relation("QuoteEvents", fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId String?
+  quote   Quote?  @relation("QuoteEvents", fields: [quoteId], references: [id], onDelete: Cascade)
 
   type        DocumentEventType
   description String?
 
-  userId      String
-  user        User      @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  createdAt   DateTime  @default(now())
+  createdAt DateTime @default(now())
 
   @@index([documentId])
   @@index([quoteId])
@@ -1397,23 +1408,23 @@ model DocumentEvent {
 
 // Commentaires internes sur documents et devis
 model DocumentComment {
-  id          String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  documentId  String?
-  document    Document? @relation("DocumentComments", fields: [documentId], references: [id], onDelete: Cascade)
+  documentId String?
+  document   Document? @relation("DocumentComments", fields: [documentId], references: [id], onDelete: Cascade)
 
-  quoteId     String?
-  quote       Quote?    @relation("QuoteComments", fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId String?
+  quote   Quote?  @relation("QuoteComments", fields: [quoteId], references: [id], onDelete: Cascade)
 
-  content     String
+  content String
 
-  userId      String
-  user        User      @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  mentions    Mention[]
+  mentions Mention[]
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([documentId])
   @@index([quoteId])
@@ -1421,12 +1432,12 @@ model DocumentComment {
 
 // Mentions @user dans les commentaires (pour notifications)
 model Mention {
-  id          String   @id @default(cuid())
+  id          String          @id @default(cuid())
   commentId   String
   comment     DocumentComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  userId      String   // Utilisateur mentionné
-  mentionedBy String   // Qui a mentionné (userId)
-  createdAt   DateTime @default(now())
+  userId      String // Utilisateur mentionné
+  mentionedBy String // Qui a mentionné (userId)
+  createdAt   DateTime        @default(now())
 
   @@unique([commentId, userId])
   @@index([userId])
@@ -1438,13 +1449,13 @@ model Mention {
 // ============================================
 
 model Compteur {
-  id            String    @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   code          String?
   type          String
   annee         Int
-  dernierNumero Int       @default(0)
-  
+  dernierNumero Int     @default(0)
+
   @@unique([type, annee])
   @@index([code])
   @@map("compteurs")
@@ -1455,27 +1466,27 @@ model Compteur {
 // ============================================
 
 model Notification {
-  id            String           @id @default(cuid())
-  
-  userId        String
-  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  type          TypeNotification @default(GENERAL)
-  
-  titre         String
-  message       String
-  lien          String?
-  lu            Boolean          @default(false)
-  luAt          DateTime?
-  
-  actorId       String?          // Qui a déclenché la notif (ex. qui a mentionné)
-  
-  marqueId      String?
-  talentId      String?
-  collabId      String?
-  
-  createdAt     DateTime         @default(now())
-  
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type TypeNotification @default(GENERAL)
+
+  titre   String
+  message String
+  lien    String?
+  lu      Boolean   @default(false)
+  luAt    DateTime?
+
+  actorId String? // Qui a déclenché la notif (ex. qui a mentionné)
+
+  marqueId String?
+  talentId String?
+  collabId String?
+
+  createdAt DateTime @default(now())
+
   @@index([userId])
   @@index([userId, lu])
   @@index([userId, createdAt])
@@ -1489,14 +1500,14 @@ model Notification {
 
 model Objectif {
   id             String    @id @default(cuid())
-  userId         String    // Bénéficiaire (ex. Head of Influence)
+  userId         String // Bénéficiaire (ex. Head of Influence)
   user           User      @relation("ObjectifsRecus", fields: [userId], references: [id], onDelete: Cascade)
-  createurId     String    // Admin qui a créé l'objectif
+  createurId     String // Admin qui a créé l'objectif
   createur       User      @relation("ObjectifsCrees", fields: [createurId], references: [id], onDelete: Cascade)
   titre          String
   description    String?
-  valeurCible    Int?      // Ex. 5 pour "recruter 5 talents"
-  valeurActuelle Int?      // Progression (optionnel, peut être mis à jour)
+  valeurCible    Int? // Ex. 5 pour "recruter 5 talents"
+  valeurActuelle Int? // Progression (optionnel, peut être mis à jour)
   dateLimite     DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -1510,70 +1521,74 @@ model Objectif {
 // ============================================
 
 model AgenceSettings {
-  id            String    @id @default(cuid())
-  
-  nom               String    @default("Glow Up Agence")
-  logo              String?
-  
-  raisonSociale     String?
-  formeJuridique    String?
-  capitalSocial     String?
-  siret             String?
-  numeroTVA         String?
-  rcs               String?
-  
+  id String @id @default(cuid())
+
+  nom  String  @default("Glow Up Agence")
+  logo String?
+
+  raisonSociale  String?
+  formeJuridique String?
+  capitalSocial  String?
+  siret          String?
+  numeroTVA      String?
+  rcs            String?
+
   adresseRue        String?
   adresseComplement String?
   codePostal        String?
   ville             String?
-  pays              String?   @default("France")
-  
-  telephone         String?
-  email             String?
-  siteWeb           String?
-  
-  banque            String?
-  iban              String?
-  bic               String?
-  
-  mentionsDevis     String?   @db.Text
-  mentionsFacture   String?   @db.Text
-  conditionsPaiement String?  @db.Text
-  
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  
+  pays              String? @default("France")
+
+  telephone String?
+  email     String?
+  siteWeb   String?
+
+  banque String?
+  iban   String?
+  bic    String?
+
+  mentionsDevis      String? @db.Text
+  mentionsFacture    String? @db.Text
+  conditionsPaiement String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@map("agence_settings")
 }
 
 model DemandeEntrante {
-  id         String   @id @default(cuid())
-  from       String
-  subject    String
-  body       String   @db.Text
-  date       DateTime
-  gmailThreadId  String?
-  gmailMessageId String?  @unique
-  talentEmail String?
-  talentName String?
-  category String?
-  confidence Float?
-  priority String? @default("MEDIUM")
-  extractedBrand String?
-  extractedBudget String?
-  extractedDeadline String?
+  id                    String    @id @default(cuid())
+  from                  String
+  subject               String
+  body                  String    @db.Text
+  date                  DateTime
+  gmailThreadId         String?
+  gmailMessageId        String?   @unique
+  talentEmail           String?
+  talentName            String?
+  category              String?
+  confidence            Float?
+  priority              String?   @default("MEDIUM")
+  extractedBrand        String?
+  extractedBudget       String?
+  extractedDeadline     String?
   extractedDeliverables String?
-  briefSummary String?
-  gmailSentMessageId String?
-  sentAt DateTime?
-  relance1SentAt DateTime?
-  relance2SentAt DateTime?
-  replied Boolean @default(false)
-  status     String   @default("a_traiter")
-  emailPret  String?  @db.Text
-  sujetPret  String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  briefSummary          String?
+  marqueId              String?
+  marque                Marque?   @relation(fields: [marqueId], references: [id], onDelete: SetNull)
+  gmailSentMessageId    String?
+  sentAt                DateTime?
+  relance1SentAt        DateTime?
+  relance2SentAt        DateTime?
+  replied               Boolean   @default(false)
+  status                String    @default("a_traiter")
+  emailPret             String?   @db.Text
+  sujetPret             String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([marqueId])
 }
 
 model GmailToken {
@@ -1588,7 +1603,7 @@ model GmailToken {
 
 model CastingListConfig {
   id            String   @id @default(cuid())
-  hubspotListId  String   @unique
+  hubspotListId String   @unique
   listName      String
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
@@ -1600,16 +1615,16 @@ model CastingListConfig {
 // ============================================
 
 model TalentbookEvent {
-  id        String   @id @default(cuid())
-  
-  type      String   // "page_view", "talent_click", "pdf_download", "favorite_add"
-  
-  talentId  String?
-  talent    Talent?  @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  
-  visitorId String   // ID anonyme du visiteur (stocké en localStorage)
-  metadata  Json?    // Données supplémentaires (nombre de talents dans le PDF, etc.)
-  
+  id String @id @default(cuid())
+
+  type String // "page_view", "talent_click", "pdf_download", "favorite_add"
+
+  talentId String?
+  talent   Talent? @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  visitorId String // ID anonyme du visiteur (stocké en localStorage)
+  metadata  Json? // Données supplémentaires (nombre de talents dans le PDF, etc.)
+
   createdAt DateTime @default(now())
 
   @@index([type])
@@ -1623,48 +1638,48 @@ model TalentbookEvent {
 // ============================================
 
 model TransactionQonto {
-  id                String    @id @default(cuid())
-  qontoId           String    @unique // ID unique de la transaction Qonto
-  
+  id      String @id @default(cuid())
+  qontoId String @unique // ID unique de la transaction Qonto
+
   // Informations transaction
-  montant           Decimal   @db.Decimal(10, 2)
-  devise            String    @default("EUR")
-  libelle           String?   // Libellé du virement
-  reference         String?   // Référence bancaire
-  dateTransaction   DateTime  // Date du virement
-  
+  montant         Decimal  @db.Decimal(10, 2)
+  devise          String   @default("EUR")
+  libelle         String? // Libellé du virement
+  reference       String? // Référence bancaire
+  dateTransaction DateTime // Date du virement
+
   // Émetteur
-  emetteur          String?   // Nom de l'émetteur
-  emetteurIban      String?   // IBAN de l'émetteur
-  
+  emetteur     String? // Nom de l'émetteur
+  emetteurIban String? // IBAN de l'émetteur
+
   // Statut
-  statut            String    @default("PENDING") // PENDING, SETTLED, DECLINED
-  
+  statut String @default("PENDING") // PENDING, SETTLED, DECLINED
+
   // Association avec facture
   // associe = true UNIQUEMENT lorsque la transaction est intégralement rapprochée
   // (somme des matches ≈ montant). Sinon elle reste dans la liste à réconcilier
   // (rapprochement partiel possible).
-  associe           Boolean   @default(false)
+  associe    Boolean   @default(false)
   // Legacy : référence à 1 seule facture (gardée pour compat, miroir du 1er match)
-  documentId        String?
-  document          Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  documentId String?
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
 
   // Rapprochements N↔N : une transaction peut couvrir plusieurs factures
-  matches           TransactionDocumentMatch[]
+  matches TransactionDocumentMatch[]
 
   // Paiement hors plateforme : la transaction ne concerne pas le business GlowUp
   // (remboursement, virement perso, opération d'une autre activité, etc.)
   // Une fois marquée, la transaction n'apparaît plus dans la liste à réconcilier.
-  horsPlateforme    Boolean   @default(false)
-  horsPlateformeAt  DateTime?
+  horsPlateforme     Boolean   @default(false)
+  horsPlateformeAt   DateTime?
   horsPlateformeNote String?
 
   // Métadonnées brutes Qonto
-  metadata          Json?
+  metadata Json?
 
   // Timestamps
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([documentId])
   @@index([associe])
@@ -1679,19 +1694,19 @@ model TransactionQonto {
 // une facture peut être réglée par plusieurs transactions (paiements partiels).
 // `montant` = part de la transaction allouée à cette facture (en devise tx).
 model TransactionDocumentMatch {
-  id            String           @id @default(cuid())
+  id String @id @default(cuid())
 
   transactionId String
   transaction   TransactionQonto @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
-  documentId    String
-  document      Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-  montant       Decimal          @db.Decimal(10, 2)
-  modePaiement  String?
+  montant      Decimal @db.Decimal(10, 2)
+  modePaiement String?
 
-  createdAt     DateTime         @default(now())
-  createdById   String?
+  createdAt   DateTime @default(now())
+  createdById String?
 
   @@unique([transactionId, documentId])
   @@index([transactionId])
@@ -1704,80 +1719,80 @@ model TransactionDocumentMatch {
 // ============================================
 
 model DemandeGift {
-  id                String        @id @default(cuid())
-  reference         String        @unique // Format : GIFT-2026-0001
-  
+  id        String @id @default(cuid())
+  reference String @unique // Format : GIFT-2026-0001
+
   // Relations
-  talentId          String
-  talent            Talent        @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  
-  tmId              String
-  tm                User          @relation("TMDemandeGift", fields: [tmId], references: [id])
-  
-  accountManagerId  String?
-  accountManager    User?         @relation("AMDemandeGift", fields: [accountManagerId], references: [id])
-  
-  marqueId          String?
-  marque            Marque?       @relation(fields: [marqueId], references: [id])
-  
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  tmId String
+  tm   User   @relation("TMDemandeGift", fields: [tmId], references: [id])
+
+  accountManagerId String?
+  accountManager   User?   @relation("AMDemandeGift", fields: [accountManagerId], references: [id])
+
+  marqueId String?
+  marque   Marque? @relation(fields: [marqueId], references: [id])
+
   // Détails de la demande
-  statut            StatutGift    @default(BROUILLON)
-  priorite          String        @default("NORMALE") // BASSE, NORMALE, HAUTE, URGENTE
-  
-  typeGift          String        // PRODUIT, EXPERIENCE, SERVICE, AUTRE
-  description       String        @db.Text
-  justification     String?       @db.Text // Pourquoi ce gift est important
-  valeurEstimee     Decimal?      @db.Decimal(10, 2)
-  
+  statut   StatutGift @default(BROUILLON)
+  priorite String     @default("NORMALE") // BASSE, NORMALE, HAUTE, URGENTE
+
+  typeGift      String // PRODUIT, EXPERIENCE, SERVICE, AUTRE
+  description   String   @db.Text
+  justification String?  @db.Text // Pourquoi ce gift est important
+  valeurEstimee Decimal? @db.Decimal(10, 2)
+
   // Informations supplémentaires
-  datesouhaitee     DateTime?     // Date souhaitée de réception
-  adresseLivraison  String?       @db.Text
-  notesInternes     String?       @db.Text
+  datesouhaitee    DateTime? // Date souhaitée de réception
+  adresseLivraison String?   @db.Text
+  notesInternes    String?   @db.Text
 
   // Informations hébergement (pour typeGift = "HOTEL")
-  destination        String?       // Ville / pays
-  dateArrivee        DateTime?     // Check-in
-  dateDepart         DateTime?     // Check-out
-  nombrePersonnes    Int?          // Nombre de personnes
-  typeHebergement    String?       // HOTEL, APPARTEMENT, VILLA, AUTRE
-  categorie          String?       // 3*, 4*, 5*, LUXE
-  demandesSpeciales  String?       @db.Text  // Suite, vue mer, petit-déj inclus, etc.
+  destination       String? // Ville / pays
+  dateArrivee       DateTime? // Check-in
+  dateDepart        DateTime? // Check-out
+  nombrePersonnes   Int? // Nombre de personnes
+  typeHebergement   String? // HOTEL, APPARTEMENT, VILLA, AUTRE
+  categorie         String? // 3*, 4*, 5*, LUXE
+  demandesSpeciales String?   @db.Text // Suite, vue mer, petit-déj inclus, etc.
 
   // Contrepartie (renseignée par l'AM quand la marque accepte)
-  contrepartieType   String?       // AUCUNE, STORY, POST_FEED, REEL_TIKTOK, MENTION_STORY, CHOIX_TALENT
-  contrepartieDelai  Int?          // Délai en jours après réception pour poster
-  contrepartieNotes  String?       @db.Text  // Précisions libres
-  contreparties      Json?         @default("[]")
+  contrepartieType  String? // AUCUNE, STORY, POST_FEED, REEL_TIKTOK, MENTION_STORY, CHOIX_TALENT
+  contrepartieDelai Int? // Délai en jours après réception pour poster
+  contrepartieNotes String? @db.Text // Précisions libres
+  contreparties     Json?   @default("[]")
 
   // Infos retour marque (pour PRODUIT / GIFT classique)
-  contactMarqueNom     String?     // Nom du contact chez la marque
-  contactMarqueEmail   String?     // Email du contact
-  dateExpeditionPrevue DateTime?   // Date d'expédition estimée
+  contactMarqueNom     String? // Nom du contact chez la marque
+  contactMarqueEmail   String? // Email du contact
+  dateExpeditionPrevue DateTime? // Date d'expédition estimée
 
   // Infos retour hôtel (pour HOTEL)
-  numeroReservation  String?       // Numéro de confirmation de résa
-  nomReservation     String?       // Nom sous lequel la résa est faite
-  adresseHotel       String?       @db.Text
-  contactSurPlace    String?       // Qui demander à l'accueil
-  horaireCheckIn     String?       // Ex: "À partir de 15h"
-  horaireCheckOut    String?       // Ex: "Avant 12h"
-  
+  numeroReservation String? // Numéro de confirmation de résa
+  nomReservation    String? // Nom sous lequel la résa est faite
+  adresseHotel      String? @db.Text
+  contactSurPlace   String? // Qui demander à l'accueil
+  horaireCheckIn    String? // Ex: "À partir de 15h"
+  horaireCheckOut   String? // Ex: "Avant 12h"
+
   // Suivi
-  datePriseEnCharge DateTime?     // Quand l'AM a pris en charge
-  dateContactMarque DateTime?     // Quand l'AM a contacté la marque
-  dateReponseMarque DateTime?     // Quand la marque a répondu
-  dateEnvoi         DateTime?     // Date d'envoi du gift
-  dateReception     DateTime?     // Date de réception par le talent
-  
-  numeroSuivi       String?       // Numéro de suivi du colis
-  
+  datePriseEnCharge DateTime? // Quand l'AM a pris en charge
+  dateContactMarque DateTime? // Quand l'AM a contacté la marque
+  dateReponseMarque DateTime? // Quand la marque a répondu
+  dateEnvoi         DateTime? // Date d'envoi du gift
+  dateReception     DateTime? // Date de réception par le talent
+
+  numeroSuivi String? // Numéro de suivi du colis
+
   // Timestamps
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  commentaires      CommentaireGift[]
-  
+  commentaires CommentaireGift[]
+
   @@index([talentId])
   @@index([tmId])
   @@index([accountManagerId])
@@ -1789,20 +1804,20 @@ model DemandeGift {
 }
 
 model CommentaireGift {
-  id              String      @id @default(cuid())
-  
-  demandeGiftId   String
-  demandeGift     DemandeGift @relation(fields: [demandeGiftId], references: [id], onDelete: Cascade)
-  
-  auteurId        String
-  auteur          User        @relation(fields: [auteurId], references: [id])
-  
-  contenu         String      @db.Text
-  interne         Boolean     @default(false) // Si true, visible uniquement par TM et AM
-  
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  
+  id String @id @default(cuid())
+
+  demandeGiftId String
+  demandeGift   DemandeGift @relation(fields: [demandeGiftId], references: [id], onDelete: Cascade)
+
+  auteurId String
+  auteur   User   @relation(fields: [auteurId], references: [id])
+
+  contenu String  @db.Text
+  interne Boolean @default(false) // Si true, visible uniquement par TM et AM
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([demandeGiftId])
   @@index([auteurId])
   @@index([createdAt])
@@ -1821,16 +1836,16 @@ model Brand {
   niche           String
   hubspotId       String?          @unique
   description     String           @db.Text // OBLIGATOIRE : décrit précisément ce que vend la marque
-  logo            String?          // URL logo récupéré via Brandfetch
-  primaryColor    String?          // Couleur primaire de la marque (#hex)
-  secondaryColor  String?          // Couleur secondaire de la marque (#hex)
-  category        String?          // Catégorie : MODE, BEAUTÉ, SPORT, FOOD, TECH, LIFESTYLE, SANTÉ, FINANCE, AUTRE
+  logo            String? // URL logo récupéré via Brandfetch
+  primaryColor    String? // Couleur primaire de la marque (#hex)
+  secondaryColor  String? // Couleur secondaire de la marque (#hex)
+  category        String? // Catégorie : MODE, BEAUTÉ, SPORT, FOOD, TECH, LIFESTYLE, SANTÉ, FINANCE, AUTRE
   presskitTalents PressKitTalent[]
   pageViews       PageView[]
   batches         BatchBrand[]
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
-  
+
   @@index([slug])
   @@index([hubspotId])
   @@index([niche])
@@ -1838,15 +1853,15 @@ model Brand {
 }
 
 model PressKitTalent {
-  id          String   @id @default(cuid())
-  brand       Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  brandId     String
-  talent      Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  talentId    String
-  pitch       String   @db.Text // Phrase de vente percutante
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  brandId   String
+  talent    Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  talentId  String
+  pitch     String   @db.Text // Phrase de vente percutante
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([brandId, talentId])
   @@index([brandId])
@@ -1864,10 +1879,10 @@ model CaseStudy {
   engagement  String?
   extraMetric String?
   extraLabel  String?
-  imageUrl    String?  // Photo de la campagne
+  imageUrl    String? // Photo de la campagne
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
+
   @@index([niche])
   @@map("case_studies")
 }
@@ -1877,12 +1892,12 @@ model PageView {
   brand              Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
   brandId            String
   hubspotContactId   String?
-  refParam           String?  // ?ref= du lien tracké (ex: marie-sephora)
-  sessionId          String   // ID unique de session
+  refParam           String? // ?ref= du lien tracké (ex: marie-sephora)
+  sessionId          String // ID unique de session
   durationSeconds    Int      @default(0)
   scrollDepthPercent Int      @default(0)
   talentsViewed      String[] // IDs des talents qui ont été vus
-  talentDurations    Json?    // Durées par talent: { "talentId": durationSeconds }
+  talentDurations    Json? // Durées par talent: { "talentId": durationSeconds }
   visitNumber        Int      @default(1)
   ctaClicked         Boolean  @default(false)
   talentbookClicked  Boolean  @default(false) // Clic sur le lien "Voir le Talent Book complet"
@@ -1890,7 +1905,7 @@ model PageView {
   ipAddress          String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
-  
+
   @@index([brandId])
   @@index([sessionId])
   @@index([hubspotContactId])
@@ -1908,7 +1923,7 @@ model Batch {
   brands      BatchBrand[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
-  
+
   @@index([status])
   @@index([createdAt])
   @@map("batches")
@@ -1939,35 +1954,35 @@ model BatchBrand {
 // ============================================
 
 model Partner {
-  id          String   @id @default(cuid())
-  name        String                          // "WOO", "Influence4You", etc.
-  slug        String   @unique                // lien unique : /partners/[slug]
-  logo        String?                         // URL logo agence (Cloudinary)
-  contactName String?                         // Nom du contact principal
-  contactEmail String?                        // Email contact
-  isActive    Boolean  @default(true)         // Actif ou désactivé
-  showAllTalents Boolean @default(true)       // true = affiche TOUS les talents actifs automatiquement
-  
+  id             String  @id @default(cuid())
+  name           String // "WOO", "Influence4You", etc.
+  slug           String  @unique // lien unique : /partners/[slug]
+  logo           String? // URL logo agence (Cloudinary)
+  contactName    String? // Nom du contact principal
+  contactEmail   String? // Email contact
+  isActive       Boolean @default(true) // Actif ou désactivé
+  showAllTalents Boolean @default(true) // true = affiche TOUS les talents actifs automatiquement
+
   // Personnalisation
-  description String?                         // Description libre
-  message     String?                         // Message d'accueil personnalisé
-  
+  description String? // Description libre
+  message     String? // Message d'accueil personnalisé
+
   // Talents sélectionnés
-  talents     PartnerTalent[]
-  
+  talents PartnerTalent[]
+
   // Analytics
-  views       PartnerView[]
-  
+  views PartnerView[]
+
   // Tarifs négociés
   tarifOverrides PartnerTarifOverride[]
-  
+
   // Projets affichés sur la page partenaire (vide = tous les projets actifs)
-  projects     PartnerProject[]
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  createdBy   String?                         // ID de l'admin qui a créé
-  
+  projects PartnerProject[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String? // ID de l'admin qui a créé
+
   @@index([slug])
   @@index([isActive])
   @@map("partners")
@@ -1979,9 +1994,9 @@ model PartnerTalent {
   partner   Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   talentId  String
   talent    Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  order     Int      @default(0)              // Ordre d'affichage
+  order     Int      @default(0) // Ordre d'affichage
   createdAt DateTime @default(now())
-  
+
   @@unique([partnerId, talentId])
   @@index([partnerId])
   @@index([talentId])
@@ -1989,24 +2004,24 @@ model PartnerTalent {
 }
 
 model PartnerView {
-  id              String   @id @default(cuid())
-  partnerId       String
-  partner         Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-  visitorId       String                      // Cookie ou fingerprint
-  
+  id        String  @id @default(cuid())
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  visitorId String // Cookie ou fingerprint
+
   // Tracking
-  talentClicked   String?                     // ID du talent cliqué (si modal ouverte)
-  talentName      String?                     // Nom du talent (pour stats rapides)
-  action          String   @default("view")   // "view", "talent_click", "cta_click", "filter"
-  duration        Int?                        // Durée en secondes
-  metadata        Json?                       // Données supplémentaires (filtres utilisés, etc.)
-  
+  talentClicked String? // ID du talent cliqué (si modal ouverte)
+  talentName    String? // Nom du talent (pour stats rapides)
+  action        String  @default("view") // "view", "talent_click", "cta_click", "filter"
+  duration      Int? // Durée en secondes
+  metadata      Json? // Données supplémentaires (filtres utilisés, etc.)
+
   // Source
-  referrer        String?
-  userAgent       String?
-  
-  createdAt       DateTime @default(now())
-  
+  referrer  String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
   @@index([partnerId])
   @@index([partnerId, createdAt])
   @@index([action])
@@ -2014,32 +2029,32 @@ model PartnerView {
 }
 
 model PartnerTarifOverride {
-  id          String   @id @default(cuid())
-  partnerId   String
-  partner     Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-  talentId    String
-  talent      Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  
+  id        String  @id @default(cuid())
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  talentId  String
+  talent    Talent  @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
   // Tarifs négociés — null = utiliser le tarif par défaut du talent
   // Mapping avec TalentTarifs : tarifStory -> storyIg, tarifPost -> postIg, etc.
-  tarifStory          Decimal?  // Story Instagram
-  tarifPost           Decimal?  // Post Instagram
-  tarifReel           Decimal?  // Reel Instagram
-  tarifStoryConcours  Decimal?  // Story Concours
-  tarifPostConcours   Decimal?  // Post Concours
-  tarifTiktokVideo    Decimal?  // Vidéo TikTok
-  tarifYoutubeVideo   Decimal?  // Vidéo YouTube
-  tarifYoutubeShort   Decimal?  // YouTube Short
-  tarifPostCommun     Decimal?  // Post Commun (UGC)
-  tarifEvent          Decimal?  // Event / Apparition
-  tarifShooting       Decimal?  // Shooting photo
-  tarifAmbassadeur    Decimal?  // Pack Ambassadeur
-  
-  note        String?  @db.Text  // Note interne ("Tarif négocié contrat annuel 2025")
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  tarifStory         Decimal? // Story Instagram
+  tarifPost          Decimal? // Post Instagram
+  tarifReel          Decimal? // Reel Instagram
+  tarifStoryConcours Decimal? // Story Concours
+  tarifPostConcours  Decimal? // Post Concours
+  tarifTiktokVideo   Decimal? // Vidéo TikTok
+  tarifYoutubeVideo  Decimal? // Vidéo YouTube
+  tarifYoutubeShort  Decimal? // YouTube Short
+  tarifPostCommun    Decimal? // Post Commun (UGC)
+  tarifEvent         Decimal? // Event / Apparition
+  tarifShooting      Decimal? // Shooting photo
+  tarifAmbassadeur   Decimal? // Pack Ambassadeur
+
+  note String? @db.Text // Note interne ("Tarif négocié contrat annuel 2025")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@unique([partnerId, talentId])
   @@index([partnerId])
   @@index([talentId])
@@ -2047,13 +2062,13 @@ model PartnerTarifOverride {
 }
 
 model DelegationTM {
-  id           String   @id @default(cuid())
-  talentId     String
-  tmOrigineId  String
-  tmRelaiId    String
-  actif        Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String   @id @default(cuid())
+  talentId    String
+  tmOrigineId String
+  tmRelaiId   String
+  actif       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   talent    Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
   tmOrigine User   @relation("DelegationsEmises", fields: [tmOrigineId], references: [id], onDelete: Cascade)
@@ -2069,47 +2084,47 @@ model DelegationTM {
 // ============================================
 
 model AgencyProject {
-  id          String   @id @default(cuid())
-  title       String                          // "LONDON NICE"
-  slug        String   @unique
-  description String?  @db.Text               // Description du projet
-  coverImage  String?                         // Photo principale (Cloudinary)
-  images      Json?                           // ["url1", "url2", ...] galerie photos
-  links       Json?                           // [{ label, url }, ...] liens externes (articles, réseaux...)
-  videoUrl    String?                         // Lien vidéo (YouTube, Vimeo)
-  
+  id          String  @id @default(cuid())
+  title       String // "LONDON NICE"
+  slug        String  @unique
+  description String? @db.Text // Description du projet
+  coverImage  String? // Photo principale (Cloudinary)
+  images      Json? // ["url1", "url2", ...] galerie photos
+  links       Json? // [{ label, url }, ...] liens externes (articles, réseaux...)
+  videoUrl    String? // Lien vidéo (YouTube, Vimeo)
+
   // Infos projet
-  category    String?                         // "Event", "Production", "Shooting", "Concept"
-  date        DateTime?                       // Date du projet
-  location    String?                         // "Londres → Nice"
-  
+  category String? // "Event", "Production", "Shooting", "Concept"
+  date     DateTime? // Date du projet
+  location String? // "Londres → Nice"
+
   // Talents impliqués
-  talents     AgencyProjectTalent[]
-  
+  talents AgencyProjectTalent[]
+
   // Partenaires qui affichent ce projet (via PartnerProject)
-  partners    PartnerProject[]
-  
+  partners PartnerProject[]
+
   // Visibilité
-  isActive    Boolean  @default(true)
-  order       Int      @default(0)            // Ordre d'affichage
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  isActive Boolean @default(true)
+  order    Int     @default(0) // Ordre d'affichage
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([isActive])
   @@map("agency_projects")
 }
 
 model PartnerProject {
-  id        String         @id @default(cuid())
+  id        String        @id @default(cuid())
   partnerId String
-  partner   Partner        @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  partner   Partner       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   projectId String
-  project   AgencyProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  order     Int            @default(0)       // Ordre d'affichage pour ce partenaire
-  
+  project   AgencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  order     Int           @default(0) // Ordre d'affichage pour ce partenaire
+
   createdAt DateTime @default(now())
-  
+
   @@unique([partnerId, projectId])
   @@index([partnerId])
   @@index([projectId])
@@ -2117,13 +2132,13 @@ model PartnerProject {
 }
 
 model AgencyProjectTalent {
-  id        String         @id @default(cuid())
+  id        String        @id @default(cuid())
   projectId String
-  project   AgencyProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   AgencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   talentId  String
-  talent    Talent         @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  role      String?                           // "Host", "Participant", etc.
-  
+  talent    Talent        @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  role      String? // "Host", "Participant", etc.
+
   @@unique([projectId, talentId])
   @@index([projectId])
   @@index([talentId])
@@ -2164,52 +2179,55 @@ model ProjetEvenement {
   statut    String   @default("ACTIF")
   createdAt DateTime @default(now())
 
-  opportunites OpportuniteMarque[]
+  opportunites      OpportuniteMarque[]
   participantsVilla ParticipantVilla[]
 }
 
 model OpportuniteMarque {
-  id             String          @id @default(cuid())
-  projetId       String
-  projet         ProjetEvenement @relation(fields: [projetId], references: [id])
+  id       String          @id @default(cuid())
+  projetId String
+  projet   ProjetEvenement @relation(fields: [projetId], references: [id])
 
-  nomMarque      String
-  secteur        String?
-  angleNote      String?
-  budgetEstime   Int?
-  typeActivation String?
-  dateActivation DateTime?
-  montantFinal   Int?
-  statutLivraison String @default("A_FAIRE")
+  nomMarque       String
+  marqueId        String?
+  marque          Marque?   @relation(fields: [marqueId], references: [id], onDelete: SetNull)
+  secteur         String?
+  angleNote       String?
+  budgetEstime    Int?
+  typeActivation  String?
+  dateActivation  DateTime?
+  montantFinal    Int?
+  statutLivraison String    @default("A_FAIRE")
 
   // [{firstName, lastName, email, role}] — jamais exposé au STRATEGY_PLANNER
-  contacts       Json    @default("[]")
+  contacts        Json    @default("[]")
   contactQualifie Boolean @default(false)
 
   // A_QUALIFIER | IDENTIFIEE | CONTACTEE | EN_NEGO | SIGNEE | PERDUE
-  statut         String  @default("A_QUALIFIER")
-  talents        Json    @default("[]")
+  statut  String @default("A_QUALIFIER")
+  talents Json   @default("[]")
 
-  ownerId        String?
-  createdById    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  ownerId     String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([projetId])
+  @@index([marqueId])
 }
 
 model ParticipantVilla {
-  id          String         @id @default(cuid())
+  id          String          @id @default(cuid())
   projetId    String
   projet      ProjetEvenement @relation(fields: [projetId], references: [id], onDelete: Cascade)
   talentId    String
-  talent      Talent         @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  talent      Talent          @relation(fields: [talentId], references: [id], onDelete: Cascade)
   dateArrivee DateTime?
   dateDepart  DateTime?
   // PRESSENTI | CONFIRME | DESISTE
-  statut      String         @default("PRESSENTI")
+  statut      String          @default("PRESSENTI")
   notes       String?
-  createdAt   DateTime       @default(now())
+  createdAt   DateTime        @default(now())
 
   @@unique([projetId, talentId])
   @@index([projetId])
@@ -2217,24 +2235,24 @@ model ParticipantVilla {
 }
 
 model DinnerCampaign {
-  id          String              @id @default(cuid())
-  projetSlug  String              @default("villa-cannes")
-  name        String
-  clientName  String
-  clientAccessToken String        @unique
-  logoUrl     String?
-  eventPhotos Json?
-  reportingSummary String?        @db.Text
-  reportingKpis Json?
-  city        String?
-  eventDate   DateTime?
-  budgetMin   Decimal?            @db.Decimal(10, 2)
-  budgetMax   Decimal?            @db.Decimal(10, 2)
-  status      DinnerCampaignStatus @default(DRAFT)
-  createdById String
-  createdBy   User                @relation("DinnerCampaignCreatedBy", fields: [createdById], references: [id])
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id                String               @id @default(cuid())
+  projetSlug        String               @default("villa-cannes")
+  name              String
+  clientName        String
+  clientAccessToken String               @unique
+  logoUrl           String?
+  eventPhotos       Json?
+  reportingSummary  String?              @db.Text
+  reportingKpis     Json?
+  city              String?
+  eventDate         DateTime?
+  budgetMin         Decimal?             @db.Decimal(10, 2)
+  budgetMax         Decimal?             @db.Decimal(10, 2)
+  status            DinnerCampaignStatus @default(DRAFT)
+  createdById       String
+  createdBy         User                 @relation("DinnerCampaignCreatedBy", fields: [createdById], references: [id])
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   candidates DinnerCreatorCandidate[]
   events     DinnerCandidateEvent[]
@@ -2245,31 +2263,31 @@ model DinnerCampaign {
 }
 
 model DinnerCreatorCandidate {
-  id              String               @id @default(cuid())
+  id              String                @id @default(cuid())
   campaignId      String
-  campaign        DinnerCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign        DinnerCampaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   talentId        String?
-  talent          Talent?              @relation(fields: [talentId], references: [id], onDelete: SetNull)
+  talent          Talent?               @relation(fields: [talentId], references: [id], onDelete: SetNull)
   manualHandle    String?
   creatorEmail    String?
   instagramUrl    String?
   manualPlatform  String?
   fullName        String
   followers       Int?
-  engagementRate  Decimal?             @db.Decimal(5, 2)
-  estimatedCost   Decimal?             @db.Decimal(10, 2)
+  engagementRate  Decimal?              @db.Decimal(5, 2)
+  estimatedCost   Decimal?              @db.Decimal(10, 2)
   notePlanner     String?
   noteClient      String?
   source          DinnerCandidateSource @default(PLANNER)
   status          DinnerCandidateStatus @default(PROPOSED)
   rejectionReason String?
-  position        Int                  @default(0)
+  position        Int                   @default(0)
   createdById     String
-  createdBy       User                 @relation("DinnerCandidateCreatedBy", fields: [createdById], references: [id])
+  createdBy       User                  @relation("DinnerCandidateCreatedBy", fields: [createdById], references: [id])
   updatedById     String
-  updatedBy       User                 @relation("DinnerCandidateUpdatedBy", fields: [updatedById], references: [id])
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  updatedBy       User                  @relation("DinnerCandidateUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
 
   events   DinnerCandidateEvent[]
   comments DinnerCandidateComment[]
@@ -2280,53 +2298,56 @@ model DinnerCreatorCandidate {
 }
 
 model ContactMission {
-  id                  String                @id @default(cuid())
-  campaignId          String?
-  campaign            TalentProspectingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  talentId            String?
-  talent              Talent?               @relation(fields: [talentId], references: [id], onDelete: SetNull)
-  creatorName         String
-  targetBrand         String
-  targetBrandKey      String
-  strategyReason      String                @db.Text
-  recommendedAngle    String?               @db.Text
-  objective           String?
-  dos                 String?               @db.Text
-  donts               String?               @db.Text
-  priority            ContactMissionPriority @default(MEDIUM)
-  status              ContactMissionStatus   @default(READY_FOR_CASTING)
-  stage               ContactMissionStage    @default(TO_DRAFT)
-  draftEmailSubject   String?                @db.Text
-  draftEmailBody      String?                @db.Text
-  clientLanguage      String?
-  clientContacts      Json?
-  deadlineAt          DateTime?
-  scheduledSendAt     DateTime?
-  sentAt              DateTime?
-  sentMessageIds      Json?
-  sendError           String?               @db.Text
-  relanceSentAt       DateTime?
-  relanceMessageIds   Json?
-  relanceError        String?               @db.Text
-  relanceCancelledAt  DateTime?
-  relanceCancelledBy  User?                 @relation("ContactMissionRelanceCancelledBy", fields: [relanceCancelledById], references: [id])
+  id                   String                     @id @default(cuid())
+  campaignId           String?
+  campaign             TalentProspectingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  talentId             String?
+  talent               Talent?                    @relation(fields: [talentId], references: [id], onDelete: SetNull)
+  creatorName          String
+  targetBrand          String
+  targetBrandKey       String
+  marqueId             String?
+  marque               Marque?                    @relation(fields: [marqueId], references: [id], onDelete: SetNull)
+  strategyReason       String                     @db.Text
+  recommendedAngle     String?                    @db.Text
+  objective            String?
+  dos                  String?                    @db.Text
+  donts                String?                    @db.Text
+  priority             ContactMissionPriority     @default(MEDIUM)
+  status               ContactMissionStatus       @default(READY_FOR_CASTING)
+  stage                ContactMissionStage        @default(TO_DRAFT)
+  draftEmailSubject    String?                    @db.Text
+  draftEmailBody       String?                    @db.Text
+  clientLanguage       String?
+  clientContacts       Json?
+  deadlineAt           DateTime?
+  scheduledSendAt      DateTime?
+  sentAt               DateTime?
+  sentMessageIds       Json?
+  sendError            String?                    @db.Text
+  relanceSentAt        DateTime?
+  relanceMessageIds    Json?
+  relanceError         String?                    @db.Text
+  relanceCancelledAt   DateTime?
+  relanceCancelledBy   User?                      @relation("ContactMissionRelanceCancelledBy", fields: [relanceCancelledById], references: [id])
   relanceCancelledById String?
-  replied             Boolean               @default(false)
-  openedAt            DateTime?
-  lastOpenAt          DateTime?
-  openCount           Int                   @default(0)
-  clickedAt           DateTime?
-  lastClickAt         DateTime?
-  lastClickUrl        String?               @db.Text
-  clickCount          Int                   @default(0)
-  createdById         String
-  createdBy           User                  @relation("ContactMissionCreatedBy", fields: [createdById], references: [id])
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  replied              Boolean                    @default(false)
+  openedAt             DateTime?
+  lastOpenAt           DateTime?
+  openCount            Int                        @default(0)
+  clickedAt            DateTime?
+  lastClickAt          DateTime?
+  lastClickUrl         String?                    @db.Text
+  clickCount           Int                        @default(0)
+  createdById          String
+  createdBy            User                       @relation("ContactMissionCreatedBy", fields: [createdById], references: [id])
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
 
   @@index([campaignId, stage, createdAt])
   @@index([talentId])
   @@index([targetBrandKey, status, createdAt])
+  @@index([marqueId])
   @@index([scheduledSendAt])
   @@index([sentAt, replied, relanceSentAt])
   @@index([relanceCancelledAt])
@@ -2334,18 +2355,18 @@ model ContactMission {
 }
 
 model TalentProspectingCampaign {
-  id            String   @id @default(cuid())
-  title         String
-  description   String?  @db.Text
-  talentId      String
-  talent        Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  createdById   String
-  createdBy     User     @relation("TalentProspectingCampaignCreatedBy", fields: [createdById], references: [id])
-  isActive      Boolean  @default(true)
-  startsAt      DateTime?
-  endsAt        DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String    @id @default(cuid())
+  title       String
+  description String?   @db.Text
+  talentId    String
+  talent      Talent    @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User      @relation("TalentProspectingCampaignCreatedBy", fields: [createdById], references: [id])
+  isActive    Boolean   @default(true)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   contactMissions ContactMission[]
 
@@ -2355,18 +2376,18 @@ model TalentProspectingCampaign {
 }
 
 model DinnerCandidateEvent {
-  id          String            @id @default(cuid())
+  id          String                 @id @default(cuid())
   candidateId String
   candidate   DinnerCreatorCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   campaignId  String
-  campaign    DinnerCampaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign    DinnerCampaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   type        DinnerEventType
   fromStatus  DinnerCandidateStatus?
   toStatus    DinnerCandidateStatus?
   payload     Json?
   actorId     String
-  actor       User              @relation(fields: [actorId], references: [id])
-  createdAt   DateTime          @default(now())
+  actor       User                   @relation(fields: [actorId], references: [id])
+  createdAt   DateTime               @default(now())
 
   @@index([campaignId, createdAt])
   @@index([candidateId, createdAt])
@@ -2374,13 +2395,13 @@ model DinnerCandidateEvent {
 }
 
 model DinnerCandidateComment {
-  id          String            @id @default(cuid())
+  id          String                 @id @default(cuid())
   candidateId String
   candidate   DinnerCreatorCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   authorId    String
-  author      User              @relation(fields: [authorId], references: [id])
-  content     String            @db.Text
-  createdAt   DateTime          @default(now())
+  author      User                   @relation(fields: [authorId], references: [id])
+  content     String                 @db.Text
+  createdAt   DateTime               @default(now())
 
   @@index([candidateId, createdAt])
   @@map("dinner_candidate_comments")
@@ -2418,46 +2439,46 @@ enum CannesCoiffeurBookingStatus {
 }
 
 model CannesEvent {
-  id             String          @id @default(cuid())
-  date           DateTime
-  startTime      String
-  endTime        String?
-  title          String
-  type           CannesEventType @default(SOIREE)
-  location       String
-  address        String?
-  organizer      String?
-  contactInfo    String?
-  dressCode      String?
-  invitationLink String?
+  id               String                @id @default(cuid())
+  date             DateTime
+  startTime        String
+  endTime          String?
+  title            String
+  type             CannesEventType       @default(SOIREE)
+  location         String
+  address          String?
+  organizer        String?
+  contactInfo      String?
+  dressCode        String?
+  invitationLink   String?
   pdfAttachmentUrl String?
-  description    String?         @db.Text
-  notes          String?         @db.Text
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  createdById    String?
-  attendees      CannesEventAttendee[]
+  description      String?               @db.Text
+  notes            String?               @db.Text
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  createdById      String?
+  attendees        CannesEventAttendee[]
 
   @@index([date])
 }
 
 model CannesContact {
-  id            String                @id @default(cuid())
-  firstName     String
-  lastName      String
-  company       String?
-  role          String?
-  phone         String?
-  email         String?
-  instagram     String?
-  hotel         String?
-  arrivalDate   DateTime?
-  departureDate DateTime?
-  category      CannesContactCategory @default(AUTRE)
+  id               String                @id @default(cuid())
+  firstName        String
+  lastName         String
+  company          String?
+  role             String?
+  phone            String?
+  email            String?
+  instagram        String?
+  hotel            String?
+  arrivalDate      DateTime?
+  departureDate    DateTime?
+  category         CannesContactCategory @default(AUTRE)
   pdfAttachmentUrl String?
-  notes         String?               @db.Text
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
+  notes            String?               @db.Text
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   @@index([category])
 }
@@ -2540,18 +2561,18 @@ model CannesSharedSetting {
 
 /// Annonces manuelles pour l’écran public `/r/cannes-villa-tv` (hors agenda Prisma).
 model CannesVillaTvBoardItem {
-  id        String   @id @default(cuid())
+  id           String   @id @default(cuid())
   /// Jour Europe/Paris `YYYY-MM-DD` (fenêtre festival Cannes 2026)
-  dateYmd   String
+  dateYmd      String
   /// Heure Paris `HH:mm` pour le tri sur la timeline TV
-  timeLabel String   @default("12:00")
+  timeLabel    String   @default("12:00")
   /// Heure fin Paris optionnelle `HH:mm` (ex. 12:00 → 14:00)
   endTimeLabel String?
-  title     String
-  body      String?  @db.Text
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  title        String
+  body         String?  @db.Text
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([dateYmd, sortOrder])
   @@map("cannes_villa_tv_board_items")
@@ -2559,16 +2580,16 @@ model CannesVillaTvBoardItem {
 
 /// Prestation coiffeur (durée + buffer servant à générer la grille comme sur Calendly).
 model CannesCoiffeurPrestation {
-  id                String    @id @default(cuid())
-  title             String
-  slug              String    @unique
-  durationMinutes   Int
-  bufferMinutes     Int       @default(5)
-  description       String?   @db.Text
-  sortOrder         Int       @default(0)
-  active            Boolean   @default(true)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id              String   @id @default(cuid())
+  title           String
+  slug            String   @unique
+  durationMinutes Int
+  bufferMinutes   Int      @default(5)
+  description     String?  @db.Text
+  sortOrder       Int      @default(0)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   availabilities CannesCoiffeurAvailability[]
   bookings       CannesCoiffeurBooking[]
@@ -2596,15 +2617,15 @@ model CannesCoiffeurAvailability {
 }
 
 model CannesCoiffeurSlot {
-  id          String    @id @default(cuid())
-  startsAt  DateTime
-  endsAt    DateTime
-  label     String?
+  id          String                 @id @default(cuid())
+  startsAt    DateTime
+  endsAt      DateTime
+  label       String?
   cancelledAt DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
   createdById String?
-  createdBy   User?     @relation("CannesCoiffeurSlotCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?                  @relation("CannesCoiffeurSlotCreator", fields: [createdById], references: [id], onDelete: SetNull)
   booking     CannesCoiffeurBooking?
 
   @@index([startsAt])
@@ -2612,21 +2633,21 @@ model CannesCoiffeurSlot {
 }
 
 model CannesCoiffeurBooking {
-  id           String                       @id @default(cuid())
-  slotId       String                       @unique
-  prestationId String?
-  prestation   CannesCoiffeurPrestation?    @relation(fields: [prestationId], references: [id], onDelete: SetNull)
-  talentId     String?
-  guestName    String?
-  guestEmail   String?
-  notes        String?                      @db.Text
-  cancellationToken String?                 @unique
-  cancelledAt  DateTime?
-  cancelledBy  String?
-  status       CannesCoiffeurBookingStatus @default(CONFIRMED)
-  createdById  String?
-  createdAt    DateTime                     @default(now())
-  updatedAt    DateTime                     @updatedAt
+  id                String                      @id @default(cuid())
+  slotId            String                      @unique
+  prestationId      String?
+  prestation        CannesCoiffeurPrestation?   @relation(fields: [prestationId], references: [id], onDelete: SetNull)
+  talentId          String?
+  guestName         String?
+  guestEmail        String?
+  notes             String?                     @db.Text
+  cancellationToken String?                     @unique
+  cancelledAt       DateTime?
+  cancelledBy       String?
+  status            CannesCoiffeurBookingStatus @default(CONFIRMED)
+  createdById       String?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
 
   slot      CannesCoiffeurSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
   talent    Talent?            @relation(fields: [talentId], references: [id], onDelete: SetNull)
@@ -2645,31 +2666,31 @@ model CannesCoiffeurBooking {
 /// on glisse-depose les screenshots des stats. Un lien client protege par mot de
 /// passe est genere pour le partage externe.
 model ActivationReport {
-  id                String   @id @default(cuid())
-  name              String   // Nom de l'activation (ex. "Sephora Cannes 2026")
-  clientAccessToken String   @unique
+  id                String @id @default(cuid())
+  name              String // Nom de l'activation (ex. "Sephora Cannes 2026")
+  clientAccessToken String @unique
   passwordHash      String
 
-  createdById       String
-  createdBy         User     @relation("ActivationReportCreatedBy", fields: [createdById], references: [id])
+  createdById String
+  createdBy   User   @relation("ActivationReportCreatedBy", fields: [createdById], references: [id])
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  talents           ActivationReportTalent[]
+  talents ActivationReportTalent[]
 
   @@index([createdById])
   @@map("activation_reports")
 }
 
 model ActivationReportTalent {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  reportId  String
-  report    ActivationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  reportId String
+  report   ActivationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
-  talentId  String
-  talent    Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
 
   position  Int      @default(0)
   createdAt DateTime @default(now())
@@ -2683,15 +2704,15 @@ model ActivationReportTalent {
 }
 
 model ActivationReportScreenshot {
-  id             String   @id @default(cuid())
+  id String @id @default(cuid())
 
   reportTalentId String
   reportTalent   ActivationReportTalent @relation(fields: [reportTalentId], references: [id], onDelete: Cascade)
 
-  imageUrl       String
-  label          String?
-  position       Int      @default(0)
-  createdAt      DateTime @default(now())
+  imageUrl  String
+  label     String?
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
 
   @@index([reportTalentId])
   @@map("activation_report_screenshots")

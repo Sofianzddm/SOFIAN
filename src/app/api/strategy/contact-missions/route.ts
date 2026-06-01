@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { normalizeMissionBrandKey, parseMissionPriority } from "@/lib/contact-missions";
+import { linkMarqueFromBrandName } from "@/lib/marque-resolver";
 import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
 
 const ALLOWED_ROLES = [
@@ -248,6 +249,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const linkedMarque = await linkMarqueFromBrandName({
+      brandName: targetBrand,
+      source: "CONTACT_MISSION",
+    });
+
     const mission = await contactMissionModel.create({
       data: {
         campaignId,
@@ -255,6 +261,7 @@ export async function POST(request: NextRequest) {
         creatorName,
         targetBrand,
         targetBrandKey: normalizeMissionBrandKey(targetBrand),
+        marqueId: linkedMarque?.marqueId ?? null,
         strategyReason,
         recommendedAngle: String(body.recommendedAngle || "").trim() || null,
         objective: String(body.objective || "").trim() || null,

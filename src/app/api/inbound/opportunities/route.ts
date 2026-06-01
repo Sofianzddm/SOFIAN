@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyInboundAuth } from "@/lib/inbound-auth";
 import { getAppSession } from "@/lib/getAppSession";
 import { sendInboundNotificationEmail } from "@/lib/emails/inbound-notification";
+import { linkMarqueFromBrandName, parseSenderName } from "@/lib/marque-resolver";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
 type AllowedRole = (typeof ALLOWED_ROLES)[number];
@@ -103,6 +104,23 @@ export async function POST(req: NextRequest) {
           select: { id: true },
         });
 
+    const brandName = (data.extractedBrand || "").trim();
+    let marqueId: string | null = null;
+    if (brandName) {
+      const sender = parseSenderName(data.senderName);
+      const linked = await linkMarqueFromBrandName({
+        brandName,
+        source: "INBOUND",
+        contact: {
+          email: data.senderEmail,
+          nom: sender.nom,
+          prenom: sender.prenom,
+          poste: "Contact inbound",
+        },
+      });
+      marqueId = linked?.marqueId ?? null;
+    }
+
     let opportunity;
     try {
       opportunity = await prisma.inboundOpportunity.create({
@@ -127,6 +145,7 @@ export async function POST(req: NextRequest) {
           extractedDeadline: data.extractedDeadline || null,
           extractedDeliverables: data.extractedDeliverables || null,
           briefSummary: data.briefSummary || null,
+          marqueId,
         },
       });
     } catch (createError) {

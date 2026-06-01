@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { canAccessStrategy, getOrCreateVillaProject } from "@/app/api/strategy/_utils";
+import { linkMarqueFromBrandName } from "@/lib/marque-resolver";
 
 export async function GET(request: NextRequest) {
   try {
@@ -68,10 +69,17 @@ export async function POST(request: NextRequest) {
     const projetSlug = (body.projetSlug || "villa-cannes").trim();
     const projet = await getOrCreateVillaProject(projetSlug);
 
+    const linked = await linkMarqueFromBrandName({
+      brandName: nomMarque,
+      source: "OPPORTUNITE_MARQUE",
+      createDefaults: { secteur: body.secteur?.trim() || null },
+    });
+
     const opportunite = await prisma.opportuniteMarque.create({
       data: {
         projetId: projet.id,
         nomMarque,
+        marqueId: linked?.marqueId ?? null,
         secteur: body.secteur?.trim() || null,
         angleNote: body.angleNote?.trim() || null,
         budgetEstime: typeof body.budgetEstime === "number" ? body.budgetEstime : null,

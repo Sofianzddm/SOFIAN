@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { linkMarqueFromBrandName, parseSenderName } from "@/lib/marque-resolver";
 
 type IncomingBody = {
   from?: unknown;
@@ -127,6 +128,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, id: existing[0].id, action: "already_exists" });
     }
 
+    let marqueId: string | null = null;
+    if (extractedBrand) {
+      const emailMatch = from.match(/<([^>]+)>/) || from.match(/([\w.+-]+@[\w.-]+\.\w+)/);
+      const senderEmail = emailMatch?.[1]?.trim() || from.trim();
+      const senderLabel = from.replace(/<[^>]+>/, "").trim() || senderEmail;
+      const sender = parseSenderName(senderLabel);
+      const linked = await linkMarqueFromBrandName({
+        brandName: extractedBrand,
+        source: "DEMANDE_ENTRANTE",
+        contact: {
+          email: senderEmail,
+          nom: sender.nom,
+          prenom: sender.prenom,
+        },
+      });
+      marqueId = linked?.marqueId ?? null;
+    }
+
     const inserted = (await prisma.$queryRaw`
       INSERT INTO "DemandeEntrante"
       (
@@ -146,6 +165,7 @@ export async function POST(request: NextRequest) {
         "extractedDeadline",
         "extractedDeliverables",
         "briefSummary",
+        "marqueId",
         "status",
         "createdAt",
         "updatedAt"
@@ -167,6 +187,7 @@ export async function POST(request: NextRequest) {
         ${extractedDeadline || null},
         ${extractedDeliverables || null},
         ${briefSummary || null},
+        ${marqueId},
         'a_traiter',
         NOW(),
         NOW()
@@ -174,7 +195,7 @@ export async function POST(request: NextRequest) {
       RETURNING "id"
     `) as InsertedRow[];
 
-    return NextResponse.json({ success: true, id: inserted[0]?.id || null, action: "created" });
+    return NextResponse.json({ success: true, id: inserted[0]?.id || null, action: "created", marqueId });
   } catch (e) {
     console.error("POST /api/webhook/inbound-email:", e);
     return NextResponse.json(

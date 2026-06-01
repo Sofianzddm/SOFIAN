@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { normalizeMissionBrandKey, parseMissionPriority } from "@/lib/contact-missions";
+import { linkMarqueFromBrandName } from "@/lib/marque-resolver";
 
 const ALLOWED_ROLES = ["STRATEGY_PLANNER", "ADMIN", "HEAD_OF"] as const;
 
@@ -50,29 +51,36 @@ export async function POST(
     }
 
     const creatorName = `${campaign.talent?.prenom ?? ""} ${campaign.talent?.nom ?? ""}`.trim() || "Talent";
-    const created = await prisma.$transaction(
-      items
-        .filter((item) => String(item.targetBrand || "").trim() && String(item.strategyReason || "").trim())
-        .map((item) =>
-          contactMissionModel.create({
-            data: {
-              campaignId,
-              talentId: campaign.talentId,
-              creatorName,
-              targetBrand: String(item.targetBrand || "").trim(),
-              targetBrandKey: normalizeMissionBrandKey(String(item.targetBrand || "").trim()),
-              strategyReason: String(item.strategyReason || "").trim(),
-              recommendedAngle: String(item.recommendedAngle || "").trim() || null,
-              objective: String(item.objective || "").trim() || null,
-              dos: String(item.dos || "").trim() || null,
-              donts: String(item.donts || "").trim() || null,
-              priority: parseMissionPriority(item.priority),
-              stage: "TO_DRAFT",
-              createdById: session.user.id,
-            },
-          })
-        )
+    const filtered = items.filter(
+      (item) => String(item.targetBrand || "").trim() && String(item.strategyReason || "").trim()
     );
+    const created = [];
+    for (const item of filtered) {
+      const targetBrand = String(item.targetBrand || "").trim();
+      const linked = await linkMarqueFromBrandName({
+        brandName: targetBrand,
+        source: "CONTACT_MISSION",
+      });
+      const mission = await contactMissionModel.create({
+        data: {
+          campaignId,
+          talentId: campaign.talentId,
+          creatorName,
+          targetBrand,
+          targetBrandKey: normalizeMissionBrandKey(targetBrand),
+          marqueId: linked?.marqueId ?? null,
+          strategyReason: String(item.strategyReason || "").trim(),
+          recommendedAngle: String(item.recommendedAngle || "").trim() || null,
+          objective: String(item.objective || "").trim() || null,
+          dos: String(item.dos || "").trim() || null,
+          donts: String(item.donts || "").trim() || null,
+          priority: parseMissionPriority(item.priority),
+          stage: "TO_DRAFT",
+          createdById: session.user.id,
+        },
+      });
+      created.push(mission);
+    }
 
     return NextResponse.json({ created: created.length }, { status: 201 });
   } catch (error) {

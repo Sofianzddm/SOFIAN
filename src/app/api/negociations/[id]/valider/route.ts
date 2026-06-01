@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { generateCollabReference } from "@/lib/generateCollabReference";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { findOrCreateMarque } from "@/lib/marque-resolver";
 
 // POST - Valider ou refuser une négociation
 export async function POST(
@@ -63,14 +64,15 @@ export async function POST(
     // VALIDER → Résoudre la marque puis créer la collaboration
     let marqueIdToUse: string | null = nego.marqueId;
     if (!marqueIdToUse && nego.nomMarqueSaisi) {
-      const nom = String(nego.nomMarqueSaisi).trim();
-      // Toujours créer une nouvelle fiche marque, même si une marque
-      // avec le même nom existe déjà, pour garder un contrôle manuel
-      // sur les informations légales / facturation.
-      const created = await prisma.marque.create({
-        data: { nom },
+      const resolved = await findOrCreateMarque({
+        name: String(nego.nomMarqueSaisi).trim(),
+        source: "NEGOCIATION",
       });
-      marqueIdToUse = created.id;
+      marqueIdToUse = resolved.marqueId;
+      await prisma.negociation.update({
+        where: { id },
+        data: { marqueId: marqueIdToUse, nomMarqueSaisi: null },
+      });
     }
     if (!marqueIdToUse) {
       return NextResponse.json(
