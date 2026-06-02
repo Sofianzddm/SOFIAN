@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   Loader2,
@@ -456,10 +456,11 @@ export default function PipelineMailsEnvoyesPage() {
       if (!res.ok)
         throw new Error(json.error || "L'envoi a échoué (Gmail / quota / autorisations).");
 
-      setFeedback({
-        kind: "success",
-        message: `Relance envoyée à ${json.outcome.succeeded}/${json.outcome.attempted} destinataire(s) pour ${relancePreview.mission.targetBrand}.`,
-      });
+      console.info("[relance-now] outcome:", json.outcome);
+
+      const okCount = json.outcome?.succeeded ?? 0;
+      const attempts = json.outcome?.attempted ?? 0;
+      const failures: string[] = json.outcome?.errors ?? [];
 
       const nowIso = new Date().toISOString();
       setData((prev) =>
@@ -480,6 +481,22 @@ export default function PipelineMailsEnvoyesPage() {
           : prev
       );
       setRelancePreview(null);
+
+      // Refetch DB-truth pour que le badge "Relance · il y a X" reflète bien
+      // la valeur côté serveur (même après reload).
+      await refetchList();
+
+      if (failures.length > 0) {
+        setFeedback({
+          kind: "error",
+          message: `Relance partielle (${okCount}/${attempts}) pour ${relancePreview.mission.targetBrand}. Erreur(s) : ${failures.join(" | ")}`,
+        });
+      } else {
+        setFeedback({
+          kind: "success",
+          message: `✓ Relance envoyée à ${okCount}/${attempts} destinataire(s) pour ${relancePreview.mission.targetBrand}.`,
+        });
+      }
     } catch (e) {
       setFeedback({
         kind: "error",
@@ -549,6 +566,24 @@ export default function PipelineMailsEnvoyesPage() {
     const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => window.clearTimeout(t);
   }, [search]);
+
+  const refetchList = useCallback(async () => {
+    if (forbidden) return;
+    try {
+      const params = new URLSearchParams();
+      if (period !== "all") params.set("period", period);
+      if (talentFilter !== "ALL") params.set("talentId", talentFilter);
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      const res = await fetch(`/api/strategy/contact-missions/sent?${params.toString()}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const json = (await res.json()) as ApiResponse;
+      setData(json);
+    } catch (e) {
+      console.error("[mails-envoyes] refetch failed:", e);
+    }
+  }, [period, talentFilter, debouncedSearch, forbidden]);
 
   useEffect(() => {
     if (forbidden || status === "loading") return;
