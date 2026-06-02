@@ -52,18 +52,30 @@ export async function POST(
       );
     }
 
-    const updated = await contactMissionModel.update({
-      where: { id },
-      data: {
-        relanceSentAt: new Date(),
-        status: "RELANCED",
-        relanceCancelledAt: null,
-        relanceCancelledById: null,
-      },
-      select: { id: true, relanceSentAt: true, status: true },
-    });
-
-    return NextResponse.json({ ok: true, mission: updated });
+    try {
+      const updated = await contactMissionModel.update({
+        where: { id },
+        data: {
+          relanceSentAt: new Date(),
+          status: "RELANCED",
+        },
+        select: { id: true, relanceSentAt: true, status: true },
+      });
+      console.info(
+        `[mark-relance-sent] OK ${id} → relanceSentAt=${updated.relanceSentAt?.toISOString()}`
+      );
+      return NextResponse.json({ ok: true, mission: updated });
+    } catch (dbError) {
+      console.error(
+        `[mark-relance-sent] ❌ Prisma update failed for ${id}:`,
+        dbError
+      );
+      const dbMessage = dbError instanceof Error ? dbError.message : String(dbError);
+      return NextResponse.json(
+        { error: `DB update failed: ${dbMessage.slice(0, 500)}` },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error("POST /api/strategy/contact-missions/[id]/mark-relance-sent:", error);
     return NextResponse.json(
