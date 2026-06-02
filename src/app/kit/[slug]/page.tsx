@@ -535,11 +535,39 @@ function EvolBadge({ value }: { value: number | null }) {
 //
 // Dimensions "design" d'une page A4 à 96dpi.
 // Toute la mise en page intérieure est faite à cette taille (en px fixes),
-// puis on applique un transform:scale() basé sur la largeur réelle du
-// conteneur via container queries → la page reste pixel-perfect sur
-// desktop, et se réduit proportionnellement sur mobile/tablette.
+// puis on applique un transform:scale() basé sur la largeur réelle de
+// l'article via ResizeObserver → la page reste pixel-perfect sur desktop
+// et se réduit proportionnellement sur mobile/tablette.
 const A4_DESIGN_WIDTH = 794;
 const A4_DESIGN_HEIGHT = 1123; // 794 * 297 / 210
+
+// Hook : mesure la largeur de l'article et applique scale(width/794)
+// sur l'inner. Garanti tous navigateurs (pas de container queries).
+function useA4Scale() {
+  const outerRef = useRef<HTMLElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+
+    const apply = () => {
+      const w = outer.clientWidth;
+      if (!w) return;
+      const scale = Math.min(1, w / A4_DESIGN_WIDTH);
+      inner.style.transform = `scale(${scale})`;
+    };
+
+    apply();
+
+    const ro = new ResizeObserver(apply);
+    ro.observe(outer);
+    return () => ro.disconnect();
+  }, []);
+
+  return { outerRef, innerRef };
+}
 
 function PageA4({
   children,
@@ -556,9 +584,11 @@ function PageA4({
   pageNumber?: string;
   textColor?: string;
 }) {
+  const { outerRef, innerRef } = useA4Scale();
   return (
     <article
-      className={`relative w-full mx-auto overflow-hidden kit-a4 ${className}`}
+      ref={outerRef}
+      className={`relative w-full mx-auto overflow-hidden ${className}`}
       style={{
         maxWidth: A4_DESIGN_WIDTH,
         aspectRatio: "210 / 297",
@@ -568,7 +598,8 @@ function PageA4({
       }}
     >
       <div
-        className="kit-a4-inner absolute top-0 left-0"
+        ref={innerRef}
+        className="absolute top-0 left-0"
         style={{
           width: A4_DESIGN_WIDTH,
           height: A4_DESIGN_HEIGHT,
@@ -1258,40 +1289,6 @@ export default function KitMediaPage() {
         }
         .font-switzer {
           font-family: "Switzer", "Inter", system-ui, sans-serif;
-        }
-
-        /* Responsive A4 : on dessine à la taille "design" (794px) puis
-           on scale via container queries quand le conteneur est plus
-           petit. Tout le contenu intérieur (px fixes) reste valide. */
-        .kit-a4 {
-          container-type: inline-size;
-        }
-        .kit-a4-inner {
-          transform: scale(1);
-        }
-        @container (max-width: 794px) {
-          .kit-a4-inner {
-            transform: scale(calc(100cqw / 794));
-          }
-        }
-        /* Fallback pour navigateurs sans container queries :
-           on se base sur la largeur du viewport, en tenant compte
-           du padding latéral du conteneur principal (24px mobile,
-           48px tablette). */
-        @supports not (container-type: inline-size) {
-          .kit-a4-inner {
-            transform: scale(min(1, calc((100vw - 24px) / 794)));
-          }
-          @media (min-width: 640px) {
-            .kit-a4-inner {
-              transform: scale(min(1, calc((100vw - 48px) / 794)));
-            }
-          }
-          @media (min-width: 768px) {
-            .kit-a4-inner {
-              transform: scale(min(1, calc((100vw - 64px) / 794)));
-            }
-          }
         }
       `}</style>
 

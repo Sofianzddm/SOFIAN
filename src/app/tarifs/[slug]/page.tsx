@@ -477,13 +477,40 @@ function PlatformLabel({
 // ============================================
 
 // Dimensions "design" A4 à 96dpi. Le contenu intérieur est tracé à cette
-// taille (px fixes), puis on applique transform:scale() via container
-// queries pour rester pixel-perfect sur desktop et tenir sur mobile.
+// taille (px fixes), puis on applique transform:scale() via ResizeObserver
+// pour rester pixel-perfect sur desktop et tenir sur mobile.
 const A4_DESIGN_WIDTH = 794;
 const A4_DESIGN_HEIGHT = 1123; // 794 * 297 / 210
 
+function useA4Scale() {
+  const outerRef = useRef<HTMLElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+
+    const apply = () => {
+      const w = outer.clientWidth;
+      if (!w) return;
+      const scale = Math.min(1, w / A4_DESIGN_WIDTH);
+      inner.style.transform = `scale(${scale})`;
+    };
+
+    apply();
+
+    const ro = new ResizeObserver(apply);
+    ro.observe(outer);
+    return () => ro.disconnect();
+  }, []);
+
+  return { outerRef, innerRef };
+}
+
 function TarifPage({ talent }: { talent: TarifsTalent }) {
   const year = new Date().getFullYear();
+  const { outerRef, innerRef } = useA4Scale();
 
   // Plateformes disponibles pour bloc audience (uniquement celles avec data)
   const audienceRows: {
@@ -540,7 +567,8 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
 
   return (
     <article
-      className="relative w-full mx-auto overflow-hidden tarifs-a4"
+      ref={outerRef}
+      className="relative w-full mx-auto overflow-hidden"
       style={{
         maxWidth: A4_DESIGN_WIDTH,
         aspectRatio: "210 / 297",
@@ -550,7 +578,8 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
       }}
     >
       <div
-        className="tarifs-a4-inner absolute top-0 left-0"
+        ref={innerRef}
+        className="absolute top-0 left-0"
         style={{
           width: A4_DESIGN_WIDTH,
           height: A4_DESIGN_HEIGHT,
@@ -980,40 +1009,6 @@ export default function TarifsPublicPage() {
         }
         .font-switzer {
           font-family: "Switzer", "Inter", system-ui, sans-serif;
-        }
-
-        /* Responsive A4 : dessin à la taille design (794px), puis scale
-           via container queries quand le conteneur est plus petit.
-           Tous les px fixes restent valides — la page se contracte
-           proportionnellement sur mobile/tablette. */
-        .tarifs-a4 {
-          container-type: inline-size;
-        }
-        .tarifs-a4-inner {
-          transform: scale(1);
-        }
-        @container (max-width: 794px) {
-          .tarifs-a4-inner {
-            transform: scale(calc(100cqw / 794));
-          }
-        }
-        /* Fallback navigateurs sans container queries.
-           Padding du conteneur principal : 24px (mobile), 48px (sm),
-           64px (md), ce qui matche px-3/px-6/px-8. */
-        @supports not (container-type: inline-size) {
-          .tarifs-a4-inner {
-            transform: scale(min(1, calc((100vw - 24px) / 794)));
-          }
-          @media (min-width: 640px) {
-            .tarifs-a4-inner {
-              transform: scale(min(1, calc((100vw - 48px) / 794)));
-            }
-          }
-          @media (min-width: 768px) {
-            .tarifs-a4-inner {
-              transform: scale(min(1, calc((100vw - 64px) / 794)));
-            }
-          }
         }
       `}</style>
 
