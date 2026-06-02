@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   BellOff,
   BellRing,
+  Send,
 } from "lucide-react";
 import { addBusinessDays, isBusinessDay } from "@/lib/business-days";
 
@@ -362,6 +363,13 @@ function EngagementBadges({
   );
 }
 
+type RelancePreview = {
+  mission: SentMission;
+  subject: string;
+  body: string;
+  recipients: { email: string; firstname: string; lastname: string }[];
+};
+
 export default function PipelineMailsEnvoyesPage() {
   const { data: session, status } = useSession();
   const [loading, setLoading] = useState(true);
@@ -373,10 +381,114 @@ export default function PipelineMailsEnvoyesPage() {
   const [openMail, setOpenMail] = useState<SentMission | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [relancePreview, setRelancePreview] = useState<RelancePreview | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
+  const [sendingRelance, setSendingRelance] = useState(false);
 
   const role = (session?.user as { role?: string } | undefined)?.role || "";
   const forbidden = status !== "loading" && !ALLOWED.includes(role);
   const canManageRelance = CAN_MANAGE_RELANCE.includes(role);
+
+  async function openRelancePreview(mail: SentMission) {
+    setPreviewLoadingId(mail.id);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/strategy/contact-missions/${mail.id}/relance-now`, {
+        method: "GET",
+        credentials: "include",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Impossible de générer la prévisualisation.");
+      const draft = json.draft as {
+        subject: string;
+        bodyTemplate: string;
+        recipients: { email: string; firstname: string; lastname: string; body: string }[];
+      };
+      setRelancePreview({
+        mission: mail,
+        subject: draft.subject,
+        body: draft.bodyTemplate,
+        recipients: draft.recipients.map((r) => ({
+          email: r.email,
+          firstname: r.firstname,
+          lastname: r.lastname,
+        })),
+      });
+    } catch (e) {
+      setFeedback({
+        kind: "error",
+        message: e instanceof Error ? e.message : "Erreur réseau.",
+      });
+    } finally {
+      setPreviewLoadingId(null);
+    }
+  }
+
+  async function sendRelanceNow() {
+    if (!relancePreview) return;
+    if (relancePreview.recipients.length === 0) {
+      setFeedback({ kind: "error", message: "Aucun destinataire valide pour la relance." });
+      return;
+    }
+    if (
+      !confirm(
+        `Envoyer la relance maintenant à ${relancePreview.recipients.length} destinataire(s) ?`
+      )
+    )
+      return;
+
+    setSendingRelance(true);
+    setFeedback(null);
+    try {
+      const res = await fetch(
+        `/api/strategy/contact-missions/${relancePreview.mission.id}/relance-now`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            subject: relancePreview.subject,
+            body: relancePreview.body,
+          }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok)
+        throw new Error(json.error || "L'envoi a échoué (Gmail / quota / autorisations).");
+
+      setFeedback({
+        kind: "success",
+        message: `Relance envoyée à ${json.outcome.succeeded}/${json.outcome.attempted} destinataire(s) pour ${relancePreview.mission.targetBrand}.`,
+      });
+
+      const nowIso = new Date().toISOString();
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              mails: prev.mails.map((m) =>
+                m.id === relancePreview.mission.id
+                  ? { ...m, relanceSentAt: nowIso, relanceCancelledAt: null }
+                  : m
+              ),
+            }
+          : prev
+      );
+      setOpenMail((prev) =>
+        prev && prev.id === relancePreview.mission.id
+          ? { ...prev, relanceSentAt: nowIso, relanceCancelledAt: null }
+          : prev
+      );
+      setRelancePreview(null);
+    } catch (e) {
+      setFeedback({
+        kind: "error",
+        message: e instanceof Error ? e.message : "Erreur réseau.",
+      });
+    } finally {
+      setSendingRelance(false);
+    }
+  }
 
   async function toggleRelance(mail: SentMission, action: "cancel" | "resume") {
     setTogglingId(mail.id);
@@ -674,10 +786,23 @@ export default function PipelineMailsEnvoyesPage() {
                         <Mail className="h-3.5 w-3.5" />
                         Voir le mail
                       </button>
-                      {canManageRelance &&
-                        !m.replied &&
-                        !m.relanceSentAt && (
-                          m.relanceCancelledAt ? (
+                      {canManageRelance && !m.replied && !m.relanceSentAt && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={previewLoadingId === m.id}
+                            onClick={() => void openRelancePreview(m)}
+                            className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                            title="Prévisualiser et envoyer la relance immédiatement"
+                          >
+                            {previewLoadingId === m.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Send className="h-3.5 w-3.5" />
+                            )}
+                            Relancer maintenant
+                          </button>
+                          {m.relanceCancelledAt ? (
                             <button
                               type="button"
                               disabled={togglingId === m.id}
@@ -686,7 +811,7 @@ export default function PipelineMailsEnvoyesPage() {
                               title="Réactiver la relance automatique J+3"
                             >
                               <BellRing className="h-3.5 w-3.5" />
-                              Réactiver relance
+                              Réactiver auto
                             </button>
                           ) : (
                             <button
@@ -697,10 +822,11 @@ export default function PipelineMailsEnvoyesPage() {
                               title="Stopper la relance automatique J+3"
                             >
                               <BellOff className="h-3.5 w-3.5" />
-                              Stopper relance
+                              Stopper auto
                             </button>
-                          )
-                        )}
+                          )}
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -808,7 +934,20 @@ export default function PipelineMailsEnvoyesPage() {
               <RelanceTimeline mail={openMail} />
 
               {canManageRelance && !openMail.replied && !openMail.relanceSentAt ? (
-                <div className="flex justify-end">
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={previewLoadingId === openMail.id}
+                    onClick={() => void openRelancePreview(openMail)}
+                    className="inline-flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                  >
+                    {previewLoadingId === openMail.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" />
+                    )}
+                    Relancer maintenant
+                  </button>
                   {openMail.relanceCancelledAt ? (
                     <button
                       type="button"
@@ -921,6 +1060,145 @@ export default function PipelineMailsEnvoyesPage() {
                     Corps du mail non sauvegardé en base.
                   </p>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {relancePreview && (
+        <div
+          className="fixed inset-0 z-[190] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => (sendingRelance ? null : setRelancePreview(null))}
+        >
+          <div
+            className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-4">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-wide text-sky-700">
+                  Relance manuelle — envoi immédiat
+                </p>
+                <h2 className="mt-1 truncate text-lg font-semibold text-slate-900">
+                  {relancePreview.mission.targetBrand}
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Réponse au même thread Gmail, depuis leyna@glowupagence.fr
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRelancePreview(null)}
+                disabled={sendingRelance}
+                className="rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                aria-label="Fermer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 p-4">
+              <div>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Destinataires ({relancePreview.recipients.length})
+                </p>
+                {relancePreview.recipients.length === 0 ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                    Aucun destinataire valide trouvé (threads Gmail introuvables ou en erreur).
+                  </p>
+                ) : (
+                  <ul className="space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700">
+                    {relancePreview.recipients.map((r) => (
+                      <li key={r.email}>
+                        <strong>{r.firstname}</strong>
+                        {r.lastname ? ` ${r.lastname}` : ""} — {r.email}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Sujet
+                </label>
+                <input
+                  type="text"
+                  value={relancePreview.subject}
+                  onChange={(e) =>
+                    setRelancePreview((prev) =>
+                      prev ? { ...prev, subject: e.target.value } : prev
+                    )
+                  }
+                  disabled={sendingRelance}
+                  className="w-full rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-50"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Corps (HTML — variables : <code>{"{{contact.firstname}}"}</code>,{" "}
+                  <code>{"{{contact.lastname}}"}</code>, <code>{"{{contact.company}}"}</code>)
+                </label>
+                <textarea
+                  value={relancePreview.body}
+                  onChange={(e) =>
+                    setRelancePreview((prev) =>
+                      prev ? { ...prev, body: e.target.value } : prev
+                    )
+                  }
+                  disabled={sendingRelance}
+                  rows={8}
+                  className="w-full rounded border border-slate-300 px-3 py-2 font-mono text-xs disabled:bg-slate-50"
+                />
+              </div>
+
+              <div>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Aperçu (1er destinataire)
+                </p>
+                <div
+                  className="prose prose-sm max-w-none rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-800"
+                  dangerouslySetInnerHTML={{
+                    __html: (() => {
+                      const r = relancePreview.recipients[0];
+                      if (!r) return relancePreview.body;
+                      return relancePreview.body
+                        .replace(/\{\{\s*contact\.firstname\s*\}\}/gi, r.firstname || "—")
+                        .replace(/\{\{\s*contact\.lastname\s*\}\}/gi, r.lastname || "")
+                        .replace(
+                          /\{\{\s*contact\.company\s*\}\}/gi,
+                          relancePreview.mission.targetBrand || "—"
+                        )
+                        .replace(/\{\{\s*owner\.firstname\s*\}\}/gi, "Leyna");
+                    })(),
+                  }}
+                />
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setRelancePreview(null)}
+                  disabled={sendingRelance}
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void sendRelanceNow()}
+                  disabled={sendingRelance || relancePreview.recipients.length === 0}
+                  className="inline-flex items-center gap-2 rounded-md bg-sky-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+                >
+                  {sendingRelance ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5" />
+                  )}
+                  Envoyer la relance maintenant
+                </button>
               </div>
             </div>
           </div>

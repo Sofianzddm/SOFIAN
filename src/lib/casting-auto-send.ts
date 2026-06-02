@@ -330,11 +330,89 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   return outcome;
 }
 
+export type CastingRelanceRecipient = {
+  email: string;
+  firstname: string;
+  lastname: string;
+  threadId: string;
+  body: string;
+};
+
+export type CastingRelanceDraft = {
+  subject: string;
+  /** Corps modèle "neutre" {{prenom}} → utile pour édition côté UI */
+  bodyTemplate: string;
+  recipients: CastingRelanceRecipient[];
+  targetBrand: string;
+};
+
+/**
+ * Construit la prévisualisation de la relance (sujet + corps par destinataire)
+ * sans rien envoyer. Utilisé par le bouton "Relancer maintenant" du pipeline.
+ */
+export async function buildCastingRelanceDraft(
+  missionId: string
+): Promise<CastingRelanceDraft> {
+  const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
+  const mission = await contactMissionModel.findUnique({ where: { id: missionId } });
+  if (!mission) throw new Error("Mission introuvable");
+
+  const sentByEmail =
+    mission.sentMessageIds && typeof mission.sentMessageIds === "object"
+      ? (mission.sentMessageIds as Record<string, SentMessageRecord>)
+      : {};
+
+  const subjectSrc = String(mission.draftEmailSubject || "").trim();
+  const subject = subjectSrc.toLowerCase().startsWith("re:")
+    ? subjectSrc
+    : `Re: ${subjectSrc || "Notre derniere proposition"}`;
+
+  const targetBrand = String(mission.targetBrand || "").trim();
+  const bodyTemplate = `<p>Bonjour {{contact.firstname}},</p><p>Je me permets de revenir vers vous suite a mon message de quelques jours concernant une collaboration avec <strong>${targetBrand}</strong>.</p><p>Avez-vous eu le temps d'y jeter un oeil ? Je reste a votre disposition pour echanger.</p><p>Belle journee,<br/>Leyna - Glow Up Agence</p>`;
+
+  const recipients: CastingRelanceRecipient[] = [];
+  for (const [email, record] of Object.entries(sentByEmail)) {
+    if (!record?.threadId || record.error) continue;
+    const contact = parseCastingContacts(mission.clientContacts).find(
+      (c) => (c.email || "").toLowerCase() === email.toLowerCase()
+    );
+    const firstname = contact?.firstname || "";
+    const lastname = contact?.lastname || "";
+    const body = applyCastingTemplateVars(bodyTemplate, {
+      firstname,
+      lastname,
+      company: targetBrand,
+    });
+    recipients.push({
+      email,
+      firstname,
+      lastname,
+      threadId: record.threadId,
+      body,
+    });
+  }
+
+  return { subject, bodyTemplate, recipients, targetBrand };
+}
+
+export type CastingRelanceSendOptions = {
+  subjectOverride?: string;
+  bodyOverride?: string;
+};
+
 /**
  * Relance J+3 : envoie une relance courte en repondant au thread Gmail
  * d'origine. Une seule fois (relanceSentAt non null = skip).
+ *
+ * @param options.subjectOverride remplace le sujet par défaut
+ * @param options.bodyOverride    remplace le corps HTML ; les jetons
+ *   {{contact.firstname}}, {{contact.lastname}}, {{contact.company}},
+ *   {{owner.firstname}} y sont remplacés par contact.
  */
-export async function executeCastingRelance(missionId: string): Promise<{
+export async function executeCastingRelance(
+  missionId: string,
+  options: CastingRelanceSendOptions = {}
+): Promise<{
   attempted: number;
   succeeded: number;
   failed: number;
@@ -350,9 +428,16 @@ export async function executeCastingRelance(missionId: string): Promise<{
       : {};
 
   const subjectSrc = String(mission.draftEmailSubject || "").trim();
-  const relanceSubject = subjectSrc.toLowerCase().startsWith("re:")
-    ? subjectSrc
-    : `Re: ${subjectSrc || "Notre derniere proposition"}`;
+  const relanceSubject =
+    (options.subjectOverride && options.subjectOverride.trim()) ||
+    (subjectSrc.toLowerCase().startsWith("re:")
+      ? subjectSrc
+      : `Re: ${subjectSrc || "Notre derniere proposition"}`);
+
+  const targetBrand = String(mission.targetBrand || "").trim();
+  const defaultBodyTemplate = `<p>Bonjour {{contact.firstname}},</p><p>Je me permets de revenir vers vous suite a mon message de quelques jours concernant une collaboration avec <strong>${targetBrand}</strong>.</p><p>Avez-vous eu le temps d'y jeter un oeil ? Je reste a votre disposition pour echanger.</p><p>Belle journee,<br/>Leyna - Glow Up Agence</p>`;
+  const bodyTemplate =
+    (options.bodyOverride && options.bodyOverride.trim()) || defaultBodyTemplate;
 
   const relanceMessages: Record<string, string> = {};
   const errors: string[] = [];
@@ -367,11 +452,13 @@ export async function executeCastingRelance(missionId: string): Promise<{
       (c) => (c.email || "").toLowerCase() === email.toLowerCase()
     );
     const firstname = contact?.firstname || "";
-    const body = normalizeEditorHtmlForEmail(
-      `<p>Bonjour${firstname ? ` ${firstname}` : ""},</p><p>Je me permets de revenir vers vous suite a mon message de quelques jours concernant une collaboration avec <strong>${String(
-        mission.targetBrand || ""
-      )}</strong>.</p><p>Avez-vous eu le temps d'y jeter un oeil ? Je reste a votre disposition pour echanger.</p><p>Belle journee,<br/>Leyna - Glow Up Agence</p>`
-    );
+    const lastname = contact?.lastname || "";
+    const bodyWithVars = applyCastingTemplateVars(bodyTemplate, {
+      firstname,
+      lastname,
+      company: targetBrand,
+    });
+    const body = normalizeEditorHtmlForEmail(bodyWithVars);
     const trackedBody = injectCastingTracking(body, missionId);
     try {
       const messageId = await sendGmail({
@@ -397,6 +484,9 @@ export async function executeCastingRelance(missionId: string): Promise<{
       relanceMessageIds: succeeded > 0 ? relanceMessages : mission.relanceMessageIds,
       relanceError: errors.length > 0 ? errors.join(" | ") : null,
       status: succeeded > 0 ? "RELANCED" : mission.status,
+      // Si l'envoi manuel réussit on lève l'éventuelle annulation pour
+      // garder l'historique cohérent.
+      ...(succeeded > 0 ? { relanceCancelledAt: null, relanceCancelledById: null } : {}),
     },
   });
 
