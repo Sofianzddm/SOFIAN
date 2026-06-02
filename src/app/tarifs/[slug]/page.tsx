@@ -476,6 +476,12 @@ function PlatformLabel({
 // PAGE INTERNE (A4)
 // ============================================
 
+// Dimensions "design" A4 à 96dpi. Le contenu intérieur est tracé à cette
+// taille (px fixes), puis on applique transform:scale() via container
+// queries pour rester pixel-perfect sur desktop et tenir sur mobile.
+const A4_DESIGN_WIDTH = 794;
+const A4_DESIGN_HEIGHT = 1123; // 794 * 297 / 210
+
 function TarifPage({ talent }: { talent: TarifsTalent }) {
   const year = new Date().getFullYear();
 
@@ -534,26 +540,34 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
 
   return (
     <article
-      className="relative w-full mx-auto overflow-hidden"
+      className="relative w-full mx-auto overflow-hidden tarifs-a4"
       style={{
-        maxWidth: 794,
+        maxWidth: A4_DESIGN_WIDTH,
         aspectRatio: "210 / 297",
         backgroundColor: C.black,
         boxShadow:
           "0 30px 90px rgba(0,0,0,0.45), 0 6px 18px rgba(0,0,0,0.25)",
       }}
     >
-      {/* Double cadre blanc (maquette) */}
       <div
-        className="absolute inset-[12px] pointer-events-none z-30"
-        style={{ border: `1px solid ${C.borderWhite}` }}
-      />
-      <div
-        className="absolute inset-[16px] pointer-events-none z-30"
-        style={{ border: `1px solid ${C.borderWhiteInner}` }}
-      />
+        className="tarifs-a4-inner absolute top-0 left-0"
+        style={{
+          width: A4_DESIGN_WIDTH,
+          height: A4_DESIGN_HEIGHT,
+          transformOrigin: "top left",
+        }}
+      >
+        {/* Double cadre blanc (maquette) */}
+        <div
+          className="absolute inset-[12px] pointer-events-none z-30"
+          style={{ border: `1px solid ${C.borderWhite}` }}
+        />
+        <div
+          className="absolute inset-[16px] pointer-events-none z-30"
+          style={{ border: `1px solid ${C.borderWhiteInner}` }}
+        />
 
-      <div className="absolute inset-0 flex flex-col">
+        <div className="absolute inset-0 flex flex-col">
         {/* Zone haute : dégradé bordeaux → noir.
             Multi-stops avec courbe douce pour éviter les bandes visibles
             et créer une transition cinématographique vers la section noire. */}
@@ -821,6 +835,7 @@ function TarifPage({ talent }: { talent: TarifsTalent }) {
           </div>
         </section>
       </div>
+      </div>
     </article>
   );
 }
@@ -965,6 +980,40 @@ export default function TarifsPublicPage() {
         }
         .font-switzer {
           font-family: "Switzer", "Inter", system-ui, sans-serif;
+        }
+
+        /* Responsive A4 : dessin à la taille design (794px), puis scale
+           via container queries quand le conteneur est plus petit.
+           Tous les px fixes restent valides — la page se contracte
+           proportionnellement sur mobile/tablette. */
+        .tarifs-a4 {
+          container-type: inline-size;
+        }
+        .tarifs-a4-inner {
+          transform: scale(1);
+        }
+        @container (max-width: 794px) {
+          .tarifs-a4-inner {
+            transform: scale(calc(100cqw / 794));
+          }
+        }
+        /* Fallback navigateurs sans container queries.
+           Padding du conteneur principal : 24px (mobile), 48px (sm),
+           64px (md), ce qui matche px-3/px-6/px-8. */
+        @supports not (container-type: inline-size) {
+          .tarifs-a4-inner {
+            transform: scale(min(1, calc((100vw - 24px) / 794)));
+          }
+          @media (min-width: 640px) {
+            .tarifs-a4-inner {
+              transform: scale(min(1, calc((100vw - 48px) / 794)));
+            }
+          }
+          @media (min-width: 768px) {
+            .tarifs-a4-inner {
+              transform: scale(min(1, calc((100vw - 64px) / 794)));
+            }
+          }
         }
       `}</style>
 
