@@ -334,3 +334,63 @@ export function parseSenderName(senderName: string | null | undefined): {
   if (parts.length === 1) return { prenom: null, nom: parts[0] };
   return { prenom: parts[0], nom: parts.slice(1).join(" ") };
 }
+
+export type PipelineClientContact = {
+  firstname?: string;
+  lastname?: string;
+  email?: string;
+  role?: string;
+};
+
+/**
+ * Copie les contacts saisis dans le pipeline vers la fiche marque (table marque_contacts).
+ */
+export async function syncPipelineContactsToMarque(
+  marqueId: string,
+  contacts: PipelineClientContact[],
+  client: TxClient = prisma
+): Promise<void> {
+  for (const c of contacts) {
+    const email = String(c.email || "").trim().toLowerCase();
+    const firstname = String(c.firstname || "").trim();
+    if (!firstname || !email) continue;
+    const lastname = String(c.lastname || "").trim();
+    await ensureMarqueContact(
+      {
+        marqueId,
+        email,
+        prenom: firstname,
+        nom: lastname || firstname,
+        poste: String(c.role || "").trim() || null,
+      },
+      client
+    );
+  }
+}
+
+/**
+ * Résout la marque si besoin, puis synchronise les contacts pipeline → fiche client.
+ * Retourne le marqueId effectif (pour mettre à jour la mission).
+ */
+export async function syncMissionClientContactsToMarque(
+  targetBrand: string,
+  marqueId: string | null | undefined,
+  contacts: unknown,
+  source: MarqueAliasSource = "CONTACT_MISSION"
+): Promise<string | null> {
+  const list = Array.isArray(contacts) ? (contacts as PipelineClientContact[]) : [];
+  if (list.length === 0) return marqueId ?? null;
+
+  let resolvedId = marqueId?.trim() || null;
+  if (!resolvedId) {
+    const linked = await linkMarqueFromBrandName({
+      brandName: targetBrand,
+      source,
+    });
+    resolvedId = linked?.marqueId ?? null;
+  }
+  if (!resolvedId) return null;
+
+  await syncPipelineContactsToMarque(resolvedId, list);
+  return resolvedId;
+}

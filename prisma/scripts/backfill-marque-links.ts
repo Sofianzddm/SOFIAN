@@ -7,7 +7,10 @@
  */
 
 import prisma from "../../src/lib/prisma";
-import { findOrCreateMarque } from "../../src/lib/marque-resolver";
+import {
+  findOrCreateMarque,
+  syncMissionClientContactsToMarque,
+} from "../../src/lib/marque-resolver";
 
 const dryRun = process.argv.includes("--dry-run");
 
@@ -126,6 +129,35 @@ async function backfillNegociations() {
   console.log(`Negociation (nomMarqueSaisi): ${n}/${rows.length}`);
 }
 
+/** Copie contact_missions.clientContacts (JSON) vers marque_contacts */
+async function backfillPipelineContactsOnMarques() {
+  const rows = await prisma.contactMission.findMany({
+    select: { id: true, targetBrand: true, marqueId: true, clientContacts: true },
+  });
+  let n = 0;
+  for (const row of rows) {
+    const contacts = row.clientContacts;
+    if (!Array.isArray(contacts) || contacts.length === 0) continue;
+    if (dryRun) {
+      n++;
+      continue;
+    }
+    const marqueId = await syncMissionClientContactsToMarque(
+      row.targetBrand,
+      row.marqueId,
+      contacts
+    );
+    if (marqueId && marqueId !== row.marqueId) {
+      await prisma.contactMission.update({
+        where: { id: row.id },
+        data: { marqueId },
+      });
+    }
+    n++;
+  }
+  console.log(`ContactMission.clientContacts → MarqueContact: ${n}/${rows.length}`);
+}
+
 async function main() {
   console.log(dryRun ? "=== DRY RUN ===" : "=== BACKFILL marqueId ===");
   await backfillInbound();
@@ -133,6 +165,7 @@ async function main() {
   await backfillOpportunites();
   await backfillDemandesEntrantes();
   await backfillNegociations();
+  await backfillPipelineContactsOnMarques();
 }
 
 main()

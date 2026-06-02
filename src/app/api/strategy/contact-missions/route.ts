@@ -3,7 +3,10 @@ import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { normalizeMissionBrandKey, parseMissionPriority } from "@/lib/contact-missions";
-import { linkMarqueFromBrandName } from "@/lib/marque-resolver";
+import {
+  linkMarqueFromBrandName,
+  syncMissionClientContactsToMarque,
+} from "@/lib/marque-resolver";
 import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
 
 const ALLOWED_ROLES = [
@@ -370,7 +373,7 @@ export async function PATCH(request: NextRequest) {
 
     const currentMission = await contactMissionModel.findUnique({
       where: { id: missionId },
-      select: { id: true, creatorName: true, targetBrand: true },
+      select: { id: true, creatorName: true, targetBrand: true, marqueId: true },
     });
     if (!currentMission) {
       return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
@@ -393,6 +396,16 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // Sync contacts pipeline → fiche marque (onglet Contacts sur /marques/[id])
+    let marqueIdForUpdate: string | null | undefined = currentMission.marqueId;
+    if (body.clientContacts !== undefined) {
+      marqueIdForUpdate = await syncMissionClientContactsToMarque(
+        currentMission.targetBrand,
+        currentMission.marqueId,
+        body.clientContacts
+      );
+    }
+
     const mission = await contactMissionModel.update({
       where: { id: missionId },
       data: {
@@ -402,6 +415,7 @@ export async function PATCH(request: NextRequest) {
         ...(body.draftEmailBody !== undefined ? { draftEmailBody: draftEmailBody || null } : {}),
         ...(body.clientLanguage !== undefined ? { clientLanguage: clientLanguage || null } : {}),
         ...(body.clientContacts !== undefined ? { clientContacts: body.clientContacts ?? null } : {}),
+        ...(marqueIdForUpdate ? { marqueId: marqueIdForUpdate } : {}),
       },
     });
 
