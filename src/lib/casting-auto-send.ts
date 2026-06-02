@@ -330,6 +330,27 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   return outcome;
 }
 
+/**
+ * Template du mail de relance J+3 (manuel ou cron).
+ * - Court, chaleureux, professionnel
+ * - Variables : {{contact.firstname}} → Bonjour Marie / Bonjour
+ * - Signature alignée avec le mail initial (Leyna · Glow Up Agence)
+ */
+export function buildDefaultRelanceTemplate(targetBrand: string): string {
+  const brand = (targetBrand || "").trim();
+  const brandLine = brand
+    ? `concernant notre proposition de collaboration avec <strong>${brand}</strong>`
+    : `concernant notre proposition de collaboration`;
+
+  return [
+    `<p>Bonjour {{contact.firstname}},</p>`,
+    `<p>Je me permets de revenir vers vous ${brandLine}.</p>`,
+    `<p>Avez-vous eu l'occasion d'en prendre connaissance ? Je reste à votre disposition pour échanger ou répondre à vos questions.</p>`,
+    `<p>Au plaisir d'avoir de vos nouvelles,</p>`,
+    `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+  ].join("");
+}
+
 export type CastingRelanceRecipient = {
   email: string;
   firstname: string;
@@ -365,10 +386,10 @@ export async function buildCastingRelanceDraft(
   const subjectSrc = String(mission.draftEmailSubject || "").trim();
   const subject = subjectSrc.toLowerCase().startsWith("re:")
     ? subjectSrc
-    : `Re: ${subjectSrc || "Notre derniere proposition"}`;
+    : `Re: ${subjectSrc || "Notre proposition de collaboration"}`;
 
   const targetBrand = String(mission.targetBrand || "").trim();
-  const bodyTemplate = `<p>Bonjour {{contact.firstname}},</p><p>Je me permets de revenir vers vous suite a mon message de quelques jours concernant une collaboration avec <strong>${targetBrand}</strong>.</p><p>Avez-vous eu le temps d'y jeter un oeil ? Je reste a votre disposition pour echanger.</p><p>Belle journee,<br/>Leyna - Glow Up Agence</p>`;
+  const bodyTemplate = buildDefaultRelanceTemplate(targetBrand);
 
   const recipients: CastingRelanceRecipient[] = [];
   for (const [email, record] of Object.entries(sentByEmail)) {
@@ -432,12 +453,12 @@ export async function executeCastingRelance(
     (options.subjectOverride && options.subjectOverride.trim()) ||
     (subjectSrc.toLowerCase().startsWith("re:")
       ? subjectSrc
-      : `Re: ${subjectSrc || "Notre derniere proposition"}`);
+      : `Re: ${subjectSrc || "Notre proposition de collaboration"}`);
 
   const targetBrand = String(mission.targetBrand || "").trim();
-  const defaultBodyTemplate = `<p>Bonjour {{contact.firstname}},</p><p>Je me permets de revenir vers vous suite a mon message de quelques jours concernant une collaboration avec <strong>${targetBrand}</strong>.</p><p>Avez-vous eu le temps d'y jeter un oeil ? Je reste a votre disposition pour echanger.</p><p>Belle journee,<br/>Leyna - Glow Up Agence</p>`;
   const bodyTemplate =
-    (options.bodyOverride && options.bodyOverride.trim()) || defaultBodyTemplate;
+    (options.bodyOverride && options.bodyOverride.trim()) ||
+    buildDefaultRelanceTemplate(targetBrand);
 
   const relanceMessages: Record<string, string> = {};
   const errors: string[] = [];
