@@ -507,6 +507,38 @@ export default function PipelineMailsEnvoyesPage() {
     }
   }
 
+  async function markAsSent(mail: SentMission) {
+    if (
+      !confirm(
+        `Marquer la mission "${mail.targetBrand}" comme relancée sans envoyer de mail ?`
+      )
+    )
+      return;
+    setSendingRelance(true);
+    setFeedback(null);
+    try {
+      const res = await fetch(
+        `/api/strategy/contact-missions/${mail.id}/mark-relance-sent`,
+        { method: "POST", credentials: "include" }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Erreur");
+      setFeedback({
+        kind: "success",
+        message: `✓ Mission ${mail.targetBrand} marquée comme relancée.`,
+      });
+      setRelancePreview(null);
+      await refetchList();
+    } catch (e) {
+      setFeedback({
+        kind: "error",
+        message: e instanceof Error ? e.message : "Erreur",
+      });
+    } finally {
+      setSendingRelance(false);
+    }
+  }
+
   async function toggleRelance(mail: SentMission, action: "cancel" | "resume") {
     setTogglingId(mail.id);
     setFeedback(null);
@@ -1220,6 +1252,15 @@ export default function PipelineMailsEnvoyesPage() {
                   className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void markAsSent(relancePreview.mission)}
+                  disabled={sendingRelance}
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  title="Si tu as déjà relancé en dehors de la plateforme (ou si l'envoi a réussi sans MAJ de l'historique), marque la mission comme relancée sans renvoyer le mail."
+                >
+                  Marquer comme déjà relancé
                 </button>
                 <button
                   type="button"

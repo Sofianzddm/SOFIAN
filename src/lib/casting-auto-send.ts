@@ -477,18 +477,32 @@ export async function executeCastingRelance(
     }
   }
 
-  await contactMissionModel.update({
-    where: { id: missionId },
-    data: {
-      relanceSentAt: succeeded > 0 ? new Date() : mission.relanceSentAt,
-      relanceMessageIds: succeeded > 0 ? relanceMessages : mission.relanceMessageIds,
-      relanceError: errors.length > 0 ? errors.join(" | ") : null,
-      status: succeeded > 0 ? "RELANCED" : mission.status,
-      // Si l'envoi manuel réussit on lève l'éventuelle annulation pour
-      // garder l'historique cohérent.
-      ...(succeeded > 0 ? { relanceCancelledAt: null, relanceCancelledById: null } : {}),
-    },
-  });
+  try {
+    const updated = await contactMissionModel.update({
+      where: { id: missionId },
+      data: {
+        relanceSentAt: succeeded > 0 ? new Date() : mission.relanceSentAt,
+        relanceMessageIds: succeeded > 0 ? relanceMessages : mission.relanceMessageIds,
+        relanceError: errors.length > 0 ? errors.join(" | ") : null,
+        status: succeeded > 0 ? "RELANCED" : mission.status,
+        // Si l'envoi manuel réussit on lève l'éventuelle annulation pour
+        // garder l'historique cohérent.
+        ...(succeeded > 0 ? { relanceCancelledAt: null, relanceCancelledById: null } : {}),
+      },
+      select: { id: true, relanceSentAt: true, status: true },
+    });
+    console.info(
+      `[executeCastingRelance] ${missionId} attempted=${attempted} succeeded=${succeeded} failed=${failed} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} status=${updated.status}`
+    );
+  } catch (err) {
+    // Cas critique : Gmail a expédié mais la DB n'a pas pu être mise à jour.
+    // On log loud pour qu'on retrouve la trace dans Vercel.
+    console.error(
+      `[executeCastingRelance] ❌ DB UPDATE FAILED for ${missionId} (succeeded=${succeeded})`,
+      err
+    );
+    throw err;
+  }
 
   return { attempted, succeeded, failed, errors };
 }
