@@ -15,7 +15,6 @@ import {
   Users,
   Handshake,
   TrendingUp,
-  Sparkles,
 } from "lucide-react";
 
 interface Marque {
@@ -109,13 +108,6 @@ export default function MarquesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            href="/marques/duplicates?review=1"
-            className="flex items-center gap-2 px-4 py-2 bg-violet-100 text-violet-900 rounded-xl hover:bg-violet-200 transition-colors"
-          >
-            <Sparkles className="w-4 h-4" />
-            Doublons IA
-          </Link>
           <Link
             href="/marques/new"
             className="flex items-center gap-2 px-4 py-2 bg-glowup-rose text-white rounded-xl hover:bg-glowup-rose-dark transition-colors shadow-lg shadow-glowup-rose/25"
