@@ -13,6 +13,7 @@ import {
   Check,
   X,
   Play,
+  UserPlus,
 } from "lucide-react";
 
 type Counts = {
@@ -168,6 +169,36 @@ export default function MarquesDuplicatesPage() {
     }
   };
 
+  const runBackfillContacts = async () => {
+    if (
+      !confirm(
+        "Reconstruire les contacts clients à partir des inbounds, négos, missions et opportunités ? (idempotent — n'écrase rien)"
+      )
+    )
+      return;
+    setRunning(true);
+    setResultMsg(null);
+    try {
+      const res = await fetch("/api/admin/marques/backfill-contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      const bySource = Object.entries(data.bySource || {})
+        .map(([k, v]) => `${k}: ${(v as { created: number }).created} nouveaux`)
+        .join(" · ");
+      setResultMsg(
+        `✓ ${data.created} contact(s) ajouté(s), ${data.skipped} déjà existants. ${bySource}`
+      );
+    } catch (e) {
+      setResultMsg(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const runAiJob = async () => {
     if (
       !confirm(
@@ -280,6 +311,16 @@ export default function MarquesDuplicatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={runBackfillContacts}
+            disabled={running}
+            className="flex items-center gap-2 px-4 py-2 bg-sky-100 text-sky-900 rounded-xl hover:bg-sky-200 disabled:opacity-50"
+            title="Reconstruit les contacts clients à partir des inbounds, négos, missions, opportunités"
+          >
+            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+            Reconstruire les contacts
+          </button>
           {mode === "ai-review" && (
             <button
               type="button"

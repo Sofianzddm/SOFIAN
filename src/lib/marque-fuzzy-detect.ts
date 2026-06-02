@@ -203,7 +203,8 @@ export function detectFuzzyDuplicateGroups(
 
         const short = a.slug.length <= b.slug.length ? a.slug : b.slug;
         const long = a.slug.length <= b.slug.length ? b.slug : a.slug;
-        if (short.length >= 4 && long.startsWith(short) && long.length > short.length) {
+        // Préfixe : "apm" → "apmmonaco" (suffixe ≥ 3 chars pour éviter "abc"+"abcd")
+        if (short.length >= 3 && long.startsWith(short) && long.length - short.length >= 3) {
           union(a.id, b.id);
           setReason(a.id, b.id, "PREFIX");
           continue;
