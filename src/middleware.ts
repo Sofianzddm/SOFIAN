@@ -3,15 +3,52 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getNextAuthSecret } from "@/lib/nextAuthSecret";
 
+const NOINDEX_HEADER = "noindex, nofollow, noarchive, nosnippet, noimageindex";
+
+const GOOGLE_CRAWLER_UA =
+  /\b(?:Googlebot|AdsBot-Google|Mediapartners-Google|Google-InspectionTool|FeedFetcher-Google|GoogleProducer)\b/i;
+
+const SEARCH_ENGINE_CRAWLER_UA =
+  /\b(?:Googlebot|AdsBot-Google|Mediapartners-Google|Google-InspectionTool|FeedFetcher-Google|GoogleProducer|bingbot|BingPreview|msnbot|DuckDuckBot|DuckDuckGo-Favicons-Bot|Baiduspider|YandexBot|YandexImages|YandexMobileBot|Sogou|Exabot|Applebot|ia_archiver|SeznamBot|Qwantify|PetalBot|Bytespider)\b/i;
+
+/** Routes publiques sans session (hors middleware auth historique). */
+const PUBLIC_NO_AUTH_PATHS = [
+  /^\/login$/,
+  /^\/$/,
+  /^\/book\//,
+  /^\/p\//,
+  /^\/talentbook(\/|$)/,
+  /^\/dinner-client\//,
+  /^\/talent-demo$/,
+  /^\/api\/auth\//,
+];
+
+function withNoIndex(response: NextResponse): NextResponse {
+  response.headers.set("X-Robots-Tag", NOINDEX_HEADER);
+  return response;
+}
+
+function isPublicNoAuthPath(pathname: string): boolean {
+  return PUBLIC_NO_AUTH_PATHS.some((pattern) => pattern.test(pathname));
+}
+
 /**
  * Middleware de sécurisation : les routes "outils internes" ne sont accessibles qu'aux utilisateurs connectés.
- * Les routes non matchées (/, /login, /partners/[slug], /book/*, etc.) restent publiques.
+ * Les routes non matchées historiquement (/, /login, /partners/[slug], /book/*, etc.) restent publiques.
  * Les webhooks externes (/api/webhooks/*) sont exclus : pas d'auth requise (DocuSeal, etc.).
+ *
+ * Anti-indexation : blocage Googlebot site-wide + X-Robots-Tag sur toutes les réponses.
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const ua = request.headers.get("user-agent") ?? "";
 
-  /** Page + APIs réservation coiffeur : ouvertes sans session ; blocage User-Agent Google + noindex explicite. */
+  // Blocage Google sur l'ensemble de la plateforme
+  if (GOOGLE_CRAWLER_UA.test(ua)) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  /** Page + APIs réservation coiffeur : ouvertes sans session. */
   if (
     pathname === "/r/cannes-coiffeur" ||
     pathname.startsWith("/api/pub/cannes-coiffeur") ||
@@ -21,17 +58,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/r/activations/") ||
     pathname.startsWith("/api/pub/activation-stats/")
   ) {
-    const ua = request.headers.get("user-agent") ?? "";
-    const googleCrawler =
-      /\b(?:Googlebot|AdsBot-Google|Mediapartners-Google|Google-InspectionTool|FeedFetcher-Google|GoogleProducer)\b/i.test(
-        ua
-      );
-    if (googleCrawler) {
-      return new NextResponse("Forbidden", { status: 403 });
-    }
-    const res = NextResponse.next();
-    res.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
-    return res;
+    return withNoIndex(NextResponse.next());
   }
 
   /**
@@ -51,41 +78,33 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/tarifs/") ||
     pathname.startsWith("/api/tarifs/")
   ) {
-    const ua = request.headers.get("user-agent") ?? "";
-    const searchEngineCrawler =
-      /\b(?:Googlebot|AdsBot-Google|Mediapartners-Google|Google-InspectionTool|FeedFetcher-Google|GoogleProducer|bingbot|BingPreview|msnbot|DuckDuckBot|DuckDuckGo-Favicons-Bot|Baiduspider|YandexBot|YandexImages|YandexMobileBot|Sogou|Exabot|Applebot|ia_archiver|SeznamBot|Qwantify|PetalBot|Bytespider)\b/i.test(
-        ua
-      );
-    if (searchEngineCrawler) {
+    if (SEARCH_ENGINE_CRAWLER_UA.test(ua)) {
       return new NextResponse("Forbidden", { status: 403 });
     }
-    const res = NextResponse.next();
-    res.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
-    return res;
+    return withNoIndex(NextResponse.next());
   }
 
   // Webhooks externes : pas d'auth
   if (pathname.startsWith("/api/webhooks")) {
-    return NextResponse.next();
+    return withNoIndex(NextResponse.next());
   }
 
   // Catalogues partenaires publics : /partners/[slug] et /partners/[slug]/selection
-  // Ex : /partners/woo-paris, /partners/woo-paris/selection
   const publicPartnerPage = /^\/partners\/[^/]+(\/selection)?$/.test(pathname);
   if (publicPartnerPage) {
-    return NextResponse.next();
+    return withNoIndex(NextResponse.next());
+  }
+
+  if (isPublicNoAuthPath(pathname)) {
+    return withNoIndex(NextResponse.next());
   }
 
   // Inbound Apps Script routes: auth Bearer interne dans les handlers.
-  // On bypass totalement ces 2 endpoints de base:
-  // - /api/inbound/talents
-  // - /api/inbound/opportunities
-  // Les autres /api/inbound/* restent protégées par session middleware.
   if (pathname === "/api/inbound/talents") {
-    return NextResponse.next();
+    return withNoIndex(NextResponse.next());
   }
   if (pathname === "/api/inbound/opportunities") {
-    return NextResponse.next();
+    return withNoIndex(NextResponse.next());
   }
 
   const token = await getToken({
@@ -96,7 +115,7 @@ export async function middleware(request: NextRequest) {
   if (!token) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", request.nextUrl.pathname);
-    return NextResponse.redirect(loginUrl);
+    return withNoIndex(NextResponse.redirect(loginUrl));
   }
 
   const t = token as { role?: string; impersonatedRole?: string };
@@ -111,12 +130,12 @@ export async function middleware(request: NextRequest) {
       pathname.startsWith("/api/cannes/coiffeur/") ||
       pathname === "/api/cannes/talents-list";
     if (!allowed) {
-      return NextResponse.redirect(new URL("/cannes-2026", request.url));
+      return withNoIndex(NextResponse.redirect(new URL("/cannes-2026", request.url)));
     }
   }
 
   if (pathname.startsWith("/juriste") && effectiveRole !== "JURISTE") {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
   if (effectiveRole === "JURISTE") {
@@ -127,7 +146,7 @@ export async function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/juriste";
       url.search = "";
-      return NextResponse.redirect(url);
+      return withNoIndex(NextResponse.redirect(url));
     }
   }
 
@@ -138,7 +157,9 @@ export async function middleware(request: NextRequest) {
     !pathname.startsWith("/strategy") &&
     !isCannes2026Path
   ) {
-    return NextResponse.redirect(new URL("/strategy/projets/villa-cannes", request.url));
+    return withNoIndex(
+      NextResponse.redirect(new URL("/strategy/projets/villa-cannes", request.url))
+    );
   }
   // Exception: pipeline prospection accessible à HEAD_OF_SALES / CASTING_MANAGER / HEAD_OF
   const isProspectionPipeline =
@@ -155,14 +176,23 @@ export async function middleware(request: NextRequest) {
         effectiveRole === "HEAD_OF")) &&
     pathname.startsWith("/strategy")
   ) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
-  return NextResponse.next();
+  return withNoIndex(NextResponse.next());
 }
 
 export const config = {
   matcher: [
+    "/",
+    "/login",
+    "/book/:path*",
+    "/p/:path*",
+    "/talentbook",
+    "/talentbook/:path*",
+    "/dinner-client/:path*",
+    "/talent-demo",
+    "/api/auth/:path*",
     "/dashboard",
     "/dashboard/:path*",
     // Talents & négos internes
