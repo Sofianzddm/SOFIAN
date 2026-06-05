@@ -323,6 +323,95 @@ export async function linkMarqueFromBrandName(
   return resolved;
 }
 
+/**
+ * Domaines d'emails grand public / fournisseurs : on ne crée JAMAIS de marque
+ * à partir de ceux-ci (sinon on aurait une fiche "Gmail", "Orange"…).
+ */
+const GENERIC_EMAIL_DOMAINS = new Set<string>([
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "yahoo.fr",
+  "ymail.com",
+  "hotmail.com",
+  "hotmail.fr",
+  "outlook.com",
+  "outlook.fr",
+  "live.com",
+  "live.fr",
+  "msn.com",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "aol.com",
+  "protonmail.com",
+  "proton.me",
+  "gmx.com",
+  "gmx.fr",
+  "orange.fr",
+  "wanadoo.fr",
+  "free.fr",
+  "sfr.fr",
+  "laposte.net",
+  "bbox.fr",
+  "numericable.fr",
+  "yopmail.com",
+  "mailinator.com",
+]);
+
+/** Suffixes composés courants (TLD à deux niveaux). */
+const COMPOUND_TLDS = new Set<string>([
+  "co.uk",
+  "com.au",
+  "co.jp",
+  "com.br",
+  "co.nz",
+  "co.za",
+  "com.mx",
+  "com.tr",
+  "com.sg",
+  "co.in",
+  "com.es",
+]);
+
+/**
+ * Déduit un nom de marque à partir d'un email ou d'un domaine expéditeur.
+ *
+ * Sert de FILET DE SÉCURITÉ inbound : quand aucun `extractedBrand` n'est fourni,
+ * on dérive la marque du domaine (ex: `marketing@nike.com` → "Nike").
+ * Retourne `null` pour les fournisseurs grand public (gmail, orange…) afin de
+ * ne pas polluer le CRM.
+ *
+ * Exemples :
+ *   "contact@nike.com"        → "Nike"
+ *   "newsletter@email.nike.com" → "Nike"
+ *   "x@thefork.co.uk"         → "Thefork"
+ *   "x@gmail.com"             → null
+ */
+export function brandNameFromEmailDomain(
+  emailOrDomain: string | null | undefined
+): string | null {
+  const raw = (emailOrDomain || "").trim().toLowerCase();
+  if (!raw) return null;
+
+  let domain = raw.includes("@") ? raw.split("@").pop() || "" : raw;
+  domain = domain.replace(/^www\./, "").replace(/\.$/, "").trim();
+  if (!domain || !domain.includes(".")) return null;
+  if (GENERIC_EMAIL_DOMAINS.has(domain)) return null;
+
+  const parts = domain.split(".").filter(Boolean);
+  if (parts.length < 2) return null;
+
+  const lastTwo = parts.slice(-2).join(".");
+  const labelIndex = COMPOUND_TLDS.has(lastTwo)
+    ? parts.length - 3
+    : parts.length - 2;
+  const label = parts[labelIndex];
+  if (!label || label.length < 2) return null;
+
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 /** Parse "Marie Dupont" → { prenom, nom } */
 export function parseSenderName(senderName: string | null | undefined): {
   prenom: string | null;

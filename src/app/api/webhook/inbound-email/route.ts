@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { linkMarqueFromBrandName, parseSenderName } from "@/lib/marque-resolver";
+import {
+  brandNameFromEmailDomain,
+  linkMarqueFromBrandName,
+  parseSenderName,
+} from "@/lib/marque-resolver";
 
 type IncomingBody = {
   from?: unknown;
@@ -48,7 +52,7 @@ export async function POST(request: NextRequest) {
         ? payload.confidence
         : null;
     const priority = typeof payload?.priority === "string" ? payload.priority.trim() : "";
-    const extractedBrand =
+    let extractedBrand =
       typeof payload?.extractedBrand === "string" ? payload.extractedBrand.trim() : "";
     const extractedBudget =
       typeof payload?.extractedBudget === "string" ? payload.extractedBudget.trim() : "";
@@ -128,14 +132,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, id: existing[0].id, action: "already_exists" });
     }
 
+    const emailMatch = from.match(/<([^>]+)>/) || from.match(/([\w.+-]+@[\w.-]+\.\w+)/);
+    const senderEmail = emailMatch?.[1]?.trim() || from.trim();
+    const senderLabel = from.replace(/<[^>]+>/, "").trim() || senderEmail;
+    const sender = parseSenderName(senderLabel);
+
+    // Marque : d'abord extractedBrand (IA), sinon déduction du domaine expéditeur.
+    const brandName =
+      extractedBrand || brandNameFromEmailDomain(senderEmail) || "";
+    if (!extractedBrand && brandName) {
+      extractedBrand = brandName;
+    }
+
     let marqueId: string | null = null;
-    if (extractedBrand) {
-      const emailMatch = from.match(/<([^>]+)>/) || from.match(/([\w.+-]+@[\w.-]+\.\w+)/);
-      const senderEmail = emailMatch?.[1]?.trim() || from.trim();
-      const senderLabel = from.replace(/<[^>]+>/, "").trim() || senderEmail;
-      const sender = parseSenderName(senderLabel);
+    if (brandName) {
       const linked = await linkMarqueFromBrandName({
-        brandName: extractedBrand,
+        brandName,
         source: "DEMANDE_ENTRANTE",
         contact: {
           email: senderEmail,

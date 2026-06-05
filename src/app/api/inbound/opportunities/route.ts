@@ -5,7 +5,11 @@ import { prisma } from "@/lib/prisma";
 import { verifyInboundAuth } from "@/lib/inbound-auth";
 import { getAppSession } from "@/lib/getAppSession";
 import { sendInboundNotificationEmail } from "@/lib/emails/inbound-notification";
-import { linkMarqueFromBrandName, parseSenderName } from "@/lib/marque-resolver";
+import {
+  brandNameFromEmailDomain,
+  linkMarqueFromBrandName,
+  parseSenderName,
+} from "@/lib/marque-resolver";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
 type AllowedRole = (typeof ALLOWED_ROLES)[number];
@@ -104,10 +108,16 @@ export async function POST(req: NextRequest) {
           select: { id: true },
         });
 
-    const brandName = (data.extractedBrand || "").trim();
+    const sender = parseSenderName(data.senderName);
+    // Marque : d'abord extractedBrand (IA), sinon déduction du domaine expéditeur.
+    const brandName =
+      (data.extractedBrand || "").trim() ||
+      brandNameFromEmailDomain(data.senderEmail) ||
+      brandNameFromEmailDomain(data.senderDomain) ||
+      "";
+    const resolvedExtractedBrand = brandName || null;
     let marqueId: string | null = null;
     if (brandName) {
-      const sender = parseSenderName(data.senderName);
       const linked = await linkMarqueFromBrandName({
         brandName,
         source: "INBOUND",
@@ -139,7 +149,7 @@ export async function POST(req: NextRequest) {
           category: data.category,
           confidence: data.confidence,
           priority: data.priority,
-          extractedBrand: data.extractedBrand || null,
+          extractedBrand: resolvedExtractedBrand,
           extractedTopic: data.extractedTopic || null,
           extractedBudget: data.extractedBudget || null,
           extractedDeadline: data.extractedDeadline || null,
