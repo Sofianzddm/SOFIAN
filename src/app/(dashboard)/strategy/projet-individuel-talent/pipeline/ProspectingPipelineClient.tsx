@@ -60,6 +60,21 @@ type ScheduledSend = {
 
 type ContactDraft = { firstname: string; lastname: string; email: string; role: string };
 
+type SearchedContact = {
+  id: string;
+  firstname: string;
+  lastname: string;
+  email: string;
+  role: string;
+  companyName: string;
+};
+
+type ContactSearchState = {
+  loading: boolean;
+  results: SearchedContact[];
+  searched: boolean;
+};
+
 const REMINDER_BUSINESS_DAYS = 3;
 
 type TalentOption = { id: string; name: string };
@@ -140,6 +155,9 @@ export function ProspectingPipelineClient() {
   const [composerContact, setComposerContact] = useState<any>(null);
   const [contactFormByMission, setContactFormByMission] = useState<
     Record<string, { open: boolean; contacts: ContactDraft[] }>
+  >({});
+  const [contactSearchByMission, setContactSearchByMission] = useState<
+    Record<string, ContactSearchState>
   >({});
   const [scheduledSends, setScheduledSends] = useState<ScheduledSend[]>([]);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
@@ -295,6 +313,76 @@ export function ProspectingPipelineClient() {
     } finally {
       setUpdatingId(null);
     }
+  }
+
+  async function searchClientContacts(m: Mission) {
+    const brand = String(m.targetBrand || "").trim();
+    if (brand.length < 2) {
+      setError("Nom de la boîte trop court pour rechercher des contacts.");
+      return;
+    }
+    setError(null);
+    setContactSearchByMission((prev) => ({
+      ...prev,
+      [m.id]: {
+        loading: true,
+        results: prev[m.id]?.results || [],
+        searched: prev[m.id]?.searched || false,
+      },
+    }));
+    try {
+      const res = await fetch(
+        `/api/marques/contacts?brand=${encodeURIComponent(brand)}`,
+        { credentials: "include" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Recherche impossible.");
+      const results: SearchedContact[] = (Array.isArray(data.contacts) ? data.contacts : [])
+        .map((c: Record<string, unknown>) => ({
+          id: String(c.id || ""),
+          firstname: String(c.firstname || "").trim(),
+          lastname: String(c.lastname || "").trim(),
+          email: String(c.email || "").trim(),
+          role: String(c.role || "").trim(),
+          companyName: String(c.companyName || "").trim(),
+        }))
+        .filter((c: SearchedContact) => c.email);
+      setContactSearchByMission((prev) => ({
+        ...prev,
+        [m.id]: { loading: false, results, searched: true },
+      }));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+      setContactSearchByMission((prev) => ({
+        ...prev,
+        [m.id]: { loading: false, results: [], searched: true },
+      }));
+    }
+  }
+
+  function addSearchedContactToForm(missionId: string, sc: SearchedContact) {
+    const email = String(sc.email || "").trim().toLowerCase();
+    if (!email) return;
+    setContactFormByMission((prev) => {
+      const existing = prev[missionId]?.contacts || [];
+      if (existing.some((c) => c.email.trim().toLowerCase() === email)) {
+        return prev;
+      }
+      const draft: ContactDraft = {
+        firstname: sc.firstname || "",
+        lastname: sc.lastname || "",
+        email: sc.email || "",
+        role: sc.role || "",
+      };
+      const firstEmptyIndex = existing.findIndex(
+        (c) => !c.firstname.trim() && !c.email.trim()
+      );
+      const nextContacts =
+        firstEmptyIndex >= 0
+          ? existing.map((c, i) => (i === firstEmptyIndex ? draft : c))
+          : [...existing, draft];
+      return { ...prev, [missionId]: { open: true, contacts: nextContacts } };
+    });
   }
 
   async function addClientContact(m: Mission) {
@@ -942,6 +1030,68 @@ export function ProspectingPipelineClient() {
                   </div>
                   {role === "ADMIN" && contactFormByMission[m.id]?.open && (
                     <div className="mt-2 grid gap-2 rounded-lg border border-gray-200 p-2">
+                      <div className="grid gap-2 rounded-md border border-dashed border-gray-300 bg-gray-50 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-gray-600">
+                            Pas les contacts ? Cherche la marque enregistrée dans l&apos;app
+                          </span>
+                          <button
+                            type="button"
+                            disabled={contactSearchByMission[m.id]?.loading}
+                            onClick={() => void searchClientContacts(m)}
+                            className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs disabled:opacity-50"
+                          >
+                            {contactSearchByMission[m.id]?.loading ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : null}
+                            Rechercher « {m.targetBrand} »
+                          </button>
+                        </div>
+                        {contactSearchByMission[m.id]?.searched &&
+                          !contactSearchByMission[m.id]?.loading &&
+                          (contactSearchByMission[m.id]?.results.length ?? 0) === 0 && (
+                            <p className="text-xs text-gray-500">
+                              Aucune marque « {m.targetBrand} » enregistrée dans l&apos;app (ou
+                              sans contact). Saisis-les manuellement ci-dessous.
+                            </p>
+                          )}
+                        {(contactSearchByMission[m.id]?.results.length ?? 0) > 0 && (
+                          <ul className="grid gap-1">
+                            {contactSearchByMission[m.id]?.results.map((sc) => {
+                              const already = (contactFormByMission[m.id]?.contacts || []).some(
+                                (c) =>
+                                  c.email.trim().toLowerCase() ===
+                                  sc.email.trim().toLowerCase()
+                              );
+                              return (
+                                <li
+                                  key={sc.id || sc.email}
+                                  className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-2 py-1"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate text-xs font-medium text-gray-800">
+                                      {[sc.firstname, sc.lastname].filter(Boolean).join(" ") ||
+                                        sc.email}
+                                    </p>
+                                    <p className="truncate text-[11px] text-gray-500">
+                                      {sc.email}
+                                      {sc.companyName ? ` · ${sc.companyName}` : ""}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={already}
+                                    onClick={() => addSearchedContactToForm(m.id, sc)}
+                                    className="shrink-0 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700 disabled:opacity-50"
+                                  >
+                                    {already ? "Ajouté" : "+ Ajouter"}
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
                       {(contactFormByMission[m.id]?.contacts || []).map((contact, index) => (
                         <div key={`${m.id}-contact-${index}`} className="grid grid-cols-1 gap-2 md:grid-cols-4">
                           <input
