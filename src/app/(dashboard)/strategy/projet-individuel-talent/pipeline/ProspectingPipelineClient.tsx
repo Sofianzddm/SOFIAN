@@ -67,6 +67,7 @@ type SearchedContact = {
   email: string;
   role: string;
   companyName: string;
+  source: "app" | "hubspot";
 };
 
 type ContactSearchState = {
@@ -345,6 +346,7 @@ export function ProspectingPipelineClient() {
           email: String(c.email || "").trim(),
           role: String(c.role || "").trim(),
           companyName: String(c.companyName || "").trim(),
+          source: c.source === "hubspot" ? "hubspot" : "app",
         }))
         .filter((c: SearchedContact) => c.email);
       setContactSearchByMission((prev) => ({
@@ -1033,7 +1035,7 @@ export function ProspectingPipelineClient() {
                       <div className="grid gap-2 rounded-md border border-dashed border-gray-300 bg-gray-50 p-2">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-medium text-gray-600">
-                            Pas les contacts ? Cherche la marque enregistrée dans l&apos;app
+                            Pas les contacts ? Cherche la marque dans l&apos;app et HubSpot
                           </span>
                           <button
                             type="button"
@@ -1051,8 +1053,8 @@ export function ProspectingPipelineClient() {
                           !contactSearchByMission[m.id]?.loading &&
                           (contactSearchByMission[m.id]?.results.length ?? 0) === 0 && (
                             <p className="text-xs text-gray-500">
-                              Aucune marque « {m.targetBrand} » enregistrée dans l&apos;app (ou
-                              sans contact). Saisis-les manuellement ci-dessous.
+                              Aucun contact trouvé pour « {m.targetBrand} » dans l&apos;app ni
+                              dans HubSpot. Saisis-les manuellement ci-dessous.
                             </p>
                           )}
                         {(contactSearchByMission[m.id]?.results.length ?? 0) > 0 && (
@@ -1069,13 +1071,25 @@ export function ProspectingPipelineClient() {
                                   className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-2 py-1"
                                 >
                                   <div className="min-w-0">
-                                    <p className="truncate text-xs font-medium text-gray-800">
-                                      {[sc.firstname, sc.lastname].filter(Boolean).join(" ") ||
-                                        sc.email}
+                                    <p className="flex items-center gap-1.5 truncate text-xs font-medium text-gray-800">
+                                      <span className="truncate">
+                                        {[sc.firstname, sc.lastname].filter(Boolean).join(" ") ||
+                                          sc.email}
+                                      </span>
+                                      <span
+                                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                          sc.source === "hubspot"
+                                            ? "bg-orange-50 text-orange-600"
+                                            : "bg-indigo-50 text-indigo-600"
+                                        }`}
+                                      >
+                                        {sc.source === "hubspot" ? "HubSpot" : "App"}
+                                      </span>
                                     </p>
                                     <p className="truncate text-[11px] text-gray-500">
                                       {sc.email}
                                       {sc.companyName ? ` · ${sc.companyName}` : ""}
+                                      {sc.role ? ` · ${sc.role}` : ""}
                                     </p>
                                   </div>
                                   <button
