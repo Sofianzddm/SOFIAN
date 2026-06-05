@@ -8,6 +8,7 @@
 
 import prisma from "../../src/lib/prisma";
 import {
+  brandNameFromEmailDomain,
   ensureMarqueContact,
   findOrCreateMarque,
   linkMarqueFromBrandName,
@@ -18,15 +19,29 @@ import {
 const dryRun = process.argv.includes("--dry-run");
 
 async function backfillInbound() {
-  // 1) Inbounds non encore liés : on résout/crée la marque ET on ajoute le sender comme contact marque
+  // 1) Inbounds non encore liés : extractedBrand OU déduction domaine expéditeur
   const unlinked = await prisma.inboundOpportunity.findMany({
-    where: { marqueId: null, extractedBrand: { not: null } },
-    select: { id: true, extractedBrand: true, senderEmail: true, senderName: true },
+    where: { marqueId: null },
+    select: {
+      id: true,
+      extractedBrand: true,
+      senderEmail: true,
+      senderName: true,
+      senderDomain: true,
+    },
   });
   let linkedCount = 0;
+  let skippedNoBrand = 0;
   for (const row of unlinked) {
-    const name = row.extractedBrand?.trim();
-    if (!name) continue;
+    const name =
+      row.extractedBrand?.trim() ||
+      brandNameFromEmailDomain(row.senderEmail) ||
+      brandNameFromEmailDomain(row.senderDomain) ||
+      "";
+    if (!name) {
+      skippedNoBrand++;
+      continue;
+    }
     if (dryRun) {
       linkedCount++;
       continue;
@@ -46,12 +61,17 @@ async function backfillInbound() {
     if (r?.marqueId) {
       await prisma.inboundOpportunity.update({
         where: { id: row.id },
-        data: { marqueId: r.marqueId },
+        data: {
+          marqueId: r.marqueId,
+          ...(!row.extractedBrand?.trim() ? { extractedBrand: name } : {}),
+        },
       });
       linkedCount++;
     }
   }
-  console.log(`InboundOpportunity (lien marqueId + contact): ${linkedCount}/${unlinked.length}`);
+  console.log(
+    `InboundOpportunity (lien marqueId + contact): ${linkedCount}/${unlinked.length} (${skippedNoBrand} sans marque déductible)`
+  );
 
   // 2) Inbounds déjà liés à une marque : on rattrape juste le contact (sender) manquant
   const alreadyLinked = await prisma.inboundOpportunity.findMany({
@@ -147,20 +167,27 @@ function parseFromHeader(from: string | null | undefined): {
 }
 
 async function backfillDemandesEntrantes() {
-  // 1) Lien manquant
+  // 1) Lien manquant : extractedBrand OU déduction domaine expéditeur
   const unlinked = await prisma.demandeEntrante.findMany({
-    where: { marqueId: null, extractedBrand: { not: null } },
+    where: { marqueId: null },
     select: { id: true, extractedBrand: true, from: true },
   });
   let linkedCount = 0;
+  let skippedNoBrand = 0;
   for (const row of unlinked) {
-    const name = row.extractedBrand?.trim();
-    if (!name) continue;
+    const sender = parseFromHeader(row.from);
+    const name =
+      row.extractedBrand?.trim() ||
+      brandNameFromEmailDomain(sender.email) ||
+      "";
+    if (!name) {
+      skippedNoBrand++;
+      continue;
+    }
     if (dryRun) {
       linkedCount++;
       continue;
     }
-    const sender = parseFromHeader(row.from);
     const r = await linkMarqueFromBrandName({
       brandName: name,
       source: "DEMANDE_ENTRANTE",
@@ -171,12 +198,17 @@ async function backfillDemandesEntrantes() {
     if (r?.marqueId) {
       await prisma.demandeEntrante.update({
         where: { id: row.id },
-        data: { marqueId: r.marqueId },
+        data: {
+          marqueId: r.marqueId,
+          ...(!row.extractedBrand?.trim() ? { extractedBrand: name } : {}),
+        },
       });
       linkedCount++;
     }
   }
-  console.log(`DemandeEntrante (lien marqueId + contact): ${linkedCount}/${unlinked.length}`);
+  console.log(
+    `DemandeEntrante (lien marqueId + contact): ${linkedCount}/${unlinked.length} (${skippedNoBrand} sans marque déductible)`
+  );
 
   // 2) Contacts manquants sur celles déjà liées
   const alreadyLinked = await prisma.demandeEntrante.findMany({
