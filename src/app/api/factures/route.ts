@@ -313,6 +313,7 @@ export async function GET(request: NextRequest) {
           montantHT: Number(d.montantHT),
           montantTTC: Number(d.montantTTC),
           devise: d.devise || "EUR",
+          dateDocument: d.dateDocument,
           dateEmission: d.dateEmission,
           dateEcheance: d.dateEcheance,
           createdAt: d.createdAt,

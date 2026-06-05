@@ -51,6 +51,7 @@ interface DocumentInfo {
   montantHT: number;
   montantTTC: number;
   devise?: string;
+  dateDocument?: string | null;
   dateEmission: string | null;
   dateEcheance: string | null;
   createdAt: string;
@@ -403,10 +404,10 @@ export default function FacturesPage() {
       if (period === "3m") from = new Date(now.getFullYear(), now.getMonth() - 3, 1);
       else if (period === "6m") from = new Date(now.getFullYear(), now.getMonth() - 6, 1);
       else from = new Date(now.getFullYear(), 0, 1);
-      list = list.filter((d) => new Date(d.dateEmission || d.createdAt) >= from);
+      list = list.filter((d) => new Date(d.dateDocument || d.dateEmission || d.createdAt) >= from);
     }
     if (monthFilter !== "all") {
-      list = list.filter((d) => toMonthKey(d.dateEmission || d.createdAt) === monthFilter);
+      list = list.filter((d) => toMonthKey(d.dateDocument || d.dateEmission || d.createdAt) === monthFilter);
     }
     if (statutFilter !== "all") {
       if (statutFilter === "EN_RETARD") {
@@ -439,7 +440,7 @@ export default function FacturesPage() {
     const arr = [...facturesFiltered];
     arr.sort((a, b) => {
       let cmp = 0;
-      if (sortBy === "date") cmp = new Date(a.dateEmission || a.createdAt).getTime() - new Date(b.dateEmission || b.createdAt).getTime();
+      if (sortBy === "date") cmp = new Date(a.dateDocument || a.dateEmission || a.createdAt).getTime() - new Date(b.dateDocument || b.dateEmission || b.createdAt).getTime();
       else if (sortBy === "reference") cmp = a.reference.localeCompare(b.reference);
       else if (sortBy === "montant") cmp = Number(a.montantTTC) - Number(b.montantTTC);
       return sortOrder === "desc" ? -cmp : cmp;
@@ -596,7 +597,7 @@ export default function FacturesPage() {
     docs
       .filter((d) => String(d.type).toUpperCase() === "FACTURE")
       .forEach((d) => {
-        const key = toMonthKey(d.dateEmission || d.createdAt);
+        const key = toMonthKey(d.dateDocument || d.dateEmission || d.createdAt);
         if (key) monthSet.add(key);
       });
     return Array.from(monthSet).sort((a, b) => b.localeCompare(a));
@@ -1221,7 +1222,9 @@ export default function FacturesPage() {
                             )}
                           </td>
                           <td className="py-4 px-4 text-sm text-gray-600 hidden md:table-cell">
-                            {doc.dateEmission ? new Date(doc.dateEmission).toLocaleDateString("fr-FR") : "-"}
+                            {doc.dateDocument || doc.dateEmission
+                              ? new Date((doc.dateDocument || doc.dateEmission) as string).toLocaleDateString("fr-FR")
+                              : "-"}
                           </td>
                           <td className="py-4 px-4">
                             <FactureStatutBadge statut={doc.statut} isLate={!!isLate} />
@@ -1978,7 +1981,9 @@ function RelancesTab({
                     )}
                   </td>
                   <td className="py-4 px-4 text-sm text-gray-600 hidden md:table-cell">
-                    {doc.dateEmission ? new Date(doc.dateEmission).toLocaleDateString("fr-FR") : "—"}
+                    {doc.dateDocument || doc.dateEmission
+                      ? new Date((doc.dateDocument || doc.dateEmission) as string).toLocaleDateString("fr-FR")
+                      : "—"}
                   </td>
                   <td className="py-4 px-4 text-sm text-gray-600 hidden md:table-cell">
                     {doc.dateEcheance ? new Date(doc.dateEcheance).toLocaleDateString("fr-FR") : "—"}
