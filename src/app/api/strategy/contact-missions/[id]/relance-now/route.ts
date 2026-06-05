@@ -51,8 +51,9 @@ function preflight(mission: {
   if (!mission) return { error: "Mission introuvable.", status: 404 };
   if (!mission.sentAt)
     return { error: "Le mail initial n'a pas encore été envoyé.", status: 409 };
-  if (mission.replied)
-    return { error: "Le client a répondu, relance bloquée.", status: 409 };
+  // NB : on autorise volontairement la relance manuelle même si le client a
+  // répondu (mission.replied). Seule la relance AUTOMATIQUE J+3 reste stoppée
+  // dans ce cas (cf. cron). L'envoi manuel reste à la discrétion de l'équipe.
   if (mission.relanceSentAt)
     return { error: "Une relance a déjà été envoyée.", status: 409 };
   return null;

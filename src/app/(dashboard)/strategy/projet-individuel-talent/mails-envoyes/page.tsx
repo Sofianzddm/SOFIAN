@@ -853,7 +853,7 @@ export default function PipelineMailsEnvoyesPage() {
                         <Mail className="h-3.5 w-3.5" />
                         Voir le mail
                       </button>
-                      {canManageRelance && !m.replied && !m.relanceSentAt && (
+                      {canManageRelance && !m.relanceSentAt && (
                         <>
                           <button
                             type="button"
@@ -1000,7 +1000,7 @@ export default function PipelineMailsEnvoyesPage() {
 
               <RelanceTimeline mail={openMail} />
 
-              {canManageRelance && !openMail.replied && !openMail.relanceSentAt ? (
+              {canManageRelance && !openMail.relanceSentAt ? (
                 <div className="flex flex-wrap justify-end gap-2">
                   <button
                     type="button"
