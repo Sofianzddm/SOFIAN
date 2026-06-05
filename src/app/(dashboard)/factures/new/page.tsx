@@ -32,6 +32,7 @@ export default function NouvelleFactureLibrePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("edit");
+  const isAvoir = searchParams.get("type") === "avoir";
   const [clientNom, setClientNom] = useState("");
   const [clientEmail, setClientEmail] = useState("");
   const [clientAdresse, setClientAdresse] = useState("");
@@ -95,8 +96,9 @@ export default function NouvelleFactureLibrePage() {
           setLignes(
             doc.lignes.map((l: any) => ({
               description: l.description || "",
-              quantite: Number(l.quantite) || 1,
-              prixUnitaire: Number(l.prixUnitaire) || 0,
+              // Les avoirs sont stockés en négatif : on affiche des valeurs positives dans le formulaire
+              quantite: Math.abs(Number(l.quantite) || 1),
+              prixUnitaire: Math.abs(Number(l.prixUnitaire) || 0),
               tauxTVA: Number(l.tauxTVA ?? 0),
             }))
           );
@@ -232,24 +234,25 @@ export default function NouvelleFactureLibrePage() {
         devise,
       };
 
-      const res = await fetch(editId ? `/api/factures/standalone/${editId}` : "/api/factures/standalone", {
+      const baseEndpoint = isAvoir ? "/api/avoirs/standalone" : "/api/factures/standalone";
+      const res = await fetch(editId ? `${baseEndpoint}/${editId}` : baseEndpoint, {
         method: editId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Erreur lors de la création de la facture");
+        throw new Error(data.error || `Erreur lors de la création de ${isAvoir ? "l'avoir" : "la facture"}`);
       }
       const data = await res.json();
       const id = data.document?.id as string | undefined;
       if (id) {
         router.replace(`/factures/${id}`);
       } else {
-        router.replace("/factures?tab=invoices");
+        router.replace(isAvoir ? "/factures?tab=avoirs" : "/factures?tab=invoices");
       }
     } catch (e: any) {
-      setError(e.message || "Erreur lors de la création de la facture");
+      setError(e.message || `Erreur lors de la création de ${isAvoir ? "l'avoir" : "la facture"}`);
     } finally {
       setSubmitting(false);
     }
@@ -260,10 +263,18 @@ export default function NouvelleFactureLibrePage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-[#1A1110]" style={{ fontFamily: "Spectral, serif" }}>
-            {editId ? "Modifier la facture" : "Nouvelle facture libre"}
+            {isAvoir
+              ? editId
+                ? "Modifier l'avoir"
+                : "Nouvel avoir libre"
+              : editId
+              ? "Modifier la facture"
+              : "Nouvelle facture libre"}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            {editId
+            {isAvoir
+              ? "Crée un avoir (note de crédit) non lié à une facture. Les montants saisis sont enregistrés en négatif et la numérotation suit la séquence des avoirs (A-AAAA-NNNN)."
+              : editId
               ? "Modifie une facture non liée à une collaboration, avec le même format que les factures existantes."
               : "Crée une facture non liée à une collaboration, avec le même format que les factures existantes."}
           </p>
@@ -413,7 +424,7 @@ export default function NouvelleFactureLibrePage() {
         {/* Métadonnées */}
         <section className="space-y-4">
           <h2 className="text-sm font-semibold text-[#1A1110] uppercase tracking-wide">
-            Détails de la facture
+            {isAvoir ? "Détails de l'avoir" : "Détails de la facture"}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
@@ -430,7 +441,7 @@ export default function NouvelleFactureLibrePage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
-                Date de facture
+                {isAvoir ? "Date de l'avoir" : "Date de facture"}
               </label>
               <input
                 type="date"
@@ -441,6 +452,7 @@ export default function NouvelleFactureLibrePage() {
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {!isAvoir && (
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
                 Conditions de règlement
@@ -466,6 +478,7 @@ export default function NouvelleFactureLibrePage() {
                 />
               )}
             </div>
+            )}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
                 Mode de paiement
@@ -503,7 +516,7 @@ export default function NouvelleFactureLibrePage() {
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[#1A1110] uppercase tracking-wide">
-              Lignes de facturation
+              {isAvoir ? "Lignes de l'avoir" : "Lignes de facturation"}
             </h2>
             <button
               type="button"
@@ -639,6 +652,11 @@ export default function NouvelleFactureLibrePage() {
             <div className="text-[11px] text-gray-500 pt-1 text-right">
               Devise : <span className="font-medium text-[#1A1110]">{devise}</span>
             </div>
+            {isAvoir && (
+              <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 mt-2">
+                Saisis des montants positifs : ils seront enregistrés en négatif sur l'avoir (déduction / remboursement).
+              </div>
+            )}
           </div>
         </section>
 
@@ -671,7 +689,7 @@ export default function NouvelleFactureLibrePage() {
             className="px-5 py-2 text-sm rounded-lg bg-[#1A1110] text-white font-medium hover:bg-black disabled:opacity-60"
             disabled={submitting}
           >
-            {submitting ? "Création..." : "Finaliser la facture"}
+            {submitting ? "Création..." : isAvoir ? "Finaliser l'avoir" : "Finaliser la facture"}
           </button>
         </div>
       </div>

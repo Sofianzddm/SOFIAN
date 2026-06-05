@@ -630,6 +630,9 @@ export default function FactureDetailPage() {
     new Date(doc.dateEcheance) < new Date();
   const isCancelled = doc.statut === "ANNULE";
   const isFacture = String(doc.type).toUpperCase() === "FACTURE";
+  const isAvoir = String(doc.type).toUpperCase() === "AVOIR";
+  // Une facture libre (sans collaboration) et un avoir libre sont éditables via /factures/new
+  const isStandaloneEditable = (isFacture || isAvoir) && !doc.collaboration;
   const lignesArray = Array.isArray(doc.lignes) ? doc.lignes : [];
   const paymentTermsLabel = paymentTermsLabelFromNotes(doc.notes);
   const currentStepIndex = PIPELINE_STEPS.findIndex((s) => s.key === doc.statut);
@@ -725,8 +728,12 @@ export default function FactureDetailPage() {
                 </button>
               )}
               <Link
-                href={isFacture ? `/factures/new?edit=${doc.id}` : "#"}
-                className={`p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 ${!isFacture ? "pointer-events-none opacity-50" : ""}`}
+                href={
+                  isStandaloneEditable
+                    ? `/factures/new?edit=${doc.id}${isAvoir ? "&type=avoir" : ""}`
+                    : "#"
+                }
+                className={`p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 ${!isStandaloneEditable ? "pointer-events-none opacity-50" : ""}`}
                 title="Modifier"
               >
                 <Pencil className="w-4 h-4" />

@@ -25,7 +25,7 @@ import {
 import { formatMontant } from "@/lib/devises";
 
 // Types
-type TabType = "invoices" | "quotes" | "relances";
+type TabType = "invoices" | "quotes" | "relances" | "avoirs";
 type PeriodType = "3m" | "6m" | "year" | "all";
 
 function toMonthKey(dateValue: string | null | undefined): string | null {
@@ -63,6 +63,27 @@ interface DocumentInfo {
     talent: { id: string; prenom: string; nom: string };
     marque: { id: string; nom: string };
     marqueContact: { id: string; prenom: string; nom: string; email?: string | null } | null;
+  } | null;
+}
+
+interface AvoirInfo {
+  id: string;
+  reference: string;
+  type: string;
+  statut: string;
+  titre?: string | null;
+  clientNom?: string | null;
+  montantHT: number;
+  montantTTC: number;
+  devise?: string;
+  dateEmission: string | null;
+  dateDocument: string | null;
+  createdAt: string;
+  collaboration: {
+    id: string;
+    reference: string;
+    talent: { id: string; prenom: string; nom: string };
+    marque: { id: string; nom: string } | null;
   } | null;
 }
 
@@ -166,7 +187,13 @@ export default function FacturesPage() {
   const searchParams = useSearchParams();
 
   const tabParam = searchParams.get("tab");
-  const tab = (tabParam === "quotes" ? "quotes" : tabParam === "relances" ? "relances" : "invoices") as TabType;
+  const tab = (tabParam === "quotes"
+    ? "quotes"
+    : tabParam === "relances"
+    ? "relances"
+    : tabParam === "avoirs"
+    ? "avoirs"
+    : "invoices") as TabType;
   const setTab = useCallback(
     (t: TabType) => {
       const u = new URLSearchParams(searchParams.toString());
@@ -191,6 +218,7 @@ export default function FacturesPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [quotesData, setQuotesData] = useState<{ quotes: QuoteInfo[]; stats: QuoteStats } | null>(null);
+  const [avoirs, setAvoirs] = useState<AvoirInfo[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState<"DEVIS" | "FACTURE">("FACTURE");
@@ -274,6 +302,21 @@ export default function FacturesPage() {
     }
   }, []);
 
+  const fetchAvoirs = useCallback(async () => {
+    try {
+      const res = await fetch("/api/factures", { cache: "no-store" });
+      if (!res.ok) {
+        setAvoirs([]);
+        return;
+      }
+      const data = await res.json();
+      setAvoirs(Array.isArray(data.avoirs) ? data.avoirs : []);
+    } catch (e) {
+      console.error("Erreur chargement avoirs:", e);
+      setAvoirs([]);
+    }
+  }, []);
+
   const fetchQuotes = useCallback(async () => {
     try {
       const res = await fetch("/api/factures", { cache: "no-store", credentials: "include" });
@@ -311,10 +354,12 @@ export default function FacturesPage() {
     setLoading(true);
     if (tab === "invoices" || tab === "relances") {
       fetchFactures().finally(() => setLoading(false));
+    } else if (tab === "avoirs") {
+      fetchAvoirs().finally(() => setLoading(false));
     } else {
       fetchQuotes().finally(() => setLoading(false));
     }
-  }, [status, tab, fetchFactures, fetchQuotes]);
+  }, [status, tab, fetchFactures, fetchQuotes, fetchAvoirs]);
 
   // À l’ouverture de l’onglet Devis, remettre le filtre statut à "Tout" si c’était un statut facture
   useEffect(() => {
@@ -336,6 +381,14 @@ export default function FacturesPage() {
   useEffect(() => {
     if (tab === "relances") return;
     if (["R1", "R2", "R3", "DONE"].includes(statutFilter)) {
+      setStatutFilter("all");
+    }
+  }, [tab, statutFilter]);
+
+  // À l'ouverture de l'onglet Avoirs, remettre le filtre statut à "Tout" si incompatible
+  useEffect(() => {
+    if (tab !== "avoirs") return;
+    if (statutFilter !== "all" && !["VALIDE", "ENVOYE", "ANNULE"].includes(statutFilter)) {
       setStatutFilter("all");
     }
   }, [tab, statutFilter]);
@@ -559,7 +612,21 @@ export default function FacturesPage() {
     return Array.from(monthSet).sort((a, b) => b.localeCompare(a));
   }, [quotesData]);
 
-  const availableMonths = tab === "invoices" ? availableInvoiceMonths : availableQuoteMonths;
+  const availableAvoirMonths = useMemo(() => {
+    const monthSet = new Set<string>();
+    (Array.isArray(avoirs) ? avoirs : []).forEach((a) => {
+      const key = toMonthKey(a.dateEmission || a.dateDocument || a.createdAt);
+      if (key) monthSet.add(key);
+    });
+    return Array.from(monthSet).sort((a, b) => b.localeCompare(a));
+  }, [avoirs]);
+
+  const availableMonths =
+    tab === "invoices" || tab === "relances"
+      ? availableInvoiceMonths
+      : tab === "avoirs"
+      ? availableAvoirMonths
+      : availableQuoteMonths;
 
   const quotesSorted = useMemo(() => {
     const arr = [...quotesFiltered];
@@ -578,13 +645,69 @@ export default function FacturesPage() {
     return quotesSorted.slice(start, start + perPage);
   }, [quotesSorted, page, perPage]);
 
+  // Avoirs : filtrage période + mois + recherche + statut
+  const avoirsFiltered = useMemo(() => {
+    let list = Array.isArray(avoirs) ? [...avoirs] : [];
+    const now = new Date();
+    const dateOf = (a: AvoirInfo) => a.dateEmission || a.dateDocument || a.createdAt;
+    if (period !== "all") {
+      let from: Date;
+      if (period === "3m") from = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      else if (period === "6m") from = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+      else from = new Date(now.getFullYear(), 0, 1);
+      list = list.filter((a) => new Date(dateOf(a)) >= from);
+    }
+    if (monthFilter !== "all") {
+      list = list.filter((a) => toMonthKey(dateOf(a)) === monthFilter);
+    }
+    if (statutFilter !== "all") {
+      list = list.filter((a) => a.statut === statutFilter);
+    }
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      list = list.filter(
+        (a) =>
+          a.reference.toLowerCase().includes(q) ||
+          (a.titre ?? "").toLowerCase().includes(q) ||
+          (a.clientNom ?? "").toLowerCase().includes(q) ||
+          (a.collaboration?.marque?.nom ?? "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [avoirs, period, monthFilter, statutFilter, debouncedSearch]);
+
+  const avoirsSorted = useMemo(() => {
+    const arr = [...avoirsFiltered];
+    const dateOf = (a: AvoirInfo) => a.dateEmission || a.dateDocument || a.createdAt;
+    arr.sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === "date") cmp = new Date(dateOf(a)).getTime() - new Date(dateOf(b)).getTime();
+      else if (sortBy === "reference") cmp = a.reference.localeCompare(b.reference);
+      else if (sortBy === "montant") cmp = Number(a.montantTTC) - Number(b.montantTTC);
+      return sortOrder === "desc" ? -cmp : cmp;
+    });
+    return arr;
+  }, [avoirsFiltered, sortBy, sortOrder]);
+
+  const avoirsPaginated = useMemo(() => {
+    const start = (page - 1) * perPage;
+    return avoirsSorted.slice(start, start + perPage);
+  }, [avoirsSorted, page, perPage]);
+
   const totalFactures = facturesSorted.length;
   const totalQuotes = quotesSorted.length;
+  const totalAvoirs = avoirsSorted.length;
   const totalRelances = relancesFiltered.length;
   const totalPages = Math.max(
     1,
     Math.ceil(
-      (tab === "invoices" ? totalFactures : tab === "relances" ? totalRelances : totalQuotes) / perPage
+      (tab === "invoices"
+        ? totalFactures
+        : tab === "relances"
+        ? totalRelances
+        : tab === "avoirs"
+        ? totalAvoirs
+        : totalQuotes) / perPage
     )
   );
 
@@ -674,7 +797,14 @@ export default function FacturesPage() {
 
   const isInvoices = tab === "invoices";
   const isRelances = tab === "relances";
-  const title = isRelances ? "Relances factures" : isInvoices ? "Liste des factures" : "Liste des devis";
+  const isAvoirs = tab === "avoirs";
+  const title = isRelances
+    ? "Relances factures"
+    : isInvoices
+    ? "Liste des factures"
+    : isAvoirs
+    ? "Liste des avoirs"
+    : "Liste des devis";
   const badgeFacturesEncours = stats?.facturesEnAttente ?? 0;
   const badgeFacturesRetard = stats?.facturesEnRetard ?? 0;
   const badgeDevisAttente = quotesData?.stats.enAttente ?? 0;
@@ -736,6 +866,15 @@ export default function FacturesPage() {
             >
               <FileText className="w-4 h-4" />
               Nouvelle facture libre
+            </Link>
+          )}
+          {role && ["ADMIN", "HEAD_OF_SALES"].includes(role) && (
+            <Link
+              href="/factures/new?type=avoir"
+              className="inline-flex items-center gap-2 rounded-lg bg-white border border-gray-200 px-4 py-2.5 text-sm font-medium text-[#1A1110] shadow-sm hover:bg-gray-50 transition-colors"
+            >
+              <FileText className="w-4 h-4 text-amber-500" />
+              Nouvel avoir libre
             </Link>
           )}
           {role && ["ADMIN", "HEAD_OF_SALES"].includes(role) && (
@@ -814,6 +953,20 @@ export default function FacturesPage() {
               Devis
             </span>
             {tab === "quotes" && (
+              <span
+                className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-gradient-to-r from-[#1A1110] to-[#C08B8B]"
+                aria-hidden
+              />
+            )}
+          </button>
+          <button
+            onClick={() => setTab("avoirs")}
+            className="relative px-4 py-3 text-sm font-medium transition-colors"
+          >
+            <span className={isAvoirs ? "text-glowup-licorice" : "text-gray-500 hover:text-gray-700"}>
+              Avoirs
+            </span>
+            {isAvoirs && (
               <span
                 className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-gradient-to-r from-[#1A1110] to-[#C08B8B]"
                 aria-hidden
@@ -920,6 +1073,13 @@ export default function FacturesPage() {
                     <option value="R2">2ème relance à faire</option>
                     <option value="R3">3ème relance à faire</option>
                     <option value="DONE">3 relances déjà envoyées</option>
+                  </>
+                ) : isAvoirs ? (
+                  <>
+                    <option value="all">Tout</option>
+                    <option value="VALIDE">Enregistré</option>
+                    <option value="ENVOYE">Envoyé</option>
+                    <option value="ANNULE">Annulé</option>
                   </>
                 ) : (
                   <>
@@ -1113,6 +1273,93 @@ export default function FacturesPage() {
             loadingId={relanceLoadingId}
             statutFilter={statutFilter}
           />
+        ) : isAvoirs ? (
+          avoirsPaginated.length === 0 ? (
+            <div className="text-center py-16 px-4">
+              <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500 font-medium">Aucun avoir à afficher</p>
+              <p className="text-sm text-gray-400 mt-2">
+                Crée un avoir libre via le bouton « Nouvel avoir libre ». La numérotation suit la séquence des avoirs (A-AAAA-NNNN).
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/50">
+                      <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">
+                        <button type="button" onClick={() => toggleSort("reference")} className="flex items-center gap-1 hover:text-[#1A1110]">
+                          Avoir n°
+                          {sortBy === "reference" && (sortOrder === "asc" ? " ↑" : " ↓")}
+                        </button>
+                      </th>
+                      <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase hidden md:table-cell">
+                        <button type="button" onClick={() => toggleSort("date")} className="flex items-center gap-1 hover:text-[#1A1110]">
+                          Date
+                          {sortBy === "date" && (sortOrder === "asc" ? " ↑" : " ↓")}
+                        </button>
+                      </th>
+                      <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">État</th>
+                      <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Client</th>
+                      <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Objet</th>
+                      <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase hidden lg:table-cell">Montant HT</th>
+                      <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase">Montant TTC</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {avoirsPaginated.map((avoir) => {
+                      const clientNom = avoir.collaboration?.marque?.nom ?? avoir.clientNom ?? "—";
+                      const dateAvoir = avoir.dateEmission || avoir.dateDocument || avoir.createdAt;
+                      return (
+                        <tr
+                          key={avoir.id}
+                          onClick={() => router.push(`/factures/${avoir.id}`)}
+                          className="border-b border-gray-100 transition-colors cursor-pointer hover:bg-gray-50"
+                        >
+                          <td className="py-4 px-4">
+                            <Link
+                              href={`/factures/${avoir.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="font-mono text-sm font-medium text-[#1A1110] hover:underline"
+                            >
+                              {avoir.reference}
+                            </Link>
+                          </td>
+                          <td className="py-4 px-4 text-sm text-gray-600 hidden md:table-cell">
+                            {dateAvoir ? new Date(dateAvoir).toLocaleDateString("fr-FR") : "—"}
+                          </td>
+                          <td className="py-4 px-4">
+                            <FactureStatutBadge statut={avoir.statut} />
+                          </td>
+                          <td className="py-4 px-4 text-sm text-[#1A1110]">{clientNom}</td>
+                          <td className="py-4 px-4 text-sm text-gray-600">{avoir.titre ?? "—"}</td>
+                          <td className="py-4 px-4 text-right text-sm text-amber-700 hidden lg:table-cell">
+                            {formatMoney(Number(avoir.montantHT), avoir.devise)}
+                          </td>
+                          <td className="py-4 px-4 text-right text-sm font-semibold text-amber-700">
+                            {formatMoney(Number(avoir.montantTTC), avoir.devise)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <FooterTotals items={avoirsFiltered} type="invoice" />
+              <Pagination
+                page={page}
+                totalPages={totalPages}
+                total={totalAvoirs}
+                perPage={perPage}
+                onPageChange={setPage}
+                onPerPageChange={(v) => {
+                  setPerPage(v);
+                  setPage(1);
+                }}
+              />
+            </>
+          )
         ) : quotesPaginated.length === 0 ? (
           <div className="text-center py-16">
             <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />

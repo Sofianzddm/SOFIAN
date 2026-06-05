@@ -304,6 +304,8 @@ interface LigneFacture {
 
 interface FactureData {
   reference: string;
+  // Type de document : "FACTURE" (défaut) ou "AVOIR" (note de crédit)
+  type?: "FACTURE" | "AVOIR" | "DEVIS" | "BON_DE_COMMANDE";
   titre: string;
   dateDocument: string;
   dateEcheance: string;
@@ -362,6 +364,7 @@ const formatDate = (dateStr: string) => {
 export function FactureTemplate({ data }: { data: FactureData }) {
   const devise = getDeviseInfo(data.devise).code;
   const formatMoney = (amount: number) => formatMontant(amount, devise);
+  const isAvoir = (data.type || "FACTURE").toUpperCase() === "AVOIR";
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -390,12 +393,14 @@ export function FactureTemplate({ data }: { data: FactureData }) {
           <View style={{ width: "50%" }}>
             {/* Info document */}
             <View style={styles.documentBox}>
-              <Text style={styles.documentType}>FACTURE</Text>
+              <Text style={styles.documentType}>{isAvoir ? "AVOIR" : "FACTURE"}</Text>
               <Text style={styles.documentRef}>N°{data.reference}</Text>
               <Text style={styles.documentDate}>DATE : {formatDate(data.dateDocument)}</Text>
-              <Text style={styles.documentDate}>
-                DATE D'ÉCHÉANCE : {formatDate(data.dateEcheance)}
-              </Text>
+              {!isAvoir && (
+                <Text style={styles.documentDate}>
+                  DATE D'ÉCHÉANCE : {formatDate(data.dateEcheance)}
+                </Text>
+              )}
             </View>
             
             {/* Client (Talent) */}
@@ -444,7 +449,7 @@ export function FactureTemplate({ data }: { data: FactureData }) {
             textTransform: "uppercase",
             letterSpacing: 0.5
           }}>
-            Objet de la facture
+            {isAvoir ? "Objet de l'avoir" : "Objet de la facture"}
           </Text>
           <Text style={styles.campagneTitre}>{data.titre}</Text>
         </View>
@@ -524,13 +529,13 @@ export function FactureTemplate({ data }: { data: FactureData }) {
             <Text style={styles.totalValue}>{formatMoney(data.montantTTC)}</Text>
           </View>
           <View style={styles.netPayerRow}>
-            <Text style={styles.netPayerLabel}>NET À PAYER</Text>
+            <Text style={styles.netPayerLabel}>{isAvoir ? "MONTANT DE L'AVOIR" : "NET À PAYER"}</Text>
             <Text style={styles.netPayerValue}>{formatMoney(data.montantTTC)}</Text>
           </View>
         </View>
         
-        {/* Coordonnées bancaires */}
-        {data.emetteur.iban && (
+        {/* Coordonnées bancaires (uniquement pour une facture) */}
+        {data.emetteur.iban && !isAvoir && (
           <View style={styles.ibanBox}>
             <Text style={styles.ibanTitle}>Coordonnées bancaires pour le paiement</Text>
             <Text style={styles.ibanText}>
@@ -542,17 +547,32 @@ export function FactureTemplate({ data }: { data: FactureData }) {
             </Text>
           </View>
         )}
-        
-        {/* Pénalités */}
-        <View style={styles.penalitesBox}>
-          <Text style={styles.penalitesText}>
-            En cas de retard de paiement, application d'intérêts de 3 fois le taux légal selon la loi n°2008-776 du 4 août 2008.
-            {"\n"}
-            Indemnité forfaitaire pour frais de recouvrement : 40€ (article D. 441-5 du code de commerce).
-            {"\n"}
-            {data.conditionsPaiementLabel || "Paiement sous 30 jours fin de mois à réception de facture."}
-          </Text>
-        </View>
+
+        {/* Note avoir */}
+        {isAvoir && (
+          <View style={styles.ibanBox}>
+            <Text style={styles.ibanTitle}>Avoir / Note de crédit</Text>
+            <Text style={styles.ibanText}>
+              Le présent avoir vient en déduction des sommes dues ou donne lieu à
+              remboursement par virement bancaire.
+              {"\n"}
+              Référence à rappeler : {data.reference}
+            </Text>
+          </View>
+        )}
+
+        {/* Pénalités (uniquement pour une facture) */}
+        {!isAvoir && (
+          <View style={styles.penalitesBox}>
+            <Text style={styles.penalitesText}>
+              En cas de retard de paiement, application d'intérêts de 3 fois le taux légal selon la loi n°2008-776 du 4 août 2008.
+              {"\n"}
+              Indemnité forfaitaire pour frais de recouvrement : 40€ (article D. 441-5 du code de commerce).
+              {"\n"}
+              {data.conditionsPaiementLabel || "Paiement sous 30 jours fin de mois à réception de facture."}
+            </Text>
+          </View>
+        )}
         
         {/* Notes */}
         {data.notes && (

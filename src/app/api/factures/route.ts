@@ -88,6 +88,27 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: "desc" },
     });
+    // ============================================
+    // AVOIRS (documents type AVOIR) pour l'onglet Avoirs de la page factures
+    // ============================================
+    const avoirsDocuments = await prisma.document.findMany({
+      where: {
+        type: "AVOIR",
+        ...(isHeadOfSales ? { createdById: user.id } : {}),
+      },
+      include: {
+        collaboration: {
+          select: {
+            id: true,
+            reference: true,
+            talent: { select: { id: true, prenom: true, nom: true } },
+            marque: { select: { id: true, nom: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
     const devisEnAttente = devisDocuments.filter(
       (d) => d.statut === "VALIDE" || d.statut === "ENVOYE"
     ).length;
@@ -364,6 +385,33 @@ export async function GET(request: NextRequest) {
           : null,
       })),
       devisStats: { enAttente: devisEnAttente, expire: devisExpire },
+      // Avoirs pour l'onglet Avoirs (montants stockés en négatif)
+      avoirs: avoirsDocuments.map((d) => ({
+        id: d.id,
+        reference: d.reference,
+        type: d.type,
+        statut: d.statut,
+        titre: d.titre ?? null,
+        montantHT: Number(d.montantHT),
+        montantTTC: Number(d.montantTTC),
+        devise: d.devise || "EUR",
+        dateEmission: d.dateEmission,
+        dateDocument: d.dateDocument,
+        createdAt: d.createdAt,
+        clientNom: d.clientNom ?? null,
+        clientEmail: d.clientEmail ?? null,
+        collaboration: d.collaboration
+          ? {
+              id: d.collaboration.id,
+              reference: d.collaboration.reference,
+              talent: d.collaboration.talent,
+              marque: d.collaboration.marque
+                ? { id: d.collaboration.marque.id, nom: d.collaboration.marque.nom }
+                : null,
+            }
+          : null,
+      })),
+      avoirsStats: { total: avoirsDocuments.length },
     });
   } catch (error) {
     console.error("Erreur API factures:", error);
