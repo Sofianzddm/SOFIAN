@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2, Mail, Search, Calendar, ExternalLink, X, Eye, MousePointerClick, Clock, CheckCircle2, AlertCircle } from "lucide-react";
 import { inboundCategoryLabel } from "@/lib/inbound-categories";
+import { addBusinessDays, isBusinessDay } from "@/lib/business-days";
 
 type Mail = {
   id: string;
@@ -78,12 +79,21 @@ function relativeDate(dateStr: string) {
   return `il y a ${months} mois`;
 }
 
+/** Prochain passage du cron (8h) qui tombe un jour ouvré (le cron skip le week-end). */
+function nextBusinessCronRun(now: Date): Date {
+  const next = new Date(now);
+  if (now.getHours() >= 8) next.setDate(next.getDate() + 1);
+  next.setHours(8, 0, 0, 0);
+  while (!isBusinessDay(next)) next.setDate(next.getDate() + 1);
+  return next;
+}
+
 /**
  * Calcule la date prévisionnelle de la prochaine relance auto.
- * Le cron tourne tous les jours à 8h (Europe/Paris) :
- *  - R1 part dès que sentAt + 3 jours est passé
- *  - R2 part dès que sentAt + 7 jours est passé
- * Si l'échéance est dépassée, on retourne le prochain passage du cron (demain 8h).
+ * Le cron tourne tous les jours ouvrés à 8h (Europe/Paris), week-ends exclus :
+ *  - R1 part dès que sentAt + 3 jours ouvrés est passé
+ *  - R2 part dès que sentAt + 7 jours ouvrés est passé
+ * Si l'échéance est dépassée, on retourne le prochain passage ouvré du cron.
  */
 function computeNextRelance(
   sentAt: string | null,
@@ -93,20 +103,12 @@ function computeNextRelance(
 ): { level: 1 | 2; scheduledAt: Date; isOverdue: boolean } | null {
   if (!sentAt || replied || relance2SentAt) return null;
   const sent = new Date(sentAt);
-  const addDays = (d: Date, n: number) => {
-    const out = new Date(d);
-    out.setDate(out.getDate() + n);
-    return out;
-  };
   const now = new Date();
   const level: 1 | 2 = relance1SentAt ? 2 : 1;
-  const eligibleAt = addDays(sent, level === 1 ? 3 : 7);
+  const eligibleAt = addBusinessDays(sent, level === 1 ? 3 : 7);
   if (eligibleAt > now) return { level, scheduledAt: eligibleAt, isOverdue: false };
-  // Échéance passée → prochaine exécution du cron (8h Europe/Paris).
-  const next8h = new Date(now);
-  if (now.getHours() >= 8) next8h.setDate(next8h.getDate() + 1);
-  next8h.setHours(8, 0, 0, 0);
-  return { level, scheduledAt: next8h, isOverdue: true };
+  // Échéance passée → prochaine exécution ouvrée du cron (8h Europe/Paris).
+  return { level, scheduledAt: nextBusinessCronRun(now), isOverdue: true };
 }
 
 function formatRelativeFuture(date: Date): string {
@@ -165,47 +167,47 @@ function RelanceTimeline({ mail }: { mail: Mail }) {
   } else {
     if (mail.relance1SentAt) {
       steps.push({
-        label: "Relance 1 envoyée (J+3)",
+        label: "Relance 1 envoyée (3 jours ouvrés)",
         state: "done",
         date: `${formatDate(mail.relance1SentAt)} (${relativeDate(mail.relance1SentAt)})`,
       });
     } else if (next?.level === 1) {
       steps.push({
-        label: "Relance 1 (J+3)",
+        label: "Relance 1 (3 jours ouvrés)",
         state: "pending",
         date: `Prévue ${formatRelativeFuture(next.scheduledAt)} — ${next.scheduledAt.toLocaleString(
           "fr-FR",
           { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
         )}`,
         hint: next.isOverdue
-          ? "Échéance dépassée, partira au prochain cron (8h)."
-          : "Cron quotidien à 8h.",
+          ? "Échéance dépassée, partira au prochain cron (8h, jours ouvrés)."
+          : "Cron quotidien à 8h (jours ouvrés, week-ends exclus).",
       });
     }
 
     if (mail.relance2SentAt) {
       steps.push({
-        label: "Relance 2 envoyée (J+7) — dernière",
+        label: "Relance 2 envoyée (7 jours ouvrés) — dernière",
         state: "done",
         date: `${formatDate(mail.relance2SentAt)} (${relativeDate(mail.relance2SentAt)})`,
       });
     } else if (mail.relance1SentAt && next?.level === 2) {
       steps.push({
-        label: "Relance 2 (J+7) — dernière",
+        label: "Relance 2 (7 jours ouvrés) — dernière",
         state: "pending",
         date: `Prévue ${formatRelativeFuture(next.scheduledAt)} — ${next.scheduledAt.toLocaleString(
           "fr-FR",
           { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
         )}`,
         hint: next.isOverdue
-          ? "Échéance dépassée, partira au prochain cron (8h)."
-          : "Cron quotidien à 8h.",
+          ? "Échéance dépassée, partira au prochain cron (8h, jours ouvrés)."
+          : "Cron quotidien à 8h (jours ouvrés, week-ends exclus).",
       });
     } else if (!mail.relance1SentAt && !next) {
       // cas rare : pas de sentAt, on n'affiche rien d'autre
     } else if (!mail.relance1SentAt) {
       steps.push({
-        label: "Relance 2 (J+7) — dernière",
+        label: "Relance 2 (7 jours ouvrés) — dernière",
         state: "skipped",
         hint: "S'enchaînera après la relance 1.",
       });
@@ -319,7 +321,7 @@ function RelanceStatus({
             month: "short",
             hour: "2-digit",
             minute: "2-digit",
-          })} (cron quotidien 8h)`}
+          })} (cron quotidien 8h, jours ouvrés)`}
         >
           {next.isOverdue ? (
             <AlertCircle className="h-3 w-3" />
