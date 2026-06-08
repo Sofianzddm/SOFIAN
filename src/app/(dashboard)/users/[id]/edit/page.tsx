@@ -28,6 +28,7 @@ const roleOptions = [
   { value: "CM", label: "Account Manager" },
   { value: "TALENT", label: "Talent" },
   { value: "COIFFEUR", label: "Coiffeur" },
+  { value: "COMPTABLE", label: "Expert-Comptable" },
 ];
 
 export default function EditUserPage() {

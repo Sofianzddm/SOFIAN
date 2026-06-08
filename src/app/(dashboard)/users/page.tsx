@@ -40,6 +40,7 @@ const roleLabels: Record<string, string> = {
   CM: "Account Manager",
   TALENT: "Talent",
   COIFFEUR: "Coiffeur",
+  COMPTABLE: "Expert-Comptable",
 };
 
 const roleColors: Record<string, string> = {
@@ -54,6 +55,7 @@ const roleColors: Record<string, string> = {
   CM: "bg-pink-100 text-pink-700",
   TALENT: "bg-gray-100 text-gray-700",
   COIFFEUR: "bg-teal-100 text-teal-800",
+  COMPTABLE: "bg-amber-100 text-amber-800",
 };
 
 export default function UsersPage() {

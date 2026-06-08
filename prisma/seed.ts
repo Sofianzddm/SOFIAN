@@ -122,6 +122,24 @@ async function main() {
   }
 
   // ================================
+  // Créer le compte Expert-Comptable
+  // ================================
+  const comptable = await prisma.user.upsert({
+    where: { email: "comptable@glowup-agence.com" },
+    update: {},
+    create: {
+      email: "comptable@glowup-agence.com",
+      password: hashedPassword,
+      prenom: "Cabinet",
+      nom: "Expert-Comptable",
+      role: Role.COMPTABLE,
+      departement: "ADMIN",
+      actif: true,
+    },
+  });
+  console.log("✅ Expert-Comptable créé:", comptable.email);
+
+  // ================================
   // Créer les paramètres agence
   // ================================
   const settings = await prisma.agenceSettings.upsert({
@@ -164,6 +182,7 @@ async function main() {
   console.log("   - headof@glowup-agence.com (Head of)");
   console.log("   - leyna@glowup-agence.com (Head of Sales) 🎯");
   console.log("   - ines@glowup-agence.com (Account Manager) 💼");
+  console.log("   - comptable@glowup-agence.com (Expert-Comptable) 📊");
   console.log("   - daphné@glowup-agence.com (TM)");
   console.log("   - joey@glowup-agence.com (TM)");
   console.log("   - alice@glowup-agence.com (TM)");

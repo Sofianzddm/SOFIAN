@@ -28,6 +28,7 @@ enum Role {
   STRATEGY_PLANNER
   CASTING_MANAGER
   COIFFEUR
+  COMPTABLE
 }
 
 enum Departement {

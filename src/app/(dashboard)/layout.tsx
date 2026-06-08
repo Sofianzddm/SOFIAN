@@ -23,6 +23,10 @@ export default function DashboardLayout({
     if (status === "authenticated" && session?.user?.role === "TALENT") {
       router.push("/talent/dashboard");
     }
+    // Rediriger l'expert-comptable vers son espace
+    if (status === "authenticated" && session?.user?.role === "COMPTABLE") {
+      router.push("/comptable");
+    }
     if (status === "authenticated" && session?.user?.role === "JURISTE") {
       const p = typeof window !== "undefined" ? window.location.pathname : "";
       if (p && !p.startsWith("/juriste")) {

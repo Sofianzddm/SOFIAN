@@ -27,6 +27,7 @@ import {
   Mail,
   BadgeDollarSign,
   BarChart3,
+  Calculator,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -190,6 +191,12 @@ const menuItems = [
     href: "/reconciliation",
     icon: Banknote,
     roles: ["ADMIN"], // ADMIN uniquement - Qonto
+  },
+  {
+    label: "Comptabilité",
+    href: "/comptable",
+    icon: Calculator,
+    roles: ["ADMIN"], // Espace expert-comptable (ADMIN + COMPTABLE)
   },
   {
     label: "Dossiers",
@@ -565,6 +572,7 @@ function getRoleName(role: string): string {
     STRATEGY_PLANNER: "Strategy Planner",
     CASTING_MANAGER: "Casting Manager",
     COIFFEUR: "Coiffeur",
+    COMPTABLE: "Expert-Comptable",
   };
   return roleNames[role] || role;
 }

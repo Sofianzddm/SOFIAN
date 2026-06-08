@@ -134,6 +134,27 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Compte expert-comptable : uniquement l'espace /comptable + API comptable + auth
+  if (effectiveRole === "COMPTABLE") {
+    const allowed =
+      pathname === "/login" ||
+      pathname.startsWith("/api/auth") ||
+      pathname.startsWith("/comptable") ||
+      pathname.startsWith("/api/comptable");
+    if (!allowed) {
+      return withNoIndex(NextResponse.redirect(new URL("/comptable", request.url)));
+    }
+  }
+
+  // L'espace comptable est réservé à COMPTABLE et ADMIN
+  if (
+    pathname.startsWith("/comptable") &&
+    effectiveRole !== "COMPTABLE" &&
+    effectiveRole !== "ADMIN"
+  ) {
+    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
+  }
+
   if (pathname.startsWith("/juriste") && effectiveRole !== "JURISTE") {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
@@ -205,6 +226,10 @@ export const config = {
     "/collaborations/:path*",
     "/juriste",
     "/juriste/:path*",
+    // Espace expert-comptable
+    "/comptable",
+    "/comptable/:path*",
+    "/api/comptable/:path*",
     "/strategy",
     "/strategy/:path*",
     "/dossiers",

@@ -26,6 +26,11 @@ const roleOptions = [
     label: "Coiffeur",
     description: "Planning coiffeur Cannes uniquement (pas d’autres modules)",
   },
+  {
+    value: "COMPTABLE",
+    label: "Expert-Comptable",
+    description: "Espace comptable : journaux, TVA, FEC et exports (lecture seule)",
+  },
 ];
 
 export default function NewUserPage() {
