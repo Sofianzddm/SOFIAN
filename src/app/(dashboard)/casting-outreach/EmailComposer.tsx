@@ -519,9 +519,16 @@ export default function EmailComposer({
               <button
                 type="button"
                 onClick={onGenerate}
-                disabled={isGenerating || !brandResearch}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-50"
+                disabled={isGenerating}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-50 ${!brandResearch || talentsSelected.length === 0 ? "opacity-60" : ""}`}
                 style={{ backgroundColor: OLD_ROSE, color: "white" }}
+                title={
+                  !brandResearch
+                    ? "Lance d'abord l'analyse de la marque (🔍 Par recherche automatique)"
+                    : talentsSelected.length === 0
+                      ? "Sélectionne au moins un talent à gauche"
+                      : "Rédige le mail automatiquement avec l'IA"
+                }
               >
                 {isGenerating ? (
                   <>

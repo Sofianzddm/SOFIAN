@@ -545,8 +545,19 @@ export default function CastingComposer({
   );
 
   const runGenerateEmail = useCallback(async () => {
-    if (!contact || !brandResearch) return;
-    if (selectedTalents.length === 0) return;
+    if (!contact) return;
+    if (!brandResearch) {
+      onError(
+        "Lance d'abord l'analyse de la marque (bouton « 🔍 Par recherche automatique » en haut) : l'IA en a besoin pour rédiger."
+      );
+      return;
+    }
+    if (selectedTalents.length === 0) {
+      onError(
+        "Sélectionne au moins un talent dans la colonne de gauche : l'IA rédige le mail à partir des talents à pitcher."
+      );
+      return;
+    }
     setIsGenerating(true);
     try {
       const talentsPayload = selectedTalents.map((t) => {
