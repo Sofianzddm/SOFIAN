@@ -1,13 +1,7 @@
-import { v2 as cloudinary } from "cloudinary";
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { canAccessDinnerStrategy } from "@/app/api/strategy/dinner/_utils";
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { uploadFileToS3 } from "@/lib/s3";
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,19 +18,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Image requise" }, { status: 400 });
     }
 
-    const bytes = await file.arrayBuffer();
-    const base64 = `data:${file.type};base64,${Buffer.from(bytes).toString("base64")}`;
-    const uploaded = await cloudinary.uploader.upload(base64, {
+    const url = await uploadFileToS3(file, {
       folder: "glowup-dinner-event-photos",
-      public_id: `dinner-event-${Date.now()}`,
-      transformation: [
-        { width: 2000, height: 2000, crop: "limit" },
-        { quality: "auto:good" },
-        { fetch_format: "auto" },
-      ],
+      baseName: `dinner-event-${Date.now()}`,
+      maxWidth: 2000,
     });
 
-    return NextResponse.json({ success: true, url: uploaded.secure_url });
+    return NextResponse.json({ success: true, url });
   } catch (error) {
     console.error("Erreur upload event photo:", error);
     return NextResponse.json({ error: "Erreur upload photo evenement" }, { status: 500 });

@@ -595,9 +595,31 @@ model Marque {
   contactMissions      ContactMission[]
   opportunitesMarque   OpportuniteMarque[]
   demandesEntrantes    DemandeEntrante[]
+  outreachTargets      OutreachTarget[]
+  cartoFiles           MarqueCartoFile[]
 
   @@index([slug])
   @@map("marques")
+}
+
+// Fichier de cartographie original (Excel/CSV importé) — conservé tel quel
+// pour consultation/téléchargement depuis la fiche marque.
+model MarqueCartoFile {
+  id String @id @default(cuid())
+
+  marqueId String
+  marque   Marque @relation(fields: [marqueId], references: [id], onDelete: Cascade)
+
+  fileName String
+  mimeType String
+  size     Int
+  data     Bytes
+
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  @@index([marqueId])
+  @@map("marque_carto_files")
 }
 
 // Suggestions de dédoublonnage générées par le cron IA (revue humaine ou fusion auto).
@@ -696,8 +718,16 @@ model MarqueContact {
   poste     String?
   principal Boolean @default(false)
 
+  // Cartographie importée (fichier Claude/Excel) — visible sur la fiche marque
+  priorite     String? // P1 / P2 / P3
+  perimetre    String?
+  localisation String?
+  linkedinUrl  String?
+  source       String? // "CARTO" = importé depuis une cartographie
+
   createdAt DateTime @default(now())
   quotes    Quote[]
+  outreachTargets OutreachTarget[]
 
   @@map("marque_contacts")
 }
@@ -2779,4 +2809,103 @@ model ActivationReportScreenshot {
 
   @@index([reportTalentId])
   @@map("activation_report_screenshots")
+}
+
+// ============================================
+// OUTREACH — cycle de contact clients 45 jours
+// ============================================
+
+enum OutreachTargetStatus {
+  TO_CONTACT // nouveau client, jamais contacté depuis l'app
+  WAITING // mail envoyé, compteur 45j en cours
+  TO_RECONTACT // 45j écoulés → rédiger un nouveau mail
+  STOPPED // sorti du cycle manuellement
+}
+
+// Un client suivi par le module Outreach. Le cycle est perpétuel :
+// même après une réponse, le client revient en TO_RECONTACT à J+45.
+// Seul un stop manuel (status = STOPPED) le sort de la boucle.
+model OutreachTarget {
+  id String @id @default(cuid())
+
+  marqueId String
+  marque   Marque @relation(fields: [marqueId], references: [id], onDelete: Cascade)
+
+  marqueContactId String?
+  marqueContact   MarqueContact? @relation(fields: [marqueContactId], references: [id], onDelete: SetNull)
+
+  // Snapshot du contact (robuste si la fiche est modifiée/supprimée)
+  firstname String
+  lastname  String?
+  email     String
+  company   String
+
+  status OutreachTargetStatus @default(TO_CONTACT)
+
+  // Brouillon en cours de rédaction (composer), avant envoi du cycle
+  draftSubject  String? @db.Text
+  draftBodyHtml String? @db.Text
+
+  cycleCount      Int       @default(0) // nombre de mails de cycle envoyés
+  lastSentAt      DateTime? // dernier envoi de cycle
+  nextRecontactAt DateTime? // dernier envoi + RECONTACT_DAYS
+  lastRepliedAt   DateTime? // info uniquement, ne sort pas du cycle
+  stoppedAt       DateTime?
+  stoppedById     String?
+
+  // Write-back HubSpot (app_last_contacted_at / app_outreach_status)
+  hubspotContactId String?
+  hubspotSyncedAt  DateTime?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  touches OutreachTouch[]
+
+  @@unique([email])
+  @@index([status, nextRecontactAt])
+  @@index([marqueId])
+  @@index([status, createdAt])
+  @@map("outreach_targets")
+}
+
+// Un mail de cycle envoyé à un client (historique complet : mail 1,
+// relance J+3 dans le thread, mail 2 à J+45, etc.)
+model OutreachTouch {
+  id String @id @default(cuid())
+
+  targetId String
+  target   OutreachTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  cycleNumber Int
+  subject     String @db.Text
+  bodyHtml    String @db.Text
+
+  sentAt    DateTime?
+  sentById  String?
+  threadId  String?
+  messageId String?
+  sendError String?   @db.Text
+
+  // Relance rapprochée J+3 ouvrés dans le même thread (1 max par touch)
+  relanceSentAt    DateTime?
+  relanceMessageId String?
+  relanceError     String?   @db.Text
+  repliedAt        DateTime?
+
+  openedAt     DateTime?
+  lastOpenAt   DateTime?
+  openCount    Int       @default(0)
+  clickedAt    DateTime?
+  lastClickAt  DateTime?
+  lastClickUrl String?   @db.Text
+  clickCount   Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([targetId, cycleNumber])
+  @@index([sentAt, repliedAt, relanceSentAt])
+  @@map("outreach_touches")
 }

@@ -1,20 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
+/**
+ * Annuaire des marques — liste « table » SaaS moderne :
+ * stat cards, recherche + filtre secteur, lignes denses avec logo auto
+ * (favicon du site), contacts/collabs, actions au survol.
+ */
+
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Plus,
   Search,
-  Filter,
   Building2,
   Globe,
-  Mail,
-  Eye,
   Pencil,
   Trash2,
   Users,
   Handshake,
   TrendingUp,
+  MapPin,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 
 interface Marque {
@@ -35,22 +42,44 @@ interface Marque {
   };
 }
 
-const SECTEURS = [
-  "Beauté",
-  "Mode",
-  "Food",
-  "Tech",
-  "Sport",
-  "Lifestyle",
-  "Luxe",
-  "Automobile",
-  "Finance",
-  "Santé",
-  "Voyage",
-  "Entertainment",
-];
+const INK = "#16110F";
+const ROSE = "#C08B8B";
+
+/** Logo de la marque : favicon du site, initiale en secours. */
+function BrandLogo({ nom, siteWeb, size = 9 }: { nom: string; siteWeb: string | null; size?: number }) {
+  const [error, setError] = useState(false);
+  const domain = siteWeb ? siteWeb.replace(/^https?:\/\//, "").split("/")[0] : null;
+  const px = size * 4;
+
+  if (domain && !error) {
+    return (
+      <div
+        className="rounded-xl bg-white ring-1 ring-black/[0.07] flex items-center justify-center overflow-hidden shrink-0"
+        style={{ width: px, height: px }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
+          alt={nom}
+          className="object-contain"
+          style={{ width: px * 0.55, height: px * 0.55 }}
+          onError={() => setError(true)}
+        />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="rounded-xl flex items-center justify-center shrink-0 text-sm font-bold text-white"
+      style={{ width: px, height: px, background: "linear-gradient(135deg, #C08B8B, #9C6B6B)" }}
+    >
+      {nom.charAt(0).toUpperCase()}
+    </div>
+  );
+}
 
 export default function MarquesPage() {
+  const router = useRouter();
   const [marques, setMarques] = useState<Marque[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -69,7 +98,6 @@ export default function MarquesPage() {
         setMarques([]);
         return;
       }
-      // L'API renvoie un tableau ; en cas d'erreur serveur c'est souvent { message: "..." }
       setMarques(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Erreur:", error);
@@ -79,229 +107,258 @@ export default function MarquesPage() {
     }
   };
 
-  const handleDelete = async (id: string, nom: string) => {
+  const handleDelete = async (e: React.MouseEvent, id: string, nom: string) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!confirm(`Supprimer la marque "${nom}" ?`)) return;
     try {
       await fetch(`/api/marques/${id}`, { method: "DELETE" });
-      setMarques(marques.filter((m) => m.id !== id));
-    } catch (error) {
+      setMarques((prev) => prev.filter((m) => m.id !== id));
+    } catch {
       alert("Erreur lors de la suppression");
     }
   };
 
-  const filteredMarques = marques.filter((marque) => {
-    const matchSearch = marque.nom.toLowerCase().includes(search.toLowerCase());
-    const matchSecteur = !filterSecteur || marque.secteur === filterSecteur;
-    return matchSearch && matchSecteur;
-  });
+  const allSecteurs = useMemo(
+    () => [...new Set(marques.map((m) => m.secteur).filter(Boolean))].sort() as string[],
+    [marques]
+  );
 
-  const allSecteurs = [...new Set(marques.map((m) => m.secteur).filter(Boolean))];
+  const filteredMarques = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return marques
+      .filter((m) => {
+        const matchSearch =
+          !q ||
+          m.nom.toLowerCase().includes(q) ||
+          (m.siteWeb || "").toLowerCase().includes(q) ||
+          (m.ville || "").toLowerCase().includes(q);
+        const matchSecteur = !filterSecteur || m.secteur === filterSecteur;
+        return matchSearch && matchSecteur;
+      })
+      .sort(
+        (a, b) =>
+          (b._count?.collaborations ?? 0) - (a._count?.collaborations ?? 0) ||
+          a.nom.localeCompare(b.nom, "fr")
+      );
+  }, [marques, search, filterSecteur]);
+
+  const totalCollabs = marques.reduce((acc, m) => acc + (m._count?.collaborations ?? 0), 0);
+  const totalContacts = marques.reduce((acc, m) => acc + (m.contacts?.length ?? 0), 0);
+
+  const STATS = [
+    { label: "Marques", value: marques.length, icon: Building2, tint: "text-rose-500 bg-rose-50" },
+    { label: "Collaborations", value: totalCollabs, icon: Handshake, tint: "text-emerald-600 bg-emerald-50" },
+    { label: "Contacts", value: totalContacts, icon: Users, tint: "text-blue-600 bg-blue-50" },
+    { label: "Secteurs", value: allSecteurs.length, icon: TrendingUp, tint: "text-purple-600 bg-purple-50" },
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-glowup-licorice">Marques</h1>
-          <p className="text-gray-500 mt-1">
-            {marques.length} marques partenaires
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="min-h-full" style={{ backgroundColor: "#FAF9F7" }}>
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">
+        {/* ====================== Topbar ====================== */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-[26px] font-bold tracking-[-0.02em]" style={{ color: INK }}>
+              Marques
+            </h1>
+            <p className="text-[13px] text-gray-400 mt-0.5">
+              {marques.length} marque{marques.length > 1 ? "s" : ""} dans le CRM — fiches partagées avec toute l&apos;équipe
+            </p>
+          </div>
           <Link
             href="/marques/new"
-            className="flex items-center gap-2 px-4 py-2 bg-glowup-rose text-white rounded-xl hover:bg-glowup-rose-dark transition-colors shadow-lg shadow-glowup-rose/25"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-lg text-white transition-opacity hover:opacity-90"
+            style={{ backgroundColor: INK }}
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
             Nouvelle marque
           </Link>
         </div>
-      </div>
 
-      {/* Stats rapides */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-4">
-          <div className="p-3 bg-glowup-rose/10 rounded-xl">
-            <Building2 className="w-6 h-6 text-glowup-rose" />
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-glowup-licorice">{marques.length}</p>
-            <p className="text-sm text-gray-500">Marques actives</p>
-          </div>
+        {/* ====================== Stat cards ====================== */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {STATS.map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] px-4 py-3.5 flex items-start justify-between"
+            >
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">{stat.label}</p>
+                <p className="text-[22px] font-bold tabular-nums mt-0.5" style={{ color: INK }}>
+                  {stat.value}
+                </p>
+              </div>
+              <div className={`p-2 rounded-xl shrink-0 ${stat.tint}`}>
+                <stat.icon className="w-4 h-4" />
+              </div>
+            </div>
+          ))}
         </div>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-4">
-          <div className="p-3 bg-emerald-100 rounded-xl">
-            <Handshake className="w-6 h-6 text-emerald-600" />
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-glowup-licorice">
-              {marques.reduce((acc, m) => acc + (m._count?.collaborations ?? 0), 0)}
-            </p>
-            <p className="text-sm text-gray-500">Collaborations totales</p>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center gap-4">
-          <div className="p-3 bg-blue-100 rounded-xl">
-            <TrendingUp className="w-6 h-6 text-blue-600" />
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-glowup-licorice">{allSecteurs.length}</p>
-            <p className="text-sm text-gray-500">Secteurs représentés</p>
-          </div>
-        </div>
-      </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          {/* Search */}
+        {/* ====================== Toolbar ====================== */}
+        <div className="flex flex-col sm:flex-row gap-2.5">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
             <input
               type="text"
-              placeholder="Rechercher une marque..."
+              placeholder="Rechercher une marque, un site, une ville…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20"
+              className="w-full pl-9 pr-4 py-2 rounded-xl bg-white ring-1 ring-black/[0.07] text-[13px] placeholder:text-gray-300 focus:outline-none focus:ring-2 shadow-[0_1px_2px_rgba(16,12,10,0.04)]"
             />
           </div>
-
-          {/* Filter by secteur */}
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <select
-              value={filterSecteur}
-              onChange={(e) => setFilterSecteur(e.target.value)}
-              className="pl-10 pr-8 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white min-w-[180px]"
-            >
-              <option value="">Tous les secteurs</option>
-              {SECTEURS.map((secteur) => (
-                <option key={secteur} value={secteur}>
-                  {secteur}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Grid de marques */}
-      {loading ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center text-gray-500">
-          Chargement...
-        </div>
-      ) : filteredMarques.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-          <Building2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500">Aucune marque trouvée</p>
-          <Link
-            href="/marques/new"
-            className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-glowup-rose text-white rounded-lg hover:bg-glowup-rose-dark transition-colors"
+          <select
+            value={filterSecteur}
+            onChange={(e) => setFilterSecteur(e.target.value)}
+            className="px-3.5 py-2 rounded-xl bg-white ring-1 ring-black/[0.07] text-[13px] text-gray-600 focus:outline-none focus:ring-2 appearance-none min-w-[170px] shadow-[0_1px_2px_rgba(16,12,10,0.04)]"
           >
-            <Plus className="w-4 h-4" />
-            Ajouter une marque
-          </Link>
+            <option value="">Tous les secteurs</option>
+            {allSecteurs.map((secteur) => (
+              <option key={secteur} value={secteur}>
+                {secteur}
+              </option>
+            ))}
+          </select>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredMarques.map((marque) => {
-            const contactPrincipal =
-              marque.contacts?.find((c) => c.principal) || marque.contacts?.[0];
-            return (
-              <div
-                key={marque.id}
-                className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow group"
-              >
-                {/* Header avec couleur selon secteur */}
-                <div className="h-2 bg-gradient-to-r from-glowup-rose to-glowup-rose-dark" />
-                
-                <div className="p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl bg-glowup-lace flex items-center justify-center">
-                        <span className="text-lg font-bold text-glowup-rose">
-                          {marque.nom.charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-glowup-licorice">{marque.nom}</h3>
+
+        {/* ====================== Liste ====================== */}
+        {loading ? (
+          <div className="flex items-center justify-center py-24">
+            <Loader2 className="w-7 h-7 animate-spin" style={{ color: ROSE }} />
+          </div>
+        ) : filteredMarques.length === 0 ? (
+          <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] py-16 text-center">
+            <Building2 className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+            <p className="text-sm text-gray-400">Aucune marque trouvée</p>
+            <Link
+              href="/marques/new"
+              className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-[13px] font-semibold text-white rounded-lg hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: INK }}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Ajouter une marque
+            </Link>
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
+            {/* En-tête de colonnes */}
+            <div className="hidden md:grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_repeat(2,90px)_110px] gap-3 px-5 py-2.5 border-b border-gray-100 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-300">
+              <span>Marque</span>
+              <span>Site</span>
+              <span>Localisation</span>
+              <span className="text-right">Contacts</span>
+              <span className="text-right">Collabs</span>
+              <span />
+            </div>
+
+            <div className="divide-y divide-gray-50">
+              {filteredMarques.map((marque) => {
+                const domain = marque.siteWeb
+                  ? marque.siteWeb.replace(/^https?:\/\//, "").split("/")[0]
+                  : null;
+                return (
+                  <div
+                    key={marque.id}
+                    onClick={() => router.push(`/marques/${marque.id}`)}
+                    className="group grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_repeat(2,90px)_110px] gap-3 items-center px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors"
+                  >
+                    {/* Marque */}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <BrandLogo nom={marque.nom} siteWeb={marque.siteWeb} />
+                      <div className="min-w-0">
+                        <p className="text-[14px] font-semibold truncate" style={{ color: INK }}>
+                          {marque.nom}
+                        </p>
                         {marque.secteur && (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                          <span
+                            className="inline-block mt-0.5 px-1.5 py-[1px] rounded text-[10px] font-medium ring-1 ring-inset ring-black/[0.05]"
+                            style={{ backgroundColor: "#F5EBE0", color: INK }}
+                          >
                             {marque.secteur}
                           </span>
                         )}
                       </div>
                     </div>
-                  </div>
 
-                  {/* Info */}
-                  <div className="space-y-2 mb-4">
-                    {marque.siteWeb && (
-                      <a
-                        href={marque.siteWeb}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-sm text-gray-500 hover:text-glowup-rose transition-colors"
+                    {/* Site */}
+                    <div className="hidden md:block min-w-0">
+                      {domain ? (
+                        <a
+                          href={marque.siteWeb!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1.5 text-[12.5px] text-gray-500 hover:underline truncate"
+                          style={{ color: ROSE }}
+                        >
+                          <Globe className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">{domain}</span>
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-200">—</span>
+                      )}
+                    </div>
+
+                    {/* Localisation */}
+                    <div className="hidden md:block min-w-0">
+                      {marque.ville ? (
+                        <span className="inline-flex items-center gap-1.5 text-[12.5px] text-gray-500 truncate">
+                          <MapPin className="w-3.5 h-3.5 text-gray-300 shrink-0" />
+                          <span className="truncate">
+                            {marque.ville}
+                            {marque.pays ? `, ${marque.pays}` : ""}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-200">—</span>
+                      )}
+                    </div>
+
+                    {/* Contacts */}
+                    <div className="hidden md:flex items-center justify-end gap-1.5 text-[13px] tabular-nums text-gray-600">
+                      <Users className="w-3.5 h-3.5 text-gray-300" />
+                      {marque.contacts?.length ?? 0}
+                    </div>
+
+                    {/* Collabs */}
+                    <div className="hidden md:flex items-center justify-end gap-1.5 text-[13px] tabular-nums text-gray-600">
+                      <Handshake className="w-3.5 h-3.5 text-gray-300" />
+                      {marque._count?.collaborations ?? 0}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center justify-end gap-1">
+                      <Link
+                        href={`/marques/${marque.id}/edit`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1.5 rounded-lg text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-700 hover:bg-gray-100 transition-all"
+                        title="Modifier"
                       >
-                        <Globe className="w-4 h-4" />
-                        <span className="truncate">{marque.siteWeb.replace(/^https?:\/\//, "")}</span>
-                      </a>
-                    )}
-                    {contactPrincipal && (
-                      <div className="flex items-center gap-2 text-sm text-gray-500">
-                        <Mail className="w-4 h-4" />
-                        <span className="truncate">{contactPrincipal.nom}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Stats */}
-                  <div className="flex items-center gap-4 py-3 border-t border-gray-100">
-                    <div className="flex items-center gap-1.5">
-                      <Handshake className="w-4 h-4 text-gray-400" />
-                      <span className="text-sm font-medium text-glowup-licorice">
-                        {marque._count?.collaborations ?? 0}
-                      </span>
-                      <span className="text-xs text-gray-500">collabs</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <Users className="w-4 h-4 text-gray-400" />
-                      <span className="text-sm font-medium text-glowup-licorice">
-                        {marque.contacts?.length ?? 0}
-                      </span>
-                      <span className="text-xs text-gray-500">contacts</span>
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Link>
+                      <button
+                        onClick={(e) => handleDelete(e, marque.id, marque.nom)}
+                        className="p-1.5 rounded-lg text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 transition-all"
+                        title="Supprimer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      <ChevronRight className="w-4 h-4 text-gray-200 group-hover:text-gray-400 transition-colors" />
                     </div>
                   </div>
+                );
+              })}
+            </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
-                    <Link
-                      href={`/marques/${marque.id}`}
-                      className="flex-1 flex items-center justify-center gap-2 py-2 text-sm text-gray-600 hover:text-glowup-rose hover:bg-glowup-lace rounded-lg transition-colors"
-                    >
-                      <Eye className="w-4 h-4" />
-                      Voir
-                    </Link>
-                    <Link
-                      href={`/marques/${marque.id}/edit`}
-                      className="flex-1 flex items-center justify-center gap-2 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    >
-                      <Pencil className="w-4 h-4" />
-                      Modifier
-                    </Link>
-                    <button
-                      onClick={() => handleDelete(marque.id, marque.nom)}
-                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+            {/* Pied de liste */}
+            <div className="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-300">
+              {filteredMarques.length} résultat{filteredMarques.length > 1 ? "s" : ""}
+              {(search || filterSecteur) && ` · filtré sur ${marques.length}`}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

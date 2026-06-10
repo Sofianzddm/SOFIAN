@@ -492,7 +492,7 @@ export default function TalentDetailPage() {
   };
   // ========== FIN EDIT PERFORMANCES STORIES ==========
 
-  // ========== UPLOAD PHOTO (Direct Cloudinary) ==========
+  // ========== UPLOAD PHOTO (Direct S3) ==========
   const handlePhotoClick = () => {
     if (canUploadPhoto && fileInputRef.current) {
       fileInputRef.current.click();
@@ -509,7 +509,7 @@ export default function TalentDetailPage() {
       return;
     }
 
-    // Pas de limite stricte - Cloudinary gère jusqu'à 100MB
+    // Pas de limite stricte côté app — upload direct S3
     if (file.size > 100 * 1024 * 1024) {
       setUploadError("L'image ne doit pas dépasser 100MB");
       return;
@@ -520,44 +520,14 @@ export default function TalentDetailPage() {
     setUploadSuccess(false);
 
     try {
-      // 1. Récupérer la signature depuis notre API
-      const signatureRes = await fetch("/api/upload/signature", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ talentId: talent.id }),
-      });
-
-      if (!signatureRes.ok) {
-        throw new Error("Erreur de signature");
-      }
-
-      const { signature, timestamp, folder, publicId, cloudName, apiKey } = await signatureRes.json();
-
-      // 2. Upload direct vers Cloudinary (bypass Vercel)
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("signature", signature);
-      formData.append("timestamp", timestamp.toString());
-      formData.append("folder", folder);
-      formData.append("public_id", publicId);
-      formData.append("api_key", apiKey);
-
-      const cloudinaryRes = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-        {
-          method: "POST",
-          body: formData,
-        }
+      const { uploadFileViaPresignedUrl } = await import("@/lib/s3-upload-client");
+      const photoUrl = await uploadFileViaPresignedUrl(
+        "/api/upload/signature",
+        { talentId: talent.id },
+        file
       );
 
-      if (!cloudinaryRes.ok) {
-        throw new Error("Erreur upload Cloudinary");
-      }
-
-      const cloudinaryData = await cloudinaryRes.json();
-      const photoUrl = cloudinaryData.secure_url;
-
-      // 3. Mettre à jour la DB avec la nouvelle URL
+      // Mettre à jour la DB avec la nouvelle URL
       const updateRes = await fetch("/api/upload/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

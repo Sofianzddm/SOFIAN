@@ -341,6 +341,114 @@ export async function updateContactPresskitUrl(
 }
 
 /**
+ * Recherche un contact HubSpot par email (CRM v3 search).
+ * Retourne l'id du contact ou null s'il n'existe pas.
+ */
+export async function findContactIdByEmail(email: string): Promise<string | null> {
+  if (!HUBSPOT_API_KEY) {
+    console.warn('❌ HUBSPOT_API_KEY not configured');
+    return null;
+  }
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+
+  try {
+    const response = await fetch(`${HUBSPOT_BASE_URL}/crm/v3/objects/contacts/search`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filterGroups: [
+          {
+            filters: [
+              { propertyName: 'email', operator: 'EQ', value: normalized },
+            ],
+          },
+        ],
+        properties: ['email'],
+        limit: 1,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`❌ HubSpot findContactIdByEmail error ${response.status}`);
+      return null;
+    }
+
+    const data = (await response.json()) as { results?: Array<{ id: string }> };
+    return data.results?.[0]?.id ?? null;
+  } catch (error) {
+    console.error('❌ HubSpot findContactIdByEmail error:', error);
+    return null;
+  }
+}
+
+export type AppOutreachStatus = 'contacte' | 'a_recontacter' | 'stoppe';
+
+/**
+ * Write-back Outreach : marque un contact HubSpot comme contacté depuis l'app.
+ *
+ * Propriétés personnalisées à créer une fois dans HubSpot (type contact) :
+ *  - app_last_contacted_at : "Sélecteur de date" (date picker)
+ *  - app_outreach_status   : "Texte sur une ligne" (ou liste déroulante)
+ *
+ * Les listes actives HubSpot peuvent alors filtrer dessus, p.ex.
+ * « app_last_contacted_at est inconnu » pour la liste "à contacter",
+ * afin que le contact en sorte automatiquement dès l'envoi depuis l'app.
+ */
+export async function markContactContactedFromApp(
+  contactId: string,
+  status: AppOutreachStatus,
+  contactedAt: Date = new Date()
+): Promise<boolean> {
+  if (!HUBSPOT_API_KEY) {
+    console.warn('❌ HUBSPOT_API_KEY not configured');
+    return false;
+  }
+
+  try {
+    // Les propriétés HubSpot de type "date" exigent un timestamp ms à minuit UTC.
+    const midnightUtc = Date.UTC(
+      contactedAt.getUTCFullYear(),
+      contactedAt.getUTCMonth(),
+      contactedAt.getUTCDate()
+    );
+
+    const response = await fetch(
+      `${HUBSPOT_BASE_URL}/crm/v3/objects/contacts/${contactId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${HUBSPOT_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          properties: {
+            app_last_contacted_at: String(midnightUtc),
+            app_outreach_status: status,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      console.error(
+        `❌ HubSpot markContactContactedFromApp ${response.status}: ${detail.slice(0, 300)}`
+      );
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('❌ HubSpot markContactContactedFromApp error:', error);
+    return false;
+  }
+}
+
+/**
  * Met à jour les champs casting sur un contact (propriétés HubSpot :
  * casting_email_subject, casting_email_body, casting_status).
  */

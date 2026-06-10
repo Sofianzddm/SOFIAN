@@ -1,0 +1,56 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getAppSession } from "@/lib/getAppSession";
+import { executeOutreachSend } from "@/lib/outreach-send";
+
+/**
+ * POST → envoie un mail de cycle au client (depuis « À contacter » ou
+ * « À recontacter », ou recontact anticipé depuis « En attente »).
+ * Body : { subject, bodyHtml }
+ */
+
+const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getAppSession(request);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    const role = session.user.role || "";
+    if (!ALLOWED_ROLES.includes(role as (typeof ALLOWED_ROLES)[number])) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+    }
+
+    const { id } = await params;
+    const body = (await request.json().catch(() => ({}))) as {
+      subject?: string;
+      bodyHtml?: string;
+    };
+
+    const result = await executeOutreachSend(id, {
+      subject: String(body.subject || ""),
+      bodyHtml: String(body.bodyHtml || ""),
+      sentById: session.user.id,
+    });
+
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 422 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      touchId: result.touchId,
+      messageId: result.messageId,
+      hubspotSynced: result.hubspotSynced,
+    });
+  } catch (error) {
+    console.error("POST /api/outreach/targets/[id]/send:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Erreur serveur" },
+      { status: 500 }
+    );
+  }
+}

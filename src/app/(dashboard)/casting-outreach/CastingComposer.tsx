@@ -178,6 +178,8 @@ export interface CastingComposerProps {
   contact: CastingCompanyRecipients | null;
   brandColumn?: "todo" | "progress" | "ready" | null;
   useHubspot?: boolean;
+  /** Libellé du bouton principal (défaut : « Marquer comme prêt »). */
+  readyLabel?: string;
   onClose: () => void;
   onSaved: (
     status: "en_cours" | "pret" | "reset",
@@ -192,6 +194,7 @@ export default function CastingComposer({
   contact,
   brandColumn,
   useHubspot = true,
+  readyLabel = "Marquer comme prêt",
   onClose,
   onSaved,
   onError,
@@ -1151,7 +1154,7 @@ export default function CastingComposer({
                     style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
                   >
                     {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                    Marquer comme prêt
+                    {readyLabel}
                   </button>
                 </>
               )}

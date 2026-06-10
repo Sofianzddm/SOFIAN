@@ -23,6 +23,10 @@
     {
       "path": "/api/cron/marque-dedupe-ai",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/outreach",
+      "schedule": "0 8 * * *"
     }
   ]
 }

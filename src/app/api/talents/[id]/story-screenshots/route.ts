@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { v2 as cloudinary } from "cloudinary";
+import { uploadFileToS3 } from "@/lib/s3";
 import prisma from "@/lib/prisma";
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
 
 export async function POST(
   request: NextRequest,
@@ -54,25 +48,18 @@ export async function POST(
       if (!file.type.startsWith("image/")) {
         continue;
       }
-      const bytes = await file.arrayBuffer();
-      const buffer = Buffer.from(bytes);
-      const base64 = `data:${file.type};base64,${buffer.toString("base64")}`;
-
-      const result = await cloudinary.uploader.upload(base64, {
+      const url = await uploadFileToS3(file, {
         folder: "glowup-talent-stories",
-        public_id: `${talentId}-story-${Date.now()}-${Math.random()
+        baseName: `${talentId}-story-${Date.now()}-${Math.random()
           .toString(36)
           .slice(2, 8)}`,
       });
-
-      if (result.secure_url) {
-        uploadedUrls.push(result.secure_url);
-      }
+      uploadedUrls.push(url);
     }
 
     if (uploadedUrls.length === 0) {
       return NextResponse.json(
-        { error: "Aucun screenshot valide uploadé sur Cloudinary" },
+        { error: "Aucun screenshot valide uploadé sur S3" },
         { status: 400 }
       );
     }

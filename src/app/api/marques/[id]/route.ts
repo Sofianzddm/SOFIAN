@@ -18,7 +18,25 @@ export async function GET(
     const marque = await prisma.marque.findUnique({
       where: { id: id },
       include: {
-        contacts: true,
+        contacts: {
+          orderBy: [{ principal: "desc" }, { priorite: "asc" }, { createdAt: "asc" }],
+          include: {
+            outreachTargets: {
+              select: {
+                id: true,
+                status: true,
+                cycleCount: true,
+                lastSentAt: true,
+                nextRecontactAt: true,
+                lastRepliedAt: true,
+              },
+            },
+          },
+        },
+        cartoFiles: {
+          select: { id: true, fileName: true, size: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        },
         collaborations: {
           include: {
             talent: {
@@ -104,11 +122,18 @@ export async function PUT(
         await prisma.marqueContact.createMany({
           data: data.contacts.map((contact: any) => ({
             marqueId: id,
+            prenom: contact.prenom || null,
             nom: contact.nom,
             email: contact.email || null,
             telephone: contact.telephone || null,
             poste: contact.poste || null,
             principal: contact.principal || false,
+            // Champs de cartographie (import Claude/Excel) — préservés à l'édition
+            priorite: contact.priorite || null,
+            perimetre: contact.perimetre || null,
+            localisation: contact.localisation || null,
+            linkedinUrl: contact.linkedinUrl || null,
+            source: contact.source || null,
           })),
         });
       }

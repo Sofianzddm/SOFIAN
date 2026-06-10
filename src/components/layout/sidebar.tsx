@@ -28,6 +28,7 @@ import {
   BadgeDollarSign,
   BarChart3,
   Calculator,
+  Repeat,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -52,6 +53,12 @@ const menuItems = [
     label: "Casting Outreach",
     href: "/casting-outreach",
     icon: Mail,
+    roles: ["CASTING_MANAGER", "ADMIN"],
+  },
+  {
+    label: "Outreach Clients",
+    href: "/outreach",
+    icon: Repeat,
     roles: ["CASTING_MANAGER", "ADMIN"],
   },
   {

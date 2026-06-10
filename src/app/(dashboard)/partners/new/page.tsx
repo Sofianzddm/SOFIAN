@@ -69,44 +69,14 @@ export default function NewPartnerPage() {
     if (!pendingFile) return;
 
     try {
-      // 1. Récupérer la signature
-      const signatureRes = await fetch("/api/partners/upload-logo/signature", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partnerId }),
-      });
-
-      if (!signatureRes.ok) {
-        throw new Error("Erreur de signature");
-      }
-
-      const { signature, timestamp, folder, publicId, cloudName, apiKey } = await signatureRes.json();
-
-      // 2. Upload direct vers Cloudinary
-      const formData = new FormData();
-      formData.append("file", pendingFile);
-      formData.append("signature", signature);
-      formData.append("timestamp", timestamp.toString());
-      formData.append("folder", folder);
-      formData.append("public_id", publicId);
-      formData.append("api_key", apiKey);
-
-      const cloudinaryRes = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-        {
-          method: "POST",
-          body: formData,
-        }
+      const { uploadFileViaPresignedUrl } = await import("@/lib/s3-upload-client");
+      const logoUrl = await uploadFileViaPresignedUrl(
+        "/api/partners/upload-logo/signature",
+        { partnerId },
+        pendingFile
       );
 
-      if (!cloudinaryRes.ok) {
-        throw new Error("Erreur upload Cloudinary");
-      }
-
-      const cloudinaryData = await cloudinaryRes.json();
-      const logoUrl = cloudinaryData.secure_url;
-
-      // 3. Mettre à jour la DB avec la nouvelle URL
+      // Mettre à jour la DB avec la nouvelle URL
       const updateRes = await fetch("/api/partners/upload-logo/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -273,7 +243,7 @@ export default function NewPartnerPage() {
                 }
               }}
               className="w-full px-4 py-2 border rounded-lg text-sm"
-              placeholder="https://res.cloudinary.com/..."
+              placeholder="https://..."
             />
           </div>
         </div>

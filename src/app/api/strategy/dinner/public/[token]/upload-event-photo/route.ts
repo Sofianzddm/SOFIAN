@@ -1,13 +1,7 @@
-import { v2 as cloudinary } from "cloudinary";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { uploadFileToS3 } from "@/lib/s3";
 
 function eventIsFinished(eventDate: Date | null): boolean {
   if (!eventDate) return false;
@@ -43,22 +37,16 @@ export async function POST(
       return NextResponse.json({ error: "Image requise" }, { status: 400 });
     }
 
-    const bytes = await file.arrayBuffer();
-    const base64 = `data:${file.type};base64,${Buffer.from(bytes).toString("base64")}`;
-    const uploaded = await cloudinary.uploader.upload(base64, {
+    const url = await uploadFileToS3(file, {
       folder: "glowup-dinner-event-photos",
-      public_id: `dinner-event-client-${Date.now()}`,
-      transformation: [
-        { width: 2000, height: 2000, crop: "limit" },
-        { quality: "auto:good" },
-        { fetch_format: "auto" },
-      ],
+      baseName: `dinner-event-client-${Date.now()}`,
+      maxWidth: 2000,
     });
 
     const currentPhotos = Array.isArray(campaign.eventPhotos)
       ? campaign.eventPhotos.map((v) => String(v))
       : [];
-    const nextPhotos = [...currentPhotos, uploaded.secure_url];
+    const nextPhotos = [...currentPhotos, url];
 
     await prisma.dinnerCampaign.update({
       where: { id: campaign.id },
@@ -67,7 +55,7 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ success: true, url: uploaded.secure_url, eventPhotos: nextPhotos });
+    return NextResponse.json({ success: true, url, eventPhotos: nextPhotos });
   } catch (error) {
     console.error("Erreur POST /api/strategy/dinner/public/[token]/upload-event-photo:", error);
     return NextResponse.json({ error: "Erreur upload photo evenement" }, { status: 500 });

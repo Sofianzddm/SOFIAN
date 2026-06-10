@@ -1,13 +1,7 @@
-import { v2 as cloudinary } from "cloudinary";
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { canAccessDinnerStrategy } from "@/app/api/strategy/dinner/_utils";
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { uploadFileToS3 } from "@/lib/s3";
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,23 +24,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Le fichier depasse 10MB" }, { status: 400 });
     }
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const base64 = `data:${file.type};base64,${buffer.toString("base64")}`;
-
-    const uploaded = await cloudinary.uploader.upload(base64, {
+    const url = await uploadFileToS3(file, {
       folder: "glowup-dinner-logos",
-      public_id: `dinner-logo-${Date.now()}`,
-      transformation: [
-        { width: 1200, height: 1200, crop: "limit" },
-        { quality: "auto:good" },
-        { fetch_format: "auto" },
-      ],
+      baseName: `dinner-logo-${Date.now()}`,
+      maxWidth: 1200,
     });
 
     return NextResponse.json({
       success: true,
-      url: uploaded.secure_url,
+      url,
     });
   } catch (error) {
     console.error("Erreur POST /api/strategy/dinner/upload-logo:", error);

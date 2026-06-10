@@ -3,13 +3,9 @@ import type { Prisma } from "@prisma/client";
 /** Clé `cannes_shared_settings` : portrait affiché sur la page publique `/r/cannes-coiffeur`. */
 export const COIFFEUR_PUBLIC_PROFILE_SETTING_KEY = "coiffeur-public-profile";
 
-/** `public_id` Cloudinary fixe : chaque upload écrase la même ressource (pas d’accumulation). */
-export const COIFFEUR_PROFILE_CLOUDINARY_FOLDER = "glowup-cannes-coiffeur";
-export const COIFFEUR_PROFILE_CLOUDINARY_PUBLIC_ID = "booking-page-portrait";
-
-export function coiffeurProfileCloudinaryFullPublicId(): string {
-  return `${COIFFEUR_PROFILE_CLOUDINARY_FOLDER}/${COIFFEUR_PROFILE_CLOUDINARY_PUBLIC_ID}`;
-}
+/** Clé S3 fixe : chaque upload écrase la même ressource (pas d'accumulation). */
+export const COIFFEUR_PROFILE_S3_FOLDER = "glowup-cannes-coiffeur";
+export const COIFFEUR_PROFILE_S3_BASE_NAME = "booking-page-portrait";
 
 export function photoUrlFromStoredValue(value: unknown): string | null {
   if (value == null || value === "") return null;

@@ -2,13 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { v2 as cloudinary } from "cloudinary";
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { uploadFileToS3 } from "@/lib/s3";
 
 function statutV1FromLegacyCollab(statut: string | null | undefined): string {
   if (statut === "APPROUVE" || statut === "SIGNE") return "APPROUVE";
@@ -67,16 +61,11 @@ export async function POST(
       formData.get("signedFinal") === "1" ||
       formData.get("signedFinal") === "on";
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const base64 = `data:${file.type};base64,${buffer.toString("base64")}`;
-    const uploaded = await cloudinary.uploader.upload(base64, {
+    const url = await uploadFileToS3(file, {
       folder: "glowup-contrats-marques",
-      public_id: `${collaboration.reference}-${Date.now()}`,
-      resource_type: "auto",
+      baseName: `${collaboration.reference}-${Date.now()}`,
+      optimize: false,
     });
-
-    const url = uploaded.secure_url;
 
     const lastVersion = await prisma.contratMarqueVersion.findFirst({
       where: { collaborationId: id },

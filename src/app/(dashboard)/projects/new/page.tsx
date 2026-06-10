@@ -127,13 +127,13 @@ export default function NewProjectPage() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-2">Image de couverture (URL Cloudinary)</label>
+            <label className="block text-sm font-medium mb-2">Image de couverture (URL)</label>
             <input
               type="text"
               value={formData.coverImage}
               onChange={(e) => setFormData({ ...formData, coverImage: e.target.value })}
               className="w-full px-4 py-2 border rounded-lg"
-              placeholder="https://res.cloudinary.com/..."
+              placeholder="https://..."
             />
           </div>
           <div>
@@ -182,7 +182,7 @@ export default function NewProjectPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-2">Images additionnelles (URLs Cloudinary)</label>
+          <label className="block text-sm font-medium mb-2">Images additionnelles (URLs)</label>
           <div className="flex gap-2 mb-2">
             <input
               type="text"
@@ -195,7 +195,7 @@ export default function NewProjectPage() {
                 }
               }}
               className="flex-1 px-4 py-2 border rounded-lg"
-              placeholder="https://res.cloudinary.com/..."
+              placeholder="https://..."
             />
             <button
               type="button"

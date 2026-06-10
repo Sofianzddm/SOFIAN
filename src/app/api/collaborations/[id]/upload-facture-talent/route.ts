@@ -2,14 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { v2 as cloudinary } from "cloudinary";
-
-// Configuration Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { uploadFileToS3, deleteFromS3 } from "@/lib/s3";
 
 // POST - Upload de la facture par le talent
 export async function POST(
@@ -102,35 +95,22 @@ export async function POST(
       );
     }
 
-    // 8. Upload vers Cloudinary
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const base64 = `data:${file.type};base64,${buffer.toString("base64")}`;
-
-    const result = await cloudinary.uploader.upload(base64, {
+    // 8. Upload vers S3 (PDF ou image)
+    const fileUrl = await uploadFileToS3(file, {
       folder: "glowup-factures-talents",
-      public_id: `${collaboration.reference}-${Date.now()}`,
-      resource_type: "auto", // Accepte PDF, images, etc.
+      baseName: `${collaboration.reference}-${Date.now()}`,
     });
 
     // 9. Supprimer l'ancienne facture si elle existe (cas ADMIN qui remplace)
-    if (collaboration.factureTalentUrl && collaboration.factureTalentUrl.includes("cloudinary.com")) {
-      try {
-        const urlParts = collaboration.factureTalentUrl.split("/");
-        const filenameWithExt = urlParts[urlParts.length - 1];
-        const folder = urlParts[urlParts.length - 2];
-        const publicId = `${folder}/${filenameWithExt.split(".")[0]}`;
-        await cloudinary.uploader.destroy(publicId);
-      } catch (e) {
-        console.log("Ancienne facture non supprimée:", e);
-      }
+    if (collaboration.factureTalentUrl) {
+      await deleteFromS3(collaboration.factureTalentUrl);
     }
 
     // 10. Mettre à jour la collaboration
     const updated = await prisma.collaboration.update({
       where: { id },
       data: {
-        factureTalentUrl: result.secure_url,
+        factureTalentUrl: fileUrl,
         factureTalentRecueAt: new Date(),
         statut: collaboration.statut === "PUBLIE" ? "FACTURE_RECUE" : collaboration.statut,
       },
@@ -183,7 +163,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      url: result.secure_url,
+      url: fileUrl,
       collaboration: {
         id: updated.id,
         reference: updated.reference,

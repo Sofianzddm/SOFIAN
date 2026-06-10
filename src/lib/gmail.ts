@@ -176,6 +176,35 @@ export async function sendGmail(options: {
   return sendJson.id;
 }
 
+/**
+ * Cherche dans les messages ENVOYÉS de la boîte les mails adressés à `to`
+ * durant les `days` derniers jours. Renvoie les threads concernés — permet
+ * de vérifier qu'on n'a pas déjà contacté un client récemment (séquence
+ * HubSpot, mail manuel, autre module…).
+ */
+export async function findRecentSentToRecipient(
+  fromEmail: string,
+  to: string,
+  days: number
+): Promise<{ id: string; threadId: string }[]> {
+  const accessToken = await getValidAccessToken(fromEmail);
+  const query = `in:sent to:${to} newer_than:${days}d`;
+  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=20`;
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const json = (await response.json().catch(() => null)) as {
+    messages?: { id: string; threadId: string }[];
+    error?: { message?: string };
+  } | null;
+
+  if (!response.ok) {
+    throw new Error(json?.error?.message || `Gmail search a échoué (${response.status})`);
+  }
+  return json?.messages || [];
+}
+
 export async function checkThreadForReply(email: string, threadId: string): Promise<boolean> {
   const accessToken = await getValidAccessToken(email);
   const response = await fetch(`${GMAIL_THREADS_BASE_URL}/${encodeURIComponent(threadId)}`, {
