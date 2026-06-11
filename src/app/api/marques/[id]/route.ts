@@ -85,6 +85,11 @@ export async function PUT(
     const { id } = await params;
     const data = await request.json();
 
+    const before = await prisma.marque.findUnique({
+      where: { id },
+      select: { nom: true },
+    });
+
     // Mettre à jour la marque
     const marque = await prisma.marque.update({
       where: { id: id },
@@ -109,6 +114,15 @@ export async function PUT(
         devise: data.devise || "EUR",
       },
     });
+
+    // Le nom est dénormalisé sur les cibles Outreach : on le synchronise
+    // pour que le cycle de contact affiche le nouveau nom de la marque.
+    if (before && data.nom && data.nom !== before.nom) {
+      await prisma.outreachTarget.updateMany({
+        where: { marqueId: id },
+        data: { company: data.nom },
+      });
+    }
 
     // Si des contacts sont fournis, les mettre à jour
     if (data.contacts) {

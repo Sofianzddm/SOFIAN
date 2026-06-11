@@ -45,6 +45,15 @@ export async function mergeMarques(
     await upd("opportuniteMarque", "opportunitesMarque");
     await upd("demandeEntrante", "demandesEntrantes");
 
+    // Cibles Outreach : FK en ON DELETE CASCADE, il faut impérativement les
+    // déplacer avant de supprimer la source. Le nom dénormalisé (company)
+    // est aligné sur la marque conservée.
+    const outreach = await tx.outreachTarget.updateMany({
+      where: { marqueId: sourceMarqueId },
+      data: { marqueId: targetMarqueId, company: target.nom },
+    });
+    if (outreach.count > 0) moved.outreachTargets = outreach.count;
+
     const notif = await tx.notification.updateMany({
       where: { marqueId: sourceMarqueId },
       data: { marqueId: targetMarqueId },

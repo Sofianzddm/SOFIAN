@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { checkThreadForReply } from "@/lib/gmail";
+import { checkThreadForReply, checkThreadActivity } from "@/lib/gmail";
 import { hasBusinessDaysElapsed, isBusinessDay } from "@/lib/business-days";
 import {
   executeOutreachRelance,
@@ -18,7 +18,9 @@ import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
 /**
  * Cron quotidien du module Outreach (8h, jours ouvrés) :
  *  1. Détecte les réponses sur le dernier mail de chaque client en attente
- *     (info seulement : le client RESTE dans le cycle 45 jours).
+ *     (info seulement : le client RESTE dans le cycle 45 jours). Les bounces
+ *     (adresse invalide, mail revenu en erreur) suppriment automatiquement
+ *     le contact du cycle avec une notification au créateur.
  *  2. Envoie la relance auto J+3 ouvrés dans le thread si pas de réponse.
  *  3. Bascule en « À recontacter » les clients dont les 45 jours sont écoulés.
  *  4. Même chose pour la prospection des projets strategy (Ski Trip…) :
@@ -56,25 +58,51 @@ export async function GET(request: NextRequest) {
   let replies = 0;
   let relances = 0;
   let recontacts = 0;
+  let bounces = 0;
   const recontactByCreator = new Map<string, number>();
 
   for (const target of targets) {
     const touch = target.touches[0];
     if (!touch?.sentAt || !touch.threadId) continue;
 
-    // 1. Détection de réponse (info seulement, le cycle continue)
+    // 1. Détection de réponse (info seulement, le cycle continue) et de
+    //    bounce (adresse invalide → contact retiré automatiquement du cycle)
     let hasReplied = Boolean(touch.repliedAt);
+    let hasBounced = false;
     if (!hasReplied) {
       try {
         // Le thread vit dans la boîte qui a envoyé ce touch (pas forcément
         // la boîte actuelle du target).
-        hasReplied = await checkThreadForReply(
+        const activity = await checkThreadActivity(
           outreachFromEmail({ fromEmail: touch.fromEmail }),
           touch.threadId
         );
+        hasReplied = activity.replied;
+        hasBounced = activity.bounced && !activity.replied;
       } catch (error) {
-        console.warn(`[cron/outreach] checkThreadForReply ${target.email}:`, error);
+        console.warn(`[cron/outreach] checkThreadActivity ${target.email}:`, error);
       }
+
+      if (hasBounced) {
+        bounces += 1;
+        await prisma.notification
+          .create({
+            data: {
+              userId: target.createdById,
+              type: "GENERAL",
+              titre: "Email invalide (Outreach)",
+              message: `${target.firstname} ${target.lastname || ""} (${target.company}) : l'adresse ${target.email} n'existe pas — le mail est revenu en erreur, contact retiré du cycle.`,
+              lien: "/outreach",
+              marqueId: target.marqueId,
+            },
+          })
+          .catch((e) => console.warn("[cron/outreach] notification bounce:", e));
+        await prisma.outreachTarget
+          .delete({ where: { id: target.id } })
+          .catch((e) => console.warn(`[cron/outreach] suppression bounce ${target.email}:`, e));
+        continue;
+      }
+
       if (hasReplied) {
         replies += 1;
         await prisma.$transaction([
@@ -258,6 +286,7 @@ export async function GET(request: NextRequest) {
     replies,
     relances,
     recontacts,
+    bounces,
     projetProcessed: opportunites.length,
     projetReplies,
     projetRelances,

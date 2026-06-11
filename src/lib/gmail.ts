@@ -272,3 +272,63 @@ export async function checkThreadForReply(email: string, threadId: string): Prom
 
   return Array.isArray(json?.messages) && json.messages.length > 1;
 }
+
+export type ThreadActivity = {
+  /** Au moins une vraie réponse humaine (ni nos mails, ni un bounce). */
+  replied: boolean;
+  /** Au moins une notification d'échec de remise (postmaster, mailer-daemon…). */
+  bounced: boolean;
+};
+
+const BOUNCE_FROM_RE = /mailer-daemon|postmaster|mail delivery (subsystem|system)/i;
+const BOUNCE_SUBJECT_RE =
+  /undeliver|delivery (has )?failed|delivery status notification|delivery failure|mail delivery failed|address not found|échec de la remise|impossible de remettre|non remis|message non distribué/i;
+
+/**
+ * Inspecte un thread Gmail et distingue les vraies réponses des bounces
+ * (échec de remise) et de nos propres mails (envoi initial + relance dans le
+ * même thread). Contrairement à checkThreadForReply, une relance ou un
+ * postmaster ne compte pas comme une réponse.
+ */
+export async function checkThreadActivity(
+  email: string,
+  threadId: string
+): Promise<ThreadActivity> {
+  const accessToken = await getValidAccessToken(email);
+  const url = `${GMAIL_THREADS_BASE_URL}/${encodeURIComponent(
+    threadId
+  )}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const json = (await response.json().catch(() => null)) as {
+    messages?: {
+      payload?: { headers?: { name?: string; value?: string }[] };
+    }[];
+  } | null;
+  if (!response.ok || !Array.isArray(json?.messages)) {
+    return { replied: false, bounced: false };
+  }
+
+  const ownEmail = email.trim().toLowerCase();
+  let replied = false;
+  let bounced = false;
+
+  for (const message of json.messages) {
+    const headers = message?.payload?.headers || [];
+    const header = (name: string) =>
+      headers.find((h) => (h.name || "").toLowerCase() === name)?.value || "";
+    const from = header("from").toLowerCase();
+    const subject = header("subject");
+
+    if (!from || from.includes(ownEmail)) continue;
+    if (BOUNCE_FROM_RE.test(from) || BOUNCE_SUBJECT_RE.test(subject)) {
+      bounced = true;
+      continue;
+    }
+    replied = true;
+  }
+
+  return { replied, bounced };
+}

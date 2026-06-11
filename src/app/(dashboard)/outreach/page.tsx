@@ -34,6 +34,7 @@ import {
   FileSpreadsheet,
   ExternalLink,
   UserPlus,
+  MailWarning,
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 
@@ -214,6 +215,7 @@ export default function OutreachPage() {
   const [expandedTouches, setExpandedTouches] = useState<Touch[]>([]);
   const [expandedLoading, setExpandedLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [checkingBounces, setCheckingBounces] = useState(false);
 
   const flash = useCallback((kind: "success" | "error", message: string) => {
     if (kind === "success") {
@@ -513,6 +515,49 @@ export default function OutreachPage() {
     [composerGroup, saveDraft, flash, loadTargets]
   );
 
+  /**
+   * Vérification rétroactive des bounces sur tous les mails déjà envoyés :
+   * supprime les contacts dont l'adresse n'existe pas (mail revenu en erreur)
+   * et corrige les fausses « réponses » (relance auto / postmaster).
+   */
+  const handleCheckBounces = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Vérifier tous les mails déjà envoyés ?\n\nLes contacts dont l'adresse n'existe pas (mail revenu en erreur) seront supprimés du cycle automatiquement."
+      )
+    )
+      return;
+    setCheckingBounces(true);
+    try {
+      const res = await fetch("/api/outreach/check-bounces", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Vérification impossible.");
+      const bounces: { name: string; company: string }[] = data.bounces || [];
+      const falseReplies: unknown[] = data.falseReplies || [];
+      if (bounces.length === 0 && falseReplies.length === 0) {
+        flash("success", `${data.scanned} contact(s) vérifiés : aucune adresse invalide détectée.`);
+      } else {
+        const detail = bounces.map((b) => `${b.name} (${b.company})`).join(", ");
+        flash(
+          "success",
+          `${data.scanned} contact(s) vérifiés — ${bounces.length} adresse(s) invalide(s) supprimée(s)${
+            detail ? ` : ${detail}` : ""
+          }${falseReplies.length > 0 ? ` — ${falseReplies.length} fausse(s) réponse(s) corrigée(s)` : ""}.`
+        );
+      }
+      loadTargets();
+    } catch (e: unknown) {
+      flash("error", e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setCheckingBounces(false);
+    }
+  }, [flash, loadTargets]);
+
   const handleRelanceNow = useCallback(
     async (target: Target) => {
       if (!window.confirm(`Envoyer une relance dans le thread du dernier mail à ${target.email} ?`)) return;
@@ -592,6 +637,20 @@ export default function OutreachPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleCheckBounces}
+            disabled={checkingBounces}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition hover:bg-gray-50 disabled:opacity-50"
+            style={{ borderColor: "#E5E0DA", color: LICORICE }}
+            title="Vérifie les threads Gmail des mails déjà envoyés : supprime les contacts dont l'adresse n'existe pas (mail revenu en erreur)"
+          >
+            {checkingBounces ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <MailWarning className="w-4 h-4" style={{ color: "#C2410C" }} />
+            )}
+            Vérifier les bounces
+          </button>
           <button
             onClick={() => setShowCartoModal(true)}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition hover:bg-gray-50"
