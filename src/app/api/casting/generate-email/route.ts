@@ -202,7 +202,9 @@ STYLE TO REPLICATE (recommended structure but stay fluid):
 - Adaptive transition sentence: "These profiles bring both strong awareness, real [category] credibility, and the ability to create lived-in content that matches your current direction." -> Replace [category] with the most relevant term (lifestyle, responsible fashion, sport & movement, etc.).
 - Collaboration sentence: warm, premium version (example: "We would love to explore a collaboration with you and our talents." or "This could genuinely create great outcomes together.").
 - MUST add one sentence that includes a CLICKABLE link to our full roster, in this exact HTML format: <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
-- CTA: "Would you be available for a 15-minute conversation in the coming days? Or share the direction of your upcoming campaigns?" (you may adapt slightly if needed).
+- The email MUST end with these two EXACT sentences, without modifying or rephrasing them, right before the closing:
+"I would be delighted to quickly send you their complete media kits, a moodboard, and tailored performance estimates.
+Would you be available for a 10-15 minute call next week?"
 
 Exact closing: "Best regards,"
 
@@ -258,7 +260,9 @@ STYLE À REPRODUIRE (structure recommandée mais fluide) :
 - Phrase de transition adaptative : "Ces profils apportent à la fois une belle notoriété, une vraie crédibilité [catégorie] et une capacité à créer du contenu vécu qui colle à votre direction actuelle." → Remplace [catégorie] par le terme le plus pertinent (lifestyle, mode responsable, sport & mouvement, etc.).
 - Phrase collaboration : version chaleureuse et premium (ex. "On serait ravis d’explorer une collaboration avec vous et nos talents." ou "Ça pourrait vraiment donner de belles choses ensemble.").
 - Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
-- CTA : "Seriez-vous disponible pour un échange de 15 minutes dans les prochains jours ? Ou m'indiquer une direction de vos futures campagnes ?" (tu peux légèrement adapter si besoin).
+- Terminer OBLIGATOIREMENT le mail par ces deux phrases EXACTES, sans les modifier ni les reformuler, juste avant la clôture :
+"Je serais ravie de vous envoyer rapidement leurs médias kits complets, un moodboard ainsi que des estimations de performance sur mesure.
+Seriez-vous disponible pour un appel de 10-15 minutes la semaine prochaine ?"
 
 Clôture exacte : "Belle journée,"
 
