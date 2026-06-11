@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
 
     const brandName = body.brandName.trim();
     const language: "fr" | "en" = body.language === "en" ? "en" : "fr";
-    const { newProducts, brandPositioning } = body.brandResearch;
+    const { newProducts, brandPositioning, influenceStrategy } = body.brandResearch;
 
     const recipientFirstName =
       typeof body.recipient?.firstName === "string"
@@ -179,6 +179,7 @@ CURRENT CONTEXT: April 2026
 Brand: ${brandName}
 New products / collections to prioritize: ${newProducts}
 Positioning: ${brandPositioning}
+Current influence strategy of the brand (profile types, formats, tone of their collaborations): ${influenceStrategy || "—"}
 Available talents: ${talentsString} (the variable already contains complete HTML links in the form <a><strong>Firstname Lastname</strong></a>; keep them as-is, do NOT remove the bold or the link)
 
 ${
@@ -196,7 +197,7 @@ STYLE TO REPLICATE (recommended structure but stay fluid):
 - First sentence: a natural, elegant variation around "We immediately thought of ${brandNameToken} while reviewing our talents." OR a more direct product-led opener if the brand is very lifestyle/organic (example for VEJA: "When we saw Jitsu launching...").
 - Mention the strongest new launch very specifically, ideally starting with "Your" for a personal and direct tone. Keep it short, elegant, and impactful.
 - Explain the fit in a natural, precise, and compelling way (2-3 sentences max).
-- Transition: "It made us think of a few creators who could be a perfect match for your world:" (you may vary the wording slightly if the brand tone calls for it).
+- Transition BEFORE the talent list: lean on the "Current influence strategy of the brand" to show we studied their collaborations. Use a wording like: "We noticed you currently collaborate with [profile types / formats summarized in a few words], so here are creators who perfectly match your target:". Stay natural and concise (1-2 sentences max), do not copy the whole strategy. If the strategy is "—" or empty, simply use: "It made us think of a few creators who could be a perfect match for your world:".
 - List the talents in a clear, airy bullet format:
   Firstname Lastname (instagram followers count - Category) -> short reason (10-15 words max), very relevant and smart
 - Adaptive transition sentence: "These profiles bring both strong awareness, real [category] credibility, and the ability to create lived-in content that matches your current direction." -> Replace [category] with the most relevant term (lifestyle, responsible fashion, sport & movement, etc.).
@@ -237,6 +238,7 @@ CONTEXTE ACTUEL : avril 2026
 Marque : ${brandName}
 Nouveautés / collections à citer en priorité : ${newProducts}
 Positionnement : ${brandPositioning}
+Stratégie d'influence actuelle de la marque (types de profils, formats, tonalité de leurs collaborations) : ${influenceStrategy || "—"}
 Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme <a><strong>Prénom Nom</strong></a> ; conserve-les tels quels, NE retire jamais le gras ni le lien)
 
 ${
@@ -254,7 +256,7 @@ STYLE À REPRODUIRE (structure recommandée mais fluide) :
 - Première phrase : une variation naturelle et élégante autour de "On a immédiatement pensé à ${brandNameToken} en regardant nos talents." OU une accroche plus directe sur le produit si la marque est très lifestyle/organique (ex. pour VEJA : "En voyant le Jitsu sortir…").
 - Citer précisément la nouveauté la plus forte en commençant idéalement par "Votre" pour un ton personnel et direct. Phrase courte, élégante et impactante.
 - Expliquer le fit de façon naturelle, précise et séduisante (2-3 phrases max).
-- Transition : "Ça nous a fait penser à quelques créateurs qui pourraient parfaitement correspondre à votre univers :" (tu peux varier légèrement la formule si le ton de la marque le demande).
+- Transition AVANT la liste des talents : appuie-toi sur la "Stratégie d'influence actuelle de la marque" pour montrer qu'on a étudié leurs collaborations. Formule du type : "On a vu que vous collaborez en ce moment avec [type de profils / formats résumés en quelques mots], voici donc des créateurs qui correspondent parfaitement à votre cible :". Reste naturel et synthétique (1-2 phrases max), ne recopie pas toute la stratégie. Si la stratégie est "—" ou vide, utilise simplement : "Ça nous a fait penser à quelques créateurs qui pourraient parfaitement correspondre à votre univers :".
 - Lister les talents en format clair et aéré avec des tirets :
   Prénom Nom (nombre d’abonnés instagram – Catégorie) → raison courte (10-15 mots max), très pertinente et intelligente
 - Phrase de transition adaptative : "Ces profils apportent à la fois une belle notoriété, une vraie crédibilité [catégorie] et une capacité à créer du contenu vécu qui colle à votre direction actuelle." → Remplace [catégorie] par le terme le plus pertinent (lifestyle, mode responsable, sport & mouvement, etc.).
