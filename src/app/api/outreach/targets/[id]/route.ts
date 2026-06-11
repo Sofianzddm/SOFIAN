@@ -72,6 +72,7 @@ export async function PATCH(
       lastname?: string;
       email?: string;
       company?: string;
+      fromEmail?: string | null;
     };
 
     const target = await prisma.outreachTarget.findUnique({ where: { id } });
@@ -130,6 +131,28 @@ export async function PATCH(
       });
       marqueContactId = marqueContact?.id || marqueContactId;
 
+      // Boîte expéditrice : null = retour au défaut (Leyna), sinon doit être
+      // connectée. Choix réservé à l'ADMIN — ignoré pour les autres rôles.
+      let fromEmailUpdate: { fromEmail: string | null } | Record<string, never> = {};
+      if ("fromEmail" in body && session.user.role === "ADMIN") {
+        const rawFromEmail = (body.fromEmail || "").trim().toLowerCase();
+        if (rawFromEmail) {
+          const senderToken = await prisma.gmailToken.findUnique({
+            where: { email: rawFromEmail },
+            select: { id: true },
+          });
+          if (!senderToken) {
+            return NextResponse.json(
+              { error: `La boîte ${rawFromEmail} n'est pas connectée à la plateforme.` },
+              { status: 400 }
+            );
+          }
+          fromEmailUpdate = { fromEmail: rawFromEmail };
+        } else {
+          fromEmailUpdate = { fromEmail: null };
+        }
+      }
+
       const updated = await prisma.outreachTarget.update({
         where: { id },
         data: {
@@ -139,6 +162,7 @@ export async function PATCH(
           company,
           marqueId,
           marqueContactId,
+          ...fromEmailUpdate,
           // L'id HubSpot mémorisé n'est plus fiable si l'email change
           ...(email !== target.email.toLowerCase()
             ? { hubspotContactId: null, hubspotSyncedAt: null }

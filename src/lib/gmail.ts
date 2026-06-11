@@ -8,6 +8,58 @@ const GMAIL_SEND_AS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/settin
 const SIGNATURE_CACHE = new Map<string, { value: string; expiresAt: number }>();
 const SIGNATURE_TTL_MS = 60 * 60 * 1000;
 
+const FROM_NAME_CACHE = new Map<string, { value: string; expiresAt: number }>();
+const FROM_NAME_TTL_MS = 10 * 60 * 1000;
+
+/** Nom historique conservé pour la boîte Leyna (comportement inchangé). */
+const LEGACY_FROM_NAMES: Record<string, string> = {
+  "leyna@glowupagence.fr": "Leyna Khaled",
+};
+
+function fallbackNameFromEmail(email: string): string {
+  const local = email.split("@")[0] || email;
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/**
+ * Nom affiché dans le From : displayName de la boîte, sinon prénom/nom du
+ * user plateforme lié, sinon nom historique (Leyna), sinon dérivé de l'email.
+ */
+export async function getGmailFromName(email: string): Promise<string> {
+  const key = email.toLowerCase();
+  const cached = FROM_NAME_CACHE.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  let name = "";
+  try {
+    const token = await prisma.gmailToken.findUnique({
+      where: { email: key },
+      select: {
+        displayName: true,
+        user: { select: { prenom: true, nom: true } },
+      },
+    });
+    name =
+      token?.displayName?.trim() ||
+      (token?.user ? `${token.user.prenom} ${token.user.nom}`.trim() : "");
+  } catch {
+    name = "";
+  }
+  if (!name) name = LEGACY_FROM_NAMES[key] || fallbackNameFromEmail(key);
+
+  FROM_NAME_CACHE.set(key, { value: name, expiresAt: Date.now() + FROM_NAME_TTL_MS });
+  return name;
+}
+
+export function clearGmailFromNameCache(email?: string): void {
+  if (email) FROM_NAME_CACHE.delete(email.toLowerCase());
+  else FROM_NAME_CACHE.clear();
+}
+
 function toBase64Url(input: string): string {
   return Buffer.from(input, "utf-8")
     .toString("base64")
@@ -121,8 +173,10 @@ export async function sendGmail(options: {
   const signature = shouldAppend ? await getGmailSignature(options.fromEmail) : "";
   const finalBody = appendSignature(options.htmlBody, signature);
 
+  const fromName = await getGmailFromName(options.fromEmail);
+
   const message = [
-    `From: ${encodeMimeHeader("Leyna Khaled")} <${options.fromEmail}>`,
+    `From: ${encodeMimeHeader(fromName)} <${options.fromEmail}>`,
     `To: ${options.to}`,
     `Subject: ${encodeMimeHeader(options.subject)}`,
     "MIME-Version: 1.0",

@@ -347,6 +347,8 @@ model User {
   coiffeurBookingsPlaced          CannesCoiffeurBooking[]     @relation("CannesCoiffeurBookingCreator")
   activationReportsCreated        ActivationReport[]          @relation("ActivationReportCreatedBy")
 
+  gmailToken GmailToken?
+
   @@map("users")
 }
 
@@ -1690,8 +1692,16 @@ model GmailToken {
   accessToken  String   @db.Text
   refreshToken String   @db.Text
   expiresAt    DateTime
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+
+  // Nom affiché dans le From des mails envoyés (sinon prénom/nom du user lié)
+  displayName String?
+
+  // Utilisateur plateforme propriétaire de la boîte (liaison optionnelle)
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model CastingListConfig {
@@ -2270,6 +2280,11 @@ model ProjetEvenement {
   dateFin   DateTime
   lieu      String?
   statut    String   @default("ACTIF")
+
+  // Boîte Gmail expéditrice de TOUTE la prospection du projet
+  // (null = leyna@glowupagence.fr). Ex : ski-trip → ines@glowupagence.fr.
+  senderEmail String?
+
   createdAt DateTime @default(now())
 
   opportunites      OpportuniteMarque[]
@@ -2299,6 +2314,11 @@ model OpportuniteMarque {
   // A_QUALIFIER | IDENTIFIEE | CONTACTEE | EN_NEGO | SIGNEE | PERDUE
   statut  String @default("A_QUALIFIER")
   talents Json   @default("[]")
+
+  // Dernier mail de prospection envoyé depuis la plateforme
+  lastEmailSentAt   DateTime?
+  lastEmailFrom     String?
+  lastEmailThreadId String?
 
   ownerId     String?
   createdById String?
@@ -2842,6 +2862,11 @@ model OutreachTarget {
 
   status OutreachTargetStatus @default(TO_CONTACT)
 
+  // Boîte Gmail expéditrice du cycle (null = leyna@glowupagence.fr).
+  // Fixée par client pour garder tout le cycle (envois, relances, détection
+  // de réponses) sur la même boîte.
+  fromEmail String?
+
   // Brouillon en cours de rédaction (composer), avant envoi du cycle
   draftSubject  String? @db.Text
   draftBodyHtml String? @db.Text
@@ -2881,6 +2906,11 @@ model OutreachTouch {
   cycleNumber Int
   subject     String @db.Text
   bodyHtml    String @db.Text
+
+  // Boîte qui a réellement envoyé ce mail (null = leyna, envois historiques).
+  // Les threads Gmail étant propres à chaque boîte, la relance et la détection
+  // de réponse doivent utiliser cette boîte même si le target change de boîte.
+  fromEmail String?
 
   sentAt    DateTime?
   sentById  String?

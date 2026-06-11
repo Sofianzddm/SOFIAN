@@ -4,6 +4,7 @@ import { checkThreadForReply } from "@/lib/gmail";
 import { hasBusinessDaysElapsed, isBusinessDay } from "@/lib/business-days";
 import {
   executeOutreachRelance,
+  outreachFromEmail,
   OUTREACH_RELANCE_BUSINESS_DAYS,
 } from "@/lib/outreach-send";
 
@@ -56,7 +57,12 @@ export async function GET(request: NextRequest) {
     let hasReplied = Boolean(touch.repliedAt);
     if (!hasReplied) {
       try {
-        hasReplied = await checkThreadForReply("leyna@glowupagence.fr", touch.threadId);
+        // Le thread vit dans la boîte qui a envoyé ce touch (pas forcément
+        // la boîte actuelle du target).
+        hasReplied = await checkThreadForReply(
+          outreachFromEmail({ fromEmail: touch.fromEmail }),
+          touch.threadId
+        );
       } catch (error) {
         console.warn(`[cron/outreach] checkThreadForReply ${target.email}:`, error);
       }

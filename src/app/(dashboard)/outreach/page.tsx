@@ -73,6 +73,7 @@ type Target = {
   lastname: string | null;
   email: string;
   company: string;
+  fromEmail: string | null;
   status: TargetStatus;
   draftSubject: string | null;
   draftBodyHtml: string | null;
@@ -85,6 +86,22 @@ type Target = {
   createdAt: string;
   touches: TouchSummary[];
 };
+
+/** Boîte Gmail connectée, utilisable comme expéditrice d'un cycle. */
+type SenderAccount = {
+  email: string;
+  label: string;
+};
+
+const DEFAULT_SENDER_EMAIL = "leyna@glowupagence.fr";
+
+function senderLabel(accounts: SenderAccount[], fromEmail: string | null): string {
+  const email = (fromEmail || "").trim().toLowerCase() || DEFAULT_SENDER_EMAIL;
+  const account = accounts.find((a) => a.email.toLowerCase() === email);
+  if (account) return account.label;
+  if (email === DEFAULT_SENDER_EMAIL) return "Leyna";
+  return email;
+}
 
 /** Contact importé depuis une cartographie (fichier Claude/Excel), en attente d'email. */
 type PendingContact = {
@@ -141,6 +158,7 @@ export default function OutreachPage() {
     company: string;
     targets: Target[];
   } | null>(null);
+  const [senderAccounts, setSenderAccounts] = useState<SenderAccount[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedTouches, setExpandedTouches] = useState<Touch[]>([]);
   const [expandedLoading, setExpandedLoading] = useState(false);
@@ -179,12 +197,38 @@ export default function OutreachPage() {
     }
   }, []);
 
+  const loadSenderAccounts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/gmail/accounts");
+      const data = (await res.json().catch(() => ({}))) as {
+        accounts?: Array<{
+          email: string;
+          displayName: string | null;
+          user: { prenom: string; nom: string } | null;
+        }>;
+      };
+      if (res.ok) {
+        setSenderAccounts(
+          (data.accounts || []).map((a) => ({
+            email: a.email,
+            label:
+              a.displayName ||
+              (a.user ? `${a.user.prenom} ${a.user.nom}`.trim() : a.email),
+          }))
+        );
+      }
+    } catch {
+      /* non bloquant : fallback Leyna */
+    }
+  }, []);
+
   useEffect(() => {
     if (sessionStatus === "authenticated" && ALLOWED.includes(role)) {
       loadTargets();
       loadPendingContacts();
+      loadSenderAccounts();
     }
-  }, [sessionStatus, role, loadTargets, loadPendingContacts]);
+  }, [sessionStatus, role, loadTargets, loadPendingContacts, loadSenderAccounts]);
 
   const counts = useMemo(() => {
     const c: Record<TargetStatus, number> = {
@@ -649,6 +693,17 @@ export default function OutreachPage() {
 
                         {/* Badges */}
                         <div className="flex flex-wrap items-center gap-2 text-xs">
+                          {target.fromEmail &&
+                            target.fromEmail.toLowerCase() !== DEFAULT_SENDER_EMAIL && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
+                                style={{ backgroundColor: "#EEF2FF", color: "#4338CA" }}
+                                title={`Cycle envoyé depuis ${target.fromEmail}`}
+                              >
+                                <Mail className="w-3 h-3" />
+                                {senderLabel(senderAccounts, target.fromEmail)}
+                              </span>
+                            )}
                           {target.cycleCount > 0 && (
                             <span className="px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: OLD_LACE, color: LICORICE }}>
                               Cycle {target.cycleCount}
@@ -846,6 +901,8 @@ export default function OutreachPage() {
       {/* Modals */}
       {showAddModal && (
         <AddClientModal
+          senderAccounts={senderAccounts}
+          allowSenderChoice={isAdmin}
           onClose={() => setShowAddModal(false)}
           onAdded={() => {
             setShowAddModal(false);
@@ -878,6 +935,8 @@ export default function OutreachPage() {
       {editTarget && (
         <EditClientModal
           target={editTarget}
+          senderAccounts={senderAccounts}
+          allowSenderChoice={isAdmin}
           onClose={() => setEditTarget(null)}
           onSaved={() => {
             setEditTarget(null);
@@ -892,7 +951,10 @@ export default function OutreachPage() {
         contact={composerContact}
         brandColumn={"todo"}
         useHubspot={false}
-        readyLabel="Envoyer depuis Leyna"
+        readyLabel={`Envoyer depuis ${senderLabel(
+          senderAccounts,
+          composerGroup?.targets[0]?.fromEmail ?? null
+        )}`}
         onClose={() => setComposerGroup(null)}
         onSaved={handleComposerSaved}
         onError={(m) => flash("error", m)}
@@ -934,10 +996,15 @@ type ContactOption = {
 };
 
 function AddClientModal({
+  senderAccounts,
+  allowSenderChoice,
   onClose,
   onAdded,
   onError,
 }: {
+  senderAccounts: SenderAccount[];
+  /** Choix de la boîte d'envoi réservé à l'ADMIN — sinon tout part de Leyna. */
+  allowSenderChoice: boolean;
   onClose: () => void;
   onAdded: () => void;
   onError: (message: string) => void;
@@ -956,6 +1023,7 @@ function AddClientModal({
   const [lastname, setLastname] = useState("");
   const [email, setEmail] = useState("");
   const [poste, setPoste] = useState("");
+  const [fromEmail, setFromEmail] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Recherche débouncée dans le CRM (marques + personnes)
@@ -1033,6 +1101,7 @@ function AddClientModal({
           lastname,
           email,
           poste,
+          fromEmail: allowSenderChoice ? fromEmail || undefined : undefined,
         }),
       });
       const data = await res.json();
@@ -1286,6 +1355,34 @@ function AddClientModal({
               <p className="text-xs text-gray-400 mt-2">
                 Un nouveau contact est ajouté à la fiche marque s&apos;il n&apos;existe pas déjà (dédoublonnage par email).
               </p>
+
+              {/* ---------- Étape 3 : la boîte d'envoi (ADMIN uniquement) ---------- */}
+              {allowSenderChoice && senderAccounts.length > 1 && (
+                <div className="mt-4">
+                  <label className="block text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: OLD_ROSE }}>
+                    3. Boîte d&apos;envoi
+                  </label>
+                  <select
+                    value={fromEmail}
+                    onChange={(e) => setFromEmail(e.target.value)}
+                    className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                    style={{ borderColor: "#E5E0DA" }}
+                  >
+                    <option value="">Leyna (par défaut) — {DEFAULT_SENDER_EMAIL}</option>
+                    {senderAccounts
+                      .filter((a) => a.email.toLowerCase() !== DEFAULT_SENDER_EMAIL)
+                      .map((a) => (
+                        <option key={a.email} value={a.email}>
+                          {a.label} — {a.email}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1.5">
+                    Tout le cycle de ce client (mails, relances, détection de réponses)
+                    partira de cette boîte.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1315,11 +1412,16 @@ function AddClientModal({
 
 function EditClientModal({
   target,
+  senderAccounts,
+  allowSenderChoice,
   onClose,
   onSaved,
   onError,
 }: {
   target: Target;
+  senderAccounts: SenderAccount[];
+  /** Choix de la boîte d'envoi réservé à l'ADMIN — sinon tout part de Leyna. */
+  allowSenderChoice: boolean;
   onClose: () => void;
   onSaved: () => void;
   onError: (message: string) => void;
@@ -1328,6 +1430,11 @@ function EditClientModal({
   const [lastname, setLastname] = useState(target.lastname || "");
   const [email, setEmail] = useState(target.email);
   const [company, setCompany] = useState(target.company);
+  const [fromEmail, setFromEmail] = useState(
+    (target.fromEmail || "").toLowerCase() === DEFAULT_SENDER_EMAIL
+      ? ""
+      : target.fromEmail || ""
+  );
   const [saving, setSaving] = useState(false);
 
   const canSubmit = firstname.trim() && email.trim() && company.trim() && !saving;
@@ -1339,7 +1446,16 @@ function EditClientModal({
       const res = await fetch(`/api/outreach/targets/${target.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "edit", firstname, lastname, email, company }),
+        body: JSON.stringify({
+          action: "edit",
+          firstname,
+          lastname,
+          email,
+          company,
+          // Sans le droit de choisir, on n'envoie pas le champ : la boîte
+          // configurée par l'admin est conservée telle quelle.
+          ...(allowSenderChoice ? { fromEmail: fromEmail || null } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
@@ -1411,6 +1527,35 @@ function EditClientModal({
               </p>
             )}
           </div>
+          {allowSenderChoice && senderAccounts.length > 1 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Boîte d&apos;envoi</label>
+              <select
+                value={fromEmail}
+                onChange={(e) => setFromEmail(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                style={{ borderColor: "#E5E0DA" }}
+              >
+                <option value="">Leyna (par défaut) — {DEFAULT_SENDER_EMAIL}</option>
+                {senderAccounts
+                  .filter((a) => a.email.toLowerCase() !== DEFAULT_SENDER_EMAIL)
+                  .map((a) => (
+                    <option key={a.email} value={a.email}>
+                      {a.label} — {a.email}
+                    </option>
+                  ))}
+              </select>
+              {(fromEmail || "").toLowerCase() !==
+                ((target.fromEmail || "").toLowerCase() === DEFAULT_SENDER_EMAIL
+                  ? ""
+                  : (target.fromEmail || "").toLowerCase()) && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Les prochains mails partiront de cette boîte. Les relances des mails
+                  déjà envoyés restent sur l&apos;ancienne boîte (même fil Gmail).
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2 px-5 py-4 border-t" style={{ borderColor: "#F0EBE4" }}>
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50">

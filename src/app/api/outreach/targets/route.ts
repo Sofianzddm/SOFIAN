@@ -74,11 +74,31 @@ export async function POST(request: NextRequest) {
       lastname?: string;
       email?: string;
       poste?: string;
+      fromEmail?: string;
     };
 
     const email = (body.email || "").trim().toLowerCase();
     if (!email || !isValidEmail(email)) {
       return NextResponse.json({ error: "Email invalide." }, { status: 400 });
+    }
+
+    // Boîte expéditrice du cycle (optionnel, défaut Leyna) : choix réservé à
+    // l'ADMIN — la casting manager envoie toujours depuis Leyna.
+    let fromEmail: string | null = null;
+    const rawFromEmail =
+      session.user.role === "ADMIN" ? (body.fromEmail || "").trim().toLowerCase() : "";
+    if (rawFromEmail) {
+      const senderToken = await prisma.gmailToken.findUnique({
+        where: { email: rawFromEmail },
+        select: { id: true },
+      });
+      if (!senderToken) {
+        return NextResponse.json(
+          { error: `La boîte ${rawFromEmail} n'est pas connectée à la plateforme.` },
+          { status: 400 }
+        );
+      }
+      fromEmail = rawFromEmail;
     }
 
     const existing = await prisma.outreachTarget.findUnique({
@@ -119,6 +139,7 @@ export async function POST(request: NextRequest) {
           lastname: updated.prenom ? updated.nom : null,
           email,
           company: contact.marque.nom,
+          fromEmail,
           createdById: session.user.id,
         },
       });
@@ -182,6 +203,7 @@ export async function POST(request: NextRequest) {
         lastname: lastname || null,
         email,
         company,
+        fromEmail,
         createdById: session.user.id,
       },
     });

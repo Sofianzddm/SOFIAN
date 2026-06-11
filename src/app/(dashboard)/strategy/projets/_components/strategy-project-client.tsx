@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
-import { Loader2, Plus, Lock } from "lucide-react";
+import { Loader2, Plus, Lock, Mail, Send } from "lucide-react";
 
 type Tab = "casting" | "marques" | "planning" | "deals";
 
@@ -73,6 +73,8 @@ type Opportunite = {
   ownerId: string | null;
   statut: string;
   contactQualifie: boolean;
+  lastEmailSentAt?: string | null;
+  lastEmailFrom?: string | null;
   dateActivation?: string | null;
   montantFinal?: number | null;
   statutLivraison?: string;
@@ -218,6 +220,31 @@ function decodeClientLanguageFromAngleNote(angleNote?: string | null): {
   return { language, cleanNote };
 }
 
+type SearchedContact = {
+  id: string;
+  firstname: string;
+  lastname: string;
+  email: string;
+  role: string;
+  companyName: string;
+  source: "app" | "hubspot";
+};
+
+type SenderAccount = {
+  email: string;
+  label: string;
+};
+
+const DEFAULT_SENDER_EMAIL = "leyna@glowupagence.fr";
+
+function senderLabelFor(accounts: SenderAccount[], email: string | null): string {
+  const normalized = (email || "").trim().toLowerCase() || DEFAULT_SENDER_EMAIL;
+  const account = accounts.find((a) => a.email.toLowerCase() === normalized);
+  if (account) return `${account.label} (${normalized})`;
+  if (normalized === DEFAULT_SENDER_EMAIL) return `Leyna (${normalized})`;
+  return normalized;
+}
+
 function encodeClientLanguageIntoAngleNote(
   cleanNote?: string | null,
   language?: ClientLanguage
@@ -228,7 +255,13 @@ function encodeClientLanguageIntoAngleNote(
   return note ? `${payload} ${note}` : payload;
 }
 
-export function StrategyVillaCannesClient() {
+export function StrategyProjectClient({
+  projetSlug,
+  projetNom,
+}: {
+  projetSlug: string;
+  projetNom: string;
+}) {
   const { data: session } = useSession();
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
   const isAdmin = role === "ADMIN";
@@ -277,6 +310,17 @@ export function StrategyVillaCannesClient() {
   const [contacts, setContacts] = useState<Array<{ firstName: string; lastName: string; email: string; role: string }>>([
     { firstName: "", lastName: "", email: "", role: "" },
   ]);
+  const [contactSearchLoading, setContactSearchLoading] = useState(false);
+  const [contactSearchError, setContactSearchError] = useState<string | null>(null);
+  const [contactSearchResults, setContactSearchResults] = useState<SearchedContact[] | null>(null);
+
+  // Boîte d'envoi du projet + envoi du mail de prospection (ADMIN)
+  const [projetSenderEmail, setProjetSenderEmail] = useState<string | null>(null);
+  const [senderAccounts, setSenderAccounts] = useState<SenderAccount[]>([]);
+  const [emailModalOpp, setEmailModalOpp] = useState<Opportunite | null>(null);
+  const [emailForm, setEmailForm] = useState({ subject: "", bodyText: "" });
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const [newTalent, setNewTalent] = useState({
     talentId: "",
@@ -349,14 +393,17 @@ export function StrategyVillaCannesClient() {
   async function refreshAll() {
     setLoading(true);
     try {
-      const [kpisRes, castingRes, oppRes, planningRes, dealsRes, talentsRes] = await Promise.all([
-        fetch("/api/strategy/kpis?projetSlug=villa-cannes"),
-        fetch("/api/strategy/casting?projetSlug=villa-cannes"),
-        fetch("/api/strategy/opportunites?projetSlug=villa-cannes"),
-        fetch("/api/strategy/planning?projetSlug=villa-cannes"),
-        fetch("/api/strategy/deals?projetSlug=villa-cannes"),
-        fetch("/api/talents"),
-      ]);
+      const slug = encodeURIComponent(projetSlug);
+      const [kpisRes, castingRes, oppRes, planningRes, dealsRes, talentsRes, projetRes] =
+        await Promise.all([
+          fetch(`/api/strategy/kpis?projetSlug=${slug}`),
+          fetch(`/api/strategy/casting?projetSlug=${slug}`),
+          fetch(`/api/strategy/opportunites?projetSlug=${slug}`),
+          fetch(`/api/strategy/planning?projetSlug=${slug}`),
+          fetch(`/api/strategy/deals?projetSlug=${slug}`),
+          fetch("/api/talents"),
+          fetch(`/api/strategy/projets?projetSlug=${slug}`),
+        ]);
 
       if (kpisRes.ok) setKpis(await kpisRes.json());
       if (castingRes.ok) {
@@ -372,14 +419,104 @@ export function StrategyVillaCannesClient() {
         const list = Array.isArray(json) ? json : json.talents || [];
         setTalentOptions(list);
       }
+      if (projetRes.ok) {
+        const json = await projetRes.json();
+        setProjetSenderEmail(json.projet?.senderEmail ?? null);
+      }
     } finally {
       setLoading(false);
     }
   }
 
+  // Liste des boîtes connectées (labels + sélecteur admin) — 403 silencieux
+  // pour les rôles sans accès.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/gmail/accounts");
+        if (!res.ok) return;
+        const json = (await res.json().catch(() => ({}))) as {
+          accounts?: Array<{
+            email: string;
+            displayName: string | null;
+            user: { prenom: string; nom: string } | null;
+          }>;
+        };
+        if (cancelled) return;
+        setSenderAccounts(
+          (json.accounts || []).map((a) => ({
+            email: a.email,
+            label:
+              a.displayName || (a.user ? `${a.user.prenom} ${a.user.nom}`.trim() : a.email),
+          }))
+        );
+      } catch {
+        /* non bloquant */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function updateProjetSender(senderEmail: string | null) {
+    const res = await fetch("/api/strategy/projets", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projetSlug, senderEmail }),
+    });
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      window.alert(json.error || "Erreur lors du changement de boîte d'envoi.");
+      return;
+    }
+    const json = (await res.json()) as { projet?: { senderEmail: string | null } };
+    setProjetSenderEmail(json.projet?.senderEmail ?? null);
+  }
+
+  function openEmailModal(opportunite: Opportunite) {
+    setEmailError(null);
+    setEmailForm({ subject: "", bodyText: "" });
+    setEmailModalOpp(opportunite);
+  }
+
+  async function sendProspectionEmail() {
+    if (!emailModalOpp) return;
+    if (!emailForm.subject.trim() || !emailForm.bodyText.trim()) {
+      setEmailError("Sujet et corps du mail requis.");
+      return;
+    }
+    setEmailSending(true);
+    setEmailError(null);
+    try {
+      const res = await fetch(`/api/strategy/opportunites/${emailModalOpp.id}/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: emailForm.subject.trim(),
+          bodyText: emailForm.bodyText.trim(),
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setEmailError(json.error || "Erreur lors de l'envoi.");
+        return;
+      }
+      setEmailModalOpp(null);
+      setSelectedPipelineOpp(null);
+      refreshAll();
+    } catch {
+      setEmailError("Erreur réseau lors de l'envoi.");
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
   useEffect(() => {
     refreshAll();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projetSlug]);
 
   const participantByTalentId = useMemo(() => {
     const m = new Map<string, Participant>();
@@ -469,7 +606,7 @@ export function StrategyVillaCannesClient() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        projetSlug: "villa-cannes",
+        projetSlug,
         nomMarque: newMarque.nomMarque,
         secteur: newMarque.secteur,
         budgetEstime: newMarque.budgetEstime ? Number(newMarque.budgetEstime) : null,
@@ -484,6 +621,63 @@ export function StrategyVillaCannesClient() {
     }
   }
 
+  function closeQualifyModal() {
+    setQualifyTarget(null);
+    setContacts([{ firstName: "", lastName: "", email: "", role: "" }]);
+    setContactSearchResults(null);
+    setContactSearchError(null);
+  }
+
+  async function searchBrandContacts() {
+    if (!qualifyTarget) return;
+    setContactSearchLoading(true);
+    setContactSearchError(null);
+    try {
+      const res = await fetch(
+        `/api/marques/contacts?brand=${encodeURIComponent(qualifyTarget.nomMarque)}`
+      );
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setContactSearchError(
+          typeof json.error === "string" && json.error
+            ? json.error
+            : "Erreur lors de la recherche des contacts."
+        );
+        setContactSearchResults(null);
+        return;
+      }
+      const json = (await res.json()) as { contacts?: SearchedContact[] };
+      setContactSearchResults(json.contacts || []);
+    } catch (e) {
+      console.error(e);
+      setContactSearchError("Erreur réseau lors de la recherche des contacts.");
+      setContactSearchResults(null);
+    } finally {
+      setContactSearchLoading(false);
+    }
+  }
+
+  function addSearchedContact(c: SearchedContact) {
+    setContacts((arr) => {
+      if (arr.some((x) => x.email.trim().toLowerCase() === c.email.trim().toLowerCase())) {
+        return arr;
+      }
+      const next = {
+        firstName: c.firstname,
+        lastName: c.lastname,
+        email: c.email,
+        role: c.role,
+      };
+      const emptyIdx = arr.findIndex(
+        (x) => !x.firstName.trim() && !x.lastName.trim() && !x.email.trim() && !x.role.trim()
+      );
+      if (emptyIdx >= 0) {
+        return arr.map((x, i) => (i === emptyIdx ? next : x));
+      }
+      return [...arr, next];
+    });
+  }
+
   async function saveContacts() {
     if (!qualifyTarget) return;
     const cleaned = contacts.filter((c) => c.firstName.trim() && c.email.trim());
@@ -494,8 +688,7 @@ export function StrategyVillaCannesClient() {
       body: JSON.stringify({ contacts: cleaned, statut: "IDENTIFIEE", contactQualifie: true }),
     });
     if (res.ok) {
-      setQualifyTarget(null);
-      setContacts([{ firstName: "", lastName: "", email: "", role: "" }]);
+      closeQualifyModal();
       refreshAll();
     }
   }
@@ -844,7 +1037,11 @@ export function StrategyVillaCannesClient() {
                     {isAdmin || role === "STRATEGY_PLANNER" ? (
                       <div className="mt-2 flex items-center gap-3">
                         <button
-                          onClick={() => setQualifyTarget(o)}
+                          onClick={() => {
+                            setContactSearchResults(null);
+                            setContactSearchError(null);
+                            setQualifyTarget(o);
+                          }}
                           className="text-xs font-medium text-glowup-rose"
                         >
                           Ajouter le contact -&gt;
@@ -1157,12 +1354,46 @@ export function StrategyVillaCannesClient() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Projet Strategy</p>
-            <h1 className="mt-1 text-2xl font-semibold text-gray-900">Villa Cannes 2026</h1>
+            <h1 className="mt-1 text-2xl font-semibold text-gray-900">{projetNom}</h1>
             <p className="mt-1 text-sm text-gray-500">Pilotage casting, marques, planning et deals.</p>
           </div>
-          <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-            Espace Strategy
-          </span>
+          <div className="flex flex-col items-end gap-2">
+            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+              Espace Strategy
+            </span>
+            {isAdmin ? (
+              <label className="flex items-center gap-2 text-xs text-gray-500">
+                Prospection envoyée depuis
+                <select
+                  value={(projetSenderEmail || "").toLowerCase()}
+                  onChange={(e) => updateProjetSender(e.target.value || null)}
+                  className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs font-medium text-gray-800"
+                >
+                  <option value="">Leyna (par défaut) — {DEFAULT_SENDER_EMAIL}</option>
+                  {senderAccounts
+                    .filter((a) => a.email.toLowerCase() !== DEFAULT_SENDER_EMAIL)
+                    .map((a) => (
+                      <option key={a.email} value={a.email.toLowerCase()}>
+                        {a.label} — {a.email}
+                      </option>
+                    ))}
+                  {projetSenderEmail &&
+                    projetSenderEmail.toLowerCase() !== DEFAULT_SENDER_EMAIL &&
+                    !senderAccounts.some(
+                      (a) => a.email.toLowerCase() === projetSenderEmail.toLowerCase()
+                    ) && (
+                      <option value={projetSenderEmail.toLowerCase()}>
+                        {projetSenderEmail} (non connectée)
+                      </option>
+                    )}
+                </select>
+              </label>
+            ) : (
+              <span className="text-xs text-gray-500">
+                Prospection envoyée depuis {senderLabelFor(senderAccounts, projetSenderEmail)}
+              </span>
+            )}
+          </div>
         </div>
         <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="rounded-xl border border-gray-200 p-3">
@@ -1324,8 +1555,81 @@ export function StrategyVillaCannesClient() {
 
       {qualifyTarget && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl rounded-xl border border-gray-200 bg-white p-5 space-y-4">
+          <div className="w-full max-w-2xl max-h-[min(92vh,820px)] overflow-y-auto overscroll-contain rounded-xl border border-gray-200 bg-white p-5 space-y-4">
             <h3 className="text-lg font-semibold">Ajouter les contacts · {qualifyTarget.nomMarque}</h3>
+            <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-gray-600">
+                  Pas les contacts ? Cherche la marque dans l&apos;app et HubSpot
+                </p>
+                <button
+                  type="button"
+                  onClick={searchBrandContacts}
+                  disabled={contactSearchLoading}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {contactSearchLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Recherche...
+                    </>
+                  ) : (
+                    <>Rechercher « {qualifyTarget.nomMarque} »</>
+                  )}
+                </button>
+              </div>
+              {contactSearchError && (
+                <p className="text-sm text-red-600">{contactSearchError}</p>
+              )}
+              {contactSearchResults && contactSearchResults.length === 0 && (
+                <p className="text-sm text-gray-500">
+                  Aucun contact trouvé dans l&apos;app ni dans HubSpot pour cette marque.
+                </p>
+              )}
+              {contactSearchResults && contactSearchResults.length > 0 && (
+                <div className="space-y-1.5 max-h-56 overflow-auto pr-1">
+                  {contactSearchResults.map((c) => {
+                    const alreadyAdded = contacts.some(
+                      (x) => x.email.trim().toLowerCase() === c.email.trim().toLowerCase()
+                    );
+                    return (
+                      <div
+                        key={c.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-gray-900">
+                            {`${c.firstname} ${c.lastname}`.trim() || c.email}
+                            <span
+                              className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                c.source === "hubspot"
+                                  ? "bg-orange-50 text-orange-700"
+                                  : "bg-emerald-50 text-emerald-700"
+                              }`}
+                            >
+                              {c.source === "hubspot" ? "HubSpot" : "App"}
+                            </span>
+                          </p>
+                          <p className="truncate text-xs text-gray-500">
+                            {c.email}
+                            {c.role ? ` · ${c.role}` : ""}
+                            {c.companyName ? ` · ${c.companyName}` : ""}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={alreadyAdded}
+                          onClick={() => addSearchedContact(c)}
+                          className="shrink-0 rounded-lg bg-glowup-rose px-2.5 py-1.5 text-xs font-medium text-white hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {alreadyAdded ? "Ajouté" : "Ajouter"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             {contacts.map((c, i) => (
               <div key={i} className="grid grid-cols-4 gap-2">
                 <input className="rounded border border-gray-300 px-2 py-2 text-sm" placeholder="Prenom*" value={c.firstName} onChange={(e) => setContacts((arr) => arr.map((x, idx) => idx === i ? { ...x, firstName: e.target.value } : x))} />
@@ -1336,7 +1640,7 @@ export function StrategyVillaCannesClient() {
             ))}
             <button className="text-sm text-glowup-rose font-medium" onClick={() => setContacts((arr) => [...arr, { firstName: "", lastName: "", email: "", role: "" }])}>+ Ajouter un contact</button>
             <div className="flex justify-end gap-2">
-              <button className="px-3 py-2 rounded border" onClick={() => setQualifyTarget(null)}>Annuler</button>
+              <button className="px-3 py-2 rounded border" onClick={closeQualifyModal}>Annuler</button>
               <button className="px-3 py-2 rounded bg-glowup-rose text-white" onClick={saveContacts}>Valider</button>
             </div>
           </div>
@@ -1470,7 +1774,28 @@ export function StrategyVillaCannesClient() {
             </div>
 
             <div className="rounded-lg border border-gray-200 p-3">
-              <p className="text-sm font-medium mb-2">Contacts client</p>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Contacts client</p>
+                {isAdmin && asContacts(selectedPipelineOpp.contacts).some((c) => c.email) ? (
+                  <button
+                    type="button"
+                    onClick={() => openEmailModal(selectedPipelineOpp)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-glowup-rose px-3 py-1.5 text-xs font-medium text-white hover:opacity-95"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    Envoyer le mail de prospection
+                  </button>
+                ) : null}
+              </div>
+              {selectedPipelineOpp.lastEmailSentAt ? (
+                <p className="mb-2 text-xs text-emerald-700">
+                  Dernier mail envoyé le{" "}
+                  {new Date(selectedPipelineOpp.lastEmailSentAt).toLocaleString("fr-FR")}
+                  {selectedPipelineOpp.lastEmailFrom
+                    ? ` depuis ${selectedPipelineOpp.lastEmailFrom}`
+                    : ""}
+                </p>
+              ) : null}
               <div className="space-y-2">
                 {asContacts(selectedPipelineOpp.contacts).map((c, idx) => (
                   <div key={`${c.email || "contact"}-${idx}`} className="rounded-md border border-gray-100 px-2.5 py-2">
@@ -1599,6 +1924,85 @@ export function StrategyVillaCannesClient() {
                 onClick={confirmSignedDeal}
               >
                 Confirmer en signé
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {emailModalOpp && (
+        <div className="fixed inset-0 z-[60] bg-black/30 flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl max-h-[min(92vh,820px)] overflow-y-auto overscroll-contain rounded-xl border border-gray-200 bg-white p-5 space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold">
+                Mail de prospection · {emailModalOpp.nomMarque}
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Envoyé depuis{" "}
+                <span className="font-medium text-gray-700">
+                  {senderLabelFor(senderAccounts, projetSenderEmail)}
+                </span>{" "}
+                — la signature Gmail de la boîte est ajoutée automatiquement.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <p className="text-xs font-semibold text-gray-500 mb-1">Destinataires</p>
+              <div className="flex flex-wrap gap-1.5">
+                {asContacts(emailModalOpp.contacts)
+                  .filter((c) => c.email)
+                  .map((c, idx) => (
+                    <span
+                      key={`${c.email}-${idx}`}
+                      className="rounded-full bg-white border border-gray-200 px-2.5 py-1 text-xs text-gray-700"
+                    >
+                      {[c.firstName, c.lastName].filter(Boolean).join(" ") || c.email}
+                      <span className="text-gray-400"> · {c.email}</span>
+                    </span>
+                  ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-500">Sujet *</label>
+              <input
+                value={emailForm.subject}
+                onChange={(e) => setEmailForm((s) => ({ ...s, subject: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Ex: Glow Up x Ski Trip 2027 — collaboration influence"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Corps du mail *</label>
+              <textarea
+                value={emailForm.bodyText}
+                onChange={(e) => setEmailForm((s) => ({ ...s, bodyText: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm min-h-[220px]"
+                placeholder={"Bonjour,\n\n..."}
+              />
+            </div>
+
+            {emailError && <p className="text-sm text-red-600">{emailError}</p>}
+
+            <div className="flex justify-end gap-2">
+              <button
+                className="px-3 py-2 rounded border"
+                onClick={() => setEmailModalOpp(null)}
+                disabled={emailSending}
+              >
+                Annuler
+              </button>
+              <button
+                className="inline-flex items-center gap-2 px-3 py-2 rounded bg-glowup-rose text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                onClick={sendProspectionEmail}
+                disabled={emailSending}
+              >
+                {emailSending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                {emailSending ? "Envoi..." : "Envoyer"}
               </button>
             </div>
           </div>

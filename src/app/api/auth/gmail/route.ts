@@ -29,8 +29,13 @@ export async function GET(request: NextRequest) {
     ].join(" ")
   );
   authUrl.searchParams.set("access_type", "offline");
-  authUrl.searchParams.set("prompt", "consent");
-  authUrl.searchParams.set("login_hint", "leyna@glowupagence.fr");
+  authUrl.searchParams.set("prompt", "consent select_account");
+
+  // Pré-sélectionne le compte Google visé (ex: ?email=ines@glowupagence.fr)
+  const emailHint = request.nextUrl.searchParams.get("email")?.trim();
+  if (emailHint) {
+    authUrl.searchParams.set("login_hint", emailHint);
+  }
 
   return NextResponse.redirect(authUrl.toString());
 }

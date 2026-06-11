@@ -17,15 +17,39 @@ export function sanitizeOpportuniteForRole<T extends { contacts: unknown }>(
   return opportunite;
 }
 
+// Valeurs par défaut utilisées à la première création du projet (le record
+// Prisma fait ensuite foi ; modifier les dates en base si besoin).
+// senderEmail : boîte Gmail qui envoie TOUTE la prospection du projet
+// (null = leyna@glowupagence.fr).
+const PROJECT_DEFAULTS: Record<
+  string,
+  { nom: string; dateDebut: string; dateFin: string; senderEmail: string | null }
+> = {
+  "villa-cannes": {
+    nom: "Villa Cannes 2026",
+    dateDebut: "2026-05-12T00:00:00.000Z",
+    dateFin: "2026-05-25T23:59:59.999Z",
+    senderEmail: null,
+  },
+  "ski-trip": {
+    nom: "Ski Trip 2027",
+    dateDebut: "2027-01-10T00:00:00.000Z",
+    dateFin: "2027-01-17T23:59:59.999Z",
+    senderEmail: "ines@glowupagence.fr",
+  },
+};
+
 export async function getOrCreateVillaProject(projetSlug: string) {
+  const defaults = PROJECT_DEFAULTS[projetSlug] ?? PROJECT_DEFAULTS["villa-cannes"];
   return prisma.projetEvenement.upsert({
     where: { slug: projetSlug },
     update: {},
     create: {
-      nom: "Villa Cannes 2026",
+      nom: defaults.nom,
       slug: projetSlug,
-      dateDebut: new Date("2026-05-12T00:00:00.000Z"),
-      dateFin: new Date("2026-05-25T23:59:59.999Z"),
+      dateDebut: new Date(defaults.dateDebut),
+      dateFin: new Date(defaults.dateFin),
+      senderEmail: defaults.senderEmail,
       statut: "ACTIF",
     },
   });

@@ -3,7 +3,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const LEYNA_EMAIL = "leyna@glowupagence.fr";
+const GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile";
 
 export async function GET(request: NextRequest) {
   const session = await getAppSession(request);
@@ -51,13 +51,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Échec connexion Gmail." }, { status: 500 });
   }
 
+  // Identifie la boîte réellement autorisée côté Google (plus de hardcode Leyna).
+  const profileResponse = await fetch(GMAIL_PROFILE_URL, {
+    headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+  });
+  const profileJson = (await profileResponse.json().catch(() => null)) as
+    | { emailAddress?: string }
+    | null;
+  const connectedEmail = (profileJson?.emailAddress || "").trim().toLowerCase();
+  if (!profileResponse.ok || !connectedEmail) {
+    return NextResponse.json(
+      { error: "Impossible d'identifier la boîte Gmail connectée." },
+      { status: 500 }
+    );
+  }
+
+  // Liaison automatique au user plateforme dont l'email correspond (si pas
+  // déjà lié à une autre boîte).
+  const matchingUser = await prisma.user.findFirst({
+    where: { email: { equals: connectedEmail, mode: "insensitive" } },
+    select: { id: true, gmailToken: { select: { id: true } } },
+  });
+  const autoLinkUserId =
+    matchingUser && !matchingUser.gmailToken ? matchingUser.id : undefined;
+
   await prisma.gmailToken.upsert({
-    where: { email: LEYNA_EMAIL },
+    where: { email: connectedEmail },
     create: {
-      email: LEYNA_EMAIL,
+      email: connectedEmail,
       accessToken: tokenJson.access_token,
       refreshToken: tokenJson.refresh_token,
       expiresAt: new Date(Date.now() + tokenJson.expires_in * 1000),
+      ...(autoLinkUserId ? { userId: autoLinkUserId } : {}),
     },
     update: {
       accessToken: tokenJson.access_token,
@@ -66,5 +91,7 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  return NextResponse.redirect(new URL("/settings/gmail?connected=true", request.url));
+  return NextResponse.redirect(
+    new URL(`/settings/gmail?connected=${encodeURIComponent(connectedEmail)}`, request.url)
+  );
 }

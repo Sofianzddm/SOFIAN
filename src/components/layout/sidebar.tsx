@@ -74,6 +74,12 @@ const menuItems = [
     roles: ["ADMIN", "STRATEGY_PLANNER", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "COIFFEUR"],
   },
   {
+    label: "Ski Trip 2027",
+    href: "/strategy/projets/ski-trip",
+    icon: Briefcase,
+    roles: ["ADMIN"],
+  },
+  {
     label: "Pipeline prospection",
     href: "/strategy/projet-individuel-talent/pipeline",
     icon: Briefcase,
@@ -403,6 +409,12 @@ export function Sidebar() {
           {
             label: "Villa Cannes 2026",
             href: "/strategy/projets/villa-cannes",
+            icon: Briefcase,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "Ski Trip 2027",
+            href: "/strategy/projets/ski-trip",
             icon: Briefcase,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],

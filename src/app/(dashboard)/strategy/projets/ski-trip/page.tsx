@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { StrategyProjectClient } from "../_components/strategy-project-client";
 
-export default async function StrategyVillaCannesPage() {
+export default async function StrategySkiTripPage() {
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
@@ -15,5 +15,5 @@ export default async function StrategyVillaCannesPage() {
     redirect("/dashboard");
   }
 
-  return <StrategyProjectClient projetSlug="villa-cannes" projetNom="Villa Cannes 2026" />;
+  return <StrategyProjectClient projetSlug="ski-trip" projetNom="Ski Trip 2027" />;
 }

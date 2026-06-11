@@ -11,7 +11,7 @@
  *  - Chaque mail de cycle = 1 OutreachTouch (nouveau thread Gmail)
  *  - Relance auto J+3 ouvrés dans le thread du touch (1 max), annulée si réponse
  *  - La réponse n'arrête PAS le cycle (info seulement) ; seul un stop manuel
- *  - From: leyna@glowupagence.fr
+ *  - From: boîte Gmail du target (target.fromEmail), défaut leyna@glowupagence.fr
  *  - Write-back HubSpot à chaque envoi (app_last_contacted_at / app_outreach_status)
  */
 
@@ -33,6 +33,11 @@ import {
 export const OUTREACH_RELANCE_BUSINESS_DAYS = 3;
 /** Jours calendaires avant le retour du client en file « À recontacter ». */
 export const OUTREACH_RECONTACT_DAYS = 45;
+
+/** Boîte expéditrice du cycle d'un client (défaut : Leyna). */
+export function outreachFromEmail(target: { fromEmail?: string | null }): string {
+  return (target.fromEmail || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
+}
 
 export type OutreachSendResult =
   | {
@@ -72,20 +77,21 @@ async function isEmailBlockedByPipelineCooldown(email: string): Promise<boolean>
 }
 
 /**
- * Garde-fou : vérifie dans la boîte de Leyna (messages envoyés) si ce client
+ * Garde-fou : vérifie dans la boîte expéditrice (messages envoyés) si ce client
  * a déjà été contacté il y a moins de 45 jours — peu importe le canal
  * (séquence HubSpot, mail manuel, autre module). Les mails envoyés par le
  * cycle outreach de ce client lui-même (threads de ses touches) sont ignorés,
  * sinon un recontact anticipé volontaire serait bloqué.
  * Fail-open : si la recherche Gmail échoue techniquement, on n'empêche pas l'envoi.
  */
-async function isRecentlyContactedFromLeynaInbox(
+async function isRecentlyContactedFromSenderInbox(
+  fromEmail: string,
   targetId: string,
   email: string
 ): Promise<boolean> {
   try {
     const sent = await findRecentSentToRecipient(
-      LEYNA_FROM_EMAIL,
+      fromEmail,
       email.toLowerCase(),
       OUTREACH_RECONTACT_DAYS
     );
@@ -99,7 +105,7 @@ async function isRecentlyContactedFromLeynaInbox(
 
     return sent.some((m) => !ownThreadIds.has(m.threadId));
   } catch (error) {
-    console.warn(`[outreach] vérif boîte Leyna impossible pour ${email}:`, error);
+    console.warn(`[outreach] vérif boîte ${fromEmail} impossible pour ${email}:`, error);
     return false;
   }
 }
@@ -161,12 +167,14 @@ export async function executeOutreachSend(
     };
   }
 
-  // Garde-fou boîte Leyna : déjà contacté < 45j via un autre canal
+  const fromEmail = outreachFromEmail(target);
+
+  // Garde-fou boîte expéditrice : déjà contacté < 45j via un autre canal
   // (séquence HubSpot, mail manuel…) → on bloque pour éviter le doublon.
-  if (await isRecentlyContactedFromLeynaInbox(target.id, target.email)) {
+  if (await isRecentlyContactedFromSenderInbox(fromEmail, target.id, target.email)) {
     return {
       ok: false,
-      error: `${target.email} a déjà reçu un mail depuis la boîte de Leyna il y a moins de ${OUTREACH_RECONTACT_DAYS} jours (HubSpot ou envoi manuel). Envoi bloqué pour éviter le doublon.`,
+      error: `${target.email} a déjà reçu un mail depuis la boîte ${fromEmail} il y a moins de ${OUTREACH_RECONTACT_DAYS} jours (HubSpot ou envoi manuel). Envoi bloqué pour éviter le doublon.`,
     };
   }
 
@@ -186,6 +194,7 @@ export async function executeOutreachSend(
       cycleNumber,
       subject: personalizedSubject,
       bodyHtml: bodyTpl,
+      fromEmail,
       sentById: input.sentById || null,
     },
   });
@@ -195,7 +204,7 @@ export async function executeOutreachSend(
   let messageId: string;
   try {
     messageId = await sendGmail({
-      fromEmail: LEYNA_FROM_EMAIL,
+      fromEmail,
       to: target.email.toLowerCase(),
       subject: personalizedSubject,
       htmlBody: trackedBody,
@@ -289,8 +298,10 @@ export async function executeOutreachRelance(
   const trackedBody = injectOutreachTracking(body, touch.id);
 
   try {
+    // Le thread Gmail appartient à la boîte qui a envoyé le mail initial :
+    // la relance part de cette même boîte, même si le target a changé depuis.
     const messageId = await sendGmail({
-      fromEmail: LEYNA_FROM_EMAIL,
+      fromEmail: outreachFromEmail({ fromEmail: touch.fromEmail }),
       to: target.email.toLowerCase(),
       subject: relanceSubject,
       htmlBody: trackedBody,
