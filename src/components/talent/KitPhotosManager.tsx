@@ -77,19 +77,37 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
       setUploadingIndex(index);
       setError(null);
       try {
-        // 1–2. URL présignée S3 puis upload direct (bypass serveur)
-        const { uploadFileViaPresignedUrl } = await import("@/lib/s3-upload-client");
-        const publicUrl = await uploadFileViaPresignedUrl(
-          "/api/upload/signature",
-          { talentId },
-          file
+        // 1. Signature Cloudinary (publicId déjà unique grâce au timestamp serveur).
+        const sigRes = await fetch("/api/upload/signature", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ talentId }),
+        });
+        if (!sigRes.ok) throw new Error("Erreur signature");
+        const { signature, timestamp, folder, publicId, cloudName, apiKey } =
+          await sigRes.json();
+
+        // 2. Upload Cloudinary — on respecte exactement les params signés.
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("signature", signature);
+        formData.append("timestamp", timestamp.toString());
+        formData.append("folder", folder);
+        formData.append("public_id", publicId);
+        formData.append("api_key", apiKey);
+
+        const cloudRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          { method: "POST", body: formData }
         );
+        if (!cloudRes.ok) throw new Error("Erreur upload Cloudinary");
+        const { secure_url } = await cloudRes.json();
 
         // 3. Persiste le slot
         const patchRes = await fetch(`/api/talents/${talentId}/kit-photos`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ index, url: publicUrl }),
+          body: JSON.stringify({ index, url: secure_url }),
         });
         if (!patchRes.ok) throw new Error("Erreur mise à jour");
         const data = (await patchRes.json()) as { kitPhotos: (string | null)[] };

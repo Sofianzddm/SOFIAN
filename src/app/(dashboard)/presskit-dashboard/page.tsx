@@ -484,14 +484,42 @@ export default function PressKitDashboardV5() {
     const pendingFile = (window as any).pendingPresskitLogoFile as File | undefined;
 
     try {
-      // Cas 1 : fichier uploadé (S3)
+      // Cas 1 : fichier uploadé (Cloudinary)
       if (pendingFile) {
-        const { uploadFileViaPresignedUrl } = await import("@/lib/s3-upload-client");
-        const logoUrl = await uploadFileViaPresignedUrl(
-          "/api/presskit/upload-logo/signature",
-          { brandId },
-          pendingFile
+        const signatureRes = await fetch("/api/presskit/upload-logo/signature", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brandId }),
+        });
+
+        if (!signatureRes.ok) {
+          throw new Error("Erreur de signature pour le logo");
+        }
+
+        const { signature, timestamp, folder, publicId, cloudName, apiKey } = await signatureRes.json();
+
+        const uploadFormData = new FormData();
+        uploadFormData.append("file", pendingFile);
+        uploadFormData.append("signature", signature);
+        uploadFormData.append("timestamp", String(timestamp));
+        uploadFormData.append("folder", folder);
+        uploadFormData.append("public_id", publicId);
+        uploadFormData.append("api_key", apiKey);
+
+        const cloudinaryRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          {
+            method: "POST",
+            body: uploadFormData,
+          }
         );
+
+        if (!cloudinaryRes.ok) {
+          throw new Error("Erreur upload Cloudinary");
+        }
+
+        const cloudinaryData = await cloudinaryRes.json();
+        const logoUrl = cloudinaryData.secure_url as string;
 
         await fetch("/api/presskit/upload-logo/update", {
           method: "POST",

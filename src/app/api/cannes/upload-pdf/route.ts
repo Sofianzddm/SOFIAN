@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { uploadFileToS3 } from "@/lib/s3";
+import { v2 as cloudinary } from "cloudinary";
 import { requireCannesEditor } from "@/lib/cannes/auth";
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 export async function POST(req: NextRequest) {
   const { error } = await requireCannesEditor();
@@ -25,13 +31,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Fichier trop volumineux (max 15MB)" }, { status: 400 });
     }
 
-    const url = await uploadFileToS3(file, {
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const base64 = `data:${file.type || "application/pdf"};base64,${buffer.toString("base64")}`;
+
+    const uploaded = await cloudinary.uploader.upload(base64, {
       folder: "glowup-cannes-pdfs",
-      baseName: `cannes-pdf-${Date.now()}`,
-      optimize: false,
+      public_id: `cannes-pdf-${Date.now()}`,
+      resource_type: "auto",
     });
 
-    return NextResponse.json({ url }, { status: 201 });
+    return NextResponse.json({ url: uploaded.secure_url }, { status: 201 });
   } catch (e) {
     console.error("POST /api/cannes/upload-pdf:", e);
     return NextResponse.json({ error: "Erreur lors de l'upload du PDF" }, { status: 500 });

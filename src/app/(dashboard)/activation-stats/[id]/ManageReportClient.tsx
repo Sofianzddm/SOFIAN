@@ -412,25 +412,42 @@ function TalentScreenshotsPanel({
             continue;
           }
 
-          const { uploadFileViaPresignedUrl } = await import("@/lib/s3-upload-client");
-          let imageUrl: string;
-          try {
-            imageUrl = await uploadFileViaPresignedUrl(
-              "/api/activation-stats/upload-signature",
-              { reportTalentId: talent.id },
-              file
-            );
-          } catch {
+          const sigRes = await fetch("/api/activation-stats/upload-signature", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reportTalentId: talent.id }),
+          });
+          if (!sigRes.ok) {
+            toast.error("Erreur signature");
+            continue;
+          }
+          const { signature, timestamp, folder, publicId, cloudName, apiKey } =
+            await sigRes.json();
+
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("signature", signature);
+          fd.append("timestamp", String(timestamp));
+          fd.append("folder", folder);
+          fd.append("public_id", publicId);
+          fd.append("api_key", apiKey);
+
+          const cloudRes = await fetch(
+            `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+            { method: "POST", body: fd }
+          );
+          if (!cloudRes.ok) {
             toast.error(`Echec upload ${file.name}`);
             continue;
           }
+          const cloudJson = await cloudRes.json();
 
           await fetch(`/api/activation-stats/${reportId}/screenshots`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               reportTalentId: talent.id,
-              imageUrl,
+              imageUrl: cloudJson.secure_url,
             }),
           });
         }

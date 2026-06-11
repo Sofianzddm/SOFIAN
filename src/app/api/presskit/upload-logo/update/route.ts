@@ -1,10 +1,17 @@
+import { v2 as cloudinary } from "cloudinary";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { deleteFromS3 } from "@/lib/s3";
 
-// Met à jour l'URL du logo de la marque après upload S3 (ou via URL manuelle)
+// Configuration Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Met à jour l'URL du logo de la marque après upload Cloudinary (ou via URL manuelle)
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -33,9 +40,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // Supprimer l'ancien logo S3 si besoin (no-op si l'ancien était une URL externe)
-    if (brand.logo && brand.logo !== logoUrl) {
-      await deleteFromS3(brand.logo);
+    // Supprimer l'ancien logo Cloudinary si besoin
+    if (brand.logo && brand.logo.includes("cloudinary.com")) {
+      try {
+        const urlParts = brand.logo.split("/");
+        const filenameWithExt = urlParts[urlParts.length - 1];
+        const folder = urlParts[urlParts.length - 2];
+        const publicId = `${folder}/${filenameWithExt.split(".")[0]}`;
+        await cloudinary.uploader.destroy(publicId);
+      } catch (e) {
+        console.log("Ancien logo presskit non supprimé:", e);
+      }
     }
 
     await prisma.brand.update({

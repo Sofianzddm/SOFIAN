@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { uploadFileToS3, deleteFromS3 } from "@/lib/s3";
+import { v2 as cloudinary } from "cloudinary";
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const ALLOWED_ROLES = new Set([
   "ADMIN",
@@ -84,13 +90,26 @@ export async function POST(
       );
     }
 
-    const fileUrl = await uploadFileToS3(file, {
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const base64 = `data:${file.type};base64,${buffer.toString("base64")}`;
+
+    const uploaded = await cloudinary.uploader.upload(base64, {
       folder: "glowup-devis-signes",
-      baseName: `${collaboration.reference}-${devis.reference}-${Date.now()}`,
+      public_id: `${collaboration.reference}-${devis.reference}-${Date.now()}`,
+      resource_type: "auto",
     });
 
-    if (devis.signedDocumentUrl) {
-      await deleteFromS3(devis.signedDocumentUrl);
+    if (devis.signedDocumentUrl && devis.signedDocumentUrl.includes("cloudinary.com")) {
+      try {
+        const urlParts = devis.signedDocumentUrl.split("/");
+        const filenameWithExt = urlParts[urlParts.length - 1];
+        const folder = urlParts[urlParts.length - 2];
+        const publicId = `${folder}/${filenameWithExt.split(".")[0]}`;
+        await cloudinary.uploader.destroy(publicId);
+      } catch (error) {
+        console.error("Ancien devis signé non supprimé:", error);
+      }
     }
 
     const updatedDocument = await prisma.document.update({
@@ -98,7 +117,7 @@ export async function POST(
       data: {
         signatureStatus: "SIGNED",
         signatureSignedAt: new Date(),
-        signedDocumentUrl: fileUrl,
+        signedDocumentUrl: uploaded.secure_url,
       },
       select: {
         id: true,

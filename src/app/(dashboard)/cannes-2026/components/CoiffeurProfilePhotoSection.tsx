@@ -34,7 +34,7 @@ async function blobFromCrop(imageSrc: string, area: Area, quality = 0.92): Promi
 export default function CoiffeurProfilePhotoSection() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [storageReady, setStorageReady] = useState(true);
+  const [cloudinaryReady, setCloudinaryReady] = useState(true);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
@@ -61,7 +61,7 @@ export default function CoiffeurProfilePhotoSection() {
       const res = await fetch("/api/cannes/coiffeur/profile-photo", { cache: "no-store" });
       const j = (await res.json().catch(() => ({}))) as {
         photoUrl?: string | null;
-        storageReady?: boolean;
+        cloudinaryReady?: boolean;
         error?: string;
       };
       if (!res.ok) {
@@ -69,7 +69,7 @@ export default function CoiffeurProfilePhotoSection() {
         return;
       }
       setPhotoUrl(typeof j.photoUrl === "string" && j.photoUrl ? j.photoUrl : null);
-      setStorageReady(j.storageReady !== false);
+      setCloudinaryReady(j.cloudinaryReady !== false);
     } catch {
       toast.error("Impossible de charger la photo");
     } finally {
@@ -153,9 +153,9 @@ export default function CoiffeurProfilePhotoSection() {
     <div className="rounded-xl border border-[#E5E0D8] bg-white p-6 shadow-sm">
       <h2 className="font-[Spectral] text-2xl text-[#1A1110]">Photo coiffeur (page publique)</h2>
 
-      {!storageReady && (
+      {!cloudinaryReady && (
         <p className="mt-3 text-sm text-amber-900/80 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-          Amazon S3 n&apos;est pas configuré sur ce déploiement ({`AWS_*`}). Configure les clés pour activer
+          Cloudinary n&apos;est pas configuré sur ce déploiement ({`CLOUDINARY_*`}). Configure les clés pour activer
           l&apos;upload ; en attendant, utilise uniquement la variable{' '}
           <code className="text-xs">NEXT_PUBLIC_CANNES_COIFFEUR_PROFILE_IMAGE_URL</code>.
         </p>
@@ -184,7 +184,7 @@ export default function CoiffeurProfilePhotoSection() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={!storageReady || uploading}
+              disabled={!cloudinaryReady || uploading}
               onClick={() => inputRef.current?.click()}
               className="rounded-lg bg-[#1A1110] px-4 py-2.5 text-sm font-medium text-[#F5EBE0] hover:bg-[#C08B8B] disabled:cursor-not-allowed disabled:opacity-50"
             >

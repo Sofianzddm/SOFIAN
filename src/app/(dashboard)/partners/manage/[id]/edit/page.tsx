@@ -197,14 +197,44 @@ export default function EditPartnerPage() {
     setUploadingLogo(true);
 
     try {
-      const { uploadFileViaPresignedUrl } = await import("@/lib/s3-upload-client");
-      const logoUrl = await uploadFileViaPresignedUrl(
-        "/api/partners/upload-logo/signature",
-        { partnerId: params.id },
-        file
+      // 1. Récupérer la signature
+      const signatureRes = await fetch("/api/partners/upload-logo/signature", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partnerId: params.id }),
+      });
+
+      if (!signatureRes.ok) {
+        throw new Error("Erreur de signature");
+      }
+
+      const { signature, timestamp, folder, publicId, cloudName, apiKey } = await signatureRes.json();
+
+      // 2. Upload direct vers Cloudinary
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      uploadFormData.append("signature", signature);
+      uploadFormData.append("timestamp", timestamp.toString());
+      uploadFormData.append("folder", folder);
+      uploadFormData.append("public_id", publicId);
+      uploadFormData.append("api_key", apiKey);
+
+      const cloudinaryRes = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+        {
+          method: "POST",
+          body: uploadFormData,
+        }
       );
 
-      // Mettre à jour la DB avec la nouvelle URL
+      if (!cloudinaryRes.ok) {
+        throw new Error("Erreur upload Cloudinary");
+      }
+
+      const cloudinaryData = await cloudinaryRes.json();
+      const logoUrl = cloudinaryData.secure_url;
+
+      // 3. Mettre à jour la DB avec la nouvelle URL
       const updateRes = await fetch("/api/partners/upload-logo/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -325,7 +355,7 @@ export default function EditPartnerPage() {
                 }
               }}
               className="w-full px-4 py-2 border rounded-lg text-sm"
-              placeholder="https://..."
+              placeholder="https://res.cloudinary.com/..."
             />
           </div>
         </div>

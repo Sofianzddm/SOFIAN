@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { v2 as cloudinary } from "cloudinary";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { fetchInstagramPhotos } from "@/lib/instagram-import";
-import { uploadFileToS3 } from "@/lib/s3";
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const KIT_PHOTOS_LENGTH = 10;
 // Comme la photo principale est déjà utilisée en couverture, on importe
@@ -11,7 +17,7 @@ const KIT_PHOTOS_LENGTH = 10;
 const IMPORT_COUNT = 9;
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // Apify + S3 peuvent prendre ~30s
+export const maxDuration = 60; // Apify + Cloudinary peuvent prendre ~30s
 
 /**
  * POST /api/talents/[id]/instagram-import
@@ -110,16 +116,13 @@ export async function POST(
       continue;
     }
     try {
-      // Re-upload depuis l'URL Instagram (qui expire) vers notre S3.
-      const url = await uploadFileToS3(
-        { url: igPhotos[i].url },
-        {
-          folder: "glowup-talents",
-          baseName: `${talent.id}-ig-${i}-${Date.now()}`,
-          maxWidth: 2000,
-        }
-      );
-      current[i] = url;
+      const uploaded = await cloudinary.uploader.upload(igPhotos[i].url, {
+        folder: "glowup-talents",
+        public_id: `${talent.id}-ig-${i}-${Date.now()}`,
+        resource_type: "image",
+        // On garde la qualité originale pour les vues HD
+      });
+      current[i] = uploaded.secure_url;
       imported += 1;
     } catch (err) {
       console.error(`[instagram-import] Upload slot ${i} failed:`, err);

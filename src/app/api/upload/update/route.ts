@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { deleteFromS3 } from "@/lib/s3";
 
-// Met à jour l'URL de la photo après upload direct S3
+// Met à jour l'URL de la photo après upload Cloudinary
 export async function POST(request: Request) {
   try {
     // Vérifier l'authentification
@@ -25,7 +24,7 @@ export async function POST(request: Request) {
     // Vérifier que le talent existe
     const talent = await prisma.talent.findUnique({
       where: { id: talentId },
-      select: { id: true, prenom: true, nom: true, photo: true },
+      select: { id: true, prenom: true, nom: true },
     });
 
     if (!talent) {
@@ -33,10 +32,6 @@ export async function POST(request: Request) {
         { error: "Talent non trouvé" },
         { status: 404 }
       );
-    }
-
-    if (talent.photo && talent.photo !== photoUrl) {
-      await deleteFromS3(talent.photo);
     }
 
     // Mettre à jour le talent avec la nouvelle URL
