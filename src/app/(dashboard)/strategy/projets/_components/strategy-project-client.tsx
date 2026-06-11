@@ -2,8 +2,9 @@
 
 import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
-import { Loader2, Plus, Lock, Mail, Send, ExternalLink } from "lucide-react";
+import { Loader2, Plus, Lock, Mail, Send, ExternalLink, Eye, Reply, Clock } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
+import { businessDaysAfter } from "@/lib/business-days";
 
 type Tab = "casting" | "marques" | "planning" | "deals";
 
@@ -77,6 +78,11 @@ type Opportunite = {
   contactQualifie: boolean;
   lastEmailSentAt?: string | null;
   lastEmailFrom?: string | null;
+  emailSubject?: string | null;
+  emailOpenedAt?: string | null;
+  emailOpenCount?: number;
+  emailRepliedAt?: string | null;
+  relanceSentAt?: string | null;
   dateActivation?: string | null;
   montantFinal?: number | null;
   statutLivraison?: string;
@@ -203,12 +209,79 @@ function deliveryClass(statut?: string) {
 }
 
 function isRelanceDue(opportunite: Opportunite): boolean {
+  // Mail envoyé depuis la plateforme : la relance auto J+3 ouvrés s'en charge
+  if (opportunite.lastEmailSentAt) return false;
   if (opportunite.statut !== "CONTACTEE") return false;
   if (!opportunite.updatedAt) return false;
   const updatedAt = new Date(opportunite.updatedAt).getTime();
   if (Number.isNaN(updatedAt)) return false;
   const diffMs = Date.now() - updatedAt;
   return diffMs >= 72 * 60 * 60 * 1000;
+}
+
+function formatShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+}
+
+/**
+ * Badges de suivi du mail de prospection envoyé depuis la plateforme :
+ * envoyé / ouvert / répondu / relance auto J+3 ouvrés.
+ */
+function EmailTrackingBadges({
+  opportunite: o,
+  detailed = false,
+}: {
+  opportunite: Opportunite;
+  detailed?: boolean;
+}) {
+  if (!o.lastEmailSentAt) return null;
+
+  const relancePrevue = businessDaysAfter(new Date(o.lastEmailSentAt), 3);
+  const base = "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium";
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className={`${base} bg-gray-100 text-gray-700`} title={o.lastEmailFrom ? `Envoyé depuis ${o.lastEmailFrom}` : undefined}>
+        <Mail className="h-3 w-3" />
+        Envoyé {formatShortDate(o.lastEmailSentAt)}
+      </span>
+
+      {o.emailOpenedAt ? (
+        <span className={`${base} bg-sky-100 text-sky-800`} title={`Première ouverture le ${new Date(o.emailOpenedAt).toLocaleString("fr-FR")}`}>
+          <Eye className="h-3 w-3" />
+          Ouvert{detailed && (o.emailOpenCount || 0) > 1 ? ` ×${o.emailOpenCount}` : ""}
+        </span>
+      ) : detailed ? (
+        <span className={`${base} bg-gray-50 text-gray-400`}>
+          <Eye className="h-3 w-3" />
+          Pas encore ouvert
+        </span>
+      ) : null}
+
+      {o.emailRepliedAt ? (
+        <span className={`${base} bg-emerald-100 text-emerald-800`} title={`Réponse le ${new Date(o.emailRepliedAt).toLocaleString("fr-FR")}`}>
+          <Reply className="h-3 w-3" />
+          A répondu
+        </span>
+      ) : null}
+
+      {o.relanceSentAt ? (
+        <span className={`${base} bg-indigo-100 text-indigo-800`}>
+          <Send className="h-3 w-3" />
+          Relancé {formatShortDate(o.relanceSentAt)}
+        </span>
+      ) : o.emailRepliedAt ? (
+        detailed ? (
+          <span className={`${base} bg-gray-50 text-gray-400`}>Relance annulée (réponse reçue)</span>
+        ) : null
+      ) : (
+        <span className={`${base} bg-amber-100 text-amber-800`} title="Relance automatique dans le même fil Gmail si pas de réponse (J+3 ouvrés)">
+          <Clock className="h-3 w-3" />
+          Relance auto {formatShortDate(relancePrevue.toISOString())}
+        </span>
+      )}
+    </div>
+  );
 }
 
 function decodeClientLanguageFromAngleNote(angleNote?: string | null): {
@@ -267,6 +340,8 @@ export function StrategyProjectClient({
   const { data: session } = useSession();
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
   const isAdmin = role === "ADMIN";
+  // La strategy planner (Ines) rédige et envoie elle-même la prospection
+  const canSendProspection = isAdmin || role === "STRATEGY_PLANNER";
 
   const [activeTab, setActiveTab] = useState<Tab>("casting");
   const [loading, setLoading] = useState(true);
@@ -1162,6 +1237,7 @@ export function StrategyProjectClient({
                               Relance à faire (72h+)
                             </div>
                           ) : null}
+                          <EmailTrackingBadges opportunite={o} />
                           <p className="text-xs text-gray-500">{o.secteur || "Secteur n/a"}</p>
                           <p className="text-xs">{formatMoney(o.budgetEstime)}</p>
                           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
@@ -1814,7 +1890,7 @@ export function StrategyProjectClient({
             <div className="rounded-lg border border-gray-200 p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-medium">Contacts client</p>
-                {isAdmin && asContacts(selectedPipelineOpp.contacts).some((c) => c.email) ? (
+                {canSendProspection && asContacts(selectedPipelineOpp.contacts).some((c) => c.email) ? (
                   <button
                     type="button"
                     onClick={() => openEmailModal(selectedPipelineOpp)}
@@ -1826,13 +1902,19 @@ export function StrategyProjectClient({
                 ) : null}
               </div>
               {selectedPipelineOpp.lastEmailSentAt ? (
-                <p className="mb-2 text-xs text-emerald-700">
-                  Dernier mail envoyé le{" "}
-                  {new Date(selectedPipelineOpp.lastEmailSentAt).toLocaleString("fr-FR")}
-                  {selectedPipelineOpp.lastEmailFrom
-                    ? ` depuis ${selectedPipelineOpp.lastEmailFrom}`
-                    : ""}
-                </p>
+                <div className="mb-2 space-y-1.5 rounded-lg bg-gray-50 p-2.5">
+                  <p className="text-[11px] text-gray-500">
+                    Dernier mail envoyé le{" "}
+                    {new Date(selectedPipelineOpp.lastEmailSentAt).toLocaleString("fr-FR")}
+                    {selectedPipelineOpp.lastEmailFrom
+                      ? ` depuis ${selectedPipelineOpp.lastEmailFrom}`
+                      : ""}
+                    {selectedPipelineOpp.emailSubject
+                      ? ` — « ${selectedPipelineOpp.emailSubject} »`
+                      : ""}
+                  </p>
+                  <EmailTrackingBadges opportunite={selectedPipelineOpp} detailed />
+                </div>
               ) : null}
               <div className="space-y-2">
                 {asContacts(selectedPipelineOpp.contacts).map((c, idx) => (

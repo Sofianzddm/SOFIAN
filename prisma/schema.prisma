@@ -2320,6 +2320,15 @@ model OpportuniteMarque {
   lastEmailFrom     String?
   lastEmailThreadId String?
 
+  // Suivi du dernier mail : sujet (pour le « Re: » de relance), ouvertures
+  // (pixel), réponse (thread Gmail) et relance auto J+3 ouvrés (1 max).
+  emailSubject   String?
+  emailOpenedAt  DateTime?
+  emailOpenCount Int       @default(0)
+  emailRepliedAt DateTime?
+  relanceSentAt  DateTime?
+  relanceError   String?
+
   ownerId     String?
   createdById String?
   createdAt   DateTime @default(now())

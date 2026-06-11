@@ -4,12 +4,16 @@ import { getAppSession } from "@/lib/getAppSession";
 import { sendGmail } from "@/lib/gmail";
 import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
 import { normalizeEditorHtmlForEmail, plainTextToEmailHtml } from "@/lib/email-body-html";
+import { injectProjetTracking } from "@/lib/projet-prospection";
 
 /**
  * Envoi du mail de prospection d'une opportunité marque, depuis la boîte
  * d'envoi du PROJET (ProjetEvenement.senderEmail, ex : Ski Trip → Ines),
- * défaut leyna@glowupagence.fr. ADMIN uniquement (les contacts sont sensibles).
- * Après envoi : statut IDENTIFIEE → CONTACTEE.
+ * défaut leyna@glowupagence.fr. ADMIN + STRATEGY_PLANNER (la strategy planner
+ * pilote la prospection de ses projets). Après envoi : statut IDENTIFIEE → CONTACTEE.
+ *
+ * Le mail embarque le tracking (pixel d'ouverture + liens réécrits) et le
+ * cron quotidien gère la relance auto J+3 ouvrés + la détection de réponse.
  */
 
 export async function POST(
@@ -21,8 +25,9 @@ export async function POST(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (session.user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Réservé à l'admin" }, { status: 403 });
+    const role = session.user.role || "";
+    if (role !== "ADMIN" && role !== "STRATEGY_PLANNER") {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     const { id } = await params;
@@ -87,7 +92,7 @@ export async function POST(
         fromEmail,
         to: recipients.join(", "),
         subject,
-        htmlBody,
+        htmlBody: injectProjetTracking(htmlBody, opportunite.id),
       });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";
@@ -100,6 +105,13 @@ export async function POST(
         lastEmailSentAt: new Date(),
         lastEmailFrom: fromEmail,
         lastEmailThreadId: messageId,
+        emailSubject: subject,
+        // Nouveau mail = nouveau suivi (ouvertures, réponse, relance)
+        emailOpenedAt: null,
+        emailOpenCount: 0,
+        emailRepliedAt: null,
+        relanceSentAt: null,
+        relanceError: null,
         // On ne rétrograde pas une négo déjà avancée
         ...(opportunite.statut === "IDENTIFIEE" ? { statut: "CONTACTEE" } : {}),
       },

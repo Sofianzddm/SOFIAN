@@ -73,12 +73,8 @@ const menuItems = [
     icon: Briefcase,
     roles: ["ADMIN", "STRATEGY_PLANNER", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "COIFFEUR"],
   },
-  {
-    label: "Ski Trip 2027",
-    href: "/strategy/projets/ski-trip",
-    icon: Briefcase,
-    roles: ["ADMIN"],
-  },
+  // Ski Trip 2027 : visible uniquement dans le menu de la STRATEGY_PLANNER
+  // (Ines pilote le projet à 100%). La page reste accessible aux ADMIN par URL.
   {
     label: "Pipeline prospection",
     href: "/strategy/projet-individuel-talent/pipeline",

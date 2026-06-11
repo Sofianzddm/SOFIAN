@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
     const role = session.user.role || "";
-    if (role !== "ADMIN" && role !== "CASTING_MANAGER") {
+    // STRATEGY_PLANNER : lecture seule pour afficher le nom de la boîte
+    // d'envoi de ses projets (Ski Trip → Ines).
+    if (role !== "ADMIN" && role !== "CASTING_MANAGER" && role !== "STRATEGY_PLANNER") {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 

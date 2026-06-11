@@ -7,6 +7,12 @@ import {
   outreachFromEmail,
   OUTREACH_RELANCE_BUSINESS_DAYS,
 } from "@/lib/outreach-send";
+import {
+  executeProjetRelance,
+  PROJET_RELANCE_BUSINESS_DAYS,
+  PROJET_TRACKING_WINDOW_DAYS,
+} from "@/lib/projet-prospection";
+import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
 
 /**
  * Cron quotidien du module Outreach (8h, jours ouvrés) :
@@ -14,6 +20,8 @@ import {
  *     (info seulement : le client RESTE dans le cycle 45 jours).
  *  2. Envoie la relance auto J+3 ouvrés dans le thread si pas de réponse.
  *  3. Bascule en « À recontacter » les clients dont les 45 jours sont écoulés.
+ *  4. Même chose pour la prospection des projets strategy (Ski Trip…) :
+ *     détection de réponse + relance auto J+3 ouvrés sur les OpportuniteMarque.
  *
  * Les clients entrent dans le module uniquement à la main ou via l'import
  * d'une carto Excel — le stock HubSpot historique reste géré dans HubSpot.
@@ -136,10 +144,86 @@ export async function GET(request: NextRequest) {
       .catch((e) => console.warn("[cron/outreach] notification recontact:", e));
   }
 
+  // 4. Prospection des projets strategy (Ski Trip…) : réponses + relance J+3
+  let projetReplies = 0;
+  let projetRelances = 0;
+
+  const windowStart = new Date(
+    now.getTime() - PROJET_TRACKING_WINDOW_DAYS * 24 * 60 * 60 * 1000
+  );
+  const opportunites = await prisma.opportuniteMarque.findMany({
+    where: {
+      lastEmailSentAt: { not: null, gte: windowStart },
+      lastEmailThreadId: { not: null },
+    },
+    include: { projet: { select: { nom: true, slug: true } } },
+  });
+
+  for (const opp of opportunites) {
+    if (!opp.lastEmailSentAt || !opp.lastEmailThreadId) continue;
+    const fromEmail =
+      (opp.lastEmailFrom || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
+
+    // Détection de réponse dans le thread de la boîte expéditrice
+    let hasReplied = Boolean(opp.emailRepliedAt);
+    if (!hasReplied) {
+      try {
+        hasReplied = await checkThreadForReply(fromEmail, opp.lastEmailThreadId);
+      } catch (error) {
+        console.warn(`[cron/outreach] checkThreadForReply projet ${opp.nomMarque}:`, error);
+      }
+      if (hasReplied) {
+        projetReplies += 1;
+        await prisma.opportuniteMarque.update({
+          where: { id: opp.id },
+          data: { emailRepliedAt: now },
+        });
+
+        // Notifie la personne qui pilote la prospection : l'utilisateur lié à
+        // la boîte expéditrice (ex : Ines pour Ski Trip) + le créateur.
+        const senderToken = await prisma.gmailToken
+          .findUnique({ where: { email: fromEmail }, select: { userId: true } })
+          .catch(() => null);
+        const notifyIds = Array.from(
+          new Set([senderToken?.userId, opp.createdById].filter(Boolean) as string[])
+        );
+        const projetPath = `/strategy/projets/${opp.projet?.slug || "villa-cannes"}`;
+        for (const userId of notifyIds) {
+          await prisma.notification
+            .create({
+              data: {
+                userId,
+                type: "GENERAL",
+                titre: `Réponse marque (${opp.projet?.nom || "Projet"})`,
+                message: `${opp.nomMarque} a répondu au mail de prospection.`,
+                lien: projetPath,
+                marqueId: opp.marqueId,
+              },
+            })
+            .catch((e) => console.warn("[cron/outreach] notification projet réponse:", e));
+        }
+      }
+    }
+
+    // Relance auto J+3 ouvrés (1 max, sautée si réponse)
+    if (
+      !hasReplied &&
+      !opp.relanceSentAt &&
+      hasBusinessDaysElapsed(opp.lastEmailSentAt, PROJET_RELANCE_BUSINESS_DAYS, now)
+    ) {
+      const result = await executeProjetRelance(opp.id);
+      if (result.ok) projetRelances += 1;
+      else console.warn(`[cron/outreach] relance projet ${opp.nomMarque}: ${result.error}`);
+    }
+  }
+
   return NextResponse.json({
     processed: targets.length,
     replies,
     relances,
     recontacts,
+    projetProcessed: opportunites.length,
+    projetReplies,
+    projetRelances,
   });
 }
