@@ -4,7 +4,12 @@ import { getAppSession } from "@/lib/getAppSession";
 import { sendGmail } from "@/lib/gmail";
 import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
 import { normalizeEditorHtmlForEmail, plainTextToEmailHtml } from "@/lib/email-body-html";
-import { injectProjetTracking } from "@/lib/projet-prospection";
+import {
+  applyProjetVars,
+  injectProjetTracking,
+  projetOppMailContacts,
+  type ProjetEmailThread,
+} from "@/lib/projet-prospection";
 
 /**
  * Envoi du mail de prospection d'une opportunité marque, depuis la boîte
@@ -55,17 +60,8 @@ export async function POST(
       return NextResponse.json({ error: "Opportunité introuvable." }, { status: 404 });
     }
 
-    const contacts = Array.isArray(opportunite.contacts)
-      ? (opportunite.contacts as Array<{ email?: string }>)
-      : [];
-    const recipients = Array.from(
-      new Set(
-        contacts
-          .map((c) => String(c?.email || "").trim().toLowerCase())
-          .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
-      )
-    );
-    if (recipients.length === 0) {
+    const mailContacts = projetOppMailContacts(opportunite.contacts);
+    if (mailContacts.length === 0) {
       return NextResponse.json(
         { error: "Aucun contact avec email valide sur cette marque. Qualifie d'abord les contacts." },
         { status: 400 }
@@ -86,17 +82,41 @@ export async function POST(
       );
     }
 
-    let messageId: string;
-    try {
-      messageId = await sendGmail({
-        fromEmail,
-        to: recipients.join(", "),
-        subject,
-        htmlBody: injectProjetTracking(htmlBody, opportunite.id),
-      });
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";
-      return NextResponse.json({ error: `Échec Gmail : ${msg}` }, { status: 502 });
+    // Envoi individualisé : 1 mail (et 1 thread Gmail) par contact, avec les
+    // variables {{prenom}} / {{nom}} / {{marque}} remplacées pour chacun.
+    const threads: ProjetEmailThread[] = [];
+    const errors: string[] = [];
+    for (const contact of mailContacts) {
+      const vars = {
+        prenom: contact.firstName,
+        nom: contact.lastName,
+        marque: opportunite.nomMarque,
+      };
+      try {
+        const messageId = await sendGmail({
+          fromEmail,
+          to: contact.email,
+          subject: applyProjetVars(subject, vars),
+          htmlBody: injectProjetTracking(applyProjetVars(htmlBody, vars), opportunite.id),
+        });
+        threads.push({
+          email: contact.email,
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          threadId: messageId,
+          repliedAt: null,
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";
+        errors.push(`${contact.email} : ${msg}`);
+      }
+    }
+
+    if (threads.length === 0) {
+      return NextResponse.json(
+        { error: `Échec Gmail : ${errors.join(" / ")}` },
+        { status: 502 }
+      );
     }
 
     const updated = await prisma.opportuniteMarque.update({
@@ -104,27 +124,29 @@ export async function POST(
       data: {
         lastEmailSentAt: new Date(),
         lastEmailFrom: fromEmail,
-        lastEmailThreadId: messageId,
+        lastEmailThreadId: threads[0].threadId,
+        emailThreads: threads,
         emailSubject: subject,
         // Nouveau mail = nouveau suivi (ouvertures, réponse, relance)
         emailOpenedAt: null,
         emailOpenCount: 0,
         emailRepliedAt: null,
         relanceSentAt: null,
-        relanceError: null,
+        relanceError: errors.length > 0 ? errors.join(" / ") : null,
         // On ne rétrograde pas une négo déjà avancée
         ...(opportunite.statut === "IDENTIFIEE" ? { statut: "CONTACTEE" } : {}),
       },
     });
 
     console.info(
-      `[strategy/send-email] ${opportunite.nomMarque} (${opportunite.projet?.slug}) → ${recipients.join(", ")} depuis ${fromEmail}`
+      `[strategy/send-email] ${opportunite.nomMarque} (${opportunite.projet?.slug}) → ${threads.length}/${mailContacts.length} contacts depuis ${fromEmail}`
     );
 
     return NextResponse.json({
       ok: true,
       fromEmail,
-      recipients,
+      recipients: threads.map((t) => t.email),
+      failed: errors,
       statut: updated.statut,
       sentAt: updated.lastEmailSentAt,
     });

@@ -79,16 +79,21 @@ function ToolbarButton({
   );
 }
 
+export type EditorVariable = { token: string; label: string; hint?: string };
+
 export default function RichEmailEditor({
   initialHtml = "",
   onChangeHtml,
   placeholder = "Bonjour,\n\nRédige ton mail ici...",
   minHeight = 240,
+  variables = [],
 }: {
   initialHtml?: string;
   onChangeHtml: (html: string) => void;
   placeholder?: string;
   minHeight?: number;
+  /** Jetons insérables ({{prenom}}…), remplacés par destinataire à l'envoi. */
+  variables?: EditorVariable[];
 }) {
   const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [, setTick] = useState(0);
@@ -352,6 +357,28 @@ export default function RichEmailEditor({
           </button>
         </div>
       </div>
+
+      {/* ─── Variables dynamiques ─── */}
+      {variables.length > 0 && mode === "edit" && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-gray-200 bg-emerald-50/50 px-3 py-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+            Variables
+          </span>
+          {variables.map((v) => (
+            <button
+              key={v.token}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => editor.chain().focus().insertContent(v.token).run()}
+              title={v.hint ? `${v.hint} — insère ${v.token}` : `Insère ${v.token}`}
+              className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 transition-colors"
+            >
+              <span className="text-[11px]">+</span>
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ─── Popover lien ─── */}
       {linkPanelOpen && (

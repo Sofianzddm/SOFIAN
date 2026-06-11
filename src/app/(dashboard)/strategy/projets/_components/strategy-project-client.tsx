@@ -2081,6 +2081,13 @@ export function StrategyProjectClient({
                     </span>
                   ))}
               </div>
+              {asContacts(emailModalOpp.contacts).filter((c) => c.email).length > 1 ? (
+                <p className="mt-1.5 text-[11px] text-gray-500">
+                  Chaque contact reçoit <strong>son propre mail</strong> :{" "}
+                  <code className="rounded bg-white px-1">{"{{prenom}}"}</code> est remplacé par
+                  le prénom de chacun.
+                </p>
+              ) : null}
             </div>
 
             <div>
@@ -2097,8 +2104,25 @@ export function StrategyProjectClient({
               <div className="mt-1">
                 <RichEmailEditor
                   onChangeHtml={(html) => setEmailForm((s) => ({ ...s, bodyHtml: html }))}
-                  placeholder="Bonjour, rédige ton mail de prospection ici..."
+                  placeholder="Bonjour {{prenom}}, rédige ton mail de prospection ici..."
                   minHeight={260}
+                  variables={[
+                    {
+                      token: "{{prenom}}",
+                      label: "PRÉNOM",
+                      hint: "Prénom du contact (remplacé pour chaque destinataire)",
+                    },
+                    {
+                      token: "{{nom}}",
+                      label: "NOM",
+                      hint: "Nom du contact (remplacé pour chaque destinataire)",
+                    },
+                    {
+                      token: "{{marque}}",
+                      label: "MARQUE",
+                      hint: "Nom de la marque ciblée",
+                    },
+                  ]}
                 />
               </div>
             </div>

@@ -87,15 +87,61 @@ export function injectProjetTracking(html: string, oppId: string): string {
 
 type OppContact = { firstName?: string; lastName?: string; email?: string; role?: string };
 
-export function projetOppRecipients(contacts: unknown): string[] {
+export type ProjetMailContact = { email: string; firstName: string; lastName: string };
+
+/** Contacts dédupliqués (par email) avec prénom/nom pour les variables. */
+export function projetOppMailContacts(contacts: unknown): ProjetMailContact[] {
   const arr = Array.isArray(contacts) ? (contacts as OppContact[]) : [];
-  return Array.from(
-    new Set(
-      arr
-        .map((c) => String(c?.email || "").trim().toLowerCase())
-        .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
-    )
-  );
+  const seen = new Set<string>();
+  const out: ProjetMailContact[] = [];
+  for (const c of arr) {
+    const email = String(c?.email || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || seen.has(email)) continue;
+    seen.add(email);
+    out.push({
+      email,
+      firstName: String(c?.firstName || "").trim(),
+      lastName: String(c?.lastName || "").trim(),
+    });
+  }
+  return out;
+}
+
+/**
+ * Variables du composer prospection projet, remplacées PAR CONTACT au moment
+ * de l'envoi (chaque contact reçoit son propre mail / thread Gmail) :
+ *   {{prenom}} / {{prénom}}, {{nom}}, {{marque}} — espaces et casse tolérés.
+ */
+export function applyProjetVars(
+  text: string,
+  vars: { prenom: string; nom: string; marque: string }
+): string {
+  return text
+    .replace(/\{\{\s*pr[eé]nom\s*\}\}/gi, vars.prenom)
+    .replace(/\{\{\s*nom\s*\}\}/gi, vars.nom)
+    .replace(/\{\{\s*marque\s*\}\}/gi, vars.marque);
+}
+
+/** [{ email, firstName, lastName, threadId, repliedAt }] sur OpportuniteMarque. */
+export type ProjetEmailThread = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  threadId: string;
+  repliedAt: string | null;
+};
+
+export function parseProjetEmailThreads(value: unknown): ProjetEmailThread[] {
+  if (!Array.isArray(value)) return [];
+  return (value as Array<Record<string, unknown>>)
+    .filter((t) => typeof t?.threadId === "string" && typeof t?.email === "string")
+    .map((t) => ({
+      email: String(t.email),
+      firstName: String(t.firstName || ""),
+      lastName: String(t.lastName || ""),
+      threadId: String(t.threadId),
+      repliedAt: typeof t.repliedAt === "string" ? t.repliedAt : null,
+    }));
 }
 
 /**
@@ -117,29 +163,39 @@ function buildProjetRelanceBody(firstName: string, nomMarque: string): string {
 }
 
 export type ProjetRelanceResult =
-  | { ok: true; messageId: string }
+  | { ok: true; sent: number }
   | { ok: false; error: string };
 
 /**
- * Relance J+3 dans le thread Gmail du mail de prospection. Une seule relance
- * par mail ; sautée si la marque a déjà répondu.
+ * Relance J+3 dans le(s) thread(s) Gmail du mail de prospection : chaque
+ * contact est relancé individuellement dans son propre thread, avec son
+ * prénom — sauf ceux qui ont déjà répondu. Une seule relance par mail.
  */
 export async function executeProjetRelance(oppId: string): Promise<ProjetRelanceResult> {
   const opp = await prisma.opportuniteMarque.findUnique({ where: { id: oppId } });
   if (!opp) return { ok: false, error: "Opportunité introuvable." };
-  if (!opp.lastEmailSentAt || !opp.lastEmailThreadId) {
+  if (!opp.lastEmailSentAt) {
     return { ok: false, error: "Aucun mail de prospection envoyé." };
   }
   if (opp.relanceSentAt) {
     return { ok: false, error: "Une relance a déjà été envoyée." };
   }
-  if (opp.emailRepliedAt) {
-    return { ok: false, error: "La marque a déjà répondu." };
-  }
 
-  const recipients = projetOppRecipients(opp.contacts);
-  if (recipients.length === 0) {
-    return { ok: false, error: "Aucun contact avec email valide." };
+  // Threads individuels ; fallback legacy : 1 seul thread groupé (anciens envois)
+  let threads = parseProjetEmailThreads(opp.emailThreads);
+  if (threads.length === 0 && opp.lastEmailThreadId) {
+    const contacts = projetOppMailContacts(opp.contacts);
+    threads = contacts.slice(0, 1).map((c) => ({
+      email: contacts.map((x) => x.email).join(", "),
+      firstName: c.firstName,
+      lastName: c.lastName,
+      threadId: opp.lastEmailThreadId as string,
+      repliedAt: opp.emailRepliedAt ? opp.emailRepliedAt.toISOString() : null,
+    }));
+  }
+  const pending = threads.filter((t) => !t.repliedAt);
+  if (pending.length === 0) {
+    return { ok: false, error: "Tous les contacts ont déjà répondu." };
   }
 
   const fromEmail = (opp.lastEmailFrom || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
@@ -148,37 +204,47 @@ export async function executeProjetRelance(oppId: string): Promise<ProjetRelance
     ? subjectSrc
     : `Re: ${subjectSrc}`;
 
-  const contacts = Array.isArray(opp.contacts) ? (opp.contacts as OppContact[]) : [];
-  const firstName = String(contacts[0]?.firstName || "").trim();
-  const body = injectProjetTracking(
-    buildProjetRelanceBody(firstName, opp.nomMarque),
-    opp.id
-  );
-
-  try {
-    const messageId = await sendGmail({
-      fromEmail,
-      to: recipients.join(", "),
-      subject: relanceSubject,
-      htmlBody: body,
-      threadId: opp.lastEmailThreadId,
-    });
-
-    await prisma.opportuniteMarque.update({
-      where: { id: opp.id },
-      data: { relanceSentAt: new Date(), relanceError: null },
-    });
-
-    console.info(
-      `[projet-prospection] relance J+${PROJET_RELANCE_BUSINESS_DAYS} → ${opp.nomMarque} (${recipients.join(", ")}) depuis ${fromEmail}`
+  let sent = 0;
+  let lastError: string | null = null;
+  for (const thread of pending) {
+    const body = injectProjetTracking(
+      buildProjetRelanceBody(thread.firstName, opp.nomMarque),
+      opp.id
     );
-    return { ok: true, messageId };
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";
+    try {
+      await sendGmail({
+        fromEmail,
+        to: thread.email,
+        subject: applyProjetVars(relanceSubject, {
+          prenom: thread.firstName,
+          nom: thread.lastName,
+          marque: opp.nomMarque,
+        }),
+        htmlBody: body,
+        threadId: thread.threadId,
+      });
+      sent += 1;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : "Erreur Gmail inconnue";
+      console.warn(`[projet-prospection] relance ${thread.email} (${opp.nomMarque}):`, error);
+    }
+  }
+
+  if (sent === 0) {
     await prisma.opportuniteMarque.update({
       where: { id: opp.id },
-      data: { relanceError: msg },
+      data: { relanceError: lastError || "Échec de toutes les relances." },
     });
-    return { ok: false, error: `Échec Gmail : ${msg}` };
+    return { ok: false, error: `Échec Gmail : ${lastError || "aucune relance envoyée"}` };
   }
+
+  await prisma.opportuniteMarque.update({
+    where: { id: opp.id },
+    data: { relanceSentAt: new Date(), relanceError: lastError },
+  });
+
+  console.info(
+    `[projet-prospection] relance J+${PROJET_RELANCE_BUSINESS_DAYS} → ${opp.nomMarque} (${sent}/${pending.length} contacts) depuis ${fromEmail}`
+  );
+  return { ok: true, sent };
 }

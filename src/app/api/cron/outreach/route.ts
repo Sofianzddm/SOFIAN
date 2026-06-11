@@ -9,6 +9,7 @@ import {
 } from "@/lib/outreach-send";
 import {
   executeProjetRelance,
+  parseProjetEmailThreads,
   PROJET_RELANCE_BUSINESS_DAYS,
   PROJET_TRACKING_WINDOW_DAYS,
 } from "@/lib/projet-prospection";
@@ -164,44 +165,79 @@ export async function GET(request: NextRequest) {
     const fromEmail =
       (opp.lastEmailFrom || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
 
-    // Détection de réponse dans le thread de la boîte expéditrice
+    // Détection de réponse, thread par thread (1 thread Gmail par contact ;
+    // fallback : l'ancien thread groupé unique).
     let hasReplied = Boolean(opp.emailRepliedAt);
-    if (!hasReplied) {
+    const threads = parseProjetEmailThreads(opp.emailThreads);
+    let threadsChanged = false;
+    let newReply = false;
+    if (threads.length > 0) {
+      for (const thread of threads) {
+        if (thread.repliedAt) continue;
+        try {
+          const replied = await checkThreadForReply(fromEmail, thread.threadId);
+          if (replied) {
+            thread.repliedAt = now.toISOString();
+            threadsChanged = true;
+            newReply = true;
+          }
+        } catch (error) {
+          console.warn(
+            `[cron/outreach] checkThreadForReply projet ${opp.nomMarque} (${thread.email}):`,
+            error
+          );
+        }
+      }
+      if (threadsChanged) {
+        await prisma.opportuniteMarque.update({
+          where: { id: opp.id },
+          data: {
+            emailThreads: threads,
+            ...(opp.emailRepliedAt ? {} : { emailRepliedAt: now }),
+          },
+        });
+        hasReplied = true;
+      }
+    } else if (!hasReplied) {
       try {
-        hasReplied = await checkThreadForReply(fromEmail, opp.lastEmailThreadId);
+        newReply = await checkThreadForReply(fromEmail, opp.lastEmailThreadId);
       } catch (error) {
         console.warn(`[cron/outreach] checkThreadForReply projet ${opp.nomMarque}:`, error);
       }
-      if (hasReplied) {
-        projetReplies += 1;
+      if (newReply) {
+        hasReplied = true;
         await prisma.opportuniteMarque.update({
           where: { id: opp.id },
           data: { emailRepliedAt: now },
         });
+      }
+    }
 
-        // Notifie la personne qui pilote la prospection : l'utilisateur lié à
-        // la boîte expéditrice (ex : Ines pour Ski Trip) + le créateur.
-        const senderToken = await prisma.gmailToken
-          .findUnique({ where: { email: fromEmail }, select: { userId: true } })
-          .catch(() => null);
-        const notifyIds = Array.from(
-          new Set([senderToken?.userId, opp.createdById].filter(Boolean) as string[])
-        );
-        const projetPath = `/strategy/projets/${opp.projet?.slug || "villa-cannes"}`;
-        for (const userId of notifyIds) {
-          await prisma.notification
-            .create({
-              data: {
-                userId,
-                type: "GENERAL",
-                titre: `Réponse marque (${opp.projet?.nom || "Projet"})`,
-                message: `${opp.nomMarque} a répondu au mail de prospection.`,
-                lien: projetPath,
-                marqueId: opp.marqueId,
-              },
-            })
-            .catch((e) => console.warn("[cron/outreach] notification projet réponse:", e));
-        }
+    if (newReply) {
+      projetReplies += 1;
+
+      // Notifie la personne qui pilote la prospection : l'utilisateur lié à
+      // la boîte expéditrice (ex : Ines pour Ski Trip) + le créateur.
+      const senderToken = await prisma.gmailToken
+        .findUnique({ where: { email: fromEmail }, select: { userId: true } })
+        .catch(() => null);
+      const notifyIds = Array.from(
+        new Set([senderToken?.userId, opp.createdById].filter(Boolean) as string[])
+      );
+      const projetPath = `/strategy/projets/${opp.projet?.slug || "villa-cannes"}`;
+      for (const userId of notifyIds) {
+        await prisma.notification
+          .create({
+            data: {
+              userId,
+              type: "GENERAL",
+              titre: `Réponse marque (${opp.projet?.nom || "Projet"})`,
+              message: `${opp.nomMarque} a répondu au mail de prospection.`,
+              lien: projetPath,
+              marqueId: opp.marqueId,
+            },
+          })
+          .catch((e) => console.warn("[cron/outreach] notification projet réponse:", e));
       }
     }
 
