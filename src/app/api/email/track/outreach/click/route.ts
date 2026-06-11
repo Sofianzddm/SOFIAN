@@ -27,15 +27,20 @@ export async function GET(request: NextRequest) {
         select: { clickedAt: true },
       });
       if (current) {
-        await prisma.outreachTouch.update({
-          where: { id },
-          data: {
-            clickCount: { increment: 1 },
-            lastClickAt: new Date(),
-            lastClickUrl: target.slice(0, 1000),
-            ...(current.clickedAt ? {} : { clickedAt: new Date() }),
-          },
-        });
+        await prisma.$transaction([
+          prisma.outreachTouch.update({
+            where: { id },
+            data: {
+              clickCount: { increment: 1 },
+              lastClickAt: new Date(),
+              lastClickUrl: target.slice(0, 1000),
+              ...(current.clickedAt ? {} : { clickedAt: new Date() }),
+            },
+          }),
+          prisma.outreachClick.create({
+            data: { touchId: id, url: target.slice(0, 1000) },
+          }),
+        ]);
       }
     } catch (error) {
       console.warn("[track/outreach/click] non-blocking error:", error);

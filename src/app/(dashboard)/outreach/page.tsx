@@ -58,12 +58,19 @@ type TouchSummary = {
   sendError: string | null;
 };
 
+type TouchClick = {
+  id: string;
+  url: string;
+  clickedAt: string;
+};
+
 type Touch = TouchSummary & {
   bodyHtml: string;
   relanceError: string | null;
   openedAt: string | null;
   clickedAt: string | null;
   lastClickUrl: string | null;
+  clicks?: TouchClick[];
 };
 
 type Target = {
@@ -137,6 +144,50 @@ function formatDate(dateStr: string | null): string {
 function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null;
   return Math.ceil((new Date(dateStr).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+/** Libellé lisible pour un lien cliqué dans un mail (profil Insta/TikTok, talentbook…). */
+function clickLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    const firstSegment = u.pathname.split("/").filter(Boolean)[0] || "";
+    if (host.endsWith("instagram.com")) {
+      const reserved = ["p", "reel", "reels", "stories", "explore"];
+      if (firstSegment && !reserved.includes(firstSegment)) return `@${firstSegment}`;
+      return "Instagram";
+    }
+    if (host.endsWith("tiktok.com")) {
+      if (firstSegment.startsWith("@")) return `${firstSegment} (TikTok)`;
+      return "TikTok";
+    }
+    if (u.pathname.toLowerCase().includes("talentbook")) return "Talentbook";
+    return host;
+  } catch {
+    return url;
+  }
+}
+
+/** Regroupe les clics par URL : un badge par lien avec le nombre de clics. */
+function groupClicks(
+  clicks: TouchClick[]
+): { url: string; label: string; count: number; lastAt: string }[] {
+  const map = new Map<string, { url: string; label: string; count: number; lastAt: string }>();
+  for (const click of clicks) {
+    const existing = map.get(click.url);
+    if (existing) {
+      existing.count += 1;
+      if (click.clickedAt > existing.lastAt) existing.lastAt = click.clickedAt;
+    } else {
+      map.set(click.url, {
+        url: click.url,
+        label: clickLabel(click.url),
+        count: 1,
+        lastAt: click.clickedAt,
+      });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.count - a.count);
 }
 
 export default function OutreachPage() {
@@ -862,6 +913,26 @@ export default function OutreachPage() {
                                       <MousePointerClick className="w-3 h-3 ml-2" /> {touch.clickCount}
                                     </span>
                                   </div>
+                                  {touch.clicks && touch.clicks.length > 0 && (
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                      <span className="text-[11px] text-gray-400">Liens cliqués :</span>
+                                      {groupClicks(touch.clicks).map((c) => (
+                                        <a
+                                          key={c.url}
+                                          href={c.url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          title={`${c.count} clic${c.count > 1 ? "s" : ""} — dernier le ${formatDate(c.lastAt)}\n${c.url}`}
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] font-medium hover:bg-gray-50 transition"
+                                          style={{ borderColor: "#EDE7DF", color: LICORICE, backgroundColor: OLD_LACE }}
+                                        >
+                                          <MousePointerClick className="w-3 h-3" style={{ color: OLD_ROSE }} />
+                                          {c.label}
+                                          {c.count > 1 && <span className="text-gray-400">×{c.count}</span>}
+                                        </a>
+                                      ))}
+                                    </div>
+                                  )}
                                   {touch.sendError && (
                                     <p className="text-xs text-red-600 mt-1">{touch.sendError}</p>
                                   )}

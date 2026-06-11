@@ -2945,10 +2945,28 @@ model OutreachTouch {
   lastClickUrl String?   @db.Text
   clickCount   Int       @default(0)
 
+  clicks OutreachClick[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([targetId, cycleNumber])
   @@index([sentAt, repliedAt, relanceSentAt])
   @@map("outreach_touches")
+}
+
+// Détail de chaque clic sur un lien d'un mail Outreach (1 ligne par clic),
+// pour savoir qui a cliqué sur quel profil. Les compteurs agrégés restent
+// sur outreach_touches.
+model OutreachClick {
+  id String @id @default(cuid())
+
+  touchId String
+  touch   OutreachTouch @relation(fields: [touchId], references: [id], onDelete: Cascade)
+
+  url       String   @db.Text
+  clickedAt DateTime @default(now())
+
+  @@index([touchId, clickedAt])
+  @@map("outreach_clicks")
 }

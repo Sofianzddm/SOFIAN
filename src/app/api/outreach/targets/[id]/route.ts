@@ -35,7 +35,15 @@ export async function GET(
     const target = await prisma.outreachTarget.findUnique({
       where: { id },
       include: {
-        touches: { orderBy: { cycleNumber: "desc" } },
+        touches: {
+          orderBy: { cycleNumber: "desc" },
+          include: {
+            clicks: {
+              orderBy: { clickedAt: "desc" },
+              select: { id: true, url: true, clickedAt: true },
+            },
+          },
+        },
         marque: { select: { id: true, nom: true } },
       },
     });
