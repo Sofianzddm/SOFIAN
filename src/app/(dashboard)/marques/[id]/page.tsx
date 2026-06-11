@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -226,6 +227,11 @@ function DetailRow({ label, value, mono }: { label: string; value: React.ReactNo
 export default function MarqueDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
+  // STRATEGY_PLANNER : fiche en lecture seule (accès depuis les projets
+  // strategy type Ski Trip) — pas de modification/suppression ni de liens
+  // vers des espaces auxquels le rôle n'a pas accès.
+  const readOnly = (session?.user?.role || "") === "STRATEGY_PLANNER";
   const [marque, setMarque] = useState<MarqueDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"activite" | "contacts" | "carto" | "collabs">("activite");
@@ -483,52 +489,65 @@ export default function MarqueDetailPage() {
         {/* ====================== Topbar ====================== */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm min-w-0">
-            <Link
-              href="/marques"
-              className="flex items-center gap-1.5 text-gray-400 hover:text-gray-700 transition-colors shrink-0"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Marques
-            </Link>
+            {readOnly ? (
+              <button
+                type="button"
+                onClick={() => router.back()}
+                className="flex items-center gap-1.5 text-gray-400 hover:text-gray-700 transition-colors shrink-0"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Retour
+              </button>
+            ) : (
+              <Link
+                href="/marques"
+                className="flex items-center gap-1.5 text-gray-400 hover:text-gray-700 transition-colors shrink-0"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Marques
+              </Link>
+            )}
             <span className="text-gray-300">/</span>
             <span className="font-medium truncate" style={{ color: INK }}>
               {marque.nom}
             </span>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <Link
-              href="/outreach"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
-              style={{ color: INK }}
-            >
-              <Repeat className="w-3.5 h-3.5" style={{ color: ROSE }} />
-              Outreach
-            </Link>
-            <Link
-              href={`/collaborations/new?marque=${marque.id}`}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
-              style={{ color: INK }}
-            >
-              <Plus className="w-3.5 h-3.5" style={{ color: ROSE }} />
-              Collab
-            </Link>
-            <Link
-              href={`/marques/${marque.id}/edit`}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-semibold rounded-lg text-white transition-opacity hover:opacity-90"
-              style={{ backgroundColor: INK }}
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              Modifier
-            </Link>
-            <button
-              onClick={handleDelete}
-              className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-              title="Supprimer la marque"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Link
+                href="/outreach"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
+                style={{ color: INK }}
+              >
+                <Repeat className="w-3.5 h-3.5" style={{ color: ROSE }} />
+                Outreach
+              </Link>
+              <Link
+                href={`/collaborations/new?marque=${marque.id}`}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
+                style={{ color: INK }}
+              >
+                <Plus className="w-3.5 h-3.5" style={{ color: ROSE }} />
+                Collab
+              </Link>
+              <Link
+                href={`/marques/${marque.id}/edit`}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-semibold rounded-lg text-white transition-opacity hover:opacity-90"
+                style={{ backgroundColor: INK }}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Modifier
+              </Link>
+              <button
+                onClick={handleDelete}
+                className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                title="Supprimer la marque"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ====================== Identité ====================== */}

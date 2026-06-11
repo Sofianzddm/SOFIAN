@@ -2,7 +2,8 @@
 
 import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
-import { Loader2, Plus, Lock, Mail, Send } from "lucide-react";
+import { Loader2, Plus, Lock, Mail, Send, ExternalLink } from "lucide-react";
+import RichEmailEditor from "@/components/email/RichEmailEditor";
 
 type Tab = "casting" | "marques" | "planning" | "deals";
 
@@ -65,6 +66,7 @@ type Participant = {
 type Opportunite = {
   id: string;
   nomMarque: string;
+  marqueId?: string | null;
   secteur: string | null;
   angleNote: string | null;
   budgetEstime: number | null;
@@ -318,7 +320,7 @@ export function StrategyProjectClient({
   const [projetSenderEmail, setProjetSenderEmail] = useState<string | null>(null);
   const [senderAccounts, setSenderAccounts] = useState<SenderAccount[]>([]);
   const [emailModalOpp, setEmailModalOpp] = useState<Opportunite | null>(null);
-  const [emailForm, setEmailForm] = useState({ subject: "", bodyText: "" });
+  const [emailForm, setEmailForm] = useState({ subject: "", bodyHtml: "" });
   const [emailSending, setEmailSending] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
 
@@ -477,13 +479,14 @@ export function StrategyProjectClient({
 
   function openEmailModal(opportunite: Opportunite) {
     setEmailError(null);
-    setEmailForm({ subject: "", bodyText: "" });
+    setEmailForm({ subject: "", bodyHtml: "" });
     setEmailModalOpp(opportunite);
   }
 
   async function sendProspectionEmail() {
     if (!emailModalOpp) return;
-    if (!emailForm.subject.trim() || !emailForm.bodyText.trim()) {
+    const bodyTextOnly = emailForm.bodyHtml.replace(/<[^>]*>/g, "").trim();
+    if (!emailForm.subject.trim() || !bodyTextOnly) {
       setEmailError("Sujet et corps du mail requis.");
       return;
     }
@@ -495,7 +498,7 @@ export function StrategyProjectClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           subject: emailForm.subject.trim(),
-          bodyText: emailForm.bodyText.trim(),
+          bodyHtml: emailForm.bodyHtml,
         }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
@@ -646,8 +649,17 @@ export function StrategyProjectClient({
         setContactSearchResults(null);
         return;
       }
-      const json = (await res.json()) as { contacts?: SearchedContact[] };
+      const json = (await res.json()) as {
+        contacts?: SearchedContact[];
+        marqueId?: string | null;
+      };
       setContactSearchResults(json.contacts || []);
+      // La marque existe dans le CRM interne → lien direct vers sa fiche
+      if (json.marqueId) {
+        setQualifyTarget((prev) =>
+          prev ? { ...prev, marqueId: json.marqueId ?? prev.marqueId } : prev
+        );
+      }
     } catch (e) {
       console.error(e);
       setContactSearchError("Erreur réseau lors de la recherche des contacts.");
@@ -1556,7 +1568,22 @@ export function StrategyProjectClient({
       {qualifyTarget && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
           <div className="w-full max-w-2xl max-h-[min(92vh,820px)] overflow-y-auto overscroll-contain rounded-xl border border-gray-200 bg-white p-5 space-y-4">
-            <h3 className="text-lg font-semibold">Ajouter les contacts · {qualifyTarget.nomMarque}</h3>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h3 className="text-lg font-semibold">
+                Ajouter les contacts · {qualifyTarget.nomMarque}
+              </h3>
+              {qualifyTarget.marqueId ? (
+                <a
+                  href={`/marques/${qualifyTarget.marqueId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[#B06F70] hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Voir la fiche marque
+                </a>
+              ) : null}
+            </div>
             <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-3 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm text-gray-600">
@@ -1674,6 +1701,17 @@ export function StrategyProjectClient({
               <div>
                 <h3 className="text-lg font-semibold">{selectedPipelineOpp.nomMarque}</h3>
                 <p className="text-sm text-gray-500">{selectedPipelineOpp.secteur || "Secteur n/a"}</p>
+                {selectedPipelineOpp.marqueId ? (
+                  <a
+                    href={`/marques/${selectedPipelineOpp.marqueId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[#B06F70] hover:underline"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Voir la fiche marque
+                  </a>
+                ) : null}
               </div>
               <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
                 {selectedPipelineOpp.statut}
@@ -1974,12 +2012,13 @@ export function StrategyProjectClient({
             </div>
             <div>
               <label className="text-xs text-gray-500">Corps du mail *</label>
-              <textarea
-                value={emailForm.bodyText}
-                onChange={(e) => setEmailForm((s) => ({ ...s, bodyText: e.target.value }))}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm min-h-[220px]"
-                placeholder={"Bonjour,\n\n..."}
-              />
+              <div className="mt-1">
+                <RichEmailEditor
+                  onChangeHtml={(html) => setEmailForm((s) => ({ ...s, bodyHtml: html }))}
+                  placeholder="Bonjour, rédige ton mail de prospection ici..."
+                  minHeight={260}
+                />
+              </div>
             </div>
 
             {emailError && <p className="text-sm text-red-600">{emailError}</p>}

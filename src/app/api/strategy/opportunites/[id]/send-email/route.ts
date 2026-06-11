@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { sendGmail } from "@/lib/gmail";
 import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
+import { normalizeEditorHtmlForEmail, plainTextToEmailHtml } from "@/lib/email-body-html";
 
 /**
  * Envoi du mail de prospection d'une opportunité marque, depuis la boîte
@@ -10,20 +11,6 @@ import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
  * défaut leyna@glowupagence.fr. ADMIN uniquement (les contacts sont sensibles).
  * Après envoi : statut IDENTIFIEE → CONTACTEE.
  */
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function textToHtml(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .map((line) => escapeHtml(line))
-    .join("<br>");
-}
 
 export async function POST(
   request: NextRequest,
@@ -41,11 +28,17 @@ export async function POST(
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as {
       subject?: string;
+      bodyHtml?: string;
       bodyText?: string;
     };
     const subject = (body.subject || "").trim();
-    const bodyText = (body.bodyText || "").trim();
-    if (!subject || !bodyText) {
+    // bodyHtml = HTML de l'éditeur riche (normalisé pour Gmail) ;
+    // bodyText accepté en fallback (texte brut).
+    const htmlBody = body.bodyHtml
+      ? normalizeEditorHtmlForEmail(body.bodyHtml)
+      : plainTextToEmailHtml(body.bodyText || "");
+    const hasText = htmlBody.replace(/<[^>]*>/g, "").trim().length > 0;
+    if (!subject || !hasText) {
       return NextResponse.json({ error: "Sujet et corps du mail requis." }, { status: 400 });
     }
 
@@ -94,7 +87,7 @@ export async function POST(
         fromEmail,
         to: recipients.join(", "),
         subject,
-        htmlBody: textToHtml(bodyText),
+        htmlBody,
       });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";

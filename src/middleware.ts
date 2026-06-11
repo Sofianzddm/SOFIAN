@@ -172,11 +172,18 @@ export async function middleware(request: NextRequest) {
   }
 
   // STRATEGY_PLANNER : accès limité à /strategy/* + /cannes-2026*
+  // + fiche marque détail en lecture (/marques/{id}, pas new/duplicates/edit)
+  // pour ouvrir les marques liées depuis les projets (Ski Trip…).
   const isCannes2026Path = pathname === "/cannes-2026" || pathname.startsWith("/cannes-2026/");
+  const isMarqueDetailPath =
+    /^\/marques\/[^/]+$/.test(pathname) &&
+    pathname !== "/marques/new" &&
+    pathname !== "/marques/duplicates";
   if (
     effectiveRole === "STRATEGY_PLANNER" &&
     !pathname.startsWith("/strategy") &&
-    !isCannes2026Path
+    !isCannes2026Path &&
+    !isMarqueDetailPath
   ) {
     return withNoIndex(
       NextResponse.redirect(new URL("/strategy/projets/villa-cannes", request.url))

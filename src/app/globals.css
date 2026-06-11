@@ -283,3 +283,12 @@ button:focus {
 .table tr:hover td {
   @apply bg-glowup-lace/30;
 }
+
+/* ─── Éditeur de mail riche (Tiptap) ─── */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  @apply text-gray-400;
+}
