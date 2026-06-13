@@ -49,6 +49,7 @@ interface Contact {
   telephone: string;
   poste: string;
   principal: boolean;
+  language: string;
 }
 
 export default function EditMarquePage() {
@@ -115,7 +116,10 @@ export default function EditMarquePage() {
           delaiPaiement: marque.delaiPaiement?.toString() || "30",
           modePaiement: marque.modePaiement || "Virement",
           devise: marque.devise || "EUR",
-          contacts: marque.contacts || [],
+          contacts: (marque.contacts || []).map((c: any) => ({
+            ...c,
+            language: c.language === "en" ? "en" : "fr",
+          })),
         });
       }
     } catch (error) {
@@ -137,6 +141,7 @@ export default function EditMarquePage() {
           telephone: "",
           poste: "",
           principal: formData.contacts.length === 0,
+          language: "fr",
         },
       ],
     });
@@ -672,23 +677,51 @@ export default function EditMarquePage() {
                               />
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              id={`principal-${contact.id}`}
-                              checked={contact.principal}
-                              onChange={(e) =>
-                                updateContact(contact.id, "principal", e.target.checked)
-                              }
-                              className="w-4 h-4 text-glowup-rose border-gray-300 rounded focus:ring-glowup-rose"
-                            />
-                            <label
-                              htmlFor={`principal-${contact.id}`}
-                              className="text-xs text-gray-700"
-                            >
-                              Contact principal
-                            </label>
+                          <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                id={`principal-${contact.id}`}
+                                checked={contact.principal}
+                                onChange={(e) =>
+                                  updateContact(contact.id, "principal", e.target.checked)
+                                }
+                                className="w-4 h-4 text-glowup-rose border-gray-300 rounded focus:ring-glowup-rose"
+                              />
+                              <label
+                                htmlFor={`principal-${contact.id}`}
+                                className="text-xs text-gray-700"
+                              >
+                                Contact principal
+                              </label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Globe className="w-3.5 h-3.5 text-gray-400" />
+                              <span className="text-xs text-gray-500">Langue :</span>
+                              <div className="flex gap-1">
+                                {(["fr", "en"] as const).map((lang) => {
+                                  const active = (contact.language || "fr") === lang;
+                                  return (
+                                    <button
+                                      key={lang}
+                                      type="button"
+                                      onClick={() => updateContact(contact.id, "language", lang)}
+                                      className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-all ${
+                                        active
+                                          ? "bg-glowup-licorice text-white border-glowup-licorice"
+                                          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                                      }`}
+                                    >
+                                      {lang === "fr" ? "Français" : "English"}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
+                          <p className="text-xs text-gray-400">
+                            La langue est utilisée pour la relance automatique et la génération de mails dans Outreach.
+                          </p>
                         </div>
                         <button
                           type="button"

@@ -142,6 +142,7 @@ export async function PUT(
             telephone: contact.telephone || null,
             poste: contact.poste || null,
             principal: contact.principal || false,
+            language: contact.language === "en" ? "en" : "fr",
             // Champs de cartographie (import Claude/Excel) — préservés à l'édition
             priorite: contact.priorite || null,
             perimetre: contact.perimetre || null,
@@ -149,6 +150,17 @@ export async function PUT(
             linkedinUrl: contact.linkedinUrl || null,
             source: contact.source || null,
           })),
+        });
+      }
+
+      // Propage la langue de chaque contact aux cibles Outreach déjà dans le
+      // cycle (matché par email) : changer la langue ici adapte la relance.
+      for (const contact of data.contacts as Array<{ email?: string; language?: string }>) {
+        const email = (contact.email || "").trim().toLowerCase();
+        if (!email) continue;
+        await prisma.outreachTarget.updateMany({
+          where: { marqueId: id, email },
+          data: { language: contact.language === "en" ? "en" : "fr" },
         });
       }
     }

@@ -720,6 +720,10 @@ model MarqueContact {
   poste     String?
   principal Boolean @default(false)
 
+  // Langue du contact ("fr" | "en") : reprise par le cycle Outreach (relance,
+  // génération de mails) quand ce contact y est ajouté.
+  language String @default("fr")
+
   // Cartographie importée (fichier Claude/Excel) — visible sur la fiche marque
   priorite     String? // P1 / P2 / P3
   perimetre    String?

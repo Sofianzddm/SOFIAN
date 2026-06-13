@@ -134,6 +134,14 @@ export async function POST(request: NextRequest) {
         select: { id: true, prenom: true, nom: true },
       });
 
+      // Langue : choix explicite de l'utilisateur sinon celle du contact marque.
+      const contactLanguage =
+        body.language === "en" || body.language === "fr"
+          ? language
+          : contact.language === "en"
+          ? "en"
+          : "fr";
+
       const target = await prisma.outreachTarget.create({
         data: {
           marqueId: contact.marqueId,
@@ -142,7 +150,7 @@ export async function POST(request: NextRequest) {
           lastname: updated.prenom ? updated.nom : null,
           email,
           company: contact.marque.nom,
-          language,
+          language: contactLanguage,
           fromEmail,
           createdById: session.user.id,
         },
