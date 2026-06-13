@@ -180,6 +180,8 @@ export interface CastingComposerProps {
   useHubspot?: boolean;
   /** Libellé du bouton principal (défaut : « Marquer comme prêt »). */
   readyLabel?: string;
+  /** Langue de génération du mail pré-sélectionnée à l'ouverture (défaut : fr). */
+  defaultLanguage?: "fr" | "en";
   onClose: () => void;
   onSaved: (
     status: "en_cours" | "pret" | "reset",
@@ -195,6 +197,7 @@ export default function CastingComposer({
   brandColumn,
   useHubspot = true,
   readyLabel = "Marquer comme prêt",
+  defaultLanguage = "fr",
   onClose,
   onSaved,
   onError,
@@ -435,7 +438,7 @@ export default function CastingComposer({
     setPreviewMode("edit");
     setLastField("body");
     setBrandResearch(null);
-    setEmailLanguage("fr");
+    setEmailLanguage(defaultLanguage);
 
     if (hasHubspotDraft) {
       setSubject(sub);
@@ -446,7 +449,7 @@ export default function CastingComposer({
     }
     setEditorEmpty(!editor.getText().trim());
     setBodyTick((n) => n + 1);
-  }, [open, contact, editor]);
+  }, [open, contact, editor, defaultLanguage]);
 
   useEffect(() => {
     if (!open || !contact?.missionBrief) {

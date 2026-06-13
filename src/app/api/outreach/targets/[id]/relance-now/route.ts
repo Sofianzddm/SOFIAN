@@ -57,7 +57,10 @@ export async function GET(
       ? subjectSrc
       : `Re: ${subjectSrc}`;
     const body = applyCastingTemplateVars(
-      buildDefaultRelanceTemplate(touch.target.company),
+      buildDefaultRelanceTemplate(
+        touch.target.company,
+        touch.target.language === "en" ? "en" : "fr"
+      ),
       {
         firstname: touch.target.firstname || "",
         lastname: touch.target.lastname || "",

@@ -336,8 +336,26 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
  * - Variables : {{contact.firstname}} → Bonjour Marie / Bonjour
  * - Signature alignée avec le mail initial (Leyna · Glow Up Agence)
  */
-export function buildDefaultRelanceTemplate(targetBrand: string): string {
+export function buildDefaultRelanceTemplate(
+  targetBrand: string,
+  language: "fr" | "en" = "fr"
+): string {
   const brand = (targetBrand || "").trim();
+
+  if (language === "en") {
+    const brandLine = brand
+      ? `regarding our collaboration proposal with <strong>${brand}</strong>`
+      : `regarding our collaboration proposal`;
+
+    return [
+      `<p>Hi {{contact.firstname}},</p>`,
+      `<p>I just wanted to follow up ${brandLine}.</p>`,
+      `<p>Have you had a chance to take a look? I would be happy to answer any questions or set up a quick call.</p>`,
+      `<p>Looking forward to hearing from you,</p>`,
+      `<p>Best regards,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+    ].join("");
+  }
+
   const brandLine = brand
     ? `concernant notre proposition de collaboration avec <strong>${brand}</strong>`
     : `concernant notre proposition de collaboration`;

@@ -81,6 +81,7 @@ export async function PATCH(
       email?: string;
       company?: string;
       fromEmail?: string | null;
+      language?: string;
     };
 
     const target = await prisma.outreachTarget.findUnique({ where: { id } });
@@ -170,6 +171,9 @@ export async function PATCH(
           company,
           marqueId,
           marqueContactId,
+          ...(body.language === "en" || body.language === "fr"
+            ? { language: body.language }
+            : {}),
           ...fromEmailUpdate,
           // L'id HubSpot mémorisé n'est plus fiable si l'email change
           ...(email !== target.email.toLowerCase()

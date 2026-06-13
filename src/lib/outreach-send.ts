@@ -287,7 +287,11 @@ export async function executeOutreachRelance(
     (subjectSrc.toLowerCase().startsWith("re:") ? subjectSrc : `Re: ${subjectSrc}`);
 
   const bodyTemplate =
-    options.bodyOverride?.trim() || buildDefaultRelanceTemplate(target.company);
+    options.bodyOverride?.trim() ||
+    buildDefaultRelanceTemplate(
+      target.company,
+      target.language === "en" ? "en" : "fr"
+    );
 
   const bodyWithVars = applyCastingTemplateVars(bodyTemplate, {
     firstname: target.firstname || "",

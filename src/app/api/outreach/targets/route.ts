@@ -75,12 +75,15 @@ export async function POST(request: NextRequest) {
       email?: string;
       poste?: string;
       fromEmail?: string;
+      language?: string;
     };
 
     const email = (body.email || "").trim().toLowerCase();
     if (!email || !isValidEmail(email)) {
       return NextResponse.json({ error: "Email invalide." }, { status: 400 });
     }
+
+    const language = body.language === "en" ? "en" : "fr";
 
     // Boîte expéditrice du cycle (optionnel, défaut Leyna) : choix réservé à
     // l'ADMIN — la casting manager envoie toujours depuis Leyna.
@@ -139,6 +142,7 @@ export async function POST(request: NextRequest) {
           lastname: updated.prenom ? updated.nom : null,
           email,
           company: contact.marque.nom,
+          language,
           fromEmail,
           createdById: session.user.id,
         },
@@ -203,6 +207,7 @@ export async function POST(request: NextRequest) {
         lastname: lastname || null,
         email,
         company,
+        language,
         fromEmail,
         createdById: session.user.id,
       },

@@ -2873,6 +2873,10 @@ model OutreachTarget {
   email     String
   company   String
 
+  // Langue du client ("fr" | "en") : la relance auto J+3 et la génération
+  // de mails s'adaptent.
+  language String @default("fr")
+
   status OutreachTargetStatus @default(TO_CONTACT)
 
   // Boîte Gmail expéditrice du cycle (null = leyna@glowupagence.fr).

@@ -81,6 +81,7 @@ type Target = {
   lastname: string | null;
   email: string;
   company: string;
+  language: string;
   fromEmail: string | null;
   status: TargetStatus;
   draftSubject: string | null;
@@ -795,8 +796,17 @@ export default function OutreachPage() {
                       <div className="px-4 py-2.5 flex flex-wrap items-center gap-3">
                         {/* Identité */}
                         <div className="min-w-[200px] flex-1">
-                          <div className="font-medium text-sm" style={{ color: LICORICE }}>
+                          <div className="font-medium text-sm flex items-center gap-1.5" style={{ color: LICORICE }}>
                             {target.firstname} {target.lastname || ""}
+                            {target.language === "en" && (
+                              <span
+                                className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
+                                style={{ backgroundColor: OLD_LACE, color: LICORICE }}
+                                title="Client anglophone : la relance auto part en anglais"
+                              >
+                                EN
+                              </span>
+                            )}
                           </div>
                           <div className="text-xs text-gray-500 mt-0.5">{target.email}</div>
                         </div>
@@ -1085,6 +1095,11 @@ export default function OutreachPage() {
           senderAccounts,
           composerGroup?.targets[0]?.fromEmail ?? null
         )}`}
+        defaultLanguage={
+          composerGroup && composerGroup.targets.every((t) => t.language === "en")
+            ? "en"
+            : "fr"
+        }
         onClose={() => setComposerGroup(null)}
         onSaved={handleComposerSaved}
         onError={(m) => flash("error", m)}
@@ -1153,6 +1168,7 @@ function AddClientModal({
   const [lastname, setLastname] = useState("");
   const [email, setEmail] = useState("");
   const [poste, setPoste] = useState("");
+  const [language, setLanguage] = useState<"fr" | "en">("fr");
   const [fromEmail, setFromEmail] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -1231,6 +1247,7 @@ function AddClientModal({
           lastname,
           email,
           poste,
+          language,
           fromEmail: allowSenderChoice ? fromEmail || undefined : undefined,
         }),
       });
@@ -1482,6 +1499,31 @@ function AddClientModal({
                   />
                 </div>
               </div>
+              <div className="mt-3">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Langue du client</label>
+                <div className="flex gap-1.5">
+                  {(["fr", "en"] as const).map((lang) => {
+                    const active = language === lang;
+                    return (
+                      <button
+                        key={lang}
+                        onClick={() => setLanguage(lang)}
+                        className="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
+                        style={
+                          active
+                            ? { borderColor: LICORICE, backgroundColor: LICORICE, color: "white" }
+                            : { borderColor: "#E5E0DA", backgroundColor: "white", color: LICORICE }
+                        }
+                      >
+                        {lang === "fr" ? "Français" : "English"}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  La relance auto J+3 partira dans cette langue.
+                </p>
+              </div>
               <p className="text-xs text-gray-400 mt-2">
                 Un nouveau contact est ajouté à la fiche marque s&apos;il n&apos;existe pas déjà (dédoublonnage par email).
               </p>
@@ -1560,6 +1602,9 @@ function EditClientModal({
   const [lastname, setLastname] = useState(target.lastname || "");
   const [email, setEmail] = useState(target.email);
   const [company, setCompany] = useState(target.company);
+  const [language, setLanguage] = useState<"fr" | "en">(
+    target.language === "en" ? "en" : "fr"
+  );
   const [fromEmail, setFromEmail] = useState(
     (target.fromEmail || "").toLowerCase() === DEFAULT_SENDER_EMAIL
       ? ""
@@ -1582,6 +1627,7 @@ function EditClientModal({
           lastname,
           email,
           company,
+          language,
           // Sans le droit de choisir, on n'envoie pas le champ : la boîte
           // configurée par l'admin est conservée telle quelle.
           ...(allowSenderChoice ? { fromEmail: fromEmail || null } : {}),
@@ -1656,6 +1702,31 @@ function EditClientModal({
                 Attention : l&apos;historique des mails déjà envoyés reste lié à l&apos;ancien email.
               </p>
             )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Langue du client</label>
+            <div className="flex gap-1.5">
+              {(["fr", "en"] as const).map((lang) => {
+                const active = language === lang;
+                return (
+                  <button
+                    key={lang}
+                    onClick={() => setLanguage(lang)}
+                    className="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
+                    style={
+                      active
+                        ? { borderColor: LICORICE, backgroundColor: LICORICE, color: "white" }
+                        : { borderColor: "#E5E0DA", backgroundColor: "white", color: LICORICE }
+                    }
+                  >
+                    {lang === "fr" ? "Français" : "English"}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              La relance auto J+3 partira dans cette langue.
+            </p>
           </div>
           {allowSenderChoice && senderAccounts.length > 1 && (
             <div>
