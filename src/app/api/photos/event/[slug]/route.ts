@@ -22,7 +22,16 @@ export async function GET(
       logoUrl: true,
       photos: {
         orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-        select: { id: true, imageUrl: true },
+        select: {
+          id: true,
+          imageUrl: true,
+          source: true,
+          talents: {
+            include: {
+              talent: { select: { id: true, prenom: true, nom: true } },
+            },
+          },
+        },
       },
     },
   });
@@ -31,14 +40,33 @@ export async function GET(
     return NextResponse.json({ error: "Lien invalide" }, { status: 404 });
   }
 
+  // Liste des talents disponibles pour l'identification (mention multi-talents).
+  const talentOptions = await prisma.talent.findMany({
+    where: { isArchived: false },
+    select: { id: true, prenom: true, nom: true, photo: true },
+    orderBy: [{ prenom: "asc" }, { nom: "asc" }],
+  });
+
   return NextResponse.json({
     event: {
+      id: event.id,
       nom: event.nom,
       date: event.date ? event.date.toISOString() : null,
       lieu: event.lieu,
       logoUrl: event.logoUrl,
     },
     totalPhotos: event.photos.length,
-    photos: event.photos.map((p) => ({ id: p.id, imageUrl: p.imageUrl })),
+    photos: event.photos.map((p) => ({
+      id: p.id,
+      imageUrl: p.imageUrl,
+      source: p.source,
+      talentIds: p.talents.map((t) => t.talentId),
+      talents: p.talents.map((t) => ({
+        id: t.talent.id,
+        prenom: t.talent.prenom,
+        nom: t.talent.nom,
+      })),
+    })),
+    talentOptions,
   });
 }

@@ -3025,6 +3025,9 @@ model EventPhoto {
   imageUrl String
   position Int    @default(0)
 
+  // Type de contenu : "OFFICIELLE" (photo officielle) ou "INDIVIDUEL" (contenu individuel)
+  source String @default("OFFICIELLE")
+
   createdAt DateTime @default(now())
 
   talents EventPhotoTalent[]

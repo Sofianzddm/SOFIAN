@@ -37,6 +37,7 @@ export async function GET(
           id: true,
           imageUrl: true,
           position: true,
+          source: true,
           createdAt: true,
           event: {
             select: { id: true, nom: true, date: true, lieu: true, logoUrl: true },
@@ -53,7 +54,7 @@ export async function GET(
     date: string | null;
     lieu: string | null;
     logoUrl: string | null;
-    photos: { id: string; imageUrl: string }[];
+    photos: { id: string; imageUrl: string; source: string }[];
     sortDate: number;
   };
   const groups = new Map<string, EventGroup>();
@@ -72,7 +73,9 @@ export async function GET(
         sortDate: (ev.date ?? p.createdAt).getTime(),
       });
     }
-    groups.get(ev.id)!.photos.push({ id: p.id, imageUrl: p.imageUrl });
+    groups
+      .get(ev.id)!
+      .photos.push({ id: p.id, imageUrl: p.imageUrl, source: p.source });
   }
 
   const events = Array.from(groups.values())

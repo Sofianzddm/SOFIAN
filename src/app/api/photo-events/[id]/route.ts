@@ -64,6 +64,7 @@ export async function GET(
         id: p.id,
         imageUrl: p.imageUrl,
         position: p.position,
+        source: p.source,
         talentIds: p.talents.map((t) => t.talentId),
         talents: p.talents.map((t) => ({
           id: t.talent.id,

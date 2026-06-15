@@ -23,6 +23,21 @@ import {
   X,
 } from "lucide-react";
 
+function isVideo(url: string): boolean {
+  return (
+    url.includes("/video/upload/") ||
+    /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i.test(url)
+  );
+}
+
+function videoPoster(url: string): string {
+  let out = url;
+  if (out.includes("/video/upload/")) {
+    out = out.replace("/video/upload/", "/video/upload/so_0/");
+  }
+  return out.replace(/\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i, ".jpg$2");
+}
+
 interface TalentOption {
   id: string;
   prenom: string;
@@ -34,6 +49,7 @@ interface Photo {
   id: string;
   imageUrl: string;
   position: number;
+  source: string;
   talentIds: string[];
   talents: { id: string; prenom: string; nom: string }[];
 }
@@ -90,7 +106,13 @@ export default function EvenementPhotosDetailPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   // Filtre d'affichage : toutes les photos ou seulement les non identifiées
   const [filterUntagged, setFilterUntagged] = useState(false);
+  // Filtre par type : tout / photos officielles / contenus individuels
+  const [filterSource, setFilterSource] = useState<
+    "all" | "OFFICIELLE" | "INDIVIDUEL"
+  >("all");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Catégorie choisie pour le prochain upload (selon le bouton cliqué)
+  const pendingSourceRef = useRef<"OFFICIELLE" | "INDIVIDUEL">("OFFICIELLE");
 
   const load = useCallback(async () => {
     try {
@@ -147,16 +169,16 @@ export default function EvenementPhotosDetailPage() {
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return;
-      const images = Array.from(files).filter((f) =>
-        f.type.startsWith("image/")
+      const medias = Array.from(files).filter(
+        (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
       );
-      if (images.length === 0) return;
+      if (medias.length === 0) return;
 
       setError(null);
-      setUploadingTotal(images.length);
+      setUploadingTotal(medias.length);
       setUploadCount(0);
 
-      for (const file of images) {
+      for (const file of medias) {
         try {
           const sigRes = await fetch("/api/photo-events/upload-signature", {
             method: "POST",
@@ -175,8 +197,11 @@ export default function EvenementPhotosDetailPage() {
           fd.append("public_id", publicId);
           fd.append("api_key", apiKey);
 
+          const resourceType = file.type.startsWith("video/")
+            ? "video"
+            : "image";
           const cloudRes = await fetch(
-            `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+            `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
             { method: "POST", body: fd }
           );
           if (!cloudRes.ok) throw new Error("cloudinary");
@@ -187,7 +212,10 @@ export default function EvenementPhotosDetailPage() {
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ imageUrl: secure_url }),
+              body: JSON.stringify({
+                imageUrl: secure_url,
+                source: pendingSourceRef.current,
+              }),
             }
           );
           if (!addRes.ok) throw new Error("add");
@@ -407,9 +435,15 @@ export default function EvenementPhotosDetailPage() {
   const untaggedCount = event.photos.filter(
     (p) => p.talentIds.length === 0
   ).length;
-  const displayedPhotos = filterUntagged
-    ? event.photos.filter((p) => p.talentIds.length === 0)
-    : event.photos;
+  const individuelCount = event.photos.filter(
+    (p) => p.source === "INDIVIDUEL"
+  ).length;
+  const officielleCount = event.photos.length - individuelCount;
+  const displayedPhotos = event.photos.filter((p) => {
+    if (filterUntagged && p.talentIds.length > 0) return false;
+    if (filterSource !== "all" && p.source !== filterSource) return false;
+    return true;
+  });
 
   // Liens affichés = talents tagués (API) + ajouts manuels (sans doublon)
   const apiLinkIds = new Set((links ?? []).map((l) => l.talentId));
@@ -620,37 +654,54 @@ export default function EvenementPhotosDetailPage() {
         </div>
       )}
 
-      {/* Zone d'upload */}
+      {/* Zone d'upload : deux catégories */}
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         multiple
         className="hidden"
         onChange={(e) => handleFiles(e.target.files)}
       />
-      <button
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={uploadingTotal > 0}
-        className="w-full mb-6 rounded-2xl border-2 border-dashed border-gray-300 hover:border-glowup-rose bg-white py-8 flex flex-col items-center justify-center text-gray-500 hover:text-glowup-rose transition-colors disabled:opacity-60"
-      >
-        {uploadingTotal > 0 ? (
-          <>
-            <Loader2 className="w-7 h-7 animate-spin mb-2" />
-            <span className="text-sm font-medium">
-              Upload {uploadCount}/{uploadingTotal}…
+      {uploadingTotal > 0 ? (
+        <div className="w-full mb-6 rounded-2xl border-2 border-dashed border-glowup-rose bg-white py-8 flex flex-col items-center justify-center text-glowup-rose">
+          <Loader2 className="w-7 h-7 animate-spin mb-2" />
+          <span className="text-sm font-medium">
+            Upload {uploadCount}/{uploadingTotal}…
+          </span>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+          <button
+            type="button"
+            onClick={() => {
+              pendingSourceRef.current = "OFFICIELLE";
+              fileInputRef.current?.click();
+            }}
+            className="rounded-2xl border-2 border-dashed border-gray-300 hover:border-glowup-rose bg-white py-7 flex flex-col items-center justify-center text-gray-600 hover:text-glowup-rose transition-colors"
+          >
+            <Sparkles className="w-7 h-7 mb-2" />
+            <span className="text-sm font-semibold">Photo / vidéo officielle</span>
+            <span className="text-xs text-gray-400 mt-0.5">
+              Contenu événement Glow Up
             </span>
-          </>
-        ) : (
-          <>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              pendingSourceRef.current = "INDIVIDUEL";
+              fileInputRef.current?.click();
+            }}
+            className="rounded-2xl border-2 border-dashed border-gray-300 hover:border-sky-500 bg-white py-7 flex flex-col items-center justify-center text-gray-600 hover:text-sky-600 transition-colors"
+          >
             <ImagePlus className="w-7 h-7 mb-2" />
-            <span className="text-sm font-medium">
-              Ajouter des photos (sélection multiple possible)
+            <span className="text-sm font-semibold">Contenu personnel</span>
+            <span className="text-xs text-gray-400 mt-0.5">
+              Photo ou vidéo propre à un talent
             </span>
-          </>
-        )}
-      </button>
+          </button>
+        </div>
+      )}
 
       {/* Barre de filtre */}
       {event.photos.length > 0 && (
@@ -679,6 +730,46 @@ export default function EvenementPhotosDetailPage() {
               <span className="inline-flex h-2 w-2 rounded-full bg-amber-400" />
             )}
             Non identifiées ({untaggedCount})
+          </button>
+
+          {/* Séparateur */}
+          <span className="mx-1 h-5 w-px bg-gray-200" />
+
+          {/* Filtre par type de contenu */}
+          <button
+            type="button"
+            onClick={() => setFilterSource("all")}
+            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              filterSource === "all"
+                ? "bg-glowup-licorice text-white"
+                : "bg-white border border-gray-300 text-gray-600 hover:border-glowup-licorice"
+            }`}
+          >
+            Tous types
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterSource("OFFICIELLE")}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              filterSource === "OFFICIELLE"
+                ? "bg-glowup-rose text-white"
+                : "bg-white border border-gray-300 text-gray-600 hover:border-glowup-rose"
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Photos officielles ({officielleCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterSource("INDIVIDUEL")}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              filterSource === "INDIVIDUEL"
+                ? "bg-sky-600 text-white"
+                : "bg-white border border-gray-300 text-gray-600 hover:border-sky-500"
+            }`}
+          >
+            <ImagePlus className="w-3.5 h-3.5" />
+            Contenus personnels ({individuelCount})
           </button>
         </div>
       )}
@@ -843,10 +934,42 @@ function PhotoCard({
       <div className="relative aspect-square bg-gray-100">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={photo.imageUrl}
+          src={isVideo(photo.imageUrl) ? videoPoster(photo.imageUrl) : photo.imageUrl}
           alt=""
           className="w-full h-full object-cover"
         />
+        {isVideo(photo.imageUrl) && (
+          <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span className="px-2 py-0.5 rounded-full bg-black/60 text-white text-[10px] font-semibold uppercase tracking-wide">
+              Vidéo
+            </span>
+          </span>
+        )}
+        {/* Badge type de contenu */}
+        <span
+          className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold shadow-sm ${
+            photo.source === "INDIVIDUEL"
+              ? "bg-sky-600 text-white"
+              : "bg-white/95 text-glowup-licorice"
+          }`}
+          title={
+            photo.source === "INDIVIDUEL"
+              ? "Contenu personnel"
+              : "Photo officielle"
+          }
+        >
+          {photo.source === "INDIVIDUEL" ? (
+            <>
+              <ImagePlus className="w-3 h-3" />
+              Personnel
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3 h-3 text-glowup-rose" />
+              Officielle
+            </>
+          )}
+        </span>
         <button
           type="button"
           onClick={onDelete}

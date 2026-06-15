@@ -3,24 +3,45 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Download,
+  ImagePlus,
   Loader2,
   MapPin,
+  Play,
+  Search,
+  Settings2,
+  Tag,
+  Trash2,
   X,
 } from "lucide-react";
 
 // ============================================
 // TYPES
 // ============================================
+interface TalentLite {
+  id: string;
+  prenom: string;
+  nom: string;
+}
+
+interface TalentOption extends TalentLite {
+  photo: string | null;
+}
+
 interface GalleryPhoto {
   id: string;
   imageUrl: string;
+  source: string;
+  talentIds: string[];
+  talents: TalentLite[];
 }
 
 interface EventGalleryData {
   event: {
+    id: string;
     nom: string;
     date: string | null;
     lieu: string | null;
@@ -28,6 +49,7 @@ interface EventGalleryData {
   };
   totalPhotos: number;
   photos: GalleryPhoto[];
+  talentOptions: TalentOption[];
 }
 
 // ============================================
@@ -58,10 +80,38 @@ function formatDate(value: string | null): string {
   }
 }
 
-// Force le téléchargement via le flag Cloudinary fl_attachment.
+function isVideo(url: string): boolean {
+  return (
+    url.includes("/video/upload/") ||
+    /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i.test(url)
+  );
+}
+
+// Vignette d'aperçu (poster) générée par Cloudinary pour une vidéo.
+function videoPoster(url: string): string {
+  let out = url;
+  if (out.includes("/video/upload/")) {
+    out = out.replace("/video/upload/", "/video/upload/so_0/");
+  }
+  return out.replace(/\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i, ".jpg$2");
+}
+
+// Source de lecture web-compatible : on demande du mp4 pour les formats
+// non lisibles partout (ex. .mov ne se lit pas dans Chrome).
+function videoPlaybackUrl(url: string): string {
+  if (/\.(mp4|webm)(\?|$)/i.test(url)) return url;
+  if (url.includes("/video/upload/")) {
+    return url.replace(/\.(mov|m4v|avi|mkv|ogv)(\?|$)/i, ".mp4$2");
+  }
+  return url;
+}
+
 function toDownloadUrl(url: string): string {
   if (url.includes("/image/upload/")) {
     return url.replace("/image/upload/", "/image/upload/fl_attachment/");
+  }
+  if (url.includes("/video/upload/")) {
+    return url.replace("/video/upload/", "/video/upload/fl_attachment/");
   }
   return url;
 }
@@ -78,10 +128,10 @@ function sanitize(s: string): string {
 
 function guessExt(url: string): string {
   const m = url.split("?")[0].match(/\.([a-zA-Z0-9]{3,4})$/);
-  return m ? m[1].toLowerCase() : "jpg";
+  if (m) return m[1].toLowerCase();
+  return isVideo(url) ? "mp4" : "jpg";
 }
 
-// Construit un .zip de toutes les photos et déclenche le téléchargement.
 async function buildAndDownloadZip(
   photos: GalleryPhoto[],
   fileName: string,
@@ -175,7 +225,20 @@ export default function EventGalleryPage() {
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
 
+  // Mode gestion (upload + identification + suppression)
+  const [manage, setManage] = useState(false);
+  const [uploadingTotal, setUploadingTotal] = useState(0);
+  const [uploadCount, setUploadCount] = useState(0);
+  const [taggingPhotoId, setTaggingPhotoId] = useState<string | null>(null);
+  // Photos tout juste uploadées, à identifier directement
+  const [reviewIds, setReviewIds] = useState<string[]>([]);
+  // Sélection multiple dans le panneau « à identifier » (identification groupée)
+  const [selectedReview, setSelectedReview] = useState<string[]>([]);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const photos = data?.photos ?? [];
+  const talentOptions = data?.talentOptions ?? [];
 
   useEffect(() => {
     const meta = document.createElement("meta");
@@ -274,6 +337,171 @@ export default function EventGalleryPage() {
       setDownloadProgress(0);
     }
   }, [downloadingAll, photos, data]);
+
+  // ----- Upload de photos (mode gestion) -----
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0 || !slug) return;
+      const medias = Array.from(files).filter(
+        (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+      );
+      if (medias.length === 0) return;
+
+      setUploadingTotal(medias.length);
+      setUploadCount(0);
+
+      const newIds: string[] = [];
+
+      for (const file of medias) {
+        try {
+          const sigRes = await fetch(
+            `/api/photos/event/${slug}/upload-signature`,
+            { method: "POST" }
+          );
+          if (!sigRes.ok) throw new Error("Signature refusée");
+          const sig = await sigRes.json();
+
+          const form = new FormData();
+          form.append("file", file);
+          form.append("api_key", sig.apiKey);
+          form.append("timestamp", String(sig.timestamp));
+          form.append("signature", sig.signature);
+          form.append("folder", sig.folder);
+          form.append("public_id", sig.publicId);
+
+          const resourceType = file.type.startsWith("video/")
+            ? "video"
+            : "image";
+          const upRes = await fetch(
+            `https://api.cloudinary.com/v1_1/${sig.cloudName}/${resourceType}/upload`,
+            { method: "POST", body: form }
+          );
+          if (!upRes.ok) throw new Error("Upload Cloudinary échoué");
+          const uploaded = await upRes.json();
+
+          const createRes = await fetch(`/api/photos/event/${slug}/photos`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageUrl: uploaded.secure_url,
+              source: "INDIVIDUEL",
+              talentIds: [],
+            }),
+          });
+          const created = await createRes.json().catch(() => null);
+          if (created?.photo?.id) newIds.push(created.photo.id as string);
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setUploadCount((c) => c + 1);
+        }
+      }
+
+      setUploadingTotal(0);
+      setUploadCount(0);
+      await load();
+      // On affiche les photos uploadées dans le panneau « à identifier ».
+      setReviewIds(newIds);
+      setSelectedReview([]);
+    },
+    [slug, load]
+  );
+
+  // ----- Mise à jour des tags d'une photo -----
+  const updateTags = useCallback(
+    async (photoId: string, talentIds: string[]) => {
+      // Optimiste
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              photos: prev.photos.map((p) =>
+                p.id === photoId
+                  ? {
+                      ...p,
+                      talentIds,
+                      talents: talentIds
+                        .map((id) =>
+                          prev.talentOptions.find((o) => o.id === id)
+                        )
+                        .filter((o): o is TalentOption => Boolean(o))
+                        .map((o) => ({
+                          id: o.id,
+                          prenom: o.prenom,
+                          nom: o.nom,
+                        })),
+                    }
+                  : p
+              ),
+            }
+          : prev
+      );
+      try {
+        await fetch(`/api/photos/event/${slug}/photos/${photoId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ talentIds }),
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    [slug]
+  );
+
+  // ----- Suppression d'une photo -----
+  const deletePhoto = useCallback(
+    async (photoId: string) => {
+      if (!window.confirm("Supprimer cette photo ?")) return;
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              photos: prev.photos.filter((p) => p.id !== photoId),
+              totalPhotos: Math.max(0, prev.totalPhotos - 1),
+            }
+          : prev
+      );
+      try {
+        await fetch(`/api/photos/event/${slug}/photos/${photoId}`, {
+          method: "DELETE",
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    [slug]
+  );
+
+  const taggingPhoto = photos.find((p) => p.id === taggingPhotoId) || null;
+
+  // Photos tout juste uploadées (dans l'ordre d'ajout), à identifier.
+  const reviewPhotos = reviewIds
+    .map((id) => photos.find((p) => p.id === id))
+    .filter((p): p is GalleryPhoto => Boolean(p));
+
+  const batchPhotos = selectedReview
+    .map((id) => photos.find((p) => p.id === id))
+    .filter((p): p is GalleryPhoto => Boolean(p));
+
+  const toggleReview = (id: string) =>
+    setSelectedReview((s) =>
+      s.includes(id) ? s.filter((x) => x !== id) : [...s, id]
+    );
+
+  // Applique des talents à toutes les photos sélectionnées (fusion, sans écraser).
+  const applyBatchTags = useCallback(
+    (ids: string[]) => {
+      batchPhotos.forEach((p) => {
+        const union = Array.from(new Set([...p.talentIds, ...ids]));
+        updateTags(p.id, union);
+      });
+      setBatchOpen(false);
+      setSelectedReview([]);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [batchPhotos]
+  );
 
   const fonts = (
     <style jsx global>{`
@@ -442,12 +670,12 @@ export default function EventGalleryPage() {
               </span>
             </div>
 
-            {/* Tout télécharger */}
-            {photos.length > 0 && (
-              <div
-                className="mt-6 sm:mt-7 flex justify-center glow-fade-up px-4"
-                style={{ animationDelay: "0.25s" }}
-              >
+            {/* Actions */}
+            <div
+              className="mt-6 sm:mt-7 flex flex-wrap items-center justify-center gap-3 glow-fade-up px-4"
+              style={{ animationDelay: "0.25s" }}
+            >
+              {photos.length > 0 && (
                 <button
                   type="button"
                   onClick={downloadAll}
@@ -467,8 +695,21 @@ export default function EventGalleryPage() {
                     </>
                   )}
                 </button>
-              </div>
-            )}
+              )}
+              <button
+                type="button"
+                onClick={() => setManage((m) => !m)}
+                className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-full text-[13px] sm:text-sm font-switzer font-medium tracking-wide border transition-colors"
+                style={{
+                  borderColor: "rgba(245,237,224,0.4)",
+                  backgroundColor: manage ? "rgba(245,237,224,0.16)" : "transparent",
+                  color: "#F5EDE0",
+                }}
+              >
+                <Settings2 className="w-4 h-4" />
+                {manage ? "Quitter la gestion" : "Ajouter / identifier"}
+              </button>
+            </div>
           </div>
 
           {/* Vague crème en bas du hero */}
@@ -484,6 +725,193 @@ export default function EventGalleryPage() {
 
         {/* ============ CORPS ============ */}
         <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-16 sm:pb-20">
+          {/* Zone d'upload (mode gestion) */}
+          {manage && (
+            <div className="mb-6 rounded-2xl border border-[#E0D6BE] bg-white/50 p-4 sm:p-5">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={(e) => handleFiles(e.target.files)}
+              />
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingTotal > 0}
+                className="w-full rounded-2xl border-2 border-dashed py-7 flex flex-col items-center justify-center transition-colors disabled:opacity-70 bg-white/60 hover:bg-white"
+                style={{ borderColor: C.limeBar, color: C.burgundy }}
+              >
+                {uploadingTotal > 0 ? (
+                  <>
+                    <Loader2 className="w-6 h-6 animate-spin mb-2" />
+                    <span className="text-sm font-switzer font-medium">
+                      Upload {uploadCount}/{uploadingTotal}…
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <ImagePlus className="w-6 h-6 mb-2" />
+                    <span className="text-sm font-switzer font-semibold">
+                      Ajouter des photos ou vidéos (sélection multiple)
+                    </span>
+                    <span className="text-xs font-switzer opacity-60 mt-0.5">
+                      Tu identifieras les talents juste après l&apos;upload
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Panneau « Photos à identifier » (juste après l'upload) */}
+          {manage && reviewPhotos.length > 0 && (
+            <div
+              className="mb-6 rounded-2xl border-2 p-4 sm:p-5"
+              style={{ borderColor: C.limeBar, backgroundColor: "rgba(201,215,122,0.14)" }}
+            >
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="min-w-0">
+                  <p className="font-switzer font-semibold text-sm" style={{ color: C.ink }}>
+                    Photos ajoutées — identifie les talents
+                  </p>
+                  <p className="text-xs font-switzer text-[#220101]/55">
+                    {reviewPhotos.length} photo{reviewPhotos.length > 1 ? "s" : ""}
+                    {" · "}Sélectionne plusieurs photos pour identifier en une fois
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReviewIds([]);
+                    setSelectedReview([]);
+                  }}
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs sm:text-sm font-switzer font-semibold"
+                  style={{ backgroundColor: C.ink, color: C.lime }}
+                >
+                  <Check className="w-4 h-4" />
+                  Terminé
+                </button>
+              </div>
+
+              {/* Barre d'actions de sélection groupée */}
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedReview((s) =>
+                      s.length === reviewPhotos.length
+                        ? []
+                        : reviewPhotos.map((p) => p.id)
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-switzer font-medium border transition-colors"
+                  style={{
+                    borderColor: "rgba(34,1,1,0.2)",
+                    backgroundColor: "transparent",
+                    color: C.burgundy,
+                  }}
+                >
+                  {selectedReview.length === reviewPhotos.length
+                    ? "Tout désélectionner"
+                    : "Tout sélectionner"}
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedReview.length === 0}
+                  onClick={() => setBatchOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs sm:text-sm font-switzer font-semibold transition-colors disabled:opacity-40"
+                  style={{ backgroundColor: C.limeBar, color: C.ink }}
+                >
+                  <Tag className="w-3.5 h-3.5" />
+                  Identifier la sélection ({selectedReview.length})
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4">
+                {reviewPhotos.map((p) => {
+                  const sel = selectedReview.includes(p.id);
+                  return (
+                    <div
+                      key={p.id}
+                      className="rounded-2xl overflow-hidden bg-white/70 border-2 transition-colors"
+                      style={{ borderColor: sel ? C.ink : "#E0D6BE" }}
+                    >
+                      <div
+                        className="relative aspect-[4/5] cursor-pointer"
+                        style={{ backgroundColor: C.placeholder }}
+                        onClick={() => toggleReview(p.id)}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={isVideo(p.imageUrl) ? videoPoster(p.imageUrl) : p.imageUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                        {isVideo(p.imageUrl) && (
+                          <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <span className="w-9 h-9 rounded-full bg-black/55 flex items-center justify-center">
+                              <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+                            </span>
+                          </span>
+                        )}
+                        {/* Case de sélection */}
+                        <span
+                          className="absolute top-2 left-2 w-6 h-6 rounded-full flex items-center justify-center border-2 transition-colors"
+                          style={
+                            sel
+                              ? { backgroundColor: C.ink, borderColor: C.ink }
+                              : {
+                                  backgroundColor: "rgba(255,255,255,0.85)",
+                                  borderColor: "rgba(255,255,255,0.95)",
+                                }
+                          }
+                        >
+                          {sel && <Check className="w-3.5 h-3.5" style={{ color: C.lime }} />}
+                        </span>
+                        {p.talents.length > 0 && (
+                          <div className="absolute bottom-1.5 left-1.5 right-1.5 flex flex-wrap gap-1">
+                            {p.talents.slice(0, 3).map((t) => (
+                              <span
+                                key={t.id}
+                                className="px-1.5 py-0.5 rounded-full text-[9px] font-switzer font-medium"
+                                style={{ backgroundColor: "rgba(217,229,143,0.95)", color: C.ink }}
+                              >
+                                {t.prenom}
+                              </span>
+                            ))}
+                            {p.talents.length > 3 && (
+                              <span
+                                className="px-1.5 py-0.5 rounded-full text-[9px] font-switzer font-medium"
+                                style={{ backgroundColor: "rgba(255,255,255,0.9)", color: C.ink }}
+                              >
+                                +{p.talents.length - 3}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setTaggingPhotoId(p.id)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs sm:text-sm font-switzer font-semibold transition-colors"
+                        style={{
+                          backgroundColor: p.talents.length > 0 ? "transparent" : C.limeBar,
+                          color: C.ink,
+                        }}
+                      >
+                        <Tag className="w-3.5 h-3.5" />
+                        {p.talents.length > 0 ? "Modifier" : "Identifier"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {photos.length === 0 ? (
             <div className="text-center py-24">
               <p
@@ -493,7 +921,9 @@ export default function EventGalleryPage() {
                 Aucune photo pour le moment.
               </p>
               <p className="mt-2 font-switzer text-sm text-[#220101]/50">
-                Revenez bientôt, les clichés arrivent !
+                {manage
+                  ? "Ajoute tes premières photos ci-dessus."
+                  : "Revenez bientôt, les clichés arrivent !"}
               </p>
             </div>
           ) : (
@@ -503,7 +933,10 @@ export default function EventGalleryPage() {
                   key={p.id}
                   photo={p}
                   index={i}
+                  manage={manage}
                   onOpen={() => setLightboxIndex(i)}
+                  onTag={() => setTaggingPhotoId(p.id)}
+                  onDelete={() => deletePhoto(p.id)}
                 />
               ))}
             </div>
@@ -566,13 +999,24 @@ export default function EventGalleryPage() {
             </button>
           )}
 
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={photos[lightboxIndex].imageUrl}
-            alt=""
-            className="max-w-[calc(100%-4.5rem)] sm:max-w-[calc(100%-8rem)] max-h-[72vh] sm:max-h-[82vh] object-contain rounded-lg sm:rounded-xl shadow-2xl select-none"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {isVideo(photos[lightboxIndex].imageUrl) ? (
+            <video
+              src={videoPlaybackUrl(photos[lightboxIndex].imageUrl)}
+              controls
+              autoPlay
+              playsInline
+              className="max-w-[calc(100%-4.5rem)] sm:max-w-[calc(100%-8rem)] max-h-[72vh] sm:max-h-[82vh] object-contain rounded-lg sm:rounded-xl shadow-2xl select-none bg-black"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={photos[lightboxIndex].imageUrl}
+              alt=""
+              className="max-w-[calc(100%-4.5rem)] sm:max-w-[calc(100%-8rem)] max-h-[72vh] sm:max-h-[82vh] object-contain rounded-lg sm:rounded-xl shadow-2xl select-none"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
 
           {photos.length > 1 && (
             <button
@@ -600,46 +1044,319 @@ export default function EventGalleryPage() {
           </a>
         </div>
       )}
+
+      {/* ============ MODAL D'IDENTIFICATION (1 photo) ============ */}
+      {taggingPhoto && (
+        <TagModal
+          images={[taggingPhoto.imageUrl]}
+          initialSelected={taggingPhoto.talentIds}
+          talentOptions={talentOptions}
+          onClose={() => setTaggingPhotoId(null)}
+          onSave={(ids) => {
+            updateTags(taggingPhoto.id, ids);
+            setTaggingPhotoId(null);
+          }}
+        />
+      )}
+
+      {/* ============ MODAL D'IDENTIFICATION GROUPÉE ============ */}
+      {batchOpen && batchPhotos.length > 0 && (
+        <TagModal
+          images={batchPhotos.map((p) => p.imageUrl)}
+          initialSelected={[]}
+          title="Qui est sur ces photos ?"
+          subtitle={`Ajouté à ${batchPhotos.length} photo${
+            batchPhotos.length > 1 ? "s" : ""
+          }`}
+          talentOptions={talentOptions}
+          onClose={() => setBatchOpen(false)}
+          onSave={applyBatchTags}
+        />
+      )}
     </>
   );
 }
 
 // ============================================
-// TUILE PHOTO (effet ludique au survol)
+// TUILE PHOTO
 // ============================================
 function PhotoTile({
   photo,
   index,
+  manage,
   onOpen,
+  onTag,
+  onDelete,
 }: {
   photo: GalleryPhoto;
   index: number;
+  manage: boolean;
   onOpen: () => void;
+  onTag: () => void;
+  onDelete: () => void;
 }) {
   const delay = `${Math.min(index, 8) * 0.05}s`;
+  const video = isVideo(photo.imageUrl);
   return (
     <div
-      className="group relative aspect-[4/5] rounded-2xl overflow-hidden cursor-zoom-in shadow-sm hover:shadow-xl transition-all duration-300 glow-fade-up"
+      className="group relative aspect-[4/5] rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 glow-fade-up"
       style={{ backgroundColor: C.placeholder, animationDelay: delay }}
-      onClick={onOpen}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={photo.imageUrl}
+        src={video ? videoPoster(photo.imageUrl) : photo.imageUrl}
         alt=""
-        className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-110"
+        onClick={onOpen}
+        className="w-full h-full object-cover cursor-zoom-in transition-transform duration-500 ease-out group-hover:scale-110"
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-      <a
-        href={toDownloadUrl(photo.imageUrl)}
-        download
-        onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all duration-300 hover:scale-110"
-        style={{ backgroundColor: C.lime, color: C.ink }}
-        title="Télécharger"
+      {video && (
+        <span
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          onClick={onOpen}
+        >
+          <span className="w-12 h-12 rounded-full bg-black/55 flex items-center justify-center">
+            <Play className="w-5 h-5 text-white fill-white ml-0.5" />
+          </span>
+        </span>
+      )}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+      {/* Badge type de contenu */}
+      <span
+        className="absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-switzer font-semibold uppercase tracking-wide backdrop-blur-sm"
+        style={
+          photo.source === "INDIVIDUEL"
+            ? { backgroundColor: "rgba(255,255,255,0.88)", color: C.burgundy }
+            : { backgroundColor: "rgba(34,1,1,0.78)", color: C.lime }
+        }
       >
-        <Download className="w-4 h-4" />
-      </a>
+        {photo.source === "INDIVIDUEL" ? "Personnel" : "Officielle"}
+      </span>
+
+      {/* Chips talents identifiés */}
+      {photo.talents.length > 0 && (
+        <div className="absolute bottom-2 left-2 right-12 flex flex-wrap gap-1">
+          {photo.talents.slice(0, 3).map((t) => (
+            <span
+              key={t.id}
+              className="px-2 py-0.5 rounded-full text-[10px] font-switzer font-medium backdrop-blur-sm"
+              style={{ backgroundColor: "rgba(217,229,143,0.92)", color: C.ink }}
+            >
+              {t.prenom}
+            </span>
+          ))}
+          {photo.talents.length > 3 && (
+            <span
+              className="px-2 py-0.5 rounded-full text-[10px] font-switzer font-medium backdrop-blur-sm"
+              style={{ backgroundColor: "rgba(255,255,255,0.85)", color: C.ink }}
+            >
+              +{photo.talents.length - 3}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Télécharger (hors gestion) */}
+      {!manage && (
+        <a
+          href={toDownloadUrl(photo.imageUrl)}
+          download
+          onClick={(e) => e.stopPropagation()}
+          className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all duration-300 hover:scale-110"
+          style={{ backgroundColor: C.lime, color: C.ink }}
+          title="Télécharger"
+        >
+          <Download className="w-4 h-4" />
+        </a>
+      )}
+
+      {/* Actions gestion */}
+      {manage && (
+        <>
+          <button
+            type="button"
+            onClick={onTag}
+            className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-full flex items-center justify-center shadow transition-transform hover:scale-110"
+            style={{ backgroundColor: C.lime, color: C.ink }}
+            title="Identifier des talents"
+          >
+            <Tag className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-white/95 text-red-600 shadow flex items-center justify-center transition-transform hover:scale-110"
+            title="Supprimer"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// MODAL D'IDENTIFICATION (multi-talents)
+// ============================================
+function TagModal({
+  images,
+  initialSelected,
+  title = "Qui est sur la photo ?",
+  subtitle,
+  talentOptions,
+  onClose,
+  onSave,
+}: {
+  images: string[];
+  initialSelected: string[];
+  title?: string;
+  subtitle?: string;
+  talentOptions: TalentOption[];
+  onClose: () => void;
+  onSave: (ids: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>(initialSelected);
+  const [search, setSearch] = useState("");
+
+  const filtered = talentOptions.filter((o) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return `${o.prenom} ${o.nom}`.toLowerCase().includes(q);
+  });
+
+  const toggle = (id: string) =>
+    setSelected((s) =>
+      s.includes(id) ? s.filter((x) => x !== id) : [...s, id]
+    );
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 glow-fade-up"
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl max-h-[88vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Entête */}
+        <div className="flex items-center gap-3 p-4 border-b border-gray-100">
+          <div className="relative w-12 h-12 shrink-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={isVideo(images[0]) ? videoPoster(images[0]) : images[0]}
+              alt=""
+              className="w-12 h-12 rounded-xl object-cover"
+            />
+            {images.length > 1 && (
+              <span className="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded-full text-[10px] font-switzer font-semibold bg-[#220101] text-[#D9E58F]">
+                ×{images.length}
+              </span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-switzer font-semibold text-gray-900 text-sm">
+              {title}
+            </p>
+            <p className="text-xs text-gray-400 font-switzer">
+              {subtitle
+                ? subtitle
+                : `${selected.length} sélectionné${
+                    selected.length > 1 ? "s" : ""
+                  }`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500"
+            aria-label="Fermer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Recherche */}
+        <div className="p-3 border-b border-gray-100">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              autoFocus
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un talent…"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-300 text-sm font-switzer focus:outline-none focus:border-[#C9D77A]"
+            />
+          </div>
+        </div>
+
+        {/* Liste */}
+        <div className="overflow-y-auto p-2 flex-1">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8 font-switzer">
+              Aucun talent trouvé.
+            </p>
+          ) : (
+            filtered.map((o) => {
+              const checked = selected.includes(o.id);
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => toggle(o.id)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 text-left"
+                >
+                  {o.photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={o.photo}
+                      alt=""
+                      className="w-9 h-9 rounded-full object-cover shrink-0"
+                    />
+                  ) : (
+                    <span className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-[11px] font-semibold text-gray-500 shrink-0">
+                      {o.prenom.charAt(0)}
+                      {o.nom.charAt(0)}
+                    </span>
+                  )}
+                  <span className="flex-1 min-w-0 truncate text-sm font-switzer text-gray-800">
+                    {o.prenom} {o.nom}
+                  </span>
+                  <span
+                    className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${
+                      checked
+                        ? "bg-[#C9D77A] border-[#C9D77A]"
+                        : "border-gray-300"
+                    }`}
+                  >
+                    {checked && <Check className="w-3.5 h-3.5 text-[#220101]" />}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* Pied */}
+        <div className="p-3 border-t border-gray-100 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl text-sm font-switzer font-medium text-gray-600 hover:bg-gray-100"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(selected)}
+            className="flex-1 py-2.5 rounded-xl text-sm font-switzer font-semibold"
+            style={{ backgroundColor: C.limeBar, color: C.ink }}
+          >
+            Enregistrer
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

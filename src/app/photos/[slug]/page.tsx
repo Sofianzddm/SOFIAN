@@ -8,6 +8,7 @@ import {
   Download,
   Loader2,
   MapPin,
+  Play,
   X,
 } from "lucide-react";
 
@@ -17,6 +18,7 @@ import {
 interface GalleryPhoto {
   id: string;
   imageUrl: string;
+  source: string;
 }
 
 interface GalleryEvent {
@@ -62,10 +64,38 @@ function formatDate(value: string | null): string {
   }
 }
 
+function isVideo(url: string): boolean {
+  return (
+    url.includes("/video/upload/") ||
+    /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i.test(url)
+  );
+}
+
+// Vignette d'aperçu (poster) générée par Cloudinary pour une vidéo.
+function videoPoster(url: string): string {
+  let out = url;
+  if (out.includes("/video/upload/")) {
+    out = out.replace("/video/upload/", "/video/upload/so_0/");
+  }
+  return out.replace(/\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i, ".jpg$2");
+}
+
+// Source de lecture web-compatible (mp4) pour les formats non lisibles partout.
+function videoPlaybackUrl(url: string): string {
+  if (/\.(mp4|webm)(\?|$)/i.test(url)) return url;
+  if (url.includes("/video/upload/")) {
+    return url.replace(/\.(mov|m4v|avi|mkv|ogv)(\?|$)/i, ".mp4$2");
+  }
+  return url;
+}
+
 // Force le téléchargement via le flag Cloudinary fl_attachment.
 function toDownloadUrl(url: string): string {
   if (url.includes("/image/upload/")) {
     return url.replace("/image/upload/", "/image/upload/fl_attachment/");
+  }
+  if (url.includes("/video/upload/")) {
+    return url.replace("/video/upload/", "/video/upload/fl_attachment/");
   }
   return url;
 }
@@ -83,7 +113,8 @@ function sanitize(s: string): string {
 
 function guessExt(url: string): string {
   const m = url.split("?")[0].match(/\.([a-zA-Z0-9]{3,4})$/);
-  return m ? m[1].toLowerCase() : "jpg";
+  if (m) return m[1].toLowerCase();
+  return isVideo(url) ? "mp4" : "jpg";
 }
 
 // Construit un .zip (1 dossier par événement) et déclenche le téléchargement.
@@ -189,20 +220,49 @@ export default function TalentGalleryPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  // Filtre par type, indépendant POUR CHAQUE événement.
+  const [eventFilters, setEventFilters] = useState<
+    Record<string, "all" | "OFFICIELLE" | "INDIVIDUEL">
+  >({});
+  const setEventFilter = useCallback(
+    (id: string, v: "all" | "OFFICIELLE" | "INDIVIDUEL") => {
+      setEventFilters((prev) => ({ ...prev, [id]: v }));
+    },
+    []
+  );
 
-  // Liste à plat de toutes les photos (dans l'ordre d'affichage) pour la
-  // navigation dans la visionneuse + l'index de départ de chaque événement.
+  // Pour chaque événement : photos affichées selon son filtre + comptes par type.
+  const perEvent = useMemo(() => {
+    return (data?.events || []).map((ev) => {
+      const f = eventFilters[ev.id] ?? "all";
+      const officialCount = ev.photos.filter(
+        (p) => p.source !== "INDIVIDUEL"
+      ).length;
+      const personalCount = ev.photos.length - officialCount;
+      const displayPhotos =
+        f === "all"
+          ? ev.photos
+          : ev.photos.filter((p) =>
+              f === "INDIVIDUEL"
+                ? p.source === "INDIVIDUEL"
+                : p.source !== "INDIVIDUEL"
+            );
+      return { ev, filter: f, officialCount, personalCount, displayPhotos };
+    });
+  }, [data, eventFilters]);
+
+  // Liste à plat des photos affichées (visionneuse) + index de départ par event.
   const { allPhotos, eventStartIndex } = useMemo(() => {
     const flat: { imageUrl: string; eventNom: string }[] = [];
     const starts: number[] = [];
-    (data?.events || []).forEach((ev) => {
+    perEvent.forEach((pe) => {
       starts.push(flat.length);
-      ev.photos.forEach((p) =>
-        flat.push({ imageUrl: p.imageUrl, eventNom: ev.nom })
+      pe.displayPhotos.forEach((p) =>
+        flat.push({ imageUrl: p.imageUrl, eventNom: pe.ev.nom })
       );
     });
     return { allPhotos: flat, eventStartIndex: starts };
-  }, [data]);
+  }, [perEvent]);
 
   useEffect(() => {
     const meta = document.createElement("meta");
@@ -293,7 +353,7 @@ export default function TalentGalleryPage() {
     setDownloadProgress(0);
     try {
       await buildAndDownloadZip(
-        data.events,
+        perEvent.map((pe) => ({ ...pe.ev, photos: pe.displayPhotos })),
         `glowup-${sanitize(`${data.talent.prenom}-${data.talent.nom}`)}.zip`,
         setDownloadProgress
       );
@@ -303,7 +363,7 @@ export default function TalentGalleryPage() {
       setDownloadingAll(false);
       setDownloadProgress(0);
     }
-  }, [downloadingAll, allPhotos.length, data]);
+  }, [downloadingAll, allPhotos.length, data, perEvent]);
 
   const fonts = (
     <style jsx global>{`
@@ -516,10 +576,15 @@ export default function TalentGalleryPage() {
               </p>
             </div>
           ) : (
-            data.events.map((ev, idx) => (
+            perEvent.map((pe, idx) => (
               <EventSection
-                key={ev.id}
-                event={ev}
+                key={pe.ev.id}
+                event={pe.ev}
+                displayPhotos={pe.displayPhotos}
+                officialCount={pe.officialCount}
+                personalCount={pe.personalCount}
+                filter={pe.filter}
+                onFilterChange={(v) => setEventFilter(pe.ev.id, v)}
                 index={idx}
                 startIndex={eventStartIndex[idx] ?? 0}
                 onOpen={setLightboxIndex}
@@ -586,13 +651,24 @@ export default function TalentGalleryPage() {
             </button>
           )}
 
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={allPhotos[lightboxIndex].imageUrl}
-            alt=""
-            className="max-w-[calc(100%-4.5rem)] sm:max-w-[calc(100%-8rem)] max-h-[72vh] sm:max-h-[82vh] object-contain rounded-lg sm:rounded-xl shadow-2xl select-none"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {isVideo(allPhotos[lightboxIndex].imageUrl) ? (
+            <video
+              src={videoPlaybackUrl(allPhotos[lightboxIndex].imageUrl)}
+              controls
+              autoPlay
+              playsInline
+              className="max-w-[calc(100%-4.5rem)] sm:max-w-[calc(100%-8rem)] max-h-[72vh] sm:max-h-[82vh] object-contain rounded-lg sm:rounded-xl shadow-2xl select-none bg-black"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={allPhotos[lightboxIndex].imageUrl}
+              alt=""
+              className="max-w-[calc(100%-4.5rem)] sm:max-w-[calc(100%-8rem)] max-h-[72vh] sm:max-h-[82vh] object-contain rounded-lg sm:rounded-xl shadow-2xl select-none"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
 
           {/* Flèche suivante */}
           {allPhotos.length > 1 && (
@@ -626,15 +702,57 @@ export default function TalentGalleryPage() {
 }
 
 // ============================================
+// PILULE DE FILTRE
+// ============================================
+function FilterPill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="px-4 py-2 rounded-full text-xs sm:text-sm font-switzer font-medium border transition-colors"
+      style={
+        active
+          ? { backgroundColor: C.ink, color: C.lime, borderColor: C.ink }
+          : {
+              backgroundColor: "transparent",
+              color: C.burgundy,
+              borderColor: "rgba(34,1,1,0.2)",
+            }
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+// ============================================
 // SECTION ÉVÉNEMENT
 // ============================================
 function EventSection({
   event,
+  displayPhotos,
+  officialCount,
+  personalCount,
+  filter,
+  onFilterChange,
   index,
   startIndex,
   onOpen,
 }: {
   event: GalleryEvent;
+  displayPhotos: GalleryPhoto[];
+  officialCount: number;
+  personalCount: number;
+  filter: "all" | "OFFICIELLE" | "INDIVIDUEL";
+  onFilterChange: (v: "all" | "OFFICIELLE" | "INDIVIDUEL") => void;
   index: number;
   startIndex: number;
   onOpen: (globalIndex: number) => void;
@@ -643,12 +761,12 @@ function EventSection({
   const [zipPct, setZipPct] = useState(0);
 
   const downloadEvent = async () => {
-    if (zipping || event.photos.length === 0) return;
+    if (zipping || displayPhotos.length === 0) return;
     setZipping(true);
     setZipPct(0);
     try {
       await buildAndDownloadZip(
-        [event],
+        [{ ...event, photos: displayPhotos }],
         `glowup-${sanitize(event.nom) || "evenement"}.zip`,
         setZipPct
       );
@@ -708,7 +826,7 @@ function EventSection({
         </div>
 
         {/* Tout télécharger cet événement */}
-        {event.photos.length > 0 && (
+        {displayPhotos.length > 0 && (
           <button
             type="button"
             onClick={downloadEvent}
@@ -732,17 +850,47 @@ function EventSection({
         )}
       </div>
 
+      {/* Filtre par type, propre à cet événement */}
+      {event.photos.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-4 sm:mb-5">
+          <FilterPill active={filter === "all"} onClick={() => onFilterChange("all")}>
+            Toutes ({officialCount + personalCount})
+          </FilterPill>
+          <FilterPill
+            active={filter === "OFFICIELLE"}
+            onClick={() => onFilterChange("OFFICIELLE")}
+          >
+            Photos officielles ({officialCount})
+          </FilterPill>
+          <FilterPill
+            active={filter === "INDIVIDUEL"}
+            onClick={() => onFilterChange("INDIVIDUEL")}
+          >
+            Contenus personnels ({personalCount})
+          </FilterPill>
+        </div>
+      )}
+
       {/* Grille de photos */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4">
-        {event.photos.map((p, i) => (
-          <PhotoTile
-            key={p.id}
-            photo={p}
-            index={i}
-            onOpen={() => onOpen(startIndex + i)}
-          />
-        ))}
-      </div>
+      {displayPhotos.length === 0 ? (
+        <p
+          className="py-10 text-center font-spectral-light-italic text-lg"
+          style={{ color: C.burgundy }}
+        >
+          Aucune photo dans cette catégorie.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4">
+          {displayPhotos.map((p, i) => (
+            <PhotoTile
+              key={p.id}
+              photo={p}
+              index={i}
+              onOpen={() => onOpen(startIndex + i)}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -761,6 +909,7 @@ function PhotoTile({
 }) {
   // Léger décalage d'apparition pour un effet "cascade"
   const delay = `${Math.min(index, 8) * 0.05}s`;
+  const video = isVideo(photo.imageUrl);
   return (
     <div
       className="group relative aspect-[4/5] rounded-2xl overflow-hidden cursor-zoom-in shadow-sm hover:shadow-xl transition-all duration-300 glow-fade-up"
@@ -769,10 +918,17 @@ function PhotoTile({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={photo.imageUrl}
+        src={video ? videoPoster(photo.imageUrl) : photo.imageUrl}
         alt=""
         className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-110"
       />
+      {video && (
+        <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="w-12 h-12 rounded-full bg-black/55 flex items-center justify-center">
+            <Play className="w-5 h-5 text-white fill-white ml-0.5" />
+          </span>
+        </span>
+      )}
       {/* Voile dégradé au survol */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
