@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { talentSlug } from "@/lib/talent-slug";
 import {
   ArrowLeft,
   Check,
@@ -72,6 +73,9 @@ export default function EvenementPhotosDetailPage() {
   const [openPickerId, setOpenPickerId] = useState<string | null>(null);
   const [links, setLinks] = useState<TalentLink[] | null>(null);
   const [loadingLinks, setLoadingLinks] = useState(false);
+  // Liens ajoutés manuellement (talents pas encore tagués sur une photo)
+  const [manualLinkIds, setManualLinkIds] = useState<string[]>([]);
+  const [linkSearch, setLinkSearch] = useState("");
   // Talents récemment identifiés (les plus récents en tête) + dernière sélection
   // appliquée, pour gagner du temps quand les mêmes personnes reviennent.
   const [recentIds, setRecentIds] = useState<string[]>([]);
@@ -407,6 +411,37 @@ export default function EvenementPhotosDetailPage() {
     ? event.photos.filter((p) => p.talentIds.length === 0)
     : event.photos;
 
+  // Liens affichés = talents tagués (API) + ajouts manuels (sans doublon)
+  const apiLinkIds = new Set((links ?? []).map((l) => l.talentId));
+  const manualLinks: TalentLink[] = manualLinkIds
+    .filter((id) => !apiLinkIds.has(id))
+    .map((id) => {
+      const t = talentOptions.find((o) => o.id === id);
+      if (!t) return null;
+      const slug = talentSlug(t.prenom, t.nom);
+      return {
+        talentId: t.id,
+        prenom: t.prenom,
+        nom: t.nom,
+        slug,
+        path: `/photos/${slug}`,
+        photoCount: 0,
+      };
+    })
+    .filter((l): l is TalentLink => Boolean(l));
+  const combinedLinks = [...(links ?? []), ...manualLinks].sort((a, b) =>
+    `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`, "fr")
+  );
+  const shownTalentIds = new Set(combinedLinks.map((l) => l.talentId));
+  const addableTalents = talentOptions
+    .filter((o) => !shownTalentIds.has(o.id))
+    .filter((o) => {
+      const q = linkSearch.trim().toLowerCase();
+      if (!q) return false;
+      return `${o.prenom} ${o.nom}`.toLowerCase().includes(q);
+    })
+    .slice(0, 8);
+
   return (
     <div className="max-w-6xl mx-auto pb-20">
       <Link
@@ -695,21 +730,74 @@ export default function EvenementPhotosDetailPage() {
         </div>
         <p className="text-sm text-gray-500 mb-4">
           Chaque lien est privé (non indexé). Le talent y retrouve toutes les
-          photos d&apos;événements où il est tagué.
+          photos d&apos;événements où il est tagué. Tu peux aussi ajouter un
+          talent pour partager son lien avant même d&apos;avoir ses photos.
         </p>
+
+        {/* Ajouter un talent manuellement (même sans photo) */}
+        <div className="relative mb-4 max-w-md">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={linkSearch}
+              onChange={(e) => setLinkSearch(e.target.value)}
+              placeholder="Ajouter un talent (rechercher par nom)…"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:border-glowup-rose"
+            />
+          </div>
+          {addableTalents.length > 0 && (
+            <div className="absolute z-20 mt-1 w-full bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
+              {addableTalents.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => {
+                    setManualLinkIds((ids) =>
+                      ids.includes(o.id) ? ids : [...ids, o.id]
+                    );
+                    setLinkSearch("");
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-glowup-lace/40"
+                >
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-glowup-lace text-glowup-licorice text-[11px] font-semibold shrink-0">
+                    {o.prenom.charAt(0)}
+                    {o.nom.charAt(0)}
+                  </span>
+                  <span className="truncate">
+                    {o.prenom} {o.nom}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {loadingLinks ? (
           <div className="flex items-center gap-2 text-gray-400 py-6">
             <Loader2 className="w-5 h-5 animate-spin" /> Chargement…
           </div>
-        ) : links === null ? null : links.length === 0 ? (
+        ) : combinedLinks.length === 0 ? (
           <p className="text-sm text-gray-400">
-            Aucun talent tagué pour le moment.
+            {links === null
+              ? "Clique sur « Afficher » ou ajoute un talent ci-dessus."
+              : "Aucun talent pour le moment — ajoute-en un ci-dessus."}
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {links.map((l) => (
-              <TalentLinkRow key={l.talentId} link={l} />
+            {combinedLinks.map((l) => (
+              <TalentLinkRow
+                key={l.talentId}
+                link={l}
+                onRemove={
+                  manualLinkIds.includes(l.talentId)
+                    ? () =>
+                        setManualLinkIds((ids) =>
+                          ids.filter((id) => id !== l.talentId)
+                        )
+                    : undefined
+                }
+              />
             ))}
           </div>
         )}
@@ -1004,7 +1092,13 @@ function EventLinkBanner({ slug, count }: { slug: string; count: number }) {
   );
 }
 
-function TalentLinkRow({ link }: { link: TalentLink }) {
+function TalentLinkRow({
+  link,
+  onRemove,
+}: {
+  link: TalentLink;
+  onRemove?: () => void;
+}) {
   const [copied, setCopied] = useState(false);
   const fullUrl =
     typeof window !== "undefined"
@@ -1028,10 +1122,22 @@ function TalentLinkRow({ link }: { link: TalentLink }) {
           {link.prenom} {link.nom}
         </p>
         <p className="text-xs text-gray-400">
-          {link.photoCount} photo{link.photoCount > 1 ? "s" : ""}
+          {link.photoCount > 0
+            ? `${link.photoCount} photo${link.photoCount > 1 ? "s" : ""} sur cet événement`
+            : "Lien prêt à partager"}
         </p>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-300 text-gray-400 hover:text-red-600 hover:border-red-300"
+            title="Retirer de la liste"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
         <button
           type="button"
           onClick={copy}
