@@ -76,7 +76,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/kit/") ||
     pathname.startsWith("/api/kit/") ||
     pathname.startsWith("/tarifs/") ||
-    pathname.startsWith("/api/tarifs/")
+    pathname.startsWith("/api/tarifs/") ||
+    pathname.startsWith("/photos/") ||
+    pathname.startsWith("/api/photos/")
   ) {
     if (SEARCH_ENGINE_CRAWLER_UA.test(ua)) {
       return new NextResponse("Forbidden", { status: 403 });
@@ -316,5 +318,11 @@ export const config = {
     // Grille tarifaire publique (mêmes règles que le Kit Media)
     "/tarifs/:path*",
     "/api/tarifs/:path*",
+    // Galerie photos privée par talent (lien direct, jamais indexé)
+    "/photos/:path*",
+    "/api/photos/:path*",
+    // Module admin "Photos d'événements"
+    "/evenements-photos",
+    "/evenements-photos/:path*",
   ],
 };

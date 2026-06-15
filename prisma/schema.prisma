@@ -384,6 +384,11 @@ model Talent {
 
   photo String?
 
+  // Token aléatoire du lien personnel privé "Photos d'événements" (/photos/[token]).
+  // Généré à la demande. Permet au talent de retrouver toutes les photos
+  // d'événements sur lesquelles il a été tagué, sans connexion.
+  galleryToken String? @unique
+
   // Photos additionnelles pour le Kit Media public (/kit/[slug])
   // - Slot 0..2 : bandeau présentation (3 photos)
   // - Slot 3..5 : colonne Instagram analytics (3 photos)
@@ -455,6 +460,7 @@ model Talent {
   cannesPresences         CannesPresence[]         @relation("TalentCannesPresences")
   cannesCoiffeurBookings  CannesCoiffeurBooking[]
   activationReportTalents ActivationReportTalent[]
+  eventPhotoTags          EventPhotoTalent[]
 
   @@map("talents")
 }
@@ -2977,4 +2983,69 @@ model OutreachClick {
 
   @@index([touchId, clickedAt])
   @@map("outreach_clicks")
+}
+
+// ============================================
+// PHOTOS D'ÉVÉNEMENTS (lien personnel talent)
+// ============================================
+//
+// Module privé/interne (ADMIN) : pendant un événement (festival, soirée…),
+// on crée un "événement", on uploade les photos et on tague pour chaque
+// photo les talents présents. Chaque talent retrouve ensuite toutes les
+// photos où il est tagué via son lien personnel privé /photos/[token].
+
+model PhotoEvent {
+  id      String    @id @default(cuid())
+  nom     String
+  date    DateTime?
+  lieu    String?
+  logoUrl String?
+
+  // Lien privé regroupant TOUTES les photos de l'événement : /photos/event/[slug]
+  slug String? @unique
+
+  // Auteur (User.id) — pas de FK pour rester indépendant du modèle User.
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  photos EventPhoto[]
+
+  @@index([createdAt])
+  @@map("photo_events")
+}
+
+model EventPhoto {
+  id String @id @default(cuid())
+
+  eventId String
+  event   PhotoEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  imageUrl String
+  position Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  talents EventPhotoTalent[]
+
+  @@index([eventId])
+  @@map("event_photos")
+}
+
+model EventPhotoTalent {
+  id String @id @default(cuid())
+
+  photoId String
+  photo   EventPhoto @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([photoId, talentId])
+  @@index([talentId])
+  @@index([photoId])
+  @@map("event_photo_talents")
 }

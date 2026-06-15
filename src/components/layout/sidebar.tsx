@@ -29,6 +29,7 @@ import {
   BarChart3,
   Calculator,
   Repeat,
+  Camera,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -170,6 +171,12 @@ const menuItems = [
     href: "/activation-stats",
     icon: BarChart3,
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"],
+  },
+  {
+    label: "Photos d'événements",
+    href: "/evenements-photos",
+    icon: Camera,
+    roles: ["ADMIN"],
   },
   {
     label: "Factures & Devis",
