@@ -39,10 +39,16 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Mot de passe incorrect");
         }
 
+        // Construit le nom affiché sans laisser passer un "undefined"/"null"
+        // littéral lorsque prénom ou nom n'est pas renseigné en base.
+        const displayName =
+          [user.prenom, user.nom].filter((p) => p && p.trim()).join(" ").trim() ||
+          user.email;
+
         return {
           id: user.id,
           email: user.email,
-          name: `${user.prenom} ${user.nom}`,
+          name: displayName,
           role: user.role,
         };
       },
