@@ -232,6 +232,9 @@ export default function MarqueDetailPage() {
   // strategy type Ski Trip) — pas de modification/suppression ni de liens
   // vers des espaces auxquels le rôle n'a pas accès.
   const readOnly = (session?.user?.role || "") === "STRATEGY_PLANNER";
+  // Lancer un contact dans le cycle Outreach est réservé aux rôles qui y ont
+  // accès côté API (ADMIN / CASTING_MANAGER).
+  const canOutreach = ["ADMIN", "CASTING_MANAGER"].includes(session?.user?.role || "");
   const [marque, setMarque] = useState<MarqueDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"activite" | "contacts" | "carto" | "collabs">("activite");
@@ -252,6 +255,10 @@ export default function MarqueDetailPage() {
   });
   const [savingContact, setSavingContact] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
+
+  // Lancement d'un contact dans le cycle Outreach depuis la fiche marque
+  const [launchingId, setLaunchingId] = useState<string | null>(null);
+  const [launchError, setLaunchError] = useState<{ id: string; message: string } | null>(null);
 
   const fetchMarque = useCallback(async () => {
     try {
@@ -303,6 +310,27 @@ export default function MarqueDetailPage() {
       setContactError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setSavingContact(false);
+    }
+  };
+
+  /** Envoie un contact (avec email) dans le cycle Outreach « À contacter ». */
+  const launchOutreach = async (contact: Contact) => {
+    if (launchingId || !contact.email) return;
+    setLaunchError(null);
+    setLaunchingId(contact.id);
+    try {
+      const res = await fetch("/api/outreach/targets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marqueContactId: contact.id, email: contact.email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Impossible de lancer le contact.");
+      await fetchMarque();
+    } catch (e) {
+      setLaunchError({ id: contact.id, message: e instanceof Error ? e.message : "Erreur" });
+    } finally {
+      setLaunchingId(null);
     }
   };
 
@@ -928,16 +956,29 @@ export default function MarqueDetailPage() {
                               {outreach ? (
                                 <OutreachBadge info={outreach} />
                               ) : (
-                                contact.email && (
-                                  <Link
-                                    href="/outreach"
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity hover:underline"
+                                contact.email &&
+                                canOutreach && (
+                                  <button
+                                    type="button"
+                                    onClick={() => launchOutreach(contact)}
+                                    disabled={launchingId === contact.id}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity hover:underline disabled:opacity-60 disabled:cursor-wait"
                                     style={{ color: ROSE }}
+                                    title="Ajouter ce contact au cycle Outreach (À contacter)"
                                   >
-                                    <Send className="w-3 h-3" />
+                                    {launchingId === contact.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Send className="w-3 h-3" />
+                                    )}
                                     Lancer le contact
-                                  </Link>
+                                  </button>
                                 )
+                              )}
+                              {launchError?.id === contact.id && (
+                                <span className="text-[10px] text-red-500 text-right max-w-[180px] leading-tight">
+                                  {launchError.message}
+                                </span>
                               )}
                               {outreach && outreach.cycleCount > 0 && (
                                 <span className="text-[10px] text-gray-300 tabular-nums">Cycle {outreach.cycleCount}</span>
@@ -1102,6 +1143,29 @@ export default function MarqueDetailPage() {
                             <td className="px-5 py-3 text-right">
                               {outreach ? (
                                 <OutreachBadge info={outreach} />
+                              ) : contact.email && canOutreach ? (
+                                <div className="flex flex-col items-end gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => launchOutreach(contact)}
+                                    disabled={launchingId === contact.id}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold transition-opacity hover:underline disabled:opacity-60 disabled:cursor-wait"
+                                    style={{ color: ROSE }}
+                                    title="Ajouter ce contact au cycle Outreach (À contacter)"
+                                  >
+                                    {launchingId === contact.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Send className="w-3 h-3" />
+                                    )}
+                                    Lancer
+                                  </button>
+                                  {launchError?.id === contact.id && (
+                                    <span className="text-[10px] text-red-500 leading-tight max-w-[160px]">
+                                      {launchError.message}
+                                    </span>
+                                  )}
+                                </div>
                               ) : (
                                 <span className="text-xs text-gray-200">—</span>
                               )}
