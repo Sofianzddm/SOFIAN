@@ -8,6 +8,7 @@ import { talentSlug } from "@/lib/talent-slug";
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   Copy,
   ExternalLink,
   ImageIcon,
@@ -110,6 +111,8 @@ export default function EvenementPhotosDetailPage() {
   const [filterSource, setFilterSource] = useState<
     "all" | "OFFICIELLE" | "INDIVIDUEL"
   >("all");
+  // Filtre par talent tagué (id du talent ou null pour tous)
+  const [filterTalentId, setFilterTalentId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Catégorie choisie pour le prochain upload (selon le bouton cliqué)
   const pendingSourceRef = useRef<"OFFICIELLE" | "INDIVIDUEL">("OFFICIELLE");
@@ -439,9 +442,33 @@ export default function EvenementPhotosDetailPage() {
     (p) => p.source === "INDIVIDUEL"
   ).length;
   const officielleCount = event.photos.length - individuelCount;
+
+  // Talents présents sur l'événement (tagués sur au moins une photo) + nb de photos
+  const talentCountMap = new Map<
+    string,
+    { id: string; prenom: string; nom: string; count: number }
+  >();
+  for (const p of event.photos) {
+    for (const t of p.talents) {
+      const existing = talentCountMap.get(t.id);
+      if (existing) existing.count += 1;
+      else
+        talentCountMap.set(t.id, {
+          id: t.id,
+          prenom: t.prenom,
+          nom: t.nom,
+          count: 1,
+        });
+    }
+  }
+  const taggedTalents = Array.from(talentCountMap.values()).sort((a, b) =>
+    `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`, "fr")
+  );
+
   const displayedPhotos = event.photos.filter((p) => {
     if (filterUntagged && p.talentIds.length > 0) return false;
     if (filterSource !== "all" && p.source !== filterSource) return false;
+    if (filterTalentId && !p.talentIds.includes(filterTalentId)) return false;
     return true;
   });
 
@@ -771,6 +798,49 @@ export default function EvenementPhotosDetailPage() {
             <ImagePlus className="w-3.5 h-3.5" />
             Contenus personnels ({individuelCount})
           </button>
+
+          {/* Filtre par talent */}
+          {taggedTalents.length > 0 && (
+            <>
+              <span className="mx-1 h-5 w-px bg-gray-200" />
+              <div className="relative inline-flex items-center">
+                <Users className="absolute left-3 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                <select
+                  value={filterTalentId ?? ""}
+                  onChange={(e) =>
+                    setFilterTalentId(e.target.value || null)
+                  }
+                  className={`appearance-none pl-8 pr-8 py-1.5 rounded-full text-sm font-medium border transition-colors cursor-pointer outline-none ${
+                    filterTalentId
+                      ? "bg-glowup-licorice text-white border-glowup-licorice"
+                      : "bg-white border-gray-300 text-gray-600 hover:border-glowup-licorice"
+                  }`}
+                >
+                  <option value="">Tous les talents</option>
+                  {taggedTalents.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.prenom} {t.nom} ({t.count})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className={`absolute right-3 w-3.5 h-3.5 pointer-events-none ${
+                    filterTalentId ? "text-white" : "text-gray-400"
+                  }`}
+                />
+              </div>
+              {filterTalentId && (
+                <button
+                  type="button"
+                  onClick={() => setFilterTalentId(null)}
+                  className="inline-flex items-center justify-center w-7 h-7 rounded-full border border-gray-300 text-gray-400 hover:text-red-600 hover:border-red-300"
+                  title="Réinitialiser le filtre talent"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -780,9 +850,15 @@ export default function EvenementPhotosDetailPage() {
           Aucune photo pour le moment.
         </div>
       ) : displayedPhotos.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-emerald-300 p-12 text-center text-emerald-600">
-          Toutes les photos sont identifiées 🎉
-        </div>
+        filterTalentId ? (
+          <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 text-center text-gray-500">
+            Aucune photo ne correspond à ce filtre.
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-dashed border-emerald-300 p-12 text-center text-emerald-600">
+            Toutes les photos sont identifiées 🎉
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {displayedPhotos.map((photo) => (

@@ -1,10 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { GlowUpLogo } from "@/components/ui/logo";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+
+/**
+ * Traduit le code d'erreur NextAuth en message clair. NextAuth peut renvoyer
+ * "CredentialsSignin" (générique) ou, dans certains cas, un "undefined" littéral
+ * lorsque l'URL de retour est polluée par un ?error=undefined. On ne montre
+ * jamais ce mot brut à l'utilisateur.
+ */
+function messageErreurConnexion(code?: string | null): string {
+  if (!code || code === "undefined" || code === "null") {
+    return "Identifiants incorrects. Vérifiez votre email et votre mot de passe.";
+  }
+  if (code === "CredentialsSignin") {
+    return "Email ou mot de passe incorrect.";
+  }
+  return code;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +29,19 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  // Nettoie un éventuel ?error=… resté dans l'URL : sinon il pollue le
+  // callbackUrl par défaut (window.location.href) et bloque la connexion en
+  // boucle, y compris avec les bons identifiants.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("error") || url.searchParams.has("callbackUrl")) {
+      url.searchParams.delete("error");
+      url.searchParams.delete("callbackUrl");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,10 +53,13 @@ export default function LoginPage() {
         email,
         password,
         redirect: false,
+        // callbackUrl explicite et propre : on n'utilise jamais l'URL courante
+        // (qui peut contenir ?error=undefined) comme cible de retour.
+        callbackUrl: "/dashboard",
       });
 
       if (result?.error) {
-        setError(result.error);
+        setError(messageErreurConnexion(result.error));
         setIsLoading(false);
         return;
       }

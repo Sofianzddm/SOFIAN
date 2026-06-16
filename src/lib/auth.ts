@@ -17,9 +17,22 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Email et mot de passe requis");
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
-        });
+        // Email normalisé : on retire les espaces et on compare sans tenir
+        // compte de la casse, sinon "manon.j@…" (minuscule) ne retrouve pas
+        // un compte enregistré "Manon.j@…" en base.
+        const email = credentials.email.trim();
+
+        let user;
+        try {
+          user = await prisma.user.findFirst({
+            where: { email: { equals: email, mode: "insensitive" } },
+          });
+        } catch (err) {
+          // Une panne d'accès base ne doit jamais remonter un message vide
+          // (sinon NextAuth affiche littéralement "undefined" côté login).
+          console.error("[auth] Erreur lecture utilisateur:", err);
+          throw new Error("Service indisponible, réessayez dans un instant");
+        }
 
         if (!user || !user.actif) {
           throw new Error("Compte inexistant ou désactivé");
@@ -30,10 +43,16 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Mot de passe non défini pour ce compte");
         }
 
-        const isPasswordValid = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
+        let isPasswordValid = false;
+        try {
+          isPasswordValid = await bcrypt.compare(
+            credentials.password,
+            user.password
+          );
+        } catch (err) {
+          console.error("[auth] Erreur vérification mot de passe:", err);
+          throw new Error("Mot de passe incorrect");
+        }
 
         if (!isPasswordValid) {
           throw new Error("Mot de passe incorrect");
