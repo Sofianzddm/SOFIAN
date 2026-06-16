@@ -37,6 +37,7 @@ import {
   MailWarning,
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
+import { businessDaysAfter } from "@/lib/business-days";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -44,6 +45,8 @@ const TEA_GREEN = "#C8F285";
 const OLD_LACE = "#F5EBE0";
 
 const ALLOWED = ["ADMIN", "CASTING_MANAGER"];
+// Doit rester aligné avec OUTREACH_RELANCE_BUSINESS_DAYS (lib/outreach-send.ts).
+const RELANCE_BUSINESS_DAYS = 3;
 
 type TargetStatus = "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED";
 
@@ -561,7 +564,12 @@ export default function OutreachPage() {
 
   const handleRelanceNow = useCallback(
     async (target: Target) => {
-      if (!window.confirm(`Envoyer une relance dans le thread du dernier mail à ${target.email} ?`)) return;
+      if (
+        !window.confirm(
+          `Envoyer la relance maintenant dans le thread du dernier mail à ${target.email} ?\n\nLa relance automatique J+3 ne partira pas (une seule relance par mail).`
+        )
+      )
+        return;
       setActionBusy(target.id);
       try {
         const res = await fetch(`/api/outreach/targets/${target.id}/relance-now`, {
@@ -791,6 +799,18 @@ export default function OutreachPage() {
                   const days = daysUntil(target.nextRecontactAt);
                   const expanded = expandedId === target.id;
                   const busy = actionBusy === target.id;
+                  // Relance auto J+3 ouvrés : prévue tant qu'elle n'est pas
+                  // partie et que le client n'a pas répondu sur ce mail.
+                  const relancePlannedAt =
+                    target.status === "WAITING" &&
+                    latest?.sentAt &&
+                    !latest.relanceSentAt &&
+                    !latest.repliedAt
+                      ? businessDaysAfter(new Date(latest.sentAt), RELANCE_BUSINESS_DAYS)
+                      : null;
+                  const relanceDays = relancePlannedAt
+                    ? daysUntil(relancePlannedAt.toISOString())
+                    : null;
                   return (
                     <div key={target.id} className="border-b last:border-b-0" style={{ borderColor: "#F5F1EB" }}>
                       <div className="px-4 py-2.5 flex flex-wrap items-center gap-3">
@@ -847,9 +867,27 @@ export default function OutreachPage() {
                               A répondu
                             </span>
                           )}
+                          {relancePlannedAt && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
+                              style={{ backgroundColor: "#FDF1F1", color: "#A85B5B" }}
+                              title={`Relance automatique J+3 ouvrés prévue le ${formatDate(
+                                relancePlannedAt.toISOString()
+                              )}`}
+                            >
+                              <Repeat className="w-3 h-3" />
+                              {relanceDays !== null && relanceDays <= 0
+                                ? "Relance auto imminente"
+                                : `Relance auto le ${formatDate(relancePlannedAt.toISOString())}`}
+                            </span>
+                          )}
                           {latest?.relanceSentAt && (
-                            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
-                              Relancé J+3
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
+                              title={`Relance envoyée le ${formatDate(latest.relanceSentAt)} — pas d'autre relance sur ce mail`}
+                            >
+                              <Repeat className="w-3 h-3" />
+                              Relancé le {formatDate(latest.relanceSentAt)}
                             </span>
                           )}
                           {latest && latest.openCount > 0 && (
@@ -891,6 +929,7 @@ export default function OutreachPage() {
                               disabled={busy}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition hover:bg-gray-50 disabled:opacity-50"
                               style={{ borderColor: "#E5E0DA", color: LICORICE }}
+                              title="Forcer la relance maintenant. La relance automatique J+3 est alors annulée (une seule relance par mail)."
                             >
                               <Mail className="w-3.5 h-3.5" />
                               Relancer
