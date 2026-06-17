@@ -19,6 +19,24 @@ export function isBusinessDay(date: Date, timeZone: string = PARIS_TZ): boolean 
 }
 
 /**
+ * Renvoie minuit (début de journée) du jour calendaire de `date` tel qu'il est
+ * vu dans `timeZone`, représenté en UTC. Sert à raisonner « par jour » plutôt
+ * que par instant exact (utile pour les crons quotidiens).
+ */
+function startOfDayInTz(date: Date, timeZone: string = PARIS_TZ): Date {
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(date)
+    .split("-")
+    .map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+}
+
+/**
  * Avance (ou recule si `count` négatif) la date de `count` jours ouvrés.
  * Les week-ends ne comptent pas. L'heure du jour est préservée.
  */
@@ -49,8 +67,16 @@ export function hasBusinessDaysElapsed(
   timeZone: string = PARIS_TZ
 ): boolean {
   if (count <= 0) return now.getTime() >= from.getTime();
-  const eligibleAt = addBusinessDays(from, count, timeZone);
-  return now.getTime() >= eligibleAt.getTime();
+  // Comparaison « par jour » et non par instant exact : les crons de relance
+  // tournent une fois par jour (8h). Si on gardait l'heure d'envoi, un mail
+  // parti l'après-midi ne serait jamais éligible au cron du matin de J+N et
+  // sa relance partirait systématiquement un jour ouvré trop tard.
+  const eligibleAt = addBusinessDays(
+    startOfDayInTz(from, timeZone),
+    count,
+    timeZone
+  );
+  return startOfDayInTz(now, timeZone).getTime() >= eligibleAt.getTime();
 }
 
 /**
