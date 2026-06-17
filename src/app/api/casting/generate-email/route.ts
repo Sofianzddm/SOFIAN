@@ -194,12 +194,14 @@ ${
 
 STYLE TO REPLICATE (recommended structure but stay fluid):
 - MUST start with: "Hi ${firstNameToken},"
+- MUST add right after, on a new line, this EXACT sentence without modifying it: "I hope you are doing well?"
 - First sentence: a natural, elegant variation around "We immediately thought of ${brandNameToken} while reviewing our talents." OR a more direct product-led opener if the brand is very lifestyle/organic (example for VEJA: "When we saw Jitsu launching...").
 - Mention the strongest new launch very specifically, ideally starting with "Your" for a personal and direct tone. Keep it short, elegant, and impactful.
 - Explain the fit in a natural, precise, and compelling way (2-3 sentences max).
 - Transition BEFORE the talent list: lean on the "Current influence strategy of the brand" to show we studied their collaborations. Use a wording like: "We noticed you currently collaborate with [profile types / formats summarized in a few words], so here are creators who perfectly match your target:". Stay natural and concise (1-2 sentences max), do not copy the whole strategy. If the strategy is "—" or empty, simply use: "It made us think of a few creators who could be a perfect match for your world:".
 - List the talents in a clear, airy bullet format:
-  Firstname Lastname (instagram followers count - Category) -> short reason (10-15 words max), very relevant and smart
+  Firstname Lastname (TikTok followers count - Instagram followers count - Category) -> short reason (10-15 words max), very relevant and smart
+  You MUST include the creator's TikTok followers count as provided in "Available talents" (never omit it when provided), in addition to the Instagram followers count.
 - Adaptive transition sentence: "These profiles bring both strong awareness, real [category] credibility, and the ability to create lived-in content that matches your current direction." -> Replace [category] with the most relevant term (lifestyle, responsible fashion, sport & movement, etc.).
 - Collaboration sentence: warm, premium version (example: "We would love to explore a collaboration with you and our talents." or "This could genuinely create great outcomes together.").
 - MUST add one sentence that includes a CLICKABLE link to our full roster, in this exact HTML format: <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
@@ -253,12 +255,14 @@ ${
 
 STYLE À REPRODUIRE (structure recommandée mais fluide) :
 - Commencer OBLIGATOIREMENT par : "Bonjour ${firstNameToken},"
+- Ajouter OBLIGATOIREMENT juste après, sur une nouvelle ligne, cette phrase EXACTE sans la modifier : "J'espère que vous allez bien ?"
 - Première phrase : une variation naturelle et élégante autour de "On a immédiatement pensé à ${brandNameToken} en regardant nos talents." OU une accroche plus directe sur le produit si la marque est très lifestyle/organique (ex. pour VEJA : "En voyant le Jitsu sortir…").
 - Citer précisément la nouveauté la plus forte en commençant idéalement par "Votre" pour un ton personnel et direct. Phrase courte, élégante et impactante.
 - Expliquer le fit de façon naturelle, précise et séduisante (2-3 phrases max).
 - Transition AVANT la liste des talents : appuie-toi sur la "Stratégie d'influence actuelle de la marque" pour montrer qu'on a étudié leurs collaborations. Formule du type : "On a vu que vous collaborez en ce moment avec [type de profils / formats résumés en quelques mots], voici donc des créateurs qui correspondent parfaitement à votre cible :". Reste naturel et synthétique (1-2 phrases max), ne recopie pas toute la stratégie. Si la stratégie est "—" ou vide, utilise simplement : "Ça nous a fait penser à quelques créateurs qui pourraient parfaitement correspondre à votre univers :".
 - Lister les talents en format clair et aéré avec des tirets :
-  Prénom Nom (nombre d’abonnés instagram – Catégorie) → raison courte (10-15 mots max), très pertinente et intelligente
+  Prénom Nom (nombre d’abonnés TikTok – nombre d’abonnés Instagram – Catégorie) → raison courte (10-15 mots max), très pertinente et intelligente
+  Tu DOIS reprendre le nombre d’abonnés TikTok du créateur tel qu’indiqué dans "Talents disponibles" (ne jamais l’omettre quand il est fourni), en plus du nombre d’abonnés Instagram.
 - Phrase de transition adaptative : "Ces profils apportent à la fois une belle notoriété, une vraie crédibilité [catégorie] et une capacité à créer du contenu vécu qui colle à votre direction actuelle." → Remplace [catégorie] par le terme le plus pertinent (lifestyle, mode responsable, sport & mouvement, etc.).
 - Phrase collaboration : version chaleureuse et premium (ex. "On serait ravis d’explorer une collaboration avec vous et nos talents." ou "Ça pourrait vraiment donner de belles choses ensemble.").
 - Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
