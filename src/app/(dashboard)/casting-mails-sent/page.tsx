@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2, Mail, Search, Calendar, ExternalLink, X, Eye, MousePointerClick, Clock, CheckCircle2, AlertCircle } from "lucide-react";
 import { inboundCategoryLabel } from "@/lib/inbound-categories";
-import { addBusinessDays, isBusinessDay } from "@/lib/business-days";
+import { businessDeadlineWithJitter } from "@/lib/business-days";
 
 type Mail = {
   id: string;
@@ -79,23 +79,16 @@ function relativeDate(dateStr: string) {
   return `il y a ${months} mois`;
 }
 
-/** Prochain passage du cron (8h) qui tombe un jour ouvré (le cron skip le week-end). */
-function nextBusinessCronRun(now: Date): Date {
-  const next = new Date(now);
-  if (now.getHours() >= 8) next.setDate(next.getDate() + 1);
-  next.setHours(8, 0, 0, 0);
-  while (!isBusinessDay(next)) next.setDate(next.getDate() + 1);
-  return next;
-}
-
 /**
  * Calcule la date prévisionnelle de la prochaine relance auto.
- * Le cron tourne tous les jours ouvrés à 8h (Europe/Paris), week-ends exclus :
- *  - R1 part dès que sentAt + 3 jours ouvrés est passé
- *  - R2 part dès que sentAt + 7 jours ouvrés est passé
- * Si l'échéance est dépassée, on retourne le prochain passage ouvré du cron.
+ * Le cron tourne toutes les 15 min (jours ouvrés, Europe/Paris). L'échéance
+ * est calculée À L'HEURE près à partir de l'envoi initial :
+ *  - R1 part à l'heure d'envoi + 3 jours ouvrés
+ *  - R2 part à l'heure de la R1 + 4 jours ouvrés (≈ J+7 en flux normal)
+ * Si l'échéance est dépassée, la relance part au prochain passage (qq minutes).
  */
 function computeNextRelance(
+  seed: string,
   sentAt: string | null,
   relance1SentAt: string | null,
   relance2SentAt: string | null,
@@ -105,10 +98,16 @@ function computeNextRelance(
   const sent = new Date(sentAt);
   const now = new Date();
   const level: 1 | 2 = relance1SentAt ? 2 : 1;
-  const eligibleAt = addBusinessDays(sent, level === 1 ? 3 : 7);
+  // R1 : 3 jours ouvrés après l'envoi initial (heure préservée + décalage
+  // anti-robot propre au mail). R2 : 4 jours ouvrés après la R1 réellement
+  // envoyée (≈ J+7 en flux normal, espacement préservé sur les rattrapages).
+  const eligibleAt =
+    level === 1
+      ? businessDeadlineWithJitter(sent, 3, seed)
+      : businessDeadlineWithJitter(new Date(relance1SentAt as string), 4, seed);
   if (eligibleAt > now) return { level, scheduledAt: eligibleAt, isOverdue: false };
-  // Échéance passée → prochaine exécution ouvrée du cron (8h Europe/Paris).
-  return { level, scheduledAt: nextBusinessCronRun(now), isOverdue: true };
+  // Échéance passée → partira au prochain passage du cron (toutes les 15 min).
+  return { level, scheduledAt: now, isOverdue: true };
 }
 
 function formatRelativeFuture(date: Date): string {
@@ -135,6 +134,7 @@ function StatCard({ label, value, hint }: { label: string; value: number; hint?:
 
 function RelanceTimeline({ mail }: { mail: Mail }) {
   const next = computeNextRelance(
+    mail.id,
     mail.sentAt,
     mail.relance1SentAt,
     mail.relance2SentAt,
@@ -180,8 +180,8 @@ function RelanceTimeline({ mail }: { mail: Mail }) {
           { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
         )}`,
         hint: next.isOverdue
-          ? "Échéance dépassée, partira au prochain cron (8h, jours ouvrés)."
-          : "Cron quotidien à 8h (jours ouvrés, week-ends exclus).",
+          ? "Échéance dépassée, partira dans quelques minutes (cron toutes les 15 min)."
+          : "À l'heure d'envoi + 3 jours ouvrés (cron toutes les 15 min, week-ends exclus).",
       });
     }
 
@@ -200,8 +200,8 @@ function RelanceTimeline({ mail }: { mail: Mail }) {
           { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
         )}`,
         hint: next.isOverdue
-          ? "Échéance dépassée, partira au prochain cron (8h, jours ouvrés)."
-          : "Cron quotidien à 8h (jours ouvrés, week-ends exclus).",
+          ? "Échéance dépassée, partira dans quelques minutes (cron toutes les 15 min)."
+          : "À l'heure de la R1 + 4 jours ouvrés (cron toutes les 15 min, week-ends exclus).",
       });
     } else if (!mail.relance1SentAt && !next) {
       // cas rare : pas de sentAt, on n'affiche rien d'autre
@@ -260,11 +260,13 @@ function RelanceTimeline({ mail }: { mail: Mail }) {
 }
 
 function RelanceStatus({
+  id,
   sentAt,
   relance1SentAt,
   relance2SentAt,
   replied,
 }: {
+  id: string;
   sentAt: string | null;
   relance1SentAt: string | null;
   relance2SentAt: string | null;
@@ -296,7 +298,7 @@ function RelanceStatus({
     );
   }
 
-  const next = computeNextRelance(sentAt, relance1SentAt, relance2SentAt, replied);
+  const next = computeNextRelance(id, sentAt, relance1SentAt, relance2SentAt, replied);
 
   return (
     <div className="flex flex-col gap-1 text-xs">
@@ -321,7 +323,7 @@ function RelanceStatus({
             month: "short",
             hour: "2-digit",
             minute: "2-digit",
-          })} (cron quotidien 8h, jours ouvrés)`}
+          })} (cron toutes les 15 min, jours ouvrés)`}
         >
           {next.isOverdue ? (
             <AlertCircle className="h-3 w-3" />
@@ -407,9 +409,50 @@ export default function CastingMailsSentPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [openMail, setOpenMail] = useState<Mail | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [runMessage, setRunMessage] = useState<string | null>(null);
 
   const role = (session?.user as { role?: string } | undefined)?.role || "";
   const forbidden = status !== "loading" && !ALLOWED.includes(role);
+
+  async function runRelancesNow() {
+    if (running) return;
+    const ok = window.confirm(
+      "Envoyer maintenant toutes les relances dues (R1 puis R2) ?\n\nDe vrais e-mails partiront immédiatement depuis leyna@glowupagence.fr vers les marques concernées. Action irréversible."
+    );
+    if (!ok) return;
+    setRunning(true);
+    setRunMessage(null);
+    try {
+      const res = await fetch("/api/casting-mails-sent/run-relances", {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = (await res.json()) as {
+        r1Sent?: number;
+        r2Sent?: number;
+        replied?: number;
+        processed?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        setRunMessage(json.error || "Échec du déclenchement des relances.");
+      } else {
+        const r1 = json.r1Sent ?? 0;
+        const r2 = json.r2Sent ?? 0;
+        const rep = json.replied ?? 0;
+        setRunMessage(
+          `Relances envoyées : ${r1} R1, ${r2} R2 (dernière). ${rep} réponse(s) détectée(s). ${json.processed ?? 0} mail(s) analysé(s).`
+        );
+        setRefreshKey((k) => k + 1);
+      }
+    } catch {
+      setRunMessage("Erreur réseau pendant le déclenchement des relances.");
+    } finally {
+      setRunning(false);
+    }
+  }
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -441,7 +484,7 @@ export default function CastingMailsSentPage() {
     return () => {
       cancelled = true;
     };
-  }, [period, talentFilter, debouncedSearch, forbidden, status]);
+  }, [period, talentFilter, debouncedSearch, forbidden, status, refreshKey]);
 
   const sanitizedBody = useMemo(() => {
     if (!openMail) return "";
@@ -467,11 +510,31 @@ export default function CastingMailsSentPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Mails envoyés par le Casting</h1>
-        <p className="text-sm text-slate-500">
-          Toutes les réponses envoyées depuis <strong>leyna@glowupagence.fr</strong> sur les opportunités inbound.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Mails envoyés par le Casting</h1>
+          <p className="text-sm text-slate-500">
+            Toutes les réponses envoyées depuis <strong>leyna@glowupagence.fr</strong> sur les opportunités inbound.
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            onClick={runRelancesNow}
+            disabled={running}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#C08B8B] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#a87575] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {running ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Mail className="h-4 w-4" />
+            )}
+            {running ? "Envoi en cours…" : "Relancer maintenant"}
+          </button>
+          {runMessage && (
+            <p className="max-w-xs text-right text-xs text-slate-600">{runMessage}</p>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -603,6 +666,7 @@ export default function CastingMailsSentPage() {
                   </td>
                   <td className="px-4 py-3 align-top">
                     <RelanceStatus
+                      id={m.id}
                       sentAt={m.sentAt}
                       relance1SentAt={m.relance1SentAt}
                       relance2SentAt={m.relance2SentAt}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { checkThreadForReply, checkThreadActivity } from "@/lib/gmail";
-import { hasBusinessDaysElapsed, isBusinessDay } from "@/lib/business-days";
+import { relanceDue, isBusinessDay } from "@/lib/business-days";
 import {
   executeOutreachRelance,
   outreachFromEmail,
@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
     if (
       !hasReplied &&
       !touch.relanceSentAt &&
-      hasBusinessDaysElapsed(touch.sentAt, OUTREACH_RELANCE_BUSINESS_DAYS, now)
+      relanceDue(touch.sentAt, OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
     ) {
       const result = await executeOutreachRelance(touch.id);
       if (result.ok) relances += 1;
@@ -273,7 +273,7 @@ export async function GET(request: NextRequest) {
     if (
       !hasReplied &&
       !opp.relanceSentAt &&
-      hasBusinessDaysElapsed(opp.lastEmailSentAt, PROJET_RELANCE_BUSINESS_DAYS, now)
+      relanceDue(opp.lastEmailSentAt, PROJET_RELANCE_BUSINESS_DAYS, opp.id, now)
     ) {
       const result = await executeProjetRelance(opp.id);
       if (result.ok) projetRelances += 1;

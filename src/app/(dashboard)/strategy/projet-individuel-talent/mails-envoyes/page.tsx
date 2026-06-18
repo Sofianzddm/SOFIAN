@@ -20,7 +20,7 @@ import {
   BellRing,
   Send,
 } from "lucide-react";
-import { addBusinessDays, isBusinessDay } from "@/lib/business-days";
+import { businessDeadlineWithJitter } from "@/lib/business-days";
 
 const RELANCE_BUSINESS_DAYS = 3;
 
@@ -95,11 +95,14 @@ function relativeDate(dateStr: string) {
 }
 
 /**
- * Relance unique J+3 (jours ouvrés Lun-Ven, Europe/Paris) : on calcule
- * l'échéance et on indique si elle est passée (auquel cas elle partira
- * au prochain cron 8h, en sautant éventuellement le week-end).
+ * Relance unique J+3 (jours ouvrés Lun-Ven, Europe/Paris), calculée À L'HEURE
+ * près à partir de l'envoi initial, avec un décalage anti-robot propre à chaque
+ * mission : un mail parti à 17h sera relancé un peu après 17h le 3e jour ouvré
+ * (jamais pile à la même minute). Le cron tourne toutes les 15 min ; si
+ * l'échéance est passée, la relance part au prochain passage (quelques minutes).
  */
 function computeNextRelance(
+  seed: string,
   sentAt: string | null,
   relanceSentAt: string | null,
   replied: boolean,
@@ -107,18 +110,11 @@ function computeNextRelance(
 ): { scheduledAt: Date; isOverdue: boolean } | null {
   if (!sentAt || replied || relanceSentAt || relanceCancelledAt) return null;
   const sent = new Date(sentAt);
-  const eligibleAt = addBusinessDays(sent, RELANCE_BUSINESS_DAYS);
+  const eligibleAt = businessDeadlineWithJitter(sent, RELANCE_BUSINESS_DAYS, seed);
   const now = new Date();
   if (eligibleAt > now) return { scheduledAt: eligibleAt, isOverdue: false };
-  // Échéance dépassée : prochain cron à 8h, en sautant week-end
-  // (le cron tourne tous les jours mais les jours non ouvrés on n'envoie pas).
-  const next8h = new Date(now);
-  if (now.getHours() >= 8) next8h.setDate(next8h.getDate() + 1);
-  next8h.setHours(8, 0, 0, 0);
-  while (!isBusinessDay(next8h)) {
-    next8h.setDate(next8h.getDate() + 1);
-  }
-  return { scheduledAt: next8h, isOverdue: true };
+  // Échéance dépassée → partira au prochain passage du cron (toutes les 15 min).
+  return { scheduledAt: now, isOverdue: true };
 }
 
 function formatRelativeFuture(date: Date): string {
@@ -144,11 +140,13 @@ function StatCard({ label, value, hint }: { label: string; value: number; hint?:
 }
 
 function RelanceStatus({
+  id,
   sentAt,
   relanceSentAt,
   replied,
   relanceCancelledAt,
 }: {
+  id: string;
   sentAt: string | null;
   relanceSentAt: string | null;
   replied: boolean;
@@ -190,7 +188,7 @@ function RelanceStatus({
     );
   }
 
-  const next = computeNextRelance(sentAt, relanceSentAt, replied, relanceCancelledAt);
+  const next = computeNextRelance(id, sentAt, relanceSentAt, replied, relanceCancelledAt);
   if (!next) return <span className="text-xs text-slate-400">—</span>;
 
   return (
@@ -205,7 +203,7 @@ function RelanceStatus({
         month: "short",
         hour: "2-digit",
         minute: "2-digit",
-      })} (cron quotidien 8h)`}
+      })} (cron toutes les 15 min, jours ouvrés)`}
     >
       {next.isOverdue ? <AlertCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
       Relance J+3 {formatRelativeFuture(next.scheduledAt)}
@@ -252,6 +250,7 @@ function RelanceTimeline({ mail }: { mail: SentMission }) {
     });
   } else {
     const next = computeNextRelance(
+      mail.id,
       mail.sentAt,
       mail.relanceSentAt,
       mail.replied,
@@ -266,8 +265,8 @@ function RelanceTimeline({ mail }: { mail: SentMission }) {
           { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
         )}`,
         hint: next.isOverdue
-          ? "Échéance dépassée, partira au prochain cron (8h)."
-          : "Cron quotidien à 8h.",
+          ? "Échéance dépassée, partira dans quelques minutes (cron toutes les 15 min)."
+          : "À l'heure d'envoi + 3 jours ouvrés (cron toutes les 15 min, week-ends exclus).",
       });
     }
   }
@@ -837,6 +836,7 @@ export default function PipelineMailsEnvoyesPage() {
                   </td>
                   <td className="px-4 py-3 align-top">
                     <RelanceStatus
+                      id={m.id}
                       sentAt={m.sentAt}
                       relanceSentAt={m.relanceSentAt}
                       replied={m.replied}

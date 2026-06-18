@@ -6,7 +6,10 @@ import {
   LEYNA_FROM_EMAIL,
   executeCastingRelance,
 } from "@/lib/casting-auto-send";
-import { hasBusinessDaysElapsed, isBusinessDay } from "@/lib/business-days";
+import { relanceDue, isBusinessDay } from "@/lib/business-days";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 /**
  * Relance J+3 : pour toutes les missions envoyees il y a au moins
@@ -53,7 +56,7 @@ export async function GET(request: NextRequest) {
   });
 
   const candidates = (rawCandidates as Array<{ id: string; sentMessageIds: unknown; sentAt: Date | null }>).filter(
-    (row) => row.sentAt && hasBusinessDaysElapsed(new Date(row.sentAt), CASTING_RELANCE_BUSINESS_DAYS, now)
+    (row) => row.sentAt && relanceDue(new Date(row.sentAt), CASTING_RELANCE_BUSINESS_DAYS, row.id, now)
   );
 
   const results: Array<{

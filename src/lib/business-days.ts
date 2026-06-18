@@ -90,3 +90,84 @@ export function businessDaysAfter(
 ): Date {
   return addBusinessDays(from, count, timeZone);
 }
+
+/**
+ * Échéance EXACTE (heure préservée) à `count` jours ouvrés de `from`.
+ *
+ * Contrairement à `hasBusinessDaysElapsed` qui arrondit au jour (utile quand le
+ * cron ne tourne qu'une fois par jour), on garde ici l'heure d'envoi : un mail
+ * parti à 17h aura son échéance de relance à 17h le N-ième jour ouvré suivant.
+ * À combiner avec un cron qui tourne souvent (toutes les 15 min) pour que la
+ * relance parte effectivement à l'heure d'envoi initiale.
+ */
+export function businessDeadline(
+  from: Date,
+  count: number,
+  timeZone: string = PARIS_TZ
+): Date {
+  if (!Number.isFinite(count) || count <= 0) return new Date(from.getTime());
+  return addBusinessDays(from, count, timeZone);
+}
+
+/** True si l'échéance exacte (heure préservée) à `count` jours ouvrés est atteinte. */
+export function businessDeadlinePassed(
+  from: Date,
+  count: number,
+  now: Date = new Date(),
+  timeZone: string = PARIS_TZ
+): boolean {
+  return now.getTime() >= businessDeadline(from, count, timeZone).getTime();
+}
+
+/**
+ * Décalage « anti-robot » maximal (minutes) ajouté à l'échéance d'une relance.
+ * Évite que la relance parte pile à la même minute que l'envoi initial (ce qui
+ * trahirait un envoi automatique) et désynchronise les relances d'une même
+ * salve d'envois.
+ */
+export const RELANCE_JITTER_MAX_MINUTES = 95;
+
+/**
+ * Décalage stable (déterministe) en minutes dérivé d'une graine (ex : l'id de
+ * l'enregistrement). Stable = il ne change pas d'un passage de cron à l'autre,
+ * donc l'échéance ne « bouge » pas. Réparti sur [11, maxMinutes] pour ne jamais
+ * retomber exactement sur l'heure d'envoi.
+ */
+export function stableJitterMinutes(
+  seed: string,
+  maxMinutes: number = RELANCE_JITTER_MAX_MINUTES
+): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const span = Math.max(1, maxMinutes - 11);
+  return 11 + ((h >>> 0) % span);
+}
+
+/**
+ * Échéance d'une relance AVEC décalage anti-robot : `count` jours ouvrés après
+ * `from` (heure préservée) + un décalage stable propre à `seed`.
+ */
+export function businessDeadlineWithJitter(
+  from: Date,
+  count: number,
+  seed: string,
+  maxMinutes: number = RELANCE_JITTER_MAX_MINUTES,
+  timeZone: string = PARIS_TZ
+): Date {
+  const base = businessDeadline(from, count, timeZone).getTime();
+  return new Date(base + stableJitterMinutes(seed, maxMinutes) * 60_000);
+}
+
+/** True si l'échéance (avec décalage anti-robot) est atteinte. */
+export function relanceDue(
+  from: Date,
+  count: number,
+  seed: string,
+  now: Date = new Date(),
+  timeZone: string = PARIS_TZ
+): boolean {
+  return now.getTime() >= businessDeadlineWithJitter(from, count, seed, RELANCE_JITTER_MAX_MINUTES, timeZone).getTime();
+}
