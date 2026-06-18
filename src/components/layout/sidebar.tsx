@@ -422,6 +422,12 @@ export function Sidebar() {
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
+            label: "Coachella 2026",
+            href: "/strategy/projets/coachella-2026",
+            icon: Briefcase,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
             label: "Sélection dîner",
             href: "/strategy/projets/villa-cannes/dinner-selection",
             icon: Users,

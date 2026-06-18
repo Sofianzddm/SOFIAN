@@ -37,6 +37,12 @@ const PROJECT_DEFAULTS: Record<
     dateFin: "2027-01-17T23:59:59.999Z",
     senderEmail: "ines@glowupagence.fr",
   },
+  "coachella-2026": {
+    nom: "Coachella 2026",
+    dateDebut: "2026-04-10T00:00:00.000Z",
+    dateFin: "2026-04-19T23:59:59.999Z",
+    senderEmail: "ines@glowupagence.fr",
+  },
 };
 
 export async function getOrCreateVillaProject(projetSlug: string) {
