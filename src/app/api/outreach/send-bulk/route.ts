@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
     let sent = 0;
     let hubspotSynced = 0;
     const failed: { email: string; error: string }[] = [];
+    const rescheduled: { email: string; message: string }[] = [];
 
     for (const target of targets) {
       const result = await executeOutreachSend(target.id, {
@@ -73,12 +74,14 @@ export async function POST(request: NextRequest) {
       if (result.ok) {
         sent += 1;
         if (result.hubspotSynced) hubspotSynced += 1;
+      } else if (result.rescheduled) {
+        rescheduled.push({ email: target.email, message: result.error });
       } else {
         failed.push({ email: target.email, error: result.error });
       }
     }
 
-    return NextResponse.json({ sent, failed, hubspotSynced });
+    return NextResponse.json({ sent, failed, rescheduled, hubspotSynced });
   } catch (error) {
     console.error("POST /api/outreach/send-bulk:", error);
     return NextResponse.json(

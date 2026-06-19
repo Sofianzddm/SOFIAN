@@ -240,7 +240,7 @@ export async function findRecentSentToRecipient(
   fromEmail: string,
   to: string,
   days: number
-): Promise<{ id: string; threadId: string }[]> {
+): Promise<{ id: string; threadId: string; internalDate: number | null }[]> {
   const accessToken = await getValidAccessToken(fromEmail);
   const query = `in:sent to:${to} newer_than:${days}d`;
   const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=20`;
@@ -256,7 +256,29 @@ export async function findRecentSentToRecipient(
   if (!response.ok) {
     throw new Error(json?.error?.message || `Gmail search a échoué (${response.status})`);
   }
-  return json?.messages || [];
+
+  const messages = json?.messages || [];
+  // Enrichit chaque message avec sa date d'envoi (internalDate, epoch ms).
+  // format=minimal renvoie id/threadId/labelIds/internalDate sans le corps.
+  return Promise.all(
+    messages.map(async (m) => {
+      try {
+        const r = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=minimal`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const j = (await r.json().catch(() => null)) as { internalDate?: string } | null;
+        const parsed = j?.internalDate ? Number(j.internalDate) : NaN;
+        return {
+          id: m.id,
+          threadId: m.threadId,
+          internalDate: Number.isFinite(parsed) ? parsed : null,
+        };
+      } catch {
+        return { id: m.id, threadId: m.threadId, internalDate: null };
+      }
+    })
+  );
 }
 
 export async function checkThreadForReply(email: string, threadId: string): Promise<boolean> {

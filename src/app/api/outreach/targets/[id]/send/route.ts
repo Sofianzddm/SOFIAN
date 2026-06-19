@@ -37,6 +37,14 @@ export async function POST(
     });
 
     if (!result.ok) {
+      if (result.rescheduled) {
+        return NextResponse.json({
+          ok: false,
+          rescheduled: true,
+          message: result.error,
+          nextRecontactAt: result.nextRecontactAt,
+        });
+      }
       return NextResponse.json({ error: result.error }, { status: 422 });
     }
 

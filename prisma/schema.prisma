@@ -2905,6 +2905,13 @@ model OutreachTarget {
   stoppedAt       DateTime?
   stoppedById     String?
 
+  // Replanification automatique : quand l'envoi est bloqué car le client a déjà
+  // été contacté < 45j via un autre canal (séquence HubSpot, mail manuel…),
+  // le compteur est calé sur la date réelle du mail détecté + 45j et la raison
+  // est conservée pour affichage. Effacé au prochain envoi réel depuis l'app.
+  autoRescheduleReason String?   @db.Text
+  autoRescheduledAt    DateTime?
+
   // Write-back HubSpot (app_last_contacted_at / app_outreach_status)
   hubspotContactId String?
   hubspotSyncedAt  DateTime?

@@ -93,6 +93,8 @@ type Target = {
   lastSentAt: string | null;
   nextRecontactAt: string | null;
   lastRepliedAt: string | null;
+  autoRescheduleReason: string | null;
+  autoRescheduledAt: string | null;
   hubspotContactId: string | null;
   hubspotSyncedAt: string | null;
   createdAt: string;
@@ -499,12 +501,22 @@ export default function OutreachPage() {
           if (!res.ok) throw new Error(data.error || "Erreur d'envoi");
 
           const failed: { email: string; error: string }[] = data.failed || [];
+          const rescheduled: { email: string; message: string }[] =
+            data.rescheduled || [];
           if (data.sent > 0) {
             flash(
               "success",
               `${data.sent} mail${data.sent > 1 ? "s" : ""} envoyé${data.sent > 1 ? "s" : ""} (${group.company}) — compteur 45 jours relancé${
                 failed.length > 0 ? ` · ${failed.length} échec${failed.length > 1 ? "s" : ""}` : ""
               }.`
+            );
+          }
+          if (rescheduled.length > 0) {
+            flash(
+              "success",
+              rescheduled.length === 1
+                ? rescheduled[0].message
+                : `${rescheduled.length} client(s) déjà contactés hors app : remis en attente (recontact replanifié à J+45).`
             );
           }
           if (failed.length > 0 && data.sent === 0) {
@@ -861,6 +873,16 @@ export default function OutreachPage() {
                               {days <= 0 ? "Recontact imminent" : `Recontact dans ${days}j`}
                             </span>
                           )}
+                          {target.autoRescheduleReason && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
+                              style={{ backgroundColor: "#FFF1E6", color: "#B45309" }}
+                              title={target.autoRescheduleReason}
+                            >
+                              <MailWarning className="w-3 h-3" />
+                              Déjà contacté hors app
+                            </span>
+                          )}
                           {target.lastRepliedAt && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: TEA_GREEN, color: LICORICE }}>
                               <MessageSquareReply className="w-3 h-3" />
@@ -983,6 +1005,19 @@ export default function OutreachPage() {
                           )}
                         </div>
                       </div>
+
+                      {/* Raison de replanification auto (déjà contacté hors app) */}
+                      {target.autoRescheduleReason && (
+                        <div className="px-4 pb-2 -mt-1">
+                          <p
+                            className="text-[11px] flex items-start gap-1"
+                            style={{ color: "#B45309" }}
+                          >
+                            <MailWarning className="w-3 h-3 mt-0.5 shrink-0" />
+                            <span>{target.autoRescheduleReason}</span>
+                          </p>
+                        </div>
+                      )}
 
                       {/* Historique des touches */}
                       {expanded && (
