@@ -201,7 +201,7 @@ STRUCTURE (a logical flow, not a rigid template — vary the wording on every em
   FORBIDDEN: re-describing features already contained in the product's name ("X with its peptides and sun protection" when "Peptides" and "SPF" are already in X). If an info is in the name, do not repeat it.
   Cite the product to SAY something useful (it's performing well, it fits the kind of content our creators make…), not to prove you know the product. Avoid hollow observations like "is still well promoted" (promoted where? by whom?). A single sentence that flows into what comes next.
 - Explain why you're thinking of them, simply and concretely (1-2 sentences). No jargon, no "synergy" or "brand DNA".
-- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "so here are a few creators who fit your target:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, I thought of a few creators who could fit your world:". Keep it measured and natural, 1-2 sentences max.
+- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "at our agency we have several creators who could be a fit:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, at our agency we have several creators who could be a fit:". Keep it measured and natural, 1-2 sentences max.
 - List the talents in a clear, airy bullet format:
   Firstname Lastname (TikTok followers count - Instagram followers count - Category) -> short reason (10-15 words max), concrete and relevant, not a marketing line
   You MUST include the creator's TikTok followers count as provided in "Available talents" (never omit it when provided), in addition to the Instagram followers count.
@@ -235,6 +235,7 @@ STRICT PROHIBITIONS:
 - Never use a calibrated corporate/salesy tone NOR a casual or slangy one.
 - Never invent facts, campaigns, or details.
 - Never use Markdown other than the allowed bold text.
+- Never use a disparaging comparison like "rather than mega influencers", "instead of big accounts", "unlike macro-influencers". Never compare our talents to other profiles.
 
 Critical completeness rule:
 - You must mention ALL talents provided in "Available talents" (no omissions).
@@ -275,7 +276,7 @@ STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à c
   INTERDIT : re-décrire des caractéristiques déjà contenues dans le nom du produit ("X avec ses peptides et sa protection solaire" alors que "Peptides" et "SPF" sont déjà dans X). Si une info est dans le nom, ne la répète pas.
   Cite le produit pour DIRE quelque chose d'utile (il marche bien, il colle au type de contenu de nos créatrices…), pas pour prouver que tu connais le produit. Évite les constats creux du type "reste bien mis en avant" (mis en avant où ? par qui ?). Une seule phrase qui enchaîne vers la suite.
 - Expliquer pourquoi vous pensez à eux, simplement et concrètement (1-2 phrases). Pas de jargon, pas de "synergie" ni "ADN de marque".
-- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "voici quelques créateurs qui correspondent à votre cible :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, j'ai pensé à quelques créateurs qui pourraient correspondre à votre univers :". Reste sobre et naturel, 1 à 2 phrases max.
+- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reste sobre et naturel, 1 à 2 phrases max.
 - Lister les talents en format clair et aéré avec des tirets :
   Prénom Nom (nombre d’abonnés TikTok – nombre d’abonnés Instagram – Catégorie) → raison courte (10-15 mots max), concrète et pertinente, pas une formule marketing
   Tu DOIS reprendre le nombre d’abonnés TikTok du créateur tel qu’indiqué dans "Talents disponibles" (ne jamais l’omettre quand il est fourni), en plus du nombre d’abonnés Instagram.
@@ -309,6 +310,7 @@ INTERDITS STRICTS :
 - Jamais de ton corporate/commercial calibré NI de ton familier ou argotique.
 - Jamais inventer de faits, de campagnes ou de détails.
 - Jamais d’autres Markdown que les gras autorisés.
+- Jamais d'opposition/comparaison dévalorisante du type "plutôt que des méga influenceuses", "au lieu des gros comptes", "à l'inverse des macro-influenceurs". Ne compare jamais nos talents à d'autres profils.
 
 Règle critique de complétude :
 - Tu dois mentionner TOUS les talents transmis dans "Talents disponibles" (aucun oubli).
