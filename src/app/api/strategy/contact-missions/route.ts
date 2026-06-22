@@ -330,12 +330,15 @@ export async function PATCH(request: NextRequest) {
       missionId?: string;
       status?: string;
       stage?: string;
+      targetBrand?: string;
       draftEmailSubject?: string | null;
       draftEmailBody?: string | null;
       clientLanguage?: string | null;
       clientContacts?: unknown;
     };
     const missionId = String(body.missionId || "").trim();
+    const nextTargetBrand =
+      body.targetBrand === undefined ? undefined : String(body.targetBrand || "").trim();
     const nextStatus = String(body.status || "").trim().toUpperCase();
     const nextStage = String(body.stage || "").trim().toUpperCase();
     const draftEmailSubject =
@@ -353,8 +356,12 @@ export async function PATCH(request: NextRequest) {
     const stageProvided = nextStage.length > 0;
     const draftProvided = body.draftEmailSubject !== undefined || body.draftEmailBody !== undefined;
     const clientContextProvided = body.clientLanguage !== undefined || body.clientContacts !== undefined;
-    if (!statusProvided && !stageProvided && !draftProvided && !clientContextProvided) {
+    const brandProvided = nextTargetBrand !== undefined;
+    if (!statusProvided && !stageProvided && !draftProvided && !clientContextProvided && !brandProvided) {
       return NextResponse.json({ error: "Aucune mise à jour fournie." }, { status: 400 });
+    }
+    if (brandProvided && !nextTargetBrand) {
+      return NextResponse.json({ error: "Le nom de la marque ne peut pas être vide." }, { status: 400 });
     }
     if (
       statusProvided &&
@@ -396,12 +403,25 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    // Sync contacts pipeline → fiche marque (onglet Contacts sur /marques/[id])
+    // Si le nom de marque change (correction de faute), on relie la mission à
+    // la bonne fiche marque (ou on en crée une nouvelle au besoin).
+    const brandChanged =
+      brandProvided && nextTargetBrand !== currentMission.targetBrand;
+    const effectiveBrand = brandChanged ? (nextTargetBrand as string) : currentMission.targetBrand;
     let marqueIdForUpdate: string | null | undefined = currentMission.marqueId;
+    if (brandChanged) {
+      const relinked = await linkMarqueFromBrandName({
+        brandName: effectiveBrand,
+        source: "CONTACT_MISSION",
+      });
+      marqueIdForUpdate = relinked?.marqueId ?? null;
+    }
+
+    // Sync contacts pipeline → fiche marque (onglet Contacts sur /marques/[id])
     if (body.clientContacts !== undefined) {
       marqueIdForUpdate = await syncMissionClientContactsToMarque(
-        currentMission.targetBrand,
-        currentMission.marqueId,
+        effectiveBrand,
+        marqueIdForUpdate ?? null,
         body.clientContacts
       );
     }
@@ -411,11 +431,14 @@ export async function PATCH(request: NextRequest) {
       data: {
         ...(statusProvided ? { status: nextStatus } : {}),
         ...(stageProvided ? { stage: nextStage } : {}),
+        ...(brandChanged
+          ? { targetBrand: effectiveBrand, targetBrandKey: normalizeMissionBrandKey(effectiveBrand) }
+          : {}),
         ...(body.draftEmailSubject !== undefined ? { draftEmailSubject: draftEmailSubject || null } : {}),
         ...(body.draftEmailBody !== undefined ? { draftEmailBody: draftEmailBody || null } : {}),
         ...(body.clientLanguage !== undefined ? { clientLanguage: clientLanguage || null } : {}),
         ...(body.clientContacts !== undefined ? { clientContacts: body.clientContacts ?? null } : {}),
-        ...(marqueIdForUpdate ? { marqueId: marqueIdForUpdate } : {}),
+        ...(brandChanged ? { marqueId: marqueIdForUpdate } : marqueIdForUpdate ? { marqueId: marqueIdForUpdate } : {}),
       },
     });
 

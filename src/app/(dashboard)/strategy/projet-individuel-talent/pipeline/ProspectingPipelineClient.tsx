@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2 } from "lucide-react";
+import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import { hasBusinessDaysElapsed } from "@/lib/business-days";
 
@@ -163,9 +163,15 @@ export function ProspectingPipelineClient() {
   const [scheduledSends, setScheduledSends] = useState<ScheduledSend[]>([]);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
   const sendingMissionIdsRef = useRef<Set<string>>(new Set());
+  // Édition inline du nom de la marque (correction de faute de frappe)
+  const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
+  const [editingBrandValue, setEditingBrandValue] = useState("");
 
   const visibleStages = useMemo(() => allowedColumns(role), [role]);
   const isCastingManager = role === "CASTING_MANAGER";
+  // Rôles autorisés à corriger le nom de la marque sur une carte.
+  const canEditBrand =
+    role === "ADMIN" || role === "HEAD_OF" || role === "STRATEGY_PLANNER";
 
   async function loadRole() {
     const res = await fetch("/api/auth/me", { credentials: "include" });
@@ -292,6 +298,7 @@ export function ProspectingPipelineClient() {
     payload: {
       stage?: Stage;
       status?: string;
+      targetBrand?: string;
       draftEmailSubject?: string;
       draftEmailBody?: string;
       clientLanguage?: "FR" | "EN" | "";
@@ -314,6 +321,31 @@ export function ProspectingPipelineClient() {
     } finally {
       setUpdatingId(null);
     }
+  }
+
+  function startEditBrand(m: Mission) {
+    setEditingBrandId(m.id);
+    setEditingBrandValue(m.targetBrand || "");
+  }
+
+  function cancelEditBrand() {
+    setEditingBrandId(null);
+    setEditingBrandValue("");
+  }
+
+  async function saveBrand(m: Mission) {
+    const next = editingBrandValue.trim();
+    if (!next) {
+      setError("Le nom de la marque ne peut pas être vide.");
+      return;
+    }
+    if (next === m.targetBrand) {
+      cancelEditBrand();
+      return;
+    }
+    await patchMission(m.id, { targetBrand: next });
+    setSuccess(`Marque renommée en « ${next} ».`);
+    cancelEditBrand();
   }
 
   async function searchClientContacts(m: Mission) {
@@ -784,9 +816,67 @@ export function ProspectingPipelineClient() {
                       : undefined
                   }
                 >
-                  <p className="text-sm font-semibold" style={isCastingManager ? { color: LICORICE } : { color: "#111827" }}>
-                    {m.creatorName} → {m.targetBrand}
-                  </p>
+                  {editingBrandId === m.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className="text-sm font-semibold shrink-0"
+                        style={isCastingManager ? { color: LICORICE } : { color: "#111827" }}
+                      >
+                        {m.creatorName} →
+                      </span>
+                      <input
+                        autoFocus
+                        value={editingBrandValue}
+                        onChange={(e) => setEditingBrandValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void saveBrand(m);
+                          if (e.key === "Escape") cancelEditBrand();
+                        }}
+                        className="min-w-0 flex-1 rounded border border-gray-300 px-1.5 py-0.5 text-sm"
+                        placeholder="Nom de la marque"
+                      />
+                      <button
+                        type="button"
+                        disabled={updatingId === m.id}
+                        onClick={() => void saveBrand(m)}
+                        className="shrink-0 rounded border border-emerald-200 bg-emerald-50 p-1 text-emerald-700 disabled:opacity-50"
+                        title="Enregistrer"
+                      >
+                        {updatingId === m.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Check className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditBrand}
+                        className="shrink-0 rounded border border-gray-200 bg-white p-1 text-gray-500"
+                        title="Annuler"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p
+                      className="group/brand flex items-center gap-1 text-sm font-semibold"
+                      style={isCastingManager ? { color: LICORICE } : { color: "#111827" }}
+                    >
+                      <span>
+                        {m.creatorName} → {m.targetBrand}
+                      </span>
+                      {canEditBrand && (
+                        <button
+                          type="button"
+                          onClick={() => startEditBrand(m)}
+                          className="opacity-0 group-hover/brand:opacity-100 rounded p-0.5 text-gray-400 hover:text-gray-700 transition-opacity"
+                          title="Corriger le nom de la marque"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+                    </p>
+                  )}
                   <p className="text-xs" style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}>
                     Talent: {m.talentName || "Non renseigné"}
                   </p>
