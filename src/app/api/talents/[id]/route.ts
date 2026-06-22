@@ -431,10 +431,10 @@ export async function DELETE(
 
     const userRole = session.user.role;
     
-    // Seuls les ADMIN peuvent supprimer un talent
-    if (userRole !== "ADMIN") {
+    // ADMIN, HEAD_OF et HEAD_OF_INFLUENCE peuvent supprimer un talent
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(userRole)) {
       return NextResponse.json({ 
-        error: "Seuls les administrateurs peuvent supprimer un talent" 
+        error: "Permissions insuffisantes pour supprimer un talent" 
       }, { status: 403 });
     }
 

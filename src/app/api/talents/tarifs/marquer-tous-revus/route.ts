@@ -18,7 +18,7 @@ export async function POST() {
     }
 
     const role = (session.user as { role?: string }).role;
-    if (role !== "ADMIN" && role !== "HEAD_OF_INFLUENCE") {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(role ?? "")) {
       return NextResponse.json(
         { error: "Seuls les admin et Head of Influence peuvent effectuer cette action" },
         { status: 403 }

@@ -191,7 +191,7 @@ export default function TalentDetailPage() {
   const userId = user?.id || "";
 
   const canEditTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
-  const canDeleteTalent = role === "ADMIN";
+  const canDeleteTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canUpdateStats = role === "TM" || role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES";
   const canUploadPhoto = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES" || role === "TM";
   const isMyTalent = talent?.managerId === userId;

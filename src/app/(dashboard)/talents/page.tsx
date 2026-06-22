@@ -90,9 +90,9 @@ export default function TalentsPage() {
   // Permissions basées sur le rôle effectif
   const canAddTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canEditTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
-  const canDeleteTalent = role === "ADMIN";
+  const canDeleteTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canArchiveTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
-  const canReorderBook = role === "ADMIN" || role === "HEAD_OF";
+  const canReorderBook = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
 
   const [showBookOrderModal, setShowBookOrderModal] = useState(false);
   const [bookOrderList, setBookOrderList] = useState<Talent[]>([]);
