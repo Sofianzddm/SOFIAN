@@ -16,9 +16,17 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { sendGmail, findRecentSentToRecipient } from "@/lib/gmail";
+import {
+  sendGmail,
+  findRecentSentToRecipient,
+  getMessageRfcId,
+  getGmailFromName,
+} from "@/lib/gmail";
 import { injectOutreachTracking } from "@/lib/outreach-tracking";
-import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
+import {
+  normalizeEditorHtmlForEmail,
+  buildQuotedOriginal,
+} from "@/lib/email-body-html";
 import {
   applyCastingTemplateVars,
   buildOutreachRelanceTemplate,
@@ -66,6 +74,17 @@ function formatFrDate(date: Date): string {
     day: "numeric",
     month: "long",
     year: "numeric",
+  }).format(date);
+}
+
+/** « 18 juin 2026 à 11:23 » — utilisé dans l'en-tête de citation des relances. */
+function formatFrDateTime(date: Date): string {
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   }).format(date);
 }
 
@@ -426,23 +445,43 @@ export async function executeOutreachRelance(
       touch.sentAt
     );
 
-  const bodyWithVars = applyCastingTemplateVars(bodyTemplate, {
+  const vars = {
     firstname: target.firstname || "",
     lastname: target.lastname || "",
     company: target.company || "",
-  });
+  };
+  const bodyWithVars = applyCastingTemplateVars(bodyTemplate, vars);
   const body = normalizeEditorHtmlForEmail(bodyWithVars);
   const trackedBody = injectOutreachTracking(body, touch.id);
 
+  // Le thread Gmail appartient à la boîte qui a envoyé le mail initial :
+  // la relance part de cette même boîte, même si le target a changé depuis.
+  const fromEmail = outreachFromEmail({ fromEmail: touch.fromEmail });
+
+  // Citation du mail d'origine + In-Reply-To : la relance devient une vraie
+  // réponse, rangée dans le même fil côté destinataire (et le contenu initial
+  // reste visible même si l'original est tombé dans ses spams).
+  const fromName = await getGmailFromName(fromEmail);
+  const originalPersonalized = applyCastingTemplateVars(touch.bodyHtml || "", vars);
+  const quotedOriginal = buildQuotedOriginal(originalPersonalized, {
+    dateLabel: touch.sentAt ? formatFrDateTime(touch.sentAt) : "",
+    senderLabel: `${fromName} <${fromEmail}>`,
+  });
+  const finalHtml = `${trackedBody}${quotedOriginal}`;
+
+  let inReplyTo: string | undefined;
+  if (touch.messageId) {
+    inReplyTo = (await getMessageRfcId(fromEmail, touch.messageId)) || undefined;
+  }
+
   try {
-    // Le thread Gmail appartient à la boîte qui a envoyé le mail initial :
-    // la relance part de cette même boîte, même si le target a changé depuis.
     const messageId = await sendGmail({
-      fromEmail: outreachFromEmail({ fromEmail: touch.fromEmail }),
+      fromEmail,
       to: target.email.toLowerCase(),
       subject: relanceSubject,
-      htmlBody: trackedBody,
+      htmlBody: finalHtml,
       threadId: touch.threadId,
+      inReplyTo,
     });
 
     await prisma.outreachTouch.update({

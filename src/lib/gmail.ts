@@ -166,6 +166,12 @@ export async function sendGmail(options: {
   htmlBody: string;
   threadId?: string;
   includeSignature?: boolean;
+  /**
+   * Message-ID RFC822 du mail d'origine. Renseigné pour une relance : pose les
+   * en-têtes In-Reply-To/References afin que le client (Gmail, Outlook…) range
+   * la relance dans le MÊME fil de discussion que l'original, de son côté.
+   */
+  inReplyTo?: string;
 }): Promise<string> {
   const accessToken = await getValidAccessToken(options.fromEmail);
 
@@ -175,16 +181,23 @@ export async function sendGmail(options: {
 
   const fromName = await getGmailFromName(options.fromEmail);
 
-  const message = [
+  const headers = [
     `From: ${encodeMimeHeader(fromName)} <${options.fromEmail}>`,
     `To: ${options.to}`,
     `Subject: ${encodeMimeHeader(options.subject)}`,
+  ];
+  if (options.inReplyTo) {
+    headers.push(`In-Reply-To: ${options.inReplyTo}`);
+    headers.push(`References: ${options.inReplyTo}`);
+  }
+  headers.push(
     "MIME-Version: 1.0",
     "Content-Type: text/html; charset=utf-8",
     "Content-Transfer-Encoding: 8bit",
     "",
-    finalBody,
-  ].join("\r\n");
+    finalBody
+  );
+  const message = headers.join("\r\n");
 
   const sendResponse = await fetch(GMAIL_SEND_URL, {
     method: "POST",
@@ -279,6 +292,37 @@ export async function findRecentSentToRecipient(
       }
     })
   );
+}
+
+/**
+ * Récupère l'en-tête Message-ID RFC822 d'un mail déjà envoyé (à partir de son
+ * id interne Gmail). Indispensable pour qu'une relance pose un In-Reply-To
+ * valide et soit threadée côté destinataire. Renvoie null si introuvable.
+ */
+export async function getMessageRfcId(
+  fromEmail: string,
+  gmailMessageId: string
+): Promise<string | null> {
+  try {
+    const accessToken = await getValidAccessToken(fromEmail);
+    const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(
+      gmailMessageId
+    )}?format=metadata&metadataHeaders=Message-ID`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const json = (await res.json().catch(() => null)) as {
+      payload?: { headers?: { name: string; value: string }[] };
+    } | null;
+    if (!res.ok || !json?.payload?.headers) return null;
+    const header = json.payload.headers.find(
+      (h) => h.name.toLowerCase() === "message-id"
+    );
+    return header?.value?.trim() || null;
+  } catch (error) {
+    console.warn(`[gmail] Message-ID introuvable pour ${gmailMessageId}:`, error);
+    return null;
+  }
 }
 
 export async function checkThreadForReply(email: string, threadId: string): Promise<boolean> {

@@ -34,6 +34,42 @@ export function plainTextToEmailHtml(text: string): string {
     .join("<br /><br />");
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Bloc « citation » à la Gmail à ajouter SOUS le corps d'une relance : le mail
+ * d'origine est repris en dessous (entre un trait vertical), précédé d'une
+ * ligne « Le <date>, <expéditeur> a écrit : ». Ainsi le destinataire voit le
+ * contenu initial même si l'original est parti dans ses spams.
+ */
+export function buildQuotedOriginal(
+  originalHtml: string,
+  opts: { dateLabel: string; senderLabel: string }
+): string {
+  const inner = normalizeEditorHtmlForEmail(originalHtml);
+  if (!inner) return "";
+  const intro =
+    opts.dateLabel && opts.senderLabel
+      ? `Le ${escapeHtml(opts.dateLabel)}, ${escapeHtml(opts.senderLabel)} a écrit :`
+      : opts.senderLabel
+        ? `${escapeHtml(opts.senderLabel)} a écrit :`
+        : "";
+  return (
+    `<br /><br />` +
+    `<div class="gmail_quote">` +
+    (intro ? `${intro}<br />` : "") +
+    `<blockquote class="gmail_quote" style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex;color:#555">` +
+    inner +
+    `</blockquote></div>`
+  );
+}
+
 /**
  * Convertit le HTML éditeur (TipTap, HubSpot…) en HTML d’envoi mail.
  */

@@ -17,13 +17,16 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { sendGmail } from "@/lib/gmail";
+import { sendGmail, getMessageRfcId, getGmailFromName } from "@/lib/gmail";
 import { injectCastingTracking } from "@/lib/casting-tracking";
 import {
   type TalentLinkInput,
   upgradeTalentLinksInHtml,
 } from "@/lib/talent-email-links";
-import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
+import {
+  normalizeEditorHtmlForEmail,
+  buildQuotedOriginal,
+} from "@/lib/email-body-html";
 
 export const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 export const LEYNA_OWNER_FIRSTNAME = "Leyna";
@@ -552,6 +555,13 @@ export async function executeCastingRelance(
     (options.bodyOverride && options.bodyOverride.trim()) ||
     buildDefaultRelanceTemplate(targetBrand);
 
+  const originalBodyTpl = String(mission.draftEmailBody || "").trim();
+  const sentDateLabel = mission.sentAt
+    ? formatRelanceDate(new Date(mission.sentAt), "fr")
+    : "";
+  const fromName = await getGmailFromName(LEYNA_FROM_EMAIL);
+  const senderLabel = `${fromName} <${LEYNA_FROM_EMAIL}>`;
+
   const relanceMessages: Record<string, string> = {};
   const errors: string[] = [];
   let attempted = 0;
@@ -566,20 +576,33 @@ export async function executeCastingRelance(
     );
     const firstname = contact?.firstname || "";
     const lastname = contact?.lastname || "";
-    const bodyWithVars = applyCastingTemplateVars(bodyTemplate, {
-      firstname,
-      lastname,
-      company: targetBrand,
-    });
+    const vars = { firstname, lastname, company: targetBrand };
+    const bodyWithVars = applyCastingTemplateVars(bodyTemplate, vars);
     const body = normalizeEditorHtmlForEmail(bodyWithVars);
     const trackedBody = injectCastingTracking(body, missionId);
+
+    // Citation du mail d'origine + In-Reply-To : la relance devient une vraie
+    // réponse, threadée côté destinataire (le contenu initial reste visible
+    // même si l'original est tombé dans ses spams).
+    const quotedOriginal = originalBodyTpl
+      ? buildQuotedOriginal(applyCastingTemplateVars(originalBodyTpl, vars), {
+          dateLabel: sentDateLabel,
+          senderLabel,
+        })
+      : "";
+    const finalHtml = `${trackedBody}${quotedOriginal}`;
+    const inReplyTo = record.messageId
+      ? (await getMessageRfcId(LEYNA_FROM_EMAIL, record.messageId)) || undefined
+      : undefined;
+
     try {
       const messageId = await sendGmail({
         fromEmail: LEYNA_FROM_EMAIL,
         to: email,
         subject: relanceSubject,
-        htmlBody: trackedBody,
+        htmlBody: finalHtml,
         threadId: record.threadId,
+        inReplyTo,
       });
       relanceMessages[email] = messageId;
       succeeded += 1;
