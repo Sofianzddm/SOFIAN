@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ImagePlus, Instagram, Loader2, Trash2, X } from "lucide-react";
 
+interface IgPhoto {
+  url: string;
+  type?: string;
+  caption?: string;
+  timestamp?: string;
+}
+
 /**
  * Manager des 10 photos additionnelles (`kitPhotos`) utilisées par le
  * Kit Media public (/kit/[slug]).
@@ -40,6 +47,13 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const fileInputsRef = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Galerie de sélection Instagram (remplacer un slot par une photo du feed)
+  const [pickerSlot, setPickerSlot] = useState<number | null>(null);
+  const [igPhotos, setIgPhotos] = useState<IgPhoto[] | null>(null);
+  const [igLoading, setIgLoading] = useState(false);
+  const [igError, setIgError] = useState<string | null>(null);
+  const [pickingUrl, setPickingUrl] = useState<string | null>(null);
 
   // Chargement initial
   useEffect(() => {
@@ -184,6 +198,78 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
       }
     },
     [talentId]
+  );
+
+  // Charge la galerie Instagram (mise en cache pour la session : Apify est lent/coûteux)
+  const loadIgPhotos = useCallback(
+    async (force = false) => {
+      if (igLoading) return;
+      if (igPhotos && !force) return;
+      setIgLoading(true);
+      setIgError(null);
+      try {
+        const res = await fetch(`/api/talents/${talentId}/instagram-photos`);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || "Erreur de récupération Instagram");
+        }
+        setIgPhotos((data.photos as IgPhoto[]) || []);
+      } catch (e) {
+        console.error(e);
+        setIgError(
+          e instanceof Error ? e.message : "Erreur de récupération Instagram"
+        );
+      } finally {
+        setIgLoading(false);
+      }
+    },
+    [talentId, igLoading, igPhotos]
+  );
+
+  const openPicker = useCallback(
+    (index: number) => {
+      setPickerSlot(index);
+      setIgError(null);
+      void loadIgPhotos(false);
+    },
+    [loadIgPhotos]
+  );
+
+  const closePicker = useCallback(() => {
+    setPickerSlot(null);
+    setPickingUrl(null);
+  }, []);
+
+  const handlePickPhoto = useCallback(
+    async (imageUrl: string) => {
+      if (pickerSlot === null || pickingUrl) return;
+      setPickingUrl(imageUrl);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/talents/${talentId}/kit-photos/from-instagram`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ index: pickerSlot, imageUrl }),
+          }
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || "Erreur lors de la sélection");
+        }
+        setPhotos(data.kitPhotos);
+        closePicker();
+      } catch (e) {
+        console.error(e);
+        setError(
+          e instanceof Error ? e.message : "Erreur lors de la sélection"
+        );
+      } finally {
+        setPickingUrl(null);
+      }
+    },
+    [talentId, pickerSlot, pickingUrl, closePicker]
   );
 
   const filled = photos.filter((p) => !!p).length;
@@ -336,12 +422,127 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
                           <Trash2 className="w-3 h-3" />
                         </button>
                       )}
+
+                      {/* Action : choisir / remplacer depuis Instagram */}
+                      {!isUploading && (
+                        <button
+                          type="button"
+                          onClick={() => openPicker(slot.index)}
+                          className="absolute bottom-1 left-1 w-6 h-6 rounded-full bg-gradient-to-r from-[#f09433] via-[#e6683c] to-[#bc1888] text-white shadow flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:brightness-110"
+                          title={
+                            photo
+                              ? "Remplacer par une photo Instagram"
+                              : "Choisir une photo Instagram"
+                          }
+                        >
+                          <Instagram className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Galerie de sélection Instagram */}
+      {pickerSlot !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={closePicker}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+              <div className="min-w-0 flex items-center gap-2">
+                <Instagram className="w-4 h-4 text-[#bc1888]" />
+                <div className="min-w-0">
+                  <h4 className="text-sm font-semibold text-gray-900 truncate">
+                    Choisir une photo Instagram
+                  </h4>
+                  <p className="text-xs text-gray-500 truncate">
+                    {SLOTS.find((s) => s.index === pickerSlot)?.label} — clique
+                    pour remplacer
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => loadIgPhotos(true)}
+                  disabled={igLoading || !!pickingUrl}
+                  className="text-xs font-medium text-gray-600 hover:text-gray-900 px-2 py-1 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                  title="Recharger le feed Instagram"
+                >
+                  Actualiser
+                </button>
+                <button
+                  type="button"
+                  onClick={closePicker}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </header>
+
+            <div className="p-5 overflow-y-auto">
+              {igLoading ? (
+                <div className="py-16 flex flex-col items-center justify-center text-gray-400">
+                  <Loader2 className="w-6 h-6 animate-spin mb-2" />
+                  <span className="text-sm">Chargement du feed Instagram…</span>
+                </div>
+              ) : igError ? (
+                <div className="py-10 text-center">
+                  <p className="text-sm text-red-600 mb-3">{igError}</p>
+                  <button
+                    type="button"
+                    onClick={() => loadIgPhotos(true)}
+                    className="text-sm font-medium text-gray-700 underline"
+                  >
+                    Réessayer
+                  </button>
+                </div>
+              ) : igPhotos && igPhotos.length > 0 ? (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {igPhotos.map((p, i) => {
+                    const isPicking = pickingUrl === p.url;
+                    const isBusy = !!pickingUrl;
+                    return (
+                      <button
+                        key={`${p.url}-${i}`}
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => handlePickPhoto(p.url)}
+                        className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 hover:border-[#bc1888] hover:ring-2 hover:ring-[#bc1888]/30 transition-all disabled:cursor-not-allowed"
+                        title="Utiliser cette photo"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={p.url}
+                          alt={`Instagram ${i + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        {isPicking && (
+                          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                            <Loader2 className="w-5 h-5 text-white animate-spin" />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-10 text-center text-sm text-gray-500">
+                  Aucune photo Instagram trouvée.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </section>

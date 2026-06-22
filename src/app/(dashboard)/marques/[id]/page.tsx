@@ -260,6 +260,9 @@ export default function MarqueDetailPage() {
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [launchError, setLaunchError] = useState<{ id: string; message: string } | null>(null);
 
+  // Suppression d'un contact depuis la fiche marque
+  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+
   const fetchMarque = useCallback(async () => {
     try {
       const res = await fetch(`/api/marques/${params.id}`);
@@ -310,6 +313,27 @@ export default function MarqueDetailPage() {
       setContactError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setSavingContact(false);
+    }
+  };
+
+  /** Supprime un contact de la marque. */
+  const deleteContact = async (contact: Contact) => {
+    if (deletingContactId) return;
+    const fullName = [contact.prenom, contact.nom].filter(Boolean).join(" ") || "ce contact";
+    if (!confirm(`Supprimer ${fullName} ?`)) return;
+    setDeletingContactId(contact.id);
+    try {
+      const res = await fetch(
+        `/api/marques/${params.id}/contacts?contactId=${encodeURIComponent(contact.id)}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur lors de la suppression.");
+      await fetchMarque();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur lors de la suppression.");
+    } finally {
+      setDeletingContactId(null);
     }
   };
 
@@ -951,6 +975,21 @@ export default function MarqueDetailPage() {
                                   >
                                     <Linkedin className="w-3.5 h-3.5" />
                                   </a>
+                                )}
+                                {!readOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteContact(contact)}
+                                    disabled={deletingContactId === contact.id}
+                                    className="p-1.5 rounded-lg text-red-500 bg-red-50 opacity-0 group-hover:opacity-100 hover:bg-red-100 transition-all disabled:opacity-60 disabled:cursor-wait"
+                                    title="Supprimer ce contact"
+                                  >
+                                    {deletingContactId === contact.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
                                 )}
                               </div>
                               {outreach ? (

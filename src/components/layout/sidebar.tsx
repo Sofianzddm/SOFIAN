@@ -410,6 +410,12 @@ export function Sidebar() {
     userRole === "STRATEGY_PLANNER"
       ? [
           {
+            label: "Talents",
+            href: "/talents",
+            icon: Users,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
             label: "Villa Cannes 2026",
             href: "/strategy/projets/villa-cannes",
             icon: Briefcase,

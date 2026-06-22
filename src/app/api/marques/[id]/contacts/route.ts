@@ -79,3 +79,43 @@ export async function POST(
     );
   }
 }
+
+/**
+ * DELETE → suppression d'un contact d'une marque (depuis la fiche marque).
+ * Le contact à supprimer est passé via le paramètre `contactId`.
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const contactId = request.nextUrl.searchParams.get("contactId");
+    if (!contactId) {
+      return NextResponse.json({ error: "contactId requis." }, { status: 400 });
+    }
+
+    const contact = await prisma.marqueContact.findFirst({
+      where: { id: contactId, marqueId: id },
+      select: { id: true },
+    });
+    if (!contact) {
+      return NextResponse.json({ error: "Contact non trouvé." }, { status: 404 });
+    }
+
+    await prisma.marqueContact.delete({ where: { id: contact.id } });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("DELETE /api/marques/[id]/contacts:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Erreur serveur" },
+      { status: 500 }
+    );
+  }
+}
