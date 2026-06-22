@@ -397,16 +397,23 @@ export function buildOutreachRelanceTemplate(
       : `I'm following up on my previous message, in which I suggested a multi-talent activation for ${brandPart}.`;
 
     return [
-      `<p>Hi {{contact.firstname}},</p>`,
-      `<p>I hope you're doing well 😊</p>`,
-      `<p>${intro}</p>`,
-      `<p>I can send you right away:</p>`,
-      `<p>→ the creators' full media kits<br/>` +
-        `→ reach &amp; engagement estimates<br/>` +
-        `→ a few content ideas tailored to your activations</p>`,
-      `<p>Would you be available for a quick 10-15 min call this week? I'm very flexible on timing.</p>`,
-      `<p>Feel free to let me know what works best for you!</p>`,
-      `<p>Have a great day,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+      `Hi {{contact.firstname}},`,
+      `<br /><br />`,
+      `I hope you're doing well 😊`,
+      `<br /><br />`,
+      intro,
+      `<br /><br />`,
+      `I can send you right away:`,
+      `<br />`,
+      `→ the creators' full media kits<br />`,
+      `→ reach &amp; engagement estimates<br />`,
+      `→ a few content ideas tailored to your activations`,
+      `<br /><br />`,
+      `Would you be available for a quick 10-15 min call this week? I'm very flexible on timing.`,
+      `<br /><br />`,
+      `Feel free to let me know what works best for you!`,
+      `<br /><br />`,
+      `Have a great day,<br /><strong>Leyna</strong><br />Glow Up Agence`,
     ].join("");
   }
 
@@ -416,16 +423,23 @@ export function buildOutreachRelanceTemplate(
     : `Je reviens vers vous suite à mon précédent message, dans lequel je vous proposais une activation multi-talents pour ${brandPart}.`;
 
   return [
-    `<p>Bonjour {{contact.firstname}},</p>`,
-    `<p>J'espère que vous allez bien 😊</p>`,
-    `<p>${intro}</p>`,
-    `<p>Je peux vous envoyer immédiatement :</p>`,
-    `<p>→ les media kits complets des créatrices<br/>` +
-      `→ les estimations de reach &amp; engagement<br/>` +
-      `→ quelques idées de contenus adaptés à vos activations</p>`,
-    `<p>Seriez-vous disponible pour un petit call de 10-15 minutes cette semaine ? Je reste très flexible sur les créneaux.</p>`,
-    `<p>N'hésitez pas à me dire ce qui vous arrange le mieux !</p>`,
-    `<p>Belle journée à vous,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+    `Bonjour {{contact.firstname}},`,
+    `<br /><br />`,
+    `J'espère que vous allez bien 😊`,
+    `<br /><br />`,
+    intro,
+    `<br /><br />`,
+    `Je peux vous envoyer immédiatement :`,
+    `<br />`,
+    `→ les media kits complets des créatrices<br />`,
+    `→ les estimations de reach &amp; engagement<br />`,
+    `→ quelques idées de contenus adaptés à vos activations`,
+    `<br /><br />`,
+    `Seriez-vous disponible pour un petit call de 10-15 minutes cette semaine ? Je reste très flexible sur les créneaux.`,
+    `<br /><br />`,
+    `N'hésitez pas à me dire ce qui vous arrange le mieux !`,
+    `<br /><br />`,
+    `Belle journée à vous,<br /><strong>Leyna</strong><br />Glow Up Agence`,
   ].join("");
 }
 
