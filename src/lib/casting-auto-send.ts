@@ -379,11 +379,11 @@ function formatRelanceDate(date: Date, language: "fr" | "en"): string {
 }
 
 /**
- * Modèle de relance J+3 du module Casting Outreach : relance « valeur ajoutée »
- * qui rappelle la proposition initiale (date du premier mail), propose des
- * éléments concrets (media kits, reach…) et demande un court call.
+ * Modèle de relance J+3 du module Outreach (cycle client) : relance « valeur
+ * ajoutée » qui rappelle la proposition initiale (date du premier mail), propose
+ * des éléments concrets (media kits, reach…) et demande un court call.
  */
-export function buildCastingRelanceTemplate(
+export function buildOutreachRelanceTemplate(
   targetBrand: string,
   language: "fr" | "en" = "fr",
   firstSentAt?: Date | null
@@ -467,11 +467,7 @@ export async function buildCastingRelanceDraft(
     : `Re: ${subjectSrc || "Notre proposition de collaboration"}`;
 
   const targetBrand = String(mission.targetBrand || "").trim();
-  const bodyTemplate = buildCastingRelanceTemplate(
-    targetBrand,
-    "fr",
-    mission.sentAt ? new Date(mission.sentAt) : null
-  );
+  const bodyTemplate = buildDefaultRelanceTemplate(targetBrand);
 
   const recipients: CastingRelanceRecipient[] = [];
   for (const [email, record] of Object.entries(sentByEmail)) {
@@ -540,11 +536,7 @@ export async function executeCastingRelance(
   const targetBrand = String(mission.targetBrand || "").trim();
   const bodyTemplate =
     (options.bodyOverride && options.bodyOverride.trim()) ||
-    buildCastingRelanceTemplate(
-      targetBrand,
-      "fr",
-      mission.sentAt ? new Date(mission.sentAt) : null
-    );
+    buildDefaultRelanceTemplate(targetBrand);
 
   const relanceMessages: Record<string, string> = {};
   const errors: string[] = [];

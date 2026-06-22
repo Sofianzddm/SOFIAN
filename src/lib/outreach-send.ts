@@ -21,7 +21,7 @@ import { injectOutreachTracking } from "@/lib/outreach-tracking";
 import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
 import {
   applyCastingTemplateVars,
-  buildDefaultRelanceTemplate,
+  buildOutreachRelanceTemplate,
   CASTING_COOLDOWN_DAYS,
   LEYNA_FROM_EMAIL,
 } from "@/lib/casting-auto-send";
@@ -420,9 +420,10 @@ export async function executeOutreachRelance(
 
   const bodyTemplate =
     options.bodyOverride?.trim() ||
-    buildDefaultRelanceTemplate(
+    buildOutreachRelanceTemplate(
       target.company,
-      target.language === "en" ? "en" : "fr"
+      target.language === "en" ? "en" : "fr",
+      touch.sentAt
     );
 
   const bodyWithVars = applyCastingTemplateVars(bodyTemplate, {

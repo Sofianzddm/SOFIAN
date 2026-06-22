@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
-import { applyCastingTemplateVars, buildDefaultRelanceTemplate } from "@/lib/casting-auto-send";
+import { applyCastingTemplateVars, buildOutreachRelanceTemplate } from "@/lib/casting-auto-send";
 import { executeOutreachRelance } from "@/lib/outreach-send";
 
 /**
@@ -57,9 +57,10 @@ export async function GET(
       ? subjectSrc
       : `Re: ${subjectSrc}`;
     const body = applyCastingTemplateVars(
-      buildDefaultRelanceTemplate(
+      buildOutreachRelanceTemplate(
         touch.target.company,
-        touch.target.language === "en" ? "en" : "fr"
+        touch.target.language === "en" ? "en" : "fr",
+        touch.sentAt
       ),
       {
         firstname: touch.target.firstname || "",
