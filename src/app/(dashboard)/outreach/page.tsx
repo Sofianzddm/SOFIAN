@@ -488,21 +488,29 @@ export default function OutreachPage() {
             return;
           }
 
+          const subjectToSend = draft?.subject || "";
+          const bodyToSend = draft?.bodyHtml || "";
+
           const res = await fetch("/api/outreach/send-bulk", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               targetIds: ids,
-              subject: draft?.subject || "",
-              bodyHtml: draft?.bodyHtml || "",
+              subject: subjectToSend,
+              bodyHtml: bodyToSend,
             }),
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Erreur d'envoi");
 
           const failed: { email: string; error: string }[] = data.failed || [];
-          const rescheduled: { email: string; message: string }[] =
-            data.rescheduled || [];
+          const needsConfirmation: {
+            targetId: string;
+            email: string;
+            message: string;
+            suggestedNextRecontactAt?: string;
+          }[] = data.needsConfirmation || [];
+
           if (data.sent > 0) {
             flash(
               "success",
@@ -511,17 +519,84 @@ export default function OutreachPage() {
               }.`
             );
           }
-          if (rescheduled.length > 0) {
-            flash(
-              "success",
-              rescheduled.length === 1
-                ? rescheduled[0].message
-                : `${rescheduled.length} client(s) déjà contactés hors app : remis en attente (recontact replanifié à J+45).`
-            );
-          }
           if (failed.length > 0 && data.sent === 0) {
             flash("error", failed.map((f) => `${f.email} : ${f.error}`).join(" | "));
           }
+
+          // Clients déjà contactés (pipeline talent ou hors app) : on laisse
+          // l'utilisateur choisir — envoyer quand même, ou mettre en attente.
+          if (needsConfirmation.length > 0) {
+            const fmtDate = (iso?: string) =>
+              iso
+                ? new Date(iso).toLocaleDateString("fr-FR", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })
+                : null;
+            const lines = needsConfirmation
+              .map((c) => {
+                const next = fmtDate(c.suggestedNextRecontactAt);
+                return next
+                  ? `• ${c.email} — ${c.message}\n  Mise en attente → recontact le ${next}.`
+                  : `• ${c.email} — ${c.message}`;
+              })
+              .join("\n");
+            const sendAnyway = window.confirm(
+              `${needsConfirmation.length} client${needsConfirmation.length > 1 ? "s ont" : " a"} déjà été contacté${
+                needsConfirmation.length > 1 ? "s" : ""
+              } récemment :\n\n${lines}\n\n` +
+                `OK = Envoyer quand même maintenant\n` +
+                `Annuler = Mettre en attente (recontact reprogrammé)`
+            );
+
+            const confirmIds = needsConfirmation.map((c) => c.targetId);
+            if (sendAnyway) {
+              const resForce = await fetch("/api/outreach/send-bulk", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  targetIds: confirmIds,
+                  subject: subjectToSend,
+                  bodyHtml: bodyToSend,
+                  force: true,
+                }),
+              });
+              const forceData = await resForce.json();
+              if (!resForce.ok) throw new Error(forceData.error || "Erreur d'envoi");
+              const forceFailed: { email: string; error: string }[] =
+                forceData.failed || [];
+              if (forceData.sent > 0) {
+                flash(
+                  "success",
+                  `${forceData.sent} mail${forceData.sent > 1 ? "s" : ""} envoyé${
+                    forceData.sent > 1 ? "s" : ""
+                  } malgré un contact récent — compteur 45 jours relancé.`
+                );
+              }
+              if (forceFailed.length > 0) {
+                flash(
+                  "error",
+                  forceFailed.map((f) => `${f.email} : ${f.error}`).join(" | ")
+                );
+              }
+            } else {
+              const resWait = await fetch("/api/outreach/reschedule-bulk", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ targetIds: confirmIds }),
+              });
+              const waitData = await resWait.json();
+              if (!resWait.ok) throw new Error(waitData.error || "Erreur");
+              flash(
+                "success",
+                waitData.rescheduled === 1 && waitData.message
+                  ? waitData.message
+                  : `${waitData.rescheduled || 0} client(s) mis en attente (recontact reprogrammé).`
+              );
+            }
+          }
+
           await loadTargets();
         } catch (e) {
           flash("error", e instanceof Error ? e.message : "Erreur");

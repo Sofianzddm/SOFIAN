@@ -49,10 +49,16 @@ export type OutreachSendResult =
   | {
       ok: false;
       error: string;
-      /** Vrai si le client a été auto-replanifié en attente (pas une erreur dure). */
-      rescheduled?: boolean;
-      /** Date du prochain recontact si replanifié (ISO). */
-      nextRecontactAt?: string;
+      /**
+       * Vrai si le client a déjà été contacté (pipeline talent ou hors app) et
+       * qu'une confirmation utilisateur est requise : envoyer quand même
+       * (option `force`) ou mettre en attente (executeOutreachReschedule).
+       */
+      needsConfirmation?: boolean;
+      /** Date du contact déjà détecté, si connue (ISO). */
+      alreadyContactedAt?: string;
+      /** Date de recontact suggérée si on met en attente (ISO). */
+      suggestedNextRecontactAt?: string;
     };
 
 function formatFrDate(date: Date): string {
@@ -173,7 +179,16 @@ async function syncHubspotAfterSend(
  */
 export async function executeOutreachSend(
   targetId: string,
-  input: { subject: string; bodyHtml: string; sentById?: string | null }
+  input: {
+    subject: string;
+    bodyHtml: string;
+    sentById?: string | null;
+    /**
+     * Force l'envoi malgré un contact récent déjà détecté (pipeline talent ou
+     * hors app). Activé quand l'utilisateur choisit « Envoyer quand même ».
+     */
+    force?: boolean;
+  }
 ): Promise<OutreachSendResult> {
   const target = await prisma.outreachTarget.findUnique({ where: { id: targetId } });
   if (!target) return { ok: false, error: "Client introuvable." };
@@ -190,62 +205,51 @@ export async function executeOutreachSend(
     return { ok: false, error: `Email invalide : ${target.email}` };
   }
 
-  if (await isEmailBlockedByPipelineCooldown(target.email)) {
-    return {
-      ok: false,
-      error: `${target.email} a déjà reçu un mail (pipeline talent) dans les ${CASTING_COOLDOWN_DAYS} derniers jours.`,
-    };
-  }
-
   const fromEmail = outreachFromEmail(target);
 
-  // Garde-fou boîte expéditrice : déjà contacté < 45j via un autre canal
-  // (séquence HubSpot, mail manuel…). Au lieu de bloquer sèchement, on
-  // replanifie le client en attente sur la date réelle du mail + 45j.
-  const externalContact = await detectRecentExternalContact(
-    fromEmail,
-    target.id,
-    target.email
-  );
-  if (externalContact.contacted) {
-    if (externalContact.lastDate) {
-      const nextRecontactAt = new Date(
-        externalContact.lastDate.getTime() +
-          OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
-      );
-      const reason =
-        `Déjà contacté le ${formatFrDate(externalContact.lastDate)} depuis la boîte ` +
-        `${fromEmail} (hors app : séquence HubSpot ou envoi manuel). ` +
-        `Recontact replanifié au ${formatFrDate(nextRecontactAt)} (J+${OUTREACH_RECONTACT_DAYS}).`;
-
-      await prisma.outreachTarget.update({
-        where: { id: target.id },
-        data: {
-          status: "WAITING",
-          lastSentAt: externalContact.lastDate,
-          nextRecontactAt,
-          autoRescheduleReason: reason,
-          autoRescheduledAt: new Date(),
-        },
-      });
-
-      console.info(
-        `[outreach] auto-replanifié ${target.email} → recontact le ${nextRecontactAt.toISOString()} (déjà contacté hors app)`
-      );
-
+  // Garde-fous « déjà contacté » : sauf si l'utilisateur force l'envoi, on ne
+  // bloque ni ne replanifie automatiquement — on remonte une demande de
+  // confirmation (« Envoyer quand même » ou « Mettre en attente »).
+  if (!input.force) {
+    if (await isEmailBlockedByPipelineCooldown(target.email)) {
       return {
         ok: false,
-        rescheduled: true,
-        error: reason,
-        nextRecontactAt: nextRecontactAt.toISOString(),
+        needsConfirmation: true,
+        error: `${target.email} a déjà reçu un mail (pipeline talent) dans les ${CASTING_COOLDOWN_DAYS} derniers jours.`,
       };
     }
 
-    // Mail externe détecté mais date illisible → on bloque pour éviter le doublon.
-    return {
-      ok: false,
-      error: `${target.email} a déjà reçu un mail depuis la boîte ${fromEmail} il y a moins de ${OUTREACH_RECONTACT_DAYS} jours (HubSpot ou envoi manuel), mais la date exacte n'a pas pu être lue. Envoi bloqué pour éviter le doublon.`,
-    };
+    // Garde-fou boîte expéditrice : déjà contacté < 45j via un autre canal
+    // (séquence HubSpot, mail manuel…).
+    const externalContact = await detectRecentExternalContact(
+      fromEmail,
+      target.id,
+      target.email
+    );
+    if (externalContact.contacted) {
+      if (externalContact.lastDate) {
+        const suggestedNextRecontactAt = new Date(
+          externalContact.lastDate.getTime() +
+            OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
+        );
+        return {
+          ok: false,
+          needsConfirmation: true,
+          alreadyContactedAt: externalContact.lastDate.toISOString(),
+          suggestedNextRecontactAt: suggestedNextRecontactAt.toISOString(),
+          error:
+            `Déjà contacté le ${formatFrDate(externalContact.lastDate)} depuis la boîte ` +
+            `${fromEmail} (hors app : séquence HubSpot ou envoi manuel).`,
+        };
+      }
+
+      // Mail externe détecté mais date illisible.
+      return {
+        ok: false,
+        needsConfirmation: true,
+        error: `${target.email} a déjà reçu un mail depuis la boîte ${fromEmail} il y a moins de ${OUTREACH_RECONTACT_DAYS} jours (HubSpot ou envoi manuel).`,
+      };
+    }
   }
 
   const vars = {
@@ -326,6 +330,61 @@ export async function executeOutreachSend(
   );
 
   return { ok: true, touchId: touch.id, messageId, hubspotSynced };
+}
+
+export type OutreachRescheduleResult =
+  | { ok: true; nextRecontactAt: string; reason: string }
+  | { ok: false; error: string };
+
+/**
+ * Met un client « en attente » sans envoyer de mail : utilisé quand
+ * l'utilisateur, prévenu que le client a déjà été contacté, choisit de NE PAS
+ * renvoyer maintenant. On (re)détecte la date du dernier contact pour caler le
+ * recontact à J+45 ; à défaut on part de maintenant.
+ */
+export async function executeOutreachReschedule(
+  targetId: string
+): Promise<OutreachRescheduleResult> {
+  const target = await prisma.outreachTarget.findUnique({ where: { id: targetId } });
+  if (!target) return { ok: false, error: "Client introuvable." };
+  if (target.status === "STOPPED") {
+    return { ok: false, error: "Ce client est sorti du cycle (stoppé)." };
+  }
+
+  const fromEmail = outreachFromEmail(target);
+  const externalContact = await detectRecentExternalContact(
+    fromEmail,
+    target.id,
+    target.email
+  );
+
+  const baseDate = externalContact.lastDate ?? new Date();
+  const nextRecontactAt = new Date(
+    baseDate.getTime() + OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
+  );
+
+  const reason = externalContact.lastDate
+    ? `Déjà contacté le ${formatFrDate(externalContact.lastDate)} depuis la boîte ` +
+      `${fromEmail} (hors app : séquence HubSpot ou envoi manuel). ` +
+      `Recontact replanifié au ${formatFrDate(nextRecontactAt)} (J+${OUTREACH_RECONTACT_DAYS}).`
+    : `Mis en attente : recontact replanifié au ${formatFrDate(nextRecontactAt)} (J+${OUTREACH_RECONTACT_DAYS}).`;
+
+  await prisma.outreachTarget.update({
+    where: { id: target.id },
+    data: {
+      status: "WAITING",
+      lastSentAt: baseDate,
+      nextRecontactAt,
+      autoRescheduleReason: reason,
+      autoRescheduledAt: new Date(),
+    },
+  });
+
+  console.info(
+    `[outreach] mis en attente ${target.email} → recontact le ${nextRecontactAt.toISOString()}`
+  );
+
+  return { ok: true, nextRecontactAt: nextRecontactAt.toISOString(), reason };
 }
 
 export type OutreachRelanceResult =

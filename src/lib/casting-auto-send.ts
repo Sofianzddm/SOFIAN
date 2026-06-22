@@ -369,6 +369,66 @@ export function buildDefaultRelanceTemplate(
   ].join("");
 }
 
+/** Date du premier mail formatée (« 18 juin 2026 » / « June 18, 2026 »). */
+function formatRelanceDate(date: Date, language: "fr" | "en"): string {
+  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+/**
+ * Modèle de relance J+3 du module Casting Outreach : relance « valeur ajoutée »
+ * qui rappelle la proposition initiale (date du premier mail), propose des
+ * éléments concrets (media kits, reach…) et demande un court call.
+ */
+export function buildCastingRelanceTemplate(
+  targetBrand: string,
+  language: "fr" | "en" = "fr",
+  firstSentAt?: Date | null
+): string {
+  const brand = (targetBrand || "").trim();
+
+  if (language === "en") {
+    const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
+    const intro = firstSentAt
+      ? `I'm following up on my message from ${formatRelanceDate(firstSentAt, "en")}, in which I suggested a multi-talent activation for ${brandPart}.`
+      : `I'm following up on my previous message, in which I suggested a multi-talent activation for ${brandPart}.`;
+
+    return [
+      `<p>Hi {{contact.firstname}},</p>`,
+      `<p>I hope you're doing well 😊</p>`,
+      `<p>${intro}</p>`,
+      `<p>I can send you right away:</p>`,
+      `<p>→ the creators' full media kits<br/>` +
+        `→ reach &amp; engagement estimates<br/>` +
+        `→ a few content ideas tailored to your activations</p>`,
+      `<p>Would you be available for a quick 10-15 min call this week? I'm very flexible on timing.</p>`,
+      `<p>Feel free to let me know what works best for you!</p>`,
+      `<p>Have a great day,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+    ].join("");
+  }
+
+  const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
+  const intro = firstSentAt
+    ? `Je reviens vers vous suite à mon message du ${formatRelanceDate(firstSentAt, "fr")}, dans lequel je vous proposais une activation multi-talents pour ${brandPart}.`
+    : `Je reviens vers vous suite à mon précédent message, dans lequel je vous proposais une activation multi-talents pour ${brandPart}.`;
+
+  return [
+    `<p>Bonjour {{contact.firstname}},</p>`,
+    `<p>J'espère que vous allez bien 😊</p>`,
+    `<p>${intro}</p>`,
+    `<p>Je peux vous envoyer immédiatement :</p>`,
+    `<p>→ les media kits complets des créatrices<br/>` +
+      `→ les estimations de reach &amp; engagement<br/>` +
+      `→ quelques idées de contenus adaptés à vos activations</p>`,
+    `<p>Seriez-vous disponible pour un petit call de 10-15 minutes cette semaine ? Je reste très flexible sur les créneaux.</p>`,
+    `<p>N'hésitez pas à me dire ce qui vous arrange le mieux !</p>`,
+    `<p>Belle journée à vous,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+  ].join("");
+}
+
 export type CastingRelanceRecipient = {
   email: string;
   firstname: string;
@@ -407,7 +467,11 @@ export async function buildCastingRelanceDraft(
     : `Re: ${subjectSrc || "Notre proposition de collaboration"}`;
 
   const targetBrand = String(mission.targetBrand || "").trim();
-  const bodyTemplate = buildDefaultRelanceTemplate(targetBrand);
+  const bodyTemplate = buildCastingRelanceTemplate(
+    targetBrand,
+    "fr",
+    mission.sentAt ? new Date(mission.sentAt) : null
+  );
 
   const recipients: CastingRelanceRecipient[] = [];
   for (const [email, record] of Object.entries(sentByEmail)) {
@@ -476,7 +540,11 @@ export async function executeCastingRelance(
   const targetBrand = String(mission.targetBrand || "").trim();
   const bodyTemplate =
     (options.bodyOverride && options.bodyOverride.trim()) ||
-    buildDefaultRelanceTemplate(targetBrand);
+    buildCastingRelanceTemplate(
+      targetBrand,
+      "fr",
+      mission.sentAt ? new Date(mission.sentAt) : null
+    );
 
   const relanceMessages: Record<string, string> = {};
   const errors: string[] = [];

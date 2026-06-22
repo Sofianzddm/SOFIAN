@@ -29,12 +29,14 @@ export async function POST(request: NextRequest) {
       targetIds?: string[];
       subject?: string;
       bodyHtml?: string;
+      force?: boolean;
     };
     const targetIds = Array.isArray(body.targetIds)
       ? body.targetIds.filter((id) => typeof id === "string" && id.trim())
       : [];
     const subject = String(body.subject || "").trim();
     const bodyHtml = String(body.bodyHtml || "").trim();
+    const force = body.force === true;
 
     if (targetIds.length === 0) {
       return NextResponse.json({ error: "Aucun destinataire." }, { status: 400 });
@@ -63,25 +65,38 @@ export async function POST(request: NextRequest) {
     let sent = 0;
     let hubspotSynced = 0;
     const failed: { email: string; error: string }[] = [];
-    const rescheduled: { email: string; message: string }[] = [];
+    const needsConfirmation: {
+      targetId: string;
+      email: string;
+      message: string;
+      alreadyContactedAt?: string;
+      suggestedNextRecontactAt?: string;
+    }[] = [];
 
     for (const target of targets) {
       const result = await executeOutreachSend(target.id, {
         subject,
         bodyHtml,
         sentById: session.user.id,
+        force,
       });
       if (result.ok) {
         sent += 1;
         if (result.hubspotSynced) hubspotSynced += 1;
-      } else if (result.rescheduled) {
-        rescheduled.push({ email: target.email, message: result.error });
+      } else if (result.needsConfirmation) {
+        needsConfirmation.push({
+          targetId: target.id,
+          email: target.email,
+          message: result.error,
+          alreadyContactedAt: result.alreadyContactedAt,
+          suggestedNextRecontactAt: result.suggestedNextRecontactAt,
+        });
       } else {
         failed.push({ email: target.email, error: result.error });
       }
     }
 
-    return NextResponse.json({ sent, failed, rescheduled, hubspotSynced });
+    return NextResponse.json({ sent, failed, needsConfirmation, hubspotSynced });
   } catch (error) {
     console.error("POST /api/outreach/send-bulk:", error);
     return NextResponse.json(

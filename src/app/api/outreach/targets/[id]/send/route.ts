@@ -28,21 +28,24 @@ export async function POST(
     const body = (await request.json().catch(() => ({}))) as {
       subject?: string;
       bodyHtml?: string;
+      force?: boolean;
     };
 
     const result = await executeOutreachSend(id, {
       subject: String(body.subject || ""),
       bodyHtml: String(body.bodyHtml || ""),
       sentById: session.user.id,
+      force: body.force === true,
     });
 
     if (!result.ok) {
-      if (result.rescheduled) {
+      if (result.needsConfirmation) {
         return NextResponse.json({
           ok: false,
-          rescheduled: true,
+          needsConfirmation: true,
           message: result.error,
-          nextRecontactAt: result.nextRecontactAt,
+          alreadyContactedAt: result.alreadyContactedAt,
+          suggestedNextRecontactAt: result.suggestedNextRecontactAt,
         });
       }
       return NextResponse.json({ error: result.error }, { status: 422 });
