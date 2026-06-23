@@ -453,11 +453,15 @@ export default function OutreachPage() {
   const handleComposerSaved = useCallback(
     (
       status: "pret" | "en_cours" | "reset",
-      draft?: { subject: string; bodyHtml: string }
+      draft?: { subject: string; bodyHtml: string; language?: "fr" | "en" }
     ) => {
       const group = composerGroup;
       if (!group) return;
       const ids = group.targets.map((t) => t.id);
+      const sourceLanguage: "fr" | "en" = draft?.language === "en" ? "en" : "fr";
+      const toTranslateCount = group.targets.filter(
+        (t) => (t.language === "en" ? "en" : "fr") !== sourceLanguage
+      ).length;
 
       void (async () => {
         try {
@@ -476,10 +480,17 @@ export default function OutreachPage() {
 
           // status === "pret" → confirmation puis envoi individuel à chacun
           const recipients = group.targets.map((t) => t.email).join(", ");
+          const otherLangLabel = sourceLanguage === "fr" ? "anglais" : "français";
+          const translateNote =
+            toTranslateCount > 0
+              ? `\n\n🌐 ${toTranslateCount} contact${
+                  toTranslateCount > 1 ? "s" : ""
+                } recevr${toTranslateCount > 1 ? "ont" : "a"} la version traduite automatiquement en ${otherLangLabel}.`
+              : "";
           const confirmed = window.confirm(
             group.targets.length > 1
-              ? `Envoyer ce mail aux ${group.targets.length} contacts de ${group.company} ?\n\n${recipients}\n\nChacun reçoit son propre mail personnalisé (thread et relances séparés).\n\nAnnuler = garder en brouillon.`
-              : `Envoyer ce mail à ${recipients} depuis la boîte de Leyna ?\n\nAnnuler = garder en brouillon.`
+              ? `Envoyer ce mail aux ${group.targets.length} contacts de ${group.company} ?\n\n${recipients}\n\nChacun reçoit son propre mail personnalisé (thread et relances séparés).${translateNote}\n\nAnnuler = garder en brouillon.`
+              : `Envoyer ce mail à ${recipients} depuis la boîte de Leyna ?${translateNote}\n\nAnnuler = garder en brouillon.`
           );
           await saveDraft(ids, draft?.subject || "", draft?.bodyHtml || "");
           if (!confirmed) {
@@ -498,6 +509,7 @@ export default function OutreachPage() {
               targetIds: ids,
               subject: subjectToSend,
               bodyHtml: bodyToSend,
+              sourceLanguage,
             }),
           });
           const data = await res.json();
@@ -512,11 +524,23 @@ export default function OutreachPage() {
           }[] = data.needsConfirmation || [];
 
           if (data.sent > 0) {
+            const translatedNote =
+              data.translated > 0
+                ? ` · ${data.translated} traduit${data.translated > 1 ? "s" : ""} auto`
+                : "";
             flash(
               "success",
-              `${data.sent} mail${data.sent > 1 ? "s" : ""} envoyé${data.sent > 1 ? "s" : ""} (${group.company}) — compteur 45 jours relancé${
+              `${data.sent} mail${data.sent > 1 ? "s" : ""} envoyé${data.sent > 1 ? "s" : ""} (${group.company}) — compteur 45 jours relancé${translatedNote}${
                 failed.length > 0 ? ` · ${failed.length} échec${failed.length > 1 ? "s" : ""}` : ""
               }.`
+            );
+          }
+          if (data.translationFailed) {
+            flash(
+              "error",
+              `⚠️ Traduction automatique en ${
+                data.translationFailed === "en" ? "anglais" : "français"
+              } indisponible : ces contacts ont reçu la version d'origine. Vérifie et renvoie si besoin.`
             );
           }
           if (failed.length > 0 && data.sent === 0) {
@@ -559,6 +583,7 @@ export default function OutreachPage() {
                   targetIds: confirmIds,
                   subject: subjectToSend,
                   bodyHtml: bodyToSend,
+                  sourceLanguage,
                   force: true,
                 }),
               });
@@ -832,6 +857,12 @@ export default function OutreachPage() {
           {visibleGroups.map((group) => {
             const groupBusy = group.targets.some((t) => actionBusy === t.id);
             const canCompose = activeTab !== "STOPPED";
+            const hasEnglish =
+              group.targets.length > 0 &&
+              group.targets.some((t) => t.language === "en");
+            const allEnglish =
+              group.targets.length > 0 &&
+              group.targets.every((t) => t.language === "en");
             return (
               <div
                 key={group.marqueId}
@@ -853,6 +884,19 @@ export default function OutreachPage() {
                       {group.company}
                       <ExternalLink className="w-3 h-3 text-gray-400" />
                     </a>
+                    {hasEnglish && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide"
+                        style={{ backgroundColor: "#1E3A8A", color: "#FFFFFF" }}
+                        title={
+                          allEnglish
+                            ? "Client anglophone : rédige le mail en anglais (la relance auto part aussi en anglais)"
+                            : "Certains contacts sont anglophones : rédige leur mail en anglais"
+                        }
+                      >
+                        🇬🇧 {allEnglish ? "Anglophone" : "EN (partiel)"}
+                      </span>
+                    )}
                     <span className="ml-1 text-xs text-gray-400">
                       {group.targets.length > 0 &&
                         `${group.targets.length} contact${group.targets.length > 1 ? "s" : ""}`}

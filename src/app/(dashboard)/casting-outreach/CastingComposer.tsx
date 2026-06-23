@@ -185,7 +185,7 @@ export interface CastingComposerProps {
   onClose: () => void;
   onSaved: (
     status: "en_cours" | "pret" | "reset",
-    draft?: { subject: string; bodyHtml: string }
+    draft?: { subject: string; bodyHtml: string; language: "fr" | "en" }
   ) => void;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
@@ -711,7 +711,7 @@ export default function CastingComposer({
     try {
       // Permet la rédaction même sans contacts HubSpot reliés.
       if (contactIds.length === 0) {
-        onSaved(status, { subject: sub, bodyHtml });
+        onSaved(status, { subject: sub, bodyHtml, language: emailLanguage });
         if (status === "en_cours") {
           onSuccess("Brouillon enregistré (sans contact HubSpot).");
         } else {
@@ -739,7 +739,7 @@ export default function CastingComposer({
           typeof data.error === "string" ? data.error : "Enregistrement impossible."
         );
       }
-      onSaved(status, { subject: sub, bodyHtml });
+      onSaved(status, { subject: sub, bodyHtml, language: emailLanguage });
       if (status === "en_cours") {
         onSuccess("Brouillon enregistré");
       } else {

@@ -2,18 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { executeOutreachSend } from "@/lib/outreach-send";
+import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 
 /**
  * POST → envoie le MÊME mail à plusieurs clients d'une marque, chacun
  * individuellement : 1 mail par contact (thread Gmail, tracking et cycle
  * 45 jours indépendants), variables {{contact.*}} personnalisées par contact.
  *
- * Body : { targetIds: string[], subject, bodyHtml }
+ * Traduction automatique : le mail est rédigé une seule fois dans
+ * `sourceLanguage`. Les contacts dont la langue (`target.language`) diffère
+ * reçoivent automatiquement une version traduite (FR ↔ EN), générée une
+ * seule fois et réutilisée pour tous les contacts de cette langue.
+ *
+ * Body : { targetIds: string[], subject, bodyHtml, sourceLanguage?, force? }
  */
 
 const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
 
 const MAX_BULK = 25;
+
+type Lang = "fr" | "en";
+
+function normalizeLang(value: unknown): Lang {
+  return value === "en" ? "en" : "fr";
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,6 +41,7 @@ export async function POST(request: NextRequest) {
       targetIds?: string[];
       subject?: string;
       bodyHtml?: string;
+      sourceLanguage?: string;
       force?: boolean;
     };
     const targetIds = Array.isArray(body.targetIds)
@@ -36,6 +49,7 @@ export async function POST(request: NextRequest) {
       : [];
     const subject = String(body.subject || "").trim();
     const bodyHtml = String(body.bodyHtml || "").trim();
+    const sourceLanguage = normalizeLang(body.sourceLanguage);
     const force = body.force === true;
 
     if (targetIds.length === 0) {
@@ -56,10 +70,42 @@ export async function POST(request: NextRequest) {
 
     const targets = await prisma.outreachTarget.findMany({
       where: { id: { in: targetIds } },
-      select: { id: true, email: true },
+      select: { id: true, email: true, language: true },
     });
     if (targets.length === 0) {
       return NextResponse.json({ error: "Clients introuvables." }, { status: 404 });
+    }
+
+    // Traduction automatique : on traduit le mail dans CHAQUE langue présente
+    // parmi les contacts (autre que la langue source), une seule fois, puis on
+    // réutilise la version pour tous les contacts de cette langue.
+    const versions = new Map<Lang, { subject: string; bodyHtml: string }>();
+    versions.set(sourceLanguage, { subject, bodyHtml });
+
+    let translated = 0;
+    let translationFailed: Lang | null = null;
+    const neededLangs = new Set<Lang>(
+      targets.map((t) => normalizeLang(t.language))
+    );
+    for (const lang of neededLangs) {
+      if (versions.has(lang)) continue;
+      try {
+        const tr = await translateEmail({
+          subject,
+          bodyHtml,
+          targetLanguage: lang,
+        });
+        versions.set(lang, { subject: tr.subject, bodyHtml: tr.body });
+      } catch (e) {
+        // Si la traduction échoue, on retombe sur la version d'origine plutôt
+        // que de bloquer tout l'envoi (l'erreur est signalée au front).
+        if (e instanceof TranslateEmailError) {
+          translationFailed = lang;
+          versions.set(lang, { subject, bodyHtml });
+        } else {
+          throw e;
+        }
+      }
     }
 
     let sent = 0;
@@ -74,12 +120,15 @@ export async function POST(request: NextRequest) {
     }[] = [];
 
     for (const target of targets) {
+      const lang = normalizeLang(target.language);
+      const version = versions.get(lang) ?? { subject, bodyHtml };
       const result = await executeOutreachSend(target.id, {
-        subject,
-        bodyHtml,
+        subject: version.subject,
+        bodyHtml: version.bodyHtml,
         sentById: session.user.id,
         force,
       });
+      if (result.ok && lang !== sourceLanguage) translated += 1;
       if (result.ok) {
         sent += 1;
         if (result.hubspotSynced) hubspotSynced += 1;
@@ -96,7 +145,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ sent, failed, needsConfirmation, hubspotSynced });
+    return NextResponse.json({
+      sent,
+      failed,
+      needsConfirmation,
+      hubspotSynced,
+      translated,
+      translationFailed,
+    });
   } catch (error) {
     console.error("POST /api/outreach/send-bulk:", error);
     return NextResponse.json(
