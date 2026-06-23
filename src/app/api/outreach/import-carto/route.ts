@@ -30,6 +30,7 @@ type CartoRow = {
   priorite?: string;
   linkedinUrl?: string;
   email?: string;
+  language?: string;
 };
 
 const clean = (v: unknown): string | null => {
@@ -127,6 +128,9 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // Langue propre à ce contact (override) sinon langue globale de l'import.
+      const rowLanguage: "fr" | "en" = row.language === "en" ? "en" : row.language === "fr" ? "fr" : language;
+
       const contact = await prisma.marqueContact.create({
         data: {
           marqueId,
@@ -138,7 +142,7 @@ export async function POST(request: NextRequest) {
           localisation: clean(row.localisation),
           priorite: clean(row.priorite),
           linkedinUrl: clean(row.linkedinUrl),
-          language,
+          language: rowLanguage,
           source: "CARTO",
         },
       });
@@ -162,7 +166,7 @@ export async function POST(request: NextRequest) {
               lastname: prenom ? nom : null,
               email,
               company,
-              language,
+              language: rowLanguage,
               createdById: session.user.id,
             },
           });

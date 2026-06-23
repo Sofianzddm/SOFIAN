@@ -2272,6 +2272,9 @@ function ImportCartoModal({
   const [selectedMarque, setSelectedMarque] = useState<MarqueOption | null>(null);
   const [createMode, setCreateMode] = useState(false);
   const [language, setLanguage] = useState<"fr" | "en" | null>(null);
+  // Override de langue par contact (index → langue). Sinon on applique le
+  // choix global ci-dessus à tous les contacts.
+  const [rowLangs, setRowLangs] = useState<Record<number, "fr" | "en">>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -2296,6 +2299,7 @@ function ImportCartoModal({
 
   const handlePaste = (text: string, sourceFileName?: string) => {
     setRawText(text);
+    setRowLangs({});
     if (!text.trim()) {
       setParsed([]);
       setParseError(null);
@@ -2366,7 +2370,10 @@ function ImportCartoModal({
         body: JSON.stringify({
           marqueId: selectedMarque?.id || undefined,
           company: selectedMarque ? undefined : query.trim(),
-          rows: parsed,
+          rows: parsed.map((row, i) => ({
+            ...row,
+            language: rowLangs[i] ?? language,
+          })),
           language,
           file: filePayload,
         }),
@@ -2484,7 +2491,9 @@ function ImportCartoModal({
                   {parsed.length} contact{parsed.length > 1 ? "s" : ""} détecté{parsed.length > 1 ? "s" : ""}
                 </div>
                 <div className="max-h-44 overflow-y-auto divide-y" style={{ borderColor: "#F5F1EB" }}>
-                  {parsed.map((row, i) => (
+                  {parsed.map((row, i) => {
+                    const rowLang = rowLangs[i] ?? language;
+                    return (
                     <div key={i} className="px-3 py-1.5 flex items-center gap-2 text-xs">
                       {row.priorite && (
                         <span className="px-1.5 py-0.5 rounded font-bold text-[10px] bg-gray-100 text-gray-600 shrink-0">
@@ -2508,9 +2517,36 @@ function ImportCartoModal({
                         {row.linkedinUrl && (
                           <span style={{ color: "#2563A8" }}>LinkedIn ✓</span>
                         )}
+                        <span
+                          className="inline-flex rounded-md overflow-hidden border shrink-0"
+                          style={{ borderColor: "#E5E0DA" }}
+                          title="Langue de ce contact"
+                        >
+                          {(["fr", "en"] as const).map((lang) => {
+                            const active = rowLang === lang;
+                            return (
+                              <button
+                                key={lang}
+                                type="button"
+                                onClick={() =>
+                                  setRowLangs((prev) => ({ ...prev, [i]: lang }))
+                                }
+                                className="px-1.5 py-0.5 text-[10px] font-bold uppercase transition"
+                                style={
+                                  active
+                                    ? { backgroundColor: LICORICE, color: "white" }
+                                    : { backgroundColor: "white", color: "#9CA3AF" }
+                                }
+                              >
+                                {lang === "fr" ? "🇫🇷" : "🇬🇧"} {lang}
+                              </button>
+                            );
+                          })}
+                        </span>
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -2599,7 +2635,7 @@ function ImportCartoModal({
           {/* ---------- 3. La langue du client ---------- */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: OLD_ROSE }}>
-              3. Langue du client <span className="text-red-500">*</span>
+              3. Langue des contacts <span className="text-red-500">*</span>
             </label>
             <div className="flex gap-1.5">
               {(["fr", "en"] as const).map((lang) => {
@@ -2607,7 +2643,11 @@ function ImportCartoModal({
                 return (
                   <button
                     key={lang}
-                    onClick={() => setLanguage(lang)}
+                    onClick={() => {
+                      setLanguage(lang);
+                      // « Appliquer à tous » : on efface les choix individuels.
+                      setRowLangs({});
+                    }}
                     className="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
                     style={
                       active
@@ -2615,19 +2655,20 @@ function ImportCartoModal({
                         : { borderColor: "#E5E0DA", backgroundColor: "white", color: LICORICE }
                     }
                   >
-                    {lang === "fr" ? "Français" : "English"}
+                    {lang === "fr" ? "Tous en français" : "Tous en anglais"}
                   </button>
                 );
               })}
             </div>
             {language === null ? (
               <p className="text-xs mt-1" style={{ color: OLD_ROSE }}>
-                Choix obligatoire : tous les contacts importés seront notés dans cette langue
-                (mails et relances auto adaptés).
+                Choix obligatoire : applique une langue à tous, puis ajuste contact par
+                contact dans la liste ci-dessus si certains parlent l&apos;autre langue.
               </p>
             ) : (
               <p className="text-xs text-gray-400 mt-1">
-                Mails et relances auto partiront en {language === "fr" ? "français" : "anglais"} pour ces contacts.
+                Langue appliquée à tous par défaut — modifiable individuellement (boutons
+                🇫🇷/🇬🇧 sur chaque contact). Mails et relances auto adaptés.
               </p>
             )}
           </div>
