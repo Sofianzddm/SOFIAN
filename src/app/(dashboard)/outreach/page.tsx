@@ -128,6 +128,7 @@ type PendingContact = {
   localisation: string | null;
   priorite: string | null;
   linkedinUrl: string | null;
+  language: string;
   marqueId: string;
   company: string;
 };
@@ -857,12 +858,20 @@ export default function OutreachPage() {
           {visibleGroups.map((group) => {
             const groupBusy = group.targets.some((t) => actionBusy === t.id);
             const canCompose = activeTab !== "STOPPED";
-            const hasEnglish =
-              group.targets.length > 0 &&
-              group.targets.some((t) => t.language === "en");
-            const allEnglish =
-              group.targets.length > 0 &&
-              group.targets.every((t) => t.language === "en");
+            const groupLangs = [
+              ...group.targets.map((t) => (t.language === "en" ? "en" : "fr")),
+              ...group.pending.map((c) => (c.language === "en" ? "en" : "fr")),
+            ];
+            const hasEnglish = groupLangs.includes("en");
+            const hasFrench = groupLangs.includes("fr");
+            const langKind: "fr" | "en" | "mixed" | null =
+              groupLangs.length === 0
+                ? null
+                : hasEnglish && hasFrench
+                ? "mixed"
+                : hasEnglish
+                ? "en"
+                : "fr";
             return (
               <div
                 key={group.marqueId}
@@ -884,17 +893,31 @@ export default function OutreachPage() {
                       {group.company}
                       <ExternalLink className="w-3 h-3 text-gray-400" />
                     </a>
-                    {hasEnglish && (
+                    {langKind === "fr" && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide"
+                        style={{ backgroundColor: OLD_LACE, color: LICORICE }}
+                        title="Client francophone : mail et relance auto en français"
+                      >
+                        🇫🇷 FR
+                      </span>
+                    )}
+                    {langKind === "en" && (
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide"
                         style={{ backgroundColor: "#1E3A8A", color: "#FFFFFF" }}
-                        title={
-                          allEnglish
-                            ? "Client anglophone : rédige le mail en anglais (la relance auto part aussi en anglais)"
-                            : "Certains contacts sont anglophones : rédige leur mail en anglais"
-                        }
+                        title="Client anglophone : mail et relance auto en anglais"
                       >
-                        🇬🇧 {allEnglish ? "Anglophone" : "EN (partiel)"}
+                        🇬🇧 EN
+                      </span>
+                    )}
+                    {langKind === "mixed" && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide"
+                        style={{ backgroundColor: "#1E3A8A", color: "#FFFFFF" }}
+                        title="Contacts mixtes : chacun reçoit sa langue (traduction auto à l'envoi)"
+                      >
+                        🇫🇷🇬🇧 FR + EN
                       </span>
                     )}
                     <span className="ml-1 text-xs text-gray-400">
@@ -949,13 +972,17 @@ export default function OutreachPage() {
                         <div className="min-w-[200px] flex-1">
                           <div className="font-medium text-sm flex items-center gap-1.5" style={{ color: LICORICE }}>
                             {target.firstname} {target.lastname || ""}
-                            {target.language === "en" && (
+                            {langKind === "mixed" && (
                               <span
                                 className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
                                 style={{ backgroundColor: OLD_LACE, color: LICORICE }}
-                                title="Client anglophone : la relance auto part en anglais"
+                                title={
+                                  target.language === "en"
+                                    ? "Ce contact reçoit le mail en anglais"
+                                    : "Ce contact reçoit le mail en français"
+                                }
                               >
-                                EN
+                                {target.language === "en" ? "🇬🇧 EN" : "🇫🇷 FR"}
                               </span>
                             )}
                           </div>
@@ -1361,7 +1388,7 @@ function AddClientModal({
   const [lastname, setLastname] = useState("");
   const [email, setEmail] = useState("");
   const [poste, setPoste] = useState("");
-  const [language, setLanguage] = useState<"fr" | "en">("fr");
+  const [language, setLanguage] = useState<"fr" | "en" | null>(null);
   const [fromEmail, setFromEmail] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -1424,7 +1451,8 @@ function AddClientModal({
   };
 
   const companyChosen = Boolean(selectedMarque) || (createMode && query.trim());
-  const canSubmit = companyChosen && firstname.trim() && email.trim() && !saving;
+  const canSubmit =
+    companyChosen && firstname.trim() && email.trim() && language !== null && !saving;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -1693,7 +1721,9 @@ function AddClientModal({
                 </div>
               </div>
               <div className="mt-3">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Langue du client</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Langue du client <span className="text-red-500">*</span>
+                </label>
                 <div className="flex gap-1.5">
                   {(["fr", "en"] as const).map((lang) => {
                     const active = language === lang;
@@ -1713,9 +1743,15 @@ function AddClientModal({
                     );
                   })}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  La relance auto J+3 partira dans cette langue.
-                </p>
+                {language === null ? (
+                  <p className="text-xs mt-1" style={{ color: OLD_ROSE }}>
+                    Choix obligatoire : indique si le client parle français ou anglais.
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Le mail et la relance auto J+3 partiront dans cette langue.
+                  </p>
+                )}
               </div>
               <p className="text-xs text-gray-400 mt-2">
                 Un nouveau contact est ajouté à la fiche marque s&apos;il n&apos;existe pas déjà (dédoublonnage par email).
@@ -2235,6 +2271,7 @@ function ImportCartoModal({
   const [searching, setSearching] = useState(false);
   const [selectedMarque, setSelectedMarque] = useState<MarqueOption | null>(null);
   const [createMode, setCreateMode] = useState(false);
+  const [language, setLanguage] = useState<"fr" | "en" | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -2301,7 +2338,8 @@ function ImportCartoModal({
   };
 
   const companyChosen = Boolean(selectedMarque) || (createMode && query.trim());
-  const canSubmit = companyChosen && parsed.length > 0 && !saving;
+  const canSubmit =
+    companyChosen && parsed.length > 0 && language !== null && !saving;
 
   /** Encode le fichier original en base64 pour le conserver sur la fiche marque. */
   const encodeFile = async (file: File): Promise<string> => {
@@ -2329,6 +2367,7 @@ function ImportCartoModal({
           marqueId: selectedMarque?.id || undefined,
           company: selectedMarque ? undefined : query.trim(),
           rows: parsed,
+          language,
           file: filePayload,
         }),
       });
@@ -2554,6 +2593,42 @@ function ImportCartoModal({
                   </div>
                 )}
               </div>
+            )}
+          </div>
+
+          {/* ---------- 3. La langue du client ---------- */}
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: OLD_ROSE }}>
+              3. Langue du client <span className="text-red-500">*</span>
+            </label>
+            <div className="flex gap-1.5">
+              {(["fr", "en"] as const).map((lang) => {
+                const active = language === lang;
+                return (
+                  <button
+                    key={lang}
+                    onClick={() => setLanguage(lang)}
+                    className="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
+                    style={
+                      active
+                        ? { borderColor: LICORICE, backgroundColor: LICORICE, color: "white" }
+                        : { borderColor: "#E5E0DA", backgroundColor: "white", color: LICORICE }
+                    }
+                  >
+                    {lang === "fr" ? "Français" : "English"}
+                  </button>
+                );
+              })}
+            </div>
+            {language === null ? (
+              <p className="text-xs mt-1" style={{ color: OLD_ROSE }}>
+                Choix obligatoire : tous les contacts importés seront notés dans cette langue
+                (mails et relances auto adaptés).
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">
+                Mails et relances auto partiront en {language === "fr" ? "français" : "anglais"} pour ces contacts.
+              </p>
             )}
           </div>
         </div>

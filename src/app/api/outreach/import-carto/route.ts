@@ -12,6 +12,7 @@ import { findOrCreateMarque } from "@/lib/marque-resolver";
  * Body : {
  *   marqueId?: string,          // marque existante sélectionnée
  *   company?: string,           // sinon résolution/création par nom
+ *   language: "fr" | "en",      // OBLIGATOIRE : langue des contacts importés
  *   rows: [{ prenom?, nom, poste?, perimetre?, localisation?, priorite?, linkedinUrl?, email? }]
  * }
  */
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
       marqueId?: string;
       company?: string;
       rows?: CartoRow[];
+      language?: string;
       /** Fichier original (Excel/CSV) conservé tel quel sur la fiche marque */
       file?: { name?: string; type?: string; base64?: string };
     };
@@ -61,6 +63,16 @@ export async function POST(request: NextRequest) {
     if (rows.length === 0) {
       return NextResponse.json({ error: "Aucun contact à importer." }, { status: 400 });
     }
+
+    // Langue obligatoire : on note dès l'import si les contacts parlent
+    // français ou anglais (mails + relances auto adaptés).
+    if (body.language !== "fr" && body.language !== "en") {
+      return NextResponse.json(
+        { error: "Langue du client requise (français ou anglais)." },
+        { status: 400 }
+      );
+    }
+    const language: "fr" | "en" = body.language;
 
     // Résolution de la marque (existante ou créée sans doublon)
     let marqueId: string;
@@ -126,6 +138,7 @@ export async function POST(request: NextRequest) {
           localisation: clean(row.localisation),
           priorite: clean(row.priorite),
           linkedinUrl: clean(row.linkedinUrl),
+          language,
           source: "CARTO",
         },
       });
@@ -149,6 +162,7 @@ export async function POST(request: NextRequest) {
               lastname: prenom ? nom : null,
               email,
               company,
+              language,
               createdById: session.user.id,
             },
           });
