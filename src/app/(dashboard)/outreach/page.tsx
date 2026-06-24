@@ -35,6 +35,8 @@ import {
   ExternalLink,
   UserPlus,
   MailWarning,
+  Search,
+  ArrowUpDown,
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import { businessDaysAfter } from "@/lib/business-days";
@@ -58,7 +60,11 @@ type TouchSummary = {
   relanceSentAt: string | null;
   repliedAt: string | null;
   openCount: number;
+  openedAt: string | null;
+  lastOpenAt: string | null;
   clickCount: number;
+  clickedAt: string | null;
+  lastClickAt: string | null;
   sendError: string | null;
 };
 
@@ -71,8 +77,6 @@ type TouchClick = {
 type Touch = TouchSummary & {
   bodyHtml: string;
   relanceError: string | null;
-  openedAt: string | null;
-  clickedAt: string | null;
   lastClickUrl: string | null;
   clicks?: TouchClick[];
 };
@@ -238,6 +242,43 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
+/** Date + heure (utile pour la dernière ouverture, à la minute près). */
+function formatDateTime(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Ancienneté lisible ("il y a 2h", "il y a 3j") pour la dernière ouverture. */
+function timeAgo(dateStr: string | null): string {
+  if (!dateStr) return "";
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return "à l'instant";
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `il y a ${d} j`;
+  const mo = Math.floor(d / 30);
+  return `il y a ${mo} mois`;
+}
+
+type SortKey = "default" | "opens" | "lastOpen" | "clicks" | "notOpened";
+
+const SORT_DEFS: { key: SortKey; label: string }[] = [
+  { key: "default", label: "Tri par défaut" },
+  { key: "opens", label: "Plus d'ouvertures" },
+  { key: "lastOpen", label: "Vu récemment" },
+  { key: "clicks", label: "Plus de clics" },
+  { key: "notOpened", label: "Jamais ouverts" },
+];
+
 function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null;
   return Math.ceil((new Date(dateStr).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
@@ -297,6 +338,8 @@ export default function OutreachPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TargetStatus>("TO_CONTACT");
+  const [sortBy, setSortBy] = useState<SortKey>("default");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCartoModal, setShowCartoModal] = useState(false);
@@ -432,8 +475,60 @@ export default function OutreachPage() {
           });
       }
     }
-    return Array.from(map.values());
-  }, [visibleTargets, pendingContacts, activeTab]);
+
+    let groups = Array.from(map.values());
+
+    // Recherche : marque, nom du contact ou email.
+    const q = searchTerm.trim().toLowerCase();
+    if (q) {
+      groups = groups.filter((g) => {
+        if (g.company.toLowerCase().includes(q)) return true;
+        if (
+          g.targets.some(
+            (t) =>
+              `${t.firstname} ${t.lastname || ""}`.toLowerCase().includes(q) ||
+              t.email.toLowerCase().includes(q)
+          )
+        )
+          return true;
+        return g.pending.some(
+          (c) =>
+            `${c.prenom || ""} ${c.nom || ""}`.toLowerCase().includes(q) ||
+            (c.email || "").toLowerCase().includes(q)
+        );
+      });
+    }
+
+    // Métriques d'engagement agrégées par marque (sur le dernier mail de chaque contact).
+    const metrics = (g: { targets: Target[] }) => {
+      let opens = 0;
+      let clicks = 0;
+      let lastOpen = 0;
+      for (const t of g.targets) {
+        const latest = t.touches[0];
+        if (!latest) continue;
+        opens += latest.openCount || 0;
+        clicks += latest.clickCount || 0;
+        if (latest.lastOpenAt) {
+          const ts = new Date(latest.lastOpenAt).getTime();
+          if (ts > lastOpen) lastOpen = ts;
+        }
+      }
+      return { opens, clicks, lastOpen };
+    };
+
+    if (sortBy === "notOpened") {
+      groups = groups.filter((g) => metrics(g).opens === 0 && g.targets.length > 0);
+    } else if (sortBy === "opens") {
+      groups.sort((a, b) => metrics(b).opens - metrics(a).opens);
+    } else if (sortBy === "clicks") {
+      groups.sort((a, b) => metrics(b).clicks - metrics(a).clicks);
+    } else if (sortBy === "lastOpen") {
+      groups.sort((a, b) => metrics(b).lastOpen - metrics(a).lastOpen);
+    }
+
+    return groups;
+  }, [visibleTargets, pendingContacts, activeTab, searchTerm, sortBy]);
 
   const toggleExpand = useCallback(
     async (target: Target) => {
@@ -961,6 +1056,46 @@ export default function OutreachPage() {
         })}
       </div>
 
+      {/* Barre recherche + tri */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Rechercher une marque, un contact, un email…"
+            className="w-full pl-9 pr-8 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2"
+            style={{ borderColor: "#E5E0DA" }}
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-gray-400 hover:text-gray-700"
+              title="Effacer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <ArrowUpDown className="w-4 h-4 text-gray-400" />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortKey)}
+            className="py-2 pl-3 pr-8 rounded-lg border text-sm font-medium cursor-pointer focus:outline-none focus:ring-2"
+            style={{ borderColor: "#E5E0DA", color: LICORICE }}
+            title="Trier les marques par engagement"
+          >
+            {SORT_DEFS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* Liste */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -970,10 +1105,17 @@ export default function OutreachPage() {
         <div className="text-center py-16 rounded-xl border border-dashed" style={{ borderColor: "#E5E0DA", backgroundColor: "#FBF8F4" }}>
           <Mail className="w-8 h-8 mx-auto mb-3 text-gray-300" />
           <p className="text-sm text-gray-500">
-            {activeTab === "TO_CONTACT" && "Aucun nouveau client à contacter. Ajoute un client pour démarrer."}
-            {activeTab === "WAITING" && "Aucun client en attente."}
-            {activeTab === "TO_RECONTACT" && "Aucun client à recontacter pour l'instant."}
-            {activeTab === "STOPPED" && "Aucun client stoppé."}
+            {searchTerm.trim()
+              ? `Aucun résultat pour « ${searchTerm.trim()} ».`
+              : sortBy === "notOpened"
+              ? "Tous les clients de cette file ont ouvert leur dernier mail."
+              : activeTab === "TO_CONTACT"
+              ? "Aucun nouveau client à contacter. Ajoute un client pour démarrer."
+              : activeTab === "WAITING"
+              ? "Aucun client en attente."
+              : activeTab === "TO_RECONTACT"
+              ? "Aucun client à recontacter pour l'instant."
+              : "Aucun client stoppé."}
           </p>
         </div>
       ) : (
@@ -1182,13 +1324,37 @@ export default function OutreachPage() {
                             </span>
                           )}
                           {latest && latest.openCount > 0 && (
-                            <span className="inline-flex items-center gap-1 text-gray-500">
+                            <span
+                              className="inline-flex items-center gap-1 text-gray-500"
+                              title={
+                                `Ouvert ${latest.openCount} fois\n` +
+                                (latest.openedAt
+                                  ? `1ère ouverture : ${formatDateTime(latest.openedAt)}\n`
+                                  : "") +
+                                (latest.lastOpenAt
+                                  ? `Dernière : ${formatDateTime(latest.lastOpenAt)}`
+                                  : "")
+                              }
+                            >
                               <Eye className="w-3.5 h-3.5" />
                               {latest.openCount}
+                              {latest.lastOpenAt && (
+                                <span className="text-gray-400">
+                                  · {timeAgo(latest.lastOpenAt)}
+                                </span>
+                              )}
                             </span>
                           )}
                           {latest && latest.clickCount > 0 && (
-                            <span className="inline-flex items-center gap-1 text-gray-500">
+                            <span
+                              className="inline-flex items-center gap-1 text-gray-500"
+                              title={
+                                `Cliqué ${latest.clickCount} fois` +
+                                (latest.lastClickAt
+                                  ? `\nDernier clic : ${formatDateTime(latest.lastClickAt)}`
+                                  : "")
+                              }
+                            >
                               <MousePointerClick className="w-3.5 h-3.5" />
                               {latest.clickCount}
                             </span>
@@ -1320,11 +1486,38 @@ export default function OutreachPage() {
                                         Réponse : {formatDate(touch.repliedAt)}
                                       </span>
                                     )}
-                                    <span className="inline-flex items-center gap-1 text-gray-400 ml-auto">
+                                    <span
+                                      className="inline-flex items-center gap-1 text-gray-400 ml-auto"
+                                      title={
+                                        touch.lastOpenAt
+                                          ? `Dernière ouverture : ${formatDateTime(touch.lastOpenAt)}`
+                                          : undefined
+                                      }
+                                    >
                                       <Eye className="w-3 h-3" /> {touch.openCount}
                                       <MousePointerClick className="w-3 h-3 ml-2" /> {touch.clickCount}
                                     </span>
                                   </div>
+                                  {touch.openCount > 0 && (
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+                                      <span className="inline-flex items-center gap-1">
+                                        <Eye className="w-3 h-3" style={{ color: OLD_ROSE }} />
+                                        {touch.openCount} ouverture{touch.openCount > 1 ? "s" : ""}
+                                      </span>
+                                      {touch.openedAt && (
+                                        <span>1ère : {formatDateTime(touch.openedAt)}</span>
+                                      )}
+                                      {touch.lastOpenAt &&
+                                        touch.lastOpenAt !== touch.openedAt && (
+                                          <span>
+                                            Dernière : {formatDateTime(touch.lastOpenAt)}{" "}
+                                            <span className="text-gray-400">
+                                              ({timeAgo(touch.lastOpenAt)})
+                                            </span>
+                                          </span>
+                                        )}
+                                    </div>
+                                  )}
                                   {touch.clicks && touch.clicks.length > 0 && (
                                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                                       <span className="text-[11px] text-gray-400">Liens cliqués :</span>
