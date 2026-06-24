@@ -58,10 +58,6 @@ function restoreTokens(text: string, sentinels: Sentinel[]): string {
   for (const { key, value } of sentinels) {
     out = out.split(key).join(value);
   }
-  // Filet de sécurité : si l'IA a renuméroté/halluciné une sentinelle qui
-  // n'existe pas dans la liste, on la retire plutôt que de la laisser
-  // apparaître en clair (« §§GLOW45§§ ») dans l'email final.
-  out = out.replace(/§§GLOW\d+§§/g, "");
   return out;
 }
 
