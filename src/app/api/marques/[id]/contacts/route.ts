@@ -33,6 +33,7 @@ export async function POST(
       telephone?: string;
       poste?: string;
       linkedinUrl?: string;
+      language?: string;
     };
 
     const prenom = (body.prenom || "").trim();
@@ -41,6 +42,13 @@ export async function POST(
     if (!prenom && !nom) {
       return NextResponse.json({ error: "Nom ou prénom requis." }, { status: 400 });
     }
+    if (body.language !== "fr" && body.language !== "en") {
+      return NextResponse.json(
+        { error: "Langue du contact requise (français ou anglais)." },
+        { status: 400 }
+      );
+    }
+    const language: "fr" | "en" = body.language;
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Email invalide." }, { status: 400 });
     }
@@ -67,6 +75,7 @@ export async function POST(
         telephone: (body.telephone || "").trim() || null,
         poste: (body.poste || "").trim() || null,
         linkedinUrl: (body.linkedinUrl || "").trim() || null,
+        language,
       },
     });
 

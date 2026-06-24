@@ -117,6 +117,95 @@ function senderLabel(accounts: SenderAccount[], fromEmail: string | null): strin
   return email;
 }
 
+/** Résultat final renvoyé par /api/outreach/send-bulk (mode flux ou JSON). */
+type BulkSendResult = {
+  sent: number;
+  failed: { email: string; error: string }[];
+  needsConfirmation: {
+    targetId: string;
+    email: string;
+    message: string;
+    suggestedNextRecontactAt?: string;
+  }[];
+  hubspotSynced?: number;
+  translated: number;
+  translationFailed: "en" | "fr" | null;
+};
+
+/**
+ * Appelle /api/outreach/send-bulk en mode flux (NDJSON) et relaie chaque
+ * événement de progression à `onProgress`, puis renvoie le résultat final.
+ * Si le serveur ne renvoie pas de flux (anciennes réponses JSON), on retombe
+ * proprement sur un parse JSON classique.
+ */
+async function sendBulkStreaming(
+  payload: {
+    targetIds: string[];
+    subject: string;
+    bodyHtml: string;
+    sourceLanguage: "fr" | "en";
+    force?: boolean;
+  },
+  onProgress: (p: { done: number; total: number; label: string }) => void
+): Promise<BulkSendResult> {
+  const res = await fetch("/api/outreach/send-bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, stream: true }),
+  });
+
+  const contentType = res.headers.get("Content-Type") || "";
+  if (!res.body || !contentType.includes("ndjson")) {
+    // Pas de flux : réponse JSON simple (ou erreur).
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Erreur d'envoi");
+    return data as BulkSendResult;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: BulkSendResult | null = null;
+
+  const handleLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
+    if (event.type === "progress") {
+      onProgress({
+        done: Number(event.done) || 0,
+        total: Number(event.total) || 0,
+        label: String(event.label || ""),
+      });
+    } else if (event.type === "result") {
+      result = event as unknown as BulkSendResult;
+    } else if (event.type === "error") {
+      throw new Error(String(event.error || "Erreur d'envoi"));
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nlIndex: number;
+    while ((nlIndex = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, nlIndex);
+      buffer = buffer.slice(nlIndex + 1);
+      handleLine(line);
+    }
+  }
+  if (buffer) handleLine(buffer);
+
+  if (!result) throw new Error("Réponse d'envoi incomplète.");
+  return result;
+}
+
 /** Contact importé depuis une cartographie (fichier Claude/Excel), en attente d'email. */
 type PendingContact = {
   id: string;
@@ -223,6 +312,13 @@ export default function OutreachPage() {
   const [expandedLoading, setExpandedLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [checkingBounces, setCheckingBounces] = useState(false);
+  // Progression de l'envoi groupé (traduction + envoi), affichée en overlay
+  // quand plusieurs contacts sont concernés.
+  const [sendProgress, setSendProgress] = useState<{
+    done: number;
+    total: number;
+    label: string;
+  } | null>(null);
 
   const flash = useCallback((kind: "success" | "error", message: string) => {
     if (kind === "success") {
@@ -503,18 +599,33 @@ export default function OutreachPage() {
           const subjectToSend = draft?.subject || "";
           const bodyToSend = draft?.bodyHtml || "";
 
-          const res = await fetch("/api/outreach/send-bulk", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              targetIds: ids,
-              subject: subjectToSend,
-              bodyHtml: bodyToSend,
-              sourceLanguage,
-            }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || "Erreur d'envoi");
+          // Barre de progression (traduction + envoi). On l'initialise dès le
+          // départ pour donner un retour immédiat à l'utilisateur.
+          const showProgress = group.targets.length > 1 || toTranslateCount > 0;
+          if (showProgress) {
+            setSendProgress({
+              done: 0,
+              total: ids.length,
+              label: "Préparation de l'envoi…",
+            });
+          }
+
+          let data: BulkSendResult;
+          try {
+            data = await sendBulkStreaming(
+              {
+                targetIds: ids,
+                subject: subjectToSend,
+                bodyHtml: bodyToSend,
+                sourceLanguage,
+              },
+              (p) => {
+                if (showProgress) setSendProgress(p);
+              }
+            );
+          } finally {
+            setSendProgress(null);
+          }
 
           const failed: { email: string; error: string }[] = data.failed || [];
           const needsConfirmation: {
@@ -577,19 +688,31 @@ export default function OutreachPage() {
 
             const confirmIds = needsConfirmation.map((c) => c.targetId);
             if (sendAnyway) {
-              const resForce = await fetch("/api/outreach/send-bulk", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  targetIds: confirmIds,
-                  subject: subjectToSend,
-                  bodyHtml: bodyToSend,
-                  sourceLanguage,
-                  force: true,
-                }),
-              });
-              const forceData = await resForce.json();
-              if (!resForce.ok) throw new Error(forceData.error || "Erreur d'envoi");
+              const showForceProgress = confirmIds.length > 1;
+              if (showForceProgress) {
+                setSendProgress({
+                  done: 0,
+                  total: confirmIds.length,
+                  label: "Préparation de l'envoi…",
+                });
+              }
+              let forceData: BulkSendResult;
+              try {
+                forceData = await sendBulkStreaming(
+                  {
+                    targetIds: confirmIds,
+                    subject: subjectToSend,
+                    bodyHtml: bodyToSend,
+                    sourceLanguage,
+                    force: true,
+                  },
+                  (p) => {
+                    if (showForceProgress) setSendProgress(p);
+                  }
+                );
+              } finally {
+                setSendProgress(null);
+              }
               const forceFailed: { email: string; error: string }[] =
                 forceData.failed || [];
               if (forceData.sent > 0) {
@@ -1325,6 +1448,60 @@ export default function OutreachPage() {
         onError={(m) => flash("error", m)}
         onSuccess={() => {}}
       />
+      {sendProgress && (
+        <SendProgressOverlay progress={sendProgress} />
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Overlay : progression d'un envoi groupé (traduction + envoi)        */
+/* ------------------------------------------------------------------ */
+
+function SendProgressOverlay({
+  progress,
+}: {
+  progress: { done: number; total: number; label: string };
+}) {
+  const pct =
+    progress.total > 0
+      ? Math.min(100, Math.round((progress.done / progress.total) * 100))
+      : 0;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+        style={{ border: `1px solid ${OLD_ROSE}33` }}
+      >
+        <div className="flex items-center gap-2.5">
+          <Loader2 className="h-5 w-5 animate-spin" style={{ color: OLD_ROSE }} />
+          <h3 className="text-base font-semibold" style={{ color: LICORICE }}>
+            Envoi en cours…
+          </h3>
+        </div>
+        <p className="mt-2 text-sm text-gray-600 truncate" title={progress.label}>
+          {progress.label || "Préparation…"}
+        </p>
+        <div className="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
+          <div
+            className="h-full rounded-full transition-all duration-300 ease-out"
+            style={{
+              width: `${pct}%`,
+              backgroundColor: OLD_ROSE,
+            }}
+          />
+        </div>
+        <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+          <span>
+            {progress.done} / {progress.total}
+          </span>
+          <span>{pct}%</span>
+        </div>
+        <p className="mt-3 text-[11px] text-gray-400">
+          Ne ferme pas cette fenêtre pendant l&apos;envoi.
+        </p>
+      </div>
     </div>
   );
 }

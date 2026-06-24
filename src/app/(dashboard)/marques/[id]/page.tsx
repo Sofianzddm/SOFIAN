@@ -253,6 +253,7 @@ export default function MarqueDetailPage() {
     telephone: "",
     linkedinUrl: "",
   });
+  const [newContactLang, setNewContactLang] = useState<"fr" | "en" | null>(null);
   const [savingContact, setSavingContact] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
 
@@ -302,11 +303,12 @@ export default function MarqueDetailPage() {
       const res = await fetch(`/api/marques/${params.id}/contacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newContact),
+        body: JSON.stringify({ ...newContact, language: newContactLang }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
       setNewContact({ prenom: "", nom: "", poste: "", email: "", telephone: "", linkedinUrl: "" });
+      setNewContactLang(null);
       setShowAddContact(false);
       await fetchMarque();
     } catch (e) {
@@ -850,11 +852,45 @@ export default function MarqueDetailPage() {
                         />
                       ))}
                     </div>
+                    <div className="mt-3">
+                      <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
+                        Langue du contact <span className="text-red-500">*</span>
+                      </label>
+                      <div className="flex gap-1.5">
+                        {(["fr", "en"] as const).map((lang) => {
+                          const active = newContactLang === lang;
+                          return (
+                            <button
+                              key={lang}
+                              type="button"
+                              onClick={() => setNewContactLang(lang)}
+                              className="px-3 py-1.5 rounded-lg text-[13px] font-medium transition ring-1 ring-black/[0.08]"
+                              style={
+                                active
+                                  ? { backgroundColor: INK, color: "white" }
+                                  : { backgroundColor: "white", color: INK }
+                              }
+                            >
+                              {lang === "fr" ? "🇫🇷 Français" : "🇬🇧 English"}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {newContactLang === null && (
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          Obligatoire : ses mails et relances auto partiront dans cette langue.
+                        </p>
+                      )}
+                    </div>
                     {contactError && <p className="text-xs text-red-600 mt-2">{contactError}</p>}
                     <div className="flex justify-end mt-3">
                       <button
                         onClick={submitNewContact}
-                        disabled={savingContact || (!newContact.prenom.trim() && !newContact.nom.trim())}
+                        disabled={
+                          savingContact ||
+                          (!newContact.prenom.trim() && !newContact.nom.trim()) ||
+                          newContactLang === null
+                        }
                         className="flex items-center gap-2 px-4 py-2 text-[13px] font-semibold text-white rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
                         style={{ backgroundColor: INK }}
                       >
