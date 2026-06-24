@@ -601,6 +601,46 @@ export default function OutreachPage() {
   );
 
   /**
+   * Retire toute la marque du cycle Outreach (ajout par erreur) : supprime ses
+   * contacts du cycle + ses contacts en attente issus de la carto. La fiche
+   * marque reste dans le CRM. Admin uniquement.
+   */
+  const handleDeleteMarque = useCallback(
+    async (group: { marqueId: string; company: string; targets: Target[]; pending: PendingContact[] }) => {
+      const inCycle = group.targets.length;
+      const waiting = group.pending.length;
+      const detail = [
+        inCycle > 0 ? `${inCycle} contact${inCycle > 1 ? "s" : ""} du cycle` : null,
+        waiting > 0 ? `${waiting} contact${waiting > 1 ? "s" : ""} en attente` : null,
+      ]
+        .filter(Boolean)
+        .join(" et ");
+      if (
+        !window.confirm(
+          `Retirer ${group.company} de l'outreach ?\n\n${detail || "Aucun contact"} ` +
+            `seront supprimés du cycle et leur historique effacé. La fiche marque reste dans le CRM.`
+        )
+      )
+        return;
+      setActionBusy(group.marqueId);
+      try {
+        const res = await fetch(`/api/outreach/marques/${group.marqueId}`, { method: "DELETE" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Erreur");
+        }
+        flash("success", `${group.company} retirée de l'outreach.`);
+        await Promise.all([loadTargets(), loadPendingContacts()]);
+      } catch (e) {
+        flash("error", e instanceof Error ? e.message : "Erreur");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [flash, loadTargets, loadPendingContacts]
+  );
+
+  /**
    * Contenu passé au composer (même composant que le pipeline talent).
    * Tous les contacts de la marque : un seul mail rédigé, envoyé
    * individuellement à chacun (variables personnalisées par contact).
@@ -1121,7 +1161,8 @@ export default function OutreachPage() {
       ) : (
         <div className="space-y-4">
           {visibleGroups.map((group) => {
-            const groupBusy = group.targets.some((t) => actionBusy === t.id);
+            const groupBusy =
+              group.targets.some((t) => actionBusy === t.id) || actionBusy === group.marqueId;
             const canCompose = activeTab !== "STOPPED";
             const groupLangs = [
               ...group.targets.map((t) => (t.language === "en" ? "en" : "fr")),
@@ -1208,6 +1249,17 @@ export default function OutreachPage() {
                       <Send className="w-3.5 h-3.5" />
                       {activeTab === "TO_CONTACT" ? "Rédiger le mail" : "Nouveau mail"}
                       {group.targets.length > 1 && ` (${group.targets.length})`}
+                    </button>
+                  )}
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDeleteMarque(group)}
+                      disabled={groupBusy}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-gray-400 hover:text-red-600 hover:bg-red-50 transition disabled:opacity-50"
+                      title="Retirer cette marque de l'outreach (admin) — ajout par erreur"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Retirer
                     </button>
                   )}
                 </div>
