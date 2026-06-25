@@ -454,6 +454,16 @@ export function ProspectingPipelineClient() {
       const newlyAdded = cleaned.filter((c) => !existingEmails.has(c.email));
       const isAlreadySent = Boolean(m.sentAt);
 
+      // Même système que /outreach : si la langue du client diffère de la
+      // langue de rédaction du brouillon, le mail sera traduit automatiquement
+      // au moment de l'envoi. On l'indique clairement dans le message de succès.
+      const clientLang = (m.clientLanguage || "FR") as "FR" | "EN";
+      const draftLang = String(m.draftLanguage || "fr").toUpperCase();
+      const willTranslate = clientLang !== draftLang;
+      const translateNote = willTranslate
+        ? ` 🌐 Traduit automatiquement en ${clientLang === "EN" ? "anglais" : "français"} avant envoi.`
+        : "";
+
       const byEmail = new Map<string, { firstname?: string; lastname?: string; email?: string; role?: string }>();
       for (const c of currentContacts) {
         const email = String(c?.email || "").trim().toLowerCase();
@@ -529,11 +539,11 @@ export function ProspectingPipelineClient() {
           ]);
           if (isAlreadySent) {
             setSuccess(
-              `${cleaned.length} contact(s) enregistré(s). Envoi dans 30s uniquement au${recipientsCount > 1 ? "x" : ""} ${recipientsCount} nouveau${recipientsCount > 1 ? "x" : ""} contact${recipientsCount > 1 ? "s" : ""} (les ${existingEmails.size} déjà contacté${existingEmails.size > 1 ? "s" : ""} sont ignoré${existingEmails.size > 1 ? "s" : ""}).`
+              `${cleaned.length} contact(s) enregistré(s). Envoi dans 30s uniquement au${recipientsCount > 1 ? "x" : ""} ${recipientsCount} nouveau${recipientsCount > 1 ? "x" : ""} contact${recipientsCount > 1 ? "s" : ""} (les ${existingEmails.size} déjà contacté${existingEmails.size > 1 ? "s" : ""} sont ignoré${existingEmails.size > 1 ? "s" : ""}).${translateNote}`
             );
           } else {
             setSuccess(
-              `${cleaned.length} contact(s) enregistré(s). Envoi auto dans 30s depuis leyna@glowupagence.fr.`
+              `${cleaned.length} contact(s) enregistré(s). Envoi auto dans 30s depuis leyna@glowupagence.fr.${translateNote}`
             );
           }
           await loadMissions();
