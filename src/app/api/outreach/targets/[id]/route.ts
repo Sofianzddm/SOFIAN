@@ -7,6 +7,8 @@ import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
 /**
  * GET    → fiche client + historique complet des touches
  * PATCH  → { action: "stop" | "resume" }  : sortir/remettre le client dans le cycle
+ *          { action: "pause-relance" | "resume-relance" } : mettre en pause /
+ *            reprendre la relance auto J+3 du dernier mail (le compteur 45j continue)
  *          { action: "draft", subject, bodyHtml } : enregistrer le brouillon
  *          { action: "edit", firstname, lastname, email, company } : éditer le client
  * DELETE → suppression (ADMIN uniquement, p.ex. ajout par erreur)
@@ -73,7 +75,13 @@ export async function PATCH(
 
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as {
-      action?: "stop" | "resume" | "draft" | "edit";
+      action?:
+        | "stop"
+        | "resume"
+        | "pause-relance"
+        | "resume-relance"
+        | "draft"
+        | "edit";
       subject?: string;
       bodyHtml?: string;
       firstname?: string;
@@ -230,6 +238,44 @@ export async function PATCH(
         data: { status, stoppedAt: null, stoppedById: null },
       });
       return NextResponse.json({ target: updated });
+    }
+
+    if (body.action === "pause-relance" || body.action === "resume-relance") {
+      // La pause s'applique au dernier mail de cycle envoyé (celui dont la
+      // relance auto J+3 est encore en attente). Le compteur 45j continue.
+      const touch = await prisma.outreachTouch.findFirst({
+        where: { targetId: id, sentAt: { not: null } },
+        orderBy: { cycleNumber: "desc" },
+        select: { id: true, relanceSentAt: true, repliedAt: true },
+      });
+      if (!touch) {
+        return NextResponse.json(
+          { error: "Aucun mail de cycle envoyé pour ce client." },
+          { status: 409 }
+        );
+      }
+      if (touch.relanceSentAt) {
+        return NextResponse.json(
+          { error: "La relance a déjà été envoyée pour ce mail." },
+          { status: 409 }
+        );
+      }
+
+      if (body.action === "pause-relance" && touch.repliedAt) {
+        return NextResponse.json(
+          { error: "Le client a répondu : aucune relance n'est prévue." },
+          { status: 409 }
+        );
+      }
+
+      await prisma.outreachTouch.update({
+        where: { id: touch.id },
+        data:
+          body.action === "pause-relance"
+            ? { relanceCancelledAt: new Date(), relanceCancelledById: session.user.id }
+            : { relanceCancelledAt: null, relanceCancelledById: null },
+      });
+      return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

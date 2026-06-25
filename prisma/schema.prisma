@@ -2956,6 +2956,9 @@ model OutreachTouch {
   relanceSentAt    DateTime?
   relanceMessageId String?
   relanceError     String?   @db.Text
+  // Pause manuelle de la relance auto sur ce mail (le compteur 45j continue).
+  relanceCancelledAt   DateTime?
+  relanceCancelledById String?
   repliedAt        DateTime?
 
   openedAt     DateTime?

@@ -130,10 +130,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 2. Relance auto J+3 ouvrés (sautée si réponse sur ce touch)
+    // 2. Relance auto J+3 ouvrés (sautée si réponse ou pause manuelle sur ce touch)
     if (
       !hasReplied &&
       !touch.relanceSentAt &&
+      !touch.relanceCancelledAt &&
       relanceDue(touch.sentAt, OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
     ) {
       const result = await executeOutreachRelance(touch.id);

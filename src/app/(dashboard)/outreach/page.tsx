@@ -25,6 +25,7 @@ import {
   Send,
   StopCircle,
   PlayCircle,
+  PauseCircle,
   Trash2,
   ChevronDown,
   ChevronUp,
@@ -58,6 +59,7 @@ type TouchSummary = {
   subject: string;
   sentAt: string | null;
   relanceSentAt: string | null;
+  relanceCancelledAt: string | null;
   repliedAt: string | null;
   openCount: number;
   openedAt: string | null;
@@ -961,6 +963,29 @@ export default function OutreachPage() {
     [flash, loadTargets]
   );
 
+  const handlePauseRelance = useCallback(
+    async (target: Target, pause: boolean) => {
+      const action = pause ? "pause-relance" : "resume-relance";
+      setActionBusy(target.id);
+      try {
+        const res = await fetch(`/api/outreach/targets/${target.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Erreur");
+        flash("success", pause ? "Relance auto mise en pause." : "Relance auto réactivée.");
+        await loadTargets();
+      } catch (e) {
+        flash("error", e instanceof Error ? e.message : "Erreur");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [flash, loadTargets]
+  );
+
   /** Contact de carto : on note son email → il entre dans le cycle. */
   const handleAddPendingToCycle = useCallback(
     async (contact: PendingContact, email: string) => {
@@ -1271,17 +1296,30 @@ export default function OutreachPage() {
                   const expanded = expandedId === target.id;
                   const busy = actionBusy === target.id;
                   // Relance auto J+3 ouvrés : prévue tant qu'elle n'est pas
-                  // partie et que le client n'a pas répondu sur ce mail.
+                  // partie, pas en pause et que le client n'a pas répondu.
+                  const relancePaused =
+                    target.status === "WAITING" &&
+                    Boolean(latest?.sentAt) &&
+                    !latest?.relanceSentAt &&
+                    !latest?.repliedAt &&
+                    Boolean(latest?.relanceCancelledAt);
                   const relancePlannedAt =
                     target.status === "WAITING" &&
                     latest?.sentAt &&
                     !latest.relanceSentAt &&
-                    !latest.repliedAt
+                    !latest.repliedAt &&
+                    !latest.relanceCancelledAt
                       ? businessDaysAfter(new Date(latest.sentAt), RELANCE_BUSINESS_DAYS)
                       : null;
                   const relanceDays = relancePlannedAt
                     ? daysUntil(relancePlannedAt.toISOString())
                     : null;
+                  // Relance auto encore activable (pour les boutons pause/reprise)
+                  const relanceActionable =
+                    target.status === "WAITING" &&
+                    Boolean(latest?.sentAt) &&
+                    !latest?.relanceSentAt &&
+                    !latest?.repliedAt;
                   return (
                     <div key={target.id} className="border-b last:border-b-0" style={{ borderColor: "#F5F1EB" }}>
                       <div className="px-4 py-2.5 flex flex-wrap items-center gap-3">
@@ -1366,6 +1404,20 @@ export default function OutreachPage() {
                                 : `Relance auto le ${formatDate(relancePlannedAt.toISOString())}`}
                             </span>
                           )}
+                          {relancePaused && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
+                              style={{ backgroundColor: "#FFF7E8", color: "#8A6D1A" }}
+                              title={`Relance auto J+3 en pause${
+                                latest?.relanceCancelledAt
+                                  ? ` depuis le ${formatDate(latest.relanceCancelledAt)}`
+                                  : ""
+                              } — elle ne partira pas tant qu'elle n'est pas réactivée.`}
+                            >
+                              <PauseCircle className="w-3 h-3" />
+                              Relance en pause
+                            </span>
+                          )}
                           {latest?.relanceSentAt && (
                             <span
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
@@ -1432,7 +1484,7 @@ export default function OutreachPage() {
 
                         {/* Actions contact */}
                         <div className="flex items-center gap-1.5 ml-auto">
-                          {target.status === "WAITING" && latest && !latest.relanceSentAt && !latest.repliedAt && (
+                          {relanceActionable && !relancePaused && (
                             <button
                               onClick={() => handleRelanceNow(target)}
                               disabled={busy}
@@ -1442,6 +1494,25 @@ export default function OutreachPage() {
                             >
                               <Mail className="w-3.5 h-3.5" />
                               Relancer
+                            </button>
+                          )}
+                          {relanceActionable && (
+                            <button
+                              onClick={() => handlePauseRelance(target, !relancePaused)}
+                              disabled={busy}
+                              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-50 transition disabled:opacity-50"
+                              style={relancePaused ? { color: "#8A6D1A" } : undefined}
+                              title={
+                                relancePaused
+                                  ? "Réactiver la relance automatique J+3"
+                                  : "Mettre la relance automatique J+3 en pause (le compteur 45 jours continue)"
+                              }
+                            >
+                              {relancePaused ? (
+                                <PlayCircle className="w-4 h-4" />
+                              ) : (
+                                <PauseCircle className="w-4 h-4" />
+                              )}
                             </button>
                           )}
                           <button
@@ -1531,6 +1602,14 @@ export default function OutreachPage() {
                                     {touch.relanceSentAt && (
                                       <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
                                         Relance : {formatDate(touch.relanceSentAt)}
+                                      </span>
+                                    )}
+                                    {!touch.relanceSentAt && touch.relanceCancelledAt && (
+                                      <span
+                                        className="px-1.5 py-0.5 rounded font-medium"
+                                        style={{ backgroundColor: "#FFF7E8", color: "#8A6D1A" }}
+                                      >
+                                        Relance en pause
                                       </span>
                                     )}
                                     {touch.repliedAt && (
