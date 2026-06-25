@@ -21,7 +21,7 @@ export type EmvConfig = {
 
 export const DEFAULT_EMV_CONFIG: EmvConfig = {
   formatCpm: {
-    story: 6,
+    story: 7,
     reel: 20,
     post: 16,
     carrousel: 17,
