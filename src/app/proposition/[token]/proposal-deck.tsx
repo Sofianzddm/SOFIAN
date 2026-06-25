@@ -243,6 +243,60 @@ export function ProposalDeckView({
   const castingRenderGroups = castingGroupsOrder.length ? castingGroupsOrder : [""];
   const showCastingTitles = castingRenderGroups.length > 1;
 
+  // Les groupes de casting sont des propositions de line-up alternatives :
+  // on consolide donc le Reach / EMV / ROI par casting plutôt qu'en un seul total.
+  const groupTotalOf = (gname: string) => {
+    let reach = 0;
+    let emvSum = 0;
+    let interactions = 0;
+    p.deliverables.forEach((d, i) => {
+      const member = p.casting.find(
+        (c) => (c.name || "").trim().toLowerCase() === (d.talent || "").trim().toLowerCase()
+      );
+      const g = member ? castingGroupOf(member) : castingFallbackGroup;
+      if (g !== gname) return;
+      const line = emv.lines[i];
+      reach += line?.reach || 0;
+      emvSum += line?.retained || 0;
+      interactions += line?.interactions || 0;
+    });
+    return { name: gname, reach, emv: emvSum, interactions };
+  };
+  const castingTotals = castingRenderGroups.map(groupTotalOf).filter((t) => t.emv > 0);
+
+  const renderSummaryGrid = (reach: number, emvVal: number, interactions: number) => (
+    <div
+      className="grid grid-cols-1 gap-px overflow-hidden rounded-3xl border sm:grid-cols-3"
+      style={{ borderColor: `${accent}40`, backgroundColor: `${accent}26` }}
+    >
+      <div className="p-7 text-center" style={{ backgroundColor: baseBg }}>
+        <p className="text-xs uppercase tracking-[0.2em] opacity-60">Reach total estimé</p>
+        <p className="mt-2 text-3xl font-bold md:text-4xl">{formatCompact(reach)}</p>
+        <p className="mt-1 text-xs opacity-50">personnes touchées</p>
+      </div>
+      <div className="p-7 text-center" style={{ backgroundColor: baseBg }}>
+        <p className="text-xs uppercase tracking-[0.2em] opacity-60">EMV totale estimée</p>
+        <p className="mt-2 text-3xl font-bold md:text-4xl" style={{ color: accent }}>
+          {money(emvVal, p.budgetCurrency)}
+        </p>
+        <p className="mt-1 text-xs opacity-50">≈ {formatCompact(interactions)} interactions</p>
+      </div>
+      <div className="p-7 text-center" style={{ backgroundColor: baseBg }}>
+        <p className="text-xs uppercase tracking-[0.2em] opacity-60">
+          {budgetTotal > 0 ? "Retour sur investissement" : "Investissement"}
+        </p>
+        {budgetTotal > 0 ? (
+          <>
+            <p className="mt-2 text-3xl font-bold md:text-4xl">×{(emvVal / budgetTotal).toFixed(1)}</p>
+            <p className="mt-1 text-xs opacity-50">EMV / investissement de {money(budgetTotal, p.budgetCurrency)}</p>
+          </>
+        ) : (
+          <p className="mt-2 text-3xl font-bold md:text-4xl">{money(budgetTotal, p.budgetCurrency)}</p>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <AnimateContext.Provider value={animate}>
       <div style={{ ...deckBackgroundStyle(theme), color: theme.textColor, fontFamily: FONT_STACKS[theme.font] }}>
@@ -526,9 +580,19 @@ export function ProposalDeckView({
                           {g.items.map(({ d, line }, k) => {
                             const qty = Number(d.quantity) || 1;
                             const contentLabel = `${d.platform ? d.platform + " " : ""}${d.format || "Contenu"}`.trim();
+                            // En story on parle de "vues cumulées" (et non de reach unique) :
+                            // c'est plus défendable face à une marque qu'un reach unique.
+                            const isStory = /story|stories|storie/i.test(`${d.format || ""} ${d.platform || ""}`);
+                            const reachUnit = isStory ? "vues cumulées" : "personnes touchées";
+                            const estimatedVerb = qty > 1 ? "sont estimés" : "est estimé";
                             const avgViews = d.avgViews ?? g.member?.avgViews;
                             const cells: { label: string; value: string }[] = [];
-                            if (line && line.reach > 0) cells.push({ label: line.estimated ? "Reach estimé" : "Reach observé", value: formatCompact(line.reach) });
+                            if (line && line.reach > 0) {
+                              const reachLabel = isStory
+                                ? (qty > 1 ? "Vues cumulées estimées" : "Vues estimées")
+                                : (line.estimated ? "Reach estimé" : "Reach observé");
+                              cells.push({ label: reachLabel, value: formatCompact(line.reach) });
+                            }
                             if (avgViews) cells.push({ label: "Vues moyennes", value: formatCompact(avgViews) });
                             if (line && line.interactions > 0) cells.push({ label: "Interactions est.", value: `≈ ${formatCompact(line.interactions)}` });
                             return (
@@ -557,14 +621,29 @@ export function ProposalDeckView({
                                 ) : null}
                                 {line && line.reach > 0 ? (
                                   <p className="mt-3 text-[13px] leading-relaxed opacity-70">
-                                    {qty > 1 ? `Ces ${qty} ${d.format || "contenus"}` : `Ce ${d.format || "contenu"}`} devrait toucher environ{" "}
-                                    <b>{formatCompact(line.reach)}</b> personnes
-                                    {line.interactions > 0 ? (
+                                    {isStory ? (
                                       <>
-                                        {" "}et générer près de <b>{formatCompact(line.interactions)}</b> interactions
+                                        {qty > 1 ? `Ces ${qty} Stories devraient` : "Cette Story devrait"} générer environ{" "}
+                                        <b>{formatCompact(line.reach)}</b> {qty > 1 ? "vues cumulées" : "vues"}
+                                        {qty > 1 ? (
+                                          <>
+                                            , soit environ <b>{formatCompact(line.reach / qty)}</b> vues par story
+                                          </>
+                                        ) : null}
+                                        , pour une valeur média estimée à <b>≈ {money(roundEmv(line.retained), p.budgetCurrency)}</b>.
                                       </>
-                                    ) : null}
-                                    , pour une valeur média estimée à <b>≈ {money(roundEmv(line.retained), p.budgetCurrency)}</b>.
+                                    ) : (
+                                      <>
+                                        {qty > 1 ? `Ces ${qty} ${d.format || "contenus"}` : `Ce ${d.format || "contenu"}`} {estimatedVerb} à environ{" "}
+                                        <b>{formatCompact(line.reach)}</b> {reachUnit}
+                                        {line.interactions > 0 ? (
+                                          <>
+                                            {" "}et {qty > 1 ? "devraient" : "devrait"} générer près de <b>{formatCompact(line.interactions)}</b> interactions
+                                          </>
+                                        ) : null}
+                                        , pour une valeur média estimée à <b>≈ {money(roundEmv(line.retained), p.budgetCurrency)}</b>.
+                                      </>
+                                    )}
                                   </p>
                                 ) : null}
                               </div>
@@ -584,40 +663,27 @@ export function ProposalDeckView({
             ) : null}
 
             {hasEmv ? (
-              <Reveal className="mt-10">
-                <div
-                  className="grid grid-cols-1 gap-px overflow-hidden rounded-3xl border sm:grid-cols-3"
-                  style={{ borderColor: `${accent}40`, backgroundColor: `${accent}26` }}
-                >
-                  <div className="p-7 text-center" style={{ backgroundColor: baseBg }}>
-                    <p className="text-xs uppercase tracking-[0.2em] opacity-60">Reach total estimé</p>
-                    <p className="mt-2 text-3xl font-bold md:text-4xl">{formatCompact(emv.reach)}</p>
-                    <p className="mt-1 text-xs opacity-50">personnes touchées</p>
-                  </div>
-                  <div className="p-7 text-center" style={{ backgroundColor: baseBg }}>
-                    <p className="text-xs uppercase tracking-[0.2em] opacity-60">EMV totale estimée</p>
-                    <p className="mt-2 text-3xl font-bold md:text-4xl" style={{ color: accent }}>
-                      {money(emv.emv, p.budgetCurrency)}
-                    </p>
-                    <p className="mt-1 text-xs opacity-50">≈ {formatCompact(emv.interactions)} interactions</p>
-                  </div>
-                  <div className="p-7 text-center" style={{ backgroundColor: baseBg }}>
-                    <p className="text-xs uppercase tracking-[0.2em] opacity-60">
-                      {budgetTotal > 0 ? "Retour sur investissement" : "Investissement"}
-                    </p>
-                    {budgetTotal > 0 ? (
-                      <>
-                        <p className="mt-2 text-3xl font-bold md:text-4xl">
-                          ×{(emv.emv / budgetTotal).toFixed(1)}
+              showCastingTitles && castingTotals.length > 1 ? (
+                <div className="mt-10 space-y-8">
+                  {castingTotals.map((gt) => (
+                    <Reveal key={gt.name || "_"}>
+                      {gt.name ? (
+                        <p
+                          className="mb-3 text-center text-sm font-semibold uppercase tracking-[0.2em]"
+                          style={{ color: accent }}
+                        >
+                          {gt.name}
                         </p>
-                        <p className="mt-1 text-xs opacity-50">EMV / investissement de {money(budgetTotal, p.budgetCurrency)}</p>
-                      </>
-                    ) : (
-                      <p className="mt-2 text-3xl font-bold md:text-4xl">{money(budgetTotal, p.budgetCurrency)}</p>
-                    )}
-                  </div>
+                      ) : null}
+                      {renderSummaryGrid(gt.reach, gt.emv, gt.interactions)}
+                    </Reveal>
+                  ))}
                 </div>
-              </Reveal>
+              ) : (
+                <Reveal className="mt-10">
+                  {renderSummaryGrid(emv.reach, emv.emv, emv.interactions)}
+                </Reveal>
+              )
             ) : null}
           </Section>
         ) : null}
