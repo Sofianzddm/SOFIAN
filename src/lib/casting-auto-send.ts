@@ -27,6 +27,7 @@ import {
   normalizeEditorHtmlForEmail,
   buildQuotedOriginal,
 } from "@/lib/email-body-html";
+import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 
 export const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 export const LEYNA_OWNER_FIRSTNAME = "Leyna";
@@ -261,6 +262,40 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   const bodyTpl = normalizeEditorHtmlForEmail(
     upgradeTalentLinksInHtml(bodyRaw, missionTalents)
   );
+
+  // Traduction auto (FR<->EN) : si la langue du client (clientLanguage) diffère
+  // de la langue de rédaction du brouillon (draftLanguage), on traduit une seule
+  // fois avant l'envoi — même système que /outreach. Les jetons {{contact.*}},
+  // les liens et les balises HTML sont préservés par translateEmail. En cas
+  // d'échec de traduction, on retombe sur la version d'origine pour ne pas
+  // bloquer l'envoi (l'erreur est consignée dans sendError).
+  const sourceLang: "fr" | "en" =
+    String(mission.draftLanguage || "").toLowerCase() === "en" ? "en" : "fr";
+  const targetLang: "fr" | "en" =
+    String(mission.clientLanguage || "").toUpperCase() === "EN" ? "en" : "fr";
+  let sendSubjectTpl = subjectTpl;
+  let sendBodyTpl = bodyTpl;
+  let translationError: string | null = null;
+  if (sourceLang !== targetLang && (subjectTpl || bodyTpl)) {
+    try {
+      const tr = await translateEmail({
+        subject: subjectTpl,
+        bodyHtml: bodyTpl,
+        targetLanguage: targetLang,
+      });
+      sendSubjectTpl = tr.subject;
+      sendBodyTpl = tr.body;
+    } catch (e) {
+      if (e instanceof TranslateEmailError) {
+        translationError = `Traduction auto en ${
+          targetLang === "en" ? "anglais" : "français"
+        } indisponible : version d'origine envoyée.`;
+      } else {
+        throw e;
+      }
+    }
+  }
+
   const allContacts = parseCastingContacts(mission.clientContacts);
   const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
   const newContacts = allContacts.filter(
@@ -293,12 +328,12 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       outcome.byEmail[email] = { error: msg };
       continue;
     }
-    const personalizedSubject = applyCastingTemplateVars(subjectTpl, {
+    const personalizedSubject = applyCastingTemplateVars(sendSubjectTpl, {
       firstname: contact.firstname || "",
       lastname: contact.lastname || "",
       company: String(mission.targetBrand || ""),
     });
-    const personalizedBody = applyCastingTemplateVars(bodyTpl, {
+    const personalizedBody = applyCastingTemplateVars(sendBodyTpl, {
       firstname: contact.firstname || "",
       lastname: contact.lastname || "",
       company: String(mission.targetBrand || ""),
@@ -337,12 +372,16 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     ? { stage: "SENT" as const, status: "SENT" as const, sentAt: new Date() }
     : {};
 
+  const combinedErrors = translationError
+    ? [translationError, ...outcome.errors]
+    : outcome.errors;
+
   await contactMissionModel.update({
     where: { id: missionId },
     data: {
       ...stageUpdate,
       sentMessageIds: mergedMessages,
-      sendError: outcome.errors.length > 0 ? outcome.errors.join(" | ") : null,
+      sendError: combinedErrors.length > 0 ? combinedErrors.join(" | ") : null,
       scheduledSendAt: null,
       // Le flag de forcage est a usage unique : on le remet a false apres
       // l'execution pour ne pas court-circuiter le cooldown sur de futurs ajouts.
@@ -499,13 +538,18 @@ export async function buildCastingRelanceDraft(
       ? (mission.sentMessageIds as Record<string, SentMessageRecord>)
       : {};
 
+  const relanceLang: "fr" | "en" =
+    String(mission.clientLanguage || "").toUpperCase() === "EN" ? "en" : "fr";
+
   const subjectSrc = String(mission.draftEmailSubject || "").trim();
+  const defaultSubjectBase =
+    relanceLang === "en" ? "Our collaboration proposal" : "Notre proposition de collaboration";
   const subject = subjectSrc.toLowerCase().startsWith("re:")
     ? subjectSrc
-    : `Re: ${subjectSrc || "Notre proposition de collaboration"}`;
+    : `Re: ${subjectSrc || defaultSubjectBase}`;
 
   const targetBrand = String(mission.targetBrand || "").trim();
-  const bodyTemplate = buildDefaultRelanceTemplate(targetBrand);
+  const bodyTemplate = buildDefaultRelanceTemplate(targetBrand, relanceLang);
 
   const recipients: CastingRelanceRecipient[] = [];
   for (const [email, record] of Object.entries(sentByEmail)) {
@@ -564,21 +608,46 @@ export async function executeCastingRelance(
       ? (mission.sentMessageIds as Record<string, SentMessageRecord>)
       : {};
 
-  const subjectSrc = String(mission.draftEmailSubject || "").trim();
+  // Langue de la relance = langue du client. Le mail initial a été envoyé
+  // (et éventuellement traduit) dans cette langue : on aligne donc la relance
+  // ET la citation du mail d'origine sur la langue du client.
+  const relanceLang: "fr" | "en" =
+    String(mission.clientLanguage || "").toUpperCase() === "EN" ? "en" : "fr";
+  const sourceLang: "fr" | "en" =
+    String(mission.draftLanguage || "").toLowerCase() === "en" ? "en" : "fr";
+
+  let subjectSrc = String(mission.draftEmailSubject || "").trim();
+  let originalBodyTpl = String(mission.draftEmailBody || "").trim();
+  if (sourceLang !== relanceLang && (subjectSrc || originalBodyTpl)) {
+    try {
+      const tr = await translateEmail({
+        subject: subjectSrc,
+        bodyHtml: originalBodyTpl,
+        targetLanguage: relanceLang,
+      });
+      subjectSrc = tr.subject || subjectSrc;
+      originalBodyTpl = tr.body || originalBodyTpl;
+    } catch (e) {
+      if (!(e instanceof TranslateEmailError)) throw e;
+      // Traduction indisponible : on garde la version d'origine.
+    }
+  }
+
+  const defaultSubjectBase =
+    relanceLang === "en" ? "Our collaboration proposal" : "Notre proposition de collaboration";
   const relanceSubject =
     (options.subjectOverride && options.subjectOverride.trim()) ||
     (subjectSrc.toLowerCase().startsWith("re:")
       ? subjectSrc
-      : `Re: ${subjectSrc || "Notre proposition de collaboration"}`);
+      : `Re: ${subjectSrc || defaultSubjectBase}`);
 
   const targetBrand = String(mission.targetBrand || "").trim();
   const bodyTemplate =
     (options.bodyOverride && options.bodyOverride.trim()) ||
-    buildDefaultRelanceTemplate(targetBrand);
+    buildDefaultRelanceTemplate(targetBrand, relanceLang);
 
-  const originalBodyTpl = String(mission.draftEmailBody || "").trim();
   const sentDateLabel = mission.sentAt
-    ? formatRelanceDate(new Date(mission.sentAt), "fr")
+    ? formatRelanceDate(new Date(mission.sentAt), relanceLang)
     : "";
   const fromName = await getGmailFromName(LEYNA_FROM_EMAIL);
   const senderLabel = `${fromName} <${LEYNA_FROM_EMAIL}>`;

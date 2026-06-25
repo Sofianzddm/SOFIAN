@@ -36,6 +36,7 @@ type Mission = {
   stage: Stage;
   draftEmailSubject?: string | null;
   draftEmailBody?: string | null;
+  draftLanguage?: "fr" | "en" | null;
   clientLanguage?: "FR" | "EN" | null;
   clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }> | null;
   scheduledSendAt?: string | null;
@@ -301,6 +302,7 @@ export function ProspectingPipelineClient() {
       targetBrand?: string;
       draftEmailSubject?: string;
       draftEmailBody?: string;
+      draftLanguage?: "fr" | "en";
       clientLanguage?: "FR" | "EN" | "";
       clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }>;
     }
@@ -1404,16 +1406,18 @@ export function ProspectingPipelineClient() {
         }}
         onSaved={(
           status: "pret" | "en_cours" | "reset",
-          draft?: { subject: string; bodyHtml: string }
+          draft?: { subject: string; bodyHtml: string; language?: "fr" | "en" }
         ) => {
           const missionId = composerContact?.missionBrief?.id as string | undefined;
           if (!missionId) return;
+          const draftLanguage: "fr" | "en" = draft?.language === "en" ? "en" : "fr";
           if (status === "pret") {
             void patchMission(missionId, {
               stage: "DRAFTED_FOR_VALIDATION",
               status: "EMAIL_DRAFTED",
               draftEmailSubject: draft?.subject ?? "",
               draftEmailBody: draft?.bodyHtml ?? "",
+              draftLanguage,
             });
           } else if (status === "en_cours") {
             void patchMission(missionId, {
@@ -1421,6 +1425,7 @@ export function ProspectingPipelineClient() {
               status: "EMAIL_DRAFTED",
               draftEmailSubject: draft?.subject ?? "",
               draftEmailBody: draft?.bodyHtml ?? "",
+              draftLanguage,
             });
           }
         }}

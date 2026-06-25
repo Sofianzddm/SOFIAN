@@ -2518,6 +2518,7 @@ model ContactMission {
   stage                ContactMissionStage        @default(TO_DRAFT)
   draftEmailSubject    String?                    @db.Text
   draftEmailBody       String?                    @db.Text
+  draftLanguage        String?
   clientLanguage       String?
   clientContacts       Json?
   deadlineAt           DateTime?

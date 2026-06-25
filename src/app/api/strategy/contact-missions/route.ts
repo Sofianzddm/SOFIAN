@@ -127,6 +127,7 @@ export async function GET(request: NextRequest) {
           stage: m.stage,
           draftEmailSubject: m.draftEmailSubject ?? null,
           draftEmailBody: m.draftEmailBody ?? null,
+          draftLanguage: m.draftLanguage ?? null,
           clientLanguage: m.clientLanguage ?? null,
           clientContacts: m.clientContacts ?? null,
           deadlineAt: m.deadlineAt,
@@ -333,6 +334,7 @@ export async function PATCH(request: NextRequest) {
       targetBrand?: string;
       draftEmailSubject?: string | null;
       draftEmailBody?: string | null;
+      draftLanguage?: string | null;
       clientLanguage?: string | null;
       clientContacts?: unknown;
     };
@@ -349,12 +351,21 @@ export async function PATCH(request: NextRequest) {
         : normalizeEditorHtmlForEmail(String(body.draftEmailBody || ""));
     const clientLanguage =
       body.clientLanguage === undefined ? undefined : String(body.clientLanguage || "").trim().toUpperCase();
+    const draftLanguage =
+      body.draftLanguage === undefined
+        ? undefined
+        : String(body.draftLanguage || "").trim().toLowerCase() === "en"
+        ? "en"
+        : "fr";
     if (!missionId) {
       return NextResponse.json({ error: "missionId requis." }, { status: 400 });
     }
     const statusProvided = nextStatus.length > 0;
     const stageProvided = nextStage.length > 0;
-    const draftProvided = body.draftEmailSubject !== undefined || body.draftEmailBody !== undefined;
+    const draftProvided =
+      body.draftEmailSubject !== undefined ||
+      body.draftEmailBody !== undefined ||
+      body.draftLanguage !== undefined;
     const clientContextProvided = body.clientLanguage !== undefined || body.clientContacts !== undefined;
     const brandProvided = nextTargetBrand !== undefined;
     if (!statusProvided && !stageProvided && !draftProvided && !clientContextProvided && !brandProvided) {
@@ -436,6 +447,7 @@ export async function PATCH(request: NextRequest) {
           : {}),
         ...(body.draftEmailSubject !== undefined ? { draftEmailSubject: draftEmailSubject || null } : {}),
         ...(body.draftEmailBody !== undefined ? { draftEmailBody: draftEmailBody || null } : {}),
+        ...(body.draftLanguage !== undefined ? { draftLanguage } : {}),
         ...(body.clientLanguage !== undefined ? { clientLanguage: clientLanguage || null } : {}),
         ...(body.clientContacts !== undefined ? { clientContacts: body.clientContacts ?? null } : {}),
         ...(brandChanged ? { marqueId: marqueIdForUpdate } : marqueIdForUpdate ? { marqueId: marqueIdForUpdate } : {}),
