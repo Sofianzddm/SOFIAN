@@ -5,14 +5,17 @@ import { useSession } from "next-auth/react";
 import { Loader2, Plus, Lock, Mail, Send, ExternalLink, Eye, Reply, Clock } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
 import { businessDaysAfter } from "@/lib/business-days";
+import { PropositionsTab } from "./propositions-tab";
+import { BrandDealRoom } from "./brand-deal-room";
 
-type Tab = "casting" | "marques" | "planning" | "deals";
+type Tab = "casting" | "marques" | "planning" | "deals" | "propositions";
 
 const tabs: Array<{ key: Tab; label: string }> = [
   { key: "casting", label: "Casting" },
   { key: "marques", label: "Marques" },
   { key: "planning", label: "Planning" },
   { key: "deals", label: "Deals" },
+  { key: "propositions", label: "Propositions" },
 ];
 
 const pipelineColumns = [
@@ -354,6 +357,7 @@ export function StrategyProjectClient({
   const [talentOptions, setTalentOptions] = useState<TalentOption[]>([]);
   const [selectedDeal, setSelectedDeal] = useState<Opportunite | null>(null);
   const [selectedPipelineOpp, setSelectedPipelineOpp] = useState<Opportunite | null>(null);
+  const [dealRoomOpp, setDealRoomOpp] = useState<Opportunite | null>(null);
   const [selectedPipelineTalentIds, setSelectedPipelineTalentIds] = useState<string[]>([]);
   const [dealModalOpp, setDealModalOpp] = useState<Opportunite | null>(null);
   const [dealForm, setDealForm] = useState<{
@@ -595,6 +599,15 @@ export function StrategyProjectClient({
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projetSlug]);
+
+  // Garde le cockpit marque (deal room) synchronisé avec les données rafraîchies.
+  useEffect(() => {
+    setDealRoomOpp((curr) => {
+      if (!curr) return curr;
+      const updated = opportunites.find((o) => o.id === curr.id);
+      return updated ?? curr;
+    });
+  }, [opportunites]);
 
   const participantByTalentId = useMemo(() => {
     const m = new Map<string, Participant>();
@@ -856,8 +869,7 @@ export function StrategyProjectClient({
       pipelineDragRef.current.moved = false;
       return;
     }
-    setSelectedPipelineOpp(opportunite);
-    setSelectedPipelineTalentIds(asArrayIds(opportunite.talents));
+    setDealRoomOpp(opportunite);
   }
 
   function openDealModal(opportunite: Opportunite) {
@@ -1392,6 +1404,14 @@ export function StrategyProjectClient({
             </table>
           </div>
         );
+      case "propositions":
+        return (
+          <PropositionsTab
+            projetSlug={projetSlug}
+            projetNom={projetNom}
+            participants={participants}
+          />
+        );
       default:
         return null;
     }
@@ -1423,6 +1443,8 @@ export function StrategyProjectClient({
     pipeline,
     planning,
     planningDays,
+    projetSlug,
+    projetNom,
     qualifierSearch,
     qualifierVisibleCount,
     qualifies,
@@ -2152,6 +2174,32 @@ export function StrategyProjectClient({
             </div>
           </div>
         </div>
+      )}
+
+      {dealRoomOpp && (
+        <BrandDealRoom
+          key={dealRoomOpp.id}
+          opportunite={dealRoomOpp}
+          projetSlug={projetSlug}
+          projetNom={projetNom}
+          talentNameById={talentNameById}
+          talentPhotoById={talentPhotoById}
+          talentOptions={talentOptions}
+          participants={participants}
+          isAdmin={isAdmin}
+          canSendProspection={canSendProspection}
+          onClose={() => setDealRoomOpp(null)}
+          onRefresh={refreshAll}
+          onSendEmail={(opp) => openEmailModal(opp as Opportunite)}
+          onSignDeal={(opp) => openDealModal(opp as Opportunite)}
+          onDelete={async (id) => {
+            const ok = window.confirm("Supprimer cette marque du pipeline ?");
+            if (!ok) return;
+            await fetch(`/api/strategy/opportunites/${id}`, { method: "DELETE" });
+            setDealRoomOpp(null);
+            refreshAll();
+          }}
+        />
       )}
     </div>
   );

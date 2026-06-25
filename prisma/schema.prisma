@@ -2299,6 +2299,70 @@ model ProjetEvenement {
 
   opportunites      OpportuniteMarque[]
   participantsVilla ParticipantVilla[]
+  proposals         PartnershipProposal[]
+}
+
+/// Proposition de partenariat partageable avec une marque (casting définitif,
+/// budget consolidé, livrables garantis, photos) rendue via un lien public
+/// type "diapo" sur /proposition/[publicToken].
+model PartnershipProposal {
+  id          String          @id @default(cuid())
+  projetId    String
+  projet      ProjetEvenement @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  projetSlug  String
+  publicToken String          @unique
+
+  // Marque ciblée
+  nomMarque    String
+  marqueId     String?
+  brandLogoUrl String?
+
+  // Habillage de la présentation
+  title         String
+  subtitle      String?
+  coverPhotoUrl String?
+  accentColor   String  @default("#B06F70")
+  introMessage  String? @db.Text
+
+  // Thème d'apparence de la présentation (fond, texte, police, …).
+  // { background, bgColor, bgColor2, bgImageUrl, bgOverlay, textColor, font }
+  theme Json?
+
+  // Blocs configurables (JSON)
+  // casting:      [{ talentId?, name, handle, photoUrl, followers, engagement, platforms[], role }]
+  // budgetLines:  [{ label, detail, amount }]
+  // deliverables: [{ talent, format, platform, quantity, mediaValue }]
+  // photos:       string[]
+  casting        Json   @default("[]")
+  // Noms ordonnés des groupes de casting (propositions de line-up)
+  castingGroups  Json   @default("[]")
+  budgetLines    Json   @default("[]")
+  budgetCurrency String @default("EUR")
+  deliverables   Json   @default("[]")
+  photos         Json   @default("[]")
+  // Logement & logistique : [{ label, url, detail }]
+  logistics      Json   @default("[]")
+  // Coefficients de calcul EMV (reachRates, cpm, valuePerEngagement)
+  emvConfig      Json?
+
+  // Infos pratiques affichées sur la cover
+  eventLocation  String?
+  eventDateLabel String?
+  contactName    String?
+  contactEmail   String?
+
+  // DRAFT | SHARED
+  status       String    @default("DRAFT")
+  viewCount    Int       @default(0)
+  lastViewedAt DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projetId])
+  @@index([projetSlug])
+  @@map("partnership_proposals")
 }
 
 model OpportuniteMarque {
