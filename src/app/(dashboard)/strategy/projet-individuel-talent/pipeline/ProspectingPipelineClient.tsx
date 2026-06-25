@@ -491,6 +491,22 @@ export function ProspectingPipelineClient() {
           { method: "POST", credentials: "include" }
         );
         const sendData = await sendRes.json().catch(() => ({}));
+        // Cas "deja contacte recemment" : on propose d'envoyer quand meme.
+        if (!sendRes.ok && sendData?.canForce) {
+          const confirmed = window.confirm(
+            `${m.creatorName} → ${m.targetBrand}\n\n${
+              sendData.error || "Ce contact a déjà été contacté récemment."
+            }\n\nÊtes-vous sûr de vouloir quand même envoyer le mail ?`
+          );
+          if (confirmed) {
+            await scheduleSend(m, true);
+            return;
+          }
+          setSuccess(
+            `${cleaned.length} contact(s) enregistré(s). Envoi non effectué (contact déjà contacté récemment).`
+          );
+          return;
+        }
         if (sendRes.ok) {
           const scheduledAt = sendData.scheduledSendAt
             ? new Date(sendData.scheduledSendAt).getTime()
