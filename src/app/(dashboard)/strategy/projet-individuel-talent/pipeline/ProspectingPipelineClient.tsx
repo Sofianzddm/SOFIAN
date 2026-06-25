@@ -454,15 +454,10 @@ export function ProspectingPipelineClient() {
       const newlyAdded = cleaned.filter((c) => !existingEmails.has(c.email));
       const isAlreadySent = Boolean(m.sentAt);
 
-      // Même système que /outreach : si la langue du client diffère de la
-      // langue de rédaction du brouillon, le mail sera traduit automatiquement
-      // au moment de l'envoi. On l'indique clairement dans le message de succès.
-      const clientLang = (m.clientLanguage || "FR") as "FR" | "EN";
-      const draftLang = String(m.draftLanguage || "fr").toUpperCase();
-      const willTranslate = clientLang !== draftLang;
-      const translateNote = willTranslate
-        ? ` 🌐 Traduit automatiquement en ${clientLang === "EN" ? "anglais" : "français"} avant envoi.`
-        : "";
+      // Même système que /outreach : la langue d'envoi est captée automatiquement
+      // depuis la fiche client (langue de chaque contact). Le mail est traduit
+      // au besoin au moment de l'envoi.
+      const translateNote = " 🌐 Chaque contact reçoit le mail dans sa langue (fiche client), traduit auto si besoin.";
 
       const byEmail = new Map<string, { firstname?: string; lastname?: string; email?: string; role?: string }>();
       for (const c of currentContacts) {
@@ -980,46 +975,13 @@ export function ProspectingPipelineClient() {
                       Relancé
                     </p>
                   )}
-                  <div className="mt-1 flex items-center gap-1.5">
-                    <span
-                      className="text-xs"
-                      style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}
-                    >
-                      Langue client :
-                    </span>
-                    {(["FR", "EN"] as const).map((lang) => {
-                      const active = (m.clientLanguage || "FR") === lang;
-                      return (
-                        <button
-                          key={lang}
-                          type="button"
-                          disabled={updatingId === m.id}
-                          onClick={() => {
-                            if ((m.clientLanguage || "FR") === lang) return;
-                            void patchMission(m.id, { clientLanguage: lang });
-                          }}
-                          className="rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50"
-                          style={
-                            active
-                              ? { backgroundColor: "#1A1110", color: "#fff", border: "1px solid #1A1110" }
-                              : { backgroundColor: "#fff", color: "#6B7280", border: "1px solid #D1D5DB" }
-                          }
-                          title={
-                            lang === "EN"
-                              ? "Client anglais : le mail est traduit automatiquement en anglais à l'envoi"
-                              : "Client français : le mail est envoyé en français"
-                          }
-                        >
-                          {lang === "FR" ? "🇫🇷 FR" : "🇬🇧 EN"}
-                        </button>
-                      );
-                    })}
-                    {m.clientLanguage === "EN" && (
-                      <span className="text-[11px] text-blue-700" title="Traduction automatique FR→EN à l'envoi">
-                        · traduit auto
-                      </span>
-                    )}
-                  </div>
+                  <p
+                    className="mt-1 text-[11px]"
+                    style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}
+                    title="La langue d'envoi est captée automatiquement depuis la fiche client (fiche marque) : chaque contact reçoit le mail dans sa langue, traduit auto si besoin."
+                  >
+                    🌐 Langue captée depuis la fiche client (traduction auto à l'envoi)
+                  </p>
                   {Array.isArray(m.clientContacts) && m.clientContacts.length > 0 && (
                     <p className="text-xs" style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}>
                       {m.clientContacts.length} contact{m.clientContacts.length > 1 ? "s" : ""} enregistré
