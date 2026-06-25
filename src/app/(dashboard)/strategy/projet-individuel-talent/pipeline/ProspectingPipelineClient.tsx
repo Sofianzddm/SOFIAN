@@ -970,11 +970,46 @@ export function ProspectingPipelineClient() {
                       Relancé
                     </p>
                   )}
-                  {m.clientLanguage && (
-                    <p className="text-xs" style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}>
-                      Client {m.clientLanguage === "FR" ? "français" : "anglais"}
-                    </p>
-                  )}
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <span
+                      className="text-xs"
+                      style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}
+                    >
+                      Langue client :
+                    </span>
+                    {(["FR", "EN"] as const).map((lang) => {
+                      const active = (m.clientLanguage || "FR") === lang;
+                      return (
+                        <button
+                          key={lang}
+                          type="button"
+                          disabled={updatingId === m.id}
+                          onClick={() => {
+                            if ((m.clientLanguage || "FR") === lang) return;
+                            void patchMission(m.id, { clientLanguage: lang });
+                          }}
+                          className="rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50"
+                          style={
+                            active
+                              ? { backgroundColor: "#1A1110", color: "#fff", border: "1px solid #1A1110" }
+                              : { backgroundColor: "#fff", color: "#6B7280", border: "1px solid #D1D5DB" }
+                          }
+                          title={
+                            lang === "EN"
+                              ? "Client anglais : le mail est traduit automatiquement en anglais à l'envoi"
+                              : "Client français : le mail est envoyé en français"
+                          }
+                        >
+                          {lang === "FR" ? "🇫🇷 FR" : "🇬🇧 EN"}
+                        </button>
+                      );
+                    })}
+                    {m.clientLanguage === "EN" && (
+                      <span className="text-[11px] text-blue-700" title="Traduction automatique FR→EN à l'envoi">
+                        · traduit auto
+                      </span>
+                    )}
+                  </div>
                   {Array.isArray(m.clientContacts) && m.clientContacts.length > 0 && (
                     <p className="text-xs" style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}>
                       {m.clientContacts.length} contact{m.clientContacts.length > 1 ? "s" : ""} enregistré
