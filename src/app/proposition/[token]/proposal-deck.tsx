@@ -246,15 +246,19 @@ export function ProposalDeckView({
   // Les groupes de casting sont des propositions de line-up alternatives :
   // on consolide donc le Reach / EMV / ROI par casting plutôt qu'en un seul total.
   const groupTotalOf = (gname: string) => {
+    // Un même talent peut être présent dans plusieurs castings : on totalise alors
+    // ses livrables dans CHAQUE casting où il apparaît (pas d'attribution unique).
+    const namesInGroup = new Set(
+      p.casting
+        .filter((c) => castingGroupOf(c) === gname)
+        .map((c) => (c.name || "").trim().toLowerCase())
+    );
     let reach = 0;
     let emvSum = 0;
     let interactions = 0;
     p.deliverables.forEach((d, i) => {
-      const member = p.casting.find(
-        (c) => (c.name || "").trim().toLowerCase() === (d.talent || "").trim().toLowerCase()
-      );
-      const g = member ? castingGroupOf(member) : castingFallbackGroup;
-      if (g !== gname) return;
+      const tname = (d.talent || "").trim().toLowerCase();
+      if (!namesInGroup.has(tname)) return;
       const line = emv.lines[i];
       reach += line?.reach || 0;
       emvSum += line?.retained || 0;
@@ -482,6 +486,16 @@ export function ProposalDeckView({
                 </Reveal>
               ))}
                     </div>
+                    {hasEmv
+                      ? (() => {
+                          const gt = groupTotalOf(gname);
+                          return gt.emv > 0 ? (
+                            <Reveal className="mt-8">
+                              {renderSummaryGrid(gt.reach, gt.emv, gt.interactions)}
+                            </Reveal>
+                          ) : null;
+                        })()
+                      : null}
                   </div>
                 );
               })}
@@ -662,28 +676,10 @@ export function ProposalDeckView({
               </p>
             ) : null}
 
-            {hasEmv ? (
-              showCastingTitles && castingTotals.length > 1 ? (
-                <div className="mt-10 space-y-8">
-                  {castingTotals.map((gt) => (
-                    <Reveal key={gt.name || "_"}>
-                      {gt.name ? (
-                        <p
-                          className="mb-3 text-center text-sm font-semibold uppercase tracking-[0.2em]"
-                          style={{ color: accent }}
-                        >
-                          {gt.name}
-                        </p>
-                      ) : null}
-                      {renderSummaryGrid(gt.reach, gt.emv, gt.interactions)}
-                    </Reveal>
-                  ))}
-                </div>
-              ) : (
-                <Reveal className="mt-10">
-                  {renderSummaryGrid(emv.reach, emv.emv, emv.interactions)}
-                </Reveal>
-              )
+            {hasEmv && !(showCastingTitles && castingTotals.length > 1) ? (
+              <Reveal className="mt-10">
+                {renderSummaryGrid(emv.reach, emv.emv, emv.interactions)}
+              </Reveal>
             ) : null}
           </Section>
         ) : null}
