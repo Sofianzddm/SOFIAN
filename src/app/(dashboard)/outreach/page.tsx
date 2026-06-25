@@ -603,9 +603,9 @@ export default function OutreachPage() {
   );
 
   /**
-   * Retire toute la marque du cycle Outreach (ajout par erreur) : supprime ses
-   * contacts du cycle + ses contacts en attente issus de la carto. La fiche
-   * marque reste dans le CRM. Admin uniquement.
+   * Retire toute la marque du cycle Outreach (ajout par erreur) : sort ses
+   * contacts du cycle et les retire de la liste « en attente ». Les contacts
+   * NE SONT PAS supprimés : ils restent dans le CRM (fiche marque). Admin uniquement.
    */
   const handleDeleteMarque = useCallback(
     async (group: { marqueId: string; company: string; targets: Target[]; pending: PendingContact[] }) => {
@@ -620,7 +620,8 @@ export default function OutreachPage() {
       if (
         !window.confirm(
           `Retirer ${group.company} de l'outreach ?\n\n${detail || "Aucun contact"} ` +
-            `seront supprimés du cycle et leur historique effacé. La fiche marque reste dans le CRM.`
+            `seront sortis du cycle (historique effacé). Les contacts NE SONT PAS supprimés : ` +
+            `ils restent dans le CRM sur la fiche marque.`
         )
       )
         return;

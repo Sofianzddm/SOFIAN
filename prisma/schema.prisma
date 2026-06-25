@@ -737,6 +737,10 @@ model MarqueContact {
   linkedinUrl  String?
   source       String? // "CARTO" = importé depuis une cartographie
 
+  // Retiré de l'outreach (marque sortie du cycle par erreur) : le contact reste
+  // dans le CRM mais ne réapparaît plus dans la liste « en attente d'email ».
+  outreachExcluded Boolean @default(false)
+
   createdAt DateTime @default(now())
   quotes    Quote[]
   outreachTargets OutreachTarget[]

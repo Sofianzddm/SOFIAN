@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
     const contacts = await prisma.marqueContact.findMany({
       where: {
         source: "CARTO",
+        outreachExcluded: false,
         outreachTargets: { none: {} },
       },
       orderBy: [{ priorite: "asc" }, { createdAt: "asc" }],

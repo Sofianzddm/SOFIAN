@@ -4,11 +4,11 @@ import { getAppSession } from "@/lib/getAppSession";
 
 /**
  * DELETE → retire entièrement une marque du cycle Outreach (ajout par erreur).
- * Supprime :
- *  - tous les OutreachTarget de la marque (et leur historique de touches, en cascade) ;
- *  - tous les MarqueContact issus d'une cartographie (source "CARTO"), pour que les
- *    contacts « en attente d'email » ne réapparaissent pas dans /outreach.
- * La fiche marque (et ses contacts hors carto) reste dans le CRM.
+ *  - Supprime tous les OutreachTarget de la marque (et leur historique de touches,
+ *    en cascade) → la marque sort du cycle.
+ *  - NE SUPPRIME PAS les contacts : les MarqueContact issus d'une cartographie
+ *    (source "CARTO") sont marqués `outreachExcluded` pour ne plus réapparaître
+ *    dans la liste « en attente d'email », mais restent dans le CRM (fiche marque).
  * Réservé à l'ADMIN.
  */
 export async function DELETE(
@@ -34,15 +34,18 @@ export async function DELETE(
       return NextResponse.json({ error: "Marque introuvable." }, { status: 404 });
     }
 
-    const [deletedTargets, deletedCarto] = await prisma.$transaction([
+    const [deletedTargets, excludedCarto] = await prisma.$transaction([
       prisma.outreachTarget.deleteMany({ where: { marqueId: id } }),
-      prisma.marqueContact.deleteMany({ where: { marqueId: id, source: "CARTO" } }),
+      prisma.marqueContact.updateMany({
+        where: { marqueId: id, source: "CARTO" },
+        data: { outreachExcluded: true },
+      }),
     ]);
 
     return NextResponse.json({
       ok: true,
       removedTargets: deletedTargets.count,
-      removedContacts: deletedCarto.count,
+      excludedContacts: excludedCarto.count,
     });
   } catch (error) {
     console.error("DELETE /api/outreach/marques/[id]:", error);

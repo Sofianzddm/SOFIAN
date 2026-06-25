@@ -97,6 +97,14 @@ export async function POST(request: NextRequest) {
       marqueId = resolved.marqueId;
     }
 
+    // Réimporter une carto = réintégrer la marque à l'outreach : on lève une
+    // éventuelle exclusion posée par un précédent « Retirer de l'outreach »,
+    // pour que ses contacts puissent revenir en « en attente d'email ».
+    await prisma.marqueContact.updateMany({
+      where: { marqueId, outreachExcluded: true },
+      data: { outreachExcluded: false },
+    });
+
     const existing = await prisma.marqueContact.findMany({
       where: { marqueId },
       select: { id: true, prenom: true, nom: true, email: true },
