@@ -29,15 +29,24 @@ export async function POST(
       return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
     }
 
-    const preflight = await preflightCastingSend({
-      id: mission.id,
-      draftEmailSubject: mission.draftEmailSubject,
-      draftEmailBody: mission.draftEmailBody,
-      clientContacts: mission.clientContacts,
-      sentMessageIds: mission.sentMessageIds,
-    });
+    const body = await request.json().catch(() => ({}));
+    const force = body?.force === true;
+
+    const preflight = await preflightCastingSend(
+      {
+        id: mission.id,
+        draftEmailSubject: mission.draftEmailSubject,
+        draftEmailBody: mission.draftEmailBody,
+        clientContacts: mission.clientContacts,
+        sentMessageIds: mission.sentMessageIds,
+      },
+      { force }
+    );
     if (!preflight.ok) {
-      return NextResponse.json({ error: preflight.error }, { status: 400 });
+      return NextResponse.json(
+        { error: preflight.error, canForce: preflight.canForce === true },
+        { status: 400 }
+      );
     }
 
     // Si la mission est deja envoyee (cas reenvoi pour nouveaux contacts),
@@ -53,6 +62,7 @@ export async function POST(
           : { stage: "TO_SEND" as const, status: "APPROVED_BY_SALES" as const }),
         scheduledSendAt,
         sendError: null,
+        forceSend: force,
       },
     });
 

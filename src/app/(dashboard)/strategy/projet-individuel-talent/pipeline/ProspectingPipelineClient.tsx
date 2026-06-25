@@ -538,7 +538,7 @@ export function ProspectingPipelineClient() {
     }
   }
 
-  async function scheduleSend(m: Mission) {
+  async function scheduleSend(m: Mission, force = false) {
     setUpdatingId(m.id);
     setError(null);
     setSuccess(null);
@@ -546,9 +546,27 @@ export function ProspectingPipelineClient() {
       const res = await fetch(`/api/strategy/contact-missions/${m.id}/schedule-send`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Planification impossible.");
+      if (!res.ok) {
+        // Cas "deja contacte recemment" : on propose d'envoyer quand meme
+        // apres confirmation explicite (bypass du cooldown anti-spam).
+        if (data?.canForce && !force) {
+          const confirmed = window.confirm(
+            `${m.creatorName} → ${m.targetBrand}\n\n${
+              data.error || "Ce contact a déjà été contacté récemment."
+            }\n\nÊtes-vous sûr de vouloir quand même envoyer le mail ?`
+          );
+          if (confirmed) {
+            setUpdatingId(null);
+            await scheduleSend(m, true);
+          }
+          return;
+        }
+        throw new Error(data.error || "Planification impossible.");
+      }
       const scheduledAt = data.scheduledSendAt
         ? new Date(data.scheduledSendAt).getTime()
         : Date.now() + 30000;

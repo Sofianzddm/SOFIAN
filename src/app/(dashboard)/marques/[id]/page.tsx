@@ -43,6 +43,7 @@ import {
   Download,
 } from "lucide-react";
 import { MarqueCrmTab } from "./MarqueCrmTab";
+import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -242,6 +243,10 @@ export default function MarqueDetailPage() {
   const [logoError, setLogoError] = useState(false);
 
   const [exporting, setExporting] = useState(false);
+
+  // Import d'une cartographie directement depuis la fiche marque
+  const [showImportCarto, setShowImportCarto] = useState(false);
+  const [cartoFlash, setCartoFlash] = useState<string | null>(null);
 
   // Ajout rapide d'un contact
   const [showAddContact, setShowAddContact] = useState(false);
@@ -816,17 +821,36 @@ export default function MarqueDetailPage() {
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={() => setShowAddContact((v) => !v)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg transition-colors ${
-                      showAddContact ? "text-gray-500 ring-1 ring-black/[0.08] bg-white hover:bg-gray-50" : "text-white hover:opacity-90"
-                    }`}
-                    style={showAddContact ? undefined : { backgroundColor: INK }}
-                  >
-                    {showAddContact ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                    {showAddContact ? "Annuler" : "Ajouter"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {canOutreach && !readOnly && (
+                      <button
+                        onClick={() => setShowImportCarto(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg ring-1 ring-black/[0.08] bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                        title="Importe un fichier Excel ou colle un tableau de contacts"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+                        Importer une carto
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowAddContact((v) => !v)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg transition-colors ${
+                        showAddContact ? "text-gray-500 ring-1 ring-black/[0.08] bg-white hover:bg-gray-50" : "text-white hover:opacity-90"
+                      }`}
+                      style={showAddContact ? undefined : { backgroundColor: INK }}
+                    >
+                      {showAddContact ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                      {showAddContact ? "Annuler" : "Ajouter"}
+                    </button>
+                  </div>
                 </div>
+
+                {cartoFlash && (
+                  <div className="px-5 py-2.5 border-b border-gray-100 text-[13px] flex items-center gap-2" style={{ backgroundColor: "#F8FCEF", color: "#3D8B40" }}>
+                    <Check className="w-4 h-4" />
+                    {cartoFlash}
+                  </div>
+                )}
 
                 {/* Ajout rapide */}
                 {showAddContact && (
@@ -906,7 +930,9 @@ export default function MarqueDetailPage() {
                     <Users className="w-10 h-10 text-gray-200 mx-auto mb-3" />
                     <p className="text-sm text-gray-400">Aucun contact enregistré</p>
                     <p className="text-xs text-gray-300 mt-1">
-                      Ajoute un contact ici, ou importe une cartographie depuis Outreach.
+                      {canOutreach && !readOnly
+                        ? "Ajoute un contact, ou importe directement une cartographie via « Importer une carto »."
+                        : "Ajoute un contact ici, ou importe une cartographie depuis Outreach."}
                     </p>
                   </div>
                 ) : (
@@ -1334,6 +1360,24 @@ export default function MarqueDetailPage() {
           </main>
         </div>
       </div>
+
+      {showImportCarto && (
+        <ImportCartoModal
+          lockedMarque={{ id: marque.id, nom: marque.nom }}
+          onClose={() => setShowImportCarto(false)}
+          onImported={(_company, created, skipped, addedToCycle) => {
+            setShowImportCarto(false);
+            const parts: string[] = [];
+            parts.push(`${created} contact${created > 1 ? "s" : ""} importé${created > 1 ? "s" : ""}`);
+            if (addedToCycle > 0) parts.push(`${addedToCycle} dans « À contacter »`);
+            if (skipped > 0) parts.push(`${skipped} doublon${skipped > 1 ? "s" : ""} ignoré${skipped > 1 ? "s" : ""}`);
+            setCartoFlash(`Cartographie importée : ${parts.join(" · ")}.`);
+            setTimeout(() => setCartoFlash(null), 8000);
+            fetchMarque().then(() => setActiveTab("carto"));
+          }}
+          onError={(message) => alert(message)}
+        />
+      )}
     </div>
   );
 }

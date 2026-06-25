@@ -133,7 +133,7 @@ async function findEmailsBlockedByCooldown(
 
 export type ScheduleSendPreflight =
   | { ok: true; contacts: CastingContact[] }
-  | { ok: false; error: string };
+  | { ok: false; error: string; canForce?: boolean };
 
 /**
  * Verifie qu'une mission peut etre envoyee :
@@ -144,6 +144,12 @@ export type ScheduleSendPreflight =
  *
  * Si la mission est deja partiellement envoyee, seuls les nouveaux
  * contacts (absents de `sentMessageIds`) sont consideres.
+ *
+ * Avec `options.force`, on ignore le cooldown anti-spam de 20 jours : si le
+ * SEUL motif de blocage etait "contact deja contacte recemment (autre
+ * mission)", on laisse passer. Les autres garde-fous (brouillon incomplet,
+ * aucun contact valide, tous deja contactes sur CETTE mission) restent
+ * appliques car les forcer ne changerait rien.
  */
 export async function preflightCastingSend(
   mission: {
@@ -152,7 +158,8 @@ export async function preflightCastingSend(
     draftEmailBody: string | null;
     clientContacts: unknown;
     sentMessageIds?: unknown;
-  }
+  },
+  options: { force?: boolean } = {}
 ): Promise<ScheduleSendPreflight> {
   const subject = String(mission.draftEmailSubject || "").trim();
   const body = String(mission.draftEmailBody || "").trim();
@@ -177,6 +184,11 @@ export async function preflightCastingSend(
         "Tous les contacts ont deja recu le mail sur cette mission. Ajoute un nouveau contact pour declencher un envoi.",
     };
   }
+  // En mode force, on saute le cooldown : tous les nouveaux contacts sont
+  // consideres recevables.
+  if (options.force) {
+    return { ok: true, contacts: newContacts };
+  }
   const emails = newContacts.map((c) => c.email!);
   const blocked = await findEmailsBlockedByCooldown(emails, mission.id);
   const reachable = newContacts.filter((c) => !blocked.has((c.email || "").toLowerCase()));
@@ -184,6 +196,7 @@ export async function preflightCastingSend(
     return {
       ok: false,
       error: `Tous les nouveaux contacts ont deja recu un mail (autre mission) dans les ${CASTING_COOLDOWN_DAYS} derniers jours.`,
+      canForce: true,
     };
   }
   return { ok: true, contacts: reachable };
@@ -254,7 +267,12 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     (c) => !alreadySent.has((c.email || "").toLowerCase())
   );
   const emails = newContacts.map((c) => c.email!);
-  const blocked = await findEmailsBlockedByCooldown(emails, missionId);
+  // Si l'envoi a ete force explicitement (case "envoyer quand meme"), on
+  // ignore le cooldown anti-spam de 20 jours.
+  const forceSend = Boolean(mission.forceSend);
+  const blocked = forceSend
+    ? new Set<string>()
+    : await findEmailsBlockedByCooldown(emails, missionId);
 
   const outcome: SendOutcome = {
     attempted: 0,
@@ -326,6 +344,9 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       sentMessageIds: mergedMessages,
       sendError: outcome.errors.length > 0 ? outcome.errors.join(" | ") : null,
       scheduledSendAt: null,
+      // Le flag de forcage est a usage unique : on le remet a false apres
+      // l'execution pour ne pas court-circuiter le cooldown sur de futurs ajouts.
+      ...(forceSend ? { forceSend: false } : {}),
       ...(outcome.succeeded > 0 && bodyTpl !== bodyRaw ? { draftEmailBody: bodyTpl } : {}),
     },
   });
