@@ -21,14 +21,14 @@ export type EmvConfig = {
 
 export const DEFAULT_EMV_CONFIG: EmvConfig = {
   formatCpm: {
-    story: 7,
-    reel: 20,
-    post: 16,
-    carrousel: 17,
-    tiktok: 20,
-    ytShort: 22,
-    ytVideo: 40,
-    default: 20,
+    story: 9,
+    reel: 25,
+    post: 20,
+    carrousel: 22,
+    tiktok: 25,
+    ytShort: 28,
+    ytVideo: 45,
+    default: 25,
   },
   defaultReachRate: 0.6,
 };

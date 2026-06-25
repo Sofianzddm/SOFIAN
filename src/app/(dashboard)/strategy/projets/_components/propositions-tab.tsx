@@ -30,7 +30,7 @@ import {
   computeLineEmv,
 } from "@/lib/emv";
 
-type LogisticsItem = { label: string; url?: string | null; detail?: string | null };
+type LogisticsItem = { label: string; url?: string | null; detail?: string | null; imageUrl?: string | null };
 
 export type CastingMember = {
   talentId?: string;
@@ -608,6 +608,7 @@ function ProposalFormBody({
   const [talentPickerOpen, setTalentPickerOpen] = useState(false);
   const [talentSearch, setTalentSearch] = useState("");
   const [activeGroupIdx, setActiveGroupIdx] = useState(0);
+  const [logisticsImgIdx, setLogisticsImgIdx] = useState<number | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -922,6 +923,30 @@ function ProposalFormBody({
   const emvCfg = resolveEmvConfig(form.emvConfig);
   const setEmv = (patch: Partial<EmvConfig>) =>
     set("emvConfig", { ...emvCfg, ...patch });
+
+  // Récupère automatiquement l'image (og:image) d'un lien logistique.
+  const fetchLogisticsImage = async (idx: number) => {
+    if (!form) return;
+    const url = (form.logistics[idx]?.url || "").trim();
+    if (!url) {
+      window.alert("Renseigne d'abord l'URL du lien.");
+      return;
+    }
+    setLogisticsImgIdx(idx);
+    try {
+      const res = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
+      const json = (await res.json().catch(() => ({}))) as { image?: string | null };
+      if (!res.ok || !json.image) {
+        window.alert("Aucune image trouvée pour ce lien.");
+        return;
+      }
+      updateRow(form, set, "logistics", idx, { imageUrl: json.image });
+    } catch {
+      window.alert("Impossible de récupérer l'image du lien.");
+    } finally {
+      setLogisticsImgIdx(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1569,29 +1594,62 @@ function ProposalFormBody({
         ) : (
           <div className="space-y-2">
             {form.logistics.map((l, i) => (
-              <div key={i} className="grid grid-cols-[16px_140px_1fr_1fr_auto] items-center gap-2">
-                <GripVertical className="h-4 w-4 shrink-0 text-gray-300" />
-                <input
-                  className={inputCls}
-                  placeholder="Libellé (ex: Chalet)"
-                  value={l.label}
-                  onChange={(e) => updateRow(form, set, "logistics", i, { label: e.target.value })}
-                />
-                <input
-                  className={inputCls}
-                  placeholder="https://…"
-                  value={l.url || ""}
-                  onChange={(e) => updateRow(form, set, "logistics", i, { url: e.target.value })}
-                />
-                <input
-                  className={inputCls}
-                  placeholder="Détail (optionnel)"
-                  value={l.detail || ""}
-                  onChange={(e) => updateRow(form, set, "logistics", i, { detail: e.target.value })}
-                />
-                <button type="button" onClick={() => removeRow(form, set, "logistics", i)} className="shrink-0 rounded p-1.5 text-red-600 hover:bg-red-50">
-                  <Trash2 className="h-4 w-4" />
-                </button>
+              <div key={i} className="rounded-lg border border-gray-100 p-2">
+                <div className="grid grid-cols-[16px_140px_1fr_1fr_auto_auto] items-center gap-2">
+                  <GripVertical className="h-4 w-4 shrink-0 text-gray-300" />
+                  <input
+                    className={inputCls}
+                    placeholder="Libellé (ex: Chalet)"
+                    value={l.label}
+                    onChange={(e) => updateRow(form, set, "logistics", i, { label: e.target.value })}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder="https://…"
+                    value={l.url || ""}
+                    onChange={(e) => updateRow(form, set, "logistics", i, { url: e.target.value })}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder="Détail (optionnel)"
+                    value={l.detail || ""}
+                    onChange={(e) => updateRow(form, set, "logistics", i, { detail: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fetchLogisticsImage(i)}
+                    disabled={logisticsImgIdx === i || !(l.url || "").trim()}
+                    title="Récupérer l'image du lien"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-300 px-2 py-2 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {logisticsImgIdx === i ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ImagePlus className="h-4 w-4" />
+                    )}
+                  </button>
+                  <button type="button" onClick={() => removeRow(form, set, "logistics", i)} className="shrink-0 rounded p-1.5 text-red-600 hover:bg-red-50">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+                {l.imageUrl ? (
+                  <div className="mt-2 flex items-center gap-2 pl-6">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/og-image?url=${encodeURIComponent(l.imageUrl)}`}
+                      alt=""
+                      className="h-12 w-20 rounded border border-gray-200 object-cover"
+                    />
+                    <span className="truncate text-xs text-gray-400">Image d&apos;aperçu du lien</span>
+                    <button
+                      type="button"
+                      onClick={() => updateRow(form, set, "logistics", i, { imageUrl: null })}
+                      className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                    >
+                      <X className="h-3.5 w-3.5" /> Retirer
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>

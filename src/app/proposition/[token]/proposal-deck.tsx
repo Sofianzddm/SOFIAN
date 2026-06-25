@@ -59,7 +59,7 @@ export type Deliverable = {
   avgViews?: number | null;
 };
 
-export type LogisticsItem = { label: string; url?: string | null; detail?: string | null };
+export type LogisticsItem = { label: string; url?: string | null; detail?: string | null; imageUrl?: string | null };
 
 export type DeckTheme = {
   background: "solid" | "gradient" | "image";
@@ -721,14 +721,26 @@ export function ProposalDeckView({
               {(p.logistics || []).map((item, i) => {
                 const inner = (
                   <>
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="font-semibold">{item.label || "Lien"}</p>
-                      {item.url ? <ExternalLink className="h-4 w-4 shrink-0 opacity-70" /> : null}
-                    </div>
-                    {item.detail ? <p className="mt-1 text-sm opacity-70">{item.detail}</p> : null}
-                    {item.url ? (
-                      <p className="mt-3 truncate text-xs opacity-50">{item.url.replace(/^https?:\/\//, "")}</p>
+                    {item.imageUrl ? (
+                      <div className="aspect-[16/10] w-full overflow-hidden bg-white/5">
+                        <img
+                          src={`/api/og-image?url=${encodeURIComponent(item.imageUrl)}`}
+                          alt={item.label || ""}
+                          crossOrigin="anonymous"
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
                     ) : null}
+                    <div className="p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="font-semibold">{item.label || "Lien"}</p>
+                        {item.url ? <ExternalLink className="h-4 w-4 shrink-0 opacity-70" /> : null}
+                      </div>
+                      {item.detail ? <p className="mt-1 text-sm opacity-70">{item.detail}</p> : null}
+                      {item.url ? (
+                        <p className="mt-3 truncate text-xs opacity-50">{item.url.replace(/^https?:\/\//, "")}</p>
+                      ) : null}
+                    </div>
                   </>
                 );
                 return item.url ? (
@@ -737,7 +749,7 @@ export function ProposalDeckView({
                       href={item.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="block h-full rounded-2xl border p-5 transition-transform hover:-translate-y-0.5"
+                      className="block h-full overflow-hidden rounded-2xl border transition-transform hover:-translate-y-0.5"
                       style={{ borderColor: `${accent}40`, backgroundColor: "rgba(245,237,224,0.03)" }}
                     >
                       {inner}
@@ -746,7 +758,7 @@ export function ProposalDeckView({
                 ) : (
                   <Reveal key={i}>
                     <div
-                      className="h-full rounded-2xl border p-5"
+                      className="h-full overflow-hidden rounded-2xl border"
                       style={{ borderColor: `${accent}40`, backgroundColor: "rgba(245,237,224,0.03)" }}
                     >
                       {inner}
