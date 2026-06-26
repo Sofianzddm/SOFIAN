@@ -45,7 +45,7 @@ export type CastingMember = {
   group?: string | null;
 };
 
-export type BudgetLine = { label: string; detail?: string | null; amount?: number | null };
+export type BudgetLine = { label: string; detail?: string | null; amount?: number | null; group?: string | null };
 
 export type Deliverable = {
   talent?: string | null;
@@ -83,6 +83,7 @@ export type ProposalPayload = {
   casting: CastingMember[];
   castingGroups?: string[];
   budgetLines: BudgetLine[];
+  budgetGroups?: string[];
   budgetCurrency: string;
   deliverables: Deliverable[];
   photos: string[];
@@ -227,7 +228,22 @@ export function ProposalDeckView({
   const accent = p.accentColor || "#B06F70";
   const theme = resolveTheme(p.theme);
   const baseBg = theme.bgColor;
-  const budgetTotal = p.budgetLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  const budgetGroupsOrder: string[] =
+    p.budgetGroups && p.budgetGroups.length
+      ? p.budgetGroups
+      : Array.from(new Set(p.budgetLines.map((l) => l.group).filter(Boolean) as string[]));
+  const budgetFallbackGroup = budgetGroupsOrder[0] || "";
+  const budgetGroupOf = (l: BudgetLine) => l.group || budgetFallbackGroup;
+  const budgetRenderGroups = budgetGroupsOrder.length ? budgetGroupsOrder : [""];
+  const showBudgetTitles = budgetRenderGroups.length > 1;
+  const budgetGroupTotal = (gname: string) =>
+    p.budgetLines
+      .filter((l) => budgetGroupOf(l) === gname)
+      .reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  // Pour le ROI de la cover : on prend le premier scénario de budget (référence).
+  const budgetTotal = showBudgetTitles
+    ? budgetGroupTotal(budgetRenderGroups[0])
+    : p.budgetLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
   const totalFollowers = p.casting.reduce((s, c) => s + (Number(c.followers) || 0), 0);
 
   const emvCfg = resolveEmvConfig(p.emvConfig);
@@ -509,33 +525,47 @@ export function ProposalDeckView({
             <SectionHeader
               icon={<Wallet className="h-5 w-5" />}
               eyebrow="Budget détaillé & consolidé"
-              title="L'investissement, ligne par ligne"
+              title={showBudgetTitles ? "Nos scénarios d'investissement" : "L'investissement, ligne par ligne"}
               accent={accent}
             />
-            <Reveal className="mt-10">
-              <div className="overflow-hidden rounded-3xl border" style={{ borderColor: `${accent}33` }}>
-                {p.budgetLines.map((l, i) => (
-                  <div
-                    key={`${l.label}-${i}`}
-                    className="flex items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0 md:px-8"
-                    style={{ borderColor: `${accent}1f` }}
-                  >
-                    <div>
-                      <p className="font-medium">{l.label}</p>
-                      {l.detail ? <p className="text-sm opacity-60">{l.detail}</p> : null}
+            <div className="mt-10 space-y-12">
+              {budgetRenderGroups.map((gname) => {
+                const lines = p.budgetLines.filter((l) => budgetGroupOf(l) === gname);
+                if (lines.length === 0) return null;
+                const groupTotal = budgetGroupTotal(gname);
+                return (
+                  <Reveal key={gname || "budget"}>
+                    {showBudgetTitles ? (
+                      <h3 className="mb-4 text-lg font-semibold md:text-xl" style={{ color: accent }}>
+                        {gname}
+                      </h3>
+                    ) : null}
+                    <div className="overflow-hidden rounded-3xl border" style={{ borderColor: `${accent}33` }}>
+                      {lines.map((l, i) => (
+                        <div
+                          key={`${l.label}-${i}`}
+                          className="flex items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0 md:px-8"
+                          style={{ borderColor: `${accent}1f` }}
+                        >
+                          <div>
+                            <p className="font-medium">{l.label}</p>
+                            {l.detail ? <p className="text-sm opacity-60">{l.detail}</p> : null}
+                          </div>
+                          <p className="shrink-0 text-lg font-semibold tabular-nums">{money(l.amount, p.budgetCurrency)}</p>
+                        </div>
+                      ))}
+                      <div
+                        className="flex items-center justify-between gap-4 px-5 py-5 md:px-8"
+                        style={{ backgroundColor: `${accent}26` }}
+                      >
+                        <p className="text-base font-semibold uppercase tracking-wide">Total</p>
+                        <p className="text-2xl font-bold tabular-nums">{money(groupTotal, p.budgetCurrency)}</p>
+                      </div>
                     </div>
-                    <p className="shrink-0 text-lg font-semibold tabular-nums">{money(l.amount, p.budgetCurrency)}</p>
-                  </div>
-                ))}
-                <div
-                  className="flex items-center justify-between gap-4 px-5 py-5 md:px-8"
-                  style={{ backgroundColor: `${accent}26` }}
-                >
-                  <p className="text-base font-semibold uppercase tracking-wide">Total</p>
-                  <p className="text-2xl font-bold tabular-nums">{money(budgetTotal, p.budgetCurrency)}</p>
-                </div>
-              </div>
-            </Reveal>
+                  </Reveal>
+                );
+              })}
+            </div>
           </Section>
         ) : null}
 

@@ -2341,6 +2341,8 @@ model PartnershipProposal {
   // Noms ordonnés des groupes de casting (propositions de line-up)
   castingGroups  Json   @default("[]")
   budgetLines    Json   @default("[]")
+  // Noms ordonnés des groupes de budget (scénarios d'investissement alternatifs)
+  budgetGroups   Json   @default("[]")
   budgetCurrency String @default("EUR")
   deliverables   Json   @default("[]")
   photos         Json   @default("[]")

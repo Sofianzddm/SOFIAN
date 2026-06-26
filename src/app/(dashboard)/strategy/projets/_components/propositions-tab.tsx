@@ -48,7 +48,7 @@ export type CastingMember = {
   group?: string | null;
 };
 
-type BudgetLine = { label: string; detail?: string | null; amount?: number | null };
+type BudgetLine = { label: string; detail?: string | null; amount?: number | null; group?: string | null };
 
 type Deliverable = {
   talent?: string | null;
@@ -80,6 +80,7 @@ export type Proposal = {
   casting: CastingMember[];
   castingGroups: string[];
   budgetLines: BudgetLine[];
+  budgetGroups: string[];
   budgetCurrency: string;
   deliverables: Deliverable[];
   photos: string[];
@@ -367,6 +368,7 @@ export function ProposalBuilder({ proposalId }: { proposalId: string }) {
           ...prop,
           logistics: Array.isArray(prop.logistics) ? prop.logistics : [],
           castingGroups: Array.isArray(prop.castingGroups) ? prop.castingGroups : [],
+          budgetGroups: Array.isArray(prop.budgetGroups) ? prop.budgetGroups : [],
         });
         const [castRes, talentsRes] = await Promise.all([
           fetch(`/api/strategy/casting?projetSlug=${encodeURIComponent(prop.projetSlug)}`),
@@ -419,6 +421,7 @@ export function ProposalBuilder({ proposalId }: { proposalId: string }) {
           casting: form.casting,
           castingGroups: form.castingGroups,
           budgetLines: form.budgetLines,
+          budgetGroups: form.budgetGroups,
           deliverables: form.deliverables,
           photos: form.photos,
           logistics: form.logistics,
@@ -608,6 +611,7 @@ function ProposalFormBody({
   const [talentPickerOpen, setTalentPickerOpen] = useState(false);
   const [talentSearch, setTalentSearch] = useState("");
   const [activeGroupIdx, setActiveGroupIdx] = useState(0);
+  const [activeBudgetIdx, setActiveBudgetIdx] = useState(0);
   const [logisticsImgIdx, setLogisticsImgIdx] = useState<number | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
@@ -822,10 +826,62 @@ function ProposalFormBody({
   const theme = resolveTheme(form.theme);
   const setTheme = (patch: Partial<DeckTheme>) => set("theme", { ...theme, ...patch });
 
-  const budgetTotal = useMemo(
-    () => form.budgetLines.reduce((s, l) => s + (Number(l.amount) || 0), 0),
-    [form.budgetLines]
+  const budgetGroupNames = form.budgetGroups.length ? form.budgetGroups : ["Budget principal"];
+  const activeBudgetGroup =
+    budgetGroupNames[Math.min(activeBudgetIdx, budgetGroupNames.length - 1)] || budgetGroupNames[0];
+  const budgetLineGroup = (l: BudgetLine) => l.group || budgetGroupNames[0];
+
+  const activeBudgetLines = useMemo(
+    () => form.budgetLines.map((l, i) => ({ l, i })).filter(({ l }) => budgetLineGroup(l) === activeBudgetGroup),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form.budgetLines, activeBudgetGroup]
   );
+
+  const budgetTotal = useMemo(
+    () => activeBudgetLines.reduce((s, { l }) => s + (Number(l.amount) || 0), 0),
+    [activeBudgetLines]
+  );
+
+  function ensureBudgetGroups(): string[] {
+    return form.budgetGroups.length ? form.budgetGroups : ["Budget principal"];
+  }
+
+  function addBudgetLineToActive() {
+    const base = ensureBudgetGroups();
+    if (!form.budgetGroups.length) set("budgetGroups", base);
+    const g = base[Math.min(activeBudgetIdx, base.length - 1)] || base[0];
+    set("budgetLines", [...form.budgetLines, { label: "", group: g }]);
+  }
+
+  function addBudgetGroup() {
+    const base = ensureBudgetGroups();
+    set("budgetGroups", [...base, `Budget ${base.length + 1}`]);
+    setActiveBudgetIdx(base.length);
+  }
+
+  function renameBudgetGroup(idx: number, name: string) {
+    const base = ensureBudgetGroups();
+    const old = base[idx];
+    set("budgetGroups", base.map((g, i) => (i === idx ? name : g)));
+    set(
+      "budgetLines",
+      form.budgetLines.map((l) => (budgetLineGroup(l) === old ? { ...l, group: name } : l))
+    );
+  }
+
+  function deleteBudgetGroup(idx: number) {
+    const base = ensureBudgetGroups();
+    if (base.length <= 1) return;
+    const removed = base[idx];
+    const next = base.filter((_, i) => i !== idx);
+    const fallback = next[0];
+    set("budgetGroups", next);
+    set(
+      "budgetLines",
+      form.budgetLines.map((l) => (budgetLineGroup(l) === removed ? { ...l, group: fallback } : l))
+    );
+    setActiveBudgetIdx(0);
+  }
 
   async function uploadFile(file: File): Promise<string | null> {
     const fd = new FormData();
@@ -1414,18 +1470,70 @@ function ProposalFormBody({
         action={
           <button
             type="button"
-            onClick={() => set("budgetLines", [...form.budgetLines, { label: "" }])}
+            onClick={addBudgetGroup}
             className="inline-flex items-center gap-1.5 rounded-lg bg-glowup-rose px-2.5 py-1.5 text-xs font-medium text-white hover:opacity-95"
           >
-            <Plus className="h-3.5 w-3.5" /> Ligne
+            <Plus className="h-3.5 w-3.5" /> Nouveau budget
           </button>
         }
       >
-        {form.budgetLines.length === 0 ? (
+        <p className="-mt-1 text-xs text-gray-500">
+          Propose plusieurs scénarios d&apos;investissement (ex : « Premium », « Essentiel ») que la marque pourra comparer.
+        </p>
+
+        {/* Sélecteur de budget */}
+        <div className="flex flex-wrap gap-1.5">
+          {budgetGroupNames.map((g, gi) => {
+            const count = form.budgetLines.filter((l) => budgetLineGroup(l) === g).length;
+            const active = g === activeBudgetGroup;
+            return (
+              <button
+                key={gi}
+                type="button"
+                onClick={() => setActiveBudgetIdx(gi)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                  active
+                    ? "border-glowup-rose bg-glowup-rose/5 text-glowup-rose"
+                    : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                {g}
+                <span className={`rounded-full px-1.5 text-[10px] ${active ? "bg-glowup-rose/15" : "bg-gray-100"}`}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Barre d'actions du budget actif */}
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2.5">
+          <input
+            className="w-44 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium"
+            value={activeBudgetGroup}
+            onChange={(e) => renameBudgetGroup(budgetGroupNames.indexOf(activeBudgetGroup), e.target.value)}
+          />
+          {budgetGroupNames.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => deleteBudgetGroup(budgetGroupNames.indexOf(activeBudgetGroup))}
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Supprimer
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={addBudgetLineToActive}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-glowup-rose px-2.5 py-1.5 text-xs font-medium text-white hover:opacity-95"
+          >
+            <Plus className="h-3.5 w-3.5" /> Ligne
+          </button>
+        </div>
+
+        {activeBudgetLines.length === 0 ? (
           <EmptyHint text="Ajoute les postes de dépense (cachets, production, logistique…)." />
         ) : (
           <div className="space-y-2">
-            {form.budgetLines.map((l, i) => (
+            {activeBudgetLines.map(({ l, i }) => (
               <div key={i} className="grid grid-cols-[16px_1fr_1fr_130px_auto] items-center gap-2">
                 <GripVertical className="h-4 w-4 shrink-0 text-gray-300" />
                 <input className={inputCls} placeholder="Poste" value={l.label} onChange={(e) => updateRow(form, set, "budgetLines", i, { label: e.target.value })} />
@@ -1443,7 +1551,7 @@ function ProposalFormBody({
               </div>
             ))}
             <div className="flex items-center justify-between rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold">
-              <span>Total</span>
+              <span>Total{budgetGroupNames.length > 1 ? ` — ${activeBudgetGroup}` : ""}</span>
               <span>{money(budgetTotal, form.budgetCurrency)}</span>
             </div>
           </div>

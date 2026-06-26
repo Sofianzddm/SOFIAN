@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
         subtitle: projet.nom,
         casting: [] as Prisma.InputJsonValue,
         budgetLines: [] as Prisma.InputJsonValue,
+        budgetGroups: [] as Prisma.InputJsonValue,
         deliverables: [] as Prisma.InputJsonValue,
         photos: [] as Prisma.InputJsonValue,
         createdById: session.user.id,

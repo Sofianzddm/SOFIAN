@@ -44,6 +44,7 @@ export async function GET(
         casting: Array.isArray(proposal.casting) ? proposal.casting : [],
         castingGroups: Array.isArray(proposal.castingGroups) ? proposal.castingGroups : [],
         budgetLines: Array.isArray(proposal.budgetLines) ? proposal.budgetLines : [],
+        budgetGroups: Array.isArray(proposal.budgetGroups) ? proposal.budgetGroups : [],
         budgetCurrency: proposal.budgetCurrency,
         deliverables: Array.isArray(proposal.deliverables) ? proposal.deliverables : [],
         photos: Array.isArray(proposal.photos) ? proposal.photos : [],

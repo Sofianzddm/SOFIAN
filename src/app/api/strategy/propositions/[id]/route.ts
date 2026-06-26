@@ -28,7 +28,7 @@ const EDITABLE_STRING_FIELDS = [
   "status",
 ] as const;
 
-const EDITABLE_JSON_FIELDS = ["casting", "castingGroups", "budgetLines", "deliverables", "photos", "logistics"] as const;
+const EDITABLE_JSON_FIELDS = ["casting", "castingGroups", "budgetLines", "budgetGroups", "deliverables", "photos", "logistics"] as const;
 
 export async function GET(
   request: NextRequest,
