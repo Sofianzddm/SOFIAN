@@ -2362,6 +2362,9 @@ model PartnershipProposal {
   viewCount    Int       @default(0)
   lastViewedAt DateTime?
 
+  // Sessions de consultation (analytics : temps passé, ouvertures…)
+  views PartnershipProposalView[]
+
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -2369,6 +2372,25 @@ model PartnershipProposal {
   @@index([projetId])
   @@index([projetSlug])
   @@map("partnership_proposals")
+}
+
+/// Une session de consultation d'une proposition (pour mesurer le temps passé,
+/// le nombre d'ouvertures et la dernière visite). Créée à l'ouverture du lien
+/// public, sa durée est mise à jour par pings (sendBeacon) tant que l'onglet
+/// reste visible.
+model PartnershipProposalView {
+  id         String              @id @default(cuid())
+  proposalId String
+  proposal   PartnershipProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  startedAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  durationSec Int      @default(0) // secondes actives cumulées (onglet visible)
+  userAgent   String?
+  referrer    String?
+
+  @@index([proposalId])
+  @@map("partnership_proposal_views")
 }
 
 model OpportuniteMarque {

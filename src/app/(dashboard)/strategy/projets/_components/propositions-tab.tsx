@@ -16,6 +16,7 @@ import {
   GripVertical,
   ArrowLeft,
   Users2,
+  Clock,
 } from "lucide-react";
 import {
   ProposalDeckView,
@@ -92,7 +93,44 @@ export type Proposal = {
   status: string;
   viewCount: number;
   lastViewedAt?: string | null;
+  insights?: ProposalInsights | null;
 };
+
+export type ProposalInsights = {
+  sessions: number;
+  totalTimeSec: number;
+  avgTimeSec: number;
+  maxTimeSec: number;
+  lastSeenAt?: string | null;
+};
+
+// Durée lisible : 45s, 3 min, 1 h 12
+function formatDuration(totalSec: number): string {
+  const s = Math.max(0, Math.round(totalSec));
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem ? `${h} h ${rem}` : `${h} h`;
+}
+
+// Temps écoulé depuis une date : « il y a 3 min », « il y a 2 j »
+function formatRelative(date?: string | null): string | null {
+  if (!date) return null;
+  const t = new Date(date).getTime();
+  if (Number.isNaN(t)) return null;
+  const diff = Math.max(0, Date.now() - t);
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "à l'instant";
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `il y a ${d} j`;
+  const mo = Math.floor(d / 30);
+  return `il y a ${mo} mois`;
+}
 
 export type ParticipantLite = {
   talentId: string;
@@ -284,6 +322,33 @@ export function PropositionsTab({
                 <span className="rounded-full bg-gray-50 px-2 py-0.5">{prop.deliverables.length} livrables</span>
                 <span className="rounded-full bg-gray-50 px-2 py-0.5">{prop.photos.length} photos</span>
               </div>
+
+              {prop.insights && prop.insights.sessions > 0 ? (
+                <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-2.5 text-center">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{prop.insights.sessions}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Ouvertures</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{formatDuration(prop.insights.avgTimeSec)}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Temps moyen</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{formatDuration(prop.insights.maxTimeSec)}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Plus longue</p>
+                  </div>
+                  <div className="col-span-3 flex items-center justify-center gap-1.5 border-t border-gray-100 pt-2 text-[11px] text-gray-500">
+                    <Clock className="h-3 w-3" />
+                    {formatRelative(prop.insights.lastSeenAt)
+                      ? `Dernière ouverture ${formatRelative(prop.insights.lastSeenAt)}`
+                      : "Pas encore consultée"}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-gray-200 py-2 text-[11px] text-gray-400">
+                  <Clock className="h-3 w-3" /> Pas encore consultée
+                </div>
+              )}
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button
@@ -485,8 +550,24 @@ export function ProposalBuilder({ proposalId }: { proposalId: string }) {
             <div className="h-8 w-8 rounded-lg" style={{ backgroundColor: form.accentColor }} />
             <div>
               <p className="text-sm font-semibold text-gray-900">{form.nomMarque}</p>
-              <p className="flex items-center gap-1 text-[11px] text-gray-500">
-                <Eye className="h-3 w-3" /> {form.viewCount} vue{form.viewCount > 1 ? "s" : ""}
+              <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-gray-500">
+                <span className="inline-flex items-center gap-1">
+                  <Eye className="h-3 w-3" /> {form.viewCount} vue{form.viewCount > 1 ? "s" : ""}
+                </span>
+                {form.insights && form.insights.sessions > 0 ? (
+                  <>
+                    <span className="text-gray-300">·</span>
+                    <span className="inline-flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> {formatDuration(form.insights.avgTimeSec)} en moy.
+                    </span>
+                    {formatRelative(form.insights.lastSeenAt) ? (
+                      <>
+                        <span className="text-gray-300">·</span>
+                        <span>ouvert {formatRelative(form.insights.lastSeenAt)}</span>
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
               </p>
             </div>
           </div>
@@ -1202,8 +1283,8 @@ function ProposalFormBody({
           <div className="flex gap-2">
             {(
               [
-                { key: "sans", label: "Moderne", css: "ui-sans-serif, system-ui, sans-serif" },
-                { key: "serif", label: "Élégante", css: "ui-serif, Georgia, serif" },
+                { key: "sans", label: "Switzer", css: '"Switzer", Inter, sans-serif' },
+                { key: "serif", label: "Spectral", css: '"Spectral", Georgia, serif' },
                 { key: "mono", label: "Tech", css: "ui-monospace, monospace" },
               ] as const
             ).map((opt) => (

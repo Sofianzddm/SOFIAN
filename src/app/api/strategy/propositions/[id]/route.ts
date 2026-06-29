@@ -45,8 +45,27 @@ export async function GET(
     const proposal = await prisma.partnershipProposal.findUnique({ where: { id } });
     if (!proposal) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
+    const agg = await prisma.partnershipProposalView.aggregate({
+      where: { proposalId: id },
+      _sum: { durationSec: true },
+      _max: { durationSec: true, lastSeenAt: true },
+      _count: { _all: true },
+    });
+    const sessions = agg._count?._all ?? 0;
+    const totalTimeSec = agg._sum?.durationSec ?? 0;
+
     return NextResponse.json({
-      proposal: { ...proposal, publicUrl: `/proposition/${proposal.publicToken}` },
+      proposal: {
+        ...proposal,
+        publicUrl: `/proposition/${proposal.publicToken}`,
+        insights: {
+          sessions,
+          totalTimeSec,
+          avgTimeSec: sessions > 0 ? Math.round(totalTimeSec / sessions) : 0,
+          maxTimeSec: agg._max?.durationSec ?? 0,
+          lastSeenAt: agg._max?.lastSeenAt ?? proposal.lastViewedAt ?? null,
+        },
+      },
     });
   } catch (error) {
     console.error("GET /api/strategy/propositions/[id]:", error);

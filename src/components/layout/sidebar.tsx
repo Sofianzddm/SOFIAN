@@ -434,6 +434,12 @@ export function Sidebar() {
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
+            label: "Ynov Campus",
+            href: "/strategy/projets/ynov-campus",
+            icon: Briefcase,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
             label: "Sélection dîner",
             href: "/strategy/projets/villa-cannes/dinner-selection",
             icon: Users,

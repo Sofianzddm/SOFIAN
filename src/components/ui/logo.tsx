@@ -2,10 +2,12 @@ interface GlowUpLogoProps {
   className?: string;
   variant?: "light" | "dark";
   style?: React.CSSProperties;
+  /** Override explicite de la couleur de remplissage (prioritaire sur `variant`). */
+  color?: string;
 }
 
-export function GlowUpLogo({ className = "", variant = "dark", style }: GlowUpLogoProps) {
-  const fillColor = variant === "light" ? "#F5EDE0" : "#220101";
+export function GlowUpLogo({ className = "", variant = "dark", style, color }: GlowUpLogoProps) {
+  const fillColor = color ?? (variant === "light" ? "#F5EDE0" : "#220101");
   
   return (
     <svg 

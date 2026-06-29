@@ -2,7 +2,6 @@
 
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -10,16 +9,11 @@ import {
 } from "react";
 import {
   Loader2,
-  Download,
   MapPin,
   CalendarDays,
-  Users,
-  Wallet,
-  Sparkles,
+  ArrowDown,
   Mail,
   Instagram,
-  ImageIcon,
-  Home,
   ExternalLink,
 } from "lucide-react";
 import { GlowUpLogo } from "@/components/ui/logo";
@@ -109,9 +103,18 @@ export const DEFAULT_THEME: DeckTheme = {
   font: "sans",
 };
 
+// Polices de marque Glow Up : Switzer (sans) pour le corps, Spectral (serif)
+// pour le titrage. Servies via @font-face dans globals.css.
 const FONT_STACKS: Record<DeckTheme["font"], string> = {
-  sans: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  serif: 'ui-serif, Georgia, "Times New Roman", serif',
+  sans: '"Switzer", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  serif: '"Spectral", ui-serif, Georgia, "Times New Roman", serif',
+  mono: 'ui-monospace, "SF Mono", "Roboto Mono", monospace',
+};
+
+// Titrage : la serif de marque Spectral, qui donne le côté éditorial premium.
+const DISPLAY_FONT_STACKS: Record<DeckTheme["font"], string> = {
+  sans: '"Spectral", ui-serif, Georgia, "Times New Roman", serif',
+  serif: '"Spectral", ui-serif, Georgia, "Times New Roman", serif',
   mono: 'ui-monospace, "SF Mono", "Roboto Mono", monospace',
 };
 
@@ -196,12 +199,57 @@ function Reveal({ children, className = "" }: { children: React.ReactNode; class
   return (
     <div
       ref={ref}
+      data-reveal
       className={`transition-all duration-700 ease-out ${
         visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
       } ${className}`}
     >
       {children}
     </div>
+  );
+}
+
+// Affiche un handle propre (@pseudo) même si le champ contient une URL complète.
+function displayHandle(handle?: string | null): string | null {
+  if (!handle) return null;
+  let h = handle.trim();
+  if (/^https?:\/\//i.test(h)) {
+    try {
+      const seg = new URL(h).pathname.split("/").filter(Boolean)[0] || "";
+      h = seg;
+    } catch {
+      h = h.replace(/^https?:\/\//i, "").split("/")[1] || "";
+    }
+  }
+  h = h.replace(/^@/, "").trim();
+  return h || null;
+}
+
+// Construit l'URL du profil social d'un talent à partir de son handle + plateformes.
+function profileUrl(c: CastingMember): string | null {
+  const raw = (c.handle || "").trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const handle = raw.replace(/^@/, "");
+  if (!handle) return null;
+  const platforms = (c.platforms || []).map((pf) => pf.toLowerCase());
+  const hasInstagram = platforms.some((pf) => pf.includes("insta"));
+  const hasTiktok = platforms.some((pf) => pf.includes("tiktok") || pf.includes("tik tok"));
+  if (hasTiktok && !hasInstagram) return `https://www.tiktok.com/@${handle}`;
+  return `https://www.instagram.com/${handle}`;
+}
+
+function ProfileCardLink({ href, children }: { href: string | null; children: React.ReactNode }) {
+  if (!href) return <>{children}</>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block transition-transform duration-300 hover:-translate-y-1"
+    >
+      {children}
+    </a>
   );
 }
 
@@ -228,6 +276,11 @@ export function ProposalDeckView({
   const accent = p.accentColor || "#B06F70";
   const theme = resolveTheme(p.theme);
   const baseBg = theme.bgColor;
+  const displayFont = DISPLAY_FONT_STACKS[theme.font];
+  // Grain subtil (texture) posé sur tout le deck — adoucit les aplats et ajoute
+  // une impression « print ». Valeur inline pour rester compatible html2canvas.
+  const grainUrl =
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E\")";
   const budgetGroupsOrder: string[] =
     p.budgetGroups && p.budgetGroups.length
       ? p.budgetGroups
@@ -284,56 +337,109 @@ export function ProposalDeckView({
   };
   const castingTotals = castingRenderGroups.map(groupTotalOf).filter((t) => t.emv > 0);
 
+  // Plusieurs line-ups = propositions ALTERNATIVES (pas cumulatives). Les chiffres
+  // de la cover doivent donc refléter UN line-up représentatif (moyenne), sinon on
+  // additionne deux scénarios qui ne seront jamais réalisés ensemble.
+  const multiLineup = castingRenderGroups.length > 1;
+  const avgOf = (vals: number[]) => (vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0);
+  const lineupStats = castingRenderGroups.map((gname) => {
+    const members = p.casting.filter((c) => castingGroupOf(c) === gname);
+    const namesInGroup = new Set(members.map((c) => (c.name || "").trim().toLowerCase()));
+    return {
+      talents: members.length,
+      followers: members.reduce((s, c) => s + (Number(c.followers) || 0), 0),
+      livrables: p.deliverables.filter((d) => namesInGroup.has((d.talent || "").trim().toLowerCase())).length,
+    };
+  });
+  const headline = multiLineup
+    ? {
+        talents: Math.round(avgOf(lineupStats.map((s) => s.talents))),
+        followers: Math.round(avgOf(lineupStats.map((s) => s.followers))),
+        livrables: Math.round(avgOf(lineupStats.map((s) => s.livrables))),
+        emv: Math.round(avgOf(castingTotals.map((t) => t.emv))),
+      }
+    : {
+        talents: p.casting.length,
+        followers: totalFollowers,
+        livrables: p.deliverables.length,
+        emv: emv.emv,
+      };
+
+  // Bande « statement » de synthèse (chiffres-clés), volontairement plate et
+  // aérée : grands nombres en serif, filets fins entre les colonnes.
   const renderSummaryGrid = (reach: number, emvVal: number, interactions: number) => (
     <div
-      className="grid grid-cols-1 gap-px overflow-hidden rounded-3xl border sm:grid-cols-3"
-      style={{ borderColor: `${accent}40`, backgroundColor: `${accent}26` }}
+      className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border sm:grid-cols-3"
+      style={{ borderColor: `${accent}2e`, backgroundColor: `${accent}2e` }}
     >
-      <div className="p-7 text-center" style={{ backgroundColor: baseBg }}>
-        <p className="text-xs uppercase tracking-[0.2em] opacity-60">Reach total estimé</p>
-        <p className="mt-2 text-3xl font-bold md:text-4xl">{formatCompact(reach)}</p>
-        <p className="mt-1 text-xs opacity-50">personnes touchées</p>
+      <div className="px-6 py-9 text-center" style={{ backgroundColor: baseBg }}>
+        <p className="text-4xl font-semibold tabular-nums md:text-5xl" style={{ fontFamily: displayFont }}>
+          {formatCompact(reach)}
+        </p>
+        <p className="mt-2.5 text-[11px] uppercase tracking-[0.22em] opacity-50">Reach estimé</p>
       </div>
-      <div className="p-7 text-center" style={{ backgroundColor: baseBg }}>
-        <p className="text-xs uppercase tracking-[0.2em] opacity-60">EMV totale estimée</p>
-        <p className="mt-2 text-3xl font-bold md:text-4xl" style={{ color: accent }}>
+      <div className="px-6 py-9 text-center" style={{ backgroundColor: baseBg }}>
+        <p className="text-4xl font-semibold tabular-nums md:text-5xl" style={{ color: accent, fontFamily: displayFont }}>
           {money(emvVal, p.budgetCurrency)}
         </p>
-        <p className="mt-1 text-xs opacity-50">≈ {formatCompact(interactions)} interactions</p>
-      </div>
-      <div className="p-7 text-center" style={{ backgroundColor: baseBg }}>
-        <p className="text-xs uppercase tracking-[0.2em] opacity-60">
-          {budgetTotal > 0 ? "Retour sur investissement" : "Investissement"}
+        <p className="mt-2.5 text-[11px] uppercase tracking-[0.22em] opacity-50">
+          EMV estimée · ≈ {formatCompact(interactions)} interactions
         </p>
+      </div>
+      <div className="px-6 py-9 text-center" style={{ backgroundColor: baseBg }}>
         {budgetTotal > 0 ? (
           <>
-            <p className="mt-2 text-3xl font-bold md:text-4xl">×{(emvVal / budgetTotal).toFixed(1)}</p>
-            <p className="mt-1 text-xs opacity-50">EMV / investissement de {money(budgetTotal, p.budgetCurrency)}</p>
+            <p className="text-4xl font-semibold tabular-nums md:text-5xl" style={{ fontFamily: displayFont }}>
+              ×{(emvVal / budgetTotal).toFixed(1)}
+            </p>
+            <p className="mt-2.5 text-[11px] uppercase tracking-[0.22em] opacity-50">
+              Retour · {money(budgetTotal, p.budgetCurrency)} investis
+            </p>
           </>
         ) : (
-          <p className="mt-2 text-3xl font-bold md:text-4xl">{money(budgetTotal, p.budgetCurrency)}</p>
+          <>
+            <p className="text-4xl font-semibold tabular-nums md:text-5xl" style={{ fontFamily: displayFont }}>
+              {money(budgetTotal, p.budgetCurrency)}
+            </p>
+            <p className="mt-2.5 text-[11px] uppercase tracking-[0.22em] opacity-50">Investissement</p>
+          </>
         )}
       </div>
     </div>
   );
 
+  // Numérotation séquentielle des sections (01, 02, …) pour le rythme éditorial.
+  let sectionNo = 0;
+  const nextNo = () => String(++sectionNo).padStart(2, "0");
+
   return (
     <AnimateContext.Provider value={animate}>
-      <div style={{ ...deckBackgroundStyle(theme), color: theme.textColor, fontFamily: FONT_STACKS[theme.font] }}>
+      <div
+        data-deck-root
+        className="relative"
+        style={{ ...deckBackgroundStyle(theme), color: theme.textColor, fontFamily: FONT_STACKS[theme.font] }}
+      >
+        {/* Grain : texture posée sur tout le deck (pointer-events-none). */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{ backgroundImage: grainUrl, backgroundRepeat: "repeat", opacity: 0.05 }}
+        />
+        <div className="relative z-[1]">
         {/* ===== COVER ===== */}
-        <section className="relative flex min-h-screen flex-col justify-between overflow-hidden px-6 py-10 md:px-16 md:py-16">
+        <section className="relative flex min-h-screen flex-col justify-between overflow-hidden px-6 py-9 md:px-12 md:py-12">
           {p.coverPhotoUrl ? (
             <>
               <img
                 src={p.coverPhotoUrl}
                 alt=""
                 crossOrigin="anonymous"
-                className="absolute inset-0 h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full scale-105 object-cover"
               />
               <div
                 className="absolute inset-0"
                 style={{
-                  background: `linear-gradient(180deg, ${hexToRgba(baseBg, 0.45)} 0%, ${hexToRgba(baseBg, 0.75)} 55%, ${baseBg} 100%)`,
+                  background: `linear-gradient(180deg, ${hexToRgba(baseBg, 0.2)} 0%, ${hexToRgba(baseBg, 0.55)} 50%, ${hexToRgba(baseBg, 0.92)} 88%, ${baseBg} 100%)`,
                 }}
               />
             </>
@@ -341,13 +447,14 @@ export function ProposalDeckView({
             <div
               className="absolute inset-0"
               style={{
-                background: `radial-gradient(1200px 600px at 80% -10%, ${accent}40, transparent 60%), radial-gradient(900px 500px at 0% 110%, ${accent}30, transparent 55%)`,
+                background: `radial-gradient(1200px 620px at 78% -12%, ${accent}3d, transparent 60%), radial-gradient(900px 520px at 0% 112%, ${accent}26, transparent 55%)`,
               }}
             />
           )}
 
+          {/* Bandeau haut : logo agence ↔ marque */}
           <div className="relative z-10 flex items-center justify-between gap-4">
-            <GlowUpLogo variant="light" className="h-7 w-auto md:h-9" />
+            <GlowUpLogo color={theme.textColor} className="h-7 w-auto md:h-9" />
             {p.brandLogoUrl ? (
               <img
                 src={p.brandLogoUrl}
@@ -356,25 +463,37 @@ export function ProposalDeckView({
                 className="h-9 w-auto max-w-[180px] object-contain md:h-12"
               />
             ) : (
-              <span className="text-sm font-medium opacity-80 md:text-base">{p.nomMarque}</span>
+              <span className="text-sm font-medium tracking-wide opacity-80 md:text-base">{p.nomMarque}</span>
             )}
           </div>
 
-          <div className="relative z-10 max-w-3xl">
-            <span
-              className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em]"
-              style={{ backgroundColor: `${accent}33`, color: theme.textColor }}
+          {/* Titre éditorial, ancré en bas à gauche */}
+          <div data-pdf-atomic className="relative z-10 max-w-5xl">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.34em] opacity-65">
+              Proposition de partenariat
+              <span className="mx-2.5 opacity-40">/</span>
+              <span style={{ color: accent }}>{p.nomMarque}</span>
+            </p>
+            <h1
+              className="mt-6 text-[2.25rem] font-medium leading-[1.02] tracking-[-0.02em] md:text-[5rem]"
+              style={{ fontFamily: displayFont }}
             >
-              <Sparkles className="h-3.5 w-3.5" /> Proposition de partenariat
-            </span>
-            <h1 className="mt-5 text-4xl font-semibold leading-tight md:text-7xl">{p.title}</h1>
-            {p.subtitle ? <p className="mt-3 text-lg opacity-80 md:text-2xl">{p.subtitle}</p> : null}
-            <div className="mt-6 flex flex-wrap gap-4 text-sm opacity-80 md:text-base">
+              {p.title}
+            </h1>
+            {p.subtitle ? (
+              <p className="mt-6 max-w-2xl text-lg font-light leading-relaxed opacity-80 md:text-2xl">
+                {p.subtitle}
+              </p>
+            ) : null}
+            <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm opacity-85 md:text-base">
               {p.eventLocation ? (
                 <span className="inline-flex items-center gap-2">
                   <MapPin className="h-4 w-4" style={{ color: accent }} />
                   {p.eventLocation}
                 </span>
+              ) : null}
+              {p.eventLocation && p.eventDateLabel ? (
+                <span className="h-1 w-1 rounded-full opacity-40" style={{ backgroundColor: theme.textColor }} />
               ) : null}
               {p.eventDateLabel ? (
                 <span className="inline-flex items-center gap-2">
@@ -385,15 +504,32 @@ export function ProposalDeckView({
             </div>
           </div>
 
-          <div className="relative z-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatPill label="Talents" value={String(p.casting.length)} accent={accent} />
-            <StatPill label="Audience cumulée" value={formatCompact(totalFollowers)} accent={accent} />
-            <StatPill label="Livrables" value={String(p.deliverables.length)} accent={accent} />
-            <StatPill
-              label="EMV estimée"
-              value={hasEmv ? money(emv.emv, p.budgetCurrency) : "—"}
-              accent={accent}
-            />
+          {/* Chiffres-clés en ligne, séparés par des filets (plus premium que des cartes) */}
+          <div data-pdf-atomic className="relative z-10">
+            <div
+              className="grid grid-cols-2 border-t pt-6 sm:grid-cols-4"
+              style={{ borderColor: `${accent}33` }}
+            >
+              <CoverStat label="Talents" value={String(headline.talents)} accent={accent} displayFont={displayFont} />
+              <CoverStat
+                label={multiLineup ? "Audience moyenne" : "Audience cumulée"}
+                value={formatCompact(headline.followers)}
+                accent={accent}
+                displayFont={displayFont}
+              />
+              <CoverStat label="Livrables" value={String(headline.livrables)} accent={accent} displayFont={displayFont} />
+              <CoverStat
+                label={multiLineup ? "EMV moyenne" : "EMV estimée"}
+                value={hasEmv ? money(headline.emv, p.budgetCurrency) : "—"}
+                accent={accent}
+                displayFont={displayFont}
+                last
+              />
+            </div>
+            <div className="mt-7 flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] opacity-50">
+              <ArrowDown className="h-3.5 w-3.5 animate-bounce" />
+              Faire défiler
+            </div>
           </div>
         </section>
 
@@ -401,9 +537,24 @@ export function ProposalDeckView({
         {p.introMessage ? (
           <Section>
             <Reveal>
-              <p className="mx-auto max-w-3xl text-center text-xl font-light leading-relaxed md:text-3xl">
-                {p.introMessage}
-              </p>
+              <div className="max-w-4xl">
+                <span
+                  aria-hidden
+                  className="mb-8 block h-px w-12"
+                  style={{ backgroundColor: `${accent}` }}
+                />
+                <p
+                  className="text-[1.75rem] font-light leading-[1.35] tracking-[-0.01em] md:text-[3rem] md:leading-[1.25]"
+                  style={{ fontFamily: displayFont }}
+                >
+                  {p.introMessage}
+                </p>
+                {p.contactName ? (
+                  <p className="mt-8 text-sm uppercase tracking-[0.2em] opacity-55">
+                    — {p.contactName}, Glow Up
+                  </p>
+                ) : null}
+              </div>
             </Reveal>
           </Section>
         ) : null}
@@ -412,12 +563,13 @@ export function ProposalDeckView({
         {p.casting.length > 0 ? (
           <Section>
             <SectionHeader
-              icon={<Users className="h-5 w-5" />}
-              eyebrow="Proposition de casting"
-              title={castingGroupsOrder.length > 1 ? "Nos propositions de casting" : "Les talents présents"}
+              index={nextNo()}
+              eyebrow="Casting"
+              title={castingGroupsOrder.length > 1 ? "Nos propositions de line-up" : "Les talents présents"}
               accent={accent}
+              displayFont={displayFont}
             />
-            <div className="mt-10 space-y-12">
+            <div className="space-y-16">
               {castingRenderGroups.map((gname) => {
                 const members = p.casting
                   .map((c, i) => ({ c, i }))
@@ -427,86 +579,93 @@ export function ProposalDeckView({
                   <div key={gname || "default"}>
                     {showCastingTitles ? (
                       <Reveal>
-                        <h3
-                          className="mb-6 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold uppercase tracking-[0.15em]"
-                          style={{ backgroundColor: `${accent}26`, color: theme.textColor }}
-                        >
-                          {gname}
-                        </h3>
+                        <div className="mb-8 flex items-center gap-3">
+                          <h3 className="text-2xl font-medium md:text-3xl" style={{ fontFamily: displayFont }}>
+                            {gname}
+                          </h3>
+                          <span className="h-px flex-1" style={{ backgroundColor: `${accent}2e` }} />
+                        </div>
                       </Reveal>
                     ) : null}
-                    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {members.map(({ c, i }) => (
-                <Reveal key={`${c.name}-${i}`}>
-                  <article
-                    className="group h-full overflow-hidden rounded-3xl border bg-white/[0.03] backdrop-blur-sm"
-                    style={{ borderColor: `${accent}33` }}
-                  >
-                    <div className="relative aspect-[4/5] w-full overflow-hidden bg-white/5">
-                      {c.photoUrl ? (
-                        <img
-                          src={c.photoUrl}
-                          alt={c.name}
-                          crossOrigin="anonymous"
-                          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-4xl font-semibold opacity-40">
-                          {initials(c.name)}
-                        </div>
-                      )}
-                      <div
-                        className="absolute inset-x-0 bottom-0 h-2/3"
-                        style={{ background: `linear-gradient(180deg, transparent, ${hexToRgba(baseBg, 0.94)})` }}
-                      />
-                      <div className="absolute inset-x-0 bottom-0 p-4">
-                        <h3 className="text-lg font-semibold">{c.name}</h3>
-                        {c.handle ? <p className="text-sm opacity-70">@{c.handle.replace(/^@/, "")}</p> : null}
-                        {c.role ? (
-                          <span
-                            className="mt-2 inline-block rounded-full px-2.5 py-0.5 text-[11px] font-medium"
-                            style={{ backgroundColor: `${accent}40` }}
-                          >
-                            {c.role}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 px-4 py-3 text-sm">
-                      <div>
-                        <p className="text-lg font-semibold">{formatCompact(c.followers)}</p>
-                        <p className="text-[11px] uppercase tracking-wide opacity-60">Abonnés</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-lg font-semibold">
-                          {typeof c.engagement === "number" ? `${c.engagement.toFixed(2)}%` : "—"}
-                        </p>
-                        <p className="text-[11px] uppercase tracking-wide opacity-60">Engagement</p>
-                      </div>
-                    </div>
-                    {(c.platforms || []).length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5 px-4 pb-4">
-                        {(c.platforms || []).map((pf) => (
-                          <span
-                            key={pf}
-                            className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]"
-                            style={{ borderColor: `${accent}40` }}
-                          >
-                            <Instagram className="h-3 w-3" />
-                            {pf}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </article>
-                </Reveal>
-              ))}
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+                      {members.map(({ c, i }) => {
+                        const href = profileUrl(c);
+                        return (
+                        <Reveal key={`${c.name}-${i}`}>
+                          <ProfileCardLink href={href}>
+                          <article className="group">
+                            <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl" style={{ backgroundColor: `${accent}14` }}>
+                              {c.photoUrl ? (
+                                <img
+                                  src={c.photoUrl}
+                                  alt={c.name}
+                                  crossOrigin="anonymous"
+                                  className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-5xl font-medium opacity-30" style={{ fontFamily: displayFont }}>
+                                  {initials(c.name)}
+                                </div>
+                              )}
+                              {c.role ? (
+                                <span
+                                  className="absolute left-3 top-3 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] backdrop-blur-sm"
+                                  style={{ backgroundColor: `${baseBg}cc`, color: theme.textColor }}
+                                >
+                                  {c.role}
+                                </span>
+                              ) : null}
+                              {href ? (
+                                <span
+                                  className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] opacity-0 backdrop-blur-sm transition-opacity duration-300 group-hover:opacity-100"
+                                  style={{ backgroundColor: `${baseBg}cc`, color: theme.textColor }}
+                                >
+                                  <ExternalLink className="h-3 w-3" /> Profil
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-4">
+                              <div className="flex items-baseline justify-between gap-2">
+                                <h4 className="text-xl font-medium leading-tight md:text-2xl" style={{ fontFamily: displayFont }}>
+                                  {c.name}
+                                </h4>
+                                {(c.platforms || []).length > 0 ? (
+                                  <span className="inline-flex items-center gap-1 text-xs opacity-55">
+                                    <Instagram className="h-3.5 w-3.5" />
+                                    {(c.platforms || []).join(" · ")}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {displayHandle(c.handle) ? <p className="mt-0.5 text-sm opacity-55">@{displayHandle(c.handle)}</p> : null}
+                              <div
+                                className="mt-4 flex items-stretch border-t pt-3"
+                                style={{ borderColor: `${accent}26` }}
+                              >
+                                <div className="flex-1">
+                                  <p className="text-lg font-semibold tabular-nums" style={{ fontFamily: displayFont }}>
+                                    {formatCompact(c.followers)}
+                                  </p>
+                                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-50">Abonnés</p>
+                                </div>
+                                <div className="flex-1 border-l pl-4" style={{ borderColor: `${accent}26` }}>
+                                  <p className="text-lg font-semibold tabular-nums" style={{ fontFamily: displayFont }}>
+                                    {typeof c.engagement === "number" ? `${c.engagement.toFixed(2)}%` : "—"}
+                                  </p>
+                                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-50">Engagement</p>
+                                </div>
+                              </div>
+                            </div>
+                          </article>
+                          </ProfileCardLink>
+                        </Reveal>
+                        );
+                      })}
                     </div>
                     {hasEmv
                       ? (() => {
                           const gt = groupTotalOf(gname);
                           return gt.emv > 0 ? (
-                            <Reveal className="mt-8">
+                            <Reveal className="mt-10">
                               {renderSummaryGrid(gt.reach, gt.emv, gt.interactions)}
                             </Reveal>
                           ) : null;
@@ -523,12 +682,13 @@ export function ProposalDeckView({
         {p.budgetLines.length > 0 ? (
           <Section>
             <SectionHeader
-              icon={<Wallet className="h-5 w-5" />}
-              eyebrow="Budget détaillé & consolidé"
-              title={showBudgetTitles ? "Nos scénarios d'investissement" : "L'investissement, ligne par ligne"}
+              index={nextNo()}
+              eyebrow="Investissement"
+              title={showBudgetTitles ? "Nos scénarios d'investissement" : "Le budget, ligne par ligne"}
               accent={accent}
+              displayFont={displayFont}
             />
-            <div className="mt-10 space-y-12">
+            <div className={showBudgetTitles ? "grid gap-x-12 gap-y-14 md:grid-cols-2" : ""}>
               {budgetRenderGroups.map((gname) => {
                 const lines = p.budgetLines.filter((l) => budgetGroupOf(l) === gname);
                 if (lines.length === 0) return null;
@@ -536,30 +696,34 @@ export function ProposalDeckView({
                 return (
                   <Reveal key={gname || "budget"}>
                     {showBudgetTitles ? (
-                      <h3 className="mb-4 text-lg font-semibold md:text-xl" style={{ color: accent }}>
+                      <h3 className="mb-5 text-2xl font-medium" style={{ color: accent, fontFamily: displayFont }}>
                         {gname}
                       </h3>
                     ) : null}
-                    <div className="overflow-hidden rounded-3xl border" style={{ borderColor: `${accent}33` }}>
+                    <div>
                       {lines.map((l, i) => (
                         <div
                           key={`${l.label}-${i}`}
-                          className="flex items-center justify-between gap-4 border-b px-5 py-4 last:border-b-0 md:px-8"
+                          className="flex items-baseline justify-between gap-4 border-b py-4"
                           style={{ borderColor: `${accent}1f` }}
                         >
                           <div>
-                            <p className="font-medium">{l.label}</p>
-                            {l.detail ? <p className="text-sm opacity-60">{l.detail}</p> : null}
+                            <p className="text-base font-medium md:text-lg">{l.label}</p>
+                            {l.detail ? <p className="mt-0.5 text-sm opacity-55">{l.detail}</p> : null}
                           </div>
-                          <p className="shrink-0 text-lg font-semibold tabular-nums">{money(l.amount, p.budgetCurrency)}</p>
+                          <p className="shrink-0 text-lg font-medium tabular-nums md:text-xl" style={{ fontFamily: displayFont }}>
+                            {money(l.amount, p.budgetCurrency)}
+                          </p>
                         </div>
                       ))}
                       <div
-                        className="flex items-center justify-between gap-4 px-5 py-5 md:px-8"
-                        style={{ backgroundColor: `${accent}26` }}
+                        className="mt-1 flex items-baseline justify-between gap-4 border-t-2 pt-5"
+                        style={{ borderColor: accent }}
                       >
-                        <p className="text-base font-semibold uppercase tracking-wide">Total</p>
-                        <p className="text-2xl font-bold tabular-nums">{money(groupTotal, p.budgetCurrency)}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] opacity-70">Total</p>
+                        <p className="text-3xl font-semibold tabular-nums md:text-4xl" style={{ color: accent, fontFamily: displayFont }}>
+                          {money(groupTotal, p.budgetCurrency)}
+                        </p>
                       </div>
                     </div>
                   </Reveal>
@@ -573,12 +737,13 @@ export function ProposalDeckView({
         {p.deliverables.length > 0 ? (
           <Section>
             <SectionHeader
-              icon={<Sparkles className="h-5 w-5" />}
+              index={nextNo()}
               eyebrow="Livrables garantis"
               title="Ce qui est produit, garanti"
               accent={accent}
+              displayFont={displayFont}
             />
-            <div className="mt-10 grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
               {(() => {
                 const order: string[] = [];
                 const map = new Map<
@@ -601,93 +766,81 @@ export function ProposalDeckView({
                   const totalEmv = g.items.reduce((s, it) => s + (it.line?.retained || 0), 0);
                   return (
                     <Reveal key={key}>
-                      <article className="flex h-full flex-col rounded-3xl border p-6" style={{ borderColor: `${accent}33`, backgroundColor: "rgba(245,237,224,0.03)" }}>
-                        <div className="flex items-start justify-between gap-3">
+                      <article
+                        className="flex h-full flex-col overflow-hidden rounded-2xl border"
+                        style={{ borderColor: `${accent}59`, backgroundColor: `${accent}0a`, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
+                      >
+                        {/* En-tête de carte : créateur + EMV totale, nettement séparé */}
+                        <div
+                          className="flex items-center justify-between gap-3 border-b px-6 py-5"
+                          style={{ borderColor: `${accent}33` }}
+                        >
                           <div>
-                            <p className="text-xl font-semibold">{g.name}</p>
-                            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs opacity-60">
+                            <p className="text-2xl font-medium leading-tight" style={{ fontFamily: displayFont }}>{g.name}</p>
+                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs opacity-55">
                               {g.member?.followers ? <span>{formatCompact(g.member.followers)} abonnés</span> : null}
-                              {typeof g.member?.engagement === "number" ? <span>{g.member.engagement.toFixed(1)} % engagement</span> : null}
+                              {typeof g.member?.engagement === "number" ? <span>· {g.member.engagement.toFixed(1)} % eng.</span> : null}
                             </div>
                           </div>
                           {totalEmv > 0 ? (
-                            <div className="text-right">
-                              <p className="text-2xl font-bold" style={{ color: accent }}>
+                            <div className="shrink-0 text-right">
+                              <p className="text-[10px] uppercase tracking-[0.16em] opacity-50">EMV totale</p>
+                              <p className="text-2xl font-semibold md:text-3xl" style={{ color: accent, fontFamily: displayFont }}>
                                 ≈ {money(roundEmv(totalEmv), p.budgetCurrency)}
                               </p>
-                              <p className="text-[11px] uppercase tracking-wide opacity-50">EMV estimée</p>
                             </div>
                           ) : null}
                         </div>
 
-                        <div className="mt-5 space-y-4">
+                        <div className="px-6 pb-2">
                           {g.items.map(({ d, line }, k) => {
                             const qty = Number(d.quantity) || 1;
-                            const contentLabel = `${d.platform ? d.platform + " " : ""}${d.format || "Contenu"}`.trim();
-                            // En story on parle de "vues cumulées" (et non de reach unique) :
-                            // c'est plus défendable face à une marque qu'un reach unique.
+                            const fmt = (d.format || "Contenu").trim();
+                            const plat = (d.platform || "").trim();
+                            // Évite les doublons type « TikTok TikTok » (plateforme = format).
+                            const contentLabel =
+                              plat && plat.toLowerCase() === fmt.toLowerCase()
+                                ? fmt
+                                : `${plat ? plat + " " : ""}${fmt}`.trim();
                             const isStory = /story|stories|storie/i.test(`${d.format || ""} ${d.platform || ""}`);
-                            const reachUnit = isStory ? "vues cumulées" : "personnes touchées";
-                            const estimatedVerb = qty > 1 ? "sont estimés" : "est estimé";
                             const avgViews = d.avgViews ?? g.member?.avgViews;
                             const cells: { label: string; value: string }[] = [];
                             if (line && line.reach > 0) {
                               const reachLabel = isStory
-                                ? (qty > 1 ? "Vues cumulées estimées" : "Vues estimées")
+                                ? (qty > 1 ? "Vues cumulées" : "Vues estimées")
                                 : (line.estimated ? "Reach estimé" : "Reach observé");
                               cells.push({ label: reachLabel, value: formatCompact(line.reach) });
                             }
+                            if (isStory && qty > 1 && line && line.reach > 0)
+                              cells.push({ label: "Vues / story", value: formatCompact(line.reach / qty) });
                             if (avgViews) cells.push({ label: "Vues moyennes", value: formatCompact(avgViews) });
                             if (line && line.interactions > 0) cells.push({ label: "Interactions est.", value: `≈ ${formatCompact(line.interactions)}` });
                             return (
-                              <div key={k} className="border-t pt-4 first:border-t-0 first:pt-0" style={{ borderColor: `${accent}1f` }}>
-                                <div className="flex items-center justify-between gap-3">
-                                  <span
-                                    className="inline-block rounded-full px-2.5 py-0.5 text-xs font-medium"
-                                    style={{ backgroundColor: `${accent}33` }}
-                                  >
-                                    {qty > 1 ? `${qty} × ` : ""}
+                              <div
+                                key={k}
+                                className="border-b py-4 last:border-b-0"
+                                style={{ borderColor: `${accent}1f` }}
+                              >
+                                <div className="flex items-baseline justify-between gap-3">
+                                  <p className="font-medium">
+                                    {qty > 1 ? <span style={{ color: accent }}>{qty} × </span> : ""}
                                     {contentLabel}
-                                  </span>
+                                  </p>
                                   {line && line.retained > 0 ? (
-                                    <span className="text-base font-semibold tabular-nums">≈ {money(roundEmv(line.retained), p.budgetCurrency)}</span>
+                                    <span className="shrink-0 text-base font-semibold tabular-nums" style={{ fontFamily: displayFont }}>
+                                      ≈ {money(roundEmv(line.retained), p.budgetCurrency)}
+                                    </span>
                                   ) : null}
                                 </div>
                                 {cells.length > 0 ? (
-                                  <div className="mt-3 grid grid-cols-3 gap-x-4 gap-y-2">
-                                    {cells.map((c) => (
-                                      <div key={c.label}>
-                                        <p className="text-[10px] uppercase tracking-wide opacity-50">{c.label}</p>
-                                        <p className="text-sm font-semibold">{c.value}</p>
-                                      </div>
+                                  <p className="mt-2 text-sm leading-relaxed">
+                                    {cells.map((c, idx) => (
+                                      <span key={c.label}>
+                                        <span className="opacity-50">{c.label} </span>
+                                        <b className="font-semibold tabular-nums">{c.value}</b>
+                                        {idx < cells.length - 1 ? <span className="px-2 opacity-30">·</span> : null}
+                                      </span>
                                     ))}
-                                  </div>
-                                ) : null}
-                                {line && line.reach > 0 ? (
-                                  <p className="mt-3 text-[13px] leading-relaxed opacity-70">
-                                    {isStory ? (
-                                      <>
-                                        {qty > 1 ? `Ces ${qty} Stories devraient` : "Cette Story devrait"} générer environ{" "}
-                                        <b>{formatCompact(line.reach)}</b> {qty > 1 ? "vues cumulées" : "vues"}
-                                        {qty > 1 ? (
-                                          <>
-                                            , soit environ <b>{formatCompact(line.reach / qty)}</b> vues par story
-                                          </>
-                                        ) : null}
-                                        , pour une valeur média estimée à <b>≈ {money(roundEmv(line.retained), p.budgetCurrency)}</b>.
-                                      </>
-                                    ) : (
-                                      <>
-                                        {qty > 1 ? `Ces ${qty} ${d.format || "contenus"}` : `Ce ${d.format || "contenu"}`} {estimatedVerb} à environ{" "}
-                                        <b>{formatCompact(line.reach)}</b> {reachUnit}
-                                        {line.interactions > 0 ? (
-                                          <>
-                                            {" "}et {qty > 1 ? "devraient" : "devrait"} générer près de <b>{formatCompact(line.interactions)}</b> interactions
-                                          </>
-                                        ) : null}
-                                        , pour une valeur média estimée à <b>≈ {money(roundEmv(line.retained), p.budgetCurrency)}</b>.
-                                      </>
-                                    )}
                                   </p>
                                 ) : null}
                               </div>
@@ -701,13 +854,13 @@ export function ProposalDeckView({
               })()}
             </div>
             {hasEmv ? (
-              <p className="mt-4 text-center text-xs opacity-50">
-                Reach et valeur média estimés sur la base des performances moyennes observées de chaque créateur (jamais garantis pour de l&apos;organique).
+              <p className="mt-8 max-w-2xl text-xs leading-relaxed opacity-45">
+                Reach et valeur média estimés sur la base des performances moyennes observées de chaque créateur.
               </p>
             ) : null}
 
             {hasEmv && !(showCastingTitles && castingTotals.length > 1) ? (
-              <Reveal className="mt-10">
+              <Reveal className="mt-12">
                 {renderSummaryGrid(emv.reach, emv.emv, emv.interactions)}
               </Reveal>
             ) : null}
@@ -718,19 +871,20 @@ export function ProposalDeckView({
         {p.photos.length > 0 ? (
           <Section>
             <SectionHeader
-              icon={<ImageIcon className="h-5 w-5" />}
+              index={nextNo()}
               eyebrow="L'univers"
-              title="Galerie"
+              title="La galerie"
               accent={accent}
+              displayFont={displayFont}
             />
-            <div className="mt-10 columns-1 gap-4 sm:columns-2 lg:columns-3 [&>*]:mb-4">
+            <div className="columns-1 gap-5 sm:columns-2 lg:columns-3 [&>*]:mb-5">
               {p.photos.map((src, i) => (
                 <Reveal key={`${src}-${i}`}>
                   <img
                     src={src}
                     alt=""
                     crossOrigin="anonymous"
-                    className="w-full break-inside-avoid rounded-2xl object-cover"
+                    className="w-full break-inside-avoid rounded-xl object-cover"
                   />
                 </Reveal>
               ))}
@@ -742,12 +896,13 @@ export function ProposalDeckView({
         {(p.logistics || []).length > 0 ? (
           <Section>
             <SectionHeader
-              icon={<Home className="h-5 w-5" />}
+              index={nextNo()}
               eyebrow="Logement & logistique"
               title="Le cadre & l'organisation"
               accent={accent}
+              displayFont={displayFont}
             />
-            <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {(p.logistics || []).map((item, i) => {
                 const inner = (
                   <>
@@ -763,7 +918,7 @@ export function ProposalDeckView({
                     ) : null}
                     <div className="p-5">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="font-semibold">{item.label || "Lien"}</p>
+                        <p className="text-lg font-medium" style={{ fontFamily: displayFont }}>{item.label || "Lien"}</p>
                         {item.url ? <ExternalLink className="h-4 w-4 shrink-0 opacity-70" /> : null}
                       </div>
                       {item.detail ? <p className="mt-1 text-sm opacity-70">{item.detail}</p> : null}
@@ -801,25 +956,51 @@ export function ProposalDeckView({
         ) : null}
 
         {/* ===== CONTACT / CTA ===== */}
-        <section className="px-6 py-24 text-center md:px-16">
+        <section className="relative overflow-hidden px-6 py-28 text-center md:px-16">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-px"
+            style={{ background: `linear-gradient(90deg, transparent, ${accent}66, transparent)` }}
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{ background: `radial-gradient(700px 360px at 50% 120%, ${accent}26, transparent 65%)` }}
+          />
           <Reveal>
-            <GlowUpLogo variant="light" className="mx-auto h-8 w-auto md:h-10" />
-            <h2 className="mt-8 text-3xl font-semibold md:text-5xl">On construit ça ensemble ?</h2>
-            <p className="mx-auto mt-4 max-w-xl opacity-70">
-              Cette proposition est confidentielle et personnalisée pour {p.nomMarque}.
-            </p>
-            {p.contactEmail ? (
-              <a
-                href={`mailto:${p.contactEmail}`}
-                className="mt-8 inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-transform hover:scale-105"
-                style={{ backgroundColor: accent, color: LICORICE }}
-              >
-                <Mail className="h-4 w-4" />
-                {p.contactName ? `Échanger avec ${p.contactName}` : "Nous contacter"}
-              </a>
-            ) : null}
+            <div className="relative z-10">
+              <GlowUpLogo color={theme.textColor} className="mx-auto h-8 w-auto md:h-10" />
+              <h2 className="mt-8 text-3xl font-semibold tracking-[-0.01em] md:text-6xl" style={{ fontFamily: displayFont }}>
+                On construit ça ensemble ?
+              </h2>
+              <p className="mx-auto mt-5 max-w-xl text-base opacity-70 md:text-lg">
+                Cette proposition est confidentielle et personnalisée pour {p.nomMarque}.
+              </p>
+              {p.contactEmail ? (
+                <a
+                  href={`mailto:${p.contactEmail}`}
+                  className="mt-9 inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-sm font-semibold shadow-lg transition-transform hover:scale-105"
+                  style={{ backgroundColor: accent, color: LICORICE }}
+                >
+                  <Mail className="h-4 w-4" />
+                  {p.contactName ? `Échanger avec ${p.contactName}` : "Nous contacter"}
+                </a>
+              ) : null}
+            </div>
           </Reveal>
         </section>
+
+        {/* ===== FOOTER DE MARQUE ===== */}
+        <footer
+          className="flex flex-col items-center gap-3 border-t px-6 py-10 text-center md:flex-row md:justify-between md:px-12"
+          style={{ borderColor: `${accent}26` }}
+        >
+          <GlowUpLogo color={theme.textColor} className="h-6 w-auto opacity-90" />
+          <p className="text-[11px] uppercase tracking-[0.2em] opacity-45">
+            Glow Up Agence · Document confidentiel
+          </p>
+        </footer>
+        </div>
       </div>
     </AnimateContext.Provider>
   );
@@ -829,7 +1010,6 @@ export function ProposalDeck({ token }: { token: string }) {
   const [proposal, setProposal] = useState<ProposalPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
   const deckRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -852,49 +1032,69 @@ export function ProposalDeck({ token }: { token: string }) {
     };
   }, [token]);
 
-  const exportPdf = useCallback(async () => {
-    if (!deckRef.current || !proposal) return;
-    setExporting(true);
-    try {
-      const [{ default: jsPDF }, html2canvasModule] = await Promise.all([
-        import("jspdf"),
-        import("html2canvas"),
-      ]);
-      const html2canvas = html2canvasModule.default;
-      const canvas = await html2canvas(deckRef.current, {
-        backgroundColor: resolveTheme(proposal.theme).bgColor,
-        scale: 2,
-        useCORS: true,
-        windowWidth: deckRef.current.scrollWidth,
-      });
-      const imgData = canvas.toDataURL("image/jpeg", 0.92);
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  // Analytics best-effort : mesure le temps réellement passé sur la présentation
+  // (onglet visible) et l'envoie par pings + sendBeacon à la fermeture.
+  useEffect(() => {
+    if (!proposal?.id) return;
+    let viewId: string | null = null;
+    let active = 0; // secondes actives cumulées
+    let lastSent = -1;
+    let disposed = false;
+    const url = `/api/proposition/${token}/view`;
 
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position -= pageHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+    const send = (payload: Record<string, unknown>, beacon = false) => {
+      const data = JSON.stringify(payload);
+      if (beacon && typeof navigator !== "undefined" && navigator.sendBeacon) {
+        navigator.sendBeacon(url, new Blob([data], { type: "application/json" }));
+        return;
       }
-      const safeName = `${proposal.subtitle || "GlowUp"} x ${proposal.nomMarque}`
-        .replace(/[^\w\sÀ-ÿ-]/g, "")
-        .trim();
-      pdf.save(`Proposition ${safeName}.pdf`);
-    } catch (e) {
-      console.error("Export PDF:", e);
-      window.alert("Impossible de générer le PDF. Réessaie ou utilise l'impression du navigateur.");
-    } finally {
-      setExporting(false);
-    }
-  }, [proposal]);
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: data,
+        keepalive: true,
+      }).catch(() => {});
+    };
+
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ referrer: document.referrer || "" }),
+    })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!disposed) viewId = (j && j.viewId) || null;
+      })
+      .catch(() => {});
+
+    const tick = window.setInterval(() => {
+      if (document.visibilityState === "visible") active += 1;
+      if (viewId && active !== lastSent && active % 10 === 0) {
+        lastSent = active;
+        send({ viewId, duration: active });
+      }
+    }, 1000);
+
+    const flush = () => {
+      if (viewId && active !== lastSent) {
+        lastSent = active;
+        send({ viewId, duration: active }, true);
+      }
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", flush);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(tick);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [proposal?.id, token]);
 
   if (loading) {
     return (
@@ -922,60 +1122,74 @@ export function ProposalDeck({ token }: { token: string }) {
       <div ref={deckRef}>
         <ProposalDeckView proposal={proposal} />
       </div>
-
-      <button
-        type="button"
-        onClick={exportPdf}
-        disabled={exporting}
-        className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold shadow-lg transition-transform hover:scale-105 disabled:opacity-70"
-        style={{ backgroundColor: CREAM, color: LICORICE }}
-      >
-        {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-        {exporting ? "Génération…" : "Télécharger en PDF"}
-      </button>
     </div>
   );
 }
 
 function Section({ children }: { children: React.ReactNode }) {
-  return <section className="px-6 py-16 md:px-16 md:py-24">{children}</section>;
+  return (
+    <section className="relative px-6 py-20 md:px-12 md:py-28">
+      <div className="mx-auto w-full max-w-5xl">{children}</div>
+    </section>
+  );
 }
 
 function SectionHeader({
-  icon,
+  index,
   eyebrow,
   title,
   accent,
+  displayFont,
 }: {
-  icon: React.ReactNode;
+  index?: string;
   eyebrow: string;
   title: string;
   accent: string;
+  displayFont?: string;
 }) {
   return (
     <Reveal>
-      <div className="mx-auto max-w-3xl text-center">
-        <span
-          className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em]"
-          style={{ backgroundColor: `${accent}26` }}
+      <div className="mb-12 md:mb-16">
+        <div className="flex items-center gap-3">
+          {index ? (
+            <span className="text-sm font-semibold tabular-nums" style={{ color: accent, fontFamily: displayFont }}>
+              {index}
+            </span>
+          ) : null}
+          <span className="h-px w-8" style={{ backgroundColor: accent }} />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.3em] opacity-60">{eyebrow}</span>
+        </div>
+        <h2
+          className="mt-5 max-w-3xl text-4xl font-medium tracking-[-0.02em] md:text-[3.75rem] md:leading-[1.02]"
+          style={{ fontFamily: displayFont }}
         >
-          {icon}
-          {eyebrow}
-        </span>
-        <h2 className="mt-4 text-3xl font-semibold md:text-5xl">{title}</h2>
+          {title}
+        </h2>
       </div>
     </Reveal>
   );
 }
 
-function StatPill({ label, value, accent }: { label: string; value: string; accent: string }) {
+// Chiffre-clé de couverture : présenté en ligne, séparé par un filet vertical.
+function CoverStat({
+  label,
+  value,
+  accent,
+  displayFont,
+  last,
+}: {
+  label: string;
+  value: string;
+  accent: string;
+  displayFont?: string;
+  last?: boolean;
+}) {
   return (
-    <div
-      className="rounded-2xl border px-4 py-3 backdrop-blur-sm"
-      style={{ borderColor: `${accent}40`, backgroundColor: "rgba(245,237,224,0.04)" }}
-    >
-      <p className="text-xl font-bold md:text-2xl">{value}</p>
-      <p className="text-[11px] uppercase tracking-wide opacity-60">{label}</p>
+    <div className={`py-1 pr-4 ${last ? "" : "sm:border-r sm:pr-6"}`} style={{ borderColor: `${accent}33` }}>
+      <p className="text-2xl font-semibold tabular-nums md:text-3xl" style={{ fontFamily: displayFont }}>
+        {value}
+      </p>
+      <p className="mt-1 text-[10px] uppercase tracking-[0.16em] opacity-55">{label}</p>
     </div>
   );
 }

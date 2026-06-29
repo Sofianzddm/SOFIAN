@@ -26,11 +26,36 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
+    // Agrégat des sessions de consultation (temps passé, nb d'ouvertures, dernière visite).
+    const ids = proposals.map((p) => p.id);
+    const stats = ids.length
+      ? await prisma.partnershipProposalView.groupBy({
+          by: ["proposalId"],
+          where: { proposalId: { in: ids } },
+          _sum: { durationSec: true },
+          _max: { durationSec: true, lastSeenAt: true },
+          _count: { _all: true },
+        })
+      : [];
+    const statById = new Map(stats.map((s) => [s.proposalId, s]));
+
     return NextResponse.json({
-      proposals: proposals.map((p) => ({
-        ...p,
-        publicUrl: `/proposition/${p.publicToken}`,
-      })),
+      proposals: proposals.map((p) => {
+        const s = statById.get(p.id);
+        const sessions = s?._count?._all ?? 0;
+        const totalTimeSec = s?._sum?.durationSec ?? 0;
+        return {
+          ...p,
+          publicUrl: `/proposition/${p.publicToken}`,
+          insights: {
+            sessions,
+            totalTimeSec,
+            avgTimeSec: sessions > 0 ? Math.round(totalTimeSec / sessions) : 0,
+            maxTimeSec: s?._max?.durationSec ?? 0,
+            lastSeenAt: s?._max?.lastSeenAt ?? p.lastViewedAt ?? null,
+          },
+        };
+      }),
     });
   } catch (error) {
     console.error("GET /api/strategy/propositions:", error);
