@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   Users2,
   Clock,
+  ChevronDown,
 } from "lucide-react";
 import {
   ProposalDeckView,
@@ -103,6 +104,26 @@ export type ProposalInsights = {
   maxTimeSec: number;
   lastSeenAt?: string | null;
 };
+
+export type ViewSession = {
+  id: string;
+  startedAt: string;
+  lastSeenAt: string;
+  durationSec: number;
+};
+
+// Date + heure lisible : « 29 juin, 15:23 »
+function formatDateTime(d?: string | null): string {
+  if (!d) return "—";
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 // Durée lisible : 45s, 3 min, 1 h 12
 function formatDuration(totalSec: number): string {
@@ -207,6 +228,10 @@ export function PropositionsTab({
   const [creating, setCreating] = useState(false);
   const [newBrand, setNewBrand] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [viewsById, setViewsById] = useState<Record<string, ViewSession[]>>({});
+  const [loadingViewsId, setLoadingViewsId] = useState<string | null>(null);
+  const [uploadingLogoId, setUploadingLogoId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -258,6 +283,50 @@ export function PropositionsTab({
     setTimeout(() => setCopiedId((c) => (c === prop.id ? null : c)), 1800);
   }
 
+  async function toggleHistory(prop: Proposal) {
+    if (expandedId === prop.id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(prop.id);
+    setLoadingViewsId(prop.id);
+    try {
+      const res = await fetch(`/api/strategy/propositions/${prop.id}/views`);
+      if (res.ok) {
+        const json = await res.json();
+        setViewsById((m) => ({ ...m, [prop.id]: (json.views as ViewSession[]) || [] }));
+      }
+    } finally {
+      setLoadingViewsId((c) => (c === prop.id ? null : c));
+    }
+  }
+
+  async function uploadLogo(prop: Proposal, file: File) {
+    setUploadingLogoId(prop.id);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const up = await fetch("/api/strategy/propositions/upload-photo", { method: "POST", body: fd });
+      const upJson = await up.json().catch(() => ({}));
+      if (!up.ok || !upJson.url) {
+        window.alert(upJson.error || "Erreur lors de l'upload du logo.");
+        return;
+      }
+      const res = await fetch(`/api/strategy/propositions/${prop.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandLogoUrl: upJson.url }),
+      });
+      if (res.ok) {
+        setProposals((arr) =>
+          arr.map((p) => (p.id === prop.id ? { ...p, brandLogoUrl: upJson.url as string } : p))
+        );
+      }
+    } finally {
+      setUploadingLogoId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -305,7 +374,35 @@ export function PropositionsTab({
             <div key={prop.id} className="flex flex-col rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 shrink-0 rounded-lg" style={{ backgroundColor: prop.accentColor }} />
+                  <label
+                    title="Changer le logo client"
+                    className="group/logo relative h-10 w-10 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-gray-200"
+                    style={prop.brandLogoUrl ? { backgroundColor: "#fff" } : { backgroundColor: prop.accentColor }}
+                  >
+                    {prop.brandLogoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={prop.brandLogoUrl} alt={prop.nomMarque} className="h-full w-full object-contain" />
+                    ) : null}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) void uploadLogo(prop, f);
+                      }}
+                    />
+                    {uploadingLogoId === prop.id ? (
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/40">
+                        <Loader2 className="h-4 w-4 animate-spin text-white" />
+                      </span>
+                    ) : (
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover/logo:bg-black/30 group-hover/logo:opacity-100">
+                        <ImagePlus className="h-4 w-4 text-white" />
+                      </span>
+                    )}
+                  </label>
                   <div>
                     <p className="font-semibold text-gray-900">{prop.nomMarque}</p>
                     <p className="text-xs text-gray-500">{prop.title}</p>
@@ -324,25 +421,53 @@ export function PropositionsTab({
               </div>
 
               {prop.insights && prop.insights.sessions > 0 ? (
-                <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-2.5 text-center">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{prop.insights.sessions}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Ouvertures</p>
+                <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/70 p-2.5">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{prop.insights.sessions}</p>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Ouvertures</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{formatDuration(prop.insights.avgTimeSec)}</p>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Temps moyen</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{formatDuration(prop.insights.maxTimeSec)}</p>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Plus longue</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{formatDuration(prop.insights.avgTimeSec)}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Temps moyen</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{formatDuration(prop.insights.maxTimeSec)}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Plus longue</p>
-                  </div>
-                  <div className="col-span-3 flex items-center justify-center gap-1.5 border-t border-gray-100 pt-2 text-[11px] text-gray-500">
+                  <button
+                    type="button"
+                    onClick={() => void toggleHistory(prop)}
+                    className="mt-2 flex w-full items-center justify-center gap-1.5 border-t border-gray-100 pt-2 text-[11px] text-gray-500 transition-colors hover:text-gray-800"
+                  >
                     <Clock className="h-3 w-3" />
                     {formatRelative(prop.insights.lastSeenAt)
                       ? `Dernière ouverture ${formatRelative(prop.insights.lastSeenAt)}`
-                      : "Pas encore consultée"}
-                  </div>
+                      : "Voir l'historique"}
+                    <ChevronDown
+                      className={`h-3 w-3 transition-transform ${expandedId === prop.id ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {expandedId === prop.id ? (
+                    <div className="mt-2 max-h-48 space-y-1 overflow-auto border-t border-gray-100 pt-2">
+                      {loadingViewsId === prop.id && !viewsById[prop.id] ? (
+                        <p className="py-1 text-center text-[11px] text-gray-400">Chargement…</p>
+                      ) : (viewsById[prop.id] || []).length === 0 ? (
+                        <p className="py-1 text-center text-[11px] text-gray-400">Aucune session enregistrée.</p>
+                      ) : (
+                        (viewsById[prop.id] || []).map((v) => (
+                          <div
+                            key={v.id}
+                            className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-[11px] hover:bg-white"
+                          >
+                            <span className="text-gray-600">{formatDateTime(v.startedAt)}</span>
+                            <span className="tabular-nums text-gray-400">{formatDuration(v.durationSec)}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="mt-3 flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-gray-200 py-2 text-[11px] text-gray-400">
