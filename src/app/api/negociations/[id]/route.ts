@@ -92,6 +92,12 @@ export async function PUT(
     const data = await request.json();
     const isTM = session.user.role === "TM";
 
+    // Email du contact client obligatoire
+    const emailContact = data.emailContact ? String(data.emailContact).trim() : "";
+    if (!emailContact || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailContact)) {
+      return NextResponse.json({ error: "Email du contact client obligatoire" }, { status: 400 });
+    }
+
     // Récupérer la négociation actuelle
     const negoActuelle = await prisma.negociation.findUnique({
       where: { id },
@@ -139,7 +145,7 @@ export async function PUT(
           marqueId: data.marqueId || null,
           nomMarqueSaisi: nomMarqueSaisi ?? undefined,
           contactMarque: data.contactMarque || null,
-          emailContact: data.emailContact || null,
+          emailContact,
           // TM ne gère que les entrants → forcer INBOUND côté serveur
           source: isTM ? "INBOUND" : data.source || negoActuelle.source,
           brief: data.brief || null,

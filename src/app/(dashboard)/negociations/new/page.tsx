@@ -250,6 +250,12 @@ export default function NewNegociationPage() {
       return;
     }
 
+    const emailClient = formData.emailContact.trim();
+    if (!emailClient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClient)) {
+      alert("L'email du contact client est obligatoire (ex : email@marque.com).");
+      return;
+    }
+
     setLoading(true);
     try {
       // 1. Créer la négociation (BROUILLON)
@@ -364,7 +370,7 @@ export default function NewNegociationPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Email contact</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Email contact client *</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
@@ -373,9 +379,11 @@ export default function NewNegociationPage() {
                     value={formData.emailContact}
                     onChange={handleChange}
                     placeholder="email@marque.com"
+                    required
                     className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
                   />
                 </div>
+                <p className="text-xs text-gray-500 mt-1">Obligatoire : email du contact côté marque/client.</p>
               </div>
             </div>
           </div>

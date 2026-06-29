@@ -112,6 +112,11 @@ export async function POST(request: NextRequest) {
     if (!hasMarque) {
       return NextResponse.json({ message: "Nom de la marque obligatoire" }, { status: 400 });
     }
+    // Email du contact client obligatoire
+    const emailContact = data.emailContact ? String(data.emailContact).trim() : "";
+    if (!emailContact || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailContact)) {
+      return NextResponse.json({ message: "Email du contact client obligatoire" }, { status: 400 });
+    }
 
     // Générer la référence NEG-2026-0001
     const year = new Date().getFullYear();
@@ -130,13 +135,11 @@ export async function POST(request: NextRequest) {
         source: "NEGOCIATION",
       });
       marqueId = resolved.marqueId;
-      if (data.emailContact || data.contactMarque) {
-        await ensureMarqueContact({
-          marqueId,
-          email: data.emailContact || null,
-          nom: data.contactMarque || null,
-        });
-      }
+      await ensureMarqueContact({
+        marqueId,
+        email: emailContact,
+        nom: data.contactMarque || null,
+      });
     }
     // TM ne gère que les entrants → forcer INBOUND côté serveur
     const source: "INBOUND" | "OUTBOUND" =
@@ -151,7 +154,7 @@ export async function POST(request: NextRequest) {
         marqueId,
         nomMarqueSaisi: nomMarqueSaisi || null,
         contactMarque: data.contactMarque || null,
-        emailContact: data.emailContact || null,
+        emailContact,
         source,
         brief: data.brief || null,
         budgetMarque: data.budgetMarque ? parseFloat(data.budgetMarque) : null,

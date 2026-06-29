@@ -55,6 +55,15 @@ export async function POST(
       );
     }
 
+    // L'email du contact client est obligatoire avant soumission
+    const emailContact = nego.emailContact?.trim() || "";
+    if (!emailContact || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailContact)) {
+      return NextResponse.json(
+        { error: "Renseignez l'email du contact client avant de soumettre" },
+        { status: 400 }
+      );
+    }
+
     // Mettre à jour la négociation
     await prisma.$transaction(async (tx) => {
       // Passer EN_ATTENTE

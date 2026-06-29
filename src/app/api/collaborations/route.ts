@@ -3,6 +3,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { generateCollabReference } from "@/lib/generateCollabReference";
 import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
+import { ensureMarqueContact } from "@/lib/marque-resolver";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -198,6 +199,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Email du client obligatoire (devis / facture / signature)
+    const emailClient = billing.emailClient ? String(billing.emailClient).trim() : "";
+    if (!emailClient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClient)) {
+      return NextResponse.json(
+        { message: "Email du client obligatoire." },
+        { status: 400 }
+      );
+    }
+
     // Mettre à jour les infos de facturation de la marque AVANT de créer la collaboration
     await prisma.marque.update({
       where: { id: data.marqueId },
@@ -210,6 +220,14 @@ export async function POST(request: NextRequest) {
         siret: billing.siret ? String(billing.siret).trim() : null,
         numeroTVA: billing.numeroTVA ? String(billing.numeroTVA).trim() : null,
       },
+    });
+
+    // Enregistrer l'email du client comme contact marque (dédup par email)
+    await ensureMarqueContact({
+      marqueId: data.marqueId,
+      email: emailClient,
+      nom: String(billing.raisonSociale).trim() || null,
+      principal: true,
     });
 
     // Générer une référence unique via le compteur centralisé

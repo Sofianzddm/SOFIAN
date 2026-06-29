@@ -240,6 +240,12 @@ export default function EditNegociationPage() {
       return;
     }
 
+    const emailClient = formData.emailContact.trim();
+    if (!emailClient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClient)) {
+      alert("L'email du contact client est obligatoire (ex : contact@marque.com).");
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch(`/api/negociations/${params.id}`, {
@@ -437,15 +443,17 @@ export default function EditNegociationPage() {
             </div>
 
             <div>
-              <label className={labelClass}>Email contact</label>
+              <label className={labelClass}>Email contact client *</label>
               <input
                 type="email"
                 name="emailContact"
                 value={formData.emailContact}
                 onChange={(e) => setFormData({ ...formData, emailContact: e.target.value })}
                 placeholder="contact@marque.com"
+                required
                 className={inputClass}
               />
+              <p className="text-xs text-gray-500 mt-1">Obligatoire : email du contact côté marque/client.</p>
             </div>
           </div>
         </div>

@@ -119,6 +119,7 @@ export default function NewCollaborationPage() {
   // Bloc facturation client — toujours rempli à la création de collab
   const [billingData, setBillingData] = useState({
     raisonSociale: "",
+    emailClient: "",
     adresseRue: "",
     codePostal: "",
     ville: "",
@@ -214,7 +215,8 @@ export default function NewCollaborationPage() {
 
   const fillFromSearchResult = (e: EntrepriseSearchResult) => {
     const adresseRue = [e.adresse, e.complement].filter(Boolean).join(" – ") || "";
-    setBillingData({
+    setBillingData((prev) => ({
+      ...prev,
       raisonSociale: e.nom_entreprise || "",
       adresseRue,
       codePostal: e.code_postal || "",
@@ -222,7 +224,7 @@ export default function NewCollaborationPage() {
       pays: e.pays || "France",
       siret: e.siret || "",
       numeroTVA: e.numero_tva_intracommunautaire || "",
-    });
+    }));
     setShowSearchResults(false);
     setSearchResults([]);
     setSearchQuery("");
@@ -296,6 +298,13 @@ export default function NewCollaborationPage() {
       return;
     }
 
+    // Email du client obligatoire
+    const emailClient = billingData.emailClient.trim();
+    if (!emailClient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClient)) {
+      alert("L'email du client est obligatoire (ex : contact@marque.com).");
+      return;
+    }
+
     setLoading(true);
     try {
       // 1. Créer la marque avec les infos de facturation
@@ -341,6 +350,7 @@ export default function NewCollaborationPage() {
           montantNet,
           billing: {
             raisonSociale: billingData.raisonSociale.trim(),
+            emailClient,
             adresseRue: billingData.adresseRue.trim(),
             codePostal: billingData.codePostal.trim(),
             ville: billingData.ville.trim(),
@@ -489,6 +499,20 @@ export default function NewCollaborationPage() {
                     placeholder="Ex : L'ORÉAL FRANCE SAS"
                     required
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Email du client *
+                  </label>
+                  <input
+                    type="email"
+                    value={billingData.emailClient}
+                    onChange={(e) => setBillingData((prev) => ({ ...prev, emailClient: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                    placeholder="contact@marque.com"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Obligatoire : email du contact client (devis, facture, signature).</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="md:col-span-2">
