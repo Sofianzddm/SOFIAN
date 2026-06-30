@@ -3,7 +3,48 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Pencil, Copy, Eye, Loader2, Building2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Pencil,
+  Copy,
+  Eye,
+  Loader2,
+  Building2,
+  Users,
+  Mail,
+  MousePointerClick,
+  Reply,
+  Crown,
+} from "lucide-react";
+
+interface AgencyContact {
+  id: string;
+  prenom: string;
+  nom: string | null;
+  email: string;
+  poste: string | null;
+  language: string;
+  principal: boolean;
+  excluded: boolean;
+  createdAt: string;
+  inProspection: boolean;
+  status: "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED" | null;
+  cycleCount: number;
+  lastSentAt: string | null;
+  lastRepliedAt: string | null;
+  nextRecontactAt: string | null;
+  openCount: number;
+  clickCount: number;
+  replied: boolean;
+  relanceSent: boolean;
+}
+
+const STATUS_LABELS: Record<string, { label: string; className: string }> = {
+  TO_CONTACT: { label: "À contacter", className: "bg-gray-100 text-gray-700" },
+  WAITING: { label: "En attente", className: "bg-blue-100 text-blue-700" },
+  TO_RECONTACT: { label: "À recontacter", className: "bg-amber-100 text-amber-700" },
+  STOPPED: { label: "Stoppé", className: "bg-red-100 text-red-700" },
+};
 
 interface PartnerStats {
   period: string;
@@ -223,6 +264,137 @@ export default function PartnerDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Fiche client : contacts de l'agence (Prospection Agences) */}
+      <div className="bg-white rounded-lg border p-6 mb-8">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Users className="w-5 h-5 text-gray-500" />
+            Contacts de l'agence
+            <span className="text-sm font-normal text-gray-400">
+              ({(partner.agencyContacts || []).length})
+            </span>
+          </h2>
+          <Link
+            href="/agency-outreach"
+            className="text-sm text-blue-600 hover:underline"
+          >
+            Gérer la prospection →
+          </Link>
+        </div>
+
+        {(partner.agencyContacts || []).length === 0 ? (
+          <div className="text-center py-10">
+            <p className="text-gray-500 mb-2">Aucun contact pour cette agence.</p>
+            <p className="text-sm text-gray-400">
+              Ajoute des contacts ou importe un Excel depuis la{" "}
+              <Link href="/agency-outreach" className="text-blue-600 hover:underline">
+                Prospection Agences
+              </Link>
+              .
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b">
+                  <th className="py-2 pr-4 font-medium">Contact</th>
+                  <th className="py-2 pr-4 font-medium">Poste</th>
+                  <th className="py-2 pr-4 font-medium">Langue</th>
+                  <th className="py-2 pr-4 font-medium">Statut</th>
+                  <th className="py-2 pr-4 font-medium">Engagement</th>
+                  <th className="py-2 pr-4 font-medium">Dernier envoi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(partner.agencyContacts as AgencyContact[]).map((c) => (
+                  <tr
+                    key={c.id}
+                    className={`border-b last:border-0 ${c.excluded ? "opacity-50" : ""}`}
+                  >
+                    <td className="py-3 pr-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">
+                          {c.prenom} {c.nom || ""}
+                        </span>
+                        {c.principal && (
+                          <span
+                            title="Contact principal"
+                            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700"
+                          >
+                            <Crown className="w-3 h-3" /> Principal
+                          </span>
+                        )}
+                        {c.excluded && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                            Exclu
+                          </span>
+                        )}
+                      </div>
+                      <a
+                        href={`mailto:${c.email}`}
+                        className="text-xs text-gray-500 hover:text-blue-600"
+                      >
+                        {c.email}
+                      </a>
+                    </td>
+                    <td className="py-3 pr-4 text-gray-600">{c.poste || "—"}</td>
+                    <td className="py-3 pr-4 text-gray-600 uppercase">{c.language}</td>
+                    <td className="py-3 pr-4">
+                      {c.inProspection && c.status ? (
+                        <span
+                          className={`inline-block text-xs px-2 py-0.5 rounded-full ${
+                            STATUS_LABELS[c.status]?.className || "bg-gray-100 text-gray-700"
+                          }`}
+                        >
+                          {STATUS_LABELS[c.status]?.label || c.status}
+                          {c.cycleCount > 0 ? ` · ${c.cycleCount} cycle(s)` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">Hors prospection</span>
+                      )}
+                    </td>
+                    <td className="py-3 pr-4">
+                      {c.inProspection ? (
+                        <div className="flex items-center gap-3 text-xs text-gray-600">
+                          <span className="inline-flex items-center gap-1" title="Ouvertures">
+                            <Eye className="w-3.5 h-3.5" /> {c.openCount}
+                          </span>
+                          <span className="inline-flex items-center gap-1" title="Clics">
+                            <MousePointerClick className="w-3.5 h-3.5" /> {c.clickCount}
+                          </span>
+                          {c.replied && (
+                            <span
+                              className="inline-flex items-center gap-1 text-green-600"
+                              title="A répondu"
+                            >
+                              <Reply className="w-3.5 h-3.5" /> Répondu
+                            </span>
+                          )}
+                          {c.relanceSent && (
+                            <span
+                              className="inline-flex items-center gap-1 text-amber-600"
+                              title="Relance envoyée"
+                            >
+                              <Mail className="w-3.5 h-3.5" /> Relancé
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 pr-4 text-xs text-gray-500">
+                      {formatDate(c.lastSentAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Top talents */}

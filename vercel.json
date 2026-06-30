@@ -29,6 +29,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/agency-outreach",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/mailer",
       "schedule": "*/5 * * * *"
     }

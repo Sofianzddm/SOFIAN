@@ -2186,6 +2186,10 @@ model Partner {
   // Projets affichés sur la page partenaire (vide = tous les projets actifs)
   projects PartnerProject[]
 
+  // Prospection agences (module distinct des marques)
+  agencyContacts        AgencyContact[]
+  agencyOutreachTargets AgencyOutreachTarget[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   createdBy String? // ID de l'admin qui a créé
@@ -3177,6 +3181,155 @@ model OutreachClick {
 
   @@index([touchId, clickedAt])
   @@map("outreach_clicks")
+}
+
+// ============================================
+// PROSPECTION AGENCES (module distinct des marques)
+// ============================================
+// Même mécanique que le module Outreach (cycle perpétuel 45 jours + relance
+// J+3 ouvrés), mais ciblé sur les AGENCES partenaires (model Partner) et
+// totalement isolé des marques : aucune FK vers Marque / MarqueContact.
+// Le mail peut contenir le token {{agence.lien}} → /partners/{slug}.
+
+// Un contact (personne) rattaché à une agence partenaire. Permet l'envoi
+// groupé mais personnalisé (prénom) sans réutiliser les contacts marque.
+model AgencyContact {
+  id String @id @default(cuid())
+
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  prenom    String
+  nom       String?
+  email     String
+  poste     String?
+  language  String  @default("fr") // "fr" | "en"
+  principal Boolean @default(false)
+  // Exclu de la prospection (ne pas proposer / contacter)
+  excluded  Boolean @default(false)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outreachTargets AgencyOutreachTarget[]
+
+  @@unique([partnerId, email])
+  @@index([partnerId])
+  @@map("agency_contacts")
+}
+
+// Une agence (via un contact) suivie par la prospection. Cycle perpétuel :
+// même après une réponse, le contact revient en TO_RECONTACT à J+45.
+// Seul un stop manuel (status = STOPPED) le sort de la boucle.
+model AgencyOutreachTarget {
+  id String @id @default(cuid())
+
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  agencyContactId String?
+  agencyContact   AgencyContact? @relation(fields: [agencyContactId], references: [id], onDelete: SetNull)
+
+  // Snapshot du contact (robuste si la fiche est modifiée/supprimée)
+  firstname String
+  lastname  String?
+  email     String
+  // Nom de l'agence (snapshot de Partner.name)
+  company   String
+  // Lien talent book de l'agence (snapshot de /partners/{slug})
+  partnerSlug String?
+
+  language String @default("fr") // "fr" | "en"
+
+  status OutreachTargetStatus @default(TO_CONTACT)
+
+  // Boîte Gmail expéditrice du cycle (null = leyna@glowupagence.fr).
+  fromEmail String?
+
+  // Brouillon en cours de rédaction (composer), avant envoi du cycle
+  draftSubject  String? @db.Text
+  draftBodyHtml String? @db.Text
+
+  cycleCount      Int       @default(0)
+  lastSentAt      DateTime?
+  nextRecontactAt DateTime?
+  lastRepliedAt   DateTime?
+  stoppedAt       DateTime?
+  stoppedById     String?
+
+  autoRescheduleReason String?   @db.Text
+  autoRescheduledAt    DateTime?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  touches AgencyOutreachTouch[]
+
+  @@unique([email])
+  @@index([status, nextRecontactAt])
+  @@index([partnerId])
+  @@index([status, createdAt])
+  @@map("agency_outreach_targets")
+}
+
+// Un mail de cycle envoyé à un contact d'agence (historique complet).
+model AgencyOutreachTouch {
+  id String @id @default(cuid())
+
+  targetId String
+  target   AgencyOutreachTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  cycleNumber Int
+  subject     String @db.Text
+  bodyHtml    String @db.Text
+
+  fromEmail String?
+
+  sentAt    DateTime?
+  sentById  String?
+  threadId  String?
+  messageId String?
+  sendError String?   @db.Text
+
+  relanceSentAt    DateTime?
+  relanceMessageId String?
+  relanceError     String?   @db.Text
+  relanceCancelledAt   DateTime?
+  relanceCancelledById String?
+  repliedAt        DateTime?
+
+  openedAt     DateTime?
+  lastOpenAt   DateTime?
+  openCount    Int       @default(0)
+  clickedAt    DateTime?
+  lastClickAt  DateTime?
+  lastClickUrl String?   @db.Text
+  clickCount   Int       @default(0)
+
+  clicks AgencyOutreachClick[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([targetId, cycleNumber])
+  @@index([sentAt, repliedAt, relanceSentAt])
+  @@map("agency_outreach_touches")
+}
+
+// Détail de chaque clic sur un lien d'un mail de prospection agence.
+model AgencyOutreachClick {
+  id String @id @default(cuid())
+
+  touchId String
+  touch   AgencyOutreachTouch @relation(fields: [touchId], references: [id], onDelete: Cascade)
+
+  url       String   @db.Text
+  clickedAt DateTime @default(now())
+
+  @@index([touchId, clickedAt])
+  @@map("agency_outreach_clicks")
 }
 
 // ============================================

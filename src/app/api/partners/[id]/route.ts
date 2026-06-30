@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { slugifyPartner } from "@/lib/agency-partner";
 
 const VIEW_ROLES = [
   "ADMIN",
@@ -151,6 +152,77 @@ export async function GET(
       return NextResponse.json({ error: "Partenaire introuvable" }, { status: 404 });
     }
 
+    // Contacts agence (Prospection Agences) : les "clients" saisis / importés via
+    // Excel, avec l'état de leur suivi (statut + dernier touch).
+    const agencyContactsRaw = await prisma.agencyContact
+      .findMany({
+        where: { partnerId: id },
+        orderBy: [{ principal: "desc" }, { prenom: "asc" }],
+        select: {
+          id: true,
+          prenom: true,
+          nom: true,
+          email: true,
+          poste: true,
+          language: true,
+          principal: true,
+          excluded: true,
+          createdAt: true,
+          outreachTargets: {
+            take: 1,
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              status: true,
+              cycleCount: true,
+              lastSentAt: true,
+              lastRepliedAt: true,
+              nextRecontactAt: true,
+              touches: {
+                take: 1,
+                orderBy: { cycleNumber: "desc" },
+                select: {
+                  sentAt: true,
+                  openCount: true,
+                  openedAt: true,
+                  clickCount: true,
+                  clickedAt: true,
+                  repliedAt: true,
+                  relanceSentAt: true,
+                },
+              },
+            },
+          },
+        },
+      })
+      .catch(() => []);
+
+    const agencyContacts = agencyContactsRaw.map((c) => {
+      const target = c.outreachTargets[0] || null;
+      const touch = target?.touches[0] || null;
+      return {
+        id: c.id,
+        prenom: c.prenom,
+        nom: c.nom,
+        email: c.email,
+        poste: c.poste,
+        language: c.language,
+        principal: c.principal,
+        excluded: c.excluded,
+        createdAt: c.createdAt,
+        inProspection: !!target,
+        status: target?.status ?? null,
+        cycleCount: target?.cycleCount ?? 0,
+        lastSentAt: target?.lastSentAt ?? null,
+        lastRepliedAt: target?.lastRepliedAt ?? null,
+        nextRecontactAt: target?.nextRecontactAt ?? null,
+        openCount: touch?.openCount ?? 0,
+        clickCount: touch?.clickCount ?? 0,
+        replied: !!touch?.repliedAt,
+        relanceSent: !!touch?.relanceSentAt,
+      };
+    });
+
     // Trier et limiter les top talents après le groupBy
     const topTalents = topTalentsRaw
       .map((row) => ({
@@ -188,6 +260,7 @@ export async function GET(
           niches: pt.talent.niches,
           stats: pt.talent.stats,
         })),
+        agencyContacts,
       },
       stats: {
         period,
@@ -245,6 +318,7 @@ export async function PUT(
 
     const {
       name,
+      slug,
       logo,
       contactName,
       contactEmail,
@@ -254,6 +328,7 @@ export async function PUT(
       talentIds,
     } = body as {
       name?: string;
+      slug?: string;
       logo?: string | null;
       contactName?: string | null;
       contactEmail?: string | null;
@@ -272,11 +347,47 @@ export async function PUT(
     if (description !== undefined) data.description = description;
     if (isActive !== undefined) data.isActive = isActive;
 
+    // Édition libre du lien (slug) : on normalise et on vérifie l'unicité.
+    // C'est ce slug qui construit l'URL talent book /partners/{slug} et le token
+    // {{agence.lien}} de la Prospection Agences.
+    if (slug !== undefined) {
+      const normalizedSlug = slugifyPartner(slug);
+      if (!normalizedSlug) {
+        return NextResponse.json(
+          { error: "Le lien (slug) ne peut pas être vide." },
+          { status: 400 }
+        );
+      }
+      const clash = await prisma.partner.findFirst({
+        where: { slug: normalizedSlug, NOT: { id } },
+        select: { id: true },
+      });
+      if (clash) {
+        return NextResponse.json(
+          { error: `Le lien « ${normalizedSlug} » est déjà utilisé par une autre agence.` },
+          { status: 409 }
+        );
+      }
+      data.slug = normalizedSlug;
+    }
+
     // Update partenaire
-    await prisma.partner.update({
+    const updatedPartner = await prisma.partner.update({
       where: { id },
       data,
     });
+
+    // Propage le nom (et le slug par sécurité) vers les contacts suivis par la
+    // Prospection Agences : le snapshot company / partnerSlug reste à jour, donc
+    // le token {{agence.nom}} et le lien {{agence.lien}} reflètent /partners.
+    await prisma.agencyOutreachTarget
+      .updateMany({
+        where: { partnerId: id },
+        data: { company: updatedPartner.name, partnerSlug: updatedPartner.slug },
+      })
+      .catch((e) =>
+        console.warn("[partners PUT] propagation prospection agences:", e)
+      );
 
     if (Array.isArray(talentIds)) {
       // Re-synchroniser les PartnerTalent dans une transaction

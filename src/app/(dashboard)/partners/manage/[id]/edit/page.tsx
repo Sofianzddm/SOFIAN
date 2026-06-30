@@ -61,6 +61,7 @@ export default function EditPartnerPage() {
   const [talents, setTalents] = useState<Talent[]>([]);
   const [formData, setFormData] = useState({
     name: "",
+    slug: "",
     logo: "",
     contactName: "",
     contactEmail: "",
@@ -89,6 +90,7 @@ export default function EditPartnerPage() {
         const p = data.partner;
         setFormData({
           name: p.name || "",
+          slug: p.slug || "",
           logo: p.logo || "",
           contactName: p.contactName || "",
           contactEmail: p.contactEmail || "",
@@ -288,6 +290,35 @@ export default function EditPartnerPage() {
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             className="w-full px-4 py-2 border rounded-lg"
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">Lien (slug) du talent book</label>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500 whitespace-nowrap">
+              {typeof window !== "undefined" ? window.location.origin : ""}/partners/
+            </span>
+            <input
+              type="text"
+              value={formData.slug}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  slug: e.target.value
+                    .toLowerCase()
+                    .replace(/[^a-z0-9-]+/g, "-")
+                    .replace(/-+/g, "-"),
+                })
+              }
+              className="flex-1 px-4 py-2 border rounded-lg font-mono text-sm"
+              placeholder="top-contacts-influence"
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            C'est l'URL publique partagée dans les emails (token{" "}
+            <span className="font-mono">{"{{agence.lien}}"}</span> de la Prospection
+            Agences). Modifier le lien met à jour automatiquement la prospection.
+          </p>
         </div>
 
         <div>

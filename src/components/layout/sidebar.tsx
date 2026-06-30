@@ -69,6 +69,12 @@ const menuItems = [
     roles: ["CASTING_MANAGER", "ADMIN"],
   },
   {
+    label: "Prospection Agences",
+    href: "/agency-outreach",
+    icon: Building2,
+    roles: ["CASTING_MANAGER", "ADMIN"],
+  },
+  {
     label: "Missions Strategy",
     href: "/casting-outreach/missions",
     icon: Target,
