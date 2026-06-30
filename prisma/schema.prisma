@@ -1763,6 +1763,12 @@ model AdminMail {
   repliedAt        DateTime?
   lastReplyCheckAt DateTime?
 
+  /// Anti double-contact : si la boîte de Leyna a déjà écrit au destinataire
+  /// il y a moins de 20 jours, le mail est reporté (remis dans le cycle) au
+  /// lieu d'être envoyé. `forceSend` permet d'ignorer ce garde-fou.
+  forceSend  Boolean @default(false)
+  holdReason String? @db.Text
+
   /// Tracking d'ouverture (pixel) du mail initial.
   openCount  Int       @default(0)
   openedAt   DateTime?

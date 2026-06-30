@@ -22,12 +22,26 @@ export async function POST(
     return NextResponse.json({ error: "Mail déjà envoyé." }, { status: 409 });
   }
 
+  // ?force=1 : ignore le cooldown anti double-contact (Leyna < 20j).
+  const force = request.nextUrl.searchParams.get("force") === "1";
+  if (force) {
+    await prisma.adminMail.update({ where: { id }, data: { forceSend: true } });
+  }
+
   const result = await executeMailSend(id);
   const refreshed = await prisma.adminMail.findUnique({
     where: { id },
     include: { followups: { orderBy: { order: "asc" } } },
   });
 
+  // Report (cooldown) : ce n'est pas une erreur, on renvoie 200 avec un flag.
+  if (result.held) {
+    return NextResponse.json({
+      mail: refreshed,
+      held: true,
+      message: result.error,
+    });
+  }
   if (!result.ok) {
     return NextResponse.json(
       { error: result.error || "Échec de l'envoi.", mail: refreshed },

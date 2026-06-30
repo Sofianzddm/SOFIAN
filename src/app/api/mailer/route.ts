@@ -124,6 +124,13 @@ export async function POST(request: NextRequest) {
       where: { id: created.id },
       include: { followups: { orderBy: { order: "asc" } } },
     });
+    if (result.held) {
+      return NextResponse.json({
+        mail: refreshed,
+        held: true,
+        message: result.error,
+      });
+    }
     if (!result.ok) {
       return NextResponse.json(
         { error: result.error || "Échec de l'envoi.", mail: refreshed },

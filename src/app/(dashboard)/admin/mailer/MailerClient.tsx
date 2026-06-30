@@ -65,6 +65,7 @@ type AdminMail = {
   repliedAt: string | null;
   stopOnReply: boolean;
   sendError: string | null;
+  holdReason: string | null;
   openCount: number;
   openedAt: string | null;
   lastOpenAt: string | null;
@@ -250,18 +251,28 @@ export default function MailerClient() {
           })),
         }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        held?: boolean;
+        message?: string;
+      };
       if (!res.ok) {
         toast.error(json.error || "Une erreur est survenue.");
         return;
       }
-      toast.success(
-        action === "send"
-          ? "Mail envoyé ✉️"
-          : action === "schedule"
-            ? "Mail programmé ⏰"
-            : "Brouillon enregistré"
-      );
+      if (json.held) {
+        toast.warning(json.message || "Mail reporté (contact récent de Leyna).", {
+          duration: 8000,
+        });
+      } else {
+        toast.success(
+          action === "send"
+            ? "Mail envoyé ✉️"
+            : action === "schedule"
+              ? "Mail programmé ⏰"
+              : "Brouillon enregistré"
+        );
+      }
       resetComposer();
       setView("list");
       loadMails();
@@ -272,14 +283,22 @@ export default function MailerClient() {
     }
   }
 
-  async function sendNow(id: string) {
-    const res = await fetch(`/api/mailer/${id}/send`, {
-      method: "POST",
-      credentials: "include",
-    });
-    const json = (await res.json().catch(() => ({}))) as { error?: string };
+  async function sendNow(id: string, force = false) {
+    const res = await fetch(
+      `/api/mailer/${id}/send${force ? "?force=1" : ""}`,
+      { method: "POST", credentials: "include" }
+    );
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      held?: boolean;
+      message?: string;
+    };
     if (!res.ok) {
       toast.error(json.error || "Échec de l'envoi.");
+    } else if (json.held) {
+      toast.warning(json.message || "Mail reporté (contact récent de Leyna).", {
+        duration: 8000,
+      });
     } else {
       toast.success("Mail envoyé ✉️");
     }
@@ -684,7 +703,7 @@ function MailRow({
   onDelete,
 }: {
   mail: AdminMail;
-  onSendNow: (id: string) => void;
+  onSendNow: (id: string, force?: boolean) => void;
   onCancelScheduled: (id: string) => void;
   onCancelFollowups: (id: string) => void;
   onDelete: (id: string) => void;
@@ -752,6 +771,14 @@ function MailRow({
           {mail.sendError && (
             <p className="mt-1 text-xs text-red-600">⚠️ {mail.sendError}</p>
           )}
+          {mail.holdReason && (
+            <p
+              className="mt-1 rounded-md px-2 py-1 text-xs"
+              style={{ backgroundColor: "#FEF3C7", color: "#92400E" }}
+            >
+              ⏳ {mail.holdReason}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -765,6 +792,17 @@ function MailRow({
               style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
             >
               <Send className="h-3.5 w-3.5" /> Envoyer
+            </button>
+          )}
+          {mail.holdReason && (
+            <button
+              type="button"
+              onClick={() => onSendNow(mail.id, true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium"
+              style={{ borderColor: "#92400E", color: "#92400E", backgroundColor: "#FEF3C7" }}
+              title="Ignorer le cooldown de 20 jours et envoyer immédiatement"
+            >
+              <Send className="h-3.5 w-3.5" /> Envoyer quand même
             </button>
           )}
           {mail.status === "SCHEDULED" && (

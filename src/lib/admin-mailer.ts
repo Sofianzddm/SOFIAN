@@ -20,7 +20,12 @@ import {
   getMessageRfcId,
   getGmailFromName,
   checkThreadActivity,
+  findRecentSentToRecipient,
 } from "@/lib/gmail";
+import {
+  LEYNA_FROM_EMAIL,
+  CASTING_COOLDOWN_DAYS,
+} from "@/lib/casting-auto-send";
 import {
   normalizeEditorHtmlForEmail,
   buildQuotedOriginal,
@@ -39,7 +44,53 @@ export type FollowupStatus =
   | "CANCELLED"
   | "FAILED";
 
-export type SendResult = { ok: boolean; error?: string };
+export type SendResult = {
+  ok: boolean;
+  error?: string;
+  /** True si l'envoi a été reporté (cooldown anti double-contact Leyna). */
+  held?: boolean;
+  /** Date (ISO) à laquelle le mail sera réessayé si reporté. */
+  heldUntil?: string;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Vérifie si la boîte de Leyna a déjà contacté `toEmail` durant les
+ * `CASTING_COOLDOWN_DAYS` derniers jours (toutes sources confondues : casting,
+ * outreach, séquences HubSpot, mails manuels…). Sert de garde-fou anti
+ * double-contact partagé avec le module casting.
+ *
+ * Fail-open : si la vérification est impossible (boîte Leyna non connectée,
+ * erreur API Gmail), on n'empêche pas l'envoi pour ne pas bloquer le module.
+ */
+async function checkLeynaCooldown(toEmail: string): Promise<{
+  blocked: boolean;
+  lastContactAt: Date | null;
+  nextAllowedAt: Date | null;
+}> {
+  try {
+    const recent = await findRecentSentToRecipient(
+      LEYNA_FROM_EMAIL,
+      toEmail,
+      CASTING_COOLDOWN_DAYS
+    );
+    if (recent.length === 0) {
+      return { blocked: false, lastContactAt: null, nextAllowedAt: null };
+    }
+    const dates = recent
+      .map((r) => r.internalDate)
+      .filter((d): d is number => typeof d === "number" && Number.isFinite(d));
+    const lastContactAt = dates.length ? new Date(Math.max(...dates)) : null;
+    const nextAllowedAt = lastContactAt
+      ? new Date(lastContactAt.getTime() + CASTING_COOLDOWN_DAYS * DAY_MS)
+      : new Date(Date.now() + CASTING_COOLDOWN_DAYS * DAY_MS);
+    return { blocked: true, lastContactAt, nextAllowedAt };
+  } catch (error) {
+    console.warn("[admin-mailer.checkLeynaCooldown]", toEmail, error);
+    return { blocked: false, lastContactAt: null, nextAllowedAt: null };
+  }
+}
 
 /** Sujet de relance : préfixe « Re: » si absent. */
 function toReplySubject(subject: string): string {
@@ -103,6 +154,32 @@ export async function executeMailSend(mailId: string): Promise<SendResult> {
     return { ok: false, error: msg };
   }
 
+  // Garde-fou anti double-contact : si Leyna a écrit à ce destinataire il y a
+  // moins de 20 jours, on reporte (« remis dans le cycle ») au lieu d'envoyer.
+  // Le cron repassera à `nextAllowedAt` et renverra si le cooldown est levé.
+  if (!mail.forceSend) {
+    const cooldown = await checkLeynaCooldown(mail.toEmail);
+    if (cooldown.blocked) {
+      const when =
+        cooldown.nextAllowedAt ??
+        new Date(Date.now() + CASTING_COOLDOWN_DAYS * DAY_MS);
+      const lastLabel = cooldown.lastContactAt
+        ? formatFrDate(cooldown.lastContactAt)
+        : "récemment";
+      const reason = `Leyna a déjà contacté ${mail.toEmail} le ${lastLabel} (cooldown ${CASTING_COOLDOWN_DAYS} j). Mail remis dans le cycle — réessai le ${formatFrDate(when)}.`;
+      await prisma.adminMail.update({
+        where: { id: mailId },
+        data: {
+          status: "SCHEDULED",
+          scheduledAt: when,
+          holdReason: reason,
+          sendError: null,
+        },
+      });
+      return { ok: false, held: true, heldUntil: when.toISOString(), error: reason };
+    }
+  }
+
   try {
     const trackedBody = injectMailerOpenTracking(bodyHtml, mail.id);
     const messageId = await sendGmail({
@@ -124,6 +201,7 @@ export async function executeMailSend(mailId: string): Promise<SendResult> {
         gmailMessageId: messageId,
         messageRfcId: messageRfcId ?? undefined,
         sendError: null,
+        holdReason: null,
       },
     });
 
