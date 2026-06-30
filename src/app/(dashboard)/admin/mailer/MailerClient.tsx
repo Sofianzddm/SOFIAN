@@ -20,6 +20,8 @@ import {
   Reply,
   Eye,
   EyeOff,
+  FileText,
+  BookmarkPlus,
 } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
 
@@ -80,6 +82,22 @@ type FollowupDraft = {
   bodyHtml: string;
 };
 
+type TemplateFollowup = {
+  delayBusinessDays: number;
+  subject: string | null;
+  bodyHtml: string;
+};
+
+type Template = {
+  id: string;
+  name: string;
+  subject: string;
+  bodyHtml: string;
+  stopOnReply: boolean;
+  followups: TemplateFollowup[] | null;
+  updatedAt: string;
+};
+
 function newUid() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -119,6 +137,7 @@ const DEFAULT_FOLLOWUP_BODY =
 export default function MailerClient() {
   const [accounts, setAccounts] = useState<GmailAccount[]>([]);
   const [mails, setMails] = useState<AdminMail[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"list" | "compose">("list");
 
@@ -165,10 +184,21 @@ export default function MailerClient() {
     }
   }, []);
 
+  const loadTemplates = useCallback(async () => {
+    try {
+      const res = await fetch("/api/mailer/templates", { credentials: "include" });
+      const json = (await res.json().catch(() => ({}))) as { templates?: Template[] };
+      setTemplates(json.templates || []);
+    } catch {
+      setTemplates([]);
+    }
+  }, []);
+
   useEffect(() => {
     loadAccounts();
     loadMails();
-  }, [loadAccounts, loadMails]);
+    loadTemplates();
+  }, [loadAccounts, loadMails, loadTemplates]);
 
   const resetComposer = useCallback(() => {
     setToEmail("");
@@ -180,6 +210,79 @@ export default function MailerClient() {
     setScheduledAt("");
     setComposerKey(newUid());
   }, []);
+
+  function loadTemplate(t: Template) {
+    setSubject(t.subject || "");
+    setBodyHtml(t.bodyHtml || "");
+    setStopOnReply(t.stopOnReply);
+    const fus = Array.isArray(t.followups) ? t.followups : [];
+    setFollowups(
+      fus.map((f) => ({
+        uid: newUid(),
+        delayBusinessDays: f.delayBusinessDays || 3,
+        subject: f.subject || "",
+        bodyHtml: f.bodyHtml || DEFAULT_FOLLOWUP_BODY,
+      }))
+    );
+    setComposerKey(newUid());
+    toast.success(`Modèle « ${t.name} » chargé`);
+  }
+
+  async function saveTemplate() {
+    if (
+      !subject.trim() ||
+      !bodyHtml.replace(/<[^>]*>/g, "").trim()
+    ) {
+      toast.error("Renseigne le sujet et le corps avant d'enregistrer un modèle.");
+      return;
+    }
+    const name = window.prompt("Nom du modèle ?");
+    if (!name || !name.trim()) return;
+    const cleanFollowups = followups.filter((f) =>
+      f.bodyHtml.replace(/<[^>]*>/g, "").trim()
+    );
+    try {
+      const res = await fetch("/api/mailer/templates", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          subject,
+          bodyHtml,
+          stopOnReply,
+          followups: cleanFollowups.map((f) => ({
+            delayBusinessDays: f.delayBusinessDays,
+            subject: f.subject || null,
+            bodyHtml: f.bodyHtml,
+          })),
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(json.error || "Erreur lors de l'enregistrement.");
+        return;
+      }
+      toast.success("Modèle enregistré 📑");
+      loadTemplates();
+    } catch {
+      toast.error("Erreur réseau.");
+    }
+  }
+
+  async function deleteTemplate(id: string, name: string) {
+    if (!window.confirm(`Supprimer le modèle « ${name} » ?`)) return;
+    const res = await fetch(`/api/mailer/templates?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      toast.error("Erreur lors de la suppression.");
+    } else {
+      toast.success("Modèle supprimé.");
+    }
+    loadTemplates();
+  }
 
   const addFollowup = () => {
     setFollowups((prev) => [
@@ -436,6 +539,65 @@ export default function MailerClient() {
 
       {view === "compose" ? (
         <div className="mt-6 max-w-3xl space-y-5">
+          {/* Modèles */}
+          <div
+            className="rounded-2xl border bg-white p-4"
+            style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <FileText className="h-3.5 w-3.5" /> Modèles
+              </span>
+              <button
+                type="button"
+                onClick={saveTemplate}
+                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium"
+                style={{ borderColor: OLD_ROSE, color: LICORICE }}
+              >
+                <BookmarkPlus className="h-4 w-4" /> Enregistrer comme modèle
+              </button>
+            </div>
+            {templates.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-400">
+                Aucun modèle. Rédige un mail puis « Enregistrer comme modèle » pour le réutiliser.
+              </p>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {templates.map((t) => (
+                  <span
+                    key={t.id}
+                    className="inline-flex items-center overflow-hidden rounded-lg border"
+                    style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 30%, transparent)` }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => loadTemplate(t)}
+                      className="px-2.5 py-1.5 text-sm font-medium hover:bg-gray-50"
+                      style={{ color: LICORICE }}
+                      title="Charger ce modèle dans le compositeur"
+                    >
+                      {t.name}
+                      {Array.isArray(t.followups) && t.followups.length > 0 && (
+                        <span className="ml-1 text-xs text-slate-400">
+                          +{t.followups.length} relance{t.followups.length > 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteTemplate(t.id, t.name)}
+                      className="border-l px-1.5 py-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 30%, transparent)` }}
+                      title="Supprimer ce modèle"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Expéditeur / destinataire */}
           <div
             className="space-y-4 rounded-2xl border bg-white p-6"

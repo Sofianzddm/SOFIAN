@@ -38,6 +38,8 @@ import {
   Building2,
   ExternalLink,
   FileSpreadsheet,
+  FileText,
+  BookmarkPlus,
 } from "lucide-react";
 import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
 import { businessDeadlineWithJitter } from "@/lib/business-days";
@@ -110,6 +112,13 @@ type PartnerRow = {
   contactName: string | null;
   contactEmail: string | null;
   agencyContacts: PartnerContact[];
+};
+
+type AgencyTemplate = {
+  id: string;
+  name: string;
+  subject: string;
+  bodyHtml: string;
 };
 
 const TABS: { id: TargetStatus; label: string }[] = [
@@ -410,6 +419,9 @@ export default function AgencyOutreachPage() {
 
   // Composer
   const [composerOpen, setComposerOpen] = useState(false);
+  const [templates, setTemplates] = useState<AgencyTemplate[]>([]);
+  const [templateId, setTemplateId] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const [subject, setSubject] = useState("");
   const [language, setLanguage] = useState<"fr" | "en">("fr");
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
@@ -496,9 +508,96 @@ export default function AgencyOutreachPage() {
     }
   }, [showToast]);
 
+  const loadTemplates = useCallback(async () => {
+    try {
+      const res = await fetch("/api/mailer/templates?scope=agency", { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      setTemplates(Array.isArray(data.templates) ? data.templates : []);
+    } catch {
+      /* non bloquant */
+    }
+  }, []);
+
   useEffect(() => {
-    if (sessionStatus === "authenticated" && allowed) loadTargets();
-  }, [sessionStatus, allowed, loadTargets]);
+    if (sessionStatus === "authenticated" && allowed) {
+      loadTargets();
+      loadTemplates();
+    }
+  }, [sessionStatus, allowed, loadTargets, loadTemplates]);
+
+  const applyTemplate = (id: string) => {
+    setTemplateId(id);
+    if (!id) return;
+    const tpl = templates.find((t) => t.id === id);
+    if (!tpl) return;
+    setSubject(tpl.subject || "");
+    editor?.commands.setContent(tpl.bodyHtml || "<p></p>");
+    setBodyTick((n) => n + 1);
+  };
+
+  const saveTemplate = async () => {
+    const sub = subject.trim();
+    const body = editor ? editor.getHTML() : "";
+    if (!sub && (!body || body === "<p></p>")) {
+      showToast("err", "Rédige un objet ou un corps avant d'enregistrer un modèle.");
+      return;
+    }
+    const name = window.prompt("Nom du modèle ?");
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      showToast("err", "Nom du modèle requis.");
+      return;
+    }
+    setSavingTemplate(true);
+    try {
+      const res = await fetch("/api/mailer/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          scope: "agency",
+          name: trimmed,
+          subject: sub,
+          bodyHtml: body,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Enregistrement impossible");
+      showToast("ok", "Modèle enregistré.");
+      await loadTemplates();
+      if (data.template?.id) setTemplateId(data.template.id);
+    } catch (e) {
+      showToast("err", e instanceof Error ? e.message : "Erreur réseau");
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const deleteTemplate = async () => {
+    const tpl = templates.find((t) => t.id === templateId);
+    if (!tpl) {
+      showToast("err", "Sélectionne d'abord un modèle.");
+      return;
+    }
+    if (!window.confirm(`Supprimer le modèle « ${tpl.name} » ?`)) return;
+    try {
+      const res = await fetch(`/api/mailer/templates?id=${encodeURIComponent(tpl.id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Suppression impossible");
+      }
+      showToast("ok", "Modèle supprimé.");
+      setTemplateId("");
+      await loadTemplates();
+    } catch (e) {
+      showToast("err", e instanceof Error ? e.message : "Erreur réseau");
+    }
+  };
 
   const counts = useMemo(() => {
     const c: Record<TargetStatus, number> = {
@@ -577,6 +676,7 @@ export default function AgencyOutreachPage() {
       return;
     }
     setSubject("");
+    setTemplateId("");
     editor?.commands.setContent("<p></p>");
     setLanguage(selectedTargets[0]?.language === "en" ? "en" : "fr");
     setPreviewMode("edit");
@@ -1104,6 +1204,63 @@ export default function AgencyOutreachPage() {
                     +{selectedTargets.length - 12}
                   </span>
                 )}
+              </div>
+
+              {/* Modèles */}
+              <div
+                className="rounded-xl border p-2.5"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+              >
+                <p
+                  className="text-[10px] uppercase tracking-wide mb-1.5 flex items-center gap-1.5"
+                  style={{ color: OLD_ROSE }}
+                >
+                  <FileText className="w-3.5 h-3.5" /> Modèles
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={templateId}
+                    onChange={(e) => applyTemplate(e.target.value)}
+                    className="flex-1 min-w-[180px] rounded-xl border px-3 py-2 text-sm bg-white"
+                    style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                  >
+                    <option value="">— Charger un modèle —</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={saveTemplate}
+                    disabled={savingTemplate}
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border-2 font-semibold disabled:opacity-60"
+                    style={{
+                      borderColor: TEA_GREEN,
+                      backgroundColor: `color-mix(in srgb, ${TEA_GREEN} 35%, white)`,
+                      color: LICORICE,
+                    }}
+                    title="Enregistrer l'objet et le corps actuels comme modèle"
+                  >
+                    {savingTemplate ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <BookmarkPlus className="w-3.5 h-3.5" />
+                    )}
+                    Enregistrer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deleteTemplate}
+                    disabled={!templateId}
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border font-medium disabled:opacity-40"
+                    style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                    title="Supprimer le modèle sélectionné"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               {/* Langue */}

@@ -349,7 +349,8 @@ model User {
 
   gmailToken GmailToken?
 
-  adminMails AdminMail[] @relation("AdminMailsCreatedBy")
+  adminMails    AdminMail[]    @relation("AdminMailsCreatedBy")
+  mailTemplates MailTemplate[] @relation("MailTemplatesCreatedBy")
 
   @@map("users")
 }
@@ -1821,6 +1822,32 @@ model AdminMailFollowup {
   @@index([mailId])
   @@index([status, scheduledAt])
   @@map("admin_mail_followups")
+}
+
+/// Modèle de mail réutilisable dans le rédacteur admin : sujet + corps + une
+/// éventuelle séquence de relances (stockée en JSON : [{ delayBusinessDays,
+/// subject?, bodyHtml }]). Chargé en un clic dans le compositeur.
+model MailTemplate {
+  id   String @id @default(cuid())
+  /// Module propriétaire du modèle : "mailer" (rédacteur admin) ou "agency"
+  /// (prospection agences). Permet de partager la table entre les deux modules.
+  scope       String  @default("mailer")
+  name        String
+  subject     String
+  bodyHtml    String  @db.Text
+  stopOnReply Boolean @default(true)
+  /// Relances pré-remplies : [{ delayBusinessDays, subject, bodyHtml }]
+  followups   Json?
+
+  createdById String
+  createdBy   User   @relation("MailTemplatesCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scope])
+  @@index([createdById])
+  @@map("mail_templates")
 }
 
 // ============================================
