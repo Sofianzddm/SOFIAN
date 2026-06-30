@@ -349,6 +349,8 @@ model User {
 
   gmailToken GmailToken?
 
+  adminMails AdminMail[] @relation("AdminMailsCreatedBy")
+
   @@map("users")
 }
 
@@ -1725,6 +1727,84 @@ model CastingListConfig {
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// ============================================
+// REDACTEUR DE MAILS ADMIN (envoi depuis boîte Gmail connectée + relances)
+// ============================================
+
+/// Un mail rédigé depuis le module "Rédacteur de mails" admin. Envoyé depuis
+/// une boîte Gmail connectée (GmailToken). Peut être un brouillon, programmé à
+/// une date, ou envoyé immédiatement. Chaque mail vise UN destinataire (un fil
+/// de discussion = un destinataire) et peut embarquer des relances automatiques.
+model AdminMail {
+  id        String @id @default(cuid())
+  /// Boîte Gmail expéditrice (email du GmailToken connecté).
+  fromEmail String
+  toEmail   String
+  toName    String?
+  subject   String
+  bodyHtml  String  @db.Text
+
+  /// DRAFT | SCHEDULED | SENT | FAILED | CANCELLED
+  status      String    @default("DRAFT")
+  /// Date d'envoi programmée (null si brouillon ou envoi immédiat).
+  scheduledAt DateTime?
+  sentAt      DateTime?
+
+  /// Identifiants Gmail du mail initial (pour threader les relances).
+  threadId       String?
+  gmailMessageId String?
+  messageRfcId   String? @db.Text
+  sendError      String? @db.Text
+
+  /// Stoppe les relances dès qu'une vraie réponse est détectée dans le fil.
+  stopOnReply      Boolean   @default(true)
+  repliedAt        DateTime?
+  lastReplyCheckAt DateTime?
+
+  createdById String
+  createdBy   User   @relation("AdminMailsCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  followups AdminMailFollowup[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([createdById])
+  @@map("admin_mails")
+}
+
+/// Relance automatique rattachée à un AdminMail. Programmée à N jours ouvrés
+/// (cumulés) après l'envoi initial. Envoyée en réponse dans le même fil. Ignorée
+/// si le destinataire a répondu (quand stopOnReply est actif).
+model AdminMailFollowup {
+  id     String    @id @default(cuid())
+  mailId String
+  mail   AdminMail @relation(fields: [mailId], references: [id], onDelete: Cascade)
+
+  /// Ordre d'envoi (1 = première relance).
+  order             Int
+  /// Jours ouvrés à attendre après l'étape précédente.
+  delayBusinessDays Int     @default(3)
+  /// Sujet de la relance (null = "Re: <sujet initial>").
+  subject           String?
+  bodyHtml          String  @db.Text
+
+  /// PENDING | SENT | SKIPPED | CANCELLED | FAILED
+  status         String    @default("PENDING")
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  gmailMessageId String?
+  sendError      String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([mailId])
+  @@index([status, scheduledAt])
+  @@map("admin_mail_followups")
 }
 
 // ============================================
