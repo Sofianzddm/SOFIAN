@@ -66,6 +66,7 @@ type Contact = {
   telephone: string | null;
   poste: string | null;
   principal: boolean;
+  language?: string | null;
   priorite?: string | null;
   perimetre?: string | null;
   localisation?: string | null;
@@ -269,6 +270,9 @@ export default function MarqueDetailPage() {
   // Suppression d'un contact depuis la fiche marque
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
 
+  // Modification de la langue d'un contact directement depuis la fiche marque
+  const [updatingLangId, setUpdatingLangId] = useState<string | null>(null);
+
   const fetchMarque = useCallback(async () => {
     try {
       const res = await fetch(`/api/marques/${params.id}`);
@@ -341,6 +345,39 @@ export default function MarqueDetailPage() {
       alert(e instanceof Error ? e.message : "Erreur lors de la suppression.");
     } finally {
       setDeletingContactId(null);
+    }
+  };
+
+  /** Change la langue d'un contact (fr/en) — utilisée par l'outreach. */
+  const updateContactLanguage = async (contact: Contact, language: "fr" | "en") => {
+    if (updatingLangId || (contact.language || "fr") === language) return;
+    setUpdatingLangId(contact.id);
+    // Optimiste : on met à jour l'UI tout de suite.
+    setMarque((prev) =>
+      prev
+        ? {
+            ...prev,
+            contacts: prev.contacts.map((c) =>
+              c.id === contact.id ? { ...c, language } : c
+            ),
+          }
+        : prev
+    );
+    try {
+      const res = await fetch(`/api/marques/${params.id}/contacts`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: contact.id, language }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erreur lors du changement de langue.");
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur lors du changement de langue.");
+      await fetchMarque();
+    } finally {
+      setUpdatingLangId(null);
     }
   };
 
@@ -1020,6 +1057,42 @@ export default function MarqueDetailPage() {
                                     <Phone className="w-3.5 h-3.5 text-gray-300" />
                                     {contact.telephone}
                                   </span>
+                                )}
+                              </div>
+
+                              {/* Langue (utilisée par l'outreach : relance + génération de mails) */}
+                              <div className="flex items-center gap-1.5 mt-2">
+                                <Globe className="w-3.5 h-3.5 text-gray-300" />
+                                {readOnly ? (
+                                  <span className="text-[12px] text-gray-500">
+                                    {(contact.language || "fr") === "en" ? "🇬🇧 English" : "🇫🇷 Français"}
+                                  </span>
+                                ) : (
+                                  <div className="inline-flex items-center gap-1">
+                                    {(["fr", "en"] as const).map((lang) => {
+                                      const active = (contact.language || "fr") === lang;
+                                      return (
+                                        <button
+                                          key={lang}
+                                          type="button"
+                                          onClick={() => updateContactLanguage(contact, lang)}
+                                          disabled={updatingLangId === contact.id}
+                                          className="px-2 py-[3px] rounded-md text-[11px] font-medium ring-1 ring-inset transition-all disabled:opacity-50"
+                                          style={
+                                            active
+                                              ? { backgroundColor: INK, color: "white", borderColor: INK }
+                                              : { backgroundColor: "white", color: "#6b7280" }
+                                          }
+                                          title="Langue utilisée pour la relance et la génération de mails Outreach"
+                                        >
+                                          {lang === "fr" ? "🇫🇷 FR" : "🇬🇧 EN"}
+                                        </button>
+                                      );
+                                    })}
+                                    {updatingLangId === contact.id && (
+                                      <Loader2 className="w-3 h-3 animate-spin text-gray-400" />
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>

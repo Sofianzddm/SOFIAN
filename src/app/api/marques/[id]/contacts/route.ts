@@ -90,6 +90,71 @@ export async function POST(
 }
 
 /**
+ * PATCH → mise à jour rapide d'un contact depuis la fiche marque (sans passer
+ * par la page d'édition). Aujourd'hui : la langue du contact, propagée aux
+ * cibles Outreach déjà dans le cycle (matché par email) pour adapter la relance.
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const body = (await request.json().catch(() => ({}))) as {
+      contactId?: string;
+      language?: string;
+    };
+
+    const contactId = (body.contactId || "").trim();
+    if (!contactId) {
+      return NextResponse.json({ error: "contactId requis." }, { status: 400 });
+    }
+    if (body.language !== "fr" && body.language !== "en") {
+      return NextResponse.json(
+        { error: "Langue invalide (français ou anglais)." },
+        { status: 400 }
+      );
+    }
+    const language: "fr" | "en" = body.language;
+
+    const contact = await prisma.marqueContact.findFirst({
+      where: { id: contactId, marqueId: id },
+      select: { id: true, email: true },
+    });
+    if (!contact) {
+      return NextResponse.json({ error: "Contact non trouvé." }, { status: 404 });
+    }
+
+    const updated = await prisma.marqueContact.update({
+      where: { id: contact.id },
+      data: { language },
+    });
+
+    // Propage la langue à la cible Outreach déjà dans le cycle (matché par email).
+    const email = (contact.email || "").trim().toLowerCase();
+    if (email) {
+      await prisma.outreachTarget.updateMany({
+        where: { marqueId: id, email },
+        data: { language },
+      });
+    }
+
+    return NextResponse.json({ contact: updated });
+  } catch (error) {
+    console.error("PATCH /api/marques/[id]/contacts:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Erreur serveur" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * DELETE → suppression d'un contact d'une marque (depuis la fiche marque).
  * Le contact à supprimer est passé via le paramètre `contactId`.
  */
