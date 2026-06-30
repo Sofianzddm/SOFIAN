@@ -40,6 +40,12 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
+import { businessDeadlineWithJitter } from "@/lib/business-days";
+
+// Doit rester aligné avec AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS côté serveur.
+// (Constante dupliquée ici pour éviter d'importer le moteur d'envoi serveur
+// — qui tire prisma/gmail — dans ce composant client.)
+const RELANCE_BUSINESS_DAYS = 3;
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -236,6 +242,38 @@ function fmtDate(value: string | null): string {
     month: "short",
     year: "numeric",
   });
+}
+
+function fmtDateTime(value: Date | string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Statut de la relance J+3 ouvré d'un touch, pour affichage dans la liste :
+ *  - "scheduled" : relance auto à venir (date prévue calculée comme le cron)
+ *  - "sent"      : relance déjà envoyée
+ *  - "cancelled" : relance annulée (pause manuelle)
+ *  - null        : pas de relance pertinente (pas d'envoi, ou réponse reçue)
+ */
+function relanceInfo(
+  touch: TouchSummary | undefined
+): { state: "scheduled" | "sent" | "cancelled"; at: string } | null {
+  if (!touch || !touch.sentAt) return null;
+  if (touch.repliedAt) return null;
+  if (touch.relanceSentAt) return { state: "sent", at: fmtDateTime(touch.relanceSentAt) };
+  if (touch.relanceCancelledAt) return { state: "cancelled", at: "" };
+  const due = businessDeadlineWithJitter(
+    new Date(touch.sentAt),
+    RELANCE_BUSINESS_DAYS,
+    touch.id
+  );
+  return { state: "scheduled", at: fmtDateTime(due) };
 }
 
 type ImportRow = { prenom: string; nom: string; poste: string; email: string };
@@ -906,6 +944,7 @@ export default function AgencyOutreachPage() {
                 <div className="divide-y" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 12%, transparent)` }}>
                   {g.targets.map((t) => {
                     const touch = t.touches[0];
+                    const relance = relanceInfo(touch);
                     return (
                       <div key={t.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                         {activeTab !== "STOPPED" && (
@@ -950,6 +989,21 @@ export default function AgencyOutreachPage() {
                                 {touch.clickCount}
                               </span>
                             </>
+                          )}
+                          {relance?.state === "scheduled" && (
+                            <span
+                              className="inline-flex items-center gap-1 text-amber-700"
+                              title="Relance automatique J+3 ouvré prévue"
+                            >
+                              <MessageSquareReply className="w-3.5 h-3.5" />
+                              Relance {relance.at}
+                            </span>
+                          )}
+                          {relance?.state === "sent" && (
+                            <span className="inline-flex items-center gap-1 opacity-70" title="Relance envoyée">
+                              <MessageSquareReply className="w-3.5 h-3.5" />
+                              Relancé {relance.at}
+                            </span>
                           )}
                           {t.status === "WAITING" && (
                             <span className="opacity-70" title="Prochain recontact">
