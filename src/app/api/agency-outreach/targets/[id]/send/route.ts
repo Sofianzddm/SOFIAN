@@ -8,7 +8,7 @@ import { executeAgencyOutreachSend } from "@/lib/agency-outreach-send";
  * Body : { subject, bodyHtml, force? }
  */
 
-const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
+const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
 
 export async function POST(
   request: NextRequest,

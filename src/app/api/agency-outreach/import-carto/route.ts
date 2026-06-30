@@ -19,7 +19,7 @@ import { findOrCreatePartnerByName } from "@/lib/agency-partner";
  * }
  */
 
-const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
+const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
 
 const MAX_ROWS = 200;
 

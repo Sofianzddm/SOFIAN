@@ -13,7 +13,7 @@ import { findOrCreatePartnerByName } from "@/lib/agency-partner";
  * Module 100 % isolé des marques : aucune écriture sur Marque / MarqueContact.
  */
 
-const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
+const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
 
 function hasAccess(role: string | undefined | null): boolean {
   return ALLOWED_ROLES.includes((role || "") as (typeof ALLOWED_ROLES)[number]);

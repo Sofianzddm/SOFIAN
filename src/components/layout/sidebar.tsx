@@ -72,7 +72,7 @@ const menuItems = [
     label: "Prospection Agences",
     href: "/agency-outreach",
     icon: Building2,
-    roles: ["CASTING_MANAGER", "ADMIN"],
+    roles: ["HEAD_OF_SALES", "ADMIN"],
   },
   {
     label: "Missions Strategy",

@@ -46,7 +46,7 @@ const OLD_ROSE = "#C08B8B";
 const TEA_GREEN = "#C8F285";
 const OLD_LACE = "#F5EBE0";
 
-const ALLOWED = ["ADMIN", "CASTING_MANAGER"];
+const ALLOWED = ["ADMIN", "HEAD_OF_SALES"];
 
 type TargetStatus = "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED";
 
@@ -414,7 +414,7 @@ export default function AgencyOutreachPage() {
     editorProps: {
       attributes: {
         class: "prose prose-sm max-w-none min-h-[220px] px-3 py-2 text-sm focus:outline-none",
-        style: `font-family: Switzer, system-ui, sans-serif; color: ${LICORICE}`,
+        style: `font-family: Switzer, system-ui, sans-serif; color: ${LICORICE}; white-space: pre-wrap`,
       },
       handleDOMEvents: {
         focus: () => {
@@ -1147,7 +1147,7 @@ export default function AgencyOutreachPage() {
                   </p>
                   <div
                     className="prose prose-sm max-w-none text-sm border-t pt-3"
-                    style={{ color: LICORICE }}
+                    style={{ color: LICORICE, whiteSpace: "pre-wrap" }}
                     dangerouslySetInnerHTML={{ __html: previewBody || "<p></p>" }}
                   />
                 </div>

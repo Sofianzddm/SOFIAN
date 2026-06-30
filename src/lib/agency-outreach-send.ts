@@ -386,38 +386,28 @@ export function buildAgencyRelanceTemplate(
   firstSentAt?: Date | null
 ): string {
   if (language === "en") {
-    const intro = firstSentAt
-      ? `I'm following up on my message from ${formatFrDate(firstSentAt)}.`
-      : `I'm following up on my previous message.`;
     return [
-      `Hi {{contact.firstname}},`,
+      `Hello {{contact.firstname}},`,
       `<br /><br />`,
-      `I hope you're doing well 😊`,
+      `Just a quick follow-up on my email from last week 🙂`,
       `<br /><br />`,
-      intro,
+      `Do you have any campaigns or creator needs coming up at the moment?`,
       `<br /><br />`,
-      `Do you currently have any influencer campaigns where our talents could be a good fit? You can browse our roster here: {{agence.lien}}.`,
+      `Let me know whenever, I'll put together a quick selection for you.`,
       `<br /><br />`,
-      `Happy to set up a quick call.`,
-      `<br /><br />`,
-      `Best,<br />{{owner.firstname}}`,
+      `Have a great day!<br />{{owner.firstname}}`,
     ].join("");
   }
-  const intro = firstSentAt
-    ? `Je me permets de revenir vers vous suite à mon message du ${formatFrDate(firstSentAt)}.`
-    : `Je me permets de revenir vers vous suite à mon précédent message.`;
   return [
-    `Bonjour {{contact.firstname}},`,
+    `Hello {{contact.firstname}},`,
     `<br /><br />`,
-    `J'espère que vous allez bien 😊`,
+    `Juste un petit follow-up sur mon mail de la semaine dernière 🙂`,
     `<br /><br />`,
-    intro,
+    `As-tu des campagnes ou besoins en créateurs qui se préparent en ce moment ?`,
     `<br /><br />`,
-    `Avez-vous en ce moment des campagnes d'influence pour lesquelles nos talents pourraient correspondre ? Vous pouvez retrouver notre roster ici : {{agence.lien}}.`,
+    `Dis-moi quand tu veux, je te fais une sélection rapide.`,
     `<br /><br />`,
-    `Je reste dispo pour en échanger rapidement.`,
-    `<br /><br />`,
-    `Belle journée,<br />{{owner.firstname}}`,
+    `Bonne journée !<br />{{owner.firstname}}`,
   ].join("");
 }
 

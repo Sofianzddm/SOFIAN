@@ -14,7 +14,7 @@ import {
  * POST → envoi immédiat ({ subject?, body? } pour personnaliser)
  */
 
-const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
+const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
 
 function checkRole(role: string | undefined | null): boolean {
   return ALLOWED_ROLES.includes((role || "") as (typeof ALLOWED_ROLES)[number]);

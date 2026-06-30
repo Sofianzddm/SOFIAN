@@ -11,7 +11,7 @@ import { getAppSession } from "@/lib/getAppSession";
  * DELETE → suppression (ADMIN uniquement)
  */
 
-const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
+const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
 
 function hasAccess(role: string | undefined | null): boolean {
   return ALLOWED_ROLES.includes((role || "") as (typeof ALLOWED_ROLES)[number]);
