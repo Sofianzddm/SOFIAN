@@ -51,6 +51,20 @@ const ALLOWED = ["ADMIN", "CASTING_MANAGER"];
 // Doit rester aligné avec OUTREACH_RELANCE_BUSINESS_DAYS (lib/outreach-send.ts).
 const RELANCE_BUSINESS_DAYS = 3;
 
+type Market = "FR" | "BENELUX";
+
+/**
+ * Base d'API du module : bascule entre la prospection clients FR
+ * (/api/outreach) et la prospection BENELUX (/api/benelux-outreach). Les deux
+ * exposent des endpoints au même chemin et à la même forme → un simple
+ * changement de base suffit pour toute la page. Variable de module mise à jour
+ * (synchroniquement, pendant le rendu) par le composant selon le marché actif.
+ */
+let OUTREACH_API_BASE = "/api/outreach";
+function outreachApi(path: string): string {
+  return `${OUTREACH_API_BASE}${path}`;
+}
+
 type TargetStatus = "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED";
 
 type TouchSummary = {
@@ -154,7 +168,7 @@ async function sendBulkStreaming(
   },
   onProgress: (p: { done: number; total: number; label: string }) => void
 ): Promise<BulkSendResult> {
-  const res = await fetch("/api/outreach/send-bulk", {
+  const res = await fetch(outreachApi("/send-bulk"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...payload, stream: true }),
@@ -335,6 +349,12 @@ export default function OutreachPage() {
   const role = session?.user?.role || "";
   const isAdmin = role === "ADMIN";
 
+  // Marché actif : prospection clients FR ou BENELUX. Les données sont
+  // strictement séparées en base ; on ne fait que basculer la base d'API.
+  const [market, setMarket] = useState<Market>("FR");
+  OUTREACH_API_BASE = market === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach";
+  const isBenelux = market === "BENELUX";
+
   const [targets, setTargets] = useState<Target[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -377,7 +397,7 @@ export default function OutreachPage() {
 
   const loadTargets = useCallback(async () => {
     try {
-      const res = await fetch("/api/outreach/targets");
+      const res = await fetch(outreachApi("/targets"));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur de chargement");
       setTargets(data.targets || []);
@@ -390,7 +410,7 @@ export default function OutreachPage() {
 
   const loadPendingContacts = useCallback(async () => {
     try {
-      const res = await fetch("/api/outreach/pending-contacts");
+      const res = await fetch(outreachApi("/pending-contacts"));
       const data = await res.json();
       if (res.ok) setPendingContacts(data.contacts || []);
     } catch {
@@ -423,13 +443,32 @@ export default function OutreachPage() {
     }
   }, []);
 
+  // Restaure le dernier marché choisi (persisté entre sessions).
+  useEffect(() => {
+    const saved =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("outreach.market")
+        : null;
+    if (saved === "BENELUX" || saved === "FR") setMarket(saved);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("outreach.market", market);
+    }
+  }, [market]);
+
+  // Recharge à l'authentification ET à chaque changement de marché (les
+  // données FR / BENELUX vivent dans des tables séparées).
   useEffect(() => {
     if (sessionStatus === "authenticated" && ALLOWED.includes(role)) {
+      setLoading(true);
+      setExpandedId(null);
       loadTargets();
       loadPendingContacts();
       loadSenderAccounts();
     }
-  }, [sessionStatus, role, loadTargets, loadPendingContacts, loadSenderAccounts]);
+  }, [sessionStatus, role, market, loadTargets, loadPendingContacts, loadSenderAccounts]);
 
   const counts = useMemo(() => {
     const c: Record<TargetStatus, number> = {
@@ -543,7 +582,7 @@ export default function OutreachPage() {
       setExpandedTouches([]);
       setExpandedLoading(true);
       try {
-        const res = await fetch(`/api/outreach/targets/${target.id}`);
+        const res = await fetch(outreachApi(`/targets/${target.id}`));
         const data = await res.json();
         if (res.ok) setExpandedTouches(data.target?.touches || []);
       } finally {
@@ -562,7 +601,7 @@ export default function OutreachPage() {
       if (!window.confirm(confirmMsg)) return;
       setActionBusy(target.id);
       try {
-        const res = await fetch(`/api/outreach/targets/${target.id}`, {
+        const res = await fetch(outreachApi(`/targets/${target.id}`), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action }),
@@ -586,7 +625,7 @@ export default function OutreachPage() {
         return;
       setActionBusy(target.id);
       try {
-        const res = await fetch(`/api/outreach/targets/${target.id}`, { method: "DELETE" });
+        const res = await fetch(outreachApi(`/targets/${target.id}`), { method: "DELETE" });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "Erreur");
@@ -627,7 +666,7 @@ export default function OutreachPage() {
         return;
       setActionBusy(group.marqueId);
       try {
-        const res = await fetch(`/api/outreach/marques/${group.marqueId}`, { method: "DELETE" });
+        const res = await fetch(outreachApi(`/marques/${group.marqueId}`), { method: "DELETE" });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "Erreur");
@@ -670,7 +709,7 @@ export default function OutreachPage() {
     async (targetIds: string[], subject: string, bodyHtml: string) => {
       await Promise.all(
         targetIds.map(async (targetId) => {
-          const res = await fetch(`/api/outreach/targets/${targetId}`, {
+          const res = await fetch(outreachApi(`/targets/${targetId}`), {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "draft", subject, bodyHtml }),
@@ -868,7 +907,7 @@ export default function OutreachPage() {
                 );
               }
             } else {
-              const resWait = await fetch("/api/outreach/reschedule-bulk", {
+              const resWait = await fetch(outreachApi("/reschedule-bulk"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ targetIds: confirmIds }),
@@ -907,7 +946,7 @@ export default function OutreachPage() {
       return;
     setCheckingBounces(true);
     try {
-      const res = await fetch("/api/outreach/check-bounces", {
+      const res = await fetch(outreachApi("/check-bounces"), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -946,7 +985,7 @@ export default function OutreachPage() {
         return;
       setActionBusy(target.id);
       try {
-        const res = await fetch(`/api/outreach/targets/${target.id}/relance-now`, {
+        const res = await fetch(outreachApi(`/targets/${target.id}/relance-now`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({}),
@@ -969,7 +1008,7 @@ export default function OutreachPage() {
       const action = pause ? "pause-relance" : "resume-relance";
       setActionBusy(target.id);
       try {
-        const res = await fetch(`/api/outreach/targets/${target.id}`, {
+        const res = await fetch(outreachApi(`/targets/${target.id}`), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action }),
@@ -992,7 +1031,7 @@ export default function OutreachPage() {
     async (contact: PendingContact, email: string) => {
       setActionBusy(contact.id);
       try {
-        const res = await fetch("/api/outreach/targets", {
+        const res = await fetch(outreachApi("/targets"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ marqueContactId: contact.id, email }),
@@ -1036,13 +1075,39 @@ export default function OutreachPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: LICORICE }}>
             <Repeat className="w-6 h-6" style={{ color: OLD_ROSE }} />
-            Outreach Clients
+            {isBenelux ? "Outreach BENELUX" : "Outreach Clients"}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Cycle de contact 45 jours — premier mail, relance auto J+3, puis recontact en boucle.
+            {isBenelux
+              ? "Prospection clients BENELUX — pipeline 100 % séparé de vos marques FR."
+              : "Cycle de contact 45 jours — premier mail, relance auto J+3, puis recontact en boucle."}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Bascule marché : FR ↔ BENELUX (données séparées en base) */}
+          <div
+            className="inline-flex rounded-lg overflow-hidden border shrink-0"
+            style={{ borderColor: "#E5E0DA" }}
+            title="Basculer entre la prospection clients France et BENELUX"
+          >
+            {(["FR", "BENELUX"] as const).map((m) => {
+              const active = market === m;
+              return (
+                <button
+                  key={m}
+                  onClick={() => setMarket(m)}
+                  className="px-3 py-2 text-sm font-semibold transition"
+                  style={
+                    active
+                      ? { backgroundColor: LICORICE, color: "white" }
+                      : { backgroundColor: "white", color: "#9CA3AF" }
+                  }
+                >
+                  {m === "FR" ? "🇫🇷 France" : "🇧🇪 BENELUX"}
+                </button>
+              );
+            })}
+          </div>
           <button
             onClick={handleCheckBounces}
             disabled={checkingBounces}
@@ -1723,6 +1788,7 @@ export default function OutreachPage() {
       )}
       {showCartoModal && (
         <ImportCartoModal
+          defaultMarket={market}
           onClose={() => setShowCartoModal(false)}
           onImported={(company, created, skippedCount, addedToCycle) => {
             setShowCartoModal(false);
@@ -1906,7 +1972,7 @@ function AddClientModal({
     setSearching(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/outreach/marques?q=${encodeURIComponent(q)}`);
+        const res = await fetch(outreachApi(`/marques?q=${encodeURIComponent(q)}`));
         const data = await res.json();
         if (res.ok) {
           setOptions(data.marques || []);
@@ -1960,7 +2026,7 @@ function AddClientModal({
     if (!canSubmit) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/outreach/targets", {
+      const res = await fetch(outreachApi("/targets"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2349,7 +2415,7 @@ function EditClientModal({
     if (!canSubmit) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/outreach/targets/${target.id}`, {
+      const res = await fetch(outreachApi(`/targets/${target.id}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2754,10 +2820,13 @@ function ImportCartoModal({
   onClose,
   onImported,
   onError,
+  defaultMarket,
 }: {
   onClose: () => void;
   onImported: (company: string, created: number, skipped: number, addedToCycle: number) => void;
   onError: (message: string) => void;
+  /** Marché présélectionné (= onglet actif de /outreach), ajustable dans la modale. */
+  defaultMarket: Market;
 }) {
   const [rawText, setRawText] = useState("");
   const [parsed, setParsed] = useState<CartoParsedRow[]>([]);
@@ -2766,6 +2835,11 @@ function ImportCartoModal({
   const [fileObj, setFileObj] = useState<File | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  // Marché de destination de l'import : FR ou BENELUX (tables séparées).
+  const [importMarket, setImportMarket] = useState<Market>(defaultMarket);
+  const importApi = (path: string): string =>
+    `${importMarket === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach"}${path}`;
 
   // Marque : recherche CRM (réutilise l'autocomplete du module)
   const [query, setQuery] = useState("");
@@ -2779,6 +2853,17 @@ function ImportCartoModal({
   const [rowLangs, setRowLangs] = useState<Record<number, "fr" | "en">>({});
   const [saving, setSaving] = useState(false);
 
+  // Changer de marché : les entreprises FR ≠ BENELUX → on remet à zéro la
+  // sélection d'entreprise pour éviter de rattacher au mauvais annuaire.
+  const switchMarket = (m: Market) => {
+    if (m === importMarket) return;
+    setImportMarket(m);
+    setSelectedMarque(null);
+    setCreateMode(false);
+    setQuery("");
+    setOptions([]);
+  };
+
   useEffect(() => {
     if (selectedMarque || createMode) return;
     const q = query.trim();
@@ -2789,7 +2874,7 @@ function ImportCartoModal({
     setSearching(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/outreach/marques?q=${encodeURIComponent(q)}`);
+        const res = await fetch(importApi(`/marques?q=${encodeURIComponent(q)}`));
         const data = await res.json();
         if (res.ok) setOptions(data.marques || []);
       } finally {
@@ -2797,7 +2882,8 @@ function ImportCartoModal({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, selectedMarque, createMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, selectedMarque, createMode, importMarket]);
 
   const handlePaste = (text: string, sourceFileName?: string) => {
     setRawText(text);
@@ -2866,7 +2952,7 @@ function ImportCartoModal({
           ? { name: fileObj.name, type: fileObj.type, base64: await encodeFile(fileObj) }
           : undefined;
 
-      const res = await fetch("/api/outreach/import-carto", {
+      const res = await fetch(importApi("/import-carto"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2905,7 +2991,7 @@ function ImportCartoModal({
         <div className="px-5 py-4 space-y-4">
           <p className="text-xs text-gray-500">
             Importe directement le fichier Excel généré par Claude (ou colle le tableau).
-            Les contacts sont rattachés à la fiche marque — visible par toute
+            Les contacts sont rattachés à la fiche entreprise — visible par toute
             l&apos;équipe — et apparaissent dans « À contacter » : il ne reste qu&apos;à
             noter l&apos;email de chacun pour lancer le cycle.
           </p>
@@ -2989,8 +3075,36 @@ function ImportCartoModal({
             )}
             {parsed.length > 0 && (
               <div className="mt-2 rounded-xl border overflow-hidden" style={{ borderColor: "#E5E0DA" }}>
-                <div className="px-3 py-2 text-xs font-semibold border-b" style={{ backgroundColor: "#FBF8F4", borderColor: "#F0EBE4", color: LICORICE }}>
-                  {parsed.length} contact{parsed.length > 1 ? "s" : ""} détecté{parsed.length > 1 ? "s" : ""}
+                <div className="px-3 py-2 border-b flex items-center justify-between gap-2" style={{ backgroundColor: "#FBF8F4", borderColor: "#F0EBE4" }}>
+                  <span className="text-xs font-semibold" style={{ color: LICORICE }}>
+                    {parsed.length} contact{parsed.length > 1 ? "s" : ""} détecté{parsed.length > 1 ? "s" : ""}
+                  </span>
+                  {/* Marché de destination : tout l'import part dans ce marché. */}
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                      Marché
+                    </span>
+                    <span className="inline-flex rounded-md overflow-hidden border shrink-0" style={{ borderColor: "#E5E0DA" }}>
+                      {(["FR", "BENELUX"] as const).map((m) => {
+                        const active = importMarket === m;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => switchMarket(m)}
+                            className="px-2 py-0.5 text-[10px] font-bold uppercase transition"
+                            style={
+                              active
+                                ? { backgroundColor: LICORICE, color: "white" }
+                                : { backgroundColor: "white", color: "#9CA3AF" }
+                            }
+                          >
+                            {m === "FR" ? "🇫🇷 FR" : "🇧🇪 BENELUX"}
+                          </button>
+                        );
+                      })}
+                    </span>
+                  </span>
                 </div>
                 <div className="max-h-44 overflow-y-auto divide-y" style={{ borderColor: "#F5F1EB" }}>
                   {parsed.map((row, i) => {

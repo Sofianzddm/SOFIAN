@@ -45,6 +45,39 @@ interface Marque {
 const INK = "#16110F";
 const ROSE = "#C08B8B";
 
+type Market = "FR" | "BENELUX";
+
+/** Réponse de /api/benelux-outreach/companies (annuaire prospects BENELUX). */
+type BeneluxCompany = {
+  id: string;
+  nom: string;
+  secteur: string | null;
+  siteWeb: string | null;
+  ville: string | null;
+  contacts: { id: string; prenom: string; nom: string | null; email: string | null; principal: boolean }[];
+  _count: { contacts: number; outreachTargets: number };
+};
+
+/** Mappe une entreprise BENELUX sur la forme Marque (réutilise toute la liste). */
+function beneluxToMarque(c: BeneluxCompany): Marque {
+  return {
+    id: c.id,
+    nom: c.nom,
+    secteur: c.secteur,
+    siteWeb: c.siteWeb,
+    ville: c.ville,
+    pays: "BENELUX",
+    contacts: c.contacts.map((p) => ({
+      id: p.id,
+      nom: [p.prenom, p.nom].filter(Boolean).join(" ") || "Contact",
+      email: p.email,
+      principal: p.principal,
+    })),
+    // La colonne « Collabs » sert d'indicateur « prospects suivis » côté BENELUX.
+    _count: { collaborations: c._count.outreachTargets },
+  };
+}
+
 /** Logo de la marque : favicon du site, initiale en secours. */
 function BrandLogo({ nom, siteWeb, size = 9 }: { nom: string; siteWeb: string | null; size?: number }) {
   const [error, setError] = useState(false);
@@ -84,10 +117,30 @@ export default function MarquesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterSecteur, setFilterSecteur] = useState("");
+  // Annuaire affiché : marques FR (CRM complet) ou prospects BENELUX (annuaire
+  // de prospection, 100 % séparé en base).
+  const [market, setMarket] = useState<Market>("FR");
+  const isBenelux = market === "BENELUX";
 
   useEffect(() => {
-    fetchMarques();
+    const saved =
+      typeof window !== "undefined" ? window.localStorage.getItem("marques.market") : null;
+    if (saved === "BENELUX" || saved === "FR") setMarket(saved);
   }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("marques.market", market);
+    }
+  }, [market]);
+
+  useEffect(() => {
+    setLoading(true);
+    setFilterSecteur("");
+    if (market === "BENELUX") fetchBeneluxCompanies();
+    else fetchMarques();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [market]);
 
   const fetchMarques = async () => {
     try {
@@ -99,6 +152,25 @@ export default function MarquesPage() {
         return;
       }
       setMarques(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Erreur:", error);
+      setMarques([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchBeneluxCompanies = async () => {
+    try {
+      const res = await fetch("/api/benelux-outreach/companies");
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        console.error("Erreur GET companies BENELUX:", data);
+        setMarques([]);
+        return;
+      }
+      const companies: BeneluxCompany[] = Array.isArray(data?.companies) ? data.companies : [];
+      setMarques(companies.map(beneluxToMarque));
     } catch (error) {
       console.error("Erreur:", error);
       setMarques([]);
@@ -147,8 +219,18 @@ export default function MarquesPage() {
   const totalContacts = marques.reduce((acc, m) => acc + (m.contacts?.length ?? 0), 0);
 
   const STATS = [
-    { label: "Marques", value: marques.length, icon: Building2, tint: "text-rose-500 bg-rose-50" },
-    { label: "Collaborations", value: totalCollabs, icon: Handshake, tint: "text-emerald-600 bg-emerald-50" },
+    {
+      label: isBenelux ? "Entreprises" : "Marques",
+      value: marques.length,
+      icon: Building2,
+      tint: "text-rose-500 bg-rose-50",
+    },
+    {
+      label: isBenelux ? "Prospects suivis" : "Collaborations",
+      value: totalCollabs,
+      icon: Handshake,
+      tint: "text-emerald-600 bg-emerald-50",
+    },
     { label: "Contacts", value: totalContacts, icon: Users, tint: "text-blue-600 bg-blue-50" },
     { label: "Secteurs", value: allSecteurs.length, icon: TrendingUp, tint: "text-purple-600 bg-purple-50" },
   ];
@@ -160,20 +242,51 @@ export default function MarquesPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-[26px] font-bold tracking-[-0.02em]" style={{ color: INK }}>
-              Marques
+              {isBenelux ? "Annuaire BENELUX" : "Marques"}
             </h1>
             <p className="text-[13px] text-gray-400 mt-0.5">
-              {marques.length} marque{marques.length > 1 ? "s" : ""} dans le CRM — fiches partagées avec toute l&apos;équipe
+              {isBenelux
+                ? `${marques.length} entreprise${marques.length > 1 ? "s" : ""} prospect${
+                    marques.length > 1 ? "s" : ""
+                  } BENELUX — séparées de vos marques FR`
+                : `${marques.length} marque${marques.length > 1 ? "s" : ""} dans le CRM — fiches partagées avec toute l'équipe`}
             </p>
           </div>
-          <Link
-            href="/marques/new"
-            className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-lg text-white transition-opacity hover:opacity-90"
-            style={{ backgroundColor: INK }}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Nouvelle marque
-          </Link>
+          <div className="flex items-center gap-2">
+            {/* Bascule marché : marques FR ↔ annuaire BENELUX (données séparées) */}
+            <div
+              className="inline-flex rounded-lg overflow-hidden ring-1 ring-black/[0.07] bg-white shrink-0"
+              title="Basculer entre les marques France et l'annuaire BENELUX"
+            >
+              {(["FR", "BENELUX"] as const).map((m) => {
+                const active = market === m;
+                return (
+                  <button
+                    key={m}
+                    onClick={() => setMarket(m)}
+                    className="px-3 py-2 text-[13px] font-semibold transition"
+                    style={
+                      active
+                        ? { backgroundColor: INK, color: "white" }
+                        : { backgroundColor: "white", color: "#9CA3AF" }
+                    }
+                  >
+                    {m === "FR" ? "🇫🇷 France" : "🇧🇪 BENELUX"}
+                  </button>
+                );
+              })}
+            </div>
+            {!isBenelux && (
+              <Link
+                href="/marques/new"
+                className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-lg text-white transition-opacity hover:opacity-90"
+                style={{ backgroundColor: INK }}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Nouvelle marque
+              </Link>
+            )}
+          </div>
         </div>
 
         {/* ====================== Stat cards ====================== */}
@@ -230,15 +343,28 @@ export default function MarquesPage() {
         ) : filteredMarques.length === 0 ? (
           <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] py-16 text-center">
             <Building2 className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-            <p className="text-sm text-gray-400">Aucune marque trouvée</p>
-            <Link
-              href="/marques/new"
-              className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-[13px] font-semibold text-white rounded-lg hover:opacity-90 transition-opacity"
-              style={{ backgroundColor: INK }}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Ajouter une marque
-            </Link>
+            <p className="text-sm text-gray-400">
+              {isBenelux ? "Aucune entreprise BENELUX" : "Aucune marque trouvée"}
+            </p>
+            {isBenelux ? (
+              <Link
+                href="/outreach"
+                className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-[13px] font-semibold text-white rounded-lg hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: INK }}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Prospecter en BENELUX
+              </Link>
+            ) : (
+              <Link
+                href="/marques/new"
+                className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-[13px] font-semibold text-white rounded-lg hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: INK }}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Ajouter une marque
+              </Link>
+            )}
           </div>
         ) : (
           <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
@@ -248,7 +374,7 @@ export default function MarquesPage() {
               <span>Site</span>
               <span>Localisation</span>
               <span className="text-right">Contacts</span>
-              <span className="text-right">Collabs</span>
+              <span className="text-right">{isBenelux ? "Prospects" : "Collabs"}</span>
               <span />
             </div>
 
@@ -260,7 +386,7 @@ export default function MarquesPage() {
                 return (
                   <div
                     key={marque.id}
-                    onClick={() => router.push(`/marques/${marque.id}`)}
+                    onClick={() => router.push(isBenelux ? "/outreach" : `/marques/${marque.id}`)}
                     className="group grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_repeat(2,90px)_110px] gap-3 items-center px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors"
                   >
                     {/* Marque */}
@@ -329,21 +455,25 @@ export default function MarquesPage() {
 
                     {/* Actions */}
                     <div className="flex items-center justify-end gap-1">
-                      <Link
-                        href={`/marques/${marque.id}/edit`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-700 hover:bg-gray-100 transition-all"
-                        title="Modifier"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Link>
-                      <button
-                        onClick={(e) => handleDelete(e, marque.id, marque.nom)}
-                        className="p-1.5 rounded-lg text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 transition-all"
-                        title="Supprimer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {!isBenelux && (
+                        <>
+                          <Link
+                            href={`/marques/${marque.id}/edit`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-1.5 rounded-lg text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-700 hover:bg-gray-100 transition-all"
+                            title="Modifier"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Link>
+                          <button
+                            onClick={(e) => handleDelete(e, marque.id, marque.nom)}
+                            className="p-1.5 rounded-lg text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 transition-all"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
                       <ChevronRight className="w-4 h-4 text-gray-200 group-hover:text-gray-400 transition-colors" />
                     </div>
                   </div>

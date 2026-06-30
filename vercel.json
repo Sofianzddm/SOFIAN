@@ -33,6 +33,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/benelux-outreach",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/mailer",
       "schedule": "*/5 * * * *"
     }

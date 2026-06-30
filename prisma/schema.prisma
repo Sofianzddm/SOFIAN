@@ -3366,6 +3366,185 @@ model AgencyOutreachClick {
 }
 
 // ============================================
+// PROSPECTION BENELUX (module distinct des marques FR)
+// ============================================
+// Même mécanique que le module Outreach (cycle perpétuel 45 jours + relance
+// J+3 ouvrés, composer libre, expéditrice Leyna) mais ciblé sur les prospects
+// CLIENTS du marché BENELUX (Belgique / Pays-Bas / Luxembourg), 100 % isolé du
+// CRM marques FR : aucune FK vers Marque / MarqueContact. Annuaire dédié
+// (BeneluxCompany) avec sa propre déduplication par slug → jamais de fusion
+// avec une marque FR. Pas de write-back HubSpot.
+
+// Une entreprise prospect BENELUX (annuaire dédié, façon CRM léger).
+model BeneluxCompany {
+  id String @id @default(cuid())
+
+  nom     String
+  // Clé canonique de déduplication interne au module (slugifyBenelux()).
+  slug    String  @unique
+  secteur String?
+  siteWeb String?
+  ville   String?
+  notes   String? @db.Text
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  contacts        BeneluxContact[]
+  outreachTargets BeneluxOutreachTarget[]
+
+  @@index([nom])
+  @@map("benelux_companies")
+}
+
+// Un contact (personne) rattaché à une entreprise prospect BENELUX.
+model BeneluxContact {
+  id String @id @default(cuid())
+
+  companyId String
+  company   BeneluxCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  prenom    String
+  nom       String?
+  // Nullable : un contact carto peut être importé sans email (à noter ensuite).
+  email     String?
+  poste     String?
+  language  String  @default("fr") // "fr" | "en"
+  principal Boolean @default(false)
+  excluded  Boolean @default(false)
+
+  // Champs cartographie (import Excel) — affichage fiche + file « à entrer ».
+  source       String? // "CARTO" | "MANUAL"
+  perimetre    String?
+  localisation String?
+  priorite     String?
+  linkedinUrl  String?
+  // Exclu de la prospection (ne pas proposer / contacter).
+  outreachExcluded Boolean @default(false)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outreachTargets BeneluxOutreachTarget[]
+
+  @@unique([companyId, email])
+  @@index([companyId])
+  @@map("benelux_contacts")
+}
+
+// Un prospect BENELUX (via un contact) suivi par la prospection. Cycle
+// perpétuel : même après une réponse, il revient en TO_RECONTACT à J+45.
+// Seul un stop manuel (status = STOPPED) le sort de la boucle.
+model BeneluxOutreachTarget {
+  id String @id @default(cuid())
+
+  companyId String
+  company   BeneluxCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  beneluxContactId String?
+  beneluxContact   BeneluxContact? @relation(fields: [beneluxContactId], references: [id], onDelete: SetNull)
+
+  // Snapshot du contact (robuste si la fiche est modifiée/supprimée)
+  firstname   String
+  lastname    String?
+  email       String
+  // Nom de l'entreprise (snapshot de BeneluxCompany.nom)
+  companyName String
+
+  language String @default("fr") // "fr" | "en"
+
+  status OutreachTargetStatus @default(TO_CONTACT)
+
+  // Boîte Gmail expéditrice du cycle (null = leyna@glowupagence.fr).
+  fromEmail String?
+
+  draftSubject  String? @db.Text
+  draftBodyHtml String? @db.Text
+
+  cycleCount      Int       @default(0)
+  lastSentAt      DateTime?
+  nextRecontactAt DateTime?
+  lastRepliedAt   DateTime?
+  stoppedAt       DateTime?
+  stoppedById     String?
+
+  autoRescheduleReason String?   @db.Text
+  autoRescheduledAt    DateTime?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  touches BeneluxOutreachTouch[]
+
+  @@unique([email])
+  @@index([status, nextRecontactAt])
+  @@index([companyId])
+  @@index([status, createdAt])
+  @@map("benelux_outreach_targets")
+}
+
+// Un mail de cycle envoyé à un prospect BENELUX (historique complet).
+model BeneluxOutreachTouch {
+  id String @id @default(cuid())
+
+  targetId String
+  target   BeneluxOutreachTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  cycleNumber Int
+  subject     String @db.Text
+  bodyHtml    String @db.Text
+
+  fromEmail String?
+
+  sentAt    DateTime?
+  sentById  String?
+  threadId  String?
+  messageId String?
+  sendError String?   @db.Text
+
+  relanceSentAt    DateTime?
+  relanceMessageId String?
+  relanceError     String?   @db.Text
+  relanceCancelledAt   DateTime?
+  relanceCancelledById String?
+  repliedAt        DateTime?
+
+  openedAt     DateTime?
+  lastOpenAt   DateTime?
+  openCount    Int       @default(0)
+  clickedAt    DateTime?
+  lastClickAt  DateTime?
+  lastClickUrl String?   @db.Text
+  clickCount   Int       @default(0)
+
+  clicks BeneluxOutreachClick[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([targetId, cycleNumber])
+  @@index([sentAt, repliedAt, relanceSentAt])
+  @@map("benelux_outreach_touches")
+}
+
+// Détail de chaque clic sur un lien d'un mail de prospection BENELUX.
+model BeneluxOutreachClick {
+  id String @id @default(cuid())
+
+  touchId String
+  touch   BeneluxOutreachTouch @relation(fields: [touchId], references: [id], onDelete: Cascade)
+
+  url       String   @db.Text
+  clickedAt DateTime @default(now())
+
+  @@index([touchId, clickedAt])
+  @@map("benelux_outreach_clicks")
+}
+
+// ============================================
 // PHOTOS D'ÉVÉNEMENTS (lien personnel talent)
 // ============================================
 //
