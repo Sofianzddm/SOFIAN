@@ -2851,11 +2851,18 @@ function ImportCartoModal({
   // Override de langue par contact (index → langue). Sinon on applique le
   // choix global ci-dessus à tous les contacts.
   const [rowLangs, setRowLangs] = useState<Record<number, "fr" | "en">>({});
+  // Override de marché par contact (index → FR|BENELUX). Sinon on applique le
+  // marché par défaut (`importMarket`). Permet d'importer un fichier mixte :
+  // chaque client part dans la fiche de son pays.
+  const [rowMarkets, setRowMarkets] = useState<Record<number, Market>>({});
+  const marketForRow = (i: number): Market => rowMarkets[i] ?? importMarket;
   const [saving, setSaving] = useState(false);
 
-  // Changer de marché : les entreprises FR ≠ BENELUX → on remet à zéro la
-  // sélection d'entreprise pour éviter de rattacher au mauvais annuaire.
-  const switchMarket = (m: Market) => {
+  // Marché par défaut (toggle d'en-tête) : l'appliquer remet à zéro les choix
+  // par contact. Si l'annuaire change (FR ≠ BENELUX), on réinitialise aussi la
+  // sélection d'entreprise pour ne pas rattacher au mauvais CRM.
+  const applyMarketToAll = (m: Market) => {
+    setRowMarkets({});
     if (m === importMarket) return;
     setImportMarket(m);
     setSelectedMarque(null);
@@ -2888,6 +2895,7 @@ function ImportCartoModal({
   const handlePaste = (text: string, sourceFileName?: string) => {
     setRawText(text);
     setRowLangs({});
+    setRowMarkets({});
     if (!text.trim()) {
       setParsed([]);
       setParseError(null);
@@ -2952,23 +2960,52 @@ function ImportCartoModal({
           ? { name: fileObj.name, type: fileObj.type, base64: await encodeFile(fileObj) }
           : undefined;
 
-      const res = await fetch(importApi("/import-carto"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          marqueId: selectedMarque?.id || undefined,
-          company: selectedMarque ? undefined : query.trim(),
-          rows: parsed.map((row, i) => ({
-            ...row,
-            language: rowLangs[i] ?? language,
-          })),
-          language,
-          file: filePayload,
-        }),
+      // Nom d'entreprise partagé entre les deux fiches (FR ≠ BENELUX) : on
+      // rattache par id seulement dans le marché de l'annuaire sélectionné,
+      // sinon on résout/crée la fiche par nom dans l'autre marché.
+      const companyName = selectedMarque?.nom ?? query.trim();
+
+      // Répartition des contacts par marché (toggle par ligne).
+      const groups: Record<Market, (CartoParsedRow & { language: "fr" | "en" })[]> = {
+        FR: [],
+        BENELUX: [],
+      };
+      const defaultLang: "fr" | "en" = language ?? "fr";
+      parsed.forEach((row, i) => {
+        groups[marketForRow(i)].push({ ...row, language: rowLangs[i] ?? defaultLang });
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur d'import");
-      onImported(data.company, data.created, data.skipped, data.addedToCycle || 0);
+
+      const apiFor = (m: Market) =>
+        `${m === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach"}/import-carto`;
+
+      let totalCreated = 0;
+      let totalSkipped = 0;
+      let totalCycle = 0;
+
+      for (const m of ["FR", "BENELUX"] as const) {
+        const rows = groups[m];
+        if (rows.length === 0) continue;
+        const useSelectedId = Boolean(selectedMarque?.id) && m === importMarket;
+        const res = await fetch(apiFor(m), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            marqueId: useSelectedId ? selectedMarque?.id : undefined,
+            company: useSelectedId ? undefined : companyName,
+            rows,
+            language,
+            // Le fichier original n'est stocké que sur la fiche du marché par défaut.
+            file: m === importMarket ? filePayload : undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Erreur d'import");
+        totalCreated += data.created || 0;
+        totalSkipped += data.skipped || 0;
+        totalCycle += data.addedToCycle || 0;
+      }
+
+      onImported(companyName, totalCreated, totalSkipped, totalCycle);
     } catch (e) {
       onError(e instanceof Error ? e.message : "Erreur d'import");
       setSaving(false);
@@ -3079,19 +3116,19 @@ function ImportCartoModal({
                   <span className="text-xs font-semibold" style={{ color: LICORICE }}>
                     {parsed.length} contact{parsed.length > 1 ? "s" : ""} détecté{parsed.length > 1 ? "s" : ""}
                   </span>
-                  {/* Marché de destination : tout l'import part dans ce marché. */}
-                  <span className="flex items-center gap-1.5">
+                  {/* Marché par défaut : appliqué à tous, surchargeable par ligne. */}
+                  <span className="flex items-center gap-1.5" title="Marché appliqué à tous les contacts (modifiable client par client ci-dessous)">
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                      Marché
+                      Marché · tous
                     </span>
                     <span className="inline-flex rounded-md overflow-hidden border shrink-0" style={{ borderColor: "#E5E0DA" }}>
                       {(["FR", "BENELUX"] as const).map((m) => {
-                        const active = importMarket === m;
+                        const active = importMarket === m && Object.keys(rowMarkets).length === 0;
                         return (
                           <button
                             key={m}
                             type="button"
-                            onClick={() => switchMarket(m)}
+                            onClick={() => applyMarketToAll(m)}
                             className="px-2 py-0.5 text-[10px] font-bold uppercase transition"
                             style={
                               active
@@ -3109,6 +3146,7 @@ function ImportCartoModal({
                 <div className="max-h-44 overflow-y-auto divide-y" style={{ borderColor: "#F5F1EB" }}>
                   {parsed.map((row, i) => {
                     const rowLang = rowLangs[i] ?? language;
+                    const rowMkt = marketForRow(i);
                     return (
                     <div key={i} className="px-3 py-1.5 flex items-center gap-2 text-xs">
                       {row.priorite && (
@@ -3155,6 +3193,32 @@ function ImportCartoModal({
                                 }
                               >
                                 {lang === "fr" ? "🇫🇷" : "🇬🇧"} {lang}
+                              </button>
+                            );
+                          })}
+                        </span>
+                        <span
+                          className="inline-flex rounded-md overflow-hidden border shrink-0"
+                          style={{ borderColor: "#E5E0DA" }}
+                          title="Marché de ce client (fiche FR ou fiche BENELUX)"
+                        >
+                          {(["FR", "BENELUX"] as const).map((m) => {
+                            const active = rowMkt === m;
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() =>
+                                  setRowMarkets((prev) => ({ ...prev, [i]: m }))
+                                }
+                                className="px-1.5 py-0.5 text-[10px] font-bold uppercase transition"
+                                style={
+                                  active
+                                    ? { backgroundColor: LICORICE, color: "white" }
+                                    : { backgroundColor: "white", color: "#9CA3AF" }
+                                }
+                              >
+                                {m === "FR" ? "🇫🇷 FR" : "🇧🇪 BE"}
                               </button>
                             );
                           })}
