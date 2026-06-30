@@ -462,9 +462,9 @@ export default function NouvelleFactureLibrePage() {
                 onChange={(e) => setConditionsReglement(e.target.value as "30" | "45" | "60" | "0" | "CUSTOM")}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
               >
-                <option value="30">30 jours fin de mois</option>
-                <option value="45">45 jours fin de mois</option>
-                <option value="60">60 jours fin de mois</option>
+                <option value="30">30 jours</option>
+                <option value="45">45 jours</option>
+                <option value="60">60 jours</option>
                 <option value="0">Comptant</option>
                 <option value="CUSTOM">Texte libre</option>
               </select>

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
+import { computeDateEcheance } from "@/lib/documents/echeance";
 
 interface LigneInput {
   description: string;
@@ -127,14 +128,10 @@ export async function POST(request: NextRequest) {
     // Dates
     const now = new Date();
     const dateDoc = dateDocument ? new Date(dateDocument) : now;
-    
-    // Calcul correct de la date d'échéance : paiement à X jours fin du mois
-    // Ex: facture du 15 janvier + 30j fin de mois = 28/29 février
-    const dateEcheance = new Date(dateDoc);
-    dateEcheance.setDate(dateEcheance.getDate() + delaiPaiementJours);
-    // Aller au dernier jour du mois de l'échéance
-    dateEcheance.setMonth(dateEcheance.getMonth() + 1);
-    dateEcheance.setDate(0);
+
+    // Calcul de la date d'échéance : paiement à J+X (date de facture + X jours)
+    // Ex: facture du 15 janvier + 30 jours = 14 février
+    const dateEcheance = computeDateEcheance(dateDoc, delaiPaiementJours);
 
     // Titre automatique
     const titreAuto = titre || `${talent.prenom} x ${marque.nom} - ${dateDoc.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}${poClient ? ` - ${poClient}` : ""}`;

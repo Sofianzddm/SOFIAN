@@ -30,7 +30,7 @@ export const AGENCE_CONFIG = {
 En cas de retard de paiement, application d'une indemnité forfaitaire pour frais de recouvrement de 40€ selon l'article D. 441-5 du code du commerce.`,
 
   // Conditions de paiement par défaut
-  conditionsPaiement: "Paiement à 30 jours fin du mois dès réception de la facture",
+  conditionsPaiement: "Paiement à 30 jours à compter de la date de facture",
   delaiPaiementJours: 30,
 
   // Préfixes des documents

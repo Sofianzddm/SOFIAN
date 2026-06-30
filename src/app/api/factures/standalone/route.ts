@@ -14,6 +14,7 @@ import {
   type LigneFacture,
 } from "@/lib/documents/templates/FactureTemplate";
 import { getDeviseInfo } from "@/lib/devises";
+import { computeDateEcheance } from "@/lib/documents/echeance";
 
 interface LigneInput {
   description: string;
@@ -92,12 +93,7 @@ export async function POST(request: NextRequest) {
         ? (delaiFromCustom ?? 30)
         : (delaiMap[String(conditionsReglement)] ?? 30);
 
-    const dateEcheance = new Date(dateDoc);
-    if (delai > 0) {
-      dateEcheance.setDate(dateEcheance.getDate() + delai);
-      dateEcheance.setMonth(dateEcheance.getMonth() + 1);
-      dateEcheance.setDate(0);
-    }
+    const dateEcheance = computeDateEcheance(dateDoc, delai);
 
     const lignesCalculees = lignes.map((l) => {
       const q = l.quantite || 1;
@@ -138,7 +134,7 @@ export async function POST(request: NextRequest) {
         ? conditionsReglementLibre.trim()
         : delai === 0
         ? "Paiement comptant à réception de la facture."
-        : `Paiement sous ${delai} jours fin de mois à réception de facture.`;
+        : `Paiement sous ${delai} jours à compter de la date de facture.`;
 
     const commentaireTVA =
       paysClient === "France"

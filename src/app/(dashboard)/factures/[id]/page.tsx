@@ -197,8 +197,8 @@ function paymentTermsLabelFromNotes(notes?: string | null) {
   const text = notes || "";
   if (/Paiement\s+comptant/i.test(text)) return "Comptant";
   const match = text.match(/Paiement\s+sous\s+(\d+)\s+jours/i);
-  if (match?.[1]) return `${match[1]} jours fin de mois`;
-  return "30 jours fin de mois";
+  if (match?.[1]) return `${match[1]} jours`;
+  return "30 jours";
 }
 
 const STATUT_LABELS: Record<string, string> = {
@@ -1239,7 +1239,7 @@ export default function FactureDetailPage() {
             <div className="mt-4 pt-4 border-t border-gray-100">
               <p className="text-sm font-semibold text-gray-900 mb-1">Commentaires</p>
               <p className="text-sm text-gray-600">
-                {doc.notes || `${doc.mentionTVA || "TVA 0%"} — Paiement sous 30 jours fin de mois à réception de facture.`}
+                {doc.notes || `${doc.mentionTVA || "TVA 0%"} — Paiement sous 30 jours à compter de la date de facture.`}
               </p>
             </div>
           </div>

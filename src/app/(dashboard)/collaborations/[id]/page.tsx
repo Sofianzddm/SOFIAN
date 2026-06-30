@@ -2506,7 +2506,7 @@ export default function CollabDetailPage() {
               <textarea
                 value={notesDevis}
                 onChange={(e) => setNotesDevis(e.target.value)}
-                placeholder={`Exemples :\n- Paiement à 30 jours fin du mois\n- Validation des contenus avant publication\n- Budget média non inclus\n- Délai de livraison : 2 semaines`}
+                placeholder={`Exemples :\n- Paiement à 30 jours\n- Validation des contenus avant publication\n- Budget média non inclus\n- Délai de livraison : 2 semaines`}
                 rows={5}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-glowup-rose/20 focus:border-glowup-rose text-sm resize-none font-mono"
               />
@@ -2548,7 +2548,7 @@ export default function CollabDetailPage() {
                     ))}
                   </select>
                   <span className="text-xs text-gray-500">
-                    Calculé fin de mois à partir de la date du document
+                    Calculé en J+X à partir de la date du document
                   </span>
                 </div>
               </div>
@@ -2725,7 +2725,7 @@ export default function CollabDetailPage() {
                     <textarea
                       value={editFormData.commentaires}
                       onChange={(e) => setEditFormData(prev => ({ ...prev, commentaires: e.target.value }))}
-                      placeholder={`Exemples :\n- Paiement à 30 jours fin du mois\n- Validation des contenus avant publication\n- Budget média non inclus`}
+                      placeholder={`Exemples :\n- Paiement à 30 jours\n- Validation des contenus avant publication\n- Budget média non inclus`}
                       rows={4}
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm resize-none font-mono"
                     />

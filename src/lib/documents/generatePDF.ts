@@ -13,9 +13,9 @@ function extractConditionsPaiementLabel(notes?: string | null): string {
   }
   const match = text.match(/Paiement\s+sous\s+(\d+)\s+jours/i);
   if (match?.[1]) {
-    return `Paiement sous ${match[1]} jours fin de mois à réception de facture.`;
+    return `Paiement sous ${match[1]} jours à compter de la date de facture.`;
   }
-  return "Paiement sous 30 jours fin de mois à réception de facture.";
+  return "Paiement sous 30 jours à compter de la date de facture.";
 }
 
 /**

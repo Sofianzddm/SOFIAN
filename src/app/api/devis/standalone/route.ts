@@ -103,10 +103,10 @@ export async function POST(request: NextRequest) {
 
     const commentaireTVA =
       paysClient === "France"
-        ? `TVA ${tauxTVA}% — Paiement sous 30 jours fin de mois à réception de facture.`
+        ? `TVA ${tauxTVA}% — Paiement sous 30 jours à compter de la date de facture.`
         : paysClient === "UE"
-        ? "TVA non applicable – autoliquidation par le preneur — Paiement sous 30 jours fin de mois à réception de facture."
-        : "TVA non applicable – article 259-1 du CGI – Reverse charge applies — Paiement sous 30 jours fin de mois à réception de facture.";
+        ? "TVA non applicable – autoliquidation par le preneur — Paiement sous 30 jours à compter de la date de facture."
+        : "TVA non applicable – article 259-1 du CGI – Reverse charge applies — Paiement sous 30 jours à compter de la date de facture.";
 
     const now = new Date();
     const dateDoc = dateDocument ? new Date(dateDocument) : now;

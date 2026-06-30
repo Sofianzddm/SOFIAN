@@ -569,7 +569,7 @@ export function FactureTemplate({ data }: { data: FactureData }) {
               {"\n"}
               Indemnité forfaitaire pour frais de recouvrement : 40€ (article D. 441-5 du code de commerce).
               {"\n"}
-              {data.conditionsPaiementLabel || "Paiement sous 30 jours fin de mois à réception de facture."}
+              {data.conditionsPaiementLabel || "Paiement sous 30 jours à compter de la date de facture."}
             </Text>
           </View>
         )}

@@ -10,6 +10,7 @@ import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/do
 import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { getDeviseInfo } from "@/lib/devises";
+import { computeDateEcheance, extractDelaiPaiementJours } from "@/lib/documents/echeance";
 
 export async function POST(
   request: NextRequest,
@@ -117,12 +118,28 @@ export async function POST(
     // Aligner les lignes sur le taux applicable
     lignesFacture.forEach((l) => { l.tauxTVA = tauxTVAApplicable; });
 
+    // Date d'échéance : TOUJOURS recalculée à partir de la date d'édition de la
+    // facture (J+X), et non héritée du devis. On respecte une date fournie par
+    // l'utilisateur uniquement si elle est cohérente (>= date de facture).
+    const dateFacture = new Date();
+    const delaiPaiement = extractDelaiPaiementJours(notes, 30);
+    const echeanceCalculee = computeDateEcheance(dateFacture, delaiPaiement);
+    const echeanceFournie = dateEcheance ? new Date(dateEcheance) : null;
+    const debutJourFacture = new Date(dateFacture);
+    debutJourFacture.setHours(0, 0, 0, 0);
+    const dateEcheanceFinale =
+      echeanceFournie &&
+      !Number.isNaN(echeanceFournie.getTime()) &&
+      echeanceFournie.getTime() >= debutJourFacture.getTime()
+        ? echeanceFournie
+        : echeanceCalculee;
+
     // Émetteur = même identité que le devis (AGENCE_CONFIG / Glow Up Agency)
     const factureData: FactureData = {
       reference,
       titre,
-      dateDocument: new Date().toISOString(),
-      dateEcheance: dateEcheance || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      dateDocument: dateFacture.toISOString(),
+      dateEcheance: dateEcheanceFinale.toISOString(),
       devise: deviseCode,
       emetteur: {
         nom: AGENCE_CONFIG.raisonSociale,
@@ -168,9 +185,9 @@ export async function POST(
         type: "FACTURE",
         reference,
         titre,
-        dateDocument: new Date(),
-        dateEmission: new Date(),
-        dateEcheance: new Date(dateEcheance || Date.now() + 30 * 24 * 60 * 60 * 1000),
+        dateDocument: dateFacture,
+        dateEmission: dateFacture,
+        dateEcheance: dateEcheanceFinale,
         montantHT,
         montantTVA,
         montantTTC,

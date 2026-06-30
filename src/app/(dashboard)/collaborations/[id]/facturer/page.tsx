@@ -18,6 +18,7 @@ import {
 import { LISTE_PAYS } from "@/lib/pays";
 import { getTypeTVA, MENTIONS_TVA } from "@/lib/documents/config";
 import { DEVISES, formatMontant, type DeviseCode } from "@/lib/devises";
+import { computeDateEcheance, toDateInputValue } from "@/lib/documents/echeance";
 
 interface LignePrestation {
   description: string;
@@ -75,7 +76,8 @@ export default function FacturerPage() {
         // Pré-remplir avec les données de la collaboration
         setFormData({
           titre: data.titre || `Campagne ${data.marque?.nom}`,
-          dateEcheance: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+          // Échéance = date d'édition de la facture (aujourd'hui) + 30 jours
+          dateEcheance: toDateInputValue(computeDateEcheance(new Date(), 30)),
           notes: "",
         });
         setBillingData({
@@ -102,13 +104,12 @@ export default function FacturerPage() {
             if (devisRes.ok) {
               const devis = await devisRes.json();
 
-              // Titre / échéance / notes depuis le devis
+              // Titre / notes depuis le devis.
+              // NB : on ne reprend PAS l'échéance du devis (elle est calculée à la
+              // date du devis) — l'échéance facture est recalculée à la date de facture.
               setFormData(prev => ({
                 ...prev,
                 titre: devis.titre || prev.titre,
-                dateEcheance: devis.dateEcheance
-                  ? new Date(devis.dateEcheance).toISOString().split("T")[0]
-                  : prev.dateEcheance,
                 notes: devis.notes || prev.notes,
               }));
 
