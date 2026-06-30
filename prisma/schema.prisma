@@ -1763,6 +1763,11 @@ model AdminMail {
   repliedAt        DateTime?
   lastReplyCheckAt DateTime?
 
+  /// Tracking d'ouverture (pixel) du mail initial.
+  openCount  Int       @default(0)
+  openedAt   DateTime?
+  lastOpenAt DateTime?
+
   createdById String
   createdBy   User   @relation("AdminMailsCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
 
@@ -1798,6 +1803,11 @@ model AdminMailFollowup {
   sentAt         DateTime?
   gmailMessageId String?
   sendError      String?   @db.Text
+
+  /// Tracking d'ouverture (pixel) de la relance.
+  openCount  Int       @default(0)
+  openedAt   DateTime?
+  lastOpenAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

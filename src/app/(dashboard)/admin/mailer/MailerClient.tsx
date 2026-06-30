@@ -18,6 +18,8 @@ import {
   Ban,
   ArrowLeft,
   Reply,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
 
@@ -25,6 +27,9 @@ const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
 const TEA_GREEN = "#C8F285";
 const OLD_LACE = "#F5EBE0";
+
+/** Boîte expéditrice présélectionnée par défaut dans le compositeur. */
+const DEFAULT_FROM_EMAIL = "s.zeddam@glowupagence.fr";
 
 type GmailAccount = {
   id: string;
@@ -42,6 +47,9 @@ type Followup = {
   scheduledAt: string | null;
   sentAt: string | null;
   sendError: string | null;
+  openCount: number;
+  openedAt: string | null;
+  lastOpenAt: string | null;
 };
 
 type AdminMail = {
@@ -57,6 +65,9 @@ type AdminMail = {
   repliedAt: string | null;
   stopOnReply: boolean;
   sendError: string | null;
+  openCount: number;
+  openedAt: string | null;
+  lastOpenAt: string | null;
   createdAt: string;
   followups: Followup[];
 };
@@ -130,7 +141,11 @@ export default function MailerClient() {
       };
       const list = json.accounts || [];
       setAccounts(list);
-      setFromEmail((prev) => prev || list[0]?.email || "");
+      // Présélectionne s.zeddam@glowupagence.fr si connectée, sinon 1re boîte.
+      const preferred = list.find(
+        (a) => a.email.toLowerCase() === DEFAULT_FROM_EMAIL
+      );
+      setFromEmail((prev) => prev || preferred?.email || list[0]?.email || "");
     } catch {
       setAccounts([]);
     }
@@ -336,21 +351,31 @@ export default function MailerClient() {
           </p>
         </div>
         {view === "list" ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (accounts.length === 0) {
-                toast.error("Connecte d'abord une boîte mail.");
-                return;
-              }
-              resetComposer();
-              setView("compose");
-            }}
-            className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
-            style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
-          >
-            <Plus className="h-4 w-4" /> Nouveau mail
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/api/auth/gmail"
+              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium"
+              style={{ borderColor: OLD_ROSE, color: LICORICE }}
+              title="Connecter une boîte Gmail"
+            >
+              <Mail className="h-4 w-4" /> Connecter une boîte
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                if (accounts.length === 0) {
+                  toast.error("Connecte d'abord une boîte mail.");
+                  return;
+                }
+                resetComposer();
+                setView("compose");
+              }}
+              className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
+              style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+            >
+              <Plus className="h-4 w-4" /> Nouveau mail
+            </button>
+          </div>
         ) : (
           <button
             type="button"
@@ -688,6 +713,27 @@ function MailRow({
                 <Reply className="h-3 w-3" /> A répondu
               </span>
             )}
+            {mail.status === "SENT" &&
+              (mail.openCount > 0 ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                  style={{ backgroundColor: "#EFF6FF", color: "#1D4ED8" }}
+                  title={`${mail.openCount} ouverture${mail.openCount > 1 ? "s" : ""}${
+                    mail.lastOpenAt ? ` · dernière le ${formatDateTime(mail.lastOpenAt)}` : ""
+                  }`}
+                >
+                  <Eye className="h-3 w-3" /> Ouvert
+                  {mail.openCount > 1 ? ` ×${mail.openCount}` : ""}
+                </span>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium"
+                  style={{ backgroundColor: "#F1F5F9", color: "#94A3B8" }}
+                  title="Aucune ouverture détectée (le tracking par pixel peut être bloqué côté destinataire)"
+                >
+                  <EyeOff className="h-3 w-3" /> Non ouvert
+                </span>
+              ))}
           </div>
           <p className="mt-2 truncate font-semibold" style={{ color: LICORICE }}>
             {mail.subject}
@@ -773,6 +819,17 @@ function MailRow({
               {f.status === "SENT" && f.sentAt && (
                 <span>· envoyée le {formatDateTime(f.sentAt)}</span>
               )}
+              {f.status === "SENT" &&
+                (f.openCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 text-blue-700">
+                    <Eye className="h-3 w-3" /> ouverte
+                    {f.openCount > 1 ? ` ×${f.openCount}` : ""}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-slate-400">
+                    <EyeOff className="h-3 w-3" /> non ouverte
+                  </span>
+                ))}
               {f.sendError && <span className="text-red-600">· {f.sendError}</span>}
             </div>
           ))}

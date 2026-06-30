@@ -26,6 +26,10 @@ import {
   buildQuotedOriginal,
 } from "@/lib/email-body-html";
 import { businessDeadlineWithJitter } from "@/lib/business-days";
+import {
+  injectMailerOpenTracking,
+  injectFollowupOpenTracking,
+} from "@/lib/mailer-tracking";
 
 export type MailStatus = "DRAFT" | "SCHEDULED" | "SENT" | "FAILED" | "CANCELLED";
 export type FollowupStatus =
@@ -100,11 +104,12 @@ export async function executeMailSend(mailId: string): Promise<SendResult> {
   }
 
   try {
+    const trackedBody = injectMailerOpenTracking(bodyHtml, mail.id);
     const messageId = await sendGmail({
       fromEmail: mail.fromEmail,
       to: mail.toEmail,
       subject,
-      htmlBody: bodyHtml,
+      htmlBody: trackedBody,
     });
     const messageRfcId = await getMessageRfcId(mail.fromEmail, messageId);
     const sentAt = new Date();
@@ -173,7 +178,7 @@ async function executeFollowupSend(
   const senderLabel = `${fromName} <${mail.fromEmail}>`;
   const dateLabel = mail.sentAt ? formatFrDate(mail.sentAt) : "";
   const quoted = buildQuotedOriginal(mail.bodyHtml, { dateLabel, senderLabel });
-  const finalHtml = `${body}${quoted}`;
+  const finalHtml = injectFollowupOpenTracking(`${body}${quoted}`, followup.id);
 
   try {
     const messageId = await sendGmail({
