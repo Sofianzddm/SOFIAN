@@ -23,6 +23,11 @@ export interface TalentPayload {
 
 export interface GenerateEmailBody {
   language?: "fr" | "en";
+  /**
+   * Marché ciblé. Sur "BENELUX", l'IA doit préciser que Glow Up Agence est une
+   * agence française qui développe le Benelux avec des créateurs benelux.
+   */
+  market?: "FR" | "BENELUX";
   brandName: string;
   brandResearch: {
     recentCampaigns: string;
@@ -117,6 +122,7 @@ export async function POST(request: NextRequest) {
 
     const brandName = body.brandName.trim();
     const language: "fr" | "en" = body.language === "en" ? "en" : "fr";
+    const isBenelux = body.market === "BENELUX";
     const { newProducts, brandPositioning, influenceStrategy } = body.brandResearch;
 
     const recipientFirstName =
@@ -170,6 +176,13 @@ export async function POST(request: NextRequest) {
       })
       .join("\n\n");
 
+    const beneluxContextEn = isBenelux
+      ? `\nBENELUX MARKET CONTEXT (MANDATORY): You are writing to a brand based in the Benelux. You MUST state naturally, early in the email (right after the opening hook), that Glow Up Agence is a French agency now expanding into the Benelux, working with Benelux creators. Phrase it simply and vary it every time (e.g. "We are a French agency expanding across the Benelux, with Benelux creators."). Keep it to one sentence, do not turn it into a heavy sales argument.\n`
+      : "";
+    const beneluxContextFr = isBenelux
+      ? `\nCONTEXTE MARCHÉ BENELUX (OBLIGATOIRE) : Tu écris à une marque basée au Benelux. Tu DOIS indiquer naturellement, tôt dans le mail (juste après l'accroche), que Glow Up Agence est une agence française qui se développe sur le Benelux, avec des créateurs benelux. Formule-le simplement et varie à chaque mail (ex. « Nous sommes une agence française qui développe le marché Benelux, avec des créateurs benelux. »). Une seule phrase, sans en faire un argument commercial lourd.\n`
+      : "";
+
     const GROK_SYSTEM_PROMPT =
       language === "en"
         ? `You write like a human who works in influencer marketing and knows the field well, not like an AI. You're part of the Glow Up Agence team and you're writing to a professional (a brand, a marketing/influence team) you respect.
@@ -182,7 +195,7 @@ New products / collections to prioritize: ${newProducts}
 Positioning: ${brandPositioning}
 Current influence strategy of the brand (profile types, formats, tone of their collaborations): ${influenceStrategy || "—"}
 Available talents: ${talentsString} (the variable already contains complete HTML links in the form <a><strong>Firstname Lastname</strong></a>; keep them as-is, do NOT remove the bold or the link)
-
+${beneluxContextEn}
 ${
           useDirectRecipient
             ? `RECIPIENT (use these EXACT values, do NOT use any HubSpot tokens like {{ contact.firstname }} or {{ contact.company }}):
@@ -257,7 +270,7 @@ Nouveautés / collections à citer en priorité : ${newProducts}
 Positionnement : ${brandPositioning}
 Stratégie d'influence actuelle de la marque (types de profils, formats, tonalité de leurs collaborations) : ${influenceStrategy || "—"}
 Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme <a><strong>Prénom Nom</strong></a> ; conserve-les tels quels, NE retire jamais le gras ni le lien)
-
+${beneluxContextFr}
 ${
           useDirectRecipient
             ? `DESTINATAIRE (utilise EXACTEMENT ces valeurs, n'utilise AUCUN jeton HubSpot du type {{ contact.firstname }} ou {{ contact.company }}) :

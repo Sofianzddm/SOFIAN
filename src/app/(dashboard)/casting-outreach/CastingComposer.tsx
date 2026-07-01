@@ -178,6 +178,11 @@ export interface CastingComposerProps {
   contact: CastingCompanyRecipients | null;
   brandColumn?: "todo" | "progress" | "ready" | null;
   useHubspot?: boolean;
+  /**
+   * Marché ciblé. Sur "BENELUX", la génération IA précise que Glow Up Agence est
+   * une agence française qui développe le Benelux avec des créateurs benelux.
+   */
+  market?: "FR" | "BENELUX";
   /** Libellé du bouton principal (défaut : « Marquer comme prêt »). */
   readyLabel?: string;
   /** Langue de génération du mail pré-sélectionnée à l'ouverture (défaut : fr). */
@@ -196,6 +201,7 @@ export default function CastingComposer({
   contact,
   brandColumn,
   useHubspot = true,
+  market = "FR",
   readyLabel = "Marquer comme prêt",
   defaultLanguage = "fr",
   onClose,
@@ -587,6 +593,7 @@ export default function CastingComposer({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           language: emailLanguage,
+          market,
           brandName: contact.company,
           brandResearch,
           talents: talentsPayload,
@@ -611,7 +618,7 @@ export default function CastingComposer({
     } finally {
       setIsGenerating(false);
     }
-  }, [contact, brandResearch, selectedTalents, emailLanguage, editor, onError, onSuccess]);
+  }, [contact, brandResearch, selectedTalents, emailLanguage, market, editor, onError, onSuccess]);
 
   const previewSubjectResolved = useMemo(() => {
     if (!contact || !previewRecipient) return "";

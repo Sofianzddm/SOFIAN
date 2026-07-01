@@ -52,6 +52,9 @@ const ALLOWED = ["ADMIN", "CASTING_MANAGER"];
 const RELANCE_BUSINESS_DAYS = 3;
 
 type Market = "FR" | "BENELUX";
+// Marché choisi par contact à l'import : « BOTH » duplique le contact dans les
+// deux fiches (FR + BENELUX) et le prospecte dans chaque pipeline.
+type RowMarket = Market | "BOTH";
 
 /**
  * Base d'API du module : bascule entre la prospection clients FR
@@ -1825,6 +1828,7 @@ export default function OutreachPage() {
         contact={composerContact}
         brandColumn={"todo"}
         useHubspot={false}
+        market={market}
         readyLabel={`Envoyer depuis ${senderLabel(
           senderAccounts,
           composerGroup?.targets[0]?.fromEmail ?? null
@@ -2851,17 +2855,26 @@ function ImportCartoModal({
   // Override de langue par contact (index → langue). Sinon on applique le
   // choix global ci-dessus à tous les contacts.
   const [rowLangs, setRowLangs] = useState<Record<number, "fr" | "en">>({});
-  // Override de marché par contact (index → FR|BENELUX). Sinon on applique le
-  // marché par défaut (`importMarket`). Permet d'importer un fichier mixte :
-  // chaque client part dans la fiche de son pays.
-  const [rowMarkets, setRowMarkets] = useState<Record<number, Market>>({});
-  const marketForRow = (i: number): Market => rowMarkets[i] ?? importMarket;
+  // Override de marché par contact (index → FR|BENELUX|BOTH). Sinon on applique
+  // le marché par défaut (`importMarket`). « BOTH » = le contact est dupliqué
+  // dans les deux fiches (FR + BENELUX) et prospecté dans chaque pipeline.
+  const [rowMarkets, setRowMarkets] = useState<Record<number, RowMarket>>({});
+  const marketForRow = (i: number): RowMarket => rowMarkets[i] ?? importMarket;
   const [saving, setSaving] = useState(false);
 
   // Marché par défaut (toggle d'en-tête) : l'appliquer remet à zéro les choix
-  // par contact. Si l'annuaire change (FR ≠ BENELUX), on réinitialise aussi la
-  // sélection d'entreprise pour ne pas rattacher au mauvais CRM.
-  const applyMarketToAll = (m: Market) => {
+  // par contact. « FR+BE » force tous les contacts dans les deux marchés. Si
+  // l'annuaire change (FR ≠ BENELUX), on réinitialise aussi la sélection
+  // d'entreprise pour ne pas rattacher au mauvais CRM.
+  const applyMarketToAll = (m: RowMarket) => {
+    if (m === "BOTH") {
+      const all: Record<number, RowMarket> = {};
+      parsed.forEach((_, i) => {
+        all[i] = "BOTH";
+      });
+      setRowMarkets(all);
+      return;
+    }
     setRowMarkets({});
     if (m === importMarket) return;
     setImportMarket(m);
@@ -2972,7 +2985,11 @@ function ImportCartoModal({
       };
       const defaultLang: "fr" | "en" = language ?? "fr";
       parsed.forEach((row, i) => {
-        groups[marketForRow(i)].push({ ...row, language: rowLangs[i] ?? defaultLang });
+        const mkt = marketForRow(i);
+        const enriched = { ...row, language: rowLangs[i] ?? defaultLang };
+        // « BOTH » : le contact est dupliqué dans les deux pipelines.
+        if (mkt === "FR" || mkt === "BOTH") groups.FR.push(enriched);
+        if (mkt === "BENELUX" || mkt === "BOTH") groups.BENELUX.push(enriched);
       });
 
       const apiFor = (m: Market) =>
@@ -3122,8 +3139,15 @@ function ImportCartoModal({
                       Marché · tous
                     </span>
                     <span className="inline-flex rounded-md overflow-hidden border shrink-0" style={{ borderColor: "#E5E0DA" }}>
-                      {(["FR", "BENELUX"] as const).map((m) => {
-                        const active = importMarket === m && Object.keys(rowMarkets).length === 0;
+                      {(["FR", "BENELUX", "BOTH"] as const).map((m) => {
+                        const noOverride = Object.keys(rowMarkets).length === 0;
+                        const allBoth =
+                          parsed.length > 0 &&
+                          parsed.every((_, i) => marketForRow(i) === "BOTH");
+                        const active =
+                          m === "BOTH"
+                            ? allBoth
+                            : importMarket === m && noOverride;
                         return (
                           <button
                             key={m}
@@ -3136,7 +3160,7 @@ function ImportCartoModal({
                                 : { backgroundColor: "white", color: "#9CA3AF" }
                             }
                           >
-                            {m === "FR" ? "🇫🇷 FR" : "🇧🇪 BENELUX"}
+                            {m === "FR" ? "🇫🇷 FR" : m === "BENELUX" ? "🇧🇪 BENELUX" : "FR+BE"}
                           </button>
                         );
                       })}
@@ -3200,9 +3224,9 @@ function ImportCartoModal({
                         <span
                           className="inline-flex rounded-md overflow-hidden border shrink-0"
                           style={{ borderColor: "#E5E0DA" }}
-                          title="Marché de ce client (fiche FR ou fiche BENELUX)"
+                          title="Marché de ce client : fiche FR, fiche BENELUX, ou les deux"
                         >
-                          {(["FR", "BENELUX"] as const).map((m) => {
+                          {(["FR", "BENELUX", "BOTH"] as const).map((m) => {
                             const active = rowMkt === m;
                             return (
                               <button
@@ -3218,7 +3242,7 @@ function ImportCartoModal({
                                     : { backgroundColor: "white", color: "#9CA3AF" }
                                 }
                               >
-                                {m === "FR" ? "🇫🇷 FR" : "🇧🇪 BE"}
+                                {m === "FR" ? "🇫🇷 FR" : m === "BENELUX" ? "🇧🇪 BE" : "FR+BE"}
                               </button>
                             );
                           })}
