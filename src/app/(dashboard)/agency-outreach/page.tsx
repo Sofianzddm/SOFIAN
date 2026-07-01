@@ -460,6 +460,12 @@ export default function AgencyOutreachPage() {
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(
     null
   );
+  // Confirmation « déjà contacté < 45j » : modale intégrée (remplace window.confirm,
+  // que le navigateur peut bloquer via « empêcher d'autres boîtes de dialogue »).
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    targets: Target[];
+    details: BulkSendResult["needsConfirmation"];
+  } | null>(null);
 
   // Ajout / import
   const [addOpen, setAddOpen] = useState(false);
@@ -751,19 +757,21 @@ export default function AgencyOutreachPage() {
     return applyVarsPreview(editor.getHTML(), previewVars);
   }, [editor, bodyTick, previewVars]);
 
-  const doSend = async (force = false) => {
+  const doSend = async (force = false, overrideTargets?: Target[]) => {
+    const recipients = overrideTargets ?? selectedTargets;
     const sub = subject.trim();
     const body = editor ? normalizeEditorHtmlForEmail(editor.getHTML()) : "";
     if (!sub || !body || body === "<p></p>") {
       showToast("err", "Objet et corps du mail requis.");
       return;
     }
+    if (recipients.length === 0) return;
     setSending(true);
-    setProgress({ done: 0, total: selectedTargets.length, label: "Préparation…" });
+    setProgress({ done: 0, total: recipients.length, label: "Préparation…" });
     try {
       const result = await sendBulkStreaming(
         {
-          targetIds: selectedTargets.map((t) => t.id),
+          targetIds: recipients.map((t) => t.id),
           subject: sub,
           bodyHtml: body,
           sourceLanguage: language,
@@ -788,18 +796,13 @@ export default function AgencyOutreachPage() {
       showToast(result.failed.length > 0 ? "err" : "ok", parts.join(" · "));
 
       if (result.needsConfirmation.length > 0 && !force) {
-        const ok = window.confirm(
-          `${result.needsConfirmation.length} contact(s) ont déjà été contactés récemment (hors prospection). ${
-            sendMode === "staggered" ? "Programmer quand même ?" : "Envoyer quand même ?"
-          }`
-        );
-        if (ok) {
-          // Renvoi forcé uniquement aux contacts en attente de confirmation.
-          const ids = new Set(result.needsConfirmation.map((n) => n.targetId));
-          setSelected(ids);
-          await doSend(true);
-          return;
-        }
+        // Confirmation via modale intégrée (fiable) au lieu de window.confirm.
+        const ids = new Set(result.needsConfirmation.map((n) => n.targetId));
+        const confirmTargets = targets.filter((t) => ids.has(t.id));
+        setPendingConfirm({ targets: confirmTargets, details: result.needsConfirmation });
+        // On rafraîchit ceux déjà partis ; le composer reste ouvert pour la suite.
+        await loadTargets();
+        return;
       }
 
       setComposerOpen(false);
@@ -1517,6 +1520,92 @@ export default function AgencyOutreachPage() {
                 {sendMode === "staggered"
                   ? `Programmer ${selectedTargets.length} envoi${selectedTargets.length > 1 ? "s" : ""}`
                   : `Envoyer à ${selectedTargets.length}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation « déjà contacté < 45j » (remplace window.confirm) */}
+      {pendingConfirm && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50">
+          <div
+            className="w-full max-w-md rounded-2xl shadow-xl border bg-white"
+            style={{ borderColor: "#E8DED0" }}
+          >
+            <div
+              className="px-5 py-3 border-b"
+              style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, backgroundColor: OLD_LACE }}
+            >
+              <h2
+                className="text-lg font-semibold"
+                style={{ fontFamily: "Spectral, serif", color: LICORICE }}
+              >
+                {pendingConfirm.targets.length} contact
+                {pendingConfirm.targets.length > 1 ? "s" : ""} déjà contacté
+                {pendingConfirm.targets.length > 1 ? "s" : ""} récemment
+              </h2>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm" style={{ color: LICORICE }}>
+                Ces contacts ont reçu un mail depuis la boîte d&apos;envoi il y a moins de
+                45 jours, en dehors de la prospection agences.{" "}
+                {sendMode === "staggered" ? "Programmer quand même ?" : "Envoyer quand même ?"}
+              </p>
+              <div
+                className="rounded-xl border max-h-48 overflow-y-auto divide-y"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)` }}
+              >
+                {pendingConfirm.targets.map((t) => {
+                  const detail = pendingConfirm.details.find((d) => d.targetId === t.id);
+                  return (
+                    <div key={t.id} className="px-3 py-2">
+                      <p className="text-sm font-medium" style={{ color: LICORICE }}>
+                        {t.firstname} {t.lastname || ""}{" "}
+                        <span className="text-xs opacity-60">({t.company})</span>
+                      </p>
+                      {detail?.message && (
+                        <p className="text-[11px] mt-0.5 text-amber-700">{detail.message}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div
+              className="flex items-center justify-end gap-2 px-5 py-3 border-t"
+              style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+            >
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => {
+                  setPendingConfirm(null);
+                  setComposerOpen(false);
+                  setSelected(new Set());
+                  loadTargets();
+                }}
+                className="px-4 py-2 text-sm rounded-xl hover:bg-black/5 disabled:opacity-60"
+                style={{ color: LICORICE }}
+              >
+                Pas maintenant
+              </button>
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => {
+                  const list = pendingConfirm.targets;
+                  setPendingConfirm(null);
+                  doSend(true, list);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl disabled:opacity-60"
+                style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+              >
+                {sending && <Loader2 className="w-4 h-4 animate-spin" />}
+                <Send className="w-4 h-4" />
+                {sendMode === "staggered"
+                  ? `Programmer quand même (${pendingConfirm.targets.length})`
+                  : `Envoyer quand même (${pendingConfirm.targets.length})`}
               </button>
             </div>
           </div>
