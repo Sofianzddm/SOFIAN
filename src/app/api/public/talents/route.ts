@@ -1,11 +1,21 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 
 // GET - Liste publique des talents pour le talent book
-export async function GET() {
+// Param optionnel ?market=be pour ne renvoyer que les créateurs belges (pays = "Belgique").
+export async function GET(request: NextRequest) {
   try {
+    const market = request.nextUrl.searchParams.get("market")?.toLowerCase();
+
+    const where: Prisma.TalentWhereInput = { isArchived: false };
+    if (market === "be") {
+      where.pays = "Belgique";
+    }
+
     const talents = await prisma.talent.findMany({
-      where: { isArchived: false },
+      where,
       select: {
         id: true,
         prenom: true,
