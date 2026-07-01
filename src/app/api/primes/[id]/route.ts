@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { PrimeSubmittedEmail } from "@/lib/emails/PrimeSubmittedEmail";
+import { PrimeDecisionEmail } from "@/lib/emails/PrimeDecisionEmail";
 import { euro, parsePrimeLignes, totalLignes } from "@/lib/primes";
 
 type PatchBody = {
@@ -30,6 +31,45 @@ function moisLabel(mois: number): string {
 }
 
 
+
+async function sendPrimeDecisionEmail(params: {
+  statut: "VALIDE" | "REFUSE";
+  user: { prenom: string; email: string };
+  mois: number;
+  annee: number;
+  lignes: unknown;
+  primeCA: unknown;
+  commentaireAdmin?: string;
+}): Promise<void> {
+  const resendKey = process.env.RESEND_API_KEY?.trim();
+  if (!resendKey || !params.user.email) return;
+  try {
+    const resend = new Resend(resendKey);
+    const totalL = totalLignes(parsePrimeLignes(params.lignes));
+    const primeCA = Number(params.primeCA || 0);
+    const totalGeneral = totalL + primeCA;
+    const statutLabel = params.statut === "VALIDE" ? "validées" : "refusées";
+    const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || "notifications@glowupagence.fr";
+    await resend.emails.send({
+      from: fromEmail,
+      to: params.user.email,
+      subject: `[Glow Up] Primes ${statutLabel} – ${moisLabel(params.mois)} ${params.annee}`,
+      react: PrimeDecisionEmail({
+        prenomEmploye: params.user.prenom,
+        statut: params.statut,
+        moisLabel: moisLabel(params.mois),
+        annee: params.annee,
+        totalLignes: euro(totalL),
+        primeCA: euro(primeCA),
+        totalGeneral: euro(totalGeneral),
+        commentaireAdmin: params.commentaireAdmin,
+        primesUrl: "https://app.glowupagence.fr/primes",
+      }),
+    });
+  } catch (err) {
+    console.error("sendPrimeDecisionEmail:", err);
+  }
+}
 
 function isMissingPrimeTableError(error: unknown): boolean {
   const code =
@@ -238,6 +278,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
               `) as Array<Record<string, unknown>>;
               return rows[0] ?? { id: row.id };
             })();
+        await sendPrimeDecisionEmail({
+          statut: "VALIDE",
+          user: row.user,
+          mois: row.mois,
+          annee: row.annee,
+          lignes: row.lignes,
+          primeCA: row.primeCA,
+        });
         return NextResponse.json({ success: true, prime: updated });
       }
       if (action === "refuse") {
@@ -262,6 +310,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
               `) as Array<Record<string, unknown>>;
               return rows[0] ?? { id: row.id };
             })();
+        await sendPrimeDecisionEmail({
+          statut: "REFUSE",
+          user: row.user,
+          mois: row.mois,
+          annee: row.annee,
+          lignes: row.lignes,
+          primeCA: row.primeCA,
+          commentaireAdmin,
+        });
         return NextResponse.json({ success: true, prime: updated });
       }
       return NextResponse.json({ error: "Action admin invalide." }, { status: 400 });
