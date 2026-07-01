@@ -71,11 +71,21 @@ export type XaiResponseOptions = {
    * Ex. recherche marque : `[{ type: "web_search" }, { type: "x_search" }]`
    */
   tools?: Array<{ type: string }>;
+  /** Modèle x.ai (défaut : grok-4.20-reasoning). Utiliser un modèle non-raisonnement pour les tâches rapides. */
+  model?: string;
+  /**
+   * Délai maximum de l'appel (ms). Au-delà, on avorte proprement le fetch au
+   * lieu de laisser Vercel tuer toute la fonction (« Task timed out »).
+   * Défaut : 100 s (sous la limite maxDuration=120 des routes).
+   */
+  timeoutMs?: number;
 };
+
+const DEFAULT_TIMEOUT_MS = 100_000;
 
 function buildRequestBody(input: string, options?: XaiResponseOptions): Record<string, unknown> {
   const base: Record<string, unknown> = {
-    model: "grok-4.20-reasoning",
+    model: options?.model || "grok-4.20-reasoning",
   };
   if (options?.tools?.length) {
     base.input = [{ role: "user", content: input }];
@@ -90,14 +100,34 @@ export async function xaiResponse(
   input: string,
   options?: XaiResponseOptions
 ): Promise<string> {
-  const res = await fetch("https://api.x.ai/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.XAI_API_KEY}`,
-    },
-    body: JSON.stringify(buildRequestBody(input, options)),
-  });
+  const timeoutMs =
+    typeof options?.timeoutMs === "number" && options.timeoutMs > 0
+      ? options.timeoutMs
+      : DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.x.ai/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.XAI_API_KEY}`,
+      },
+      body: JSON.stringify(buildRequestBody(input, options)),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error(
+        `Délai dépassé : le modèle x.ai n'a pas répondu en ${Math.round(timeoutMs / 1000)} s. Réessayez.`
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const error = await res.text();

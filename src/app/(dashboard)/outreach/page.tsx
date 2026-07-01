@@ -1029,6 +1029,62 @@ export default function OutreachPage() {
     [flash, loadTargets]
   );
 
+  /**
+   * Envoi forcé d'un seul contact : envoie immédiatement son brouillon avec
+   * `force: true`, sans passer par le composer ni la demande de confirmation
+   * « Envoyer quand même ». Ignore l'attente (Recontact dans Xj) et le garde-fou
+   * « déjà contacté hors app ». Nécessite un brouillon enregistré.
+   */
+  const handleForceSend = useCallback(
+    async (target: Target) => {
+      const subject = (target.draftSubject || "").trim();
+      const bodyHtml = (target.draftBodyHtml || "").trim();
+      if (!subject || !bodyHtml) {
+        flash(
+          "error",
+          "Aucun brouillon à envoyer : ouvre « Nouveau mail » pour rédiger d'abord."
+        );
+        return;
+      }
+      if (
+        !window.confirm(
+          `Forcer l'envoi du mail à ${target.email} maintenant ?\n\n` +
+            `Le mail part immédiatement, même si le contact est en attente ou a déjà été contacté hors app. Le cycle 45 jours redémarre.`
+        )
+      )
+        return;
+      setActionBusy(target.id);
+      try {
+        const data = await sendBulkStreaming(
+          {
+            targetIds: [target.id],
+            subject,
+            bodyHtml,
+            sourceLanguage: target.language === "en" ? "en" : "fr",
+            force: true,
+          },
+          () => {}
+        );
+        if (data.sent > 0) {
+          flash(
+            "success",
+            `Mail envoyé à ${target.email} (envoi forcé) — compteur 45 jours relancé.`
+          );
+        } else if (data.failed && data.failed.length > 0) {
+          flash("error", data.failed.map((f) => `${f.email} : ${f.error}`).join(" | "));
+        } else {
+          flash("error", "L'envoi n'a pas abouti.");
+        }
+        await loadTargets();
+      } catch (e) {
+        flash("error", e instanceof Error ? e.message : "Erreur");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [flash, loadTargets]
+  );
+
   /** Contact de carto : on note son email → il entre dans le cycle. */
   const handleAddPendingToCycle = useCallback(
     async (contact: PendingContact, email: string) => {
@@ -1582,6 +1638,35 @@ export default function OutreachPage() {
                               ) : (
                                 <PauseCircle className="w-4 h-4" />
                               )}
+                            </button>
+                          )}
+                          {canCompose && (
+                            <button
+                              onClick={() =>
+                                setComposerGroup({
+                                  company: group.company,
+                                  targets: [target],
+                                })
+                              }
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition hover:bg-gray-50 disabled:opacity-50"
+                              style={{ borderColor: "#E5E0DA", color: LICORICE }}
+                              title="Envoyer un mail à ce seul contact maintenant, même s'il est en attente (recontact plus tard). S'il a déjà été contacté hors app, un envoi « quand même » sera proposé."
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              Nouveau mail
+                            </button>
+                          )}
+                          {canCompose && target.draftSubject && target.draftBodyHtml && (
+                            <button
+                              onClick={() => handleForceSend(target)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                              style={{ backgroundColor: "#B45309" }}
+                              title="Forcer l'envoi du brouillon maintenant, sans confirmation « déjà contacté » ni attente du recontact. Le cycle 45 jours redémarre."
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              Forcer l&apos;envoi
                             </button>
                           )}
                           <button

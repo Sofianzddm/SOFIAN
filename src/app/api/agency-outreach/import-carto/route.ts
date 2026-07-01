@@ -54,7 +54,10 @@ export async function POST(request: NextRequest) {
       partnerName?: string;
       rows?: ImportRow[];
       language?: string;
+      market?: string;
     };
+
+    const market = (body.market || "").toUpperCase() === "BENELUX" ? "BENELUX" : "FR";
 
     const rows = Array.isArray(body.rows) ? body.rows.slice(0, MAX_ROWS) : [];
     if (rows.length === 0) {
@@ -151,6 +154,7 @@ export async function POST(request: NextRequest) {
             company: partner.name,
             partnerSlug: partner.slug,
             language: rowLanguage,
+            market,
             createdById: session.user.id,
           },
         });

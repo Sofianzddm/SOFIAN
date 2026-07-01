@@ -3275,6 +3275,12 @@ model AgencyOutreachTarget {
 
   language String @default("fr") // "fr" | "en"
 
+  // Marché de prospection : "FR" (agences françaises) ou "BENELUX" (agences
+  // belges / Pays-Bas / Luxembourg). Sert au filtrage par onglet marché et à
+  // adapter la rédaction IA (agence FR développant le Benelux avec des
+  // créateurs benelux).
+  market String @default("FR") // "FR" | "BENELUX"
+
   status OutreachTargetStatus @default(TO_CONTACT)
 
   // Boîte Gmail expéditrice du cycle (null = leyna@glowupagence.fr).
@@ -3314,6 +3320,7 @@ model AgencyOutreachTarget {
   @@index([partnerId])
   @@index([status, createdAt])
   @@index([scheduledSendAt])
+  @@index([market, status])
   @@map("agency_outreach_targets")
 }
 

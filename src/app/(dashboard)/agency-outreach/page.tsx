@@ -41,8 +41,12 @@ import {
   FileSpreadsheet,
   FileText,
   BookmarkPlus,
+  Sparkles,
 } from "lucide-react";
-import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
+import {
+  normalizeEditorHtmlForEmail,
+  plainTextToEmailHtml,
+} from "@/lib/email-body-html";
 import { businessDeadlineWithJitter } from "@/lib/business-days";
 
 // Doit rester aligné avec AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS côté serveur.
@@ -58,6 +62,7 @@ const OLD_LACE = "#F5EBE0";
 const ALLOWED = ["ADMIN", "HEAD_OF_SALES"];
 
 type TargetStatus = "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED";
+type Market = "FR" | "BENELUX";
 
 type TouchSummary = {
   id: string;
@@ -441,6 +446,9 @@ export default function AgencyOutreachPage() {
   const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
   const [activeTab, setActiveTab] = useState<TargetStatus>("TO_CONTACT");
+  // Marché actif : FR (agences françaises) ou BENELUX (agences belges / Benelux).
+  // Filtre la liste et sert de valeur par défaut aux ajouts / imports.
+  const [market, setMarket] = useState<Market>("FR");
   const [searchTerm, setSearchTerm] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -481,7 +489,10 @@ export default function AgencyOutreachPage() {
     email: "",
     poste: "",
     language: "fr" as "fr" | "en",
+    market: "FR" as Market,
   });
+  // Génération IA du mail (composer).
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const showToast = useCallback((kind: "ok" | "err", msg: string) => {
     setToast({ kind, msg });
@@ -515,7 +526,9 @@ export default function AgencyOutreachPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/agency-outreach/targets", { credentials: "include" });
+      const res = await fetch(`/api/agency-outreach/targets?market=${market}`, {
+        credentials: "include",
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Chargement impossible");
       setTargets(Array.isArray(data.targets) ? data.targets : []);
@@ -524,7 +537,7 @@ export default function AgencyOutreachPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [market]);
 
   const loadPartners = useCallback(async () => {
     setPartnersLoading(true);
@@ -553,6 +566,24 @@ export default function AgencyOutreachPage() {
       /* non bloquant */
     }
   }, []);
+
+  // Restaure le dernier marché choisi (persisté entre sessions).
+  useEffect(() => {
+    const saved =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("agency-outreach.market")
+        : null;
+    if (saved === "BENELUX" || saved === "FR") {
+      setMarket(saved);
+      setNewContact((p) => ({ ...p, market: saved }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("agency-outreach.market", market);
+    }
+  }, [market]);
 
   useEffect(() => {
     if (sessionStatus === "authenticated" && allowed) {
@@ -713,7 +744,12 @@ export default function AgencyOutreachPage() {
     setSubject("");
     setTemplateId("");
     editor?.commands.setContent("<p></p>");
-    setLanguage(selectedTargets[0]?.language === "en" ? "en" : "fr");
+    // « Langue de rédaction » = langue dans laquelle ON ÉCRIT (pas celle du
+    // client). On part toujours du français : les contacts EN reçoivent alors
+    // une traduction auto. (Ne pas caler sur la langue du contact, sinon un mail
+    // écrit en FR pour un contact EN serait considéré « déjà en anglais » et
+    // partirait sans traduction.)
+    setLanguage("fr");
     setPreviewMode("edit");
     setLastField("body");
     setProgress(null);
@@ -739,6 +775,47 @@ export default function AgencyOutreachPage() {
       return;
     }
     editor.chain().focus().extendMarkRange("link").setLink({ href: trimmed }).run();
+  };
+
+  const runGenerateEmail = async () => {
+    if (!editor) return;
+    if (selectedTargets.length === 0) {
+      showToast("err", "Sélectionne au moins un contact d'agence.");
+      return;
+    }
+    // Envoi groupé avec jetons par destinataire : on laisse l'IA utiliser
+    // {{ contact.firstname }} et {{ agence.nom }}. On ne fige le nom de l'agence
+    // que si tous les destinataires appartiennent à la même agence.
+    const distinctCompanies = Array.from(
+      new Set(selectedTargets.map((t) => (t.company || "").trim()).filter(Boolean))
+    );
+    const agencyName = distinctCompanies.length === 1 ? distinctCompanies[0] : "";
+    setIsGenerating(true);
+    try {
+      const res = await fetch("/api/agency-outreach/generate-email", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language, market, agencyName }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        subject?: string;
+        body?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Génération impossible.");
+      }
+      setSubject(typeof data.subject === "string" ? data.subject : "");
+      const html = plainTextToEmailHtml(typeof data.body === "string" ? data.body : "") || "<p></p>";
+      editor.commands.setContent(html);
+      setBodyTick((n) => n + 1);
+      showToast("ok", "Email généré automatiquement ✨ — à toi de l'ajuster");
+    } catch (e) {
+      showToast("err", e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const previewVars = useMemo(() => {
@@ -882,7 +959,7 @@ export default function AgencyOutreachPage() {
       const res = await fetch("/api/agency-outreach/targets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agencyContactId: contactId }),
+        body: JSON.stringify({ agencyContactId: contactId, market }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Ajout impossible");
@@ -910,7 +987,7 @@ export default function AgencyOutreachPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Ajout impossible");
       showToast("ok", "Contact créé et ajouté au cycle.");
-      setNewContact({ partnerName: "", prenom: "", nom: "", email: "", poste: "", language: "fr" });
+      setNewContact({ partnerName: "", prenom: "", nom: "", email: "", poste: "", language: "fr", market });
       await Promise.all([loadTargets(), loadPartners()]);
     } catch (e) {
       showToast("err", e instanceof Error ? e.message : "Erreur");
@@ -953,6 +1030,35 @@ export default function AgencyOutreachPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Bascule marché : FR ↔ BENELUX (agences françaises vs belges/Benelux) */}
+          <div
+            className="inline-flex rounded-lg overflow-hidden border shrink-0"
+            style={{ borderColor: "#E5E0DA" }}
+            title="Basculer entre les agences françaises et Benelux"
+          >
+            {(["FR", "BENELUX"] as const).map((m) => {
+              const active = market === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => {
+                    setMarket(m);
+                    setSelected(new Set());
+                    setNewContact((p) => ({ ...p, market: m }));
+                  }}
+                  className="px-3 py-2 text-sm font-semibold transition"
+                  style={
+                    active
+                      ? { backgroundColor: LICORICE, color: "white" }
+                      : { backgroundColor: "white", color: "#9CA3AF" }
+                  }
+                >
+                  {m === "FR" ? "🇫🇷 France" : "🇧🇪 BENELUX"}
+                </button>
+              );
+            })}
+          </div>
           {selectedTargets.length > 0 && activeTab !== "STOPPED" && (
             <button
               type="button"
@@ -1330,8 +1436,21 @@ export default function AgencyOutreachPage() {
                   <option value="en">English</option>
                 </select>
                 <p className="text-[10px] mt-1 opacity-70" style={{ color: OLD_ROSE }}>
-                  Les contacts d&apos;une autre langue reçoivent une traduction auto.
+                  Langue dans laquelle <strong>tu écris</strong>. Les contacts d&apos;une autre
+                  langue reçoivent une traduction auto.
                 </p>
+                {(() => {
+                  const toTranslate = selectedTargets.filter(
+                    (t) => (t.language === "en" ? "en" : "fr") !== language
+                  ).length;
+                  if (toTranslate === 0) return null;
+                  return (
+                    <p className="text-[11px] mt-1 font-medium text-amber-700">
+                      {toTranslate} contact{toTranslate > 1 ? "s" : ""} recevront une traduction
+                      auto en {language === "fr" ? "anglais" : "français"}.
+                    </p>
+                  );
+                })()}
               </div>
 
               {/* Objet */}
@@ -1435,6 +1554,31 @@ export default function AgencyOutreachPage() {
                       </button>
                       <button type="button" onClick={setLink} className="p-1.5 rounded hover:bg-white/80">
                         <LinkIcon className="w-4 h-4" />
+                      </button>
+                      <span className="text-sm px-1 self-center select-none" style={{ color: OLD_ROSE }}>|</span>
+                      <button
+                        type="button"
+                        onClick={runGenerateEmail}
+                        disabled={isGenerating}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-50"
+                        style={{ backgroundColor: OLD_ROSE, color: "white" }}
+                        title={
+                          market === "BENELUX"
+                            ? "Rédige un mail de prospection agence (présentation de nos créateurs benelux, agence FR développant le Benelux)"
+                            : "Rédige un mail de prospection agence (présentation de nos créateurs)"
+                        }
+                      >
+                        {isGenerating ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                            Rédaction en cours…
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Rédiger automatiquement
+                          </>
+                        )}
                       </button>
                     </div>
                   )}
@@ -1695,6 +1839,16 @@ export default function AgencyOutreachPage() {
                     <option value="fr">Français</option>
                     <option value="en">English</option>
                   </select>
+                  <select
+                    value={newContact.market}
+                    onChange={(e) => setNewContact((p) => ({ ...p, market: e.target.value === "BENELUX" ? "BENELUX" : "FR" }))}
+                    className="rounded-xl border px-3 py-2 text-sm bg-white"
+                    style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                    title="Marché de l'agence"
+                  >
+                    <option value="FR">🇫🇷 France</option>
+                    <option value="BENELUX">🇧🇪 BENELUX</option>
+                  </select>
                 </div>
                 <button
                   type="button"
@@ -1781,6 +1935,7 @@ export default function AgencyOutreachPage() {
       {importOpen && (
         <ImportAgencyModal
           partners={partners}
+          market={market}
           onClose={() => setImportOpen(false)}
           onError={(m) => showToast("err", m)}
           onImported={(r) => {
@@ -1812,11 +1967,13 @@ export default function AgencyOutreachPage() {
 
 function ImportAgencyModal({
   partners,
+  market,
   onClose,
   onImported,
   onError,
 }: {
   partners: PartnerRow[];
+  market: Market;
   onClose: () => void;
   onImported: (r: { company: string; created: number; skipped: number; addedToCycle: number }) => void;
   onError: (message: string) => void;
@@ -1886,7 +2043,7 @@ function ImportAgencyModal({
       const res = await fetch("/api/agency-outreach/import-carto", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partnerName: partnerName.trim(), language, rows: rowsWithLang }),
+        body: JSON.stringify({ partnerName: partnerName.trim(), language, market, rows: rowsWithLang }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Erreur d'import");
@@ -1912,6 +2069,12 @@ function ImportAgencyModal({
           <h2 className="text-lg font-semibold flex items-center gap-2" style={{ fontFamily: "Spectral, serif", color: LICORICE }}>
             <FileSpreadsheet className="w-5 h-5" style={{ color: "#3D8B40" }} />
             Importer des contacts d&apos;agence
+            <span
+              className="text-xs font-semibold px-2 py-0.5 rounded-full"
+              style={{ backgroundColor: LICORICE, color: "white" }}
+            >
+              {market === "FR" ? "🇫🇷 France" : "🇧🇪 BENELUX"}
+            </span>
           </h2>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-black/5">
             <X className="w-5 h-5" style={{ color: LICORICE }} />

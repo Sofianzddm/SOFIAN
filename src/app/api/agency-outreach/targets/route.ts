@@ -33,7 +33,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
+    // Filtre par marché (FR par défaut). Le toggle FR/BENELUX de la page envoie
+    // toujours ?market=…, mais on tolère l'absence pour rétro-compatibilité.
+    const marketParam = (request.nextUrl.searchParams.get("market") || "").toUpperCase();
+    const market = marketParam === "BENELUX" ? "BENELUX" : marketParam === "FR" ? "FR" : null;
+
     const rows = await prisma.agencyOutreachTarget.findMany({
+      where: market ? { market } : undefined,
       orderBy: [{ status: "asc" }, { nextRecontactAt: "asc" }, { createdAt: "desc" }],
       include: {
         partner: { select: { name: true, slug: true } },
@@ -114,9 +120,11 @@ export async function POST(request: NextRequest) {
       poste?: string;
       fromEmail?: string;
       language?: string;
+      market?: string;
     };
 
     const language = body.language === "en" ? "en" : "fr";
+    const market = (body.market || "").toUpperCase() === "BENELUX" ? "BENELUX" : "FR";
 
     // Boîte expéditrice du cycle (optionnel, défaut Leyna) : réservé à l'ADMIN.
     let fromEmail: string | null = null;
@@ -173,6 +181,7 @@ export async function POST(request: NextRequest) {
           company: contact.partner.name,
           partnerSlug: contact.partner.slug,
           language: contact.language === "en" ? "en" : language,
+          market,
           fromEmail,
           createdById: session.user.id,
         },
@@ -254,6 +263,7 @@ export async function POST(request: NextRequest) {
         company: partner.name,
         partnerSlug: partner.slug,
         language,
+        market,
         fromEmail,
         createdById: session.user.id,
       },
