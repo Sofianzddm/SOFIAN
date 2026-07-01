@@ -221,9 +221,10 @@ STRUCTURE (a logical flow, not a rigid template — vary the wording on every em
 - A short sentence after the list that simply states what these profiles can bring — without stacking qualities. Keep it factual and vary the wording every time (avoid a canned "awareness + credibility + lived-in content" line).
 - Propose the collaboration in a professional, composed way (e.g. "We would be glad to explore a collaboration with you." or "If this is of interest, we would be happy to discuss it.").
 - MUST add one sentence that includes a CLICKABLE link to our full roster, in this exact HTML format: <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
-- The email MUST end with these two EXACT sentences, without modifying or rephrasing them, right before the closing:
-"I would be delighted to quickly send you their complete media kits, a moodboard, and tailored performance estimates.
-Would you be available for a 10-15 minute call next week?"
+- The email MUST end, right before the closing, with two sentences that convey these two ideas (rephrase them naturally, vary the wording every time, do NOT copy them verbatim):
+  1) an offer to quickly send their complete media kits, a moodboard and tailored performance estimates;
+  2) a proposal for a short 10-15 minute call next week to introduce our agency and our creators.
+For reference (do NOT reuse as-is): "I would be delighted to quickly send you their complete media kits, a moodboard, and tailored performance estimates. Would you be available for a 10-15 minute call next week to introduce our agency and our creators?"
 
 Exact closing: "Best regards,"
 
@@ -296,9 +297,10 @@ STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à c
 - Une courte phrase après la liste qui dit, simplement, ce que ces profils peuvent apporter — sans empiler les qualités. Reste factuel et varie la formulation à chaque mail (évite la phrase toute faite type "notoriété + crédibilité + contenu vécu").
 - Proposer la collaboration de façon professionnelle et posée (ex. "Nous serions ravis d'envisager une collaboration avec vous." ou "Si cela vous intéresse, nous serions heureux d'en échanger.").
 - Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
-- Terminer OBLIGATOIREMENT le mail par ces deux phrases EXACTES, sans les modifier ni les reformuler, juste avant la clôture :
-"Je serais ravie de vous envoyer rapidement leurs médias kits complets, un moodboard ainsi que des estimations de performance sur mesure.
-Seriez-vous disponible pour un appel de 10-15 minutes la semaine prochaine ?"
+- Terminer OBLIGATOIREMENT le mail, juste avant la clôture, par deux phrases qui portent ces deux idées (reformule-les naturellement, varie la tournure à chaque mail, ne les recopie PAS à l'identique) :
+  1) proposer d'envoyer rapidement leurs médias kits complets, un moodboard et des estimations de performance sur mesure ;
+  2) proposer un court appel de 10-15 minutes la semaine prochaine pour présenter notre agence et nos talents.
+Pour référence (à NE PAS reprendre tel quel) : « Je serais ravie de vous envoyer rapidement leurs médias kits complets, un moodboard ainsi que des estimations de performance sur mesure. Seriez-vous disponible pour un appel de 10-15 minutes la semaine prochaine pour vous présenter notre agence et nos talents ? »
 
 Clôture exacte : "Belle journée,"
 
