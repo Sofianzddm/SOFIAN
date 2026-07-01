@@ -291,7 +291,26 @@ function relanceInfo(
   return { state: "scheduled", at: fmtDateTime(due) };
 }
 
-type ImportRow = { prenom: string; nom: string; poste: string; email: string };
+type ImportRow = {
+  prenom: string;
+  nom: string;
+  poste: string;
+  email: string;
+  language?: "fr" | "en";
+};
+
+/** Normalise une valeur de cellule « Langue » vers "fr" | "en" (ou undefined). */
+function parseLanguageValue(raw: string): "fr" | "en" | undefined {
+  const v = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  if (!v) return undefined;
+  if (v.startsWith("en") || v.startsWith("an") || v.startsWith("uk") || v.startsWith("us")) return "en";
+  if (v.startsWith("fr")) return "fr";
+  return undefined;
+}
 
 /** Valeur de cellule ExcelJS → texte (gère liens mailto, texte riche, formules). */
 function excelCellToText(value: unknown): string {
@@ -362,6 +381,7 @@ function parseImportText(text: string): {
       cells.forEach((c, idx) => {
         if (c.includes("role") || c === "poste" || c === "titre" || c === "fonction") cols.poste = idx;
         else if (c.includes("mail")) cols.email = idx;
+        else if (c === "langue" || c === "language" || c === "lang" || c.startsWith("langue")) cols.language = idx;
       });
       break;
     }
@@ -399,6 +419,7 @@ function parseImportText(text: string): {
       nom,
       poste: cell(cells, "poste"),
       email: cell(cells, "email"),
+      language: parseLanguageValue(cell(cells, "language")),
     });
   }
 
@@ -1719,17 +1740,26 @@ function ImportAgencyModal({
   const [dragOver, setDragOver] = useState(false);
   const [partnerName, setPartnerName] = useState("");
   const [language, setLanguage] = useState<"fr" | "en">("fr");
+  // Override de langue par contact (index de ligne → langue), prioritaire sur le choix global.
+  const [rowLangs, setRowLangs] = useState<Record<number, "fr" | "en">>({});
   const [saving, setSaving] = useState(false);
 
   const handleText = (text: string, sourceFileName?: string) => {
     setRawText(text);
     if (!text.trim()) {
       setRows([]);
+      setRowLangs({});
       setParseError(null);
       return;
     }
     const result = parseImportText(text);
     setRows(result.rows);
+    // Pré-remplit les overrides depuis la colonne « Langue » du fichier, si présente.
+    const detected: Record<number, "fr" | "en"> = {};
+    result.rows.forEach((r, i) => {
+      if (r.language) detected[i] = r.language;
+    });
+    setRowLangs(detected);
     setParseError(result.error);
     const suggestion =
       result.suggestedAgency ||
@@ -1760,10 +1790,14 @@ function ImportAgencyModal({
     if (!canSubmit) return;
     setSaving(true);
     try {
+      const rowsWithLang = rows.map((r, i) => ({
+        ...r,
+        language: rowLangs[i] ?? r.language ?? language,
+      }));
       const res = await fetch("/api/agency-outreach/import-carto", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partnerName: partnerName.trim(), language, rows }),
+        body: JSON.stringify({ partnerName: partnerName.trim(), language, rows: rowsWithLang }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Erreur d'import");
@@ -1798,9 +1832,9 @@ function ImportAgencyModal({
         <div className="p-5 space-y-4">
           <p className="text-xs opacity-70" style={{ color: LICORICE }}>
             Glisse un fichier Excel (.xlsx) ou CSV avec au minimum les colonnes{" "}
-            <strong>Prénom</strong>, <strong>Nom</strong> et <strong>Email</strong> (colonne{" "}
-            <strong>Poste</strong> optionnelle). Les contacts avec un email valide entrent
-            directement dans « À contacter ».
+            <strong>Prénom</strong>, <strong>Nom</strong> et <strong>Email</strong> (colonnes{" "}
+            <strong>Poste</strong> et <strong>Langue</strong> — FR/EN — optionnelles). Les
+            contacts avec un email valide entrent directement dans « À contacter ».
           </p>
 
           {/* Agence */}
@@ -1825,19 +1859,29 @@ function ImportAgencyModal({
           </div>
 
           {/* Langue */}
-          <div className="w-40">
+          <div>
             <label className="block text-xs font-medium mb-1" style={{ color: LICORICE }}>
               Langue des contacts
             </label>
             <select
               value={language}
-              onChange={(e) => setLanguage(e.target.value === "en" ? "en" : "fr")}
-              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+              onChange={(e) => {
+                setLanguage(e.target.value === "en" ? "en" : "fr");
+                // « Appliquer à tous » : on efface les choix individuels.
+                setRowLangs({});
+              }}
+              className="w-40 rounded-xl border px-3 py-2 text-sm bg-white"
               style={{ borderColor: OLD_ROSE, color: LICORICE }}
             >
-              <option value="fr">Français</option>
-              <option value="en">English</option>
+              <option value="fr">Tous en français</option>
+              <option value="en">Tous en anglais</option>
             </select>
+            <p className="text-xs opacity-60 mt-1" style={{ color: LICORICE }}>
+              Langue par défaut, détectée automatiquement depuis la colonne{" "}
+              <strong>Langue</strong> (FR/EN) du fichier si présente, et ajustable
+              contact par contact ci-dessous. Les mails et relances auto sont traduits
+              selon la langue de chaque contact.
+            </p>
           </div>
 
           {/* Fichier */}
@@ -1890,7 +1934,7 @@ function ImportAgencyModal({
                 setFileName(null);
                 handleText(e.target.value);
               }}
-              placeholder={"Prénom\tNom\tPoste\tEmail"}
+              placeholder={"Prénom\tNom\tPoste\tEmail\tLangue"}
               rows={5}
               className="w-full mt-2 px-3 py-2 rounded-xl border text-xs font-mono"
               style={{ borderColor: OLD_ROSE, color: LICORICE }}
@@ -1905,13 +1949,43 @@ function ImportAgencyModal({
                 <strong>{rows.length}</strong> ligne(s) détectée(s), dont{" "}
                 <strong>{withEmail.length}</strong> avec un email valide (les autres seront ignorées).
               </p>
-              <div className="mt-2 max-h-40 overflow-y-auto space-y-0.5">
-                {rows.slice(0, 30).map((r, i) => (
-                  <p key={i} className="text-xs opacity-80" style={{ color: LICORICE }}>
-                    {r.prenom} {r.nom} {r.poste ? `· ${r.poste}` : ""}{" "}
-                    <span className="opacity-60">{r.email || "(sans email)"}</span>
-                  </p>
-                ))}
+              <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
+                {rows.slice(0, 50).map((r, i) => {
+                  const rowLang = rowLangs[i] ?? r.language ?? language;
+                  return (
+                    <div key={i} className="flex items-center gap-2 text-xs" style={{ color: LICORICE }}>
+                      <span className="font-medium shrink-0">
+                        {r.prenom} {r.nom}
+                      </span>
+                      <span className="opacity-60 truncate">{r.poste}</span>
+                      <span className="ml-auto opacity-60 shrink-0">{r.email || "(sans email)"}</span>
+                      <span
+                        className="inline-flex rounded-md overflow-hidden border shrink-0"
+                        style={{ borderColor: "#E5E0DA" }}
+                        title="Langue de ce contact (mail et relances auto traduits en conséquence)"
+                      >
+                        {(["fr", "en"] as const).map((lang) => {
+                          const active = rowLang === lang;
+                          return (
+                            <button
+                              key={lang}
+                              type="button"
+                              onClick={() => setRowLangs((prev) => ({ ...prev, [i]: lang }))}
+                              className="px-1.5 py-0.5 text-[10px] font-bold uppercase transition"
+                              style={
+                                active
+                                  ? { backgroundColor: LICORICE, color: "white" }
+                                  : { backgroundColor: "white", color: "#9CA3AF" }
+                              }
+                            >
+                              {lang === "fr" ? "🇫🇷" : "🇬🇧"} {lang}
+                            </button>
+                          );
+                        })}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
