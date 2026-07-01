@@ -313,6 +313,11 @@ export async function executeAgencyOutreachSend(
         nextRecontactAt,
         draftSubject: null,
         draftBodyHtml: null,
+        // L'envoi (immédiat ou programmé) vide toujours la file « envoi décalé ».
+        scheduledSendAt: null,
+        scheduledSubject: null,
+        scheduledBodyHtml: null,
+        scheduledById: null,
         autoRescheduleReason: null,
         autoRescheduledAt: null,
       },
@@ -324,6 +329,312 @@ export async function executeAgencyOutreachSend(
   );
 
   return { ok: true, touchId: touch.id, messageId };
+}
+
+// ============================================================================
+// ENVOI DÉCALÉ (staggered) : étale l'envoi groupé dans la journée
+// ============================================================================
+// Plutôt que d'envoyer tous les mails d'un coup, on répartit les envois entre
+// « maintenant » et 18h30 (heure de Paris) pour que les destinataires ne
+// reçoivent pas tous au même instant (meilleure délivrabilité, plus naturel).
+// Le cron /api/cron/agency-outreach envoie chaque mail quand son échéance
+// (scheduledSendAt) est atteinte.
+
+const PARIS_TZ = "Europe/Paris";
+
+/** Heure limite (Paris) : tous les mails décalés partent AVANT cette heure. */
+export const AGENCY_STAGGER_END_HOUR = 18;
+export const AGENCY_STAGGER_END_MINUTE = 30;
+/**
+ * Repli si on démarre déjà trop tard : on étale quand même jusqu'à cette heure
+ * (Paris) LE JOUR MÊME — on ne reporte jamais au lendemain. C'est aussi le
+ * maximum absolu : aucun mail ne part après 20h30.
+ */
+export const AGENCY_STAGGER_LATE_END_HOUR = 20;
+export const AGENCY_STAGGER_LATE_END_MINUTE = 30;
+
+/** Convertit une heure « murale » de Paris (y/m/d h:min) en instant UTC. */
+function parisWallClockToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number
+): Date {
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: PARIS_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(utcGuess));
+  const map: Record<string, number> = {};
+  for (const p of parts) if (p.type !== "literal") map[p.type] = Number(p.value);
+  // 24:xx (minuit) formaté par Intl selon l'env → ramené à 0.
+  const h = map.hour === 24 ? 0 : map.hour;
+  const asUtc = Date.UTC(map.year, map.month - 1, map.day, h, map.minute, map.second);
+  const offset = asUtc - utcGuess;
+  return new Date(utcGuess - offset);
+}
+
+/** Renvoie l'instant UTC correspondant à `hour:minute` (Paris) le jour de `base`. */
+function parisTimeOnDay(base: Date, hour: number, minute: number): Date {
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: PARIS_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(base)
+    .split("-")
+    .map(Number);
+  return parisWallClockToUtc(y, m, d, hour, minute);
+}
+
+/**
+ * Fenêtre d'étalement des envois : de « maintenant » jusqu'à 18h30 (Paris) LE
+ * JOUR MÊME. On ne reporte jamais au lendemain : si 18h30 est déjà passé (ou
+ * trop proche), on étale quand même jusqu'à 20h30 — le maximum absolu, aucun
+ * mail ne part plus tard. Passé 20h30, tout part au plus tôt (prochain cron).
+ */
+export function computeAgencyStaggerWindow(now: Date = new Date()): {
+  start: Date;
+  end: Date;
+} {
+  const MIN_LEAD_MS = 60_000; // on démarre ~1 min après maintenant
+  const MIN_WINDOW_MS = 10 * 60_000; // il faut au moins 10 min de marge
+
+  const start = new Date(now.getTime() + MIN_LEAD_MS);
+  let end = parisTimeOnDay(now, AGENCY_STAGGER_END_HOUR, AGENCY_STAGGER_END_MINUTE);
+
+  if (end.getTime() - start.getTime() < MIN_WINDOW_MS) {
+    // Plus assez de marge avant 18h30 → on étale jusqu'à 20h30 (maximum absolu).
+    end = parisTimeOnDay(now, AGENCY_STAGGER_LATE_END_HOUR, AGENCY_STAGGER_LATE_END_MINUTE);
+  }
+  // On ne dépasse jamais 20h30 : si on est déjà après, la fenêtre est vide et
+  // tous les envois partent au plus tôt (dès le prochain passage du cron).
+  if (end.getTime() < start.getTime()) {
+    end = new Date(now.getTime());
+  }
+
+  return { start, end };
+}
+
+/**
+ * Répartit `count` envois dans la fenêtre [start, end] : un créneau par mail,
+ * avec un décalage aléatoire à l'intérieur du créneau. Les dates renvoyées sont
+ * strictement croissantes et toutes < end.
+ */
+export function computeAgencyStaggeredTimes(
+  count: number,
+  now: Date = new Date()
+): Date[] {
+  const { start, end } = computeAgencyStaggerWindow(now);
+  if (count <= 0) return [];
+  if (count === 1) return [new Date(start)];
+
+  const span = Math.max(0, end.getTime() - start.getTime());
+  const slot = span / count;
+  const times: Date[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const slotStart = start.getTime() + slot * i;
+    const jitter = Math.random() * slot;
+    times.push(new Date(Math.min(end.getTime() - 1, slotStart + jitter)));
+  }
+  times.sort((a, b) => a.getTime() - b.getTime());
+  return times;
+}
+
+export type AgencyOutreachScheduleResult =
+  | { ok: true; scheduledSendAt: string }
+  | {
+      ok: false;
+      error: string;
+      needsConfirmation?: boolean;
+      alreadyContactedAt?: string;
+      suggestedNextRecontactAt?: string;
+    };
+
+/**
+ * Programme (sans envoyer) un mail de cycle pour un contact d'agence : applique
+ * le même garde-fou anti double-contact que l'envoi immédiat, puis fige le
+ * sujet/corps (déjà traduits) et l'échéance sur le target. Le cron enverra
+ * effectivement le mail quand `scheduledSendAt` sera atteint.
+ */
+export async function executeAgencyOutreachSchedule(
+  targetId: string,
+  input: {
+    subject: string;
+    bodyHtml: string;
+    scheduledSendAt: Date;
+    sentById?: string | null;
+    force?: boolean;
+  }
+): Promise<AgencyOutreachScheduleResult> {
+  const target = await prisma.agencyOutreachTarget.findUnique({
+    where: { id: targetId },
+    select: { id: true, status: true, email: true, fromEmail: true },
+  });
+  if (!target) return { ok: false, error: "Contact agence introuvable." };
+  if (target.status === "STOPPED") {
+    return { ok: false, error: "Ce contact est sorti du cycle (stoppé)." };
+  }
+
+  const subjectTpl = input.subject.trim();
+  const bodyTpl = input.bodyHtml.trim();
+  if (!subjectTpl || !bodyTpl) {
+    return { ok: false, error: "Sujet et corps du mail requis." };
+  }
+  if (!isValidEmail(target.email)) {
+    return { ok: false, error: `Email invalide : ${target.email}` };
+  }
+
+  const fromEmail = agencyOutreachFromEmail(target);
+
+  if (!input.force) {
+    const externalContact = await detectRecentExternalContact(
+      fromEmail,
+      target.id,
+      target.email
+    );
+    if (externalContact.contacted) {
+      if (externalContact.lastDate) {
+        const suggestedNextRecontactAt = new Date(
+          externalContact.lastDate.getTime() +
+            AGENCY_OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
+        );
+        return {
+          ok: false,
+          needsConfirmation: true,
+          alreadyContactedAt: externalContact.lastDate.toISOString(),
+          suggestedNextRecontactAt: suggestedNextRecontactAt.toISOString(),
+          error:
+            `Déjà contacté le ${formatFrDate(externalContact.lastDate)} depuis la boîte ` +
+            `${fromEmail} (hors prospection agences : envoi manuel ou autre canal).`,
+        };
+      }
+      return {
+        ok: false,
+        needsConfirmation: true,
+        error: `${target.email} a déjà reçu un mail depuis la boîte ${fromEmail} il y a moins de ${AGENCY_OUTREACH_RECONTACT_DAYS} jours.`,
+      };
+    }
+  }
+
+  await prisma.agencyOutreachTarget.update({
+    where: { id: target.id },
+    data: {
+      scheduledSendAt: input.scheduledSendAt,
+      scheduledSubject: subjectTpl,
+      scheduledBodyHtml: bodyTpl,
+      scheduledById: input.sentById || null,
+      // On repart d'un état propre côté brouillon / auto-reschedule.
+      draftSubject: null,
+      draftBodyHtml: null,
+      autoRescheduleReason: null,
+      autoRescheduledAt: null,
+    },
+  });
+
+  return { ok: true, scheduledSendAt: input.scheduledSendAt.toISOString() };
+}
+
+/**
+ * Cron : envoie les mails programmés (envoi décalé) dont l'échéance est
+ * atteinte. Sur échec, on vide la programmation et on notifie le créateur
+ * (pas de retry en boucle). Utilise `force: true` car le garde-fou anti
+ * double-contact a déjà été appliqué au moment de la programmation.
+ */
+export async function processAgencyScheduledSends(
+  now: Date = new Date(),
+  limit = 50
+): Promise<{ processed: number; sent: number; failed: number }> {
+  const due = await prisma.agencyOutreachTarget.findMany({
+    where: {
+      status: { not: "STOPPED" },
+      scheduledSendAt: { not: null, lte: now },
+    },
+    select: {
+      id: true,
+      email: true,
+      firstname: true,
+      lastname: true,
+      company: true,
+      createdById: true,
+      scheduledSubject: true,
+      scheduledBodyHtml: true,
+      scheduledById: true,
+    },
+    orderBy: { scheduledSendAt: "asc" },
+    take: limit,
+  });
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const t of due) {
+    const subject = (t.scheduledSubject || "").trim();
+    const bodyHtml = (t.scheduledBodyHtml || "").trim();
+
+    if (!subject || !bodyHtml) {
+      // Programmation incohérente : on nettoie pour éviter une boucle.
+      await prisma.agencyOutreachTarget
+        .update({
+          where: { id: t.id },
+          data: {
+            scheduledSendAt: null,
+            scheduledSubject: null,
+            scheduledBodyHtml: null,
+            scheduledById: null,
+          },
+        })
+        .catch(() => null);
+      continue;
+    }
+
+    const result = await executeAgencyOutreachSend(t.id, {
+      subject,
+      bodyHtml,
+      sentById: t.scheduledById,
+      force: true,
+    });
+
+    if (result.ok) {
+      sent += 1;
+      continue;
+    }
+
+    failed += 1;
+    // Échec (Gmail, email invalide…) : on vide la programmation + notification.
+    await prisma.agencyOutreachTarget
+      .update({
+        where: { id: t.id },
+        data: {
+          scheduledSendAt: null,
+          scheduledSubject: null,
+          scheduledBodyHtml: null,
+          scheduledById: null,
+        },
+      })
+      .catch(() => null);
+    await prisma.notification
+      .create({
+        data: {
+          userId: t.createdById,
+          type: "GENERAL",
+          titre: "Envoi décalé échoué (Prospection Agences)",
+          message: `Le mail programmé pour ${t.firstname} ${t.lastname || ""} (${t.company}, ${t.email}) n'a pas pu partir : ${result.error}`,
+          lien: "/agency-outreach",
+        },
+      })
+      .catch((e) => console.warn("[agency-outreach] notif envoi décalé échoué:", e));
+  }
+
+  return { processed: due.length, sent, failed };
 }
 
 export type AgencyOutreachRescheduleResult =

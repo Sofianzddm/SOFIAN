@@ -20,6 +20,7 @@ import {
   Plus,
   Repeat,
   X,
+  Clock,
   Eye,
   MousePointerClick,
   CheckCircle2,
@@ -89,6 +90,7 @@ type Target = {
   cycleCount: number;
   lastSentAt: string | null;
   nextRecontactAt: string | null;
+  scheduledSendAt: string | null;
   lastRepliedAt: string | null;
   autoRescheduleReason: string | null;
   createdAt: string;
@@ -167,6 +169,9 @@ function applyVarsPreview(
 
 type BulkSendResult = {
   sent: number;
+  scheduled: number;
+  firstScheduledAt: string | null;
+  lastScheduledAt: string | null;
   failed: { email: string; error: string }[];
   needsConfirmation: {
     targetId: string;
@@ -184,6 +189,7 @@ async function sendBulkStreaming(
     subject: string;
     bodyHtml: string;
     sourceLanguage: "fr" | "en";
+    mode: "now" | "staggered";
     force?: boolean;
   },
   onProgress: (p: { done: number; total: number; label: string }) => void
@@ -424,6 +430,8 @@ export default function AgencyOutreachPage() {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [subject, setSubject] = useState("");
   const [language, setLanguage] = useState<"fr" | "en">("fr");
+  // Mode d'envoi : "now" = tout part maintenant ; "staggered" = étalé jusqu'à 18h30.
+  const [sendMode, setSendMode] = useState<"now" | "staggered">("now");
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
   const [lastField, setLastField] = useState<"subject" | "body">("body");
   const [bodyTick, setBodyTick] = useState(0);
@@ -738,11 +746,20 @@ export default function AgencyOutreachPage() {
           subject: sub,
           bodyHtml: body,
           sourceLanguage: language,
+          mode: sendMode,
           force,
         },
         (p) => setProgress(p)
       );
-      const parts: string[] = [`${result.sent} mail(s) envoyé(s)`];
+      const parts: string[] = [];
+      if (sendMode === "staggered") {
+        parts.push(`${result.scheduled} mail(s) programmé(s)`);
+        if (result.lastScheduledAt) {
+          parts.push(`dernier vers ${fmtDateTime(result.lastScheduledAt)}`);
+        }
+      } else {
+        parts.push(`${result.sent} mail(s) envoyé(s)`);
+      }
       if (result.translated > 0) parts.push(`${result.translated} traduit(s)`);
       if (result.failed.length > 0) parts.push(`${result.failed.length} échec(s)`);
       if (result.needsConfirmation.length > 0)
@@ -751,7 +768,9 @@ export default function AgencyOutreachPage() {
 
       if (result.needsConfirmation.length > 0 && !force) {
         const ok = window.confirm(
-          `${result.needsConfirmation.length} contact(s) ont déjà été contactés récemment (hors prospection). Envoyer quand même ?`
+          `${result.needsConfirmation.length} contact(s) ont déjà été contactés récemment (hors prospection). ${
+            sendMode === "staggered" ? "Programmer quand même ?" : "Envoyer quand même ?"
+          }`
         );
         if (ok) {
           // Renvoi forcé uniquement aux contacts en attente de confirmation.
@@ -1072,6 +1091,15 @@ export default function AgencyOutreachPage() {
 
                         {/* Suivi du dernier mail */}
                         <div className="flex items-center gap-3 text-xs" style={{ color: LICORICE }}>
+                          {t.scheduledSendAt && (
+                            <span
+                              className="inline-flex items-center gap-1 text-amber-700"
+                              title="Envoi décalé programmé"
+                            >
+                              <Clock className="w-3.5 h-3.5" />
+                              Envoi {fmtDateTime(t.scheduledSendAt)}
+                            </span>
+                          )}
                           {touch?.repliedAt && (
                             <span className="inline-flex items-center gap-1 text-emerald-600" title="A répondu">
                               <MessageSquareReply className="w-3.5 h-3.5" />
@@ -1392,6 +1420,47 @@ export default function AgencyOutreachPage() {
                 </div>
               )}
 
+              {/* Mode d'envoi : maintenant (tout d'un coup) ou décalé (étalé) */}
+              <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
+                <p className="text-xs font-medium" style={{ color: LICORICE }}>
+                  Quand envoyer ?
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSendMode("now")}
+                    className="text-left rounded-xl border-2 px-3 py-2"
+                    style={{
+                      borderColor: sendMode === "now" ? TEA_GREEN : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                      backgroundColor: sendMode === "now" ? `color-mix(in srgb, ${TEA_GREEN} 25%, white)` : "transparent",
+                    }}
+                  >
+                    <span className="block text-sm font-semibold" style={{ color: LICORICE }}>
+                      Maintenant
+                    </span>
+                    <span className="block text-[11px] opacity-70" style={{ color: LICORICE }}>
+                      Tous les mails partent tout de suite.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSendMode("staggered")}
+                    className="text-left rounded-xl border-2 px-3 py-2"
+                    style={{
+                      borderColor: sendMode === "staggered" ? TEA_GREEN : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                      backgroundColor: sendMode === "staggered" ? `color-mix(in srgb, ${TEA_GREEN} 25%, white)` : "transparent",
+                    }}
+                  >
+                    <span className="block text-sm font-semibold" style={{ color: LICORICE }}>
+                      En décalé
+                    </span>
+                    <span className="block text-[11px] opacity-70" style={{ color: LICORICE }}>
+                      Étalés dans la journée, tous avant 18h30.
+                    </span>
+                  </button>
+                </div>
+              </div>
+
               {progress && (
                 <div className="space-y-1">
                   <div className="h-2 rounded-full bg-black/10 overflow-hidden">
@@ -1424,7 +1493,9 @@ export default function AgencyOutreachPage() {
               >
                 {sending && <Loader2 className="w-4 h-4 animate-spin" />}
                 <Send className="w-4 h-4" />
-                Envoyer à {selectedTargets.length}
+                {sendMode === "staggered"
+                  ? `Programmer ${selectedTargets.length} envoi${selectedTargets.length > 1 ? "s" : ""}`
+                  : `Envoyer à ${selectedTargets.length}`}
               </button>
             </div>
           </div>

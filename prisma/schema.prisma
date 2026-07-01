@@ -3284,6 +3284,15 @@ model AgencyOutreachTarget {
   draftSubject  String? @db.Text
   draftBodyHtml String? @db.Text
 
+  // Envoi programmé (option « envoi décalé ») : le mail groupé n'est pas envoyé
+  // immédiatement mais étalé dans la journée (jusqu'à 18h30). Le cron envoie le
+  // mail quand scheduledSendAt est atteint puis remet ces champs à null. Le
+  // sujet/corps déjà traduits pour la langue du contact sont figés ici.
+  scheduledSendAt   DateTime?
+  scheduledSubject  String?   @db.Text
+  scheduledBodyHtml String?   @db.Text
+  scheduledById     String?
+
   cycleCount      Int       @default(0)
   lastSentAt      DateTime?
   nextRecontactAt DateTime?
@@ -3304,6 +3313,7 @@ model AgencyOutreachTarget {
   @@index([status, nextRecontactAt])
   @@index([partnerId])
   @@index([status, createdAt])
+  @@index([scheduledSendAt])
   @@map("agency_outreach_targets")
 }
 

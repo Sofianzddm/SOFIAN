@@ -5,11 +5,14 @@ import { relanceDue, isBusinessDay } from "@/lib/business-days";
 import {
   executeAgencyOutreachRelance,
   agencyOutreachFromEmail,
+  processAgencyScheduledSends,
   AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS,
 } from "@/lib/agency-outreach-send";
 
 /**
  * Cron du module Prospection Agences (jours ouvrés) :
+ *  0. Envoie les mails « décalés » dont l'échéance est atteinte (option d'envoi
+ *     étalé dans la journée jusqu'à 18h30).
  *  1. Détecte les réponses sur le dernier mail de chaque agence en attente
  *     (info seulement : l'agence RESTE dans le cycle 45 jours). Les bounces
  *     (adresse invalide) retirent automatiquement le contact du cycle.
@@ -26,11 +29,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 
-  if (!isBusinessDay(new Date())) {
-    return NextResponse.json({ processed: 0, skipped: "weekend" });
+  const now = new Date();
+
+  // Les envois décalés ne sont jamais programmés le week-end (cf. fenêtre
+  // d'étalement), mais on les traite avant le garde-fou week-end par sûreté.
+  const scheduled = await processAgencyScheduledSends(now);
+
+  if (!isBusinessDay(now)) {
+    return NextResponse.json({ processed: 0, scheduled, skipped: "weekend" });
   }
 
-  const now = new Date();
   const targets = await prisma.agencyOutreachTarget.findMany({
     where: { status: "WAITING" },
     include: {
@@ -159,6 +167,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     processed: targets.length,
+    scheduled,
     replies,
     relances,
     recontacts,

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
-import { executeAgencyOutreachSend } from "@/lib/agency-outreach-send";
+import {
+  executeAgencyOutreachSend,
+  executeAgencyOutreachSchedule,
+  computeAgencyStaggeredTimes,
+} from "@/lib/agency-outreach-send";
 import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 
 /**
@@ -37,6 +41,11 @@ type ProgressEvent = {
 
 type BulkResult = {
   sent: number;
+  /** Nombre de mails programmés (mode « envoi décalé »). */
+  scheduled: number;
+  /** Étalement : première et dernière échéance (ISO), pour l'affichage. */
+  firstScheduledAt: string | null;
+  lastScheduledAt: string | null;
   failed: { email: string; error: string }[];
   needsConfirmation: {
     targetId: string;
@@ -49,33 +58,40 @@ type BulkResult = {
   translationFailed: Lang | null;
 };
 
+type BulkTarget = { id: string; email: string; language: string | null };
+
 function langLabel(lang: Lang): string {
   return lang === "en" ? "anglais" : "français";
 }
 
-async function runBulkSend(
+/**
+ * Traduit le mail dans chaque langue nécessaire (une fois par langue, réutilisée
+ * ensuite). Renvoie une version par langue + la langue dont la traduction a
+ * échoué (fallback source). Reporte la progression de la phase « traduction ».
+ */
+async function buildVersions(
   params: {
-    targets: { id: string; email: string; language: string | null }[];
+    targets: BulkTarget[];
     subject: string;
     bodyHtml: string;
     sourceLanguage: Lang;
-    sentById: string;
-    force: boolean;
   },
+  total: number,
   onProgress: (event: ProgressEvent) => void
-): Promise<BulkResult> {
-  const { targets, subject, bodyHtml, sourceLanguage, sentById, force } = params;
-
+): Promise<{
+  versions: Map<Lang, { subject: string; bodyHtml: string }>;
+  translationFailed: Lang | null;
+  done: number;
+}> {
+  const { targets, subject, bodyHtml, sourceLanguage } = params;
   const neededLangs = new Set<Lang>(targets.map((t) => normalizeLang(t.language)));
   const langsToTranslate = [...neededLangs].filter((l) => l !== sourceLanguage);
-
-  const total = langsToTranslate.length + targets.length;
-  let done = 0;
 
   const versions = new Map<Lang, { subject: string; bodyHtml: string }>();
   versions.set(sourceLanguage, { subject, bodyHtml });
 
   let translationFailed: Lang | null = null;
+  let done = 0;
 
   for (const lang of langsToTranslate) {
     onProgress({
@@ -106,10 +122,47 @@ async function runBulkSend(
     });
   }
 
-  let sent = 0;
-  let translated = 0;
-  const failed: BulkResult["failed"] = [];
-  const needsConfirmation: BulkResult["needsConfirmation"] = [];
+  return { versions, translationFailed, done };
+}
+
+function emptyResult(): BulkResult {
+  return {
+    sent: 0,
+    scheduled: 0,
+    firstScheduledAt: null,
+    lastScheduledAt: null,
+    failed: [],
+    needsConfirmation: [],
+    translated: 0,
+    translationFailed: null,
+  };
+}
+
+async function runBulkSend(
+  params: {
+    targets: BulkTarget[];
+    subject: string;
+    bodyHtml: string;
+    sourceLanguage: Lang;
+    sentById: string;
+    force: boolean;
+  },
+  onProgress: (event: ProgressEvent) => void
+): Promise<BulkResult> {
+  const { targets, subject, bodyHtml, sourceLanguage, sentById, force } = params;
+
+  const neededLangs = new Set<Lang>(targets.map((t) => normalizeLang(t.language)));
+  const total = [...neededLangs].filter((l) => l !== sourceLanguage).length + targets.length;
+
+  const { versions, translationFailed, done: doneAfterTr } = await buildVersions(
+    { targets, subject, bodyHtml, sourceLanguage },
+    total,
+    onProgress
+  );
+
+  const result = emptyResult();
+  result.translationFailed = translationFailed;
+  let done = doneAfterTr;
 
   for (const target of targets) {
     const lang = normalizeLang(target.language);
@@ -121,25 +174,25 @@ async function runBulkSend(
       phase: "sending",
       label: `Envoi à ${target.email}…`,
     });
-    const result = await executeAgencyOutreachSend(target.id, {
+    const res = await executeAgencyOutreachSend(target.id, {
       subject: version.subject,
       bodyHtml: version.bodyHtml,
       sentById,
       force,
     });
-    if (result.ok && lang !== sourceLanguage) translated += 1;
-    if (result.ok) {
-      sent += 1;
-    } else if (result.needsConfirmation) {
-      needsConfirmation.push({
+    if (res.ok && lang !== sourceLanguage) result.translated += 1;
+    if (res.ok) {
+      result.sent += 1;
+    } else if (res.needsConfirmation) {
+      result.needsConfirmation.push({
         targetId: target.id,
         email: target.email,
-        message: result.error,
-        alreadyContactedAt: result.alreadyContactedAt,
-        suggestedNextRecontactAt: result.suggestedNextRecontactAt,
+        message: res.error,
+        alreadyContactedAt: res.alreadyContactedAt,
+        suggestedNextRecontactAt: res.suggestedNextRecontactAt,
       });
     } else {
-      failed.push({ email: target.email, error: result.error });
+      result.failed.push({ email: target.email, error: res.error });
     }
     done += 1;
     onProgress({
@@ -147,11 +200,102 @@ async function runBulkSend(
       done,
       total,
       phase: "sending",
-      label: `${sent} mail${sent > 1 ? "s" : ""} envoyé${sent > 1 ? "s" : ""}`,
+      label: `${result.sent} mail${result.sent > 1 ? "s" : ""} envoyé${result.sent > 1 ? "s" : ""}`,
     });
   }
 
-  return { sent, failed, needsConfirmation, translated, translationFailed };
+  return result;
+}
+
+/**
+ * Mode « envoi décalé » : programme (sans envoyer) chaque mail à une échéance
+ * étalée dans la journée (jusqu'à 18h30 Paris). Le cron enverra effectivement.
+ * Même garde-fou anti double-contact que l'envoi immédiat (needsConfirmation).
+ */
+async function runBulkSchedule(
+  params: {
+    targets: BulkTarget[];
+    subject: string;
+    bodyHtml: string;
+    sourceLanguage: Lang;
+    sentById: string;
+    force: boolean;
+  },
+  onProgress: (event: ProgressEvent) => void
+): Promise<BulkResult> {
+  const { targets, subject, bodyHtml, sourceLanguage, sentById, force } = params;
+
+  const neededLangs = new Set<Lang>(targets.map((t) => normalizeLang(t.language)));
+  const total = [...neededLangs].filter((l) => l !== sourceLanguage).length + targets.length;
+
+  const { versions, translationFailed, done: doneAfterTr } = await buildVersions(
+    { targets, subject, bodyHtml, sourceLanguage },
+    total,
+    onProgress
+  );
+
+  const result = emptyResult();
+  result.translationFailed = translationFailed;
+  let done = doneAfterTr;
+
+  const times = computeAgencyStaggeredTimes(targets.length);
+  const scheduledDates: Date[] = [];
+
+  for (let i = 0; i < targets.length; i += 1) {
+    const target = targets[i];
+    const lang = normalizeLang(target.language);
+    const version = versions.get(lang) ?? { subject, bodyHtml };
+    const when = times[i] ?? times[times.length - 1] ?? new Date();
+
+    onProgress({
+      type: "progress",
+      done,
+      total,
+      phase: "sending",
+      label: `Programmation de ${target.email}…`,
+    });
+
+    const res = await executeAgencyOutreachSchedule(target.id, {
+      subject: version.subject,
+      bodyHtml: version.bodyHtml,
+      scheduledSendAt: when,
+      sentById,
+      force,
+    });
+
+    if (res.ok) {
+      result.scheduled += 1;
+      if (lang !== sourceLanguage) result.translated += 1;
+      scheduledDates.push(when);
+    } else if (res.needsConfirmation) {
+      result.needsConfirmation.push({
+        targetId: target.id,
+        email: target.email,
+        message: res.error,
+        alreadyContactedAt: res.alreadyContactedAt,
+        suggestedNextRecontactAt: res.suggestedNextRecontactAt,
+      });
+    } else {
+      result.failed.push({ email: target.email, error: res.error });
+    }
+
+    done += 1;
+    onProgress({
+      type: "progress",
+      done,
+      total,
+      phase: "sending",
+      label: `${result.scheduled} mail${result.scheduled > 1 ? "s" : ""} programmé${result.scheduled > 1 ? "s" : ""}`,
+    });
+  }
+
+  if (scheduledDates.length > 0) {
+    scheduledDates.sort((a, b) => a.getTime() - b.getTime());
+    result.firstScheduledAt = scheduledDates[0].toISOString();
+    result.lastScheduledAt = scheduledDates[scheduledDates.length - 1].toISOString();
+  }
+
+  return result;
 }
 
 export async function POST(request: NextRequest) {
@@ -171,6 +315,7 @@ export async function POST(request: NextRequest) {
       sourceLanguage?: string;
       force?: boolean;
       stream?: boolean;
+      mode?: string;
     };
     const targetIds = Array.isArray(body.targetIds)
       ? body.targetIds.filter((id) => typeof id === "string" && id.trim())
@@ -180,6 +325,8 @@ export async function POST(request: NextRequest) {
     const sourceLanguage = normalizeLang(body.sourceLanguage);
     const force = body.force === true;
     const stream = body.stream === true;
+    // "now" (défaut) : tout part immédiatement ; "staggered" : étalé jusqu'à 18h30.
+    const mode = body.mode === "staggered" ? "staggered" : "now";
 
     if (targetIds.length === 0) {
       return NextResponse.json({ error: "Aucun destinataire." }, { status: 400 });
@@ -213,6 +360,7 @@ export async function POST(request: NextRequest) {
       sentById: session.user.id,
       force,
     };
+    const runBulk = mode === "staggered" ? runBulkSchedule : runBulkSend;
 
     if (stream) {
       const encoder = new TextEncoder();
@@ -222,7 +370,7 @@ export async function POST(request: NextRequest) {
             controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
           };
           try {
-            const result = await runBulkSend(sendParams, (event) => write(event));
+            const result = await runBulk(sendParams, (event) => write(event));
             write({ type: "result", ...result });
           } catch (error) {
             console.error("POST /api/agency-outreach/send-bulk (stream):", error);
@@ -244,7 +392,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const result = await runBulkSend(sendParams, () => {});
+    const result = await runBulk(sendParams, () => {});
     return NextResponse.json(result);
   } catch (error) {
     console.error("POST /api/agency-outreach/send-bulk:", error);
