@@ -5,6 +5,7 @@ import { relanceDue, isBusinessDay } from "@/lib/business-days";
 import {
   executeOutreachRelance,
   outreachFromEmail,
+  processOutreachScheduledSends,
   OUTREACH_RELANCE_BUSINESS_DAYS,
 } from "@/lib/outreach-send";
 import {
@@ -39,11 +40,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 
-  if (!isBusinessDay(new Date())) {
-    return NextResponse.json({ processed: 0, skipped: "weekend" });
+  const now = new Date();
+
+  // Envois programmés (« à une heure précise ») : traités à chaque passage du
+  // cron (toutes les 15 min), y compris le week-end si l'utilisateur a choisi
+  // une échéance qui y tombe — avant le garde-fou week-end des relances auto.
+  const scheduled = await processOutreachScheduledSends(now);
+
+  if (!isBusinessDay(now)) {
+    return NextResponse.json({ processed: 0, scheduled, skipped: "weekend" });
   }
 
-  const now = new Date();
   const targets = await prisma.outreachTarget.findMany({
     where: { status: "WAITING" },
     include: {
@@ -284,6 +291,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     processed: targets.length,
+    scheduled,
     replies,
     relances,
     recontacts,

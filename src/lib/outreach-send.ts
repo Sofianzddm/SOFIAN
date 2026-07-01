@@ -406,6 +406,204 @@ export async function executeOutreachReschedule(
   return { ok: true, nextRecontactAt: nextRecontactAt.toISOString(), reason };
 }
 
+export type OutreachScheduleResult =
+  | { ok: true; scheduledSendAt: string }
+  | {
+      ok: false;
+      error: string;
+      needsConfirmation?: boolean;
+      alreadyContactedAt?: string;
+      suggestedNextRecontactAt?: string;
+    };
+
+/**
+ * Programme (sans envoyer) un mail de cycle pour un client à une échéance
+ * précise (option « à une heure précise »). Applique le même garde-fou anti
+ * double-contact que l'envoi immédiat, puis fige le sujet/corps (déjà traduits)
+ * et l'échéance sur le target. Le cron enverra effectivement le mail quand
+ * `scheduledSendAt` sera atteint.
+ */
+export async function executeOutreachSchedule(
+  targetId: string,
+  input: {
+    subject: string;
+    bodyHtml: string;
+    scheduledSendAt: Date;
+    sentById?: string | null;
+    force?: boolean;
+  }
+): Promise<OutreachScheduleResult> {
+  const target = await prisma.outreachTarget.findUnique({ where: { id: targetId } });
+  if (!target) return { ok: false, error: "Client introuvable." };
+  if (target.status === "STOPPED") {
+    return { ok: false, error: "Ce client est sorti du cycle (stoppé)." };
+  }
+
+  const subjectTpl = input.subject.trim();
+  const bodyTpl = input.bodyHtml.trim();
+  if (!subjectTpl || !bodyTpl) {
+    return { ok: false, error: "Sujet et corps du mail requis." };
+  }
+  if (!isValidEmail(target.email)) {
+    return { ok: false, error: `Email invalide : ${target.email}` };
+  }
+
+  const fromEmail = outreachFromEmail(target);
+
+  if (!input.force) {
+    if (await isEmailBlockedByPipelineCooldown(target.email)) {
+      return {
+        ok: false,
+        needsConfirmation: true,
+        error: `${target.email} a déjà reçu un mail (pipeline talent) dans les ${CASTING_COOLDOWN_DAYS} derniers jours.`,
+      };
+    }
+
+    const externalContact = await detectRecentExternalContact(
+      fromEmail,
+      target.id,
+      target.email
+    );
+    if (externalContact.contacted) {
+      if (externalContact.lastDate) {
+        const suggestedNextRecontactAt = new Date(
+          externalContact.lastDate.getTime() +
+            OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
+        );
+        return {
+          ok: false,
+          needsConfirmation: true,
+          alreadyContactedAt: externalContact.lastDate.toISOString(),
+          suggestedNextRecontactAt: suggestedNextRecontactAt.toISOString(),
+          error:
+            `Déjà contacté le ${formatFrDate(externalContact.lastDate)} depuis la boîte ` +
+            `${fromEmail} (hors app : séquence HubSpot ou envoi manuel).`,
+        };
+      }
+      return {
+        ok: false,
+        needsConfirmation: true,
+        error: `${target.email} a déjà reçu un mail depuis la boîte ${fromEmail} il y a moins de ${OUTREACH_RECONTACT_DAYS} jours (HubSpot ou envoi manuel).`,
+      };
+    }
+  }
+
+  await prisma.outreachTarget.update({
+    where: { id: target.id },
+    data: {
+      scheduledSendAt: input.scheduledSendAt,
+      scheduledSubject: subjectTpl,
+      scheduledBodyHtml: bodyTpl,
+      scheduledById: input.sentById || null,
+      // On repart d'un état propre côté brouillon / auto-reschedule.
+      draftSubject: null,
+      draftBodyHtml: null,
+      autoRescheduleReason: null,
+      autoRescheduledAt: null,
+    },
+  });
+
+  return { ok: true, scheduledSendAt: input.scheduledSendAt.toISOString() };
+}
+
+/**
+ * Cron : envoie les mails programmés (« à une heure précise ») dont l'échéance
+ * est atteinte. Sur échec, on vide la programmation et on notifie le créateur
+ * (pas de retry en boucle). Utilise `force: true` car le garde-fou anti
+ * double-contact a déjà été appliqué au moment de la programmation.
+ */
+export async function processOutreachScheduledSends(
+  now: Date = new Date(),
+  limit = 50
+): Promise<{ processed: number; sent: number; failed: number }> {
+  const due = await prisma.outreachTarget.findMany({
+    where: {
+      status: { not: "STOPPED" },
+      scheduledSendAt: { not: null, lte: now },
+    },
+    select: {
+      id: true,
+      email: true,
+      firstname: true,
+      lastname: true,
+      company: true,
+      marqueId: true,
+      createdById: true,
+      scheduledSubject: true,
+      scheduledBodyHtml: true,
+      scheduledById: true,
+    },
+    orderBy: { scheduledSendAt: "asc" },
+    take: limit,
+  });
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const t of due) {
+    const subject = (t.scheduledSubject || "").trim();
+    const bodyHtml = (t.scheduledBodyHtml || "").trim();
+
+    if (!subject || !bodyHtml) {
+      // Programmation incohérente : on nettoie pour éviter une boucle.
+      await prisma.outreachTarget
+        .update({
+          where: { id: t.id },
+          data: {
+            scheduledSendAt: null,
+            scheduledSubject: null,
+            scheduledBodyHtml: null,
+            scheduledById: null,
+          },
+        })
+        .catch(() => null);
+      continue;
+    }
+
+    // executeOutreachSend consomme et remet à zéro le brouillon, mais pas les
+    // champs scheduled* : on les vide d'abord pour ne jamais renvoyer en boucle.
+    await prisma.outreachTarget
+      .update({
+        where: { id: t.id },
+        data: {
+          scheduledSendAt: null,
+          scheduledSubject: null,
+          scheduledBodyHtml: null,
+          scheduledById: null,
+        },
+      })
+      .catch(() => null);
+
+    const result = await executeOutreachSend(t.id, {
+      subject,
+      bodyHtml,
+      sentById: t.scheduledById,
+      force: true,
+    });
+
+    if (result.ok) {
+      sent += 1;
+      continue;
+    }
+
+    failed += 1;
+    await prisma.notification
+      .create({
+        data: {
+          userId: t.createdById,
+          type: "GENERAL",
+          titre: "Envoi programmé échoué (Outreach)",
+          message: `Le mail programmé pour ${t.firstname} ${t.lastname || ""} (${t.company}, ${t.email}) n'a pas pu partir : ${result.error}`,
+          lien: "/outreach",
+          marqueId: t.marqueId,
+        },
+      })
+      .catch((e) => console.warn("[outreach] notif envoi programmé échoué:", e));
+  }
+
+  return { processed: due.length, sent, failed };
+}
+
 export type OutreachRelanceResult =
   | { ok: true; messageId: string }
   | { ok: false; error: string };

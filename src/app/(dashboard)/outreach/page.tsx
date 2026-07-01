@@ -116,6 +116,7 @@ type Target = {
   lastSentAt: string | null;
   nextRecontactAt: string | null;
   lastRepliedAt: string | null;
+  scheduledSendAt: string | null;
   autoRescheduleReason: string | null;
   autoRescheduledAt: string | null;
   hubspotContactId: string | null;
@@ -143,6 +144,10 @@ function senderLabel(accounts: SenderAccount[], fromEmail: string | null): strin
 /** Résultat final renvoyé par /api/outreach/send-bulk (mode flux ou JSON). */
 type BulkSendResult = {
   sent: number;
+  /** Mode « à une heure précise » : nombre de mails programmés + échéances. */
+  scheduled?: number;
+  firstScheduledAt?: string | null;
+  lastScheduledAt?: string | null;
   failed: { email: string; error: string }[];
   needsConfirmation: {
     targetId: string;
@@ -167,6 +172,9 @@ async function sendBulkStreaming(
     subject: string;
     bodyHtml: string;
     sourceLanguage: "fr" | "en";
+    mode?: "now" | "at";
+    /** Mode « at » : heure murale de Paris (valeur d'un input datetime-local). */
+    scheduledAt?: string;
     force?: boolean;
   },
   onProgress: (p: { done: number; total: number; label: string }) => void
@@ -730,12 +738,19 @@ export default function OutreachPage() {
   const handleComposerSaved = useCallback(
     (
       status: "pret" | "en_cours" | "reset",
-      draft?: { subject: string; bodyHtml: string; language?: "fr" | "en" }
+      draft?: {
+        subject: string;
+        bodyHtml: string;
+        language?: "fr" | "en";
+        scheduledAt?: string | null;
+      }
     ) => {
       const group = composerGroup;
       if (!group) return;
       const ids = group.targets.map((t) => t.id);
       const sourceLanguage: "fr" | "en" = draft?.language === "en" ? "en" : "fr";
+      const scheduledAt = draft?.scheduledAt || null;
+      const sendMode: "now" | "at" = scheduledAt ? "at" : "now";
       const toTranslateCount = group.targets.filter(
         (t) => (t.language === "en" ? "en" : "fr") !== sourceLanguage
       ).length;
@@ -764,10 +779,30 @@ export default function OutreachPage() {
                   toTranslateCount > 1 ? "s" : ""
                 } recevr${toTranslateCount > 1 ? "ont" : "a"} la version traduite automatiquement en ${otherLangLabel}.`
               : "";
+          // Libellé « heure de Paris » de l'échéance choisie (mode « at »). La
+          // valeur est déjà l'heure murale de Paris → on la met en forme telle
+          // quelle (pas de conversion de fuseau qui fausserait l'affichage).
+          const scheduleLabelFr =
+            sendMode === "at" && scheduledAt
+              ? (() => {
+                  const [d, hm] = scheduledAt.split("T");
+                  const [y, mo, day] = (d || "").split("-");
+                  const months = [
+                    "janvier", "février", "mars", "avril", "mai", "juin",
+                    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+                  ];
+                  const moLabel = months[Number(mo) - 1] || mo;
+                  return `${Number(day)} ${moLabel} à ${hm}`;
+                })()
+              : null;
+          const scheduleNote = scheduleLabelFr
+            ? `\n\n🕒 Programmé pour le ${scheduleLabelFr} (heure française).`
+            : "";
+          const verb = sendMode === "at" ? "Programmer" : "Envoyer";
           const confirmed = window.confirm(
             group.targets.length > 1
-              ? `Envoyer ce mail aux ${group.targets.length} contacts de ${group.company} ?\n\n${recipients}\n\nChacun reçoit son propre mail personnalisé (thread et relances séparés).${translateNote}\n\nAnnuler = garder en brouillon.`
-              : `Envoyer ce mail à ${recipients} depuis la boîte de Leyna ?${translateNote}\n\nAnnuler = garder en brouillon.`
+              ? `${verb} ce mail aux ${group.targets.length} contacts de ${group.company} ?\n\n${recipients}\n\nChacun reçoit son propre mail personnalisé (thread et relances séparés).${translateNote}${scheduleNote}\n\nAnnuler = garder en brouillon.`
+              : `${verb} ce mail à ${recipients} depuis la boîte de Leyna ?${translateNote}${scheduleNote}\n\nAnnuler = garder en brouillon.`
           );
           await saveDraft(ids, draft?.subject || "", draft?.bodyHtml || "");
           if (!confirmed) {
@@ -798,6 +833,8 @@ export default function OutreachPage() {
                 subject: subjectToSend,
                 bodyHtml: bodyToSend,
                 sourceLanguage,
+                mode: sendMode,
+                ...(sendMode === "at" && scheduledAt ? { scheduledAt } : {}),
               },
               (p) => {
                 if (showProgress) setSendProgress(p);
@@ -815,7 +852,19 @@ export default function OutreachPage() {
             suggestedNextRecontactAt?: string;
           }[] = data.needsConfirmation || [];
 
-          if (data.sent > 0) {
+          if ((data.scheduled ?? 0) > 0) {
+            const n = data.scheduled ?? 0;
+            const translatedNote =
+              data.translated > 0
+                ? ` · ${data.translated} traduit${data.translated > 1 ? "s" : ""} auto`
+                : "";
+            flash(
+              "success",
+              `${n} mail${n > 1 ? "s" : ""} programmé${n > 1 ? "s" : ""} pour le ${scheduleLabelFr} (heure FR)${translatedNote}${
+                failed.length > 0 ? ` · ${failed.length} échec${failed.length > 1 ? "s" : ""}` : ""
+              }.`
+            );
+          } else if (data.sent > 0) {
             const translatedNote =
               data.translated > 0
                 ? ` · ${data.translated} traduit${data.translated > 1 ? "s" : ""} auto`
@@ -1487,10 +1536,27 @@ export default function OutreachPage() {
                               Cycle {target.cycleCount}
                             </span>
                           )}
-                          {target.draftSubject && (
+                          {target.draftSubject && !target.scheduledSendAt && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "#FDF1F1", color: "#A85B5B" }}>
                               <PenLine className="w-3 h-3" />
                               Brouillon
+                            </span>
+                          )}
+                          {target.scheduledSendAt && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
+                              style={{ backgroundColor: "#EAF7D6", color: "#4D6B15" }}
+                              title={`Envoi programmé le ${new Date(target.scheduledSendAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" })} (heure FR)`}
+                            >
+                              <Clock className="w-3 h-3" />
+                              Programmé{" "}
+                              {new Date(target.scheduledSendAt).toLocaleString("fr-FR", {
+                                timeZone: "Europe/Paris",
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
                             </span>
                           )}
                           {target.status === "WAITING" && days !== null && (
@@ -1914,6 +1980,7 @@ export default function OutreachPage() {
         brandColumn={"todo"}
         useHubspot={false}
         market={market}
+        allowSchedule
         readyLabel={`Envoyer depuis ${senderLabel(
           senderAccounts,
           composerGroup?.targets[0]?.fromEmail ?? null

@@ -148,6 +148,26 @@ function firstNameFromSessionName(name: string | null | undefined): string {
   return name.trim().split(/\s+/)[0] ?? "";
 }
 
+/**
+ * Valeur pour un input `datetime-local` correspondant à l'heure MURALE de Paris
+ * de `date` (indépendamment du fuseau du navigateur). Format « YYYY-MM-DDTHH:mm ».
+ */
+function toParisDatetimeLocal(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const m: Record<string, string> = {};
+  for (const p of parts) if (p.type !== "literal") m[p.type] = p.value;
+  const hour = m.hour === "24" ? "00" : m.hour;
+  return `${m.year}-${m.month}-${m.day}T${hour}:${m.minute}`;
+}
+
 type BrandResearchState = {
   recentCampaigns: string;
   newProducts: string;
@@ -187,10 +207,21 @@ export interface CastingComposerProps {
   readyLabel?: string;
   /** Langue de génération du mail pré-sélectionnée à l'ouverture (défaut : fr). */
   defaultLanguage?: "fr" | "en";
+  /**
+   * Affiche le sélecteur « Quand envoyer ? » (Maintenant / à une heure précise,
+   * heure FR). L'échéance choisie est remontée via `onSaved(..., { scheduledAt })`.
+   */
+  allowSchedule?: boolean;
   onClose: () => void;
   onSaved: (
     status: "en_cours" | "pret" | "reset",
-    draft?: { subject: string; bodyHtml: string; language: "fr" | "en" }
+    draft?: {
+      subject: string;
+      bodyHtml: string;
+      language: "fr" | "en";
+      /** Heure d'envoi programmée (datetime-local, heure de Paris) ou null. */
+      scheduledAt?: string | null;
+    }
   ) => void;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
@@ -204,6 +235,7 @@ export default function CastingComposer({
   market = "FR",
   readyLabel = "Marquer comme prêt",
   defaultLanguage = "fr",
+  allowSchedule = false,
   onClose,
   onSaved,
   onError,
@@ -245,6 +277,9 @@ export default function CastingComposer({
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
+  // Programmation d'envoi (mode "at") — heure de Paris.
+  const [sendMode, setSendMode] = useState<"now" | "at">("now");
+  const [scheduledAt, setScheduledAt] = useState<string>("");
   const [markingSent, setMarkingSent] = useState(false);
   const [missionStatus, setMissionStatus] = useState<
     "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED" | null
@@ -445,6 +480,8 @@ export default function CastingComposer({
     setLastField("body");
     setBrandResearch(null);
     setEmailLanguage(defaultLanguage);
+    setSendMode("now");
+    setScheduledAt("");
 
     if (hasHubspotDraft) {
       setSubject(sub);
@@ -712,13 +749,25 @@ export default function CastingComposer({
       onError("L’objet de l’email est obligatoire.");
       return;
     }
+    // Programmation : uniquement à l'envoi (« prêt »), pas pour un brouillon.
+    if (allowSchedule && status === "pret" && sendMode === "at" && !scheduledAt) {
+      onError("Choisis une date et une heure d'envoi.");
+      return;
+    }
+    const scheduledValue =
+      allowSchedule && status === "pret" && sendMode === "at" ? scheduledAt : null;
     const contactIds = useHubspot ? contact.contacts.map((c) => c.id).filter(Boolean) : [];
     const bodyHtml = getBodyHtml();
     setSaving(true);
     try {
       // Permet la rédaction même sans contacts HubSpot reliés.
       if (contactIds.length === 0) {
-        onSaved(status, { subject: sub, bodyHtml, language: emailLanguage });
+        onSaved(status, {
+          subject: sub,
+          bodyHtml,
+          language: emailLanguage,
+          scheduledAt: scheduledValue,
+        });
         if (status === "en_cours") {
           onSuccess("Brouillon enregistré (sans contact HubSpot).");
         } else {
@@ -746,7 +795,12 @@ export default function CastingComposer({
           typeof data.error === "string" ? data.error : "Enregistrement impossible."
         );
       }
-      onSaved(status, { subject: sub, bodyHtml, language: emailLanguage });
+      onSaved(status, {
+        subject: sub,
+        bodyHtml,
+        language: emailLanguage,
+        scheduledAt: scheduledValue,
+      });
       if (status === "en_cours") {
         onSuccess("Brouillon enregistré");
       } else {
@@ -1131,6 +1185,75 @@ export default function CastingComposer({
               )}
             </div>
 
+            {allowSchedule && !isHeadOfSalesReadOnly && (
+              <div
+                className="px-5 py-3 border-t shrink-0 bg-white/70"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+              >
+                <p className="text-xs font-medium mb-2" style={{ color: LICORICE }}>
+                  Quand envoyer ?
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSendMode("now")}
+                    className="text-left rounded-xl border-2 px-3 py-2"
+                    style={{
+                      borderColor: sendMode === "now" ? TEA_GREEN : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                      backgroundColor: sendMode === "now" ? `color-mix(in srgb, ${TEA_GREEN} 25%, white)` : "transparent",
+                    }}
+                  >
+                    <span className="block text-sm font-semibold" style={{ color: LICORICE }}>
+                      Maintenant
+                    </span>
+                    <span className="block text-[11px] opacity-70" style={{ color: LICORICE }}>
+                      Les mails partent tout de suite.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSendMode("at");
+                      if (!scheduledAt) {
+                        const d = new Date(Date.now() + 60 * 60 * 1000);
+                        d.setMinutes(0, 0, 0);
+                        setScheduledAt(toParisDatetimeLocal(d));
+                      }
+                    }}
+                    className="text-left rounded-xl border-2 px-3 py-2"
+                    style={{
+                      borderColor: sendMode === "at" ? TEA_GREEN : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                      backgroundColor: sendMode === "at" ? `color-mix(in srgb, ${TEA_GREEN} 25%, white)` : "transparent",
+                    }}
+                  >
+                    <span className="block text-sm font-semibold" style={{ color: LICORICE }}>
+                      À une heure précise
+                    </span>
+                    <span className="block text-[11px] opacity-70" style={{ color: LICORICE }}>
+                      Tu choisis la date et l'heure (heure FR).
+                    </span>
+                  </button>
+                </div>
+                {sendMode === "at" && (
+                  <div className="mt-2">
+                    <label className="block text-[11px] font-medium mb-1" style={{ color: LICORICE }}>
+                      Date et heure d'envoi (heure française)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={(e) => setScheduledAt(e.target.value)}
+                      className="w-full rounded-xl border px-3 py-2 text-sm"
+                      style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`, color: LICORICE }}
+                    />
+                    <p className="text-[11px] opacity-70 mt-1" style={{ color: LICORICE }}>
+                      Les mails sont légèrement étalés (~1/min) à partir de cette heure.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div
               className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t shrink-0 bg-white/95 sticky bottom-0"
               style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
@@ -1175,7 +1298,7 @@ export default function CastingComposer({
                     style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
                   >
                     {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {readyLabel}
+                    {allowSchedule && sendMode === "at" ? "Programmer l'envoi" : readyLabel}
                   </button>
                 </>
               )}

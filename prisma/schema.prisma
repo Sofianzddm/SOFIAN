@@ -3126,6 +3126,15 @@ model OutreachTarget {
   stoppedAt       DateTime?
   stoppedById     String?
 
+  // Envoi programmé (option « à une heure précise ») : le mail n'est pas envoyé
+  // immédiatement mais à l'échéance choisie (heure de Paris). Le cron envoie le
+  // mail quand scheduledSendAt est atteint puis remet ces champs à null. Le
+  // sujet/corps déjà traduits pour la langue du contact sont figés ici.
+  scheduledSendAt   DateTime?
+  scheduledSubject  String?   @db.Text
+  scheduledBodyHtml String?   @db.Text
+  scheduledById     String?
+
   // Replanification automatique : quand l'envoi est bloqué car le client a déjà
   // été contacté < 45j via un autre canal (séquence HubSpot, mail manuel…),
   // le compteur est calé sur la date réelle du mail détecté + 45j et la raison
@@ -3147,6 +3156,7 @@ model OutreachTarget {
   @@index([status, nextRecontactAt])
   @@index([marqueId])
   @@index([status, createdAt])
+  @@index([scheduledSendAt])
   @@map("outreach_targets")
 }
 
