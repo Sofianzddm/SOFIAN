@@ -5,6 +5,8 @@ import {
   executeAgencyOutreachSend,
   executeAgencyOutreachSchedule,
   computeAgencyStaggeredTimes,
+  computeAgencyStaggeredTimesFrom,
+  parseParisDateTimeLocalToUtc,
 } from "@/lib/agency-outreach-send";
 import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 
@@ -220,10 +222,16 @@ async function runBulkSchedule(
     sourceLanguage: Lang;
     sentById: string;
     force: boolean;
+    /**
+     * Heure de départ (instant UTC) choisie explicitement par l'utilisateur
+     * (mode « à une heure précise »). Si absent, on utilise la fenêtre
+     * d'étalement automatique jusqu'à 18h30 (Paris).
+     */
+    scheduledStart?: Date | null;
   },
   onProgress: (event: ProgressEvent) => void
 ): Promise<BulkResult> {
-  const { targets, subject, bodyHtml, sourceLanguage, sentById, force } = params;
+  const { targets, subject, bodyHtml, sourceLanguage, sentById, force, scheduledStart } = params;
 
   const neededLangs = new Set<Lang>(targets.map((t) => normalizeLang(t.language)));
   const total = [...neededLangs].filter((l) => l !== sourceLanguage).length + targets.length;
@@ -238,7 +246,9 @@ async function runBulkSchedule(
   result.translationFailed = translationFailed;
   let done = doneAfterTr;
 
-  const times = computeAgencyStaggeredTimes(targets.length);
+  const times = scheduledStart
+    ? computeAgencyStaggeredTimesFrom(targets.length, scheduledStart)
+    : computeAgencyStaggeredTimes(targets.length);
   const scheduledDates: Date[] = [];
 
   for (let i = 0; i < targets.length; i += 1) {
@@ -316,6 +326,8 @@ export async function POST(request: NextRequest) {
       force?: boolean;
       stream?: boolean;
       mode?: string;
+      /** Mode « at » : heure murale de Paris (valeur d'un input datetime-local). */
+      scheduledAt?: string;
     };
     const targetIds = Array.isArray(body.targetIds)
       ? body.targetIds.filter((id) => typeof id === "string" && id.trim())
@@ -325,8 +337,29 @@ export async function POST(request: NextRequest) {
     const sourceLanguage = normalizeLang(body.sourceLanguage);
     const force = body.force === true;
     const stream = body.stream === true;
-    // "now" (défaut) : tout part immédiatement ; "staggered" : étalé jusqu'à 18h30.
-    const mode = body.mode === "staggered" ? "staggered" : "now";
+    // "now" (défaut) : tout part immédiatement ; "staggered" : étalé jusqu'à
+    // 18h30 (Paris) ; "at" : programmé à une heure précise choisie (heure FR).
+    const mode =
+      body.mode === "staggered" ? "staggered" : body.mode === "at" ? "at" : "now";
+
+    // Mode « at » : on interprète scheduledAt comme une heure murale de Paris.
+    let scheduledStart: Date | null = null;
+    if (mode === "at") {
+      scheduledStart = parseParisDateTimeLocalToUtc(String(body.scheduledAt || ""));
+      if (!scheduledStart) {
+        return NextResponse.json(
+          { error: "Heure d'envoi invalide." },
+          { status: 400 }
+        );
+      }
+      // Tolérance : on refuse une heure déjà passée (plus d'1 min dans le passé).
+      if (scheduledStart.getTime() < Date.now() - 60_000) {
+        return NextResponse.json(
+          { error: "L'heure d'envoi choisie est déjà passée." },
+          { status: 400 }
+        );
+      }
+    }
 
     if (targetIds.length === 0) {
       return NextResponse.json({ error: "Aucun destinataire." }, { status: 400 });
@@ -360,7 +393,11 @@ export async function POST(request: NextRequest) {
       sentById: session.user.id,
       force,
     };
-    const runBulk = mode === "staggered" ? runBulkSchedule : runBulkSend;
+    // "now" → envoi immédiat ; "staggered"/"at" → programmation (le cron enverra).
+    const runBulk = (onProgress: (event: ProgressEvent) => void) =>
+      mode === "now"
+        ? runBulkSend(sendParams, onProgress)
+        : runBulkSchedule({ ...sendParams, scheduledStart }, onProgress);
 
     if (stream) {
       const encoder = new TextEncoder();
@@ -370,7 +407,7 @@ export async function POST(request: NextRequest) {
             controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
           };
           try {
-            const result = await runBulk(sendParams, (event) => write(event));
+            const result = await runBulk((event) => write(event));
             write({ type: "result", ...result });
           } catch (error) {
             console.error("POST /api/agency-outreach/send-bulk (stream):", error);
@@ -392,7 +429,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const result = await runBulk(sendParams, () => {});
+    const result = await runBulk(() => {});
     return NextResponse.json(result);
   } catch (error) {
     console.error("POST /api/agency-outreach/send-bulk:", error);

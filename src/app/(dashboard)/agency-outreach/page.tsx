@@ -194,7 +194,9 @@ async function sendBulkStreaming(
     subject: string;
     bodyHtml: string;
     sourceLanguage: "fr" | "en";
-    mode: "now" | "staggered";
+    mode: "now" | "staggered" | "at";
+    /** Mode « at » : heure murale de Paris (valeur d'un input datetime-local). */
+    scheduledAt?: string;
     force?: boolean;
   },
   onProgress: (p: { done: number; total: number; label: string }) => void
@@ -266,12 +268,34 @@ function fmtDate(value: string | null): string {
 
 function fmtDateTime(value: Date | string | null): string {
   if (!value) return "—";
+  // Toujours affiché en heure de Paris (les instants sont stockés en UTC).
   return new Date(value).toLocaleString("fr-FR", {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Europe/Paris",
   });
+}
+
+/**
+ * Valeur pour un input `datetime-local` correspondant à l'heure MURALE de Paris
+ * de `date` (indépendamment du fuseau du navigateur). Format « YYYY-MM-DDTHH:mm ».
+ */
+function toParisDatetimeLocal(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const m: Record<string, string> = {};
+  for (const p of parts) if (p.type !== "literal") m[p.type] = p.value;
+  const hour = m.hour === "24" ? "00" : m.hour;
+  return `${m.year}-${m.month}-${m.day}T${hour}:${m.minute}`;
 }
 
 /**
@@ -459,8 +483,11 @@ export default function AgencyOutreachPage() {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [subject, setSubject] = useState("");
   const [language, setLanguage] = useState<"fr" | "en">("fr");
-  // Mode d'envoi : "now" = tout part maintenant ; "staggered" = étalé jusqu'à 18h30.
-  const [sendMode, setSendMode] = useState<"now" | "staggered">("now");
+  // Mode d'envoi : "now" = tout part maintenant ; "staggered" = étalé jusqu'à
+  // 18h30 ; "at" = programmé à une heure précise choisie (heure de Paris).
+  const [sendMode, setSendMode] = useState<"now" | "staggered" | "at">("now");
+  // Heure d'envoi choisie (mode "at"), au format datetime-local, heure de Paris.
+  const [scheduledAt, setScheduledAt] = useState<string>("");
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
   const [lastField, setLastField] = useState<"subject" | "body">("body");
   const [bodyTick, setBodyTick] = useState(0);
@@ -843,6 +870,10 @@ export default function AgencyOutreachPage() {
       return;
     }
     if (recipients.length === 0) return;
+    if (sendMode === "at" && !scheduledAt) {
+      showToast("err", "Choisissez une date et une heure d'envoi.");
+      return;
+    }
     setSending(true);
     setProgress({ done: 0, total: recipients.length, label: "Préparation…" });
     try {
@@ -853,15 +884,16 @@ export default function AgencyOutreachPage() {
           bodyHtml: body,
           sourceLanguage: language,
           mode: sendMode,
+          scheduledAt: sendMode === "at" ? scheduledAt : undefined,
           force,
         },
         (p) => setProgress(p)
       );
       const parts: string[] = [];
-      if (sendMode === "staggered") {
+      if (sendMode !== "now") {
         parts.push(`${result.scheduled} mail(s) programmé(s)`);
-        if (result.lastScheduledAt) {
-          parts.push(`dernier vers ${fmtDateTime(result.lastScheduledAt)}`);
+        if (result.firstScheduledAt) {
+          parts.push(`à partir de ${fmtDateTime(result.firstScheduledAt)}`);
         }
       } else {
         parts.push(`${result.sent} mail(s) envoyé(s)`);
@@ -1593,7 +1625,7 @@ export default function AgencyOutreachPage() {
                 <p className="text-xs font-medium" style={{ color: LICORICE }}>
                   Quand envoyer ?
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setSendMode("now")}
@@ -1626,7 +1658,49 @@ export default function AgencyOutreachPage() {
                       Étalés dans la journée, tous avant 18h30.
                     </span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSendMode("at");
+                      if (!scheduledAt) {
+                        // Défaut : dans 1h, arrondi, en heure de Paris.
+                        const d = new Date(Date.now() + 60 * 60 * 1000);
+                        d.setMinutes(0, 0, 0);
+                        setScheduledAt(toParisDatetimeLocal(d));
+                      }
+                    }}
+                    className="text-left rounded-xl border-2 px-3 py-2"
+                    style={{
+                      borderColor: sendMode === "at" ? TEA_GREEN : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                      backgroundColor: sendMode === "at" ? `color-mix(in srgb, ${TEA_GREEN} 25%, white)` : "transparent",
+                    }}
+                  >
+                    <span className="block text-sm font-semibold" style={{ color: LICORICE }}>
+                      À une heure précise
+                    </span>
+                    <span className="block text-[11px] opacity-70" style={{ color: LICORICE }}>
+                      Tu choisis la date et l'heure (heure FR).
+                    </span>
+                  </button>
                 </div>
+
+                {sendMode === "at" && (
+                  <div className="pt-1">
+                    <label className="block text-[11px] font-medium mb-1" style={{ color: LICORICE }}>
+                      Date et heure d'envoi (heure française)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={(e) => setScheduledAt(e.target.value)}
+                      className="w-full rounded-xl border px-3 py-2 text-sm"
+                      style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`, color: LICORICE }}
+                    />
+                    <p className="text-[11px] opacity-70 mt-1" style={{ color: LICORICE }}>
+                      Les mails sont légèrement étalés (~1/min) à partir de cette heure.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {progress && (
@@ -1661,7 +1735,7 @@ export default function AgencyOutreachPage() {
               >
                 {sending && <Loader2 className="w-4 h-4 animate-spin" />}
                 <Send className="w-4 h-4" />
-                {sendMode === "staggered"
+                {sendMode !== "now"
                   ? `Programmer ${selectedTargets.length} envoi${selectedTargets.length > 1 ? "s" : ""}`
                   : `Envoyer à ${selectedTargets.length}`}
               </button>

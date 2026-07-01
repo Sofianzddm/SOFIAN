@@ -449,6 +449,47 @@ export function computeAgencyStaggeredTimes(
   return times;
 }
 
+/**
+ * Parse une valeur de champ `datetime-local` (« 2026-07-02T14:30 »), interprétée
+ * comme une heure MURALE de Paris, et renvoie l'instant UTC correspondant.
+ * Renvoie null si le format est invalide.
+ */
+export function parseParisDateTimeLocalToUtc(value: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec((value || "").trim());
+  if (!m) return null;
+  const date = parisWallClockToUtc(
+    Number(m[1]),
+    Number(m[2]),
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5])
+  );
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Étale `count` envois à partir de `start` (instant UTC choisi par l'utilisateur),
+ * à raison d'environ 1 mail/minute, avec un léger aléa. Garde une délivrabilité
+ * naturelle même quand l'heure de départ est fixée manuellement.
+ */
+export function computeAgencyStaggeredTimesFrom(count: number, start: Date): Date[] {
+  if (count <= 0) return [];
+  if (count === 1) return [new Date(start)];
+
+  const PER_MAIL_MS = 60_000;
+  const end = new Date(start.getTime() + (count - 1) * PER_MAIL_MS);
+  const span = Math.max(0, end.getTime() - start.getTime());
+  const slot = span / count;
+  const times: Date[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const slotStart = start.getTime() + slot * i;
+    const jitter = Math.random() * slot;
+    times.push(new Date(Math.min(end.getTime(), slotStart + jitter)));
+  }
+  times.sort((a, b) => a.getTime() - b.getTime());
+  return times;
+}
+
 export type AgencyOutreachScheduleResult =
   | { ok: true; scheduledSendAt: string }
   | {
