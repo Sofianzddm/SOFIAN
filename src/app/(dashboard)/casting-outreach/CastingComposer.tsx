@@ -298,6 +298,8 @@ export default function CastingComposer({
     bodyHtml: string;
     willSend: boolean;
     skipReason: string | null;
+    /** Aperçu d'exemple (aucun contact enregistré, valeurs fictives). */
+    isSample?: boolean;
   };
   type SendPreview = {
     fromEmail: string;
@@ -1460,7 +1462,7 @@ export default function CastingComposer({
                     {sendPreview.recipients.map((r) => (
                       <div
                         key={r.email}
-                        className={`rounded-xl border overflow-hidden ${r.willSend ? "" : "opacity-70"}`}
+                        className={`rounded-xl border overflow-hidden ${r.willSend || r.isSample ? "" : "opacity-70"}`}
                         style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
                       >
                         <div
@@ -1471,12 +1473,18 @@ export default function CastingComposer({
                             <span
                               className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
                               style={
-                                r.willSend
+                                r.isSample
+                                  ? { backgroundColor: "#E0E7FF", color: "#3730A3" }
+                                  : r.willSend
                                   ? { backgroundColor: TEA_GREEN, color: LICORICE }
                                   : { backgroundColor: "#FEE2E2", color: "#991B1B" }
                               }
                             >
-                              {r.willSend ? "Sera envoyé" : "Ne partira pas"}
+                              {r.isSample
+                                ? "Exemple — contacts non ajoutés"
+                                : r.willSend
+                                ? "Sera envoyé"
+                                : "Ne partira pas"}
                             </span>
                             <span
                               className="text-[10px] px-1.5 py-0.5 rounded-full bg-white border"
@@ -1487,7 +1495,9 @@ export default function CastingComposer({
                             </span>
                           </div>
                           {r.skipReason && (
-                            <p className="text-[11px] text-red-700">{r.skipReason}</p>
+                            <p className={`text-[11px] ${r.isSample ? "text-indigo-700" : "text-red-700"}`}>
+                              {r.skipReason}
+                            </p>
                           )}
                           <p className="text-xs" style={{ color: LICORICE }}>
                             <span className="opacity-60">De :</span>{" "}

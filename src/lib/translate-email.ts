@@ -12,9 +12,14 @@ import { xaiResponse } from "@/lib/xai";
  *  - /api/outreach/send-bulk (traduction auto à l'envoi pour clients mixtes)
  */
 
-type Sentinel = { key: string; value: string };
+export type Sentinel = { key: string; value: string };
 
-function protectTokens(input: string): {
+/**
+ * Remplace liens, balises HTML, jetons {{…}} et URLs par des sentinelles
+ * uniques avant un passage IA (traduction, réécriture…), pour garantir
+ * qu'ils ressortent intacts. Partagé avec rewrite-email-tone.
+ */
+export function protectTokens(input: string): {
   protectedText: string;
   sentinels: Sentinel[];
 } {
@@ -53,7 +58,7 @@ function protectTokens(input: string): {
   return { protectedText: s, sentinels };
 }
 
-function restoreTokens(text: string, sentinels: Sentinel[]): string {
+export function restoreTokens(text: string, sentinels: Sentinel[]): string {
   let out = text;
   for (const { key, value } of sentinels) {
     out = out.split(key).join(value);

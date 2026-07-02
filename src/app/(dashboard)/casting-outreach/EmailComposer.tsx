@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, type Editor } from "@tiptap/react";
-import { Bold, Eye, Link as LinkIcon, List, ListOrdered, Loader2, Pencil, Italic, Underline as UnderlineIcon, Languages } from "lucide-react";
+import { Bold, Eye, Link as LinkIcon, List, ListOrdered, Loader2, Pencil, Italic, Underline as UnderlineIcon, Languages, MessageCircle } from "lucide-react";
 import { talentToTiptapNode } from "@/lib/talent-email-links";
 import { plainTextToEmailHtml } from "@/lib/email-body-html";
 
@@ -106,6 +106,11 @@ export default function EmailComposer({
   const [customTalentIndex, setCustomTalentIndex] = useState<string>("");
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
+  // Ton du mail : les brouillons sont rédigés en vouvoiement par défaut.
+  // Le bouton « Tutoyer » réécrit tout le mail (objet + corps) via l'IA,
+  // puis devient « Vouvoyer » pour revenir en arrière.
+  const [tone, setTone] = useState<"tu" | "vous">("vous");
+  const [isRewritingTone, setIsRewritingTone] = useState(false);
 
   const talentTokensFromSelection = useMemo<
     { token: string; label: string; node?: Record<string, unknown> }[]
@@ -220,6 +225,52 @@ export default function EmailComposer({
       setTranslateError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
       setIsTranslating(false);
+    }
+  };
+
+  const rewriteTone = async () => {
+    if (!editor) return;
+    const currentSubject = subject.trim();
+    const currentBody = editor.getHTML().trim();
+    if (!currentSubject && (!currentBody || currentBody === "<p></p>")) {
+      setTranslateError("Rédige d'abord un objet ou un corps avant de changer le ton.");
+      return;
+    }
+    const targetTone: "tu" | "vous" = tone === "vous" ? "tu" : "vous";
+    setIsRewritingTone(true);
+    setTranslateError(null);
+    try {
+      const res = await fetch("/api/casting/rewrite-tone", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: currentSubject,
+          bodyHtml: currentBody,
+          targetTone,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        subject?: string;
+        body?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Réécriture impossible.");
+      }
+      const nextSubject = typeof data.subject === "string" ? data.subject : "";
+      const nextBody = typeof data.body === "string" ? data.body : "";
+      onSubjectChange(nextSubject);
+      const html = nextBody.startsWith("<")
+        ? nextBody
+        : plainTextToEmailHtml(nextBody) || "<p></p>";
+      editor.commands.setContent(html);
+      setBodyTick((n) => n + 1);
+      setTone(targetTone);
+    } catch (e: unknown) {
+      setTranslateError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setIsRewritingTone(false);
     }
   };
 
@@ -563,6 +614,36 @@ export default function EmailComposer({
                   </>
                 )}
               </button>
+              {language === "fr" && (
+                <button
+                  type="button"
+                  onClick={rewriteTone}
+                  disabled={isRewritingTone}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border-2 disabled:opacity-50 transition-colors"
+                  style={{
+                    borderColor: OLD_ROSE,
+                    backgroundColor: "white",
+                    color: LICORICE,
+                  }}
+                  title={
+                    tone === "vous"
+                      ? "Réécrit tout le mail en tutoiement (tu / ton / ta…)"
+                      : "Réécrit tout le mail en vouvoiement (vous / votre…)"
+                  }
+                >
+                  {isRewritingTone ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                      Réécriture...
+                    </>
+                  ) : (
+                    <>
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      {tone === "vous" ? "Tutoyer" : "Vouvoyer"}
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           )}
           {translateError && (

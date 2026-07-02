@@ -282,6 +282,11 @@ export type CastingSendPreviewRecipient = {
   bodyHtml: string;
   willSend: boolean;
   skipReason: string | null;
+  /**
+   * Aperçu d'exemple : aucun contact n'est encore enregistré sur la carte,
+   * les variables sont remplacées par des valeurs fictives (Prénom / Nom).
+   */
+  isSample?: boolean;
 };
 
 export type CastingSendPreview = {
@@ -379,17 +384,25 @@ export async function buildCastingSendPreview(
   };
 
   const allContacts = parseCastingContacts(mission.clientContacts);
+  // Pas encore de contact sur la carte : on montre quand même l'aperçu avec
+  // un contact fictif (les variables sont remplacées par Prénom / Nom) pour
+  // voir le rendu final sans attendre l'ajout des contacts.
+  const isSamplePreview = allContacts.length === 0;
+  const previewContacts: CastingContact[] = isSamplePreview
+    ? [{ firstname: "Prénom", lastname: "Nom", email: "contact@exemple.com", role: "" }]
+    : allContacts;
   const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
-  const newEmails = allContacts
+  const newEmails = previewContacts
     .map((c) => (c.email || "").toLowerCase())
     .filter((e) => e && !alreadySent.has(e));
   const forceSend = Boolean(mission.forceSend);
-  const blocked = forceSend
-    ? new Set<string>()
-    : await findEmailsBlockedByCooldown(newEmails, missionId);
+  const blocked =
+    forceSend || isSamplePreview
+      ? new Set<string>()
+      : await findEmailsBlockedByCooldown(newEmails, missionId);
 
   const recipients: CastingSendPreviewRecipient[] = [];
-  for (const contact of allContacts) {
+  for (const contact of previewContacts) {
     const email = (contact.email || "").toLowerCase();
     if (!email) continue;
     const isAlreadySent = alreadySent.has(email);
@@ -409,12 +422,15 @@ export async function buildCastingSendPreview(
       translated: contactLang !== sourceLang,
       subject: applyCastingTemplateVars(version.subject, vars),
       bodyHtml: applyCastingTemplateVars(version.body, vars),
-      willSend: !isAlreadySent && !isBlocked,
-      skipReason: isAlreadySent
+      willSend: !isSamplePreview && !isAlreadySent && !isBlocked,
+      skipReason: isSamplePreview
+        ? "Exemple : aucun contact enregistré sur la carte. Les variables sont remplacées par des valeurs fictives (Prénom / Nom)."
+        : isAlreadySent
         ? "Déjà contacté sur cette carte : ne recevra pas de nouvel envoi."
         : isBlocked
         ? `Cooldown anti-spam ${CASTING_COOLDOWN_DAYS}j actif (contacté récemment via une autre carte).`
         : null,
+      ...(isSamplePreview ? { isSample: true } : {}),
     });
   }
 
