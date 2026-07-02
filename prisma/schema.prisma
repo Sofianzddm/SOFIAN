@@ -1133,6 +1133,11 @@ model Collaboration {
   factureValidee       Boolean   @default(false)
   factureValideeAt     DateTime?
 
+  // Dépense bancaire (débit Qonto : Defacto, Libeo, virement direct…) justifiée
+  // par cette facture talent. Évite de re-uploader la facture dans les dépenses.
+  depenseId String?
+  depense   Depense? @relation("DepenseFacturesTalent", fields: [depenseId], references: [id], onDelete: SetNull)
+
   marquePayeeAt DateTime? // Date à laquelle la marque (client) nous a payés
   paidAt        DateTime? // Date à laquelle nous avons payé le talent
 
@@ -1177,6 +1182,7 @@ model Collaboration {
   @@index([accountManagerId])
   @@index([createdById])
   @@index([isPrivate])
+  @@index([depenseId])
   @@map("collaborations")
 }
 
@@ -1320,10 +1326,15 @@ model CollabCycle {
   factureTalentRecueAt DateTime?
   paidAt               DateTime?
 
+  // Dépense bancaire justifiée par la facture talent de ce cycle (cf. Collaboration.depenseId)
+  depenseId String?
+  depense   Depense? @relation("DepenseFacturesTalentCycles", fields: [depenseId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([collaborationId])
+  @@index([depenseId])
   @@map("collab_cycles")
 }
 
@@ -2006,6 +2017,11 @@ model Depense {
 
   // Origine de la saisie : WEB (drag & drop dashboard) ou MOBILE (photo app)
   source String @default("WEB")
+
+  // Factures talents déjà uploadées sur les collabs, servant de justificatif
+  // à ce débit (paiements Defacto / Libeo groupés : N factures pour 1 débit).
+  facturesTalent       Collaboration[] @relation("DepenseFacturesTalent")
+  facturesTalentCycles CollabCycle[]   @relation("DepenseFacturesTalentCycles")
 
   createdById String?
   createdBy   User?   @relation("DepenseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)

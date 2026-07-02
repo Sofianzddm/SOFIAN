@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ExternalLink,
   FileText,
+  Link2,
   Loader2,
   Pencil,
   RefreshCw,
@@ -15,8 +16,36 @@ import {
   Smartphone,
   Trash2,
   Upload,
+  Users,
   X,
 } from "lucide-react";
+
+interface FactureTalentCollab {
+  id: string;
+  reference: string;
+  montantNet: number | string;
+  factureTalentUrl: string | null;
+  factureTalentRecueAt?: string | null;
+  paidAt?: string | null;
+  depenseId?: string | null;
+  talent: { prenom: string; nom: string };
+  marque: { nom: string };
+}
+
+interface FactureTalentCycle {
+  id: string;
+  numero: number;
+  montantNet: number | string;
+  factureTalentUrl: string | null;
+  factureTalentRecueAt?: string | null;
+  paidAt?: string | null;
+  depenseId?: string | null;
+  collaboration: {
+    reference: string;
+    talent: { prenom: string; nom: string };
+    marque: { nom: string };
+  };
+}
 
 interface DepenseInfo {
   id: string;
@@ -38,6 +67,18 @@ interface DepenseInfo {
   } | null;
   source: string;
   createdBy?: { id: string; prenom: string; nom: string } | null;
+  facturesTalent?: FactureTalentCollab[];
+  facturesTalentCycles?: FactureTalentCycle[];
+}
+
+/** Une dépense est justifiée par un fichier OU par des factures talents liées */
+function depenseJustifiee(d: DepenseInfo | null): boolean {
+  if (!d) return false;
+  return (
+    !!d.justificatifUrl ||
+    (d.facturesTalent?.length ?? 0) > 0 ||
+    (d.facturesTalentCycles?.length ?? 0) > 0
+  );
 }
 
 interface TransactionDebit {
@@ -116,6 +157,16 @@ export default function DepensesPage() {
   const [editDepense, setEditDepense] = useState<DepenseInfo | null>(null);
   const [editTx, setEditTx] = useState<TransactionDebit | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Modale « lier des factures talents » (paiements Defacto / Libeo)
+  const [linkTx, setLinkTx] = useState<TransactionDebit | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkSaving, setLinkSaving] = useState(false);
+  const [linkCollabs, setLinkCollabs] = useState<FactureTalentCollab[]>([]);
+  const [linkCycles, setLinkCycles] = useState<FactureTalentCycle[]>([]);
+  const [selCollabs, setSelCollabs] = useState<Set<string>>(new Set());
+  const [selCycles, setSelCycles] = useState<Set<string>>(new Set());
+  const [linkSearch, setLinkSearch] = useState("");
 
   const fetchData = async (days = periodDays, opts: { silent?: boolean } = {}) => {
     if (!opts.silent) setLoading(true);
@@ -356,9 +407,128 @@ export default function DepensesPage() {
     }
   };
 
+  // ——— Liaison factures talents (Defacto / Libeo) ———
+
+  const openLink = async (tx: TransactionDebit) => {
+    setLinkTx(tx);
+    setLinkLoading(true);
+    setLinkSearch("");
+    try {
+      const depenseId = tx.depense?.id ?? "";
+      const res = await fetch(
+        `/api/depenses/factures-talent${depenseId ? `?depenseId=${depenseId}` : ""}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Erreur lors du chargement des factures talents");
+        setLinkTx(null);
+        return;
+      }
+      const collabs: FactureTalentCollab[] = data.collabs || [];
+      const cycles: FactureTalentCycle[] = data.cycles || [];
+      setLinkCollabs(collabs);
+      setLinkCycles(cycles);
+      // Pré-cocher les factures déjà liées à cette dépense
+      setSelCollabs(
+        new Set(
+          collabs.filter((c) => depenseId && c.depenseId === depenseId).map((c) => c.id)
+        )
+      );
+      setSelCycles(
+        new Set(
+          cycles.filter((c) => depenseId && c.depenseId === depenseId).map((c) => c.id)
+        )
+      );
+    } catch {
+      alert("Erreur lors du chargement des factures talents");
+      setLinkTx(null);
+    } finally {
+      setLinkLoading(false);
+    }
+  };
+
+  const closeLink = () => {
+    setLinkTx(null);
+    setLinkCollabs([]);
+    setLinkCycles([]);
+    setSelCollabs(new Set());
+    setSelCycles(new Set());
+  };
+
+  const saveLink = async () => {
+    if (!linkTx) return;
+    setLinkSaving(true);
+    try {
+      let depenseId = linkTx.depense?.id;
+      // Pas encore de dépense pour cette transaction → la créer d'abord
+      if (!depenseId) {
+        const formData = new FormData();
+        formData.append("transactionId", linkTx.id);
+        const res = await fetch("/api/depenses", { method: "POST", body: formData });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.error || "Erreur lors de la création de la dépense");
+          return;
+        }
+        depenseId = data.depense.id as string;
+      }
+
+      const res = await fetch(`/api/depenses/${depenseId}/factures-talent`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          collabIds: Array.from(selCollabs),
+          cycleIds: Array.from(selCycles),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Erreur lors de la liaison");
+        return;
+      }
+      await fetchData();
+      closeLink();
+    } catch (e) {
+      console.error("Erreur liaison factures talents:", e);
+      alert("Erreur lors de la liaison");
+    } finally {
+      setLinkSaving(false);
+    }
+  };
+
+  const toggleSel = (set: Set<string>, id: string): Set<string> => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  };
+
+  // Total des factures cochées vs montant du débit (aide au pointage Defacto/Libeo)
+  const selectionTotal =
+    linkCollabs
+      .filter((c) => selCollabs.has(c.id))
+      .reduce((s, c) => s + toNumber(c.montantNet), 0) +
+    linkCycles
+      .filter((c) => selCycles.has(c.id))
+      .reduce((s, c) => s + toNumber(c.montantNet), 0);
+
+  const lq = linkSearch.trim().toLowerCase();
+  const matchCollab = (c: FactureTalentCollab) =>
+    !lq ||
+    `${c.talent.prenom} ${c.talent.nom}`.toLowerCase().includes(lq) ||
+    c.marque.nom.toLowerCase().includes(lq) ||
+    c.reference.toLowerCase().includes(lq);
+  const matchCycle = (c: FactureTalentCycle) =>
+    !lq ||
+    `${c.collaboration.talent.prenom} ${c.collaboration.talent.nom}`
+      .toLowerCase()
+      .includes(lq) ||
+    c.collaboration.marque.nom.toLowerCase().includes(lq) ||
+    c.collaboration.reference.toLowerCase().includes(lq);
+
   // ——— Dérivés ———
-  const aJustifier = transactions.filter((t) => !t.depense?.justificatifUrl);
-  const justifiees = transactions.filter((t) => t.depense?.justificatifUrl);
+  const aJustifier = transactions.filter((t) => !depenseJustifiee(t.depense));
+  const justifiees = transactions.filter((t) => depenseJustifiee(t.depense));
 
   const q = search.trim().toLowerCase();
   const matchTx = (t: TransactionDebit) =>
@@ -609,24 +779,34 @@ export default function DepensesPage() {
                           −{formatMoney(Math.abs(toNumber(tx.montant)))}
                         </td>
                         <td className="py-3 px-4 text-right">
-                          <button
-                            onClick={() => openFilePicker(tx)}
-                            disabled={isUploading}
-                            className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border-2 border-dashed transition-colors ${
-                              isDragOver
-                                ? "border-amber-400 bg-amber-100 text-amber-700"
-                                : "border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-700"
-                            } disabled:opacity-50`}
-                          >
-                            {isUploading ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Upload className="w-4 h-4" />
-                            )}
-                            {isUploading
-                              ? "Envoi…"
-                              : "Glisser la facture ici"}
-                          </button>
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              onClick={() => openLink(tx)}
+                              title="Justifier avec des factures talents déjà uploadées (paiement Defacto / Libeo)"
+                              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors"
+                            >
+                              <Users className="w-4 h-4" />
+                              Factures talents
+                            </button>
+                            <button
+                              onClick={() => openFilePicker(tx)}
+                              disabled={isUploading}
+                              className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border-2 border-dashed transition-colors ${
+                                isDragOver
+                                  ? "border-amber-400 bg-amber-100 text-amber-700"
+                                  : "border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-700"
+                              } disabled:opacity-50`}
+                            >
+                              {isUploading ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Upload className="w-4 h-4" />
+                              )}
+                              {isUploading
+                                ? "Envoi…"
+                                : "Glisser la facture ici"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -807,28 +987,66 @@ export default function DepensesPage() {
                             −{formatMoney(Math.abs(toNumber(tx.montant)))}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <a
-                            href={d.justificatifUrl!}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-800 mr-3"
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                            {d.justificatifNom
-                              ? d.justificatifNom.length > 24
-                                ? d.justificatifNom.slice(0, 21) + "…"
-                                : d.justificatifNom
-                              : "Voir"}
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                          <button
-                            onClick={() => removeJustificatif(d)}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700"
-                            title="Supprimer la dépense et son justificatif"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                        <td className="py-3 px-4 text-right">
+                          {d.justificatifUrl ? (
+                            <a
+                              href={d.justificatifUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-800 mr-3 whitespace-nowrap"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              {d.justificatifNom
+                                ? d.justificatifNom.length > 24
+                                  ? d.justificatifNom.slice(0, 21) + "…"
+                                  : d.justificatifNom
+                                : "Voir"}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <div className="inline-flex flex-col items-end gap-0.5 mr-3">
+                              {[
+                                ...(d.facturesTalent ?? []).map((f) => ({
+                                  key: `c-${f.id}`,
+                                  url: f.factureTalentUrl,
+                                  label: `${f.talent.prenom} ${f.talent.nom} · ${f.marque.nom}`,
+                                })),
+                                ...(d.facturesTalentCycles ?? []).map((f) => ({
+                                  key: `y-${f.id}`,
+                                  url: f.factureTalentUrl,
+                                  label: `${f.collaboration.talent.prenom} ${f.collaboration.talent.nom} · ${f.collaboration.marque.nom} (cycle ${f.numero})`,
+                                })),
+                              ].map((f) => (
+                                <a
+                                  key={f.key}
+                                  href={f.url ?? "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-800 whitespace-nowrap"
+                                >
+                                  <Link2 className="w-3.5 h-3.5" />
+                                  {f.label}
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                          <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                            <button
+                              onClick={() => openLink(tx)}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700"
+                              title="Lier / modifier les factures talents"
+                            >
+                              <Users className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => removeJustificatif(d)}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700"
+                              title="Supprimer la dépense et son justificatif"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </span>
                         </td>
                       </tr>
                     );
@@ -959,6 +1177,192 @@ export default function DepensesPage() {
                 {savingEdit && <Loader2 className="w-4 h-4 animate-spin" />}
                 Enregistrer
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale : lier des factures talents (paiements Defacto / Libeo) */}
+      {linkTx && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={closeLink}
+        >
+          <div
+            className="flex w-full max-w-2xl max-h-[85vh] flex-col rounded-xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-200 px-5 py-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Justifier avec des factures talents
+                </h3>
+                <button onClick={closeLink} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Débit {linkTx.emetteur || linkTx.libelle || ""} de{" "}
+                <span className="font-semibold text-slate-700">
+                  {formatMoney(Math.abs(toNumber(linkTx.montant)))}
+                </span>{" "}
+                le {formatDate(linkTx.dateTransaction)} — cochez les factures
+                talents payées par ce débit (déjà uploadées sur les collabs,
+                pas besoin de les re-déposer).
+              </p>
+            </div>
+
+            <div className="border-b border-slate-100 px-5 py-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="search"
+                  placeholder="Rechercher un talent, une marque, une référence…"
+                  value={linkSearch}
+                  onChange={(e) => setLinkSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200 focus:border-slate-300"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-3">
+              {linkLoading ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                </div>
+              ) : linkCollabs.length === 0 && linkCycles.length === 0 ? (
+                <p className="py-10 text-center text-sm text-slate-500">
+                  Aucune facture talent disponible : elles apparaissent ici dès
+                  qu'un talent dépose sa facture sur une collaboration.
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {linkCollabs.filter(matchCollab).map((c) => (
+                    <label
+                      key={c.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selCollabs.has(c.id)}
+                        onChange={() => setSelCollabs((s) => toggleSel(s, c.id))}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {c.talent.prenom} {c.talent.nom}
+                          <span className="font-normal text-slate-500">
+                            {" "}· {c.marque.nom}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {c.reference}
+                          {c.paidAt ? " · déjà marquée payée" : ""}
+                        </p>
+                      </div>
+                      {c.factureTalentUrl && (
+                        <a
+                          href={c.factureTalentUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-slate-400 hover:text-slate-600"
+                          title="Voir la facture"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </a>
+                      )}
+                      <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-slate-700">
+                        {formatMoney(toNumber(c.montantNet))}
+                      </span>
+                    </label>
+                  ))}
+                  {linkCycles.filter(matchCycle).map((c) => (
+                    <label
+                      key={c.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selCycles.has(c.id)}
+                        onChange={() => setSelCycles((s) => toggleSel(s, c.id))}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {c.collaboration.talent.prenom} {c.collaboration.talent.nom}
+                          <span className="font-normal text-slate-500">
+                            {" "}· {c.collaboration.marque.nom} — cycle {c.numero}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {c.collaboration.reference}
+                          {c.paidAt ? " · déjà marqué payé" : ""}
+                        </p>
+                      </div>
+                      {c.factureTalentUrl && (
+                        <a
+                          href={c.factureTalentUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-slate-400 hover:text-slate-600"
+                          title="Voir la facture"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </a>
+                      )}
+                      <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-slate-700">
+                        {formatMoney(toNumber(c.montantNet))}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-200 px-5 py-4">
+              <div className="text-sm">
+                <span className="text-slate-500">Sélection : </span>
+                <span
+                  className={`font-semibold tabular-nums ${
+                    Math.abs(selectionTotal - Math.abs(toNumber(linkTx.montant))) <= 0.05
+                      ? "text-emerald-600"
+                      : "text-slate-900"
+                  }`}
+                >
+                  {formatMoney(selectionTotal)}
+                </span>
+                <span className="text-slate-400">
+                  {" "}/ {formatMoney(Math.abs(toNumber(linkTx.montant)))}
+                </span>
+                {selectionTotal > 0 &&
+                  Math.abs(selectionTotal - Math.abs(toNumber(linkTx.montant))) > 0.05 && (
+                    <span
+                      className="ml-2 inline-flex items-center gap-1 text-xs text-amber-600"
+                      title="Le total des factures cochées ne correspond pas au montant débité (frais Defacto/Libeo possibles)"
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      écart {formatMoney(Math.abs(selectionTotal - Math.abs(toNumber(linkTx.montant))))}
+                    </span>
+                  )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={closeLink}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={saveLink}
+                  disabled={linkSaving || linkLoading}
+                  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {linkSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Lier {selCollabs.size + selCycles.size > 0 ? `(${selCollabs.size + selCycles.size})` : ""}
+                </button>
+              </div>
             </div>
           </div>
         </div>

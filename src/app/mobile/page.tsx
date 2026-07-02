@@ -38,6 +38,19 @@ interface DepenseInfo {
   dateDepense: string;
   justificatifUrl: string | null;
   analyseIA?: AnalyseIA | null;
+  // Factures talents liées (paiements Defacto / Libeo justifiés sur le web)
+  facturesTalent?: Array<{ id: string }>;
+  facturesTalentCycles?: Array<{ id: string }>;
+}
+
+/** Justifiée par un fichier OU par des factures talents liées */
+function depenseJustifiee(d: DepenseInfo | null): boolean {
+  if (!d) return false;
+  return (
+    !!d.justificatifUrl ||
+    (d.facturesTalent?.length ?? 0) > 0 ||
+    (d.facturesTalentCycles?.length ?? 0) > 0
+  );
 }
 
 interface TransactionDebit {
@@ -422,8 +435,8 @@ export default function MobileDepensesPage() {
     );
   }
 
-  const aJustifier = transactions.filter((t) => !t.depense?.justificatifUrl);
-  const justifiees = transactions.filter((t) => t.depense?.justificatifUrl);
+  const aJustifier = transactions.filter((t) => !depenseJustifiee(t.depense));
+  const justifiees = transactions.filter((t) => depenseJustifiee(t.depense));
   const totalAJustifier = aJustifier.reduce(
     (s, t) => s + Math.abs(toNumber(t.montant)),
     0

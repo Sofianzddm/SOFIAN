@@ -140,6 +140,38 @@ export async function deleteJustificatif(
   }
 }
 
+/**
+ * Factures talents (déjà uploadées sur les collabs) servant de justificatif
+ * à une dépense — évite le re-upload pour les débits Defacto / Libeo.
+ */
+export const FACTURES_TALENT_INCLUDE = {
+  facturesTalent: {
+    select: {
+      id: true,
+      reference: true,
+      montantNet: true,
+      factureTalentUrl: true,
+      talent: { select: { prenom: true, nom: true } },
+      marque: { select: { nom: true } },
+    },
+  },
+  facturesTalentCycles: {
+    select: {
+      id: true,
+      numero: true,
+      montantNet: true,
+      factureTalentUrl: true,
+      collaboration: {
+        select: {
+          reference: true,
+          talent: { select: { prenom: true, nom: true } },
+          marque: { select: { nom: true } },
+        },
+      },
+    },
+  },
+} as const;
+
 const DEPENSE_INCLUDE = {
   transaction: {
     select: {
@@ -154,6 +186,7 @@ const DEPENSE_INCLUDE = {
     },
   },
   createdBy: { select: { id: true, prenom: true, nom: true } },
+  ...FACTURES_TALENT_INCLUDE,
 } as const;
 
 export interface CreateDepenseInput {
@@ -267,7 +300,12 @@ export async function listDepenses(periodDays: number) {
         horsPlateforme: false,
       },
       include: {
-        depense: { include: { createdBy: DEPENSE_INCLUDE.createdBy } },
+        depense: {
+          include: {
+            createdBy: DEPENSE_INCLUDE.createdBy,
+            ...FACTURES_TALENT_INCLUDE,
+          },
+        },
       },
       orderBy: { dateTransaction: "desc" },
     }),
@@ -282,6 +320,136 @@ export async function listDepenses(periodDays: number) {
   ]);
 
   return { transactions, horsBanque };
+}
+
+/**
+ * Factures talents liables à une dépense : facture uploadée sur la collab
+ * (ou un cycle) et pas encore rattachée à une autre dépense.
+ *
+ * @param depenseId Si fourni, inclut aussi les factures déjà liées à CETTE
+ *                  dépense (pour pré-cocher dans la modale de liaison).
+ */
+export async function listFacturesTalentLiables(depenseId?: string | null) {
+  const lienFilter = depenseId
+    ? { OR: [{ depenseId: null }, { depenseId }] }
+    : { depenseId: null };
+
+  const [collabs, cycles] = await Promise.all([
+    prisma.collaboration.findMany({
+      where: { factureTalentUrl: { not: null }, ...lienFilter },
+      select: {
+        id: true,
+        reference: true,
+        montantNet: true,
+        factureTalentUrl: true,
+        factureTalentRecueAt: true,
+        paidAt: true,
+        depenseId: true,
+        talent: { select: { prenom: true, nom: true } },
+        marque: { select: { nom: true } },
+      },
+      orderBy: { factureTalentRecueAt: "desc" },
+      take: 300,
+    }),
+    prisma.collabCycle.findMany({
+      where: { factureTalentUrl: { not: null }, ...lienFilter },
+      select: {
+        id: true,
+        numero: true,
+        montantNet: true,
+        factureTalentUrl: true,
+        factureTalentRecueAt: true,
+        paidAt: true,
+        depenseId: true,
+        collaboration: {
+          select: {
+            reference: true,
+            talent: { select: { prenom: true, nom: true } },
+            marque: { select: { nom: true } },
+          },
+        },
+      },
+      orderBy: { factureTalentRecueAt: "desc" },
+      take: 300,
+    }),
+  ]);
+
+  return { collabs, cycles };
+}
+
+/**
+ * Remplace l'ensemble des factures talents liées à une dépense (débit
+ * Defacto / Libeo / virement talent). Effets de bord assumés :
+ *  - les collabs liées passent « payées » (paidAt = date du débit) si elles
+ *    ne l'étaient pas déjà — c'est la preuve bancaire du paiement ;
+ *  - la dépense est catégorisée « Prestataires & freelances » si sans catégorie.
+ */
+export async function setFacturesTalentDepense(
+  depenseId: string,
+  collabIds: string[],
+  cycleIds: string[]
+) {
+  const depense = await prisma.depense.findUnique({
+    where: { id: depenseId },
+    include: { transaction: { select: { dateTransaction: true } } },
+  });
+  if (!depense) {
+    throw new DepenseError("Dépense introuvable", 404);
+  }
+
+  const paidDate = depense.transaction?.dateTransaction ?? depense.dateDepense;
+
+  await prisma.$transaction([
+    // Délier les factures désélectionnées
+    prisma.collaboration.updateMany({
+      where: { depenseId, id: { notIn: collabIds } },
+      data: { depenseId: null },
+    }),
+    prisma.collabCycle.updateMany({
+      where: { depenseId, id: { notIn: cycleIds } },
+      data: { depenseId: null },
+    }),
+    // Lier les sélectionnées (jamais celles déjà liées à une AUTRE dépense)
+    prisma.collaboration.updateMany({
+      where: {
+        id: { in: collabIds },
+        factureTalentUrl: { not: null },
+        OR: [{ depenseId: null }, { depenseId }],
+      },
+      data: { depenseId },
+    }),
+    prisma.collabCycle.updateMany({
+      where: {
+        id: { in: cycleIds },
+        factureTalentUrl: { not: null },
+        OR: [{ depenseId: null }, { depenseId }],
+      },
+      data: { depenseId },
+    }),
+    // Preuve bancaire du paiement talent → marquer payé si pas déjà fait
+    prisma.collaboration.updateMany({
+      where: { id: { in: collabIds }, paidAt: null },
+      data: { paidAt: paidDate },
+    }),
+    prisma.collaboration.updateMany({
+      where: { id: { in: collabIds }, statut: "FACTURE_RECUE" },
+      data: { statut: "PAYE" },
+    }),
+    prisma.collabCycle.updateMany({
+      where: { id: { in: cycleIds }, paidAt: null },
+      data: { paidAt: paidDate },
+    }),
+  ]);
+
+  const hasLiens = collabIds.length > 0 || cycleIds.length > 0;
+  return prisma.depense.update({
+    where: { id: depenseId },
+    data:
+      hasLiens && !depense.categorie
+        ? { categorie: "Prestataires & freelances" }
+        : {},
+    include: DEPENSE_INCLUDE,
+  });
 }
 
 export class DepenseError extends Error {
