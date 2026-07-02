@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  AlertTriangle,
   Camera,
   CheckCircle2,
   ChevronDown,
@@ -13,13 +14,30 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  Send,
+  Sparkles,
   X,
 } from "lucide-react";
 
+interface AnalyseIA {
+  fournisseur?: string | null;
+  montantTTC?: number | null;
+  montantTVA?: number | null;
+  tauxTVA?: number | null;
+  date?: string | null;
+  categorie?: string | null;
+}
+
 interface DepenseInfo {
   id: string;
+  fournisseur: string | null;
   categorie: string | null;
+  montantTTC: number | string;
+  montantTVA: number | string | null;
+  tauxTVA: number | string | null;
+  dateDepense: string;
   justificatifUrl: string | null;
+  analyseIA?: AnalyseIA | null;
 }
 
 interface TransactionDebit {
@@ -28,17 +46,27 @@ interface TransactionDebit {
   libelle: string | null;
   emetteur: string | null;
   dateTransaction: string;
-  depense: (DepenseInfo & Record<string, unknown>) | null;
+  depense: DepenseInfo | null;
 }
 
-interface HorsBanque {
-  id: string;
-  fournisseur: string | null;
+interface HorsBanque extends DepenseInfo {
   libelle: string | null;
-  montantTTC: number | string;
-  dateDepense: string;
-  justificatifUrl: string | null;
 }
+
+const CATEGORIES = [
+  "Logiciels & abonnements",
+  "Déplacements",
+  "Restauration",
+  "Matériel",
+  "Marketing & communication",
+  "Prestataires & freelances",
+  "Événements",
+  "Salaires & charges",
+  "Frais bancaires",
+  "Impôts & taxes",
+  "Loyer & bureaux",
+  "Autres",
+];
 
 function toNumber(v: number | string | null | undefined): number {
   if (v === null || v === undefined) return 0;
@@ -90,6 +118,27 @@ async function compressImage(file: File): Promise<File> {
   }
 }
 
+/** Photo prise, en attente de confirmation d'envoi */
+interface PendingPhoto {
+  file: File;
+  preview: string | null;
+  /** Transaction bancaire ciblée — null pour un reçu hors banque */
+  tx: TransactionDebit | null;
+}
+
+/** Dépense envoyée, en cours de vérification par l'utilisateur */
+interface VerifyState {
+  depense: DepenseInfo;
+  /** Montant débité en banque (null pour un reçu hors banque) */
+  txMontant: number | null;
+  preview: string | null;
+  // Champs éditables
+  fournisseur: string;
+  categorie: string;
+  montantTTC: string;
+  montantTVA: string;
+}
+
 export default function MobileDepensesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -100,24 +149,17 @@ export default function MobileDepensesPage() {
   const [horsBanque, setHorsBanque] = useState<HorsBanque[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [showJustifiees, setShowJustifiees] = useState(false);
 
-  // Photo d'une transaction : input caché déclenché depuis la carte
+  // Parcours photo : prise → aperçu (pending) → envoi → vérification (verify)
   const fileInputRef = useRef<HTMLInputElement>(null);
   const targetTx = useRef<TransactionDebit | null>(null);
-
-  // Modale "reçu hors banque"
-  const [showHorsBanqueForm, setShowHorsBanqueForm] = useState(false);
-  const [hbFile, setHbFile] = useState<File | null>(null);
-  const [hbPreview, setHbPreview] = useState<string | null>(null);
-  const [hbMontant, setHbMontant] = useState("");
-  const [hbFournisseur, setHbFournisseur] = useState("");
-  const [hbDate, setHbDate] = useState(() =>
-    new Date().toISOString().slice(0, 10)
-  );
-  const [hbSubmitting, setHbSubmitting] = useState(false);
-  const hbFileInputRef = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState<PendingPhoto | null>(null);
+  // Montant saisi à la main (secours si l'IA ne le lit pas — hors banque)
+  const [pendingMontant, setPendingMontant] = useState("");
+  const [sending, setSending] = useState(false);
+  const [verify, setVerify] = useState<VerifyState | null>(null);
+  const [verifySaving, setVerifySaving] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -148,6 +190,37 @@ export default function MobileDepensesPage() {
     if (status === "authenticated") void fetchData();
   }, [status, fetchData]);
 
+  // Temps réel : sync Qonto silencieuse à l'ouverture de l'app, puis
+  // rafraîchissement quand on revient dessus (PWA remise au premier plan).
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let cancelled = false;
+
+    const silentSync = async () => {
+      try {
+        await fetch("/api/qonto/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ daysBack: 7 }),
+        });
+        if (!cancelled) await fetchData();
+      } catch {
+        // silencieux : le bouton actualiser reste disponible
+      }
+    };
+    void silentSync();
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void silentSync();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [status, fetchData]);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2500);
@@ -157,7 +230,6 @@ export default function MobileDepensesPage() {
   const refresh = async () => {
     setRefreshing(true);
     try {
-      // Sync Qonto d'abord pour récupérer les derniers débits
       await fetch("/api/qonto/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -169,33 +241,84 @@ export default function MobileDepensesPage() {
     }
   };
 
-  const takePhotoFor = (tx: TransactionDebit) => {
+  // ——— Étape 1 : prise de photo → aperçu ———
+
+  const takePhotoFor = (tx: TransactionDebit | null) => {
     targetTx.current = tx;
     fileInputRef.current?.click();
   };
 
-  const onPhotoPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.files?.[0];
+  const onPhotoPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     const tx = targetTx.current;
     e.target.value = "";
     targetTx.current = null;
-    if (!raw || !tx) return;
+    if (!file) return;
+    setPending({
+      file,
+      preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+      tx,
+    });
+  };
 
-    setUploadingId(tx.id);
+  const cancelPending = () => {
+    if (pending?.preview) URL.revokeObjectURL(pending.preview);
+    setPending(null);
+    setPendingMontant("");
+    setError(null);
+  };
+
+  const retakePending = () => {
+    const tx = pending?.tx ?? null;
+    cancelPending();
+    // Rouvrir la caméra après fermeture de l'aperçu
+    setTimeout(() => takePhotoFor(tx), 50);
+  };
+
+  // ——— Étape 2 : envoi → écran de vérification ———
+
+  const openVerify = (depense: DepenseInfo, txMontant: number | null, preview: string | null) => {
+    setVerify({
+      depense,
+      txMontant,
+      preview,
+      fournisseur: depense.fournisseur ?? "",
+      categorie: depense.categorie ?? "",
+      montantTTC:
+        toNumber(depense.montantTTC) > 0 ? String(toNumber(depense.montantTTC)) : "",
+      montantTVA:
+        depense.montantTVA !== null && depense.montantTVA !== ""
+          ? String(toNumber(depense.montantTVA))
+          : "",
+    });
+  };
+
+  const sendPending = async () => {
+    if (!pending) return;
+    setSending(true);
     setError(null);
     try {
-      const file = await compressImage(raw);
+      const file = await compressImage(pending.file);
       const formData = new FormData();
       formData.append("file", file);
 
       let res: Response;
-      if (tx.depense) {
-        res = await fetch(`/api/depenses/${tx.depense.id}`, {
-          method: "PATCH",
-          body: formData,
-        });
+      if (pending.tx) {
+        if (pending.tx.depense) {
+          res = await fetch(`/api/depenses/${pending.tx.depense.id}`, {
+            method: "PATCH",
+            body: formData,
+          });
+        } else {
+          formData.append("transactionId", pending.tx.id);
+          res = await fetch("/api/depenses", { method: "POST", body: formData });
+        }
       } else {
-        formData.append("transactionId", tx.id);
+        // Reçu hors banque : l'IA lit montant / date / fournisseur sur la
+        // photo ; le montant saisi à la main (si fourni) fait foi.
+        if (pendingMontant.trim()) {
+          formData.append("montantTTC", pendingMontant);
+        }
         res = await fetch("/api/depenses", { method: "POST", body: formData });
       }
 
@@ -204,62 +327,72 @@ export default function MobileDepensesPage() {
         setError(data.error || "Erreur lors de l'envoi");
         return;
       }
-      setTransactions((list) =>
-        list.map((t) => (t.id === tx.id ? { ...t, depense: data.depense } : t))
+
+      const depense = data.depense as DepenseInfo;
+      const txId = pending.tx?.id ?? null;
+      if (txId) {
+        setTransactions((list) =>
+          list.map((t) => (t.id === txId ? { ...t, depense } : t))
+        );
+      } else {
+        await fetchData();
+      }
+
+      // Étape vérification : montants lus par l'IA, corrigeables
+      openVerify(
+        depense,
+        pending.tx ? Math.abs(toNumber(pending.tx.montant)) : null,
+        pending.preview
       );
-      setToast("Reçu envoyé ✓");
+      setPending(null);
+      setPendingMontant("");
     } catch {
       setError("Erreur lors de l'envoi");
     } finally {
-      setUploadingId(null);
+      setSending(false);
     }
   };
 
-  const onHbPhotoPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setHbFile(file);
-    if (hbPreview) URL.revokeObjectURL(hbPreview);
-    setHbPreview(file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
+  // ——— Étape 3 : validation (corrections éventuelles) ———
+
+  const closeVerify = () => {
+    if (verify?.preview) URL.revokeObjectURL(verify.preview);
+    setVerify(null);
   };
 
-  const resetHbForm = () => {
-    setShowHorsBanqueForm(false);
-    setHbFile(null);
-    if (hbPreview) URL.revokeObjectURL(hbPreview);
-    setHbPreview(null);
-    setHbMontant("");
-    setHbFournisseur("");
-    setHbDate(new Date().toISOString().slice(0, 10));
-  };
-
-  const submitHorsBanque = async () => {
-    if (!hbFile) return;
-    setHbSubmitting(true);
+  const saveVerify = async () => {
+    if (!verify) return;
+    setVerifySaving(true);
     setError(null);
     try {
-      const file = await compressImage(hbFile);
-      const formData = new FormData();
-      formData.append("file", file);
-      // Montant optionnel : s'il est vide, l'IA le lit sur le reçu
-      if (hbMontant.trim()) formData.append("montantTTC", hbMontant);
-      formData.append("dateDepense", hbDate);
-      if (hbFournisseur.trim()) formData.append("fournisseur", hbFournisseur.trim());
+      const payload: Record<string, unknown> = {
+        fournisseur: verify.fournisseur,
+        categorie: verify.categorie,
+        montantTVA: verify.montantTVA === "" ? null : Number(verify.montantTVA.replace(",", ".")),
+      };
+      // Le montant TTC n'est éditable que pour un reçu hors banque
+      // (pour une transaction bancaire, le débit fait foi).
+      if (verify.txMontant === null && verify.montantTTC.trim()) {
+        payload.montantTTC = Number(verify.montantTTC.replace(",", "."));
+      }
 
-      const res = await fetch("/api/depenses", { method: "POST", body: formData });
+      const res = await fetch(`/api/depenses/${verify.depense.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || "Erreur lors de l'envoi");
+        setError(data.error || "Erreur lors de l'enregistrement");
         return;
       }
-      resetHbForm();
-      setToast("Reçu enregistré ✓");
       await fetchData();
+      closeVerify();
+      setToast("Dépense enregistrée ✓");
     } catch {
-      setError("Erreur lors de l'envoi");
+      setError("Erreur lors de l'enregistrement");
     } finally {
-      setHbSubmitting(false);
+      setVerifySaving(false);
     }
   };
 
@@ -295,6 +428,15 @@ export default function MobileDepensesPage() {
     (s, t) => s + Math.abs(toNumber(t.montant)),
     0
   );
+
+  // Écart montant lu / montant banque sur l'écran de vérification
+  const montantLu = verify?.montantTTC ? Number(verify.montantTTC.replace(",", ".")) : null;
+  const ecartVerify =
+    verify && verify.txMontant !== null && montantLu !== null && Number.isFinite(montantLu)
+      ? Math.abs(montantLu - verify.txMontant)
+      : verify && verify.txMontant !== null && verify.depense.analyseIA?.montantTTC
+        ? Math.abs(toNumber(verify.depense.analyseIA.montantTTC) - verify.txMontant)
+        : 0;
 
   return (
     <div className="mx-auto max-w-lg pb-28">
@@ -354,47 +496,34 @@ export default function MobileDepensesPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {aJustifier.map((tx) => {
-              const isUploading = uploadingId === tx.id;
-              return (
-                <div
-                  key={tx.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-900">
-                        {tx.emetteur || tx.libelle || "—"}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {formatDate(tx.dateTransaction)}
-                        {tx.emetteur && tx.libelle ? ` · ${tx.libelle}` : ""}
-                      </p>
-                    </div>
-                    <p className="whitespace-nowrap font-semibold tabular-nums text-red-600">
-                      −{formatMoney(Math.abs(toNumber(tx.montant)))}
+            {aJustifier.map((tx) => (
+              <div
+                key={tx.id}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-slate-900">
+                      {tx.emetteur || tx.libelle || "—"}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {formatDate(tx.dateTransaction)}
+                      {tx.emetteur && tx.libelle ? ` · ${tx.libelle}` : ""}
                     </p>
                   </div>
-                  <button
-                    onClick={() => takePhotoFor(tx)}
-                    disabled={isUploading}
-                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-semibold text-white active:bg-slate-700 disabled:opacity-60"
-                  >
-                    {isUploading ? (
-                      <>
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                        Envoi en cours…
-                      </>
-                    ) : (
-                      <>
-                        <Camera className="h-5 w-5" />
-                        Photographier le reçu
-                      </>
-                    )}
-                  </button>
+                  <p className="whitespace-nowrap font-semibold tabular-nums text-red-600">
+                    −{formatMoney(Math.abs(toNumber(tx.montant)))}
+                  </p>
                 </div>
-              );
-            })}
+                <button
+                  onClick={() => takePhotoFor(tx)}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-semibold text-white active:bg-slate-700"
+                >
+                  <Camera className="h-5 w-5" />
+                  Photographier le reçu
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </section>
@@ -456,10 +585,11 @@ export default function MobileDepensesPage() {
                   <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-500" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-slate-700">
-                      {tx.emetteur || tx.libelle || "—"}
+                      {tx.depense?.fournisseur || tx.emetteur || tx.libelle || "—"}
                     </p>
                     <p className="text-xs text-slate-400">
                       {formatDate(tx.dateTransaction)}
+                      {tx.depense?.categorie ? ` · ${tx.depense.categorie}` : ""}
                     </p>
                   </div>
                   <p className="whitespace-nowrap text-sm tabular-nums text-slate-500">
@@ -482,12 +612,12 @@ export default function MobileDepensesPage() {
         </section>
       )}
 
-      {/* Bouton flottant : reçu hors banque */}
+      {/* Bouton flottant : reçu hors banque (photo directe, l'IA lit tout) */}
       <button
-        onClick={() => setShowHorsBanqueForm(true)}
+        onClick={() => takePhotoFor(null)}
         className="fixed bottom-6 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-slate-900 text-white shadow-lg active:bg-slate-700"
         style={{ marginBottom: "env(safe-area-inset-bottom)" }}
-        aria-label="Ajouter un reçu hors banque"
+        aria-label="Photographier un reçu hors banque"
       >
         <Plus className="h-7 w-7" />
       </button>
@@ -499,59 +629,58 @@ export default function MobileDepensesPage() {
         </div>
       )}
 
-      {/* Modale reçu hors banque */}
-      {showHorsBanqueForm && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+      {/* ——— Étape 1 : aperçu avant envoi ——— */}
+      {pending && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60">
           <div
             className="w-full max-w-lg rounded-t-3xl bg-white p-5"
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)" }}
           >
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-3 flex items-center justify-between">
               <h3 className="text-base font-semibold text-slate-900">
-                Reçu hors banque
+                {pending.tx
+                  ? `Reçu pour ${pending.tx.emetteur || pending.tx.libelle || "la dépense"}`
+                  : "Reçu hors banque"}
               </h3>
-              <button onClick={resetHbForm} className="text-slate-400">
+              <button onClick={cancelPending} className="text-slate-400">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="mb-4 text-xs text-slate-500">
-              Pour un paiement pas encore visible en banque (espèces, carte
-              perso…). La photo suffit : le montant, la date et le fournisseur
-              sont lus automatiquement sur le reçu.
-            </p>
 
-            <input
-              ref={hbFileInputRef}
-              type="file"
-              accept="image/*,application/pdf"
-              capture="environment"
-              className="hidden"
-              onChange={onHbPhotoPicked}
-            />
+            {pending.tx && (
+              <p className="mb-3 text-sm text-slate-500">
+                Débit bancaire :{" "}
+                <span className="font-semibold text-slate-900">
+                  {formatMoney(Math.abs(toNumber(pending.tx.montant)))}
+                </span>{" "}
+                le {formatDate(pending.tx.dateTransaction)}
+              </p>
+            )}
 
-            <button
-              onClick={() => hbFileInputRef.current?.click()}
-              className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-6 text-sm font-medium text-slate-600 active:bg-slate-50"
-            >
-              {hbPreview ? (
+            <div className="mb-4 flex max-h-72 items-center justify-center overflow-hidden rounded-2xl bg-slate-100">
+              {pending.preview ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={hbPreview}
+                  src={pending.preview}
                   alt="Aperçu du reçu"
-                  className="max-h-40 rounded-lg object-contain"
+                  className="max-h-72 w-auto object-contain"
                 />
-              ) : hbFile ? (
-                <span className="text-emerald-600">{hbFile.name}</span>
               ) : (
-                <>
-                  <Camera className="h-5 w-5" />
-                  Prendre le reçu en photo
-                </>
+                <p className="py-10 text-sm text-slate-500">{pending.file.name}</p>
               )}
-            </button>
+            </div>
 
-            <div className="mb-3 grid grid-cols-2 gap-3">
-              <div>
+            {error && (
+              <div className="mb-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Hors banque : montant de secours si le reçu est illisible.
+                Vide = lu automatiquement sur la photo. */}
+            {!pending.tx && (error || pendingMontant) && (
+              <div className="mb-3">
                 <label className="mb-1 block text-xs font-medium text-slate-600">
                   Montant TTC (€)
                 </label>
@@ -559,44 +688,159 @@ export default function MobileDepensesPage() {
                   type="number"
                   inputMode="decimal"
                   step="0.01"
-                  value={hbMontant}
-                  onChange={(e) => setHbMontant(e.target.value)}
+                  value={pendingMontant}
+                  onChange={(e) => setPendingMontant(e.target.value)}
+                  placeholder="Ex : 44,00"
                   className="w-full rounded-xl border border-slate-200 px-3 py-3 text-base focus:border-slate-400 focus:outline-none"
-                  placeholder="Auto (lu sur le reçu)"
                 />
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={retakePending}
+                disabled={sending}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 py-3.5 text-sm font-semibold text-slate-700 active:bg-slate-50 disabled:opacity-50"
+              >
+                <Camera className="h-5 w-5" />
+                Reprendre
+              </button>
+              <button
+                onClick={sendPending}
+                disabled={sending}
+                className="flex flex-[2] items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-semibold text-white active:bg-slate-700 disabled:opacity-60"
+              >
+                {sending ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Analyse en cours…
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-5 w-5" />
+                    Envoyer
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ——— Étape 2 : vérification des montants lus par l'IA ——— */}
+      {verify && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60">
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5"
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)" }}
+          >
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+                <Sparkles className="h-4 w-4 text-amber-500" />
+                Vérifier la dépense
+              </h3>
+              <button onClick={closeVerify} className="text-slate-400">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mb-4 text-xs text-slate-500">
+              Lu automatiquement sur le reçu — corrigez si besoin puis validez.
+            </p>
+
+            {verify.txMontant !== null && ecartVerify > 0.05 && (
+              <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>
+                  Le reçu indique un montant différent du débit bancaire (
+                  {formatMoney(verify.txMontant)}). Vérifiez que c'est le bon
+                  justificatif.
+                </span>
+              </div>
+            )}
+
+            <div className="mb-4 grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Montant TTC (€)
+                </label>
+                {verify.txMontant !== null ? (
+                  <div className="rounded-xl bg-slate-100 px-3 py-3 text-base font-semibold tabular-nums text-slate-900">
+                    {formatMoney(verify.txMontant)}
+                  </div>
+                ) : (
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    value={verify.montantTTC}
+                    onChange={(e) =>
+                      setVerify({ ...verify, montantTTC: e.target.value })
+                    }
+                    className="w-full rounded-xl border border-slate-200 px-3 py-3 text-base focus:border-slate-400 focus:outline-none"
+                  />
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Date
+                  dont TVA (€)
                 </label>
                 <input
-                  type="date"
-                  value={hbDate}
-                  onChange={(e) => setHbDate(e.target.value)}
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  value={verify.montantTVA}
+                  onChange={(e) =>
+                    setVerify({ ...verify, montantTVA: e.target.value })
+                  }
+                  placeholder="—"
                   className="w-full rounded-xl border border-slate-200 px-3 py-3 text-base focus:border-slate-400 focus:outline-none"
                 />
               </div>
             </div>
-            <div className="mb-5">
+
+            <div className="mb-3">
               <label className="mb-1 block text-xs font-medium text-slate-600">
                 Fournisseur
               </label>
               <input
                 type="text"
-                value={hbFournisseur}
-                onChange={(e) => setHbFournisseur(e.target.value)}
+                value={verify.fournisseur}
+                onChange={(e) =>
+                  setVerify({ ...verify, fournisseur: e.target.value })
+                }
                 className="w-full rounded-xl border border-slate-200 px-3 py-3 text-base focus:border-slate-400 focus:outline-none"
-                placeholder="Ex : SNCF, Apple…"
               />
             </div>
 
+            <div className="mb-5">
+              <label className="mb-1 block text-xs font-medium text-slate-600">
+                Catégorie
+              </label>
+              <select
+                value={verify.categorie}
+                onChange={(e) => setVerify({ ...verify, categorie: e.target.value })}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-base focus:border-slate-400 focus:outline-none"
+              >
+                <option value="">— Sans catégorie —</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
-              onClick={submitHorsBanque}
-              disabled={!hbFile || hbSubmitting}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-semibold text-white active:bg-slate-700 disabled:opacity-40"
+              onClick={saveVerify}
+              disabled={verifySaving}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-sm font-semibold text-white active:bg-emerald-700 disabled:opacity-60"
             >
-              {hbSubmitting && <Loader2 className="h-5 w-5 animate-spin" />}
-              Enregistrer le reçu
+              {verifySaving ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5" />
+              )}
+              Valider la dépense
             </button>
           </div>
         </div>

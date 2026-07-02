@@ -71,6 +71,10 @@ export async function upsertQontoTransaction(
       libelle: input.libelle,
       reference: input.reference,
       metadata: input.metadata,
+      // Répare les anciennes lignes importées sans contrepartie ("Inconnu")
+      ...(input.emetteur && input.emetteur !== "Inconnu"
+        ? { emetteur: input.emetteur }
+        : {}),
     },
   });
   return "skipped";
@@ -152,7 +156,13 @@ export async function syncQontoTransactions(
       dateTransaction: new Date(
         transaction.settled_at || transaction.emitted_at
       ),
-      emetteur: transaction.counterparty?.name || "Inconnu",
+      // Les débits carte n'ont pas de `counterparty` : on retombe sur le nom
+      // nettoyé Qonto puis sur le libellé (nom du commerçant).
+      emetteur:
+        transaction.clean_counterparty_name ||
+        transaction.counterparty?.name ||
+        transaction.label ||
+        "Inconnu",
       emetteurIban: transaction.counterparty?.iban || null,
       statut: transaction.status === "completed" ? "SETTLED" : "PENDING",
       metadata: transaction as unknown as object,

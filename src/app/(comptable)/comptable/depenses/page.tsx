@@ -117,14 +117,14 @@ export default function DepensesPage() {
   const [editTx, setEditTx] = useState<TransactionDebit | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  const fetchData = async (days = periodDays) => {
-    setLoading(true);
+  const fetchData = async (days = periodDays, opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/depenses?periodDays=${days}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error || "Erreur lors du chargement des dépenses");
+        if (!opts.silent) setError(data.error || "Erreur lors du chargement des dépenses");
         return;
       }
       const data = await res.json();
@@ -132,14 +132,52 @@ export default function DepensesPage() {
       setHorsBanque(data.horsBanque || []);
     } catch (e) {
       console.error("Erreur fetch dépenses:", e);
-      setError("Erreur lors du chargement des dépenses");
+      if (!opts.silent) setError("Erreur lors du chargement des dépenses");
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData(periodDays);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodDays]);
+
+  // Temps réel : sync Qonto silencieuse à l'ouverture (récupère les derniers
+  // débits sans attendre le webhook / cron), puis rafraîchissement continu.
+  useEffect(() => {
+    let cancelled = false;
+
+    const silentSync = async () => {
+      try {
+        await fetch("/api/qonto/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ daysBack: 7 }),
+        });
+        if (!cancelled) await fetchData(periodDays, { silent: true });
+      } catch {
+        // silencieux : le bouton "Synchroniser" reste disponible
+      }
+    };
+    void silentSync();
+
+    const interval = setInterval(() => {
+      void fetchData(periodDays, { silent: true });
+    }, 60000);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void fetchData(periodDays, { silent: true });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodDays]);
 

@@ -162,7 +162,7 @@ export function parseQontoWebhookPayload(
       libelle: t.label || "",
       reference: t.reference || null,
       dateTransaction: new Date(t.settled_at || t.emitted_at || Date.now()),
-      emetteur: t.counterparty?.name || "Inconnu",
+      emetteur: t.counterparty?.name || t.label || "Inconnu",
       emetteurIban: t.counterparty?.iban || null,
       statut: t.status === "completed" ? "SETTLED" : "PENDING",
       metadata: p as unknown as object,

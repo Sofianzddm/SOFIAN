@@ -116,8 +116,14 @@ export async function PATCH(
       const numFields = ["montantTTC", "montantTVA", "tauxTVA"] as const;
       for (const field of numFields) {
         if (field in body) {
-          const n = Number(body[field]);
-          data[field] = Number.isFinite(n) ? n : null;
+          const v = body[field];
+          // null / "" = effacer le champ (Number(null) vaudrait 0)
+          if (v === null || v === "") {
+            data[field] = null;
+          } else {
+            const n = Number(v);
+            data[field] = Number.isFinite(n) ? n : null;
+          }
         }
       }
       if (

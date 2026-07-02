@@ -19,6 +19,8 @@ export interface QontoTransaction {
   side: "credit" | "debit";
   operation_type: string;
   note: string | null;
+  /** Nom lisible de la contrepartie (ex : "Apple" au lieu de "APPLE.COM/BILL") */
+  clean_counterparty_name?: string | null;
   counterparty: {
     name: string;
     iban: string;
