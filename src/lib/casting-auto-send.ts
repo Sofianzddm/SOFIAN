@@ -787,6 +787,12 @@ export async function buildCastingRelanceDraft(
 export type CastingRelanceSendOptions = {
   subjectOverride?: string;
   bodyOverride?: string;
+  /**
+   * Emails à NE PAS relancer (ex. contacts ayant déjà répondu). La relance
+   * part quand même vers les autres destinataires de la mission : une réponse
+   * d'un contact ne doit pas bloquer la relance des autres.
+   */
+  excludeEmails?: string[];
 };
 
 /**
@@ -805,6 +811,8 @@ export async function executeCastingRelance(
   attempted: number;
   succeeded: number;
   failed: number;
+  /** Contacts sautés car ils ont déjà répondu (cf. options.excludeEmails). */
+  skippedReplied: number;
   errors: string[];
 }> {
   const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
@@ -885,14 +893,23 @@ export async function executeCastingRelance(
   const fromName = await getGmailFromName(LEYNA_FROM_EMAIL);
   const senderLabel = `${fromName} <${LEYNA_FROM_EMAIL}>`;
 
+  const excluded = new Set(
+    (options.excludeEmails || []).map((e) => e.trim().toLowerCase()).filter(Boolean)
+  );
+
   const relanceMessages: Record<string, string> = {};
   const errors: string[] = [];
   let attempted = 0;
   let succeeded = 0;
   let failed = 0;
+  let skippedReplied = 0;
 
   for (const [email, record] of Object.entries(sentByEmail)) {
     if (!record?.threadId || record.error) continue;
+    if (excluded.has(email.trim().toLowerCase())) {
+      skippedReplied += 1;
+      continue;
+    }
     attempted += 1;
     const contact = parseCastingContacts(mission.clientContacts).find(
       (c) => (c.email || "").toLowerCase() === email.toLowerCase()
@@ -940,10 +957,15 @@ export async function executeCastingRelance(
   }
 
   try {
+    // Cas particulier : TOUS les destinataires relançables ont répondu
+    // (attempted=0 à cause des exclusions). On marque quand même la relance
+    // comme traitée pour que le cron ne repasse pas indéfiniment.
+    const allRepliedNoSend = attempted === 0 && skippedReplied > 0;
     const updated = await contactMissionModel.update({
       where: { id: missionId },
       data: {
-        relanceSentAt: succeeded > 0 ? new Date() : mission.relanceSentAt,
+        relanceSentAt:
+          succeeded > 0 || allRepliedNoSend ? new Date() : mission.relanceSentAt,
         relanceMessageIds: succeeded > 0 ? relanceMessages : mission.relanceMessageIds,
         relanceError: errors.length > 0 ? errors.join(" | ") : null,
         status: succeeded > 0 ? "RELANCED" : mission.status,
@@ -954,7 +976,7 @@ export async function executeCastingRelance(
       select: { id: true, relanceSentAt: true, status: true },
     });
     console.info(
-      `[executeCastingRelance] ${missionId} attempted=${attempted} succeeded=${succeeded} failed=${failed} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} status=${updated.status}`
+      `[executeCastingRelance] ${missionId} attempted=${attempted} succeeded=${succeeded} failed=${failed} skippedReplied=${skippedReplied} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} status=${updated.status}`
     );
   } catch (err) {
     // Cas critique : Gmail a expédié mais la DB n'a pas pu être mise à jour.

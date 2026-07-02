@@ -1,10 +1,15 @@
 /**
  * HTML compatible clients mail (Gmail, Outlook…) pour les corps rédigés dans TipTap.
  *
- * TipTap / ProseMirror produit des <p> par ligne. Gmail ajoute des marges par défaut
- * sur <p> (~13px haut/bas) → double espacement visuel entre chaque ligne.
+ * TipTap / ProseMirror produit un <p> par paragraphe (touche Entrée) et un <br>
+ * par retour simple (Maj+Entrée). Dans l'éditeur (styles `prose`), chaque
+ * paragraphe est séparé par un espacement équivalent à une ligne vide.
  *
- * On aplatit les paragraphes en <br /> (comme l’aperçu du composer casting).
+ * Pour que le mail envoyé soit IDENTIQUE à ce que montre l'éditeur, on aplatit :
+ *  - frontière de paragraphe </p><p>  → <br /><br />  (ligne vide, comme à l'écran)
+ *  - paragraphe vide <p></p>          → <br /><br />  (ligne vide)
+ *  - retour simple <br> (Maj+Entrée)  → <br />        (lignes collées)
+ * puis on borne à une seule ligne vide consécutive (3+ <br> → 2).
  */
 
 const EMPTY_P_MARKER = "__EMPTY_P__";
@@ -83,7 +88,7 @@ export function normalizeEditorHtmlForEmail(html: string): string {
     .replace(/<p[^>]*>/gi, "")
     .replace(/<\/p>/gi, "")
     .replace(new RegExp(EMPTY_P_MARKER, "g"), "<br /><br />")
-    .replace(new RegExp(P_BOUNDARY_MARKER, "g"), "<br />")
+    .replace(new RegExp(P_BOUNDARY_MARKER, "g"), "<br /><br />")
     .replace(/<\/div>\s*<div[^>]*>/gi, P_BOUNDARY_MARKER)
     .replace(/<div[^>]*>/gi, "")
     .replace(/<\/div>/gi, "")
