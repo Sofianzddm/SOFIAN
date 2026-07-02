@@ -10,6 +10,7 @@
  */
 
 import { v2 as cloudinary } from "cloudinary";
+import type { AnalyseJustificatif } from "@/lib/depenses-analyse";
 import { prisma } from "@/lib/prisma";
 import {
   buildKey,
@@ -61,7 +62,32 @@ export function validateJustificatifFile(file: File): string | null {
  */
 export async function uploadJustificatif(file: File): Promise<string> {
   const buffer = Buffer.from(await file.arrayBuffer());
+  return uploadJustificatifBuffer(buffer, file);
+}
 
+/**
+ * Upload + analyse IA en parallèle (une seule lecture du fichier).
+ * L'analyse est best-effort : null si échec, sans bloquer l'upload.
+ */
+export async function uploadEtAnalyseJustificatif(file: File): Promise<{
+  url: string;
+  analyse: AnalyseJustificatif | null;
+}> {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  // Import dynamique : évite un cycle de modules et ne charge le SDK
+  // Anthropic que lorsqu'un fichier est effectivement uploadé.
+  const { analyzeJustificatif } = await import("@/lib/depenses-analyse");
+  const [url, analyse] = await Promise.all([
+    uploadJustificatifBuffer(buffer, file),
+    analyzeJustificatif(buffer, file.type),
+  ]);
+  return { url, analyse };
+}
+
+async function uploadJustificatifBuffer(
+  buffer: Buffer,
+  file: File
+): Promise<string> {
   if (isS3Configured()) {
     const ext = file.name.includes(".")
       ? file.name.split(".").pop()!.toLowerCase()
@@ -143,14 +169,20 @@ export interface CreateDepenseInput {
   justificatifUrl?: string | null;
   justificatifNom?: string | null;
   justificatifType?: string | null;
+  /** Résultat de l'analyse IA : sert de fallback pour les champs non saisis */
+  analyse?: AnalyseJustificatif | null;
   source: "WEB" | "MOBILE";
   createdById?: string | null;
 }
 
 export async function createDepense(input: CreateDepenseInput) {
+  const analyse = input.analyse ?? null;
+
   let montantTTC = input.montantTTC ?? null;
   let dateDepense = input.dateDepense ?? null;
-  let fournisseur = input.fournisseur ?? null;
+  // Fournisseur : saisie explicite > lecture IA du reçu > émetteur bancaire
+  // (le libellé bancaire est souvent cryptique, ex "CB APPLE.COM/BILL").
+  let fournisseur = input.fournisseur ?? analyse?.fournisseur ?? null;
   let libelle = input.libelle ?? null;
 
   if (input.transactionId) {
@@ -179,11 +211,20 @@ export async function createDepense(input: CreateDepenseInput) {
     libelle = libelle ?? tx.libelle;
   }
 
+  // Reçu hors banque : le montant et la date peuvent venir de la lecture IA
+  montantTTC = montantTTC ?? analyse?.montantTTC ?? null;
+  if (!dateDepense && analyse?.date) {
+    dateDepense = new Date(analyse.date);
+  }
+
   if (montantTTC === null || !Number.isFinite(montantTTC) || montantTTC <= 0) {
-    throw new DepenseError("Montant TTC requis (positif)", 400);
+    throw new DepenseError(
+      "Montant TTC requis (illisible sur le justificatif : merci de le saisir)",
+      400
+    );
   }
   if (!dateDepense) {
-    throw new DepenseError("Date de la dépense requise", 400);
+    dateDepense = new Date();
   }
 
   return prisma.depense.create({
@@ -191,15 +232,16 @@ export async function createDepense(input: CreateDepenseInput) {
       transactionId: input.transactionId ?? null,
       fournisseur,
       libelle,
-      categorie: input.categorie ?? null,
+      categorie: input.categorie ?? analyse?.categorie ?? null,
       notes: input.notes ?? null,
       montantTTC,
-      montantTVA: input.montantTVA ?? null,
-      tauxTVA: input.tauxTVA ?? null,
+      montantTVA: input.montantTVA ?? analyse?.montantTVA ?? null,
+      tauxTVA: input.tauxTVA ?? analyse?.tauxTVA ?? null,
       dateDepense,
       justificatifUrl: input.justificatifUrl ?? null,
       justificatifNom: input.justificatifNom ?? null,
       justificatifType: input.justificatifType ?? null,
+      analyseIA: analyse ? JSON.parse(JSON.stringify(analyse)) : undefined,
       source: input.source,
       createdById: input.createdById ?? null,
     },

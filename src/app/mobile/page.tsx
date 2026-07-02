@@ -235,14 +235,15 @@ export default function MobileDepensesPage() {
   };
 
   const submitHorsBanque = async () => {
-    if (!hbFile || !hbMontant) return;
+    if (!hbFile) return;
     setHbSubmitting(true);
     setError(null);
     try {
       const file = await compressImage(hbFile);
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("montantTTC", hbMontant);
+      // Montant optionnel : s'il est vide, l'IA le lit sur le reçu
+      if (hbMontant.trim()) formData.append("montantTTC", hbMontant);
       formData.append("dateDepense", hbDate);
       if (hbFournisseur.trim()) formData.append("fournisseur", hbFournisseur.trim());
 
@@ -515,7 +516,8 @@ export default function MobileDepensesPage() {
             </div>
             <p className="mb-4 text-xs text-slate-500">
               Pour un paiement pas encore visible en banque (espèces, carte
-              perso…). Il sera rapproché ensuite depuis le dashboard.
+              perso…). La photo suffit : le montant, la date et le fournisseur
+              sont lus automatiquement sur le reçu.
             </p>
 
             <input
@@ -551,7 +553,7 @@ export default function MobileDepensesPage() {
             <div className="mb-3 grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Montant TTC (€) *
+                  Montant TTC (€)
                 </label>
                 <input
                   type="number"
@@ -560,7 +562,7 @@ export default function MobileDepensesPage() {
                   value={hbMontant}
                   onChange={(e) => setHbMontant(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-3 text-base focus:border-slate-400 focus:outline-none"
-                  placeholder="0,00"
+                  placeholder="Auto (lu sur le reçu)"
                 />
               </div>
               <div>
@@ -590,7 +592,7 @@ export default function MobileDepensesPage() {
 
             <button
               onClick={submitHorsBanque}
-              disabled={!hbFile || !hbMontant || hbSubmitting}
+              disabled={!hbFile || hbSubmitting}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-semibold text-white active:bg-slate-700 disabled:opacity-40"
             >
               {hbSubmitting && <Loader2 className="h-5 w-5 animate-spin" />}

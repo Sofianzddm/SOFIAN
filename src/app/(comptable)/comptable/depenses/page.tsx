@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   ExternalLink,
   FileText,
@@ -31,6 +32,10 @@ interface DepenseInfo {
   justificatifUrl: string | null;
   justificatifNom: string | null;
   justificatifType: string | null;
+  analyseIA?: {
+    fournisseur?: string | null;
+    montantTTC?: number | null;
+  } | null;
   source: string;
   createdBy?: { id: string; prenom: string; nom: string } | null;
 }
@@ -710,6 +715,13 @@ export default function DepensesPage() {
                 <tbody>
                   {filteredJustifiees.map((tx) => {
                     const d = tx.depense!;
+                    // Contrôle de cohérence : montant lu sur le reçu vs débit bancaire
+                    const montantLu = d.analyseIA?.montantTTC;
+                    const ecart =
+                      typeof montantLu === "number"
+                        ? Math.abs(montantLu - Math.abs(toNumber(tx.montant)))
+                        : 0;
+                    const incoherent = ecart > 0.05;
                     return (
                       <tr
                         key={tx.id}
@@ -746,7 +758,16 @@ export default function DepensesPage() {
                           </button>
                         </td>
                         <td className="py-3 px-4 text-right font-semibold text-slate-900 whitespace-nowrap tabular-nums">
-                          −{formatMoney(Math.abs(toNumber(tx.montant)))}
+                          <span className="inline-flex items-center gap-1.5">
+                            {incoherent && (
+                              <span
+                                title={`Le reçu indique ${formatMoney(montantLu as number)} mais la banque a débité ${formatMoney(Math.abs(toNumber(tx.montant)))} — vérifiez que le bon justificatif est attaché.`}
+                              >
+                                <AlertTriangle className="w-4 h-4 text-amber-500" />
+                              </span>
+                            )}
+                            −{formatMoney(Math.abs(toNumber(tx.montant)))}
+                          </span>
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <a

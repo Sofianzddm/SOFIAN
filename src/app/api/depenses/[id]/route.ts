@@ -4,9 +4,12 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   deleteJustificatif,
-  uploadJustificatif,
+  uploadEtAnalyseJustificatif,
   validateJustificatifFile,
 } from "@/lib/depenses";
+
+// Upload + analyse IA du justificatif : laisser le temps à Claude de lire le reçu
+export const maxDuration = 60;
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -72,11 +75,28 @@ export async function PATCH(
       if (invalid) {
         return NextResponse.json({ error: invalid }, { status: 400 });
       }
-      const url = await uploadJustificatif(file);
+      const { url, analyse } = await uploadEtAnalyseJustificatif(file);
       await deleteJustificatif(depense.justificatifUrl);
       data.justificatifUrl = url;
       data.justificatifNom = file.name;
       data.justificatifType = file.type;
+      if (analyse) {
+        data.analyseIA = JSON.parse(JSON.stringify(analyse));
+        // Pré-remplissage : uniquement les champs encore vides (on n'écrase
+        // jamais une saisie manuelle existante).
+        if (!depense.fournisseur && analyse.fournisseur) {
+          data.fournisseur = analyse.fournisseur;
+        }
+        if (!depense.categorie && analyse.categorie) {
+          data.categorie = analyse.categorie;
+        }
+        if (depense.montantTVA === null && analyse.montantTVA !== null) {
+          data.montantTVA = analyse.montantTVA;
+        }
+        if (depense.tauxTVA === null && analyse.tauxTVA !== null) {
+          data.tauxTVA = analyse.tauxTVA;
+        }
+      }
     } else {
       const body = await request.json().catch(() => ({}));
 

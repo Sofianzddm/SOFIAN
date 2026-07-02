@@ -5,9 +5,13 @@ import {
   DepenseError,
   createDepense,
   listDepenses,
-  uploadJustificatif,
+  uploadEtAnalyseJustificatif,
   validateJustificatifFile,
 } from "@/lib/depenses";
+import type { AnalyseJustificatif } from "@/lib/depenses-analyse";
+
+// Upload + analyse IA du justificatif : laisser le temps à Claude de lire le reçu
+export const maxDuration = 60;
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -71,13 +75,16 @@ export async function POST(request: NextRequest) {
     let justificatifUrl: string | null = null;
     let justificatifNom: string | null = null;
     let justificatifType: string | null = null;
+    let analyse: AnalyseJustificatif | null = null;
 
     if (file instanceof File && file.size > 0) {
       const invalid = validateJustificatifFile(file);
       if (invalid) {
         return NextResponse.json({ error: invalid }, { status: 400 });
       }
-      justificatifUrl = await uploadJustificatif(file);
+      const uploaded = await uploadEtAnalyseJustificatif(file);
+      justificatifUrl = uploaded.url;
+      analyse = uploaded.analyse;
       justificatifNom = file.name;
       justificatifType = file.type;
     }
@@ -108,6 +115,7 @@ export async function POST(request: NextRequest) {
       justificatifUrl,
       justificatifNom,
       justificatifType,
+      analyse,
       source: "WEB",
       createdById: auth.userId,
     });

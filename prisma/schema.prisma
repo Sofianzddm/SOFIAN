@@ -1999,6 +1999,11 @@ model Depense {
   justificatifNom  String? // Nom de fichier d'origine
   justificatifType String? // MIME type (application/pdf, image/jpeg…)
 
+  // Résultat de l'analyse IA du justificatif (fournisseur, montants, date,
+  // catégorie suggérée…) — sert au pré-remplissage et au contrôle de cohérence
+  // avec la transaction bancaire.
+  analyseIA Json?
+
   // Origine de la saisie : WEB (drag & drop dashboard) ou MOBILE (photo app)
   source String @default("WEB")
 

@@ -8,9 +8,12 @@ import {
   DepenseError,
   createDepense,
   listDepenses,
-  uploadJustificatif,
+  uploadEtAnalyseJustificatif,
   validateJustificatifFile,
 } from "@/lib/depenses";
+
+// Upload + analyse IA du justificatif : laisser le temps à Claude de lire le reçu
+export const maxDuration = 60;
 
 async function requireMobileUser(request: NextRequest) {
   const user = await getMobileUser(request);
@@ -97,7 +100,8 @@ export async function GET(request: NextRequest) {
  *   - transactionId : transaction Qonto débit à justifier (optionnel —
  *                     sans transactionId, crée un reçu « hors banque »
  *                     rapproché ensuite depuis le dashboard)
- *   - montantTTC, dateDepense : requis si pas de transactionId
+ *   - montantTTC, dateDepense : optionnels — lus automatiquement sur le
+ *     reçu par l'analyse IA si absents (erreur 400 si illisibles)
  *   - fournisseur, libelle, categorie, notes : optionnels
  */
 export async function POST(request: NextRequest) {
@@ -146,14 +150,20 @@ export async function POST(request: NextRequest) {
         );
       }
       if (existing) {
-        const justificatifUrl = await uploadJustificatif(file);
+        const { url: justificatifUrl, analyse } =
+          await uploadEtAnalyseJustificatif(file);
         const depense = await prisma.depense.update({
           where: { id: existing.id },
           data: {
             justificatifUrl,
             justificatifNom: file.name,
             justificatifType: file.type,
-            categorie: str("categorie") ?? existing.categorie,
+            analyseIA: analyse ? JSON.parse(JSON.stringify(analyse)) : undefined,
+            categorie:
+              str("categorie") ?? existing.categorie ?? analyse?.categorie ?? null,
+            fournisseur: existing.fournisseur ?? analyse?.fournisseur ?? null,
+            montantTVA: existing.montantTVA ?? analyse?.montantTVA ?? null,
+            tauxTVA: existing.tauxTVA ?? analyse?.tauxTVA ?? null,
             notes: str("notes") ?? existing.notes,
           },
         });
@@ -161,7 +171,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const justificatifUrl = await uploadJustificatif(file);
+    const { url: justificatifUrl, analyse } =
+      await uploadEtAnalyseJustificatif(file);
 
     const depense = await createDepense({
       transactionId,
@@ -176,6 +187,7 @@ export async function POST(request: NextRequest) {
       justificatifUrl,
       justificatifNom: file.name,
       justificatifType: file.type,
+      analyse,
       source: "MOBILE",
       createdById: auth.user.id,
     });
