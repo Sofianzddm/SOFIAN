@@ -68,6 +68,7 @@ export default function EditPartnerPage() {
     message: "",
     description: "",
     isActive: true,
+    market: "FR",
   });
   const [selectedTalents, setSelectedTalents] = useState<string[]>([]);
   const [tarifOverrides, setTarifOverrides] = useState<TarifOverride[]>([]);
@@ -97,6 +98,7 @@ export default function EditPartnerPage() {
           message: p.message || "",
           description: p.description || "",
           isActive: p.isActive ?? true,
+          market: p.market === "BENELUX" ? "BENELUX" : "FR",
         });
         setLogoPreview(p.logo || null);
         setSelectedTalents(p.talents?.map((t: any) => t.talentId) || []);
@@ -430,6 +432,37 @@ export default function EditPartnerPage() {
             className="w-full px-4 py-2 border rounded-lg"
             rows={2}
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">Marché de l'agence</label>
+          <div className="flex gap-2">
+            {([
+              { value: "FR", label: "🇫🇷 Agence française (FR)" },
+              { value: "BENELUX", label: "🇧🇪 Agence Benelux" },
+            ] as const).map((option) => {
+              const isSelected = formData.market === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setFormData({ ...formData, market: option.value })}
+                  className={`flex-1 px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${
+                    isSelected
+                      ? "border-blue-600 bg-blue-50 text-blue-700"
+                      : "border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Détermine l'onglet marché (FR / Benelux) et adapte la rédaction IA de
+            la Prospection Agences. La modification est propagée aux cibles de
+            prospection de cette agence.
+          </p>
         </div>
 
         <div>

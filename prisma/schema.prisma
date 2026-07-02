@@ -2203,6 +2203,11 @@ model Partner {
   isActive       Boolean @default(true) // Actif ou désactivé
   showAllTalents Boolean @default(true) // true = affiche TOUS les talents actifs automatiquement
 
+  // Marché de l'agence : "FR" (agence française) ou "BENELUX" (agence belge /
+  // Pays-Bas / Luxembourg). Sert au filtrage par onglet marché et à adapter la
+  // rédaction IA de la Prospection Agences. Propagé aux AgencyOutreachTarget.
+  market String @default("FR") // "FR" | "BENELUX"
+
   // Personnalisation
   description String? // Description libre
   message     String? // Message d'accueil personnalisé
@@ -2229,6 +2234,7 @@ model Partner {
 
   @@index([slug])
   @@index([isActive])
+  @@index([market])
   @@map("partners")
 }
 

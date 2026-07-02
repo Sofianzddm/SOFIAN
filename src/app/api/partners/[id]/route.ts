@@ -245,6 +245,7 @@ export async function GET(
         contactName: partner.contactName,
         contactEmail: partner.contactEmail,
         isActive: partner.isActive,
+        market: partner.market,
         description: partner.description,
         message: partner.message,
         createdAt: partner.createdAt,
@@ -325,6 +326,7 @@ export async function PUT(
       message,
       description,
       isActive,
+      market,
       talentIds,
     } = body as {
       name?: string;
@@ -335,6 +337,7 @@ export async function PUT(
       message?: string | null;
       description?: string | null;
       isActive?: boolean;
+      market?: string;
       talentIds?: string[];
     };
 
@@ -346,6 +349,13 @@ export async function PUT(
     if (message !== undefined) data.message = message;
     if (description !== undefined) data.description = description;
     if (isActive !== undefined) data.isActive = isActive;
+
+    // Marché de l'agence : uniquement "FR" ou "BENELUX".
+    let normalizedMarket: "FR" | "BENELUX" | undefined;
+    if (market !== undefined) {
+      normalizedMarket = market.toUpperCase() === "BENELUX" ? "BENELUX" : "FR";
+      data.market = normalizedMarket;
+    }
 
     // Édition libre du lien (slug) : on normalise et on vérifie l'unicité.
     // C'est ce slug qui construit l'URL talent book /partners/{slug} et le token
@@ -383,7 +393,14 @@ export async function PUT(
     await prisma.agencyOutreachTarget
       .updateMany({
         where: { partnerId: id },
-        data: { company: updatedPartner.name, partnerSlug: updatedPartner.slug },
+        data: {
+          company: updatedPartner.name,
+          partnerSlug: updatedPartner.slug,
+          // Propage le marché de l'agence aux cibles de prospection (onglet
+          // FR / BENELUX + adaptation de la rédaction IA) uniquement s'il a été
+          // explicitement modifié.
+          ...(normalizedMarket !== undefined ? { market: normalizedMarket } : {}),
+        },
       })
       .catch((e) =>
         console.warn("[partners PUT] propagation prospection agences:", e)
@@ -431,6 +448,7 @@ export async function PUT(
       contactName: partner.contactName,
       contactEmail: partner.contactEmail,
       isActive: partner.isActive,
+      market: partner.market,
       description: partner.description,
       message: partner.message,
       createdAt: partner.createdAt,
