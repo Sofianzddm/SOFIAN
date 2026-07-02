@@ -9,7 +9,7 @@
  * info mais ne le sort PAS du cycle ; seul un stop manuel le fait.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   Loader2,
@@ -365,6 +365,11 @@ export default function OutreachPage() {
   const [market, setMarket] = useState<Market>("FR");
   OUTREACH_API_BASE = market === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach";
   const isBenelux = market === "BENELUX";
+  // Réf lue par les chargements asynchrones : si l'utilisateur bascule de
+  // marché pendant qu'un fetch est en cours, la réponse « périmée » de
+  // l'ancien marché est ignorée (sinon les clients FR s'affichent en BENELUX).
+  const marketRef = useRef(market);
+  marketRef.current = market;
 
   const [targets, setTargets] = useState<Target[]>([]);
   const [loading, setLoading] = useState(true);
@@ -407,22 +412,30 @@ export default function OutreachPage() {
   }, []);
 
   const loadTargets = useCallback(async () => {
+    const requestMarket = marketRef.current;
+    const base = requestMarket === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach";
     try {
-      const res = await fetch(outreachApi("/targets"));
+      const res = await fetch(`${base}/targets`);
       const data = await res.json();
+      // Bascule FR ↔ BENELUX pendant le fetch : on jette la réponse périmée.
+      if (marketRef.current !== requestMarket) return;
       if (!res.ok) throw new Error(data.error || "Erreur de chargement");
       setTargets(data.targets || []);
     } catch (e) {
+      if (marketRef.current !== requestMarket) return;
       flash("error", e instanceof Error ? e.message : "Erreur de chargement");
     } finally {
-      setLoading(false);
+      if (marketRef.current === requestMarket) setLoading(false);
     }
   }, [flash]);
 
   const loadPendingContacts = useCallback(async () => {
+    const requestMarket = marketRef.current;
+    const base = requestMarket === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach";
     try {
-      const res = await fetch(outreachApi("/pending-contacts"));
+      const res = await fetch(`${base}/pending-contacts`);
       const data = await res.json();
+      if (marketRef.current !== requestMarket) return;
       if (res.ok) setPendingContacts(data.contacts || []);
     } catch {
       /* non bloquant */
@@ -455,11 +468,19 @@ export default function OutreachPage() {
   }, []);
 
   // Restaure le dernier marché choisi (persisté entre sessions).
+  // Un deep-link /outreach?market=BENELUX&q=Entreprise (depuis l'annuaire
+  // BENELUX) est prioritaire sur le marché mémorisé.
   useEffect(() => {
-    const saved =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem("outreach.market")
-        : null;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const urlMarket = params.get("market");
+    const urlQuery = params.get("q");
+    if (urlQuery) setSearchTerm(urlQuery);
+    if (urlMarket === "BENELUX" || urlMarket === "FR") {
+      setMarket(urlMarket);
+      return;
+    }
+    const saved = window.localStorage.getItem("outreach.market");
     if (saved === "BENELUX" || saved === "FR") setMarket(saved);
   }, []);
 
@@ -475,6 +496,10 @@ export default function OutreachPage() {
     if (sessionStatus === "authenticated" && ALLOWED.includes(role)) {
       setLoading(true);
       setExpandedId(null);
+      // Vide immédiatement les listes pour ne jamais afficher les clients
+      // de l'autre marché pendant le chargement.
+      setTargets([]);
+      setPendingContacts([]);
       loadTargets();
       loadPendingContacts();
       loadSenderAccounts();
@@ -1390,10 +1415,18 @@ export default function OutreachPage() {
                 >
                   <div className="flex-1 min-w-[180px] flex items-center gap-1.5">
                     <a
-                      href={`/marques/${group.marqueId}`}
+                      href={
+                        isBenelux
+                          ? `/marques?market=BENELUX&q=${encodeURIComponent(group.company)}`
+                          : `/marques/${group.marqueId}`
+                      }
                       className="font-semibold text-sm hover:underline inline-flex items-center gap-1.5"
                       style={{ color: LICORICE }}
-                      title="Ouvrir la fiche marque (carto et contacts visibles par toute l'équipe)"
+                      title={
+                        isBenelux
+                          ? "Ouvrir l'annuaire BENELUX sur cette entreprise"
+                          : "Ouvrir la fiche marque (carto et contacts visibles par toute l'équipe)"
+                      }
                     >
                       {group.company}
                       <ExternalLink className="w-3 h-3 text-gray-400" />

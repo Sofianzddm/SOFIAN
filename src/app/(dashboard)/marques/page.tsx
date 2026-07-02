@@ -123,8 +123,18 @@ export default function MarquesPage() {
   const isBenelux = market === "BENELUX";
 
   useEffect(() => {
-    const saved =
-      typeof window !== "undefined" ? window.localStorage.getItem("marques.market") : null;
+    if (typeof window === "undefined") return;
+    // Deep-link depuis l'outreach : /marques?market=BENELUX&q=Entreprise
+    // (prioritaire sur le dernier marché mémorisé).
+    const params = new URLSearchParams(window.location.search);
+    const urlMarket = params.get("market");
+    const urlQuery = params.get("q");
+    if (urlQuery) setSearch(urlQuery);
+    if (urlMarket === "BENELUX" || urlMarket === "FR") {
+      setMarket(urlMarket);
+      return;
+    }
+    const saved = window.localStorage.getItem("marques.market");
     if (saved === "BENELUX" || saved === "FR") setMarket(saved);
   }, []);
 
@@ -386,7 +396,13 @@ export default function MarquesPage() {
                 return (
                   <div
                     key={marque.id}
-                    onClick={() => router.push(isBenelux ? "/outreach" : `/marques/${marque.id}`)}
+                    onClick={() =>
+                      router.push(
+                        isBenelux
+                          ? `/outreach?market=BENELUX&q=${encodeURIComponent(marque.nom)}`
+                          : `/marques/${marque.id}`
+                      )
+                    }
                     className="group grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_repeat(2,90px)_110px] gap-3 items-center px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors"
                   >
                     {/* Marque */}
