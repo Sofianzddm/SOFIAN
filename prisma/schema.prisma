@@ -352,6 +352,8 @@ model User {
   adminMails    AdminMail[]    @relation("AdminMailsCreatedBy")
   mailTemplates MailTemplate[] @relation("MailTemplatesCreatedBy")
 
+  depensesCreees Depense[] @relation("DepenseCreatedBy")
+
   @@map("users")
 }
 
@@ -1881,8 +1883,12 @@ model TransactionQonto {
   id      String @id @default(cuid())
   qontoId String @unique // ID unique de la transaction Qonto
 
+  // Sens bancaire : "credit" = encaissement, "debit" = dépense.
+  // Historiquement seuls les crédits étaient synchronisés, d'où le défaut.
+  side String @default("credit")
+
   // Informations transaction
-  montant         Decimal  @db.Decimal(10, 2)
+  montant         Decimal  @db.Decimal(10, 2) // Toujours en valeur absolue (le sens est porté par `side`)
   devise          String   @default("EUR")
   libelle         String? // Libellé du virement
   reference       String? // Référence bancaire
@@ -1907,6 +1913,9 @@ model TransactionQonto {
   // Rapprochements N↔N : une transaction peut couvrir plusieurs factures
   matches TransactionDocumentMatch[]
 
+  // Dépense associée (transactions débit uniquement)
+  depense Depense?
+
   // Paiement hors plateforme : la transaction ne concerne pas le business GlowUp
   // (remboursement, virement perso, opération d'une autre activité, etc.)
   // Une fois marquée, la transaction n'apparaît plus dans la liste à réconcilier.
@@ -1926,6 +1935,7 @@ model TransactionQonto {
   @@index([dateTransaction])
   @@index([statut])
   @@index([horsPlateforme])
+  @@index([side])
   @@map("transactions_qonto")
 }
 
@@ -1952,6 +1962,56 @@ model TransactionDocumentMatch {
   @@index([transactionId])
   @@index([documentId])
   @@map("transaction_document_matches")
+}
+
+// ============================================
+// DÉPENSES (ACHATS / NOTES DE FRAIS)
+// ============================================
+
+// Une dépense = une sortie d'argent à justifier (facture fournisseur, reçu, note de frais).
+// Deux origines possibles :
+//   1. Créée depuis une transaction Qonto débit (cas principal) → `transactionId` renseigné
+//   2. Créée à la main ou depuis l'app mobile (reçu photographié avant que la
+//      transaction n'apparaisse en banque) → rapprochable ensuite
+model Depense {
+  id String @id @default(cuid())
+
+  // Transaction bancaire correspondante (1 dépense max par transaction)
+  transactionId String?           @unique
+  transaction   TransactionQonto? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  // Informations dépense
+  fournisseur String?
+  libelle     String?
+  categorie   String? // Ex : Logiciels, Déplacements, Restauration, Matériel…
+  notes       String?
+
+  // Montants (TTC obligatoire, ventilation TVA optionnelle)
+  montantTTC Decimal  @db.Decimal(10, 2)
+  montantTVA Decimal? @db.Decimal(10, 2)
+  tauxTVA    Decimal? @db.Decimal(5, 2)
+  devise     String   @default("EUR")
+
+  dateDepense DateTime
+
+  // Justificatif (facture fournisseur / reçu photographié)
+  justificatifUrl  String?
+  justificatifNom  String? // Nom de fichier d'origine
+  justificatifType String? // MIME type (application/pdf, image/jpeg…)
+
+  // Origine de la saisie : WEB (drag & drop dashboard) ou MOBILE (photo app)
+  source String @default("WEB")
+
+  createdById String?
+  createdBy   User?   @relation("DepenseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dateDepense])
+  @@index([categorie])
+  @@index([createdById])
+  @@map("depenses")
 }
 
 // ============================================

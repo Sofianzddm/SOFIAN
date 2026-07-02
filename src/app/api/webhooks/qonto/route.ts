@@ -39,9 +39,11 @@ export async function POST(request: NextRequest) {
 
     const result = await upsertQontoTransaction(input);
 
-    if (result === "imported") {
+    if (result === "imported" && input.side === "credit") {
       await notifyAdminsNewQontoPayment(input.montant, input.libelle);
       console.log("Encaissement Qonto enregistré:", input.qontoId);
+    } else if (result === "imported") {
+      console.log("Dépense Qonto enregistrée:", input.qontoId);
     } else if (result === "updated") {
       console.log("Transaction Qonto passée SETTLED:", input.qontoId);
     }

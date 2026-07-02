@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { GlowUpLogo, GlowUpIcon } from "@/components/ui/logo";
 import {
   LayoutDashboard,
@@ -16,13 +16,21 @@ import {
   BookOpen,
   Scale,
   ShieldCheck,
+  CreditCard,
 } from "lucide-react";
 import { useState } from "react";
 
-const menu = [
+const menu: Array<{
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  adminOnly?: boolean;
+}> = [
   { label: "Tableau de bord", href: "/comptable", icon: LayoutDashboard },
   { label: "Journal des ventes", href: "/comptable/ventes", icon: Receipt },
   { label: "Journal de banque", href: "/comptable/banque", icon: Banknote },
+  // Dépenses : réservé aux ADMIN (masqué pour le rôle COMPTABLE)
+  { label: "Dépenses", href: "/comptable/depenses", icon: CreditCard, adminOnly: true },
   { label: "Grand livre", href: "/comptable/grand-livre", icon: BookOpen },
   { label: "Balance générale", href: "/comptable/balance", icon: Scale },
   { label: "Contrôles", href: "/comptable/controles", icon: ShieldCheck },
@@ -31,7 +39,11 @@ const menu = [
 
 export function ComptableSidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(false);
+
+  const isAdmin = (session?.user as { role?: string })?.role === "ADMIN";
+  const visibleMenu = menu.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <aside
@@ -57,7 +69,7 @@ export function ComptableSidebar() {
       )}
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-4">
-        {menu.map((item) => {
+        {visibleMenu.map((item) => {
           const isActive =
             item.href === "/comptable"
               ? pathname === "/comptable"

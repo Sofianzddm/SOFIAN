@@ -183,7 +183,7 @@ export class QontoClient {
   }
 
   /**
-   * Récupérer les transactions (encaissements uniquement)
+   * Récupérer les transactions (crédits ET débits par défaut).
    * Le bank_account_id (requis par l'API Qonto v2) est résolu automatiquement.
    */
   async getTransactions(params?: {
@@ -192,6 +192,7 @@ export class QontoClient {
     settled_at_from?: string; // Format YYYY-MM-DD
     settled_at_to?: string;
     statuses?: Array<"pending" | "reversed" | "declined" | "completed">;
+    side?: "credit" | "debit"; // Omis = les deux sens
     per_page?: number;
     page?: number;
     bank_account_id?: string;
@@ -201,7 +202,7 @@ export class QontoClient {
 
     const queryParams = new URLSearchParams();
     queryParams.set("bank_account_id", bankAccountId);
-    queryParams.set("side", "credit");
+    if (params?.side) queryParams.set("side", params.side);
     queryParams.set("per_page", String(params?.per_page || 100));
     if (params?.emitted_at_from)
       queryParams.set("emitted_at_from", params.emitted_at_from);
@@ -231,7 +232,7 @@ export class QontoClient {
   }
 
   /**
-   * Synchroniser les transactions récentes (entrants).
+   * Synchroniser les transactions récentes (crédits ET débits).
    * - Récupère les transactions `completed` ET `pending` (les `declined`/`reversed` sont exclues).
    * - Filtre sur la date d'émission (`emitted_at`) plutôt que sur la date de règlement,
    *   pour inclure les paiements en attente de règlement.

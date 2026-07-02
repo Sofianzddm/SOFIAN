@@ -51,6 +51,14 @@ async function applyMatches(
         "Cette transaction est marquée hors plateforme. Réintégrez-la avant de la rapprocher.",
     };
   }
+  if (transaction.side === "debit") {
+    return {
+      ok: false as const,
+      status: 400,
+      error:
+        "Cette transaction est une dépense (débit) : elle se justifie dans le module Dépenses, pas en réconciliation.",
+    };
+  }
 
   // Charger les factures concernées
   const docIds = Array.from(new Set(rawMatches.map((m) => m.documentId)));

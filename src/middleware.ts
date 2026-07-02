@@ -137,11 +137,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // Compte expert-comptable : uniquement l'espace /comptable + API comptable + auth
+  // (sauf /comptable/depenses, réservé aux ADMIN)
   if (effectiveRole === "COMPTABLE") {
     const allowed =
       pathname === "/login" ||
       pathname.startsWith("/api/auth") ||
-      pathname.startsWith("/comptable") ||
+      (pathname.startsWith("/comptable") &&
+        !pathname.startsWith("/comptable/depenses")) ||
       pathname.startsWith("/api/comptable");
     if (!allowed) {
       return withNoIndex(NextResponse.redirect(new URL("/comptable", request.url)));
@@ -265,6 +267,8 @@ export const config = {
     "/finance/:path*",
     "/reconciliation",
     "/reconciliation/:path*",
+    // PWA dépenses (page uniquement : manifest + icônes restent publics)
+    "/mobile",
     // Gifts & notifications
     "/gifts",
     "/gifts/:path*",

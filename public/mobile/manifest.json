@@ -1,0 +1,24 @@
+{
+  "name": "GlowUp Dépenses",
+  "short_name": "Dépenses",
+  "description": "Justifier les dépenses GlowUp : photographiez vos reçus",
+  "start_url": "/mobile",
+  "scope": "/mobile",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#B06F70",
+  "icons": [
+    {
+      "src": "/mobile/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/mobile/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

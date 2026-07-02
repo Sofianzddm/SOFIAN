@@ -16,7 +16,8 @@ export interface QontoSyncStats {
 
 export interface QontoTransactionUpsertInput {
   qontoId: string;
-  montant: number;
+  side: "credit" | "debit";
+  montant: number; // Valeur absolue (le sens est porté par `side`)
   devise: string;
   libelle: string;
   reference: string | null;
@@ -49,6 +50,7 @@ export async function upsertQontoTransaction(
       where: { qontoId: input.qontoId },
       data: {
         statut: "SETTLED",
+        side: input.side,
         montant: input.montant,
         libelle: input.libelle,
         reference: input.reference,
@@ -64,6 +66,7 @@ export async function upsertQontoTransaction(
   await prisma.transactionQonto.update({
     where: { qontoId: input.qontoId },
     data: {
+      side: input.side,
       montant: input.montant,
       libelle: input.libelle,
       reference: input.reference,
@@ -116,7 +119,8 @@ export async function syncQontoTransactions(
   for (const transaction of transactions) {
     const result = await upsertQontoTransaction({
       qontoId: transaction.id,
-      montant: transaction.amount_cents / 100,
+      side: transaction.side === "debit" ? "debit" : "credit",
+      montant: Math.abs(transaction.amount_cents / 100),
       devise: transaction.currency,
       libelle: transaction.label || "",
       reference: transaction.reference || null,

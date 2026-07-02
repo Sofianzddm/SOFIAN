@@ -35,7 +35,9 @@ export async function GET(request: NextRequest) {
       searchParams.get("horsPlateforme") === "true";
 
     // Build where clause
-    const where: any = {};
+    // La réconciliation ne concerne que les encaissements : les débits
+    // (dépenses) sont gérés dans /comptable/depenses.
+    const where: any = { side: "credit" };
 
     if (associeOnly) {
       where.associe = true;

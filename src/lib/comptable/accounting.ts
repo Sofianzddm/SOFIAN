@@ -395,6 +395,9 @@ export async function getComptaData(periode: Periode): Promise<ComptaData> {
   const txs = await prisma.transactionQonto.findMany({
     where: {
       dateTransaction: { gte: dateDebut, lte: dateFin },
+      // Journal de banque ventes : encaissements uniquement (les débits
+      // sont gérés par le module Dépenses).
+      side: "credit",
     },
     select: {
       id: true,

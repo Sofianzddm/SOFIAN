@@ -122,7 +122,7 @@ export function parseQontoWebhookPayload(
   // —— API v2 ——
   if (p.type === "v1/transactions" && p.data) {
     const d = p.data;
-    if (d.side !== "credit") return null;
+    if (d.side !== "credit" && d.side !== "debit") return null;
     if (d.status === "declined" || d.status === "reversed") return null;
 
     const qontoId = d.id || d.transaction_id;
@@ -130,6 +130,7 @@ export function parseQontoWebhookPayload(
 
     return {
       qontoId,
+      side: d.side,
       montant: Math.abs(Number(d.amount)),
       devise: d.currency || "EUR",
       libelle: d.label || d.clean_counterparty_name || "",
@@ -150,12 +151,13 @@ export function parseQontoWebhookPayload(
     p.transaction
   ) {
     const t = p.transaction;
-    if (t.side !== "credit") return null;
+    if (t.side !== "credit" && t.side !== "debit") return null;
     if (t.status === "declined" || t.status === "reversed") return null;
 
     return {
       qontoId: t.id,
-      montant: t.amount_cents / 100,
+      side: t.side === "debit" ? "debit" : "credit",
+      montant: Math.abs(t.amount_cents / 100),
       devise: t.currency || "EUR",
       libelle: t.label || "",
       reference: t.reference || null,
