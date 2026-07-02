@@ -18,8 +18,15 @@ export async function GET(request: NextRequest) {
     // Si ?presskit=true → retourner tous les talents pour le sélecteur du dashboard
     const { searchParams } = new URL(request.url);
     const isPresskit = searchParams.get('presskit') === 'true';
+    // Marché ciblé (outreach) : sur BENELUX, ne proposer que les créateurs belges
+    // (même convention que le talent book /talentbook/be : pays = "Belgique").
+    const market = searchParams.get('market')?.toUpperCase();
 
     let whereClause: any = { isArchived: false };
+
+    if (isPresskit && market === "BENELUX") {
+      whereClause.pays = "Belgique";
+    }
     
     if (user.role === "TM" && !isPresskit) {
       whereClause = {

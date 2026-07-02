@@ -1534,19 +1534,21 @@ export default function OutreachPage() {
                         <div className="min-w-[200px] flex-1">
                           <div className="font-medium text-sm flex items-center gap-1.5" style={{ color: LICORICE }}>
                             {target.firstname} {target.lastname || ""}
-                            {langKind === "mixed" && (
-                              <span
-                                className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
-                                style={{ backgroundColor: OLD_LACE, color: LICORICE }}
-                                title={
-                                  target.language === "en"
-                                    ? "Ce contact reçoit le mail en anglais"
-                                    : "Ce contact reçoit le mail en français"
-                                }
-                              >
-                                {target.language === "en" ? "🇬🇧 EN" : "🇫🇷 FR"}
-                              </span>
-                            )}
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
+                              style={
+                                target.language === "en"
+                                  ? { backgroundColor: "#1E3A8A", color: "#FFFFFF" }
+                                  : { backgroundColor: OLD_LACE, color: LICORICE }
+                              }
+                              title={
+                                target.language === "en"
+                                  ? "Ce contact reçoit le mail en anglais (modifiable via le crayon)"
+                                  : "Ce contact reçoit le mail en français (modifiable via le crayon)"
+                              }
+                            >
+                              {target.language === "en" ? "🇬🇧 EN" : "🇫🇷 FR"}
+                            </span>
                           </div>
                           <div className="text-xs text-gray-500 mt-0.5">{target.email}</div>
                         </div>
@@ -2784,6 +2786,21 @@ function PendingContactRow({
       <div className="min-w-[200px] flex-1">
         <div className="font-medium text-sm flex items-center gap-2" style={{ color: LICORICE }}>
           {[contact.prenom, contact.nom].filter(Boolean).join(" ")}
+          <span
+            className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
+            style={
+              contact.language === "en"
+                ? { backgroundColor: "#1E3A8A", color: "#FFFFFF" }
+                : { backgroundColor: OLD_LACE, color: LICORICE }
+            }
+            title={
+              contact.language === "en"
+                ? "Ce contact recevra le mail en anglais"
+                : "Ce contact recevra le mail en français"
+            }
+          >
+            {contact.language === "en" ? "🇬🇧 EN" : "🇫🇷 FR"}
+          </span>
           {contact.priorite && (
             <span
               className="px-1.5 py-0.5 rounded text-[10px] font-bold"

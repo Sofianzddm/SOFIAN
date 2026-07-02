@@ -627,7 +627,8 @@ export default function CastingComposer({
     let cancelled = false;
     setLoadingTalents(true);
     setTalentsError(null);
-    fetch("/api/talents?presskit=true", { credentials: "include" })
+    // Sur le marché BENELUX, la colonne ne propose que les créateurs belges
+    fetch(`/api/talents?presskit=true&market=${market}`, { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
@@ -653,7 +654,7 @@ export default function CastingComposer({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, market]);
 
   const selectedTalents = useMemo(
     () => talents.filter((t) => selectedIds.has(t.id)),
@@ -996,6 +997,13 @@ export default function CastingComposer({
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Chargement…
                 </div>
+              )}
+              {!loadingTalents && !talentsError && talents.length === 0 && (
+                <p className="text-xs opacity-70" style={{ color: LICORICE }}>
+                  {market === "BENELUX"
+                    ? "Aucun créateur belge trouvé (pays « Belgique » sur la fiche talent)."
+                    : "Aucun talent disponible."}
+                </p>
               )}
               {!loadingTalents &&
                 talents.map((t) => {
