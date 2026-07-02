@@ -51,9 +51,10 @@ function preflight(mission: {
   if (!mission) return { error: "Mission introuvable.", status: 404 };
   if (!mission.sentAt)
     return { error: "Le mail initial n'a pas encore été envoyé.", status: 409 };
-  // NB : on autorise volontairement la relance manuelle même si le client a
-  // répondu (mission.replied). Seule la relance AUTOMATIQUE J+3 reste stoppée
-  // dans ce cas (cf. cron). L'envoi manuel reste à la discrétion de l'équipe.
+  // NB : la relance manuelle reste possible même si `mission.replied` est vrai :
+  // la détection se fait PAR CONTACT (buildCastingRelanceDraft +
+  // executeCastingRelance excluent automatiquement les contacts qui ont
+  // répondu). Seuls ceux restés sans réponse recevront la relance.
   if (mission.relanceSentAt)
     return { error: "Une relance a déjà été envoyée.", status: 409 };
   return null;
@@ -111,14 +112,18 @@ export async function POST(
     });
 
     if (outcome.succeeded === 0) {
+      const allHandled =
+        outcome.attempted === 0 &&
+        (outcome.skippedReplied > 0 || outcome.skippedBounced > 0);
       return NextResponse.json(
         {
-          error:
-            outcome.errors[0] ||
-            "Aucune relance envoyée (aucun destinataire valide ou échec Gmail).",
+          error: allHandled
+            ? "Aucune relance à envoyer : tous les contacts ont déjà répondu (ou leur adresse est en échec de remise)."
+            : outcome.errors[0] ||
+              "Aucune relance envoyée (aucun destinataire valide ou échec Gmail).",
           outcome,
         },
-        { status: 502 }
+        { status: allHandled ? 409 : 502 }
       );
     }
 

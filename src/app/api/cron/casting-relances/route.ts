@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { checkThreadForReply } from "@/lib/gmail";
+import { checkThreadActivity } from "@/lib/gmail";
 import {
   CASTING_RELANCE_BUSINESS_DAYS,
   LEYNA_FROM_EMAIL,
@@ -14,9 +14,15 @@ export const maxDuration = 300;
 /**
  * Relance J+3 : pour toutes les missions envoyees il y a au moins
  * `CASTING_RELANCE_BUSINESS_DAYS` jours ouvres (Lun-Ven, Europe/Paris),
- * pas encore relancees, on verifie via l'API Gmail si le thread a recu
- * une reponse. Si oui : on flag `replied=true`. Sinon : on envoie une
- * relance courte dans le meme thread.
+ * pas encore relancees, on verifie via l'API Gmail, CONTACT PAR CONTACT,
+ * si son thread a recu une vraie reponse (les bounces/postmaster ne
+ * comptent pas).
+ *
+ *  - Contacts qui ont repondu   → pas de relance pour eux, mission flaggee
+ *    `replied=true` (stage RESPONSE_RECEIVED) pour le pipeline.
+ *  - Contacts SANS reponse      → ils recoivent quand meme la relance J+3 :
+ *    la reponse d'UN contact ne bloque plus la relance des autres.
+ *  - Contacts en bounce         → pas de relance (adresse en echec).
  *
  * Frequence : quotidien (cf. vercel.json), ideal le matin.
  */
@@ -43,10 +49,13 @@ export async function GET(request: NextRequest) {
 
   const rawCandidates = await contactMissionModel.findMany({
     where: {
-      stage: "SENT",
+      // On inclut RESPONSE_RECEIVED : une mission ou UN contact a repondu
+      // peut encore avoir d'autres contacts a relancer (la reponse d'un seul
+      // ne bloque plus la relance des autres). Idem pour `replied=true` :
+      // on ne filtre plus dessus, la detection se fait PAR CONTACT plus bas.
+      stage: { in: ["SENT", "RESPONSE_RECEIVED"] },
       sentAt: { lte: sqlCutoff, not: null },
       relanceSentAt: null,
-      replied: false,
       // L'utilisateur peut stopper manuellement la relance auto depuis le pipeline
       // ou la page "Mails envoyés". Si `relanceCancelledAt` est defini, on saute.
       relanceCancelledAt: null,
@@ -62,8 +71,11 @@ export async function GET(request: NextRequest) {
   const results: Array<{
     id: string;
     replied?: boolean;
+    repliedEmails?: string[];
+    bouncedEmails?: string[];
     succeeded?: number;
     failed?: number;
+    skippedReplied?: number;
     error?: string;
   }> = [];
 
@@ -74,30 +86,65 @@ export async function GET(request: NextRequest) {
           ? (row.sentMessageIds as Record<string, { threadId?: string; error?: string }>)
           : {};
 
-      let anyReply = false;
-      for (const record of Object.values(messagesByEmail)) {
+      // Detection PAR CONTACT : chaque destinataire a son propre thread Gmail.
+      const repliedEmails: string[] = [];
+      const bouncedEmails: string[] = [];
+      let pendingCount = 0;
+      for (const [email, record] of Object.entries(messagesByEmail)) {
         if (!record?.threadId || record.error) continue;
-        const replied = await checkThreadForReply(LEYNA_FROM_EMAIL, record.threadId);
-        if (replied) {
-          anyReply = true;
-          break;
+        const activity = await checkThreadActivity(LEYNA_FROM_EMAIL, record.threadId);
+        if (activity.replied) {
+          repliedEmails.push(email);
+        } else if (activity.bounced) {
+          // Adresse en echec de remise : inutile de relancer ce thread.
+          bouncedEmails.push(email);
+        } else {
+          pendingCount += 1;
         }
       }
-      if (anyReply) {
+
+      // Au moins une vraie reponse : on flag la mission pour le pipeline
+      // (stage « Reponse recue »), mais on ne bloque PLUS la relance des
+      // autres contacts restes sans reponse.
+      if (repliedEmails.length > 0) {
         await contactMissionModel.update({
           where: { id: row.id },
           data: { replied: true, stage: "RESPONSE_RECEIVED" },
         });
-        results.push({ id: row.id, replied: true });
+      }
+
+      if (pendingCount === 0) {
+        // Personne a relancer (tout le monde a repondu ou est en bounce) :
+        // on clot la relance pour que le cron ne repasse pas sur la mission.
+        await contactMissionModel.update({
+          where: { id: row.id },
+          data: { relanceSentAt: new Date() },
+        });
+        results.push({
+          id: row.id,
+          replied: repliedEmails.length > 0,
+          repliedEmails,
+          bouncedEmails,
+          succeeded: 0,
+          failed: 0,
+        });
         continue;
       }
 
-      const outcome = await executeCastingRelance(row.id);
+      const outcome = await executeCastingRelance(row.id, {
+        excludeEmails: [...repliedEmails, ...bouncedEmails],
+        // La vérification « a-t-il répondu ? » vient d'être faite ci-dessus,
+        // inutile de rappeler l'API Gmail pour chaque thread.
+        skipReplyCheck: true,
+      });
       results.push({
         id: row.id,
-        replied: false,
+        replied: repliedEmails.length > 0,
+        repliedEmails,
+        bouncedEmails,
         succeeded: outcome.succeeded,
         failed: outcome.failed,
+        skippedReplied: outcome.skippedReplied,
       });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Erreur inconnue";

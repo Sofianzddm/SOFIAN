@@ -17,7 +17,12 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { sendGmail, getMessageRfcId, getGmailFromName } from "@/lib/gmail";
+import {
+  sendGmail,
+  getMessageRfcId,
+  getGmailFromName,
+  checkThreadActivity,
+} from "@/lib/gmail";
 import { injectCastingTracking } from "@/lib/casting-tracking";
 import {
   type TalentLinkInput,
@@ -722,17 +727,30 @@ export type CastingRelanceRecipient = {
   body: string;
 };
 
+export type CastingRelanceSkipped = {
+  email: string;
+  firstname: string;
+  lastname: string;
+  reason: "replied" | "bounced";
+};
+
 export type CastingRelanceDraft = {
   subject: string;
   /** Corps modèle "neutre" {{prenom}} → utile pour édition côté UI */
   bodyTemplate: string;
   recipients: CastingRelanceRecipient[];
+  /** Contacts exclus de la relance : ont répondu, ou adresse en bounce. */
+  skipped: CastingRelanceSkipped[];
   targetBrand: string;
 };
 
 /**
  * Construit la prévisualisation de la relance (sujet + corps par destinataire)
  * sans rien envoyer. Utilisé par le bouton "Relancer maintenant" du pipeline.
+ *
+ * Les contacts qui ont DÉJÀ RÉPONDU (vérifié thread par thread via Gmail) et
+ * les adresses en bounce sont exclus des destinataires et listés dans
+ * `skipped` : la relance ne part que vers les contacts restés sans réponse.
  */
 export async function buildCastingRelanceDraft(
   missionId: string
@@ -760,6 +778,7 @@ export async function buildCastingRelanceDraft(
   const bodyTemplate = buildDefaultRelanceTemplate(targetBrand, relanceLang);
 
   const recipients: CastingRelanceRecipient[] = [];
+  const skipped: CastingRelanceSkipped[] = [];
   for (const [email, record] of Object.entries(sentByEmail)) {
     if (!record?.threadId || record.error) continue;
     const contact = parseCastingContacts(mission.clientContacts).find(
@@ -767,6 +786,24 @@ export async function buildCastingRelanceDraft(
     );
     const firstname = contact?.firstname || "";
     const lastname = contact?.lastname || "";
+
+    // Un contact qui a répondu (ou dont l'adresse est en bounce) est exclu
+    // de la relance : elle ne part que vers ceux restés sans réponse.
+    try {
+      const activity = await checkThreadActivity(LEYNA_FROM_EMAIL, record.threadId);
+      if (activity.replied) {
+        skipped.push({ email, firstname, lastname, reason: "replied" });
+        continue;
+      }
+      if (activity.bounced) {
+        skipped.push({ email, firstname, lastname, reason: "bounced" });
+        continue;
+      }
+    } catch {
+      // Vérification impossible : on garde le contact dans la liste (le
+      // garde-fou d'executeCastingRelance re-vérifiera à l'envoi).
+    }
+
     const body = applyCastingTemplateVars(bodyTemplate, {
       firstname,
       lastname,
@@ -781,7 +818,7 @@ export async function buildCastingRelanceDraft(
     });
   }
 
-  return { subject, bodyTemplate, recipients, targetBrand };
+  return { subject, bodyTemplate, recipients, skipped, targetBrand };
 }
 
 export type CastingRelanceSendOptions = {
@@ -793,6 +830,12 @@ export type CastingRelanceSendOptions = {
    * d'un contact ne doit pas bloquer la relance des autres.
    */
   excludeEmails?: string[];
+  /**
+   * Saute la vérification Gmail « ce contact a-t-il déjà répondu ? » faite
+   * par défaut avant CHAQUE relance. À réserver au cron, qui vient de faire
+   * cette vérification lui-même (évite de doubler les appels API Gmail).
+   */
+  skipReplyCheck?: boolean;
 };
 
 /**
@@ -811,8 +854,10 @@ export async function executeCastingRelance(
   attempted: number;
   succeeded: number;
   failed: number;
-  /** Contacts sautés car ils ont déjà répondu (cf. options.excludeEmails). */
+  /** Contacts sautés car ils ont déjà répondu (exclusion ou garde-fou Gmail). */
   skippedReplied: number;
+  /** Contacts sautés car leur adresse est en échec de remise (bounce). */
+  skippedBounced: number;
   errors: string[];
 }> {
   const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
@@ -903,12 +948,41 @@ export async function executeCastingRelance(
   let succeeded = 0;
   let failed = 0;
   let skippedReplied = 0;
+  let skippedBounced = 0;
+  // Contacts dont la réponse est détectée ICI (garde-fou) : sert à flagger
+  // la mission `replied=true` même sur une relance manuelle.
+  const repliedDetected: string[] = [];
 
   for (const [email, record] of Object.entries(sentByEmail)) {
     if (!record?.threadId || record.error) continue;
     if (excluded.has(email.trim().toLowerCase())) {
       skippedReplied += 1;
       continue;
+    }
+    // Garde-fou systématique : on ne relance JAMAIS un contact qui a déjà
+    // répondu, et on ne relance pas une adresse en échec de remise (bounce).
+    // Vérifié thread par thread via Gmail, sauf si l'appelant (cron) vient
+    // déjà de faire cette vérification (skipReplyCheck).
+    if (!options.skipReplyCheck) {
+      try {
+        const activity = await checkThreadActivity(LEYNA_FROM_EMAIL, record.threadId);
+        if (activity.replied) {
+          skippedReplied += 1;
+          repliedDetected.push(email);
+          continue;
+        }
+        if (activity.bounced) {
+          skippedBounced += 1;
+          continue;
+        }
+      } catch (e) {
+        // Vérification Gmail impossible : on tente quand même la relance
+        // (comportement historique), l'erreur éventuelle sera loggée à l'envoi.
+        console.warn(
+          `[executeCastingRelance] checkThreadActivity KO pour ${email} :`,
+          e instanceof Error ? e.message : e
+        );
+      }
     }
     attempted += 1;
     const contact = parseCastingContacts(mission.clientContacts).find(
@@ -957,10 +1031,10 @@ export async function executeCastingRelance(
   }
 
   try {
-    // Cas particulier : TOUS les destinataires relançables ont répondu
-    // (attempted=0 à cause des exclusions). On marque quand même la relance
-    // comme traitée pour que le cron ne repasse pas indéfiniment.
-    const allRepliedNoSend = attempted === 0 && skippedReplied > 0;
+    // Cas particulier : TOUS les destinataires relançables ont répondu ou
+    // sont en bounce (attempted=0 à cause des exclusions). On marque quand
+    // même la relance comme traitée pour que le cron ne repasse pas indéfiniment.
+    const allRepliedNoSend = attempted === 0 && (skippedReplied > 0 || skippedBounced > 0);
     const updated = await contactMissionModel.update({
       where: { id: missionId },
       data: {
@@ -972,11 +1046,19 @@ export async function executeCastingRelance(
         // Si l'envoi manuel réussit on lève l'éventuelle annulation pour
         // garder l'historique cohérent.
         ...(succeeded > 0 ? { relanceCancelledAt: null, relanceCancelledById: null } : {}),
+        // Réponse détectée pendant le garde-fou (relance manuelle) : on
+        // flagge la mission comme répondue pour le pipeline.
+        ...(repliedDetected.length > 0
+          ? {
+              replied: true,
+              ...(mission.stage === "SENT" ? { stage: "RESPONSE_RECEIVED" as const } : {}),
+            }
+          : {}),
       },
       select: { id: true, relanceSentAt: true, status: true },
     });
     console.info(
-      `[executeCastingRelance] ${missionId} attempted=${attempted} succeeded=${succeeded} failed=${failed} skippedReplied=${skippedReplied} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} status=${updated.status}`
+      `[executeCastingRelance] ${missionId} attempted=${attempted} succeeded=${succeeded} failed=${failed} skippedReplied=${skippedReplied} skippedBounced=${skippedBounced} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} status=${updated.status}`
     );
   } catch (err) {
     // Cas critique : Gmail a expédié mais la DB n'a pas pu être mise à jour.
@@ -988,5 +1070,5 @@ export async function executeCastingRelance(
     throw err;
   }
 
-  return { attempted, succeeded, failed, errors };
+  return { attempted, succeeded, failed, skippedReplied, skippedBounced, errors };
 }

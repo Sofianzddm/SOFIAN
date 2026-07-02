@@ -55,12 +55,9 @@ export async function POST(
         { status: 409 }
       );
     }
-    if (mission.replied) {
-      return NextResponse.json(
-        { error: "Le client a deja repondu, la relance est deja stoppee automatiquement." },
-        { status: 409 }
-      );
-    }
+    // NB : on autorise le stop meme si `replied=true`. Une reponse d'UN contact
+    // ne stoppe plus la relance des autres : tant que la relance n'est pas
+    // partie, l'utilisateur peut encore la stopper manuellement.
     if (mission.relanceSentAt) {
       return NextResponse.json(
         { error: "La relance a deja ete envoyee, impossible de la stopper." },

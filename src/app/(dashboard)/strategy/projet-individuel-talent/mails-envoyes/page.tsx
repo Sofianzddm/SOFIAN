@@ -152,11 +152,23 @@ function RelanceStatus({
   replied: boolean;
   relanceCancelledAt: string | null;
 }) {
+  if (replied && relanceSentAt) {
+    return (
+      <div
+        className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700"
+        title={`Au moins un contact a répondu (pas de relance pour lui) ; les contacts sans réponse ont été relancés le ${formatDate(relanceSentAt)}.`}
+      >
+        <CheckCircle2 className="h-3 w-3" />
+        Réponse reçue · autres relancés
+      </div>
+    );
+  }
+
   if (replied) {
     return (
       <div
         className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700"
-        title="Le client a répondu, plus aucune relance ne sera envoyée."
+        title="Tous les contacts joignables ont répondu : plus aucune relance à envoyer. Les contacts sans réponse, eux, sont quand même relancés à J+3."
       >
         <CheckCircle2 className="h-3 w-3" />
         Stoppée — client a répondu
@@ -229,11 +241,18 @@ function RelanceTimeline({ mail }: { mail: SentMission }) {
     },
   ];
 
-  if (mail.replied) {
+  if (mail.replied && mail.relanceSentAt) {
+    steps.push({
+      label: "Réponse reçue — contacts sans réponse relancés",
+      state: "done",
+      date: `${formatDate(mail.relanceSentAt)} (${relativeDate(mail.relanceSentAt)})`,
+      hint: "Le contact qui a répondu n'est pas relancé ; les autres si.",
+    });
+  } else if (mail.replied) {
     steps.push({
       label: "Client a répondu — relance stoppée",
       state: "stopped",
-      hint: "Détecté automatiquement par le cron via Gmail.",
+      hint: "Détecté automatiquement par le cron via Gmail (aucun contact restant à relancer).",
     });
   } else if (mail.relanceSentAt) {
     steps.push({
@@ -367,6 +386,8 @@ type RelancePreview = {
   subject: string;
   body: string;
   recipients: { email: string; firstname: string; lastname: string }[];
+  /** Contacts exclus (ont répondu / adresse en bounce) — pas de relance pour eux. */
+  skipped: { email: string; firstname: string; lastname: string; reason: "replied" | "bounced" }[];
 };
 
 export default function PipelineMailsEnvoyesPage() {
@@ -402,6 +423,7 @@ export default function PipelineMailsEnvoyesPage() {
         subject: string;
         bodyTemplate: string;
         recipients: { email: string; firstname: string; lastname: string; body: string }[];
+        skipped?: { email: string; firstname: string; lastname: string; reason: "replied" | "bounced" }[];
       };
       setRelancePreview({
         mission: mail,
@@ -412,6 +434,7 @@ export default function PipelineMailsEnvoyesPage() {
           firstname: r.firstname,
           lastname: r.lastname,
         })),
+        skipped: Array.isArray(draft.skipped) ? draft.skipped : [],
       });
     } catch (e) {
       setFeedback({
@@ -426,12 +449,22 @@ export default function PipelineMailsEnvoyesPage() {
   async function sendRelanceNow() {
     if (!relancePreview) return;
     if (relancePreview.recipients.length === 0) {
-      setFeedback({ kind: "error", message: "Aucun destinataire valide pour la relance." });
+      setFeedback({
+        kind: "error",
+        message:
+          relancePreview.skipped.length > 0
+            ? "Aucune relance à envoyer : tous les contacts ont déjà répondu (ou sont en échec de remise)."
+            : "Aucun destinataire valide pour la relance.",
+      });
       return;
     }
+    const skippedNote =
+      relancePreview.skipped.length > 0
+        ? `\n(${relancePreview.skipped.length} contact${relancePreview.skipped.length > 1 ? "s" : ""} exclu${relancePreview.skipped.length > 1 ? "s" : ""} : déjà répondu ou adresse en échec)`
+        : "";
     if (
       !confirm(
-        `Envoyer la relance maintenant à ${relancePreview.recipients.length} destinataire(s) ?`
+        `Envoyer la relance maintenant à ${relancePreview.recipients.length} destinataire(s) ?${skippedNote}`
       )
     )
       return;
@@ -1172,7 +1205,9 @@ export default function PipelineMailsEnvoyesPage() {
                 </p>
                 {relancePreview.recipients.length === 0 ? (
                   <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
-                    Aucun destinataire valide trouvé (threads Gmail introuvables ou en erreur).
+                    {relancePreview.skipped.length > 0
+                      ? "Aucune relance à envoyer : tous les contacts ont déjà répondu (ou leur adresse est en échec de remise)."
+                      : "Aucun destinataire valide trouvé (threads Gmail introuvables ou en erreur)."}
                   </p>
                 ) : (
                   <ul className="space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700">
@@ -1183,6 +1218,24 @@ export default function PipelineMailsEnvoyesPage() {
                       </li>
                     ))}
                   </ul>
+                )}
+                {relancePreview.skipped.length > 0 && (
+                  <div className="mt-2">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Exclus de la relance ({relancePreview.skipped.length})
+                    </p>
+                    <ul className="space-y-1 rounded-lg border border-sky-200 bg-sky-50 p-2 text-xs text-sky-800">
+                      {relancePreview.skipped.map((s) => (
+                        <li key={s.email}>
+                          <strong>{s.firstname}</strong>
+                          {s.lastname ? ` ${s.lastname}` : ""} — {s.email}{" "}
+                          <span className="opacity-80">
+                            ({s.reason === "replied" ? "a répondu ✓" : "adresse en échec"})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
 

@@ -950,10 +950,10 @@ export function ProspectingPipelineClient() {
                   {m.replied && (
                     <p
                       className="mt-1 inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700"
-                      title="Le client a répondu, les relances auto sont stoppées."
+                      title="Au moins un contact a répondu : il n'est plus relancé. Les autres contacts restés sans réponse reçoivent quand même leur relance J+3."
                     >
                       <CheckCircle2 className="h-3 w-3" />
-                      Client a répondu — relances stoppées
+                      Client a répondu
                     </p>
                   )}
                   {!m.replied && m.relanceCancelledAt && !m.relanceSentAt && (
