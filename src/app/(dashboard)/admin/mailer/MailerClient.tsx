@@ -82,6 +82,12 @@ type FollowupDraft = {
   bodyHtml: string;
 };
 
+type RecipientDraft = {
+  uid: string;
+  email: string;
+  name: string;
+};
+
 type TemplateFollowup = {
   delayBusinessDays: number;
   subject: string | null;
@@ -143,8 +149,10 @@ export default function MailerClient() {
 
   // ─── Composer ───
   const [fromEmail, setFromEmail] = useState("");
-  const [toEmail, setToEmail] = useState("");
-  const [toName, setToName] = useState("");
+  const [recipients, setRecipients] = useState<RecipientDraft[]>([
+    { uid: newUid(), email: "", name: "" },
+  ]);
+  const [sendMode, setSendMode] = useState<"solo" | "group">("solo");
   const [subject, setSubject] = useState("");
   const [bodyHtml, setBodyHtml] = useState("");
   const [stopOnReply, setStopOnReply] = useState(true);
@@ -201,8 +209,8 @@ export default function MailerClient() {
   }, [loadAccounts, loadMails, loadTemplates]);
 
   const resetComposer = useCallback(() => {
-    setToEmail("");
-    setToName("");
+    setRecipients([{ uid: newUid(), email: "", name: "" }]);
+    setSendMode("solo");
     setSubject("");
     setBodyHtml("");
     setStopOnReply(true);
@@ -306,15 +314,63 @@ export default function MailerClient() {
     );
   };
 
+  const addRecipient = () => {
+    setRecipients((prev) => [...prev, { uid: newUid(), email: "", name: "" }]);
+  };
+
+  const removeRecipient = (uid: string) => {
+    setRecipients((prev) =>
+      prev.length > 1 ? prev.filter((r) => r.uid !== uid) : prev
+    );
+  };
+
+  const updateRecipient = (uid: string, patch: Partial<RecipientDraft>) => {
+    setRecipients((prev) =>
+      prev.map((r) => (r.uid === uid ? { ...r, ...patch } : r))
+    );
+  };
+
+  /**
+   * Colle une liste d'adresses (séparées par virgules, points-virgules,
+   * espaces ou retours à la ligne) dans une ligne : éclate en plusieurs lignes.
+   */
+  const handleRecipientPaste = (
+    uid: string,
+    e: React.ClipboardEvent<HTMLInputElement>
+  ) => {
+    const text = e.clipboardData.getData("text");
+    const parts = text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length <= 1) return;
+    e.preventDefault();
+    setRecipients((prev) => {
+      const idx = prev.findIndex((r) => r.uid === uid);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = { ...next[idx], email: parts[0] };
+      const extras = parts.slice(1).map((email) => ({
+        uid: newUid(),
+        email,
+        name: "",
+      }));
+      next.splice(idx + 1, 0, ...extras);
+      return next;
+    });
+  };
+
+  const validRecipients = useMemo(
+    () => recipients.filter((r) => /\S+@\S+\.\S+/.test(r.email.trim())),
+    [recipients]
+  );
+
   const canSubmit = useMemo(
     () =>
       Boolean(
         fromEmail &&
-          /\S+@\S+\.\S+/.test(toEmail) &&
+          validRecipients.length > 0 &&
           subject.trim() &&
           bodyHtml.replace(/<[^>]*>/g, "").trim()
       ),
-    [fromEmail, toEmail, subject, bodyHtml]
+    [fromEmail, validRecipients, subject, bodyHtml]
   );
 
   async function submit(action: "draft" | "schedule" | "send") {
@@ -337,8 +393,11 @@ export default function MailerClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fromEmail,
-          toEmail,
-          toName: toName || null,
+          recipients: validRecipients.map((r) => ({
+            email: r.email.trim(),
+            name: r.name.trim() || null,
+          })),
+          sendMode,
           subject,
           bodyHtml,
           stopOnReply,
@@ -368,12 +427,22 @@ export default function MailerClient() {
           duration: 8000,
         });
       } else {
+        const count =
+          sendMode === "solo" && validRecipients.length > 1
+            ? validRecipients.length
+            : 1;
         toast.success(
           action === "send"
-            ? "Mail envoyé ✉️"
+            ? count > 1
+              ? `${count} mails envoyés ✉️`
+              : "Mail envoyé ✉️"
             : action === "schedule"
-              ? "Mail programmé ⏰"
-              : "Brouillon enregistré"
+              ? count > 1
+                ? `${count} mails programmés ⏰`
+                : "Mail programmé ⏰"
+              : count > 1
+                ? `${count} brouillons enregistrés`
+                : "Brouillon enregistré"
         );
       }
       resetComposer();
@@ -603,50 +672,120 @@ export default function MailerClient() {
             className="space-y-4 rounded-2xl border bg-white p-6"
             style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
           >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Depuis
-                </span>
-                <select
-                  value={fromEmail}
-                  onChange={(e) => setFromEmail(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
-                  style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
-                >
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.email}>
-                      {a.displayName ? `${a.displayName} · ${a.email}` : a.email}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Nom du destinataire (optionnel)
-                </span>
-                <input
-                  value={toName}
-                  onChange={(e) => setToName(e.target.value)}
-                  placeholder="Marie Dupont"
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
-                  style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
-                />
-              </label>
-            </div>
-            <label className="block">
+            <label className="block sm:max-w-sm">
               <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                À
+                Depuis
               </span>
-              <input
-                type="email"
-                value={toEmail}
-                onChange={(e) => setToEmail(e.target.value)}
-                placeholder="contact@marque.com"
+              <select
+                value={fromEmail}
+                onChange={(e) => setFromEmail(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
-              />
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.email}>
+                    {a.displayName ? `${a.displayName} · ${a.email}` : a.email}
+                  </option>
+                ))}
+              </select>
             </label>
+
+            {/* Destinataires */}
+            <div>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Destinataires
+                </span>
+                <button
+                  type="button"
+                  onClick={addRecipient}
+                  className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium"
+                  style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Ajouter un destinataire
+                </button>
+              </div>
+              <div className="space-y-2">
+                {recipients.map((r) => (
+                  <div key={r.uid} className="flex items-center gap-2">
+                    <input
+                      type="email"
+                      value={r.email}
+                      onChange={(e) => updateRecipient(r.uid, { email: e.target.value })}
+                      onPaste={(e) => handleRecipientPaste(r.uid, e)}
+                      placeholder="contact@marque.com"
+                      className="w-full flex-1 rounded-lg border px-3 py-2 text-sm"
+                      style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                    />
+                    <input
+                      value={r.name}
+                      onChange={(e) => updateRecipient(r.uid, { name: e.target.value })}
+                      placeholder="Prénom Nom (optionnel)"
+                      className="w-44 rounded-lg border px-3 py-2 text-sm"
+                      style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeRecipient(r.uid)}
+                      disabled={recipients.length <= 1}
+                      className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 hover:bg-red-100 disabled:opacity-30"
+                      title="Retirer ce destinataire"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1.5 text-xs text-slate-400">
+                Astuce : colle plusieurs adresses d&apos;un coup (séparées par virgules ou
+                retours à la ligne) pour créer les lignes automatiquement.
+              </p>
+
+              {/* Mode d'envoi */}
+              {recipients.length > 1 && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Mode d&apos;envoi
+                  </span>
+                  <div
+                    className="inline-flex overflow-hidden rounded-lg border text-sm"
+                    style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSendMode("solo")}
+                      className="px-3 py-1.5 font-medium"
+                      style={
+                        sendMode === "solo"
+                          ? { backgroundColor: TEA_GREEN, color: LICORICE }
+                          : { color: "#64748B" }
+                      }
+                    >
+                      Solo · un mail par personne
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSendMode("group")}
+                      className="border-l px-3 py-1.5 font-medium"
+                      style={{
+                        borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                        ...(sendMode === "group"
+                          ? { backgroundColor: TEA_GREEN, color: LICORICE }
+                          : { color: "#64748B" }),
+                      }}
+                    >
+                      Groupé · un seul mail commun
+                    </button>
+                  </div>
+                  <span className="text-xs text-slate-400">
+                    {sendMode === "solo"
+                      ? "Chacun reçoit son propre mail (personnalisable avec {{prenom}})."
+                      : "Tous les destinataires sont visibles dans le même mail."}
+                  </span>
+                </div>
+              )}
+            </div>
+
             <label className="block">
               <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Sujet
@@ -668,6 +807,13 @@ export default function MailerClient() {
                 initialHtml={bodyHtml}
                 onChangeHtml={setBodyHtml}
               />
+              <p className="mt-1.5 text-xs text-slate-400">
+                Jeton dispo dans le sujet, le message et les relances :{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] text-slate-600">
+                  {"{{prenom}}"}
+                </code>{" "}
+                sera remplacé par le prénom du destinataire (retiré s&apos;il est inconnu).
+              </p>
             </div>
           </div>
 

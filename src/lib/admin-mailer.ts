@@ -55,6 +55,31 @@ export type SendResult = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Jeton de personnalisation : {{prenom}}, {{Prénom}}, {prenom}… */
+const PRENOM_TOKEN = /\{\{?\s*pr[eé]nom\s*\}?\}/gi;
+
+/**
+ * Remplace le jeton prénom par le prénom du destinataire (premier mot du nom).
+ * Sans prénom connu, le jeton est retiré proprement, espaces superflues
+ * comprises (« Bonjour {{prenom}}, » → « Bonjour, »).
+ */
+export function applyPrenomToken(
+  text: string,
+  name: string | null | undefined
+): string {
+  const first = (name || "").trim().split(/\s+/)[0] || "";
+  if (first) return text.replace(PRENOM_TOKEN, first);
+  return text.replace(/[ \u00A0]*\{\{?\s*pr[eé]nom\s*\}?\}/gi, "");
+}
+
+/** Découpe un champ toEmail potentiellement multi-destinataires (« a, b »). */
+function splitRecipients(toEmail: string): string[] {
+  return toEmail
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /**
  * Vérifie si la boîte de Leyna a déjà contacté `toEmail` durant les
  * `CASTING_COOLDOWN_DAYS` derniers jours (toutes sources confondues : casting,
@@ -143,8 +168,10 @@ export async function executeMailSend(mailId: string): Promise<SendResult> {
   if (mail.status === "SENT") return { ok: true };
   if (mail.status === "CANCELLED") return { ok: false, error: "Mail annulé" };
 
-  const subject = mail.subject.trim();
-  const bodyHtml = normalizeEditorHtmlForEmail(mail.bodyHtml);
+  const subject = applyPrenomToken(mail.subject, mail.toName).trim();
+  const bodyHtml = normalizeEditorHtmlForEmail(
+    applyPrenomToken(mail.bodyHtml, mail.toName)
+  );
   if (!subject || !bodyHtml) {
     const msg = "Sujet et corps requis.";
     await prisma.adminMail.update({
@@ -158,15 +185,16 @@ export async function executeMailSend(mailId: string): Promise<SendResult> {
   // moins de 20 jours, on reporte (« remis dans le cycle ») au lieu d'envoyer.
   // Le cron repassera à `nextAllowedAt` et renverra si le cooldown est levé.
   if (!mail.forceSend) {
-    const cooldown = await checkLeynaCooldown(mail.toEmail);
-    if (cooldown.blocked) {
+    for (const recipient of splitRecipients(mail.toEmail)) {
+      const cooldown = await checkLeynaCooldown(recipient);
+      if (!cooldown.blocked) continue;
       const when =
         cooldown.nextAllowedAt ??
         new Date(Date.now() + CASTING_COOLDOWN_DAYS * DAY_MS);
       const lastLabel = cooldown.lastContactAt
         ? formatFrDate(cooldown.lastContactAt)
         : "récemment";
-      const reason = `Leyna a déjà contacté ${mail.toEmail} le ${lastLabel} (cooldown ${CASTING_COOLDOWN_DAYS} j). Mail remis dans le cycle — réessai le ${formatFrDate(when)}.`;
+      const reason = `Leyna a déjà contacté ${recipient} le ${lastLabel} (cooldown ${CASTING_COOLDOWN_DAYS} j). Mail remis dans le cycle — réessai le ${formatFrDate(when)}.`;
       await prisma.adminMail.update({
         where: { id: mailId },
         data: {
@@ -223,6 +251,7 @@ type MailWithFollowups = {
   id: string;
   fromEmail: string;
   toEmail: string;
+  toName: string | null;
   subject: string;
   bodyHtml: string;
   sentAt: Date | null;
@@ -241,8 +270,12 @@ async function executeFollowupSend(
   mail: MailWithFollowups,
   followup: FollowupRow
 ): Promise<SendResult> {
-  const subject = toReplySubject(followup.subject || mail.subject);
-  const body = normalizeEditorHtmlForEmail(followup.bodyHtml);
+  const subject = toReplySubject(
+    applyPrenomToken(followup.subject || mail.subject, mail.toName)
+  );
+  const body = normalizeEditorHtmlForEmail(
+    applyPrenomToken(followup.bodyHtml, mail.toName)
+  );
   if (!body) {
     const msg = "Corps de relance vide.";
     await prisma.adminMailFollowup.update({
@@ -255,7 +288,10 @@ async function executeFollowupSend(
   const fromName = await getGmailFromName(mail.fromEmail);
   const senderLabel = `${fromName} <${mail.fromEmail}>`;
   const dateLabel = mail.sentAt ? formatFrDate(mail.sentAt) : "";
-  const quoted = buildQuotedOriginal(mail.bodyHtml, { dateLabel, senderLabel });
+  const quoted = buildQuotedOriginal(
+    applyPrenomToken(mail.bodyHtml, mail.toName),
+    { dateLabel, senderLabel }
+  );
   const finalHtml = injectFollowupOpenTracking(`${body}${quoted}`, followup.id);
 
   try {

@@ -17,9 +17,19 @@ const FollowupInput = z.object({
   bodyHtml: z.string().trim().min(1, "Corps de relance requis"),
 });
 
+const RecipientInput = z.object({
+  email: z.string().trim().email("Adresse destinataire invalide"),
+  name: z.string().trim().max(200).optional().nullable(),
+});
+
 const CreateMailInput = z.object({
   fromEmail: z.string().trim().email("Boîte expéditrice invalide"),
-  toEmail: z.string().trim().email("Adresse destinataire invalide"),
+  /** Nouveau format : plusieurs destinataires. */
+  recipients: z.array(RecipientInput).min(1).max(50).optional(),
+  /** "solo" = un mail séparé par destinataire ; "group" = un seul mail commun. */
+  sendMode: z.enum(["solo", "group"]).default("solo"),
+  /** Ancien format (compat) : un seul destinataire. */
+  toEmail: z.string().trim().email("Adresse destinataire invalide").optional(),
   toName: z.string().trim().max(200).optional().nullable(),
   subject: z.string().trim().min(1, "Sujet requis").max(500),
   bodyHtml: z.string().trim().min(1, "Corps requis"),
@@ -60,6 +70,28 @@ export async function POST(request: NextRequest) {
   }
   const data = parsed.data;
 
+  // Normalise les destinataires : nouveau format `recipients[]`, sinon
+  // l'ancien couple toEmail/toName (compat).
+  const rawRecipients =
+    data.recipients && data.recipients.length > 0
+      ? data.recipients
+      : data.toEmail
+        ? [{ email: data.toEmail, name: data.toName ?? null }]
+        : [];
+  const seen = new Set<string>();
+  const recipients = rawRecipients.filter((r) => {
+    const key = r.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (recipients.length === 0) {
+    return NextResponse.json(
+      { error: "Au moins un destinataire est requis." },
+      { status: 400 }
+    );
+  }
+
   // La boîte expéditrice doit être une boîte Gmail connectée.
   const box = await prisma.gmailToken.findUnique({
     where: { email: data.fromEmail.toLowerCase() },
@@ -94,51 +126,98 @@ export async function POST(request: NextRequest) {
 
   const { userId } = await resolveProspectionActor(session);
 
-  const created = await prisma.adminMail.create({
-    data: {
-      fromEmail: box.email,
-      toEmail: data.toEmail.toLowerCase(),
-      toName: data.toName?.trim() || null,
-      subject: data.subject,
-      bodyHtml: data.bodyHtml,
-      status,
-      scheduledAt,
-      stopOnReply: data.stopOnReply,
-      createdById: userId,
-      followups: {
-        create: data.followups.map((f, i) => ({
-          order: i + 1,
-          delayBusinessDays: f.delayBusinessDays,
-          subject: f.subject?.trim() || null,
-          bodyHtml: f.bodyHtml,
-        })),
-      },
-    },
-    include: { followups: { orderBy: { order: "asc" } } },
-  });
+  // En mode groupé : un seul AdminMail dont toEmail contient tous les
+  // destinataires (séparés par des virgules). En mode solo : un AdminMail par
+  // destinataire, chacun avec son nom (pour le jeton {{prenom}}).
+  const mailRows: { toEmail: string; toName: string | null }[] =
+    data.sendMode === "group" && recipients.length > 1
+      ? [
+          {
+            toEmail: recipients.map((r) => r.email.toLowerCase()).join(", "),
+            toName: null,
+          },
+        ]
+      : recipients.map((r) => ({
+          toEmail: r.email.toLowerCase(),
+          toName: r.name?.trim() || null,
+        }));
 
-  // Envoi immédiat demandé : on déclenche tout de suite.
+  const createdIds: string[] = [];
+  for (const row of mailRows) {
+    const created = await prisma.adminMail.create({
+      data: {
+        fromEmail: box.email,
+        toEmail: row.toEmail,
+        toName: row.toName,
+        subject: data.subject,
+        bodyHtml: data.bodyHtml,
+        status,
+        scheduledAt,
+        stopOnReply: data.stopOnReply,
+        createdById: userId,
+        followups: {
+          create: data.followups.map((f, i) => ({
+            order: i + 1,
+            delayBusinessDays: f.delayBusinessDays,
+            subject: f.subject?.trim() || null,
+            bodyHtml: f.bodyHtml,
+          })),
+        },
+      },
+      select: { id: true },
+    });
+    createdIds.push(created.id);
+  }
+
+  // Envoi immédiat demandé : on déclenche tout de suite, mail par mail.
   if (data.action === "send") {
-    const result = await executeMailSend(created.id);
-    const refreshed = await prisma.adminMail.findUnique({
-      where: { id: created.id },
+    let sent = 0;
+    let held = 0;
+    const errors: string[] = [];
+    let heldMessage: string | null = null;
+    for (const id of createdIds) {
+      const result = await executeMailSend(id);
+      if (result.held) {
+        held += 1;
+        heldMessage = heldMessage || result.error || null;
+      } else if (result.ok) {
+        sent += 1;
+      } else if (result.error) {
+        errors.push(result.error);
+      }
+    }
+    const mails = await prisma.adminMail.findMany({
+      where: { id: { in: createdIds } },
       include: { followups: { orderBy: { order: "asc" } } },
     });
-    if (result.held) {
-      return NextResponse.json({
-        mail: refreshed,
-        held: true,
-        message: result.error,
-      });
-    }
-    if (!result.ok) {
+    if (errors.length > 0 && sent === 0 && held === 0) {
       return NextResponse.json(
-        { error: result.error || "Échec de l'envoi.", mail: refreshed },
+        { error: errors[0] || "Échec de l'envoi.", mails },
         { status: 422 }
       );
     }
-    return NextResponse.json({ mail: refreshed });
+    if (held > 0) {
+      const message =
+        createdIds.length === 1
+          ? heldMessage
+          : `${sent} mail(s) envoyé(s), ${held} reporté(s) (contact récent de Leyna)${errors.length ? `, ${errors.length} échec(s)` : ""}.`;
+      return NextResponse.json({ mails, held: true, message });
+    }
+    if (errors.length > 0) {
+      return NextResponse.json(
+        {
+          error: `${sent} mail(s) envoyé(s), ${errors.length} échec(s) : ${errors[0]}`,
+          mails,
+        },
+        { status: 422 }
+      );
+    }
+    return NextResponse.json({ mails, sent });
   }
 
-  return NextResponse.json({ mail: created });
+  const mails = await prisma.adminMail.findMany({
+    where: { id: { in: createdIds } },
+    include: { followups: { orderBy: { order: "asc" } } },
+  });
+  return NextResponse.json({ mails });
 }
