@@ -267,6 +267,161 @@ function extractAlreadySentEmails(sentMessageIds: unknown): Set<string> {
   return out;
 }
 
+export type CastingSendPreviewRecipient = {
+  email: string;
+  firstname: string;
+  lastname: string;
+  language: "fr" | "en";
+  translated: boolean;
+  subject: string;
+  bodyHtml: string;
+  willSend: boolean;
+  skipReason: string | null;
+};
+
+export type CastingSendPreview = {
+  fromEmail: string;
+  targetBrand: string;
+  sourceLanguage: "fr" | "en";
+  recipients: CastingSendPreviewRecipient[];
+  warnings: string[];
+};
+
+/**
+ * Apercu EXACT de l'envoi, sans rien envoyer ni rien ecrire en base.
+ * Reutilise le MEME pipeline que executeCastingSend (liens talents,
+ * normalisation HTML Gmail, langue captee par contact depuis la fiche
+ * client, traduction auto, variables {{...}} remplacees par contact).
+ * Seul le tracking (pixel invisible + reecriture des liens) n'est pas
+ * injecte : il ne change rien visuellement et cliquer un lien depuis
+ * l'apercu fausserait les stats d'ouverture/clic.
+ *
+ * `overrides` permet de previsualiser le contenu en cours de redaction
+ * dans le composer (pas encore sauvegarde sur la mission).
+ */
+export async function buildCastingSendPreview(
+  missionId: string,
+  overrides: {
+    subject?: string;
+    bodyHtml?: string;
+    sourceLanguage?: "fr" | "en";
+  } = {}
+): Promise<CastingSendPreview> {
+  const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
+  const mission = await contactMissionModel.findUnique({ where: { id: missionId } });
+  if (!mission) {
+    throw new Error("Mission introuvable");
+  }
+
+  const subjectTpl =
+    overrides.subject !== undefined
+      ? String(overrides.subject).trim()
+      : String(mission.draftEmailSubject || "").trim();
+  const bodyRaw =
+    overrides.bodyHtml !== undefined
+      ? String(overrides.bodyHtml).trim()
+      : String(mission.draftEmailBody || "").trim();
+  const missionTalents = await loadMissionTalentsForSend(mission);
+  const bodyTpl = normalizeEditorHtmlForEmail(
+    upgradeTalentLinksInHtml(bodyRaw, missionTalents)
+  );
+
+  const sourceLang: "fr" | "en" =
+    overrides.sourceLanguage ??
+    (String(mission.draftLanguage || "").toLowerCase() === "en" ? "en" : "fr");
+  const fallbackLang: "fr" | "en" =
+    String(mission.clientLanguage || "").toUpperCase() === "EN"
+      ? "en"
+      : String(mission.clientLanguage || "").toUpperCase() === "FR"
+      ? "fr"
+      : sourceLang;
+
+  const contactLangByEmail = await loadBrandContactLanguages(mission);
+
+  const versions = new Map<"fr" | "en", { subject: string; body: string }>();
+  versions.set(sourceLang, { subject: subjectTpl, body: bodyTpl });
+  const warnings: string[] = [];
+  const getVersion = async (
+    lang: "fr" | "en"
+  ): Promise<{ subject: string; body: string }> => {
+    const cached = versions.get(lang);
+    if (cached) return cached;
+    if (!subjectTpl && !bodyTpl) {
+      const v = { subject: subjectTpl, body: bodyTpl };
+      versions.set(lang, v);
+      return v;
+    }
+    try {
+      const tr = await translateEmail({
+        subject: subjectTpl,
+        bodyHtml: bodyTpl,
+        targetLanguage: lang,
+      });
+      const v = { subject: tr.subject, body: tr.body };
+      versions.set(lang, v);
+      return v;
+    } catch (e) {
+      if (e instanceof TranslateEmailError) {
+        warnings.push(
+          `Traduction auto en ${lang === "en" ? "anglais" : "français"} indisponible : la version d'origine sera envoyée.`
+        );
+        const v = { subject: subjectTpl, body: bodyTpl };
+        versions.set(lang, v);
+        return v;
+      }
+      throw e;
+    }
+  };
+
+  const allContacts = parseCastingContacts(mission.clientContacts);
+  const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
+  const newEmails = allContacts
+    .map((c) => (c.email || "").toLowerCase())
+    .filter((e) => e && !alreadySent.has(e));
+  const forceSend = Boolean(mission.forceSend);
+  const blocked = forceSend
+    ? new Set<string>()
+    : await findEmailsBlockedByCooldown(newEmails, missionId);
+
+  const recipients: CastingSendPreviewRecipient[] = [];
+  for (const contact of allContacts) {
+    const email = (contact.email || "").toLowerCase();
+    if (!email) continue;
+    const isAlreadySent = alreadySent.has(email);
+    const isBlocked = !isAlreadySent && blocked.has(email);
+    const contactLang = contactLangByEmail.get(email) ?? fallbackLang;
+    const version = await getVersion(contactLang);
+    const vars = {
+      firstname: contact.firstname || "",
+      lastname: contact.lastname || "",
+      company: String(mission.targetBrand || ""),
+    };
+    recipients.push({
+      email,
+      firstname: contact.firstname || "",
+      lastname: contact.lastname || "",
+      language: contactLang,
+      translated: contactLang !== sourceLang,
+      subject: applyCastingTemplateVars(version.subject, vars),
+      bodyHtml: applyCastingTemplateVars(version.body, vars),
+      willSend: !isAlreadySent && !isBlocked,
+      skipReason: isAlreadySent
+        ? "Déjà contacté sur cette carte : ne recevra pas de nouvel envoi."
+        : isBlocked
+        ? `Cooldown anti-spam ${CASTING_COOLDOWN_DAYS}j actif (contacté récemment via une autre carte).`
+        : null,
+    });
+  }
+
+  return {
+    fromEmail: LEYNA_FROM_EMAIL,
+    targetBrand: String(mission.targetBrand || "").trim(),
+    sourceLanguage: sourceLang,
+    recipients,
+    warnings,
+  };
+}
+
 /**
  * Envoi reel : pour chaque contact recevable (non bloque par cooldown ni
  * deja contacte avec succes sur cette mission), remplace les variables,

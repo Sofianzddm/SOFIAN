@@ -285,6 +285,32 @@ export default function CastingComposer({
     "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED" | null
   >(null);
 
+  // Aperçu EXACT de l'envoi (pipeline talent) : le serveur rejoue le même
+  // pipeline que l'envoi réel (variables, liens talents, HTML Gmail,
+  // traduction auto par contact) sans rien envoyer.
+  type SendPreviewRecipient = {
+    email: string;
+    firstname: string;
+    lastname: string;
+    language: "fr" | "en";
+    translated: boolean;
+    subject: string;
+    bodyHtml: string;
+    willSend: boolean;
+    skipReason: string | null;
+  };
+  type SendPreview = {
+    fromEmail: string;
+    targetBrand: string;
+    sourceLanguage: "fr" | "en";
+    recipients: SendPreviewRecipient[];
+    warnings: string[];
+  };
+  const [sendPreviewOpen, setSendPreviewOpen] = useState(false);
+  const [sendPreviewLoading, setSendPreviewLoading] = useState(false);
+  const [sendPreviewError, setSendPreviewError] = useState<string | null>(null);
+  const [sendPreview, setSendPreview] = useState<SendPreview | null>(null);
+
   type TalentDetailPreview = {
     id: string;
     prenom: string;
@@ -524,6 +550,48 @@ export default function CastingComposer({
       setMarkingSent(false);
     }
   }, [contact, onError, onSuccess]);
+
+  const openSendPreview = useCallback(async () => {
+    const missionId = contact?.missionBrief?.id;
+    if (!missionId) return;
+    setSendPreviewOpen(true);
+    setSendPreviewLoading(true);
+    setSendPreviewError(null);
+    setSendPreview(null);
+    try {
+      const res = await fetch(
+        `/api/strategy/contact-missions/${missionId}/preview-send`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subject: subject.trim(),
+            bodyHtml: normalizeEditorHtmlForEmail(editor?.getHTML() ?? ""),
+            language: emailLanguage,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Aperçu impossible."
+        );
+      }
+      setSendPreview(data.preview as SendPreview);
+    } catch (e: unknown) {
+      setSendPreviewError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setSendPreviewLoading(false);
+    }
+  }, [contact, subject, editor, emailLanguage]);
+
+  const closeSendPreview = useCallback(() => {
+    setSendPreviewOpen(false);
+    setSendPreview(null);
+    setSendPreviewError(null);
+    setSendPreviewLoading(false);
+  }, []);
 
   const runBrandResearch = useCallback(async () => {
     if (!contact?.company?.trim()) {
@@ -1270,6 +1338,19 @@ export default function CastingComposer({
                   ↩️ Remettre à traiter
                 </button>
               )}
+              {contact.missionBrief?.id && (
+                <button
+                  type="button"
+                  onClick={() => void openSendPreview()}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-xl border-2 transition-colors hover:shadow-sm disabled:opacity-50"
+                  style={{ borderColor: LICORICE, backgroundColor: "white", color: LICORICE }}
+                  title="Affiche le mail exactement comme il partira pour chaque contact (variables remplacées, traduction auto, mise en forme Gmail)"
+                >
+                  <Eye className="w-4 h-4" />
+                  Aperçu envoi exact
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onClose}
@@ -1304,6 +1385,157 @@ export default function CastingComposer({
               )}
             </div>
           </div>
+        {sendPreviewOpen && (
+          <div
+            className="fixed inset-0 z-[220] bg-black/50 flex items-center justify-center p-4"
+            onClick={closeSendPreview}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Aperçu exact de l'envoi"
+          >
+            <div
+              className="w-full max-w-3xl max-h-[calc(100dvh-4rem)] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0] bg-white"
+              onClick={(e) => e.stopPropagation()}
+              style={{ fontFamily: "Switzer, system-ui, sans-serif" }}
+            >
+              <div
+                className="flex items-center justify-between px-5 py-3 border-b shrink-0"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, backgroundColor: OLD_LACE }}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Eye className="w-4 h-4 shrink-0" style={{ color: LICORICE }} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{ color: LICORICE, fontFamily: "Spectral, serif" }}>
+                      Aperçu exact de l'envoi — {sendPreview?.targetBrand || brandTitle}
+                    </p>
+                    <p className="text-[11px] opacity-70 truncate" style={{ color: LICORICE }}>
+                      Le mail est affiché tel qu'il partira réellement : variables remplacées, liens talents, traduction auto selon la fiche client.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeSendPreview}
+                  className="p-2 rounded-lg hover:bg-black/5 transition-colors shrink-0"
+                  aria-label="Fermer l'aperçu"
+                  style={{ color: LICORICE }}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {sendPreviewLoading && (
+                  <div className="flex items-center gap-2 text-sm py-8 justify-center" style={{ color: OLD_ROSE }}>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Préparation de l'aperçu (traduction auto si besoin)…
+                  </div>
+                )}
+
+                {sendPreviewError && (
+                  <p className="text-sm rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+                    {sendPreviewError}
+                  </p>
+                )}
+
+                {!sendPreviewLoading && !sendPreviewError && sendPreview && (
+                  <>
+                    {sendPreview.warnings.map((w, i) => (
+                      <p
+                        key={`warn-${i}`}
+                        className="text-xs rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800"
+                      >
+                        ⚠️ {w}
+                      </p>
+                    ))}
+
+                    {sendPreview.recipients.length === 0 && (
+                      <p className="text-sm rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-gray-600">
+                        Aucun contact client enregistré sur cette carte. Ajoute les contacts
+                        (« Ajouter contact client » sur la carte pipeline) pour voir l'aperçu
+                        exact par destinataire.
+                      </p>
+                    )}
+
+                    {sendPreview.recipients.map((r) => (
+                      <div
+                        key={r.email}
+                        className={`rounded-xl border overflow-hidden ${r.willSend ? "" : "opacity-70"}`}
+                        style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                      >
+                        <div
+                          className="px-4 py-2.5 border-b space-y-0.5"
+                          style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`, backgroundColor: OLD_LACE }}
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                              style={
+                                r.willSend
+                                  ? { backgroundColor: TEA_GREEN, color: LICORICE }
+                                  : { backgroundColor: "#FEE2E2", color: "#991B1B" }
+                              }
+                            >
+                              {r.willSend ? "Sera envoyé" : "Ne partira pas"}
+                            </span>
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-full bg-white border"
+                              style={{ color: LICORICE, borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                            >
+                              {r.language === "en" ? "🇬🇧 Anglais" : "🇫🇷 Français"}
+                              {r.translated ? " · traduit auto" : ""}
+                            </span>
+                          </div>
+                          {r.skipReason && (
+                            <p className="text-[11px] text-red-700">{r.skipReason}</p>
+                          )}
+                          <p className="text-xs" style={{ color: LICORICE }}>
+                            <span className="opacity-60">De :</span>{" "}
+                            <span className="font-medium">Leyna &lt;{sendPreview.fromEmail}&gt;</span>
+                          </p>
+                          <p className="text-xs" style={{ color: LICORICE }}>
+                            <span className="opacity-60">À :</span>{" "}
+                            <span className="font-medium">
+                              {`${r.firstname} ${r.lastname}`.trim() || "—"} &lt;{r.email}&gt;
+                            </span>
+                          </p>
+                          <p className="text-xs" style={{ color: LICORICE }}>
+                            <span className="opacity-60">Objet :</span>{" "}
+                            <span className="font-semibold">{r.subject || "—"}</span>
+                          </p>
+                        </div>
+                        <div
+                          className="px-4 py-3 text-sm bg-white"
+                          style={{ color: LICORICE, fontFamily: "Arial, Helvetica, sans-serif" }}
+                          dangerouslySetInnerHTML={{ __html: r.bodyHtml || "—" }}
+                        />
+                      </div>
+                    ))}
+
+                    <p className="text-[11px] opacity-60 px-1" style={{ color: LICORICE }}>
+                      Note : le pixel de tracking (ouvertures/clics) est ajouté automatiquement
+                      à l'envoi — il est invisible et ne change rien au contenu ci-dessus.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div
+                className="flex items-center justify-end px-5 py-3 border-t shrink-0 bg-white"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+              >
+                <button
+                  type="button"
+                  onClick={closeSendPreview}
+                  className="px-4 py-2 text-sm rounded-xl border-2"
+                  style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {talentDetailOpen && (
           <div
             className="fixed inset-0 z-[200] bg-black/40 flex items-center justify-center p-4"
