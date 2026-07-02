@@ -398,9 +398,7 @@ export default function MarquesPage() {
                     key={marque.id}
                     onClick={() =>
                       router.push(
-                        isBenelux
-                          ? `/outreach?market=BENELUX&q=${encodeURIComponent(marque.nom)}`
-                          : `/marques/${marque.id}`
+                        isBenelux ? `/marques/benelux/${marque.id}` : `/marques/${marque.id}`
                       )
                     }
                     className="group grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_repeat(2,90px)_110px] gap-3 items-center px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors"

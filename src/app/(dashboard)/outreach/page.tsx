@@ -1417,14 +1417,14 @@ export default function OutreachPage() {
                     <a
                       href={
                         isBenelux
-                          ? `/marques?market=BENELUX&q=${encodeURIComponent(group.company)}`
+                          ? `/marques/benelux/${group.marqueId}`
                           : `/marques/${group.marqueId}`
                       }
                       className="font-semibold text-sm hover:underline inline-flex items-center gap-1.5"
                       style={{ color: LICORICE }}
                       title={
                         isBenelux
-                          ? "Ouvrir l'annuaire BENELUX sur cette entreprise"
+                          ? "Ouvrir la fiche entreprise BENELUX (contacts et statut de prospection)"
                           : "Ouvrir la fiche marque (carto et contacts visibles par toute l'équipe)"
                       }
                     >
