@@ -17,6 +17,9 @@
  *  - Relance auto J+3 ouvrés dans le thread du touch (1 max), annulée si réponse
  *  - La réponse n'arrête PAS le cycle (info seulement) ; seul un stop manuel
  *  - From : boîte Gmail du target (target.fromEmail), défaut leyna@glowupagence.fr
+ *  - Garde-fou : si le contact a déjà reçu un mail < 45j hors app (ex. envoi
+ *    manuel depuis la boîte de Leyna), il est MIS EN ATTENTE automatiquement
+ *    (aucun envoi, il sort de « À contacter ») ; l'envoi reste forçable.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -113,6 +116,8 @@ export type AgencyOutreachSendResult =
       error: string;
       /** Confirmation requise (déjà contacté < 45j hors app). */
       needsConfirmation?: boolean;
+      /** Le contact a été mis en attente automatiquement (sorti de « À contacter »). */
+      autoRescheduled?: boolean;
       alreadyContactedAt?: string;
       suggestedNextRecontactAt?: string;
     };
@@ -141,6 +146,46 @@ function isValidEmail(value: string | undefined | null): boolean {
 }
 
 type RecentExternalContact = { contacted: boolean; lastDate: Date | null };
+
+/**
+ * Contact déjà écrit < 45j hors app : on le sort immédiatement de la file
+ * « À contacter » en le passant « En attente » (recontact J+45 après le dernier
+ * mail détecté). L'utilisateur peut toujours forcer l'envoi ensuite si besoin.
+ */
+async function autoRescheduleAfterExternalContact(
+  targetId: string,
+  fromEmail: string,
+  lastDate: Date | null
+): Promise<{ nextRecontactAt: Date; reason: string }> {
+  const baseDate = lastDate ?? new Date();
+  const nextRecontactAt = new Date(
+    baseDate.getTime() + AGENCY_OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
+  );
+  const reason = lastDate
+    ? `Déjà contacté le ${formatFrDate(lastDate)} depuis la boîte ${fromEmail} ` +
+      `(hors prospection agences). Mis en attente automatiquement, recontact le ` +
+      `${formatFrDate(nextRecontactAt)} (J+${AGENCY_OUTREACH_RECONTACT_DAYS}).`
+    : `Déjà contacté récemment depuis la boîte ${fromEmail} (hors prospection agences). ` +
+      `Mis en attente automatiquement, recontact le ${formatFrDate(nextRecontactAt)} ` +
+      `(J+${AGENCY_OUTREACH_RECONTACT_DAYS}).`;
+
+  await prisma.agencyOutreachTarget.update({
+    where: { id: targetId },
+    data: {
+      status: "WAITING",
+      lastSentAt: baseDate,
+      nextRecontactAt,
+      autoRescheduleReason: reason,
+      autoRescheduledAt: new Date(),
+    },
+  });
+
+  console.info(
+    `[agency-outreach] contact déjà écrit hors app → mis en attente auto (target=${targetId}, recontact=${nextRecontactAt.toISOString()})`
+  );
+
+  return { nextRecontactAt, reason };
+}
 
 /**
  * Garde-fou : vérifie dans la boîte expéditrice si ce contact a déjà reçu un
@@ -230,25 +275,20 @@ export async function executeAgencyOutreachSend(
       target.email
     );
     if (externalContact.contacted) {
-      if (externalContact.lastDate) {
-        const suggestedNextRecontactAt = new Date(
-          externalContact.lastDate.getTime() +
-            AGENCY_OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
-        );
-        return {
-          ok: false,
-          needsConfirmation: true,
-          alreadyContactedAt: externalContact.lastDate.toISOString(),
-          suggestedNextRecontactAt: suggestedNextRecontactAt.toISOString(),
-          error:
-            `Déjà contacté le ${formatFrDate(externalContact.lastDate)} depuis la boîte ` +
-            `${fromEmail} (hors prospection agences : envoi manuel ou autre canal).`,
-        };
-      }
+      // Mise en attente automatique : le contact sort de « À contacter » tout
+      // de suite, sans rester bloqué dans la file en attente de confirmation.
+      const { nextRecontactAt, reason } = await autoRescheduleAfterExternalContact(
+        target.id,
+        fromEmail,
+        externalContact.lastDate
+      );
       return {
         ok: false,
         needsConfirmation: true,
-        error: `${target.email} a déjà reçu un mail depuis la boîte ${fromEmail} il y a moins de ${AGENCY_OUTREACH_RECONTACT_DAYS} jours.`,
+        autoRescheduled: true,
+        alreadyContactedAt: externalContact.lastDate?.toISOString(),
+        suggestedNextRecontactAt: nextRecontactAt.toISOString(),
+        error: reason,
       };
     }
   }
@@ -496,6 +536,8 @@ export type AgencyOutreachScheduleResult =
       ok: false;
       error: string;
       needsConfirmation?: boolean;
+      /** Le contact a été mis en attente automatiquement (sorti de « À contacter »). */
+      autoRescheduled?: boolean;
       alreadyContactedAt?: string;
       suggestedNextRecontactAt?: string;
     };
@@ -543,25 +585,20 @@ export async function executeAgencyOutreachSchedule(
       target.email
     );
     if (externalContact.contacted) {
-      if (externalContact.lastDate) {
-        const suggestedNextRecontactAt = new Date(
-          externalContact.lastDate.getTime() +
-            AGENCY_OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
-        );
-        return {
-          ok: false,
-          needsConfirmation: true,
-          alreadyContactedAt: externalContact.lastDate.toISOString(),
-          suggestedNextRecontactAt: suggestedNextRecontactAt.toISOString(),
-          error:
-            `Déjà contacté le ${formatFrDate(externalContact.lastDate)} depuis la boîte ` +
-            `${fromEmail} (hors prospection agences : envoi manuel ou autre canal).`,
-        };
-      }
+      // Mise en attente automatique : le contact sort de « À contacter » tout
+      // de suite, sans rester bloqué dans la file en attente de confirmation.
+      const { nextRecontactAt, reason } = await autoRescheduleAfterExternalContact(
+        target.id,
+        fromEmail,
+        externalContact.lastDate
+      );
       return {
         ok: false,
         needsConfirmation: true,
-        error: `${target.email} a déjà reçu un mail depuis la boîte ${fromEmail} il y a moins de ${AGENCY_OUTREACH_RECONTACT_DAYS} jours.`,
+        autoRescheduled: true,
+        alreadyContactedAt: externalContact.lastDate?.toISOString(),
+        suggestedNextRecontactAt: nextRecontactAt.toISOString(),
+        error: reason,
       };
     }
   }
@@ -676,56 +713,6 @@ export async function processAgencyScheduledSends(
   }
 
   return { processed: due.length, sent, failed };
-}
-
-export type AgencyOutreachRescheduleResult =
-  | { ok: true; nextRecontactAt: string; reason: string }
-  | { ok: false; error: string };
-
-/**
- * Met un contact « en attente » sans envoyer de mail (quand l'utilisateur,
- * prévenu d'un contact récent, choisit de ne pas renvoyer maintenant).
- */
-export async function executeAgencyOutreachReschedule(
-  targetId: string
-): Promise<AgencyOutreachRescheduleResult> {
-  const target = await prisma.agencyOutreachTarget.findUnique({
-    where: { id: targetId },
-  });
-  if (!target) return { ok: false, error: "Contact agence introuvable." };
-  if (target.status === "STOPPED") {
-    return { ok: false, error: "Ce contact est sorti du cycle (stoppé)." };
-  }
-
-  const fromEmail = agencyOutreachFromEmail(target);
-  const externalContact = await detectRecentExternalContact(
-    fromEmail,
-    target.id,
-    target.email
-  );
-
-  const baseDate = externalContact.lastDate ?? new Date();
-  const nextRecontactAt = new Date(
-    baseDate.getTime() + AGENCY_OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
-  );
-
-  const reason = externalContact.lastDate
-    ? `Déjà contacté le ${formatFrDate(externalContact.lastDate)} depuis la boîte ` +
-      `${fromEmail}. Recontact replanifié au ${formatFrDate(nextRecontactAt)} (J+${AGENCY_OUTREACH_RECONTACT_DAYS}).`
-    : `Mis en attente : recontact replanifié au ${formatFrDate(nextRecontactAt)} (J+${AGENCY_OUTREACH_RECONTACT_DAYS}).`;
-
-  await prisma.agencyOutreachTarget.update({
-    where: { id: target.id },
-    data: {
-      status: "WAITING",
-      lastSentAt: baseDate,
-      nextRecontactAt,
-      autoRescheduleReason: reason,
-      autoRescheduledAt: new Date(),
-    },
-  });
-
-  return { ok: true, nextRecontactAt: nextRecontactAt.toISOString(), reason };
 }
 
 export type AgencyOutreachRelanceResult =

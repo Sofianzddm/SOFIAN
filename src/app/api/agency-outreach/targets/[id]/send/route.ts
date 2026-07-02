@@ -43,6 +43,8 @@ export async function POST(
         return NextResponse.json({
           ok: false,
           needsConfirmation: true,
+          // Le contact a été mis en attente automatiquement côté serveur.
+          autoRescheduled: result.autoRescheduled === true,
           message: result.error,
           alreadyContactedAt: result.alreadyContactedAt,
           suggestedNextRecontactAt: result.suggestedNextRecontactAt,

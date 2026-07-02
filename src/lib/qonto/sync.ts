@@ -101,6 +101,31 @@ export async function notifyAdminsNewQontoPayment(
   }
 }
 
+/** Notifie les admins qu'une nouvelle dépense est à justifier */
+export async function notifyAdminsNewQontoDepense(
+  montant: number,
+  libelle: string
+): Promise<void> {
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", actif: true },
+    select: { id: true },
+  });
+
+  const montantFormate = Math.abs(montant).toFixed(2);
+
+  for (const admin of admins) {
+    await prisma.notification.create({
+      data: {
+        userId: admin.id,
+        type: "GENERAL",
+        titre: "Nouvelle dépense à justifier",
+        message: `Dépense de ${montantFormate} € — ${libelle || "Sans libellé"}. Pensez à photographier le reçu !`,
+        lien: "/comptable/depenses",
+      },
+    });
+  }
+}
+
 /**
  * Récupère les transactions Qonto récentes et les enregistre / met à jour en base.
  * - Idempotent : utilise `qontoId` comme clé unique

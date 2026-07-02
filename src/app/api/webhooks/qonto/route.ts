@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  notifyAdminsNewQontoDepense,
   notifyAdminsNewQontoPayment,
   upsertQontoTransaction,
 } from "@/lib/qonto/sync";
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
       await notifyAdminsNewQontoPayment(input.montant, input.libelle);
       console.log("Encaissement Qonto enregistré:", input.qontoId);
     } else if (result === "imported") {
+      await notifyAdminsNewQontoDepense(input.montant, input.libelle);
       console.log("Dépense Qonto enregistrée:", input.qontoId);
     } else if (result === "updated") {
       console.log("Transaction Qonto passée SETTLED:", input.qontoId);

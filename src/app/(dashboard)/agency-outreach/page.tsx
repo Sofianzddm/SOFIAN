@@ -901,15 +901,17 @@ export default function AgencyOutreachPage() {
       if (result.translated > 0) parts.push(`${result.translated} traduit(s)`);
       if (result.failed.length > 0) parts.push(`${result.failed.length} échec(s)`);
       if (result.needsConfirmation.length > 0)
-        parts.push(`${result.needsConfirmation.length} à confirmer`);
+        parts.push(`${result.needsConfirmation.length} mis en attente (déjà contacté)`);
       showToast(result.failed.length > 0 ? "err" : "ok", parts.join(" · "));
 
       if (result.needsConfirmation.length > 0 && !force) {
-        // Confirmation via modale intégrée (fiable) au lieu de window.confirm.
+        // Ces contacts ont été mis en attente automatiquement côté serveur
+        // (déjà contactés < 45j hors app). La modale informe et permet de
+        // forcer l'envoi quand même si besoin.
         const ids = new Set(result.needsConfirmation.map((n) => n.targetId));
         const confirmTargets = targets.filter((t) => ids.has(t.id));
         setPendingConfirm({ targets: confirmTargets, details: result.needsConfirmation });
-        // On rafraîchit ceux déjà partis ; le composer reste ouvert pour la suite.
+        // On rafraîchit : les envoyés partent et les « déjà contactés » basculent en attente.
         await loadTargets();
         return;
       }
@@ -1760,15 +1762,16 @@ export default function AgencyOutreachPage() {
                 style={{ fontFamily: "Spectral, serif", color: LICORICE }}
               >
                 {pendingConfirm.targets.length} contact
-                {pendingConfirm.targets.length > 1 ? "s" : ""} déjà contacté
-                {pendingConfirm.targets.length > 1 ? "s" : ""} récemment
+                {pendingConfirm.targets.length > 1 ? "s" : ""} mis en attente
+                {" "}(déjà contacté{pendingConfirm.targets.length > 1 ? "s" : ""})
               </h2>
             </div>
             <div className="p-5 space-y-3">
               <p className="text-sm" style={{ color: LICORICE }}>
                 Ces contacts ont reçu un mail depuis la boîte d&apos;envoi il y a moins de
-                45 jours, en dehors de la prospection agences.{" "}
-                {sendMode === "staggered" ? "Programmer quand même ?" : "Envoyer quand même ?"}
+                45 jours, en dehors de la prospection agences. Ils ont été{" "}
+                <strong>mis en attente automatiquement</strong> (recontact à J+45 après
+                le dernier mail) et ne sont plus dans « À contacter ».
               </p>
               <div
                 className="rounded-xl border max-h-48 overflow-y-auto divide-y"
@@ -1806,7 +1809,7 @@ export default function AgencyOutreachPage() {
                 className="px-4 py-2 text-sm rounded-xl hover:bg-black/5 disabled:opacity-60"
                 style={{ color: LICORICE }}
               >
-                Pas maintenant
+                OK, laisser en attente
               </button>
               <button
                 type="button"
