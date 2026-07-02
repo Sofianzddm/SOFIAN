@@ -458,11 +458,6 @@ export default function EditPartnerPage() {
               );
             })}
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            Détermine l'onglet marché (FR / Benelux) et adapte la rédaction IA de
-            la Prospection Agences. La modification est propagée aux cibles de
-            prospection de cette agence.
-          </p>
         </div>
 
         <div>
