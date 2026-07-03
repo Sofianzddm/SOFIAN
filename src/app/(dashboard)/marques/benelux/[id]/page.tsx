@@ -22,6 +22,7 @@ import {
   Star,
   StickyNote,
   Building2,
+  Trash2,
 } from "lucide-react";
 
 const INK = "#16110F";
@@ -87,6 +88,49 @@ export default function BeneluxCompanyPage() {
   const [company, setCompany] = useState<CompanyDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDeleteContact = async (contact: BeneluxContact) => {
+    const name = [contact.prenom, contact.nom].filter(Boolean).join(" ") || "ce contact";
+    if (
+      !confirm(
+        `Supprimer ${name} ?\n\nLe contact et son suivi de prospection seront définitivement supprimés.`
+      )
+    ) {
+      return;
+    }
+    setDeletingId(contact.id);
+    try {
+      const res = await fetch(`/api/benelux-outreach/contacts/${contact.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        alert(data?.error || "Erreur lors de la suppression.");
+        return;
+      }
+      setCompany((prev) =>
+        prev
+          ? {
+              ...prev,
+              contacts: prev.contacts.filter((c) => c.id !== contact.id),
+              _count: {
+                ...prev._count,
+                contacts: Math.max(0, prev._count.contacts - 1),
+                outreachTargets: Math.max(
+                  0,
+                  prev._count.outreachTargets - contact.outreachTargets.length
+                ),
+              },
+            }
+          : prev
+      );
+    } catch {
+      alert("Erreur lors de la suppression.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -308,6 +352,18 @@ export default function BeneluxCompanyPage() {
                         {status.label}
                       </span>
                     )}
+                    <button
+                      onClick={() => handleDeleteContact(c)}
+                      disabled={deletingId === c.id}
+                      className="p-1.5 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                      title="Supprimer ce contact"
+                    >
+                      {deletingId === c.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
                   </div>
                 </div>
               );
