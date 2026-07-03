@@ -9,6 +9,43 @@ import { CONTRAT_TALENT_ROLES } from "@/lib/talent-contrats";
 
 const DOCUSEAL_TEMPLATES_PDF = "https://api.docuseal.com/templates/pdf";
 
+function isCloudinaryConfigured(): boolean {
+  return Boolean(
+    process.env.CLOUDINARY_CLOUD_NAME &&
+      process.env.CLOUDINARY_API_KEY &&
+      process.env.CLOUDINARY_API_SECRET
+  );
+}
+
+/** Upload du PDF source : S3 en priorité, sinon repli Cloudinary (comme les contrats marque). */
+async function uploadContratPdf(
+  buffer: Buffer,
+  talentId: string,
+  safeName: string
+): Promise<string> {
+  if (isS3Configured()) {
+    const key = buildKey(
+      "glowup-contrats-talents",
+      `${talentId}/${Date.now()}-${safeName}.pdf`
+    );
+    return uploadBufferToS3(buffer, { key, contentType: "application/pdf" });
+  }
+
+  const { v2: cloudinary } = await import("cloudinary");
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+  const base64 = `data:application/pdf;base64,${buffer.toString("base64")}`;
+  const uploaded = await cloudinary.uploader.upload(base64, {
+    folder: "glowup-contrats-talents",
+    public_id: `${talentId}-${Date.now()}-${safeName}`,
+    resource_type: "auto",
+  });
+  return uploaded.secure_url;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -67,9 +104,9 @@ export async function POST(
         { status: 503 }
       );
     }
-    if (!isS3Configured()) {
+    if (!isS3Configured() && !isCloudinaryConfigured()) {
       return NextResponse.json(
-        { error: "Le stockage S3 n'est pas configuré" },
+        { error: "Aucun stockage de fichiers configuré (S3 ou Cloudinary requis)" },
         { status: 503 }
       );
     }
@@ -118,7 +155,7 @@ export async function POST(
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // 1. Upload du PDF source sur S3
+    // 1. Upload du PDF source (S3 en priorité, sinon Cloudinary)
     const safeName = titre
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -126,14 +163,7 @@ export async function POST(
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "")
       .toLowerCase() || "contrat";
-    const key = buildKey(
-      "glowup-contrats-talents",
-      `${talent.id}/${Date.now()}-${safeName}.pdf`
-    );
-    const fichierUrl = await uploadBufferToS3(buffer, {
-      key,
-      contentType: "application/pdf",
-    });
+    const fichierUrl = await uploadContratPdf(buffer, talent.id, safeName);
 
     // 2. Créer un template DocuSeal vide (les champs seront placés dans le builder)
     const templatePayload = {
