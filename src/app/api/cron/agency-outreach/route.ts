@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { checkThreadActivity } from "@/lib/gmail";
-import { relanceDue, isBusinessDay } from "@/lib/business-days";
+import { relanceDue, isBusinessDay, isWithinRelanceHours } from "@/lib/business-days";
 import {
   executeAgencyOutreachRelance,
   agencyOutreachFromEmail,
@@ -38,6 +38,11 @@ export async function GET(request: NextRequest) {
   if (!isBusinessDay(now)) {
     return NextResponse.json({ processed: 0, scheduled, skipped: "weekend" });
   }
+
+  // Relances auto uniquement dans les heures de bureau (8h30–18h30 Paris) :
+  // hors fenêtre, on ne relance pas (report au prochain passage dans la
+  // fenêtre). La détection de réponse et la bascule J+45 continuent.
+  const withinRelanceHours = isWithinRelanceHours(now);
 
   const targets = await prisma.agencyOutreachTarget.findMany({
     where: { status: "WAITING" },
@@ -124,6 +129,7 @@ export async function GET(request: NextRequest) {
 
     // 2. Relance auto J+3 ouvrés (sautée si réponse ou pause manuelle).
     if (
+      withinRelanceHours &&
       !hasReplied &&
       !touch.relanceSentAt &&
       !touch.relanceCancelledAt &&

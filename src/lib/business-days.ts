@@ -19,6 +19,48 @@ export function isBusinessDay(date: Date, timeZone: string = PARIS_TZ): boolean 
 }
 
 /**
+ * Fenêtre horaire des envois automatiques de relances (heure de Paris).
+ * Aucune relance auto ne part avant 8h30 ni après 18h30 : une relance dont
+ * l'échéance tombe le soir (ex : mail initial envoyé à 19h) est reportée au
+ * prochain passage de cron DANS la fenêtre, c.-à-d. le lendemain matin ouvré.
+ */
+export const RELANCE_WINDOW_START_HOUR = 8;
+export const RELANCE_WINDOW_START_MINUTE = 30;
+export const RELANCE_WINDOW_END_HOUR = 18;
+export const RELANCE_WINDOW_END_MINUTE = 30;
+
+/** Minutes écoulées depuis minuit dans `timeZone` (0–1439). */
+function minutesOfDayInTz(date: Date, timeZone: string = PARIS_TZ): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  let hour = 0;
+  let minute = 0;
+  for (const p of parts) {
+    if (p.type === "hour") hour = Number(p.value) % 24; // 24:xx (minuit) → 0
+    else if (p.type === "minute") minute = Number(p.value);
+  }
+  return hour * 60 + minute;
+}
+
+/**
+ * True si `now` est dans la fenêtre horaire d'envoi des relances (8h30–18h30
+ * Paris). Ne gère PAS le week-end : combiner avec `isBusinessDay`.
+ */
+export function isWithinRelanceHours(
+  now: Date = new Date(),
+  timeZone: string = PARIS_TZ
+): boolean {
+  const minutes = minutesOfDayInTz(now, timeZone);
+  const start = RELANCE_WINDOW_START_HOUR * 60 + RELANCE_WINDOW_START_MINUTE;
+  const end = RELANCE_WINDOW_END_HOUR * 60 + RELANCE_WINDOW_END_MINUTE;
+  return minutes >= start && minutes <= end;
+}
+
+/**
  * Renvoie minuit (début de journée) du jour calendaire de `date` tel qu'il est
  * vu dans `timeZone`, représenté en UTC. Sert à raisonner « par jour » plutôt
  * que par instant exact (utile pour les crons quotidiens).

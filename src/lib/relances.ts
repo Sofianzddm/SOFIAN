@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { checkThreadForReply, sendGmail } from "@/lib/gmail";
-import { relanceDue, isBusinessDay } from "@/lib/business-days";
+import { relanceDue, isBusinessDay, isWithinRelanceHours } from "@/lib/business-days";
 
 const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 
@@ -27,7 +27,7 @@ export type RelancesResult = {
   r1Sent: number;
   r2Sent: number;
   replied: number;
-  skipped?: "weekend";
+  skipped?: "weekend" | "hors-heures";
 };
 
 const R1_HTML =
@@ -48,7 +48,7 @@ function extractEmail(fromValue: string): string {
  * pour les demandes entrantes et les opportunités inbound envoyées depuis Leyna.
  *
  * - `ignoreWeekend` : utilisé par le bouton « Relancer maintenant » pour forcer
- *   l'envoi même un week-end. Le cron quotidien le laisse à `false`.
+ *   l'envoi même un week-end ou hors heures de bureau. Le cron le laisse à `false`.
  */
 export async function runRelances(
   options: { ignoreWeekend?: boolean } = {}
@@ -57,6 +57,12 @@ export async function runRelances(
   // au prochain jour ouvré. Le déclenchement manuel peut forcer l'envoi.
   if (!options.ignoreWeekend && !isBusinessDay(new Date())) {
     return { processed: 0, r1Sent: 0, r2Sent: 0, replied: 0, skipped: "weekend" };
+  }
+  // Pas de relance auto en dehors des heures de bureau (8h30–18h30 Paris) :
+  // une échéance qui tombe le soir est reportée au prochain passage dans la
+  // fenêtre (le lendemain matin ouvré). Le déclenchement manuel force l'envoi.
+  if (!options.ignoreWeekend && !isWithinRelanceHours(new Date())) {
+    return { processed: 0, r1Sent: 0, r2Sent: 0, replied: 0, skipped: "hors-heures" };
   }
 
   const rows = (await prisma.$queryRaw`

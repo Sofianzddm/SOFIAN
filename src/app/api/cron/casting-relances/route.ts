@@ -6,7 +6,7 @@ import {
   LEYNA_FROM_EMAIL,
   executeCastingRelance,
 } from "@/lib/casting-auto-send";
-import { relanceDue, isBusinessDay } from "@/lib/business-days";
+import { relanceDue, isBusinessDay, isWithinRelanceHours } from "@/lib/business-days";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -37,6 +37,12 @@ export async function GET(request: NextRequest) {
   // jour ouvre (cron quotidien 8h, cf. vercel.json).
   if (!isBusinessDay(now)) {
     return NextResponse.json({ processed: 0, skipped: "weekend" });
+  }
+  // Pas de relance auto hors des heures de bureau (8h30-18h30 Paris) : une
+  // echeance qui tombe le soir est reportee au prochain passage dans la
+  // fenetre (le lendemain matin ouvre).
+  if (!isWithinRelanceHours(now)) {
+    return NextResponse.json({ processed: 0, skipped: "hors-heures" });
   }
 
   const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
