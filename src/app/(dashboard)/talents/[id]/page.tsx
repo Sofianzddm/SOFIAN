@@ -41,6 +41,7 @@ import {
 import { formatPercent } from "@/lib/format";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 import KitPhotosManager from "@/components/talent/KitPhotosManager";
+import ContratsTalentBloc from "@/components/talent/ContratsTalentBloc";
 import { talentSlug } from "@/lib/talent-slug";
 
 interface TalentDetail {
@@ -1699,6 +1700,11 @@ export default function TalentDetailPage() {
           </div>
         </div>
         </div>
+
+        {/* Contrats en signature électronique (DocuSeal) */}
+        {["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"].includes(role) && (
+          <ContratsTalentBloc talentId={talent.id} />
+        )}
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 pt-4">

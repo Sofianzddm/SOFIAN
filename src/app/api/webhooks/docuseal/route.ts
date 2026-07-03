@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { SignatureCompletedEmail } from "@/lib/emails/SignatureCompletedEmail";
+import { ContratGlowUpEmail } from "@/lib/emails/ContratGlowUpEmail";
 
 type DocuSealPayload = {
   event_type?: string;
@@ -95,6 +96,8 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
               "Collaboration contrat: submission.completed → SIGNE",
               collabContrat.id
             );
+          } else if (await handleTalentContratCompleted(submissionId, body)) {
+            // Contrat talent (fiche talent) marqué SIGNE
           } else {
             console.log(
               "Document non trouvé pour submission:",
@@ -250,6 +253,8 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
           completedCount,
           nextStatut,
         });
+      } else if (await handleTalentContratFormCompleted(submissionId, body)) {
+        // Contrat talent (fiche talent) : statut avancé
       } else {
         console.log(
           "DocuSeal webhook: document non trouvé pour submissionId",
@@ -315,4 +320,164 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
   } catch (error) {
     console.error("Erreur webhook DocuSeal (traitement):", error);
   }
+}
+
+// ============================================
+// Contrats talent (fiche talent) — TalentContrat
+// ============================================
+
+/** submission.completed → contrat talent SIGNE (+ PDF signé). Renvoie true si un contrat a matché. */
+async function handleTalentContratCompleted(
+  submissionId: string,
+  body: DocuSealPayload
+): Promise<boolean> {
+  const contrat = await prisma.talentContrat.findFirst({
+    where: { submissionId },
+  });
+  if (!contrat) return false;
+
+  const signedDocumentUrl =
+    body.data?.documents?.[0]?.url ??
+    body.document_url?.trim() ??
+    body.documents?.[0]?.url?.trim();
+  const now = new Date();
+
+  await prisma.talentContrat.update({
+    where: { id: contrat.id },
+    data: {
+      statut: "SIGNE",
+      signeAt: now,
+      ...(contrat.talentSigneAt == null ? { talentSigneAt: now } : {}),
+      ...(signedDocumentUrl ? { signedDocumentUrl } : {}),
+    },
+  });
+  console.log("TalentContrat: submission.completed → SIGNE", contrat.id);
+  return true;
+}
+
+/**
+ * form.completed → avance le statut du contrat talent
+ * (EN_ATTENTE_TALENT → EN_ATTENTE_AGENCE → SIGNE) et envoie son lien
+ * de signature à l'agence quand c'est son tour. Renvoie true si un contrat a matché.
+ */
+async function handleTalentContratFormCompleted(
+  submissionId: string,
+  body: DocuSealPayload
+): Promise<boolean> {
+  const contrat = await prisma.talentContrat.findFirst({
+    where: { submissionId },
+    include: { talent: { select: { prenom: true, nom: true } } },
+  });
+  if (!contrat) return false;
+
+  const submittersRaw = body.submitters ?? body.data?.submitters ?? [];
+  const submitters = submittersRaw as Array<{
+    completed_at?: string | null;
+    status?: string;
+  }>;
+  const completedCount = submitters.filter((s) => {
+    const hasCompletedAt = !!(s.completed_at && String(s.completed_at).trim());
+    return hasCompletedAt || s.status === "completed";
+  }).length;
+
+  const totalSignataires = contrat.avecSignatureAgence ? 2 : 1;
+  const current = contrat.statut;
+  let nextStatut = current;
+  if (completedCount >= totalSignataires) nextStatut = "SIGNE";
+  else if (completedCount >= 1) nextStatut = "EN_ATTENTE_AGENCE";
+  else {
+    if (current === "EN_ATTENTE_TALENT") {
+      nextStatut = totalSignataires === 1 ? "SIGNE" : "EN_ATTENTE_AGENCE";
+    } else if (current === "EN_ATTENTE_AGENCE") {
+      nextStatut = "SIGNE";
+    }
+  }
+
+  const now = new Date();
+  await prisma.talentContrat.update({
+    where: { id: contrat.id },
+    data: {
+      statut: nextStatut,
+      ...(nextStatut !== "EN_ATTENTE_TALENT" && !contrat.talentSigneAt
+        ? { talentSigneAt: now }
+        : {}),
+      ...(nextStatut === "SIGNE" ? { signeAt: now } : {}),
+    },
+  });
+  console.log("TalentContrat: form.completed", { submissionId, completedCount, nextStatut });
+
+  // Le talent a signé → envoyer son lien de signature à l'agence (email branded)
+  if (nextStatut === "EN_ATTENTE_AGENCE" && current !== "EN_ATTENTE_AGENCE") {
+    await envoyerLienSignatureAgence(contrat.id, submissionId, contrat.titre).catch((err) =>
+      console.error("TalentContrat: erreur envoi lien agence", err)
+    );
+  }
+  return true;
+}
+
+/** Récupère le lien de signature de l'agence sur la submission et lui envoie l'email. */
+async function envoyerLienSignatureAgence(
+  contratId: string,
+  submissionId: string,
+  contratTitre: string
+) {
+  const docusealKey = process.env.DOCUSEAL_API_KEY;
+  const resendKey = process.env.RESEND_API_KEY;
+  const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+  if (!docusealKey || !resendKey || !fromEmail) {
+    console.warn("TalentContrat: DocuSeal/Resend non configuré, email agence non envoyé");
+    return;
+  }
+
+  const res = await fetch(`https://api.docuseal.com/submissions/${submissionId}`, {
+    headers: { "X-Auth-Token": docusealKey },
+  });
+  if (!res.ok) {
+    console.error("TalentContrat: erreur GET submission", res.status, await res.text());
+    return;
+  }
+  const submission = (await res.json()) as {
+    submitters?: Array<{
+      email?: string;
+      role?: string;
+      slug?: string;
+      embed_src?: string;
+      completed_at?: string | null;
+      status?: string;
+    }>;
+  };
+  const agence = (submission.submitters ?? []).find(
+    (s) =>
+      s.role === "Agence" &&
+      !(s.completed_at && String(s.completed_at).trim()) &&
+      s.status !== "completed"
+  );
+  if (!agence?.email) {
+    console.warn("TalentContrat: submitter Agence en attente introuvable", contratId);
+    return;
+  }
+  const signingUrl =
+    agence.embed_src?.trim() ||
+    (agence.slug ? `https://docuseal.com/s/${agence.slug}` : null);
+  if (!signingUrl) {
+    console.warn("TalentContrat: pas de lien de signature agence", contratId);
+    return;
+  }
+
+  const html = await render(
+    React.createElement(ContratGlowUpEmail, {
+      signerName: process.env.NEXT_PUBLIC_AGENCE_NOM?.trim() || "Glow Up Agence",
+      contratTitre,
+      signingUrl,
+      isAgence: true,
+    })
+  );
+  const resend = new Resend(resendKey);
+  await resend.emails.send({
+    from: `Glow Up Agence <${fromEmail}>`,
+    to: agence.email,
+    subject: `À signer — Contrat talent — ${contratTitre}`,
+    html,
+  });
+  console.log("TalentContrat: lien signature envoyé à l'agence", agence.email);
 }

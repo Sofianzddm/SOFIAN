@@ -339,6 +339,7 @@ model User {
   contactMissionsCreated          ContactMission[]            @relation("ContactMissionCreatedBy")
   contactMissionsRelanceCancelled ContactMission[]            @relation("ContactMissionRelanceCancelledBy")
   prospectingCampaignsCreated     TalentProspectingCampaign[] @relation("TalentProspectingCampaignCreatedBy")
+  talentContratsCreated           TalentContrat[]             @relation("TalentContratCreatedBy")
   inboundConverted                InboundOpportunity[]        @relation("InboundConvertedBy")
   inboundArchived                 InboundOpportunity[]        @relation("InboundArchivedBy")
   inboundMarkedReady              InboundOpportunity[]        @relation("InboundMarkedReadyBy")
@@ -466,8 +467,46 @@ model Talent {
   cannesCoiffeurBookings  CannesCoiffeurBooking[]
   activationReportTalents ActivationReportTalent[]
   eventPhotoTags          EventPhotoTalent[]
+  contrats                TalentContrat[]
 
   @@map("talents")
+}
+
+// ============================================
+// CONTRATS TALENT (signature électronique DocuSeal depuis la fiche talent)
+// ============================================
+
+model TalentContrat {
+  id String @id @default(cuid())
+
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  titre      String
+  fichierUrl String // PDF source sur S3 (glowup-contrats-talents/)
+
+  docusealTemplateId Int
+  submissionId       String? // ID submission DocuSeal (après envoi)
+
+  // BROUILLON -> EN_ATTENTE_TALENT -> EN_ATTENTE_AGENCE -> SIGNE
+  statut String @default("BROUILLON")
+
+  avecSignatureAgence Boolean @default(true)
+
+  signedDocumentUrl String?
+  envoyeAt          DateTime?
+  talentSigneAt     DateTime?
+  signeAt           DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("TalentContratCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([talentId])
+  @@index([submissionId])
+  @@map("talent_contrats")
 }
 
 // ============================================
@@ -637,23 +676,23 @@ model MarqueCartoFile {
 
 // Suggestions de dédoublonnage générées par le cron IA (revue humaine ou fusion auto).
 model MarqueDedupeSuggestion {
-  id        String   @id @default(cuid())
-  runId     String
-  groupKey  String
+  id              String   @id @default(cuid())
+  runId           String
+  groupKey        String
   // Snapshot JSON : [{ id, nom, slug, secteur, counts }]
   marquesSnapshot Json
-  marqueIds String[]
+  marqueIds       String[]
 
-  verdict   MarqueDedupeVerdict
+  verdict    MarqueDedupeVerdict
   confidence Float
-  reasoning  String @db.Text
+  reasoning  String              @db.Text
 
   recommendedTargetId  String?
   recommendedSourceIds String[]
 
-  status    MarqueDedupeSuggestionStatus @default(PENDING)
-  dryRun    Boolean  @default(true)
-  mergedAt  DateTime?
+  status     MarqueDedupeSuggestionStatus @default(PENDING)
+  dryRun     Boolean                      @default(true)
+  mergedAt   DateTime?
   reviewedAt DateTime?
   reviewedBy String?
 
@@ -669,14 +708,14 @@ model MarqueDedupeSuggestion {
 
 // Décisions mémorisées (ne plus reproposer une paire/groupe rejeté).
 model MarqueDedupeDecision {
-  id        String   @id @default(cuid())
-  pairKey   String   @unique
+  id        String              @id @default(cuid())
+  pairKey   String              @unique
   marqueIdA String
   marqueIdB String
   verdict   MarqueDedupeVerdict
-  source    String   // AI_CRON, HUMAN_UI
-  reasoning String?  @db.Text
-  createdAt DateTime @default(now())
+  source    String // AI_CRON, HUMAN_UI
+  reasoning String?             @db.Text
+  createdAt DateTime            @default(now())
 
   @@index([marqueIdA])
   @@index([marqueIdB])
@@ -746,8 +785,8 @@ model MarqueContact {
   // dans le CRM mais ne réapparaît plus dans la liste « en attente d'email ».
   outreachExcluded Boolean @default(false)
 
-  createdAt DateTime @default(now())
-  quotes    Quote[]
+  createdAt       DateTime         @default(now())
+  quotes          Quote[]
   outreachTargets OutreachTarget[]
 
   @@map("marque_contacts")
@@ -1752,7 +1791,7 @@ model CastingListConfig {
 /// une date, ou envoyé immédiatement. Chaque mail vise UN destinataire (un fil
 /// de discussion = un destinataire) et peut embarquer des relances automatiques.
 model AdminMail {
-  id        String @id @default(cuid())
+  id        String  @id @default(cuid())
   /// Boîte Gmail expéditrice (email du GmailToken connecté).
   fromEmail String
   toEmail   String
@@ -1841,7 +1880,7 @@ model AdminMailFollowup {
 /// éventuelle séquence de relances (stockée en JSON : [{ delayBusinessDays,
 /// subject?, bodyHtml }]). Chargé en un clic dans le compositeur.
 model MailTemplate {
-  id   String @id @default(cuid())
+  id          String  @id @default(cuid())
   /// Module propriétaire du modèle : "mailer" (rédacteur admin) ou "agency"
   /// (prospection agences). Permet de partager la table entre les deux modules.
   scope       String  @default("mailer")
@@ -3271,13 +3310,13 @@ model OutreachTouch {
   sendError String?   @db.Text
 
   // Relance rapprochée J+3 ouvrés dans le même thread (1 max par touch)
-  relanceSentAt    DateTime?
-  relanceMessageId String?
-  relanceError     String?   @db.Text
+  relanceSentAt        DateTime?
+  relanceMessageId     String?
+  relanceError         String?   @db.Text
   // Pause manuelle de la relance auto sur ce mail (le compteur 45j continue).
   relanceCancelledAt   DateTime?
   relanceCancelledById String?
-  repliedAt        DateTime?
+  repliedAt            DateTime?
 
   openedAt     DateTime?
   lastOpenAt   DateTime?
@@ -3362,11 +3401,11 @@ model AgencyOutreachTarget {
   agencyContact   AgencyContact? @relation(fields: [agencyContactId], references: [id], onDelete: SetNull)
 
   // Snapshot du contact (robuste si la fiche est modifiée/supprimée)
-  firstname String
-  lastname  String?
-  email     String
+  firstname   String
+  lastname    String?
+  email       String
   // Nom de l'agence (snapshot de Partner.name)
-  company   String
+  company     String
   // Lien talent book de l'agence (snapshot de /partners/{slug})
   partnerSlug String?
 
@@ -3440,12 +3479,12 @@ model AgencyOutreachTouch {
   messageId String?
   sendError String?   @db.Text
 
-  relanceSentAt    DateTime?
-  relanceMessageId String?
-  relanceError     String?   @db.Text
+  relanceSentAt        DateTime?
+  relanceMessageId     String?
+  relanceError         String?   @db.Text
   relanceCancelledAt   DateTime?
   relanceCancelledById String?
-  repliedAt        DateTime?
+  repliedAt            DateTime?
 
   openedAt     DateTime?
   lastOpenAt   DateTime?
@@ -3529,11 +3568,11 @@ model BeneluxContact {
   excluded  Boolean @default(false)
 
   // Champs cartographie (import Excel) — affichage fiche + file « à entrer ».
-  source       String? // "CARTO" | "MANUAL"
-  perimetre    String?
-  localisation String?
-  priorite     String?
-  linkedinUrl  String?
+  source           String? // "CARTO" | "MANUAL"
+  perimetre        String?
+  localisation     String?
+  priorite         String?
+  linkedinUrl      String?
   // Exclu de la prospection (ne pas proposer / contacter).
   outreachExcluded Boolean @default(false)
 
@@ -3619,12 +3658,12 @@ model BeneluxOutreachTouch {
   messageId String?
   sendError String?   @db.Text
 
-  relanceSentAt    DateTime?
-  relanceMessageId String?
-  relanceError     String?   @db.Text
+  relanceSentAt        DateTime?
+  relanceMessageId     String?
+  relanceError         String?   @db.Text
   relanceCancelledAt   DateTime?
   relanceCancelledById String?
-  repliedAt        DateTime?
+  repliedAt            DateTime?
 
   openedAt     DateTime?
   lastOpenAt   DateTime?
