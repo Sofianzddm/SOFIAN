@@ -43,6 +43,7 @@ function ContratBuilderContent() {
   }, [talentId, contratId]);
 
   const sendToTalent = async () => {
+    if (sending) return;
     setSending(true);
     try {
       const res = await fetch(`/api/talents/${talentId}/contrats/${contratId}/envoyer`, {
@@ -50,6 +51,12 @@ function ContratBuilderContent() {
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok && d.success) {
+        if (d.emailEnvoye === false) {
+          alert(
+            "Le contrat est prêt côté DocuSeal, mais l'email Glow Up n'a pas pu être envoyé " +
+              "(configuration Resend manquante). Utilisez « Relancer » depuis la fiche talent une fois corrigé."
+          );
+        }
         router.push(`/talents/${talentId}`);
       } else {
         setError(d.error || "Erreur lors de l'envoi");
@@ -112,20 +119,30 @@ function ContratBuilderContent() {
             </span>
           </span>
         </div>
-        {sending && (
-          <span className="flex items-center gap-2 text-sm text-amber-700">
-            <Loader2 className="w-4 h-4 animate-spin" /> Envoi en cours...
-          </span>
-        )}
+        {/* Bouton d'envoi maison : le bouton natif DocuSeal est désactivé car il
+            enverrait les emails DocuSeal et créerait une submission en doublon. */}
+        <button
+          type="button"
+          onClick={sendToTalent}
+          disabled={sending}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-60"
+        >
+          {sending ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" /> Envoi en cours...
+            </>
+          ) : (
+            "Envoyer au talent"
+          )}
+        </button>
       </header>
       <main className="flex-1 min-h-0">
         <DocusealBuilder
           token={data.builderToken}
           submitters={submitters}
-          onSend={sendToTalent}
           language="fr"
-          withSendButton={true}
-          sendButtonText="Envoyer au talent"
+          withSendButton={false}
+          withSignYourselfButton={false}
         />
       </main>
     </div>
