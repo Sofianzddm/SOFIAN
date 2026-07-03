@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { GlowUpLogo } from "@/components/ui/logo";
@@ -35,6 +36,15 @@ export function TalentSidebar() {
   const { data: session } = useSession();
   const isDemo = searchParams.get("demo") === "1" || pathname === "/talent/demo";
   const withDemo = (href: string) => (isDemo ? `${href}?demo=1` : href);
+  const [photo, setPhoto] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (session?.user?.role !== "TALENT") return;
+    fetch("/api/talents/me/profile")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setPhoto(data?.photo || null))
+      .catch(() => setPhoto(null));
+  }, [session?.user?.role]);
 
   return (
     <aside className="w-64 bg-white border-r border-[#F5EDE0] flex flex-col">
@@ -48,9 +58,17 @@ export function TalentSidebar() {
       {/* User Badge */}
       <div className="p-4 border-b border-[#F5EDE0]">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#220101] to-[#B06F70] flex items-center justify-center text-white font-bold text-lg">
-            {session?.user?.name?.charAt(0) || "T"}
-          </div>
+          {photo ? (
+            <img
+              src={photo}
+              alt={session?.user?.name || "Talent"}
+              className="w-12 h-12 rounded-full object-cover border border-[#F5EDE0]"
+            />
+          ) : (
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#220101] to-[#B06F70] flex items-center justify-center text-white font-bold text-lg">
+              {session?.user?.name?.charAt(0) || "T"}
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-[#220101] truncate">
               {session?.user?.name}
