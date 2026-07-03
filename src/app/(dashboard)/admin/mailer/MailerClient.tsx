@@ -22,6 +22,8 @@ import {
   EyeOff,
   FileText,
   BookmarkPlus,
+  Search,
+  UserPlus,
 } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
 
@@ -86,6 +88,15 @@ type RecipientDraft = {
   uid: string;
   email: string;
   name: string;
+};
+
+type ContactResult = {
+  id: string;
+  name: string;
+  email: string;
+  poste: string | null;
+  company: string;
+  market: "FR" | "BENELUX";
 };
 
 type TemplateFollowup = {
@@ -161,6 +172,12 @@ export default function MailerClient() {
   const [composerKey, setComposerKey] = useState(() => newUid());
   const [submitting, setSubmitting] = useState(false);
 
+  // ─── Recherche de contacts CRM (FR / BENELUX) ───
+  const [contactMarket, setContactMarket] = useState<"FR" | "BENELUX">("FR");
+  const [contactQuery, setContactQuery] = useState("");
+  const [contactResults, setContactResults] = useState<ContactResult[]>([]);
+  const [searchingContacts, setSearchingContacts] = useState(false);
+
   const loadAccounts = useCallback(async () => {
     try {
       const res = await fetch("/api/gmail/accounts", { credentials: "include" });
@@ -216,8 +233,57 @@ export default function MailerClient() {
     setStopOnReply(true);
     setFollowups([]);
     setScheduledAt("");
+    setContactQuery("");
+    setContactResults([]);
     setComposerKey(newUid());
   }, []);
+
+  // Recherche débouncée des contacts CRM (FR ou BENELUX) selon le marché choisi.
+  useEffect(() => {
+    const q = contactQuery.trim();
+    if (q.length < 2) {
+      setContactResults([]);
+      setSearchingContacts(false);
+      return;
+    }
+    setSearchingContacts(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/mailer/contacts?market=${contactMarket}&q=${encodeURIComponent(q)}`,
+          { credentials: "include" }
+        );
+        const json = (await res.json().catch(() => ({}))) as {
+          contacts?: ContactResult[];
+        };
+        setContactResults(json.contacts || []);
+      } catch {
+        setContactResults([]);
+      } finally {
+        setSearchingContacts(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [contactQuery, contactMarket]);
+
+  /** Ajoute un contact CRM comme destinataire (remplit une ligne vide ou en crée une). */
+  const addContactAsRecipient = (c: ContactResult) => {
+    const email = c.email.trim();
+    setRecipients((prev) => {
+      if (prev.some((r) => r.email.trim().toLowerCase() === email.toLowerCase())) {
+        toast.info(`${email} est déjà dans les destinataires.`);
+        return prev;
+      }
+      const emptyIdx = prev.findIndex((r) => !r.email.trim());
+      const entry = { uid: newUid(), email, name: c.name };
+      if (emptyIdx !== -1) {
+        const next = [...prev];
+        next[emptyIdx] = { ...next[emptyIdx], email, name: c.name };
+        return next;
+      }
+      return [...prev, entry];
+    });
+  };
 
   function loadTemplate(t: Template) {
     setSubject(t.subject || "");
@@ -705,6 +771,101 @@ export default function MailerClient() {
                   <Plus className="h-3.5 w-3.5" /> Ajouter un destinataire
                 </button>
               </div>
+
+              {/* Recherche dans le CRM (clients FR / BENELUX) */}
+              <div
+                className="mb-3 rounded-xl border p-3"
+                style={{
+                  borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`,
+                  backgroundColor: "#FBF8F4",
+                }}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <UserPlus className="h-3.5 w-3.5" /> Choisir un client
+                  </span>
+                  <div
+                    className="inline-flex overflow-hidden rounded-lg border bg-white text-xs"
+                    style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setContactMarket("FR")}
+                      className="px-3 py-1.5 font-semibold"
+                      style={
+                        contactMarket === "FR"
+                          ? { backgroundColor: TEA_GREEN, color: LICORICE }
+                          : { color: "#64748B" }
+                      }
+                    >
+                      🇫🇷 FR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setContactMarket("BENELUX")}
+                      className="border-l px-3 py-1.5 font-semibold"
+                      style={{
+                        borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                        ...(contactMarket === "BENELUX"
+                          ? { backgroundColor: TEA_GREEN, color: LICORICE }
+                          : { color: "#64748B" }),
+                      }}
+                    >
+                      🇧🇪 BENELUX
+                    </button>
+                  </div>
+                </div>
+                <div className="relative mt-2">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={contactQuery}
+                    onChange={(e) => setContactQuery(e.target.value)}
+                    placeholder={
+                      contactMarket === "FR"
+                        ? "Rechercher un contact ou une marque FR…"
+                        : "Rechercher un contact ou une entreprise BENELUX…"
+                    }
+                    className="w-full rounded-lg border bg-white py-2 pl-9 pr-3 text-sm"
+                    style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                  />
+                  {searchingContacts && (
+                    <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-400" />
+                  )}
+                </div>
+                {contactQuery.trim().length >= 2 && !searchingContacts && (
+                  contactResults.length === 0 ? (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Aucun contact trouvé {contactMarket === "FR" ? "dans le CRM FR" : "dans l'annuaire BENELUX"}.
+                    </p>
+                  ) : (
+                    <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                      {contactResults.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => addContactAsRecipient(c)}
+                          className="flex w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-left text-sm hover:bg-gray-50"
+                          style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 20%, transparent)` }}
+                          title="Ajouter comme destinataire"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium" style={{ color: LICORICE }}>
+                              {c.name || c.email}
+                              <span className="ml-1.5 font-normal text-slate-400">
+                                {c.company}
+                                {c.poste ? ` · ${c.poste}` : ""}
+                              </span>
+                            </span>
+                            <span className="block truncate text-xs text-slate-500">{c.email}</span>
+                          </span>
+                          <Plus className="h-4 w-4 shrink-0" style={{ color: OLD_ROSE }} />
+                        </button>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
+
               <div className="space-y-2">
                 {recipients.map((r) => (
                   <div key={r.uid} className="flex items-center gap-2">
