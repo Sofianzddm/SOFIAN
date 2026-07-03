@@ -44,13 +44,14 @@ export function TalentSidebar() {
   const withDemo = (href: string) => (isDemo ? `${href}?demo=1` : href);
   const [photo, setPhoto] = useState<string | null>(null);
 
+  // Pas de garde sur le rôle : en impersonation admin, la session effective
+  // côté serveur est celle du talent ; l'API renvoie 403 sinon (sans photo).
   useEffect(() => {
-    if (session?.user?.role !== "TALENT") return;
     fetch("/api/talents/me/profile")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setPhoto(data?.photo || null))
       .catch(() => setPhoto(null));
-  }, [session?.user?.role]);
+  }, [session?.user?.id]);
 
   return (
     <>

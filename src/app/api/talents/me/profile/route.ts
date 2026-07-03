@@ -1,15 +1,16 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { getAppSession } from "@/lib/getAppSession";
 
 /**
  * GET /api/talents/me/profile
  * Infos de profil du talent connecté (photo interne pour l'avatar du portail).
+ * Fonctionne aussi en impersonation admin (JWT ou cookie) : la session
+ * effective renvoyée par getAppSession est celle du talent impersonné.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getAppSession(request);
 
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
