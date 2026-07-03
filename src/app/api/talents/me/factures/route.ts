@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getTalentDemoPublishedCollaborations } from "@/lib/talent-demo";
+import { TALENT_PORTAL_DATE_DEBUT } from "@/lib/talent-portal";
 
 /**
  * GET /api/talents/me/factures
@@ -57,11 +58,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Uniquement les factures que le talent nous a envoyées (uploadées)
+    // Uniquement les factures que le talent nous a envoyées (uploadées),
+    // sur les collabs publiées depuis le lancement du portail (1er juillet 2026)
     const collaborations = await prisma.collaboration.findMany({
       where: {
         talentId: talent.id,
         factureTalentUrl: { not: null },
+        datePublication: { gte: TALENT_PORTAL_DATE_DEBUT },
       },
       include: {
         marque: {

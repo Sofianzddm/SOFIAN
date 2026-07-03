@@ -21,7 +21,6 @@ export default function TalentDashboardPage() {
   const searchParams = useSearchParams();
   const isDemo = searchParams.get("demo") === "1";
   const [data, setData] = useState<any>(null);
-  const [isDemoFallback, setIsDemoFallback] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -35,29 +34,13 @@ export default function TalentDashboardPage() {
         const demoRes = await fetch("/api/talents/me/dashboard?demo=1");
         if (demoRes.ok) {
           setData(await demoRes.json());
-          setIsDemoFallback(true);
         }
         return;
       }
 
       const realRes = await fetch("/api/talents/me/dashboard");
       if (realRes.ok) {
-        const realData = await realRes.json();
-        const hasRealContent =
-          (Array.isArray(realData?.facturesAttente) && realData.facturesAttente.length > 0) ||
-          (Array.isArray(realData?.collabsEnCours) && realData.collabsEnCours.length > 0);
-
-        if (hasRealContent) {
-          setData(realData);
-          setIsDemoFallback(false);
-          return;
-        }
-      }
-
-      const demoRes = await fetch("/api/talents/me/dashboard?demo=1");
-      if (demoRes.ok) {
-        setData(await demoRes.json());
-        setIsDemoFallback(true);
+        setData(await realRes.json());
       }
     } catch (error) {
       console.error("Erreur:", error);
@@ -100,7 +83,7 @@ export default function TalentDashboardPage() {
             <p className="mt-2 text-[#F5EDE0]">
               Ton cockpit talent pour suivre tes collaborations publiées et l'avancement des factures.
             </p>
-            {(isDemo || isDemoFallback) && (
+            {(isDemo) && (
               <p className="mt-4 inline-flex rounded-full bg-[#F5EDE0]/20 px-3 py-1 text-xs font-semibold text-[#F5EDE0]">
                 Mode démo actif
               </p>
@@ -170,7 +153,7 @@ export default function TalentDashboardPage() {
               {data.facturesAttente.map((collab: any) => (
                 <Link
                   key={collab.id}
-                  href={isDemo || isDemoFallback ? "/talent/collaborations?demo=1" : `/talent/collaborations/${collab.id}`}
+                  href={isDemo ? "/talent/collaborations?demo=1" : `/talent/collaborations/${collab.id}`}
                   className="block rounded-xl border border-slate-200 bg-white p-3 transition hover:shadow-md"
                 >
                   <div className="flex items-center justify-between">
@@ -208,7 +191,7 @@ export default function TalentDashboardPage() {
           </div>
           <div className="space-y-3">
             <Link
-              href={isDemo || isDemoFallback ? "/talent/collaborations?demo=1" : "/talent/collaborations"}
+              href={isDemo ? "/talent/collaborations?demo=1" : "/talent/collaborations"}
               className="flex items-center justify-between rounded-xl border border-slate-200 p-3 hover:bg-slate-50"
             >
               <div className="flex items-center gap-3">
@@ -223,7 +206,7 @@ export default function TalentDashboardPage() {
               <ArrowRight className="h-4 w-4 text-slate-400" />
             </Link>
             <Link
-              href={isDemo || isDemoFallback ? "/talent/factures?demo=1" : "/talent/factures"}
+              href={isDemo ? "/talent/factures?demo=1" : "/talent/factures"}
               className="flex items-center justify-between rounded-xl border border-slate-200 p-3 hover:bg-slate-50"
             >
               <div className="flex items-center gap-3">
@@ -247,7 +230,7 @@ export default function TalentDashboardPage() {
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Collaborations récentes</h2>
             <Link
-              href={isDemo || isDemoFallback ? "/talent/collaborations?demo=1" : "/talent/collaborations"}
+              href={isDemo ? "/talent/collaborations?demo=1" : "/talent/collaborations"}
               className="inline-flex items-center gap-1 text-sm font-medium text-[#220101] hover:underline"
             >
               Voir tout
@@ -283,7 +266,7 @@ export default function TalentDashboardPage() {
             collaborations publiées ici :
           </p>
           <Link
-            href={isDemo || isDemoFallback ? "/talent/collaborations?demo=1" : "/talent/collaborations"}
+            href={isDemo ? "/talent/collaborations?demo=1" : "/talent/collaborations"}
             className="inline-flex mt-3 text-sm font-medium text-[#220101] hover:underline"
           >
             Voir mes collaborations publiées
