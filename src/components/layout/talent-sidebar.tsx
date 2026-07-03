@@ -12,7 +12,12 @@ import {
   Heart,
 } from "lucide-react";
 
-const menuItems = [
+const menuItems: {
+  label: string;
+  mobileLabel?: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+}[] = [
   {
     label: "Dashboard",
     href: "/talent/dashboard",
@@ -20,6 +25,7 @@ const menuItems = [
   },
   {
     label: "Collaborations publiées",
+    mobileLabel: "Collabs",
     href: "/talent/collaborations",
     icon: Handshake,
   },
@@ -47,7 +53,9 @@ export function TalentSidebar() {
   }, [session?.user?.role]);
 
   return (
-    <aside className="w-64 bg-white border-r border-[#F5EDE0] flex flex-col">
+    <>
+    {/* Sidebar desktop */}
+    <aside className="hidden lg:flex w-64 bg-white border-r border-[#F5EDE0] flex-col">
       {/* Logo */}
       <div className="h-16 flex items-center justify-center border-b border-[#F5EDE0] px-6">
         <Link href={withDemo("/talent/dashboard")} className="flex items-center gap-2">
@@ -122,5 +130,29 @@ export function TalentSidebar() {
         </div>
       </div>
     </aside>
+
+    {/* Navigation mobile (barre en bas d'écran) */}
+    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-[#F5EDE0] pb-[env(safe-area-inset-bottom)]">
+      <div className="grid grid-cols-3">
+        {menuItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+
+          return (
+            <Link
+              key={item.href}
+              href={withDemo(item.href)}
+              className={`flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors ${
+                isActive ? "text-[#220101]" : "text-gray-400 hover:text-[#220101]"
+              }`}
+            >
+              <Icon className={`w-5 h-5 ${isActive ? "text-[#B06F70]" : ""}`} />
+              <span>{item.mobileLabel ?? item.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+    </>
   );
 }

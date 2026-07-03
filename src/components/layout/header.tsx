@@ -5,6 +5,7 @@ import { LogOut, Bell, UserX } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SearchBar } from "@/components/SearchBar";
+import { GlowUpLogo } from "@/components/ui/logo";
 
 interface AuthMe {
   id: string;
@@ -175,9 +176,13 @@ export function Header() {
           </button>
         </div>
       )}
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6">
       <div className="flex-1 max-w-xl">
-        <SearchBar />
+        {session?.user?.role === "TALENT" ? (
+          <GlowUpLogo className="h-7 lg:hidden" />
+        ) : (
+          <SearchBar />
+        )}
       </div>
 
       <div className="flex items-center gap-4">
@@ -199,7 +204,7 @@ export function Header() {
 
           {dropdownOpen && (
             <div
-              className="absolute right-0 top-full mt-2 w-96 rounded-xl border border-gray-200 bg-white shadow-xl z-50"
+              className="absolute right-0 top-full mt-2 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white shadow-xl z-50"
               role="dialog"
               aria-label="Notifications"
             >
