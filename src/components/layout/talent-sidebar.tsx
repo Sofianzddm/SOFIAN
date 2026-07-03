@@ -96,10 +96,10 @@ export function TalentSidebar() {
             Contactez votre Talent Manager
           </p>
           <a
-            href="mailto:contact@glowupagence.fr"
+            href="mailto:comptabilite@glowupagence.fr"
             className="text-xs text-[#220101] hover:underline font-medium"
           >
-            contact@glowupagence.fr
+            comptabilite@glowupagence.fr
           </a>
         </div>
       </div>
