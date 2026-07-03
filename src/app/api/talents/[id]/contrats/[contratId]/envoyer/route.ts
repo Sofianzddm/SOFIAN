@@ -8,8 +8,8 @@ import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { ContratGlowUpEmail } from "@/lib/emails/ContratGlowUpEmail";
-import { ContratEnvoyeInterneEmail } from "@/lib/emails/ContratEnvoyeInterneEmail";
 import { CONTRAT_TALENT_ROLES } from "@/lib/talent-contrats";
+import { notifierEquipeContratTalent } from "@/lib/talent-contrats-notify";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -190,75 +190,13 @@ export async function POST(
       },
     });
 
-    // Notifier les ADMIN et HEAD_OF_INFLUENCE (notif in-app + email)
-    try {
-      const [destinataires, envoyePar] = await Promise.all([
-        prisma.user.findMany({
-          where: {
-            role: { in: ["ADMIN", "HEAD_OF_INFLUENCE"] },
-            actif: true,
-            id: { not: user.id }, // pas de notif à soi-même
-          },
-          select: { id: true, email: true, prenom: true },
-        }),
-        prisma.user.findUnique({
-          where: { id: user.id },
-          select: { prenom: true, nom: true },
-        }),
-      ]);
-
-      await Promise.all(
-        destinataires.map((dest) =>
-          prisma.notification.create({
-            data: {
-              userId: dest.id,
-              type: "GENERAL",
-              titre: "✍️ Contrat envoyé en signature",
-              message: `Le contrat « ${contrat.titre} » a été envoyé en signature électronique à ${talentName}`,
-              lien: `/talents/${id}`,
-              talentId: id,
-              actorId: user.id,
-            },
-          })
-        )
-      );
-
-      // Email interne à chaque destinataire (dédupliqué par adresse)
-      if (resendKey && fromEmail && destinataires.length > 0) {
-        const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "https://app.glowupagence.fr").replace(/\/$/, "");
-        const envoyeParNom =
-          [envoyePar?.prenom, envoyePar?.nom].filter(Boolean).join(" ") || "Un membre de l'équipe";
-        const resend = new Resend(resendKey);
-        const seen = new Set<string>();
-        for (const dest of destinataires) {
-          const destEmail = dest.email?.trim().toLowerCase();
-          if (!destEmail || seen.has(destEmail)) continue;
-          seen.add(destEmail);
-          const html = await render(
-            React.createElement(ContratEnvoyeInterneEmail, {
-              destinatairePrenom: dest.prenom || "l'équipe",
-              contratTitre: contrat.titre,
-              talentNom: talentName,
-              envoyeParNom,
-              ficheTalentUrl: `${baseUrl}/talents/${id}`,
-            })
-          );
-          const sendResult = await resend.emails.send({
-            from: `Glow Up Agence <${fromEmail}>`,
-            to: dest.email,
-            subject: `✍️ Contrat envoyé en signature — ${contrat.titre} (${talentName})`,
-            html,
-          });
-          if (sendResult.error) {
-            console.error("Contrat talent: erreur Resend email interne:", dest.email, sendResult.error);
-          }
-        }
-      } else if (!resendKey || !fromEmail) {
-        console.warn("Contrat talent: Resend non configuré, emails internes non envoyés");
-      }
-    } catch (err) {
-      console.error("Contrat talent: erreur notifications/emails internes:", err);
-    }
+    // Notifier les ADMIN et HEAD_OF_INFLUENCE (notif in-app + email interne)
+    await notifierEquipeContratTalent({
+      talentId: id,
+      talentNom: talentName,
+      contratTitre: contrat.titre,
+      actorId: user.id,
+    });
 
     return NextResponse.json({
       success: true,

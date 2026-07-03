@@ -1,14 +1,8 @@
 // Constantes partagées du flux "Contrats talent en signature électronique"
 // (fiche talent → builder DocuSeal → email Resend "Votre contrat Glow Up").
 
-/** Rôles autorisés à gérer les contrats talent (mêmes rôles que le flux devis). */
-export const CONTRAT_TALENT_ROLES = [
-  "ADMIN",
-  "HEAD_OF",
-  "HEAD_OF_INFLUENCE",
-  "HEAD_OF_SALES",
-  "TM",
-];
+/** Rôles autorisés à voir et gérer les contrats talent (fiche talent + API). */
+export const CONTRAT_TALENT_ROLES = ["ADMIN", "HEAD_OF_INFLUENCE"];
 
 /** Statuts d'un TalentContrat. */
 export type TalentContratStatut =

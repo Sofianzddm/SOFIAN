@@ -8,6 +8,7 @@ import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { ContratGlowUpEmail } from "@/lib/emails/ContratGlowUpEmail";
 import { CONTRAT_TALENT_ROLES } from "@/lib/talent-contrats";
+import { notifierEquipeContratTalent } from "@/lib/talent-contrats-notify";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -22,7 +23,7 @@ export async function POST(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    const user = session.user as { role: string };
+    const user = session.user as { id: string; role: string };
     if (!CONTRAT_TALENT_ROLES.includes(user.role)) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
@@ -117,6 +118,15 @@ export async function POST(
       to: pending.email,
       subject: `Rappel — Votre contrat Glow Up — ${contrat.titre}`,
       html,
+    });
+
+    // Notifier les ADMIN et HEAD_OF_INFLUENCE de la relance (notif in-app + email interne)
+    await notifierEquipeContratTalent({
+      talentId: id,
+      talentNom: `${contrat.talent.prenom} ${contrat.talent.nom}`.trim() || "Talent",
+      contratTitre: contrat.titre,
+      actorId: user.id,
+      isRelance: true,
     });
 
     return NextResponse.json({ success: true, relanceEmail: pending.email });

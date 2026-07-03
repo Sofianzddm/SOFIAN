@@ -36,20 +36,27 @@ export interface ContratEnvoyeInterneEmailProps {
   envoyeParNom: string;
   /** Lien vers la fiche talent */
   ficheTalentUrl: string;
+  /** true si c'est une relance (adapte le texte) */
+  isRelance?: boolean;
 }
 
-/** Email interne (admins / heads) : un contrat talent vient de partir en signature. */
+/** Email interne (admins / heads) : un contrat talent vient de partir en signature (ou relance). */
 export function ContratEnvoyeInterneEmail({
   destinatairePrenom,
   contratTitre,
   talentNom,
   envoyeParNom,
   ficheTalentUrl,
+  isRelance = false,
 }: ContratEnvoyeInterneEmailProps) {
   return (
     <Html lang="fr">
       <Head />
-      <Preview>Contrat envoyé en signature — {contratTitre}</Preview>
+      <Preview>
+        {isRelance
+          ? `Relance signature — ${contratTitre}`
+          : `Contrat envoyé en signature — ${contratTitre}`}
+      </Preview>
       <Body style={body}>
         <Container style={container}>
           <Section style={headerSection}>
@@ -59,13 +66,15 @@ export function ContratEnvoyeInterneEmail({
           <Section style={cardSection}>
             <Text style={greeting}>Bonjour {destinatairePrenom},</Text>
             <Text style={paragraph}>
-              Un contrat vient d'être envoyé en signature électronique à un talent.
+              {isRelance
+                ? "Une relance de signature vient d'être envoyée pour un contrat talent en attente."
+                : "Un contrat vient d'être envoyé en signature électronique à un talent."}
             </Text>
 
             <Section style={infoBox}>
               <Text style={infoLine}>📄 Contrat : <strong>{contratTitre}</strong></Text>
               <Text style={infoLine}>⭐ Talent : {talentNom}</Text>
-              <Text style={infoLine}>👤 Envoyé par : {envoyeParNom}</Text>
+              <Text style={infoLine}>👤 {isRelance ? "Relancé par" : "Envoyé par"} : {envoyeParNom}</Text>
             </Section>
 
             <Section style={buttonSection}>

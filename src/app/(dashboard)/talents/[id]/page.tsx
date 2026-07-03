@@ -1701,8 +1701,8 @@ export default function TalentDetailPage() {
         </div>
         </div>
 
-        {/* Contrats en signature électronique (DocuSeal) */}
-        {["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"].includes(role) && (
+        {/* Contrats en signature électronique (DocuSeal) — ADMIN et HEAD_OF_INFLUENCE uniquement */}
+        {["ADMIN", "HEAD_OF_INFLUENCE"].includes(role) && (
           <ContratsTalentBloc talentId={talent.id} />
         )}
 
