@@ -633,6 +633,12 @@ model Marque {
   sourceInitiale   Source?
   prospectePar     String?
 
+  // Hiérarchie marque mère → marques filles (ex. Unilever → Dove, Axe…).
+  // Auto-relation : une marque a une mère optionnelle et des filles.
+  parentMarqueId String?
+  parent         Marque?  @relation("MarqueHierarchy", fields: [parentMarqueId], references: [id], onDelete: SetNull)
+  children       Marque[] @relation("MarqueHierarchy")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -651,6 +657,7 @@ model Marque {
   cartoFiles           MarqueCartoFile[]
 
   @@index([slug])
+  @@index([parentMarqueId])
   @@map("marques")
 }
 

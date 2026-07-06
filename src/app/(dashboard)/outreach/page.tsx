@@ -2103,6 +2103,7 @@ type MarqueOption = {
   nom: string;
   secteur: string | null;
   ville: string | null;
+  parent?: { id: string; nom: string } | null;
   contacts: {
     id: string;
     prenom: string | null;
@@ -2295,11 +2296,16 @@ function ClientLineEditor({
         </label>
 
         {line.selectedMarque ? (
-          <div className="flex items-center justify-between rounded-xl border px-4 py-3" style={{ borderColor: TEA_GREEN, backgroundColor: "#F8FCEF" }}>
-            <div>
-              <div className="text-sm font-semibold" style={{ color: LICORICE }}>
-                {line.selectedMarque.nom}
-              </div>
+              <div className="flex items-center justify-between rounded-xl border px-4 py-3" style={{ borderColor: TEA_GREEN, backgroundColor: "#F8FCEF" }}>
+                <div>
+                  <div className="text-sm font-semibold" style={{ color: LICORICE }}>
+                    {line.selectedMarque.nom}
+                    {line.selectedMarque.parent && (
+                      <span className="ml-1.5 font-normal text-gray-400">
+                        ({line.selectedMarque.parent.nom})
+                      </span>
+                    )}
+                  </div>
               <div className="text-xs text-gray-500 mt-0.5">
                 {[line.selectedMarque.secteur, line.selectedMarque.ville].filter(Boolean).join(" · ") || "Fiche CRM existante"}
                 {line.selectedMarque._count.collaborations > 0 &&
@@ -2355,16 +2361,21 @@ function ClientLineEditor({
                     className="w-full text-left px-4 py-2.5 hover:bg-gray-50 transition flex items-center justify-between gap-2 border-t"
                     style={{ borderColor: "#F5F1EB" }}
                   >
-                    <div>
-                      <div className="text-sm font-medium" style={{ color: LICORICE }}>
-                        {m.nom}
-                      </div>
-                      <div className="text-xs text-gray-400">
-                        {[m.secteur, m.ville].filter(Boolean).join(" · ") || "—"}
-                        {m.contacts.length > 0 &&
-                          ` · ${m.contacts.length} contact${m.contacts.length > 1 ? "s" : ""}`}
-                      </div>
-                    </div>
+                        <div>
+                          <div className="text-sm font-medium" style={{ color: LICORICE }}>
+                            {m.nom}
+                            {m.parent && (
+                              <span className="ml-1.5 font-normal text-gray-400">
+                                ({m.parent.nom})
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            {[m.secteur, m.ville].filter(Boolean).join(" · ") || "—"}
+                            {m.contacts.length > 0 &&
+                              ` · ${m.contacts.length} contact${m.contacts.length > 1 ? "s" : ""}`}
+                          </div>
+                        </div>
                     {m._count.outreachTargets > 0 && (
                       <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: OLD_LACE, color: LICORICE }}>
                         Déjà en cycle
@@ -3336,6 +3347,11 @@ function RowMarqueInput({
               >
                 <span className="font-medium truncate" style={{ color: LICORICE }}>
                   {m.nom}
+                  {m.parent && (
+                    <span className="ml-1.5 font-normal" style={{ color: OLD_ROSE }}>
+                      ({m.parent.nom})
+                    </span>
+                  )}
                   {[m.secteur, m.ville].filter(Boolean).length > 0 && (
                     <span className="ml-1.5 font-normal text-gray-400">
                       {[m.secteur, m.ville].filter(Boolean).join(" · ")}

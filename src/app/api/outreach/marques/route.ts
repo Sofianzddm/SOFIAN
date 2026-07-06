@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       nom: true,
       secteur: true,
       ville: true,
+      parent: { select: { id: true, nom: true } },
       contacts: {
         select: {
           id: true,

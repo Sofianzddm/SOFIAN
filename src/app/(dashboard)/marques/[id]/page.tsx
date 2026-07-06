@@ -109,8 +109,19 @@ interface MarqueDetail {
     statut: string;
     talent: { prenom: string; nom: string };
   }[];
+  parent?: { id: string; nom: string } | null;
+  children?: {
+    id: string;
+    nom: string;
+    secteur: string | null;
+    ville: string | null;
+    _count: { contacts: number; collaborations: number };
+  }[];
   _count: { collaborations: number };
 }
+
+/** Résultat léger pour le sélecteur de rattachement mère/fille. */
+type MarqueLite = { id: string; nom: string; secteur?: string | null; ville?: string | null };
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -222,6 +233,134 @@ function DetailRow({ label, value, mono }: { label: string; value: React.ReactNo
   );
 }
 
+/** Sélecteur simple de marque (recherche locale) pour rattacher mère/fille. */
+function HierarchyPicker({
+  items,
+  busy,
+  placeholder,
+  query,
+  onQuery,
+  onPick,
+  onCancel,
+}: {
+  items: MarqueLite[];
+  busy: boolean;
+  placeholder: string;
+  query: string;
+  onQuery: (v: string) => void;
+  onPick: (id: string) => void;
+  onCancel: () => void;
+}) {
+  const q = query.trim().toLowerCase();
+  const filtered = (q ? items.filter((m) => m.nom.toLowerCase().includes(q)) : items).slice(0, 8);
+  return (
+    <div className="mt-1">
+      <input
+        autoFocus
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-2.5 py-1.5 rounded-lg border text-[13px] focus:outline-none focus:ring-2 focus:ring-gray-200"
+        style={{ borderColor: "#E5E0DA" }}
+      />
+      <div className="mt-1 rounded-lg border divide-y overflow-hidden max-h-40 overflow-y-auto" style={{ borderColor: "#EDE7DF" }}>
+        {filtered.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            disabled={busy}
+            onClick={() => onPick(m.id)}
+            className="w-full text-left px-2.5 py-1.5 text-[13px] hover:bg-gray-50 disabled:opacity-50 flex items-center justify-between gap-2"
+          >
+            <span className="truncate" style={{ color: INK }}>
+              {m.nom}
+            </span>
+            <span className="text-xs text-gray-400 truncate shrink-0">
+              {[m.secteur, m.ville].filter(Boolean).join(" · ")}
+            </span>
+          </button>
+        ))}
+        {filtered.length === 0 && (
+          <div className="px-2.5 py-1.5 text-xs text-gray-400">Aucune marque</div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="mt-1 text-xs text-gray-400 hover:text-gray-700"
+      >
+        Annuler
+      </button>
+    </div>
+  );
+}
+
+/** Panneau compact pour attribuer un contact à une sous-marque (fille). */
+function AssignSubMarqueControl({
+  subMarques,
+  busy,
+  error,
+  onAssign,
+  onCreate,
+}: {
+  subMarques: { id: string; nom: string }[];
+  busy: boolean;
+  error: string | null;
+  onAssign: (childId: string) => void;
+  onCreate: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  return (
+    <div
+      className="mt-2 rounded-lg border p-2 space-y-1.5"
+      style={{ borderColor: "#EDE7DF", background: "#FCFAF7" }}
+    >
+      {subMarques.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {subMarques.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              disabled={busy}
+              onClick={() => onAssign(c.id)}
+              className="text-[11px] px-2 py-[3px] rounded-md ring-1 ring-inset ring-black/[0.08] bg-white hover:bg-gray-50 disabled:opacity-50"
+              style={{ color: INK }}
+            >
+              {c.nom}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[11px] text-gray-400">
+          Aucune sous-marque : crée-la ci-dessous.
+        </p>
+      )}
+      <div className="flex items-center gap-1.5">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && name.trim() && !busy) onCreate(name.trim());
+          }}
+          placeholder="Nouvelle sous-marque…"
+          className="flex-1 px-2 py-1 rounded-md border text-[12px] focus:outline-none focus:ring-2 focus:ring-gray-200"
+          style={{ borderColor: "#E5E0DA" }}
+        />
+        <button
+          type="button"
+          disabled={busy || !name.trim()}
+          onClick={() => onCreate(name.trim())}
+          className="text-[11px] font-semibold px-2 py-1 rounded-md text-white disabled:opacity-50"
+          style={{ backgroundColor: INK }}
+        >
+          Créer
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
@@ -273,6 +412,20 @@ export default function MarqueDetailPage() {
   // Modification de la langue d'un contact directement depuis la fiche marque
   const [updatingLangId, setUpdatingLangId] = useState<string | null>(null);
 
+  // Hiérarchie mère / marques filles
+  const [allMarques, setAllMarques] = useState<MarqueLite[]>([]);
+  const [marquesLoaded, setMarquesLoaded] = useState(false);
+  const [childPickerOpen, setChildPickerOpen] = useState(false);
+  const [parentPickerOpen, setParentPickerOpen] = useState(false);
+  const [hierarchyQuery, setHierarchyQuery] = useState("");
+  const [hierarchyBusy, setHierarchyBusy] = useState(false);
+  const [hierarchyError, setHierarchyError] = useState<string | null>(null);
+
+  // Attribution d'un contact à une sous-marque
+  const [assignOpenId, setAssignOpenId] = useState<string | null>(null);
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+
   const fetchMarque = useCallback(async () => {
     try {
       const res = await fetch(`/api/marques/${params.id}`);
@@ -287,6 +440,133 @@ export default function MarqueDetailPage() {
   useEffect(() => {
     if (params.id) fetchMarque();
   }, [params.id, fetchMarque]);
+
+  // Charge la liste des marques (pour le sélecteur de rattachement) à la demande.
+  const loadAllMarques = useCallback(async () => {
+    if (marquesLoaded) return;
+    try {
+      const res = await fetch("/api/marques");
+      if (res.ok) {
+        const data = await res.json();
+        setAllMarques(
+          Array.isArray(data)
+            ? data.map((m: { id: string; nom: string; secteur?: string | null; ville?: string | null }) => ({
+                id: m.id,
+                nom: m.nom,
+                secteur: m.secteur ?? null,
+                ville: m.ville ?? null,
+              }))
+            : []
+        );
+        setMarquesLoaded(true);
+      }
+    } catch (error) {
+      console.error("Erreur chargement marques:", error);
+    }
+  }, [marquesLoaded]);
+
+  const attachChild = async (childId: string) => {
+    setHierarchyBusy(true);
+    setHierarchyError(null);
+    try {
+      const res = await fetch(`/api/marques/${params.id}/children`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ childId }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setHierarchyError(d.message || "Erreur lors du rattachement.");
+      } else {
+        setChildPickerOpen(false);
+        setHierarchyQuery("");
+        await fetchMarque();
+      }
+    } finally {
+      setHierarchyBusy(false);
+    }
+  };
+
+  const detachChild = async (childId: string) => {
+    setHierarchyBusy(true);
+    setHierarchyError(null);
+    try {
+      const res = await fetch(
+        `/api/marques/${params.id}/children?childId=${encodeURIComponent(childId)}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) await fetchMarque();
+    } finally {
+      setHierarchyBusy(false);
+    }
+  };
+
+  /** Rattache la marque courante comme fille de `parentId`. */
+  const attachParent = async (parentId: string) => {
+    setHierarchyBusy(true);
+    setHierarchyError(null);
+    try {
+      const res = await fetch(`/api/marques/${parentId}/children`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ childId: String(params.id) }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setHierarchyError(d.message || "Erreur lors du rattachement.");
+      } else {
+        setParentPickerOpen(false);
+        setHierarchyQuery("");
+        await fetchMarque();
+      }
+    } finally {
+      setHierarchyBusy(false);
+    }
+  };
+
+  const detachParent = async () => {
+    if (!marque?.parent) return;
+    setHierarchyBusy(true);
+    setHierarchyError(null);
+    try {
+      const res = await fetch(
+        `/api/marques/${marque.parent.id}/children?childId=${encodeURIComponent(String(params.id))}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) await fetchMarque();
+    } finally {
+      setHierarchyBusy(false);
+    }
+  };
+
+  /** Déplace un contact vers une sous-marque (existante via childId, ou nouvelle via newName). */
+  const assignContact = async (
+    contact: Contact,
+    opts: { childId?: string; newName?: string }
+  ) => {
+    setAssignBusy(true);
+    setAssignError(null);
+    try {
+      const res = await fetch(`/api/marques/${params.id}/contacts`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: contact.id,
+          moveToMarqueId: opts.childId,
+          newChildName: opts.newName,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setAssignError(d.error || d.message || "Erreur lors de l'attribution.");
+      } else {
+        setAssignOpenId(null);
+        await fetchMarque();
+      }
+    } finally {
+      setAssignBusy(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!confirm("Supprimer cette marque ?")) return;
@@ -604,6 +884,17 @@ export default function MarqueDetailPage() {
               </Link>
             )}
             <span className="text-gray-300">/</span>
+            {marque.parent && (
+              <>
+                <Link
+                  href={`/marques/${marque.parent.id}`}
+                  className="text-gray-400 hover:text-gray-700 transition-colors truncate max-w-[140px]"
+                >
+                  {marque.parent.nom}
+                </Link>
+                <span className="text-gray-300">/</span>
+              </>
+            )}
             <span className="font-medium truncate" style={{ color: INK }}>
               {marque.nom}
             </span>
@@ -769,6 +1060,152 @@ export default function MarqueDetailPage() {
                   label="Créée le"
                   value={new Date(marque.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
                 />
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Groupe" icon={Building2}>
+              <div className="space-y-3">
+                {/* Marque mère */}
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400 mb-1">
+                    Marque mère
+                  </p>
+                  {marque.parent ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <Link
+                        href={`/marques/${marque.parent.id}`}
+                        className="text-[13px] font-medium hover:underline truncate"
+                        style={{ color: INK }}
+                      >
+                        {marque.parent.nom}
+                      </Link>
+                      {!readOnly && (
+                        <button
+                          onClick={detachParent}
+                          disabled={hierarchyBusy}
+                          className="text-gray-300 hover:text-red-500 shrink-0 disabled:opacity-50"
+                          title="Détacher de la marque mère"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ) : readOnly ? (
+                    <p className="text-xs text-gray-300 italic">Aucune</p>
+                  ) : parentPickerOpen ? (
+                    <HierarchyPicker
+                      items={allMarques.filter(
+                        (m) =>
+                          m.id !== marque.id &&
+                          !(marque.children || []).some((c) => c.id === m.id)
+                      )}
+                      busy={hierarchyBusy}
+                      placeholder="Chercher la marque mère…"
+                      query={hierarchyQuery}
+                      onQuery={setHierarchyQuery}
+                      onPick={attachParent}
+                      onCancel={() => {
+                        setParentPickerOpen(false);
+                        setHierarchyQuery("");
+                      }}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setChildPickerOpen(false);
+                        setParentPickerOpen(true);
+                        setHierarchyError(null);
+                        setHierarchyQuery("");
+                        loadAllMarques();
+                      }}
+                      className="text-[13px] hover:underline inline-flex items-center gap-1"
+                      style={{ color: ROSE }}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Rattacher à une mère
+                    </button>
+                  )}
+                </div>
+
+                {/* Marques filles */}
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400 mb-1">
+                    Sous-marques
+                    {marque.children && marque.children.length > 0
+                      ? ` (${marque.children.length})`
+                      : ""}
+                  </p>
+                  {marque.children && marque.children.length > 0 && (
+                    <ul className="space-y-1 mb-1.5">
+                      {marque.children.map((c) => (
+                        <li key={c.id} className="flex items-center justify-between gap-2">
+                          <Link
+                            href={`/marques/${c.id}`}
+                            className="text-[13px] hover:underline truncate"
+                            style={{ color: INK }}
+                          >
+                            {c.nom}
+                            <span className="text-gray-400 text-xs ml-1.5">
+                              {c._count.contacts} contact{c._count.contacts > 1 ? "s" : ""}
+                            </span>
+                          </Link>
+                          {!readOnly && (
+                            <button
+                              onClick={() => detachChild(c.id)}
+                              disabled={hierarchyBusy}
+                              className="text-gray-300 hover:text-red-500 shrink-0 disabled:opacity-50"
+                              title="Détacher cette sous-marque"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {!readOnly &&
+                    (childPickerOpen ? (
+                      <HierarchyPicker
+                        items={allMarques.filter(
+                          (m) =>
+                            m.id !== marque.id &&
+                            m.id !== marque.parent?.id &&
+                            !(marque.children || []).some((c) => c.id === m.id)
+                        )}
+                        busy={hierarchyBusy}
+                        placeholder="Chercher une sous-marque…"
+                        query={hierarchyQuery}
+                        onQuery={setHierarchyQuery}
+                        onPick={attachChild}
+                        onCancel={() => {
+                          setChildPickerOpen(false);
+                          setHierarchyQuery("");
+                        }}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setParentPickerOpen(false);
+                          setChildPickerOpen(true);
+                          setHierarchyError(null);
+                          setHierarchyQuery("");
+                          loadAllMarques();
+                        }}
+                        className="text-[13px] hover:underline inline-flex items-center gap-1"
+                        style={{ color: ROSE }}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Ajouter une sous-marque
+                      </button>
+                    ))}
+                  {(!marque.children || marque.children.length === 0) &&
+                    !childPickerOpen &&
+                    readOnly && <p className="text-xs text-gray-300 italic">Aucune</p>}
+                </div>
+
+                {hierarchyError && (
+                  <p className="text-xs text-red-600">{hierarchyError}</p>
+                )}
               </div>
             </SectionCard>
 
@@ -1095,6 +1532,39 @@ export default function MarqueDetailPage() {
                                   </div>
                                 )}
                               </div>
+
+                              {/* Attribuer ce contact à une sous-marque (marque fille) */}
+                              {!readOnly && (
+                                <div className="mt-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAssignError(null);
+                                      setAssignOpenId(
+                                        assignOpenId === contact.id ? null : contact.id
+                                      );
+                                    }}
+                                    className="inline-flex items-center gap-1 text-[11px] font-medium hover:underline"
+                                    style={{ color: ROSE }}
+                                  >
+                                    <Building2 className="w-3 h-3" />
+                                    Attribuer une sous-marque
+                                  </button>
+                                  {assignOpenId === contact.id && (
+                                    <AssignSubMarqueControl
+                                      subMarques={marque.children || []}
+                                      busy={assignBusy}
+                                      error={assignError}
+                                      onAssign={(childId) =>
+                                        assignContact(contact, { childId })
+                                      }
+                                      onCreate={(newName) =>
+                                        assignContact(contact, { newName })
+                                      }
+                                    />
+                                  )}
+                                </div>
+                              )}
                             </div>
 
                             {/* Côté droit : outreach + LinkedIn */}

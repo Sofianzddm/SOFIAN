@@ -37,6 +37,18 @@ export async function GET(
           select: { id: true, fileName: true, size: true, createdAt: true },
           orderBy: { createdAt: "desc" },
         },
+        // Hiérarchie mère / filles (Unilever → Dove, Axe…).
+        parent: { select: { id: true, nom: true } },
+        children: {
+          select: {
+            id: true,
+            nom: true,
+            secteur: true,
+            ville: true,
+            _count: { select: { contacts: true, collaborations: true } },
+          },
+          orderBy: { nom: "asc" },
+        },
         collaborations: {
           include: {
             talent: {
@@ -90,10 +102,44 @@ export async function PUT(
       select: { nom: true },
     });
 
+    // Marque mère (optionnelle) : on ne la touche que si le champ est fourni,
+    // avec garde anti-cycle (une marque ne peut pas être sa propre ascendante).
+    const parentPatch: { parentMarqueId?: string | null } = {};
+    if ("parentMarqueId" in data) {
+      const newParentId = data.parentMarqueId ? String(data.parentMarqueId) : null;
+      if (newParentId) {
+        if (newParentId === id) {
+          return NextResponse.json(
+            { message: "Une marque ne peut pas être sa propre marque mère." },
+            { status: 400 }
+          );
+        }
+        let cursor: string | null = newParentId;
+        let guard = 0;
+        while (cursor && guard < 50) {
+          if (cursor === id) {
+            return NextResponse.json(
+              { message: "Hiérarchie circulaire : cette marque est déjà une ascendante." },
+              { status: 400 }
+            );
+          }
+          const p: { parentMarqueId: string | null } | null =
+            await prisma.marque.findUnique({
+              where: { id: cursor },
+              select: { parentMarqueId: true },
+            });
+          cursor = p?.parentMarqueId ?? null;
+          guard += 1;
+        }
+      }
+      parentPatch.parentMarqueId = newParentId;
+    }
+
     // Mettre à jour la marque
     const marque = await prisma.marque.update({
       where: { id: id },
       data: {
+        ...parentPatch,
         nom: data.nom,
         secteur: data.secteur || null,
         siteWeb: data.siteWeb || null,

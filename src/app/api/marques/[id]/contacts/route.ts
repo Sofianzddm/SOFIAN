@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { findOrCreateMarque } from "@/lib/marque-resolver";
 
 /**
  * POST → ajout rapide d'un contact depuis la fiche marque (sans passer par
@@ -108,12 +109,99 @@ export async function PATCH(
     const body = (await request.json().catch(() => ({}))) as {
       contactId?: string;
       language?: string;
+      moveToMarqueId?: string;
+      newChildName?: string;
     };
 
     const contactId = (body.contactId || "").trim();
     if (!contactId) {
       return NextResponse.json({ error: "contactId requis." }, { status: 400 });
     }
+
+    // Mode « attribuer une sous-marque » : déplace le contact vers une marque
+    // fille (existante ou créée à la volée), plutôt que de changer sa langue.
+    const moveTargetId = (body.moveToMarqueId || "").trim();
+    const newChildName = (body.newChildName || "").trim();
+    if (moveTargetId || newChildName) {
+      const contact = await prisma.marqueContact.findFirst({
+        where: { id: contactId, marqueId: id },
+        select: { id: true, email: true },
+      });
+      if (!contact) {
+        return NextResponse.json({ error: "Contact non trouvé." }, { status: 404 });
+      }
+
+      // Résout la sous-marque cible.
+      let targetId = moveTargetId;
+      if (!targetId && newChildName) {
+        const resolved = await findOrCreateMarque({ name: newChildName, source: "MANUAL" });
+        targetId = resolved.marqueId;
+        if (targetId === id) {
+          return NextResponse.json(
+            { error: "Une marque ne peut pas être sa propre sous-marque." },
+            { status: 400 }
+          );
+        }
+        // Rattache la marque comme fille si elle n'a pas déjà une mère.
+        const t = await prisma.marque.findUnique({
+          where: { id: targetId },
+          select: { parentMarqueId: true },
+        });
+        if (t && !t.parentMarqueId) {
+          await prisma.marque.update({
+            where: { id: targetId },
+            data: { parentMarqueId: id },
+          });
+        }
+      }
+
+      // La cible doit être une sous-marque de la marque courante.
+      const target = await prisma.marque.findFirst({
+        where: { id: targetId, parentMarqueId: id },
+        select: { id: true, nom: true },
+      });
+      if (!target) {
+        return NextResponse.json(
+          { error: "La marque cible n'est pas une sous-marque de cette marque." },
+          { status: 400 }
+        );
+      }
+
+      // Évite un doublon d'email sur la sous-marque cible.
+      const emailLc = (contact.email || "").trim().toLowerCase();
+      if (emailLc) {
+        const dup = await prisma.marqueContact.findFirst({
+          where: { marqueId: target.id, email: { equals: emailLc, mode: "insensitive" } },
+          select: { id: true },
+        });
+        if (dup) {
+          return NextResponse.json(
+            { error: "Un contact avec cet email existe déjà sur cette sous-marque." },
+            { status: 409 }
+          );
+        }
+      }
+
+      await prisma.marqueContact.update({
+        where: { id: contact.id },
+        data: { marqueId: target.id },
+      });
+
+      // Suit le contact dans le cycle Outreach : la cible pointe vers la fille.
+      if (emailLc) {
+        try {
+          await prisma.outreachTarget.updateMany({
+            where: { marqueId: id, email: emailLc },
+            data: { marqueId: target.id, company: target.nom },
+          });
+        } catch (e) {
+          console.error("Réaffectation outreach (sous-marque) ignorée:", e);
+        }
+      }
+
+      return NextResponse.json({ moved: true, target });
+    }
+
     if (body.language !== "fr" && body.language !== "en") {
       return NextResponse.json(
         { error: "Langue invalide (français ou anglais)." },
