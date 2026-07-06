@@ -73,16 +73,20 @@ type SendOutcome = {
  */
 export function applyCastingTemplateVars(
   text: string,
-  contact: { firstname: string; lastname: string; company: string }
+  contact: { firstname: string; lastname: string; company: string; marques?: string }
 ): string {
   if (!text) return text;
   const prenom = (contact.firstname || "").trim();
   const nom = (contact.lastname || "").trim();
   const marque = (contact.company || "").trim() || "—";
+  // Marques couvertes (sous-marques) : « Dove, Axe ». Si le contact ne couvre
+  // pas d'autres marques, on retombe sur la marque principale (jamais vide).
+  const marquesCouvertes = (contact.marques || "").trim() || marque;
   let s = text;
   s = s.replace(/\{\{\s*contact\.firstname\s*\}\}/gi, prenom || "—");
   s = s.replace(/\{\{\s*contact\.lastname\s*\}\}/gi, nom);
   s = s.replace(/\{\{\s*contact\.company\s*\}\}/gi, marque);
+  s = s.replace(/\{\{\s*contact\.marques\s*\}\}/gi, marquesCouvertes);
   s = s.replace(/\{\{\s*owner\.firstname\s*\}\}/gi, LEYNA_OWNER_FIRSTNAME);
   return s;
 }

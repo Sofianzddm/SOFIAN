@@ -37,6 +37,7 @@ interface Marque {
     email: string | null;
     principal: boolean;
   }[];
+  parent?: { id: string; nom: string } | null;
   _count: {
     collaborations: number;
   };
@@ -213,6 +214,7 @@ export default function MarquesPage() {
         const matchSearch =
           !q ||
           m.nom.toLowerCase().includes(q) ||
+          (m.parent?.nom || "").toLowerCase().includes(q) ||
           (m.siteWeb || "").toLowerCase().includes(q) ||
           (m.ville || "").toLowerCase().includes(q);
         const matchSecteur = !filterSecteur || m.secteur === filterSecteur;
@@ -409,6 +411,15 @@ export default function MarquesPage() {
                       <div className="min-w-0">
                         <p className="text-[14px] font-semibold truncate" style={{ color: INK }}>
                           {marque.nom}
+                          {marque.parent && (
+                            <span
+                              className="ml-1.5 text-[11px] font-medium"
+                              style={{ color: "#2563EB" }}
+                              title={`Marque fille de ${marque.parent.nom}`}
+                            >
+                              (marque fille)
+                            </span>
+                          )}
                         </p>
                         {marque.secteur && (
                           <span

@@ -87,9 +87,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const brandCount = brandName
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter(Boolean).length;
+    const brandLabel =
+      brandCount > 1
+        ? `des marques suivantes (marques filles d'un même groupe) : "${brandName}"`
+        : `de la marque "${brandName}"`;
+
     const prompt = `Tu es un expert en marketing d'influence et en analyse de marques.
 
-Utilise les outils de recherche (web + X) pour identifier **la toute dernière nouveauté** de la marque "${brandName}" (contexte actuel : avril 2026).
+Utilise les outils de recherche (web + X) pour identifier **la toute dernière nouveauté** ${brandLabel} (contexte actuel : avril 2026).${brandCount > 1 ? "\n\nCouvre chacune de ces marques dans ta réponse (ne te limite pas à une seule)." : ""}
 
 Objectif prioritaire : Trouver et décrire précisément **le lancement le plus récent des 3-4 derniers mois** (janvier-avril 2026 si possible, ou fin 2025 si rien de plus récent).
 

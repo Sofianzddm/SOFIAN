@@ -51,10 +51,25 @@ export async function GET(request: NextRequest) {
             sendError: true,
           },
         },
+        // Sous-marques couvertes par ce contact (une seule cible/email, mais on
+        // affiche toutes les marques filles qu'il couvre → pas de contact répété).
+        marqueContact: {
+          select: {
+            sousMarques: { select: { marque: { select: { nom: true } } } },
+          },
+        },
       },
     });
 
-    return NextResponse.json({ targets });
+    // On expose la liste des marques couvertes (hors marque principale) par cible.
+    const shaped = targets.map(({ marqueContact, ...t }) => {
+      const covered = (marqueContact?.sousMarques || [])
+        .map((s) => s.marque.nom)
+        .filter((nom) => nom && nom !== t.company);
+      return { ...t, coveredBrands: Array.from(new Set(covered)) };
+    });
+
+    return NextResponse.json({ targets: shaped });
   } catch (error) {
     console.error("GET /api/outreach/targets:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

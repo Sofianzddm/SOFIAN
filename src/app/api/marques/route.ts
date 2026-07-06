@@ -22,6 +22,7 @@ export async function GET() {
             principal: true,
           },
         },
+        parent: { select: { id: true, nom: true } },
         _count: {
           select: {
             collaborations: true,

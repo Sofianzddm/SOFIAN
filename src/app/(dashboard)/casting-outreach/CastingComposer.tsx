@@ -35,6 +35,8 @@ type CastingRecipient = {
   firstname: string;
   lastname: string;
   email: string;
+  /** Sous-marques couvertes par ce contact (variable {{ contact.marques }}). */
+  marques?: string[];
 };
 
 type CastingCompanyRecipients = {
@@ -105,7 +107,7 @@ const VARIABLES_CONTACT_OWNER: { token: string; label: string }[] = [
 
 function applyTemplateVars(
   text: string,
-  contact: { firstname: string; lastname: string; company: string; email: string },
+  contact: { firstname: string; lastname: string; company: string; email: string; marques?: string },
   talentsOrdered: PresskitTalent[],
   ownerFirstName: string
 ): string {
@@ -114,12 +116,14 @@ function applyTemplateVars(
   const nom = (contact.lastname || "").trim();
   const nomComplet = `${prenom} ${nom}`.trim() || "—";
   const marque = (contact.company || "").trim() || "—";
+  const marquesCouvertes = (contact.marques || "").trim() || marque;
   const emailContact = (contact.email || "").trim() || "—";
   const owner = (ownerFirstName || "").trim() || "—";
 
   s = s.replace(/\{\{\s*contact\.firstname\s*\}\}/gi, prenom);
   s = s.replace(/\{\{contact\.lastname\}\}/gi, nom);
   s = s.replace(/\{\{\s*contact\.company\s*\}\}/gi, marque);
+  s = s.replace(/\{\{\s*contact\.marques\s*\}\}/gi, marquesCouvertes);
   s = s.replace(/\{\{\s*owner\.firstname\s*\}\}/gi, owner);
 
   /* Anciens jetons (brouillons déjà rédigés) */
@@ -257,8 +261,31 @@ export default function CastingComposer({
       lastname: c0.lastname,
       company: contact.company,
       email: c0.email,
+      marques: (c0.marques || []).join(", "),
     };
   }, [contact]);
+
+  // Sous-marques couvertes par les contacts du groupe (ex. Dove, Axe, Rexona).
+  // La recherche IA + la génération du mail se basent sur ces marques concrètes
+  // plutôt que sur la maison mère (« Unilever »), qui est trop générique.
+  const coveredBrandsAll = useMemo(() => {
+    if (!contact) return [] as string[];
+    const set = new Set<string>();
+    for (const c of contact.contacts) {
+      for (const m of c.marques || []) {
+        const v = (m || "").trim();
+        if (v) set.add(v);
+      }
+    }
+    return Array.from(set);
+  }, [contact]);
+
+  // Cible de la recherche / rédaction IA : les sous-marques si présentes,
+  // sinon la marque elle-même.
+  const researchBrandName = useMemo(() => {
+    if (coveredBrandsAll.length > 0) return coveredBrandsAll.join(", ");
+    return contact?.company?.trim() || "";
+  }, [coveredBrandsAll, contact]);
 
   const [subject, setSubject] = useState("");
   const [talents, setTalents] = useState<PresskitTalent[]>([]);
@@ -596,7 +623,7 @@ export default function CastingComposer({
   }, []);
 
   const runBrandResearch = useCallback(async () => {
-    if (!contact?.company?.trim()) {
+    if (!researchBrandName.trim()) {
       onError("Nom de marque manquant pour la recherche.");
       return;
     }
@@ -606,7 +633,7 @@ export default function CastingComposer({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandName: contact.company }),
+        body: JSON.stringify({ brandName: researchBrandName }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -620,7 +647,7 @@ export default function CastingComposer({
     } finally {
       setIsResearching(false);
     }
-  }, [contact, onError]);
+  }, [researchBrandName, onError]);
 
   useEffect(() => {
     if (!open) return;
@@ -702,7 +729,7 @@ export default function CastingComposer({
         body: JSON.stringify({
           language: emailLanguage,
           market,
-          brandName: contact.company,
+          brandName: researchBrandName || contact.company,
           brandResearch,
           talents: talentsPayload,
         }),
@@ -726,7 +753,7 @@ export default function CastingComposer({
     } finally {
       setIsGenerating(false);
     }
-  }, [contact, brandResearch, selectedTalents, emailLanguage, market, editor, onError, onSuccess]);
+  }, [contact, brandResearch, selectedTalents, emailLanguage, market, researchBrandName, editor, onError, onSuccess]);
 
   const previewSubjectResolved = useMemo(() => {
     if (!contact || !previewRecipient) return "";
@@ -940,7 +967,12 @@ export default function CastingComposer({
 
   if (!open || !contact) return null;
 
-  const brandTitle = contact.company || "Marque";
+  // Titre affiché : on met en avant les sous-marques couvertes, avec la maison
+  // mère entre parenthèses — ex. « Dove Men, Dove, Axe, Rexona (Unilever) ».
+  const brandTitle =
+    coveredBrandsAll.length > 0
+      ? `${coveredBrandsAll.join(", ")} (${contact.company})`
+      : contact.company || "Marque";
 
   return (
     <div
@@ -1132,20 +1164,27 @@ export default function CastingComposer({
           {/* Colonne email */}
           <div className="w-full md:w-2/3 flex flex-col">
             <div className="px-5 py-4 pb-24 space-y-4">
-              <div className="flex flex-wrap gap-1.5">
-                {contact.contacts.map((c) => (
-                  <span
-                    key={c.id}
-                    className="inline-flex items-center gap-2 text-xs px-3 py-1 rounded-full"
-                    style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
-                    title={c.email}
-                  >
-                    <span style={{ fontWeight: 600 }}>
-                      {`${c.firstname} ${c.lastname}`.trim() || "—"}
+              <div className="flex flex-col gap-1.5">
+                {contact.contacts.map((c) => {
+                  const brandsLabel =
+                    (c.marques || []).length > 0
+                      ? `${(c.marques || []).join(", ")} (${contact.company})`
+                      : contact.company;
+                  return (
+                    <span
+                      key={c.id}
+                      className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs px-3 py-1.5 rounded-2xl"
+                      style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                      title={c.email}
+                    >
+                      <span style={{ fontWeight: 600 }}>
+                        {`${c.firstname} ${c.lastname}`.trim() || "—"}
+                      </span>
+                      <span className="opacity-80">{c.email || ""}</span>
+                      <span className="opacity-90">— {brandsLabel}</span>
                     </span>
-                    <span className="opacity-80">{c.email || ""}</span>
-                  </span>
-                ))}
+                  );
+                })}
               </div>
 
               {contact.missionBrief && (
@@ -1259,6 +1298,12 @@ export default function CastingComposer({
                   onGenerate={runGenerateEmail}
                   editor={editor}
                   showPipelineVariables={Boolean(contact?.missionBrief)}
+                  showMarquesVariable={Boolean(
+                    contact?.contacts?.some((c) => (c.marques || []).length > 0)
+                  )}
+                  researchTargetLabel={
+                    coveredBrandsAll.length > 0 ? researchBrandName : null
+                  }
                 />
               )}
             </div>

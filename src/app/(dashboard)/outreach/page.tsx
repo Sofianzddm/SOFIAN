@@ -38,6 +38,7 @@ import {
   MailWarning,
   Search,
   ArrowUpDown,
+  Building2,
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import { businessDaysAfter } from "@/lib/business-days";
@@ -123,6 +124,8 @@ type Target = {
   hubspotSyncedAt: string | null;
   createdAt: string;
   touches: TouchSummary[];
+  /** Autres marques (filles) couvertes par ce contact, hors marque principale. */
+  coveredBrands?: string[];
 };
 
 /** Boîte Gmail connectée, utilisable comme expéditrice d'un cycle. */
@@ -251,6 +254,8 @@ type PendingContact = {
   language: string;
   marqueId: string;
   company: string;
+  /** Autres marques couvertes par cette personne (agrégées par email). */
+  coveredBrands?: string[];
 };
 
 const TAB_DEFS: { key: TargetStatus; label: string }[] = [
@@ -517,10 +522,25 @@ export default function OutreachPage() {
     return c;
   }, [targets]);
 
-  const visibleTargets = useMemo(
-    () => targets.filter((t) => t.status === activeTab),
-    [targets, activeTab]
-  );
+  const visibleTargets = useMemo(() => {
+    const filtered = targets.filter((t) => t.status === activeTab);
+    // Garde-fou anti-doublon : une même personne (email) ne doit jamais
+    // apparaître deux fois. Si un état transitoire contient deux versions de
+    // la même cible, on garde celle qui couvre le plus de marques.
+    const byEmail = new Map<string, (typeof filtered)[number]>();
+    const order: string[] = [];
+    for (const t of filtered) {
+      const key = (t.email || t.id).toLowerCase();
+      const prev = byEmail.get(key);
+      if (!prev) {
+        byEmail.set(key, t);
+        order.push(key);
+      } else if ((t.coveredBrands?.length || 0) > (prev.coveredBrands?.length || 0)) {
+        byEmail.set(key, t);
+      }
+    }
+    return order.map((k) => byEmail.get(k)!);
+  }, [targets, activeTab]);
 
   /**
    * Regroupement par marque : un seul mail rédigé pour tous les contacts
@@ -529,22 +549,47 @@ export default function OutreachPage() {
    * de noter le mail pour les faire entrer dans le cycle).
    */
   const visibleGroups = useMemo(() => {
+    // Clé de regroupement = marque + ensemble EXACT des sous-marques couvertes.
+    // Deux contacts d'une même maison mère (ex. Unilever) qui ne couvrent pas
+    // exactement les mêmes marques filles sont ainsi séparés en cartes/mails
+    // distincts (un mail commun n'aurait pas de sens s'ils ne partagent pas
+    // toutes les marques). Les contacts sans sous-marque restent groupés
+    // normalement par marque.
+    const brandSetKey = (brands: string[] | undefined) =>
+      brands && brands.length > 0
+        ? [...brands].map((b) => b.trim().toLowerCase()).sort().join("|")
+        : "";
     const map = new Map<
       string,
-      { marqueId: string; company: string; targets: Target[]; pending: PendingContact[] }
+      {
+        groupKey: string;
+        marqueId: string;
+        company: string;
+        targets: Target[];
+        pending: PendingContact[];
+      }
     >();
     for (const t of visibleTargets) {
-      const key = t.marqueId;
+      const key = `${t.marqueId}::${brandSetKey(t.coveredBrands)}`;
       const group = map.get(key);
       if (group) group.targets.push(t);
-      else map.set(key, { marqueId: key, company: t.company, targets: [t], pending: [] });
+      else
+        map.set(key, {
+          groupKey: key,
+          marqueId: t.marqueId,
+          company: t.company,
+          targets: [t],
+          pending: [],
+        });
     }
     if (activeTab === "TO_CONTACT") {
       for (const c of pendingContacts) {
-        const group = map.get(c.marqueId);
+        const key = `${c.marqueId}::${brandSetKey(c.coveredBrands)}`;
+        const group = map.get(key);
         if (group) group.pending.push(c);
         else
-          map.set(c.marqueId, {
+          map.set(key, {
+            groupKey: key,
             marqueId: c.marqueId,
             company: c.company,
             targets: [],
@@ -733,6 +778,7 @@ export default function OutreachPage() {
         firstname: t.firstname,
         lastname: t.lastname || "",
         email: t.email,
+        marques: t.coveredBrands || [],
       })),
       initialSubject: withDraft?.draftSubject || "",
       initialBodyHtml: withDraft?.draftBodyHtml || "",
@@ -1404,7 +1450,7 @@ export default function OutreachPage() {
                 : "fr";
             return (
               <div
-                key={group.marqueId}
+                key={group.groupKey}
                 className="rounded-xl border bg-white overflow-hidden"
                 style={{ borderColor: "#E5E0DA" }}
               >
@@ -1431,6 +1477,22 @@ export default function OutreachPage() {
                       {group.company}
                       <ExternalLink className="w-3 h-3 text-gray-400" />
                     </a>
+                    {(() => {
+                      const gb =
+                        group.targets[0]?.coveredBrands ||
+                        group.pending[0]?.coveredBrands ||
+                        [];
+                      if (gb.length === 0) return null;
+                      return (
+                        <span
+                          className="text-xs font-medium truncate max-w-[280px]"
+                          style={{ color: OLD_ROSE }}
+                          title={gb.join(", ")}
+                        >
+                          · {gb.join(", ")}
+                        </span>
+                      );
+                    })()}
                     {langKind === "fr" && (
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide"
@@ -1551,6 +1613,23 @@ export default function OutreachPage() {
                             </span>
                           </div>
                           <div className="text-xs text-gray-500 mt-0.5">{target.email}</div>
+                          {target.coveredBrands && target.coveredBrands.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              {target.coveredBrands.map((b) => (
+                                <span
+                                  key={b}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                                  style={{ backgroundColor: "#F5EBE0", color: LICORICE }}
+                                >
+                                  <Building2 className="w-2.5 h-2.5" style={{ color: OLD_ROSE }} />
+                                  {b}
+                                </span>
+                              ))}
+                              <span className="text-[10px] text-gray-400">
+                                ({group.company})
+                              </span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Badges */}
@@ -3037,6 +3116,21 @@ function PendingContactRow({
         <div className="text-xs text-gray-500 mt-0.5 truncate max-w-[420px]">
           {[contact.poste, contact.perimetre, contact.localisation].filter(Boolean).join(" · ") || "—"}
         </div>
+        {contact.coveredBrands && contact.coveredBrands.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 mt-1">
+            {contact.coveredBrands.map((b) => (
+              <span
+                key={b}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                style={{ backgroundColor: "#F5EBE0", color: LICORICE }}
+              >
+                <Building2 className="w-2.5 h-2.5" style={{ color: OLD_ROSE }} />
+                {b}
+              </span>
+            ))}
+            <span className="text-[10px] text-gray-400">({contact.company})</span>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2 ml-auto">

@@ -81,6 +81,18 @@ export interface EmailComposerProps {
    * pipeline prospection talent. Pas affiche dans le casting-outreach inbound.
    */
   showPipelineVariables?: boolean;
+  /**
+   * Ajoute la variable {{ contact.marques }} (liste des sous-marques couvertes)
+   * — utilisée quand le contact couvre plusieurs marques (marque mère / sœurs).
+   */
+  showMarquesVariable?: boolean;
+  /**
+   * Sous-marques réellement ciblées par la recherche IA + la rédaction
+   * (ex. « Dove, Axe, Rexona ») quand les contacts couvrent des marques filles.
+   * Affiché près du bouton de recherche pour clarifier que l'analyse ne porte
+   * pas sur la maison mère.
+   */
+  researchTargetLabel?: string | null;
 }
 
 export default function EmailComposer({
@@ -98,7 +110,16 @@ export default function EmailComposer({
   editor,
   talentInsertMode = "hubspot",
   showPipelineVariables = false,
+  showMarquesVariable = false,
+  researchTargetLabel = null,
 }: EmailComposerProps) {
+  const contactOwnerVariables = showMarquesVariable
+    ? [
+        ...VARIABLES_CONTACT_OWNER.slice(0, 3),
+        { token: "{{ contact.marques }}", label: "Marques couvertes (Dove, Axe…)" },
+        ...VARIABLES_CONTACT_OWNER.slice(3),
+      ]
+    : VARIABLES_CONTACT_OWNER;
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
   const [lastField, setLastField] = useState<"subject" | "body">("body");
   const [bodyTick, setBodyTick] = useState(0);
@@ -321,6 +342,15 @@ export default function EmailComposer({
             </button>
           )}
         </div>
+        {researchTargetLabel && (
+          <p className="text-xs" style={{ color: OLD_ROSE }}>
+            Analyse ciblée sur les sous-marques :{" "}
+            <span className="font-medium" style={{ color: LICORICE }}>
+              {researchTargetLabel}
+            </span>{" "}
+            (pas la maison mère).
+          </p>
+        )}
         {brandResearch && (
           <div className="rounded-xl border p-4 space-y-3 text-sm" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, color: LICORICE }}>
             <p>{brandResearch.recentCampaigns}</p>
@@ -438,7 +468,7 @@ export default function EmailComposer({
           )}
           {!showPipelineVariables && talentInsertMode !== "instagram" && (
             <div className="flex flex-wrap gap-1.5">
-              {VARIABLES_CONTACT_OWNER.map((v) => (
+              {contactOwnerVariables.map((v) => (
                 <button
                   key={v.token}
                   type="button"

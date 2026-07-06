@@ -47,6 +47,26 @@ export function outreachFromEmail(target: { fromEmail?: string | null }): string
   return (target.fromEmail || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
 }
 
+/**
+ * Libellé des sous-marques couvertes par le contact (hors marque principale),
+ * pour la variable {{ contact.marques }} — ex. « Dove, Axe ». Vide si le contact
+ * ne couvre pas d'autres marques.
+ */
+async function coveredBrandsLabel(
+  marqueContactId: string | null | undefined,
+  company: string
+): Promise<string> {
+  if (!marqueContactId) return "";
+  const rows = await prisma.marqueContactSousMarque.findMany({
+    where: { contactId: marqueContactId },
+    select: { marque: { select: { nom: true } } },
+  });
+  const names = Array.from(
+    new Set(rows.map((r) => r.marque.nom).filter((n) => n && n !== company))
+  );
+  return names.join(", ");
+}
+
 export type OutreachSendResult =
   | {
       ok: true;
@@ -275,6 +295,7 @@ export async function executeOutreachSend(
     firstname: target.firstname || "",
     lastname: target.lastname || "",
     company: target.company || "",
+    marques: await coveredBrandsLabel(target.marqueContactId, target.company || ""),
   };
   const personalizedSubject = applyCastingTemplateVars(subjectTpl, vars);
   const bodyTpl = normalizeEditorHtmlForEmail(bodyRaw);
@@ -647,6 +668,7 @@ export async function executeOutreachRelance(
     firstname: target.firstname || "",
     lastname: target.lastname || "",
     company: target.company || "",
+    marques: await coveredBrandsLabel(target.marqueContactId, target.company || ""),
   };
   const bodyWithVars = applyCastingTemplateVars(bodyTemplate, vars);
   const body = normalizeEditorHtmlForEmail(bodyWithVars);

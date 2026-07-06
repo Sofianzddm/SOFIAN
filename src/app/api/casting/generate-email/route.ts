@@ -125,6 +125,22 @@ export async function POST(request: NextRequest) {
     const isBenelux = body.market === "BENELUX";
     const { newProducts, brandPositioning, influenceStrategy } = body.brandResearch;
 
+    // Quand plusieurs marques filles sont fournies (ex. « Dove, Axe, Rexona »),
+    // on précise à l'IA qu'il s'agit de plusieurs marques d'un même groupe gérées
+    // par le contact, pour que le mail parle de ces marques (pas de la maison mère).
+    const brandCount = brandName
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean).length;
+    const multiBrandNoteFr =
+      brandCount > 1
+        ? `\nIMPORTANT : « ${brandName} » sont PLUSIEURS marques (marques filles d'un même groupe) que ce contact gère. Écris pour CES marques précises (évoque-les naturellement, pas forcément toutes), jamais pour la maison mère de façon générique.`
+        : "";
+    const multiBrandNoteEn =
+      brandCount > 1
+        ? `\nIMPORTANT: "${brandName}" are SEVERAL brands (sister brands of the same group) managed by this contact. Write for THESE specific brands (mention them naturally, not necessarily all of them), never generically for the parent company.`
+        : "";
+
     const recipientFirstName =
       typeof body.recipient?.firstName === "string"
         ? body.recipient.firstName.trim()
@@ -190,7 +206,7 @@ Expected tone: professional, composed and polished, yet natural and genuine — 
 Avoid stacking superlatives: maximum 1-2 compliments in the whole email, and only if deserved. Always prefer a concrete, verifiable observation (a specific product, a launch, a type of collaboration they run) over generic flattery. No slang or loose casual phrasing.
 
 CURRENT CONTEXT: April 2026
-Brand: ${brandName}
+Brand: ${brandName}${multiBrandNoteEn}
 New products / collections to prioritize: ${newProducts}
 Positioning: ${brandPositioning}
 Current influence strategy of the brand (profile types, formats, tone of their collaborations): ${influenceStrategy || "—"}
@@ -266,7 +282,7 @@ Ton attendu : professionnel, posé et soigné, mais naturel et incarné — jama
 Évite l'accumulation de superlatifs : maximum 1 à 2 compliments dans tout le mail, et seulement s'ils sont mérités. Préfère toujours une observation concrète et vérifiable (un produit précis, un lancement, un type de collaboration qu'ils mènent) plutôt qu'une flatterie générale. Pas d'argot ni d'anglicismes relâchés.
 
 CONTEXTE ACTUEL : avril 2026
-Marque : ${brandName}
+Marque : ${brandName}${multiBrandNoteFr}
 Nouveautés / collections à citer en priorité : ${newProducts}
 Positionnement : ${brandPositioning}
 Stratégie d'influence actuelle de la marque (types de profils, formats, tonalité de leurs collaborations) : ${influenceStrategy || "—"}

@@ -254,6 +254,8 @@ function HierarchyPicker({
   query,
   onQuery,
   onPick,
+  onCreate,
+  createLabel,
   onCancel,
 }: {
   items: MarqueLite[];
@@ -262,16 +264,25 @@ function HierarchyPicker({
   query: string;
   onQuery: (v: string) => void;
   onPick: (id: string) => void;
+  onCreate?: (name: string) => void;
+  createLabel?: string;
   onCancel: () => void;
 }) {
   const q = query.trim().toLowerCase();
   const filtered = (q ? items.filter((m) => m.nom.toLowerCase().includes(q)) : items).slice(0, 8);
+  const exactExists = q.length > 0 && items.some((m) => m.nom.toLowerCase() === q);
   return (
     <div className="mt-1">
       <input
         autoFocus
         value={query}
         onChange={(e) => onQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && q && !busy) {
+            if (filtered.length > 0) onPick(filtered[0].id);
+            else if (onCreate && !exactExists) onCreate(query.trim());
+          }
+        }}
         placeholder={placeholder}
         className="w-full px-2.5 py-1.5 rounded-lg border text-[13px] focus:outline-none focus:ring-2 focus:ring-gray-200"
         style={{ borderColor: "#E5E0DA" }}
@@ -294,9 +305,20 @@ function HierarchyPicker({
           </button>
         ))}
         {filtered.length === 0 && (
-          <div className="px-2.5 py-1.5 text-xs text-gray-400">Aucune marque</div>
+          <div className="px-2.5 py-1.5 text-xs text-gray-400">Aucune marque existante</div>
         )}
       </div>
+      {onCreate && q && !exactExists && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onCreate(query.trim())}
+          className="mt-1 w-full text-left px-2.5 py-1.5 text-[13px] font-semibold rounded-lg text-white disabled:opacity-50"
+          style={{ backgroundColor: INK }}
+        >
+          {createLabel || "Créer"} « {query.trim()} »
+        </button>
+      )}
       <button
         type="button"
         onClick={onCancel}
@@ -311,24 +333,37 @@ function HierarchyPicker({
 /** Panneau compact pour attribuer un contact à une sous-marque (fille). */
 function AssignSubMarqueControl({
   subMarques,
+  allMarques,
+  excludeIds,
   busy,
   error,
   onAssign,
   onCreate,
 }: {
   subMarques: { id: string; nom: string }[];
+  allMarques: MarqueLite[];
+  excludeIds: Set<string>;
   busy: boolean;
   error: string | null;
-  onAssign: (childId: string) => void;
+  onAssign: (marqueId: string) => void;
   onCreate: (name: string) => void;
 }) {
   const [name, setName] = useState("");
+  const q = name.trim().toLowerCase();
+  const matches = q
+    ? allMarques
+        .filter((m) => !excludeIds.has(m.id) && m.nom.toLowerCase().includes(q))
+        .slice(0, 6)
+    : [];
+  const exactExists = q.length > 0 && allMarques.some((m) => m.nom.toLowerCase() === q);
+
   return (
     <div
       className="mt-2 rounded-lg border p-2 space-y-1.5"
       style={{ borderColor: "#EDE7DF", background: "#FCFAF7" }}
     >
-      {subMarques.length > 0 ? (
+      {/* Sous-marques déjà connues de cette marque mère : rattachement 1 clic */}
+      {subMarques.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {subMarques.map((c) => (
             <button
@@ -343,32 +378,57 @@ function AssignSubMarqueControl({
             </button>
           ))}
         </div>
-      ) : (
-        <p className="text-[11px] text-gray-400">
-          Aucune sous-marque : crée-la ci-dessous.
-        </p>
       )}
-      <div className="flex items-center gap-1.5">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && name.trim() && !busy) onCreate(name.trim());
-          }}
-          placeholder="Nouvelle sous-marque…"
-          className="flex-1 px-2 py-1 rounded-md border text-[12px] focus:outline-none focus:ring-2 focus:ring-gray-200"
-          style={{ borderColor: "#E5E0DA" }}
-        />
+
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && q && !busy) {
+            if (matches.length > 0) onAssign(matches[0].id);
+            else if (!exactExists) onCreate(name.trim());
+          }
+        }}
+        placeholder="Chercher une marque existante ou en créer une…"
+        className="w-full px-2 py-1 rounded-md border text-[12px] focus:outline-none focus:ring-2 focus:ring-gray-200"
+        style={{ borderColor: "#E5E0DA" }}
+      />
+
+      {/* Résultats : marques existantes à rattacher comme sous-marque */}
+      {q && matches.length > 0 && (
+        <div className="rounded-md border divide-y overflow-hidden" style={{ borderColor: "#EDE7DF" }}>
+          {matches.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              disabled={busy}
+              onClick={() => onAssign(m.id)}
+              className="w-full text-left px-2 py-1.5 text-[12px] hover:bg-white disabled:opacity-50 flex items-center justify-between gap-2"
+            >
+              <span className="truncate" style={{ color: INK }}>
+                {m.nom}
+              </span>
+              <span className="text-[10px] shrink-0" style={{ color: ROSE }}>
+                rattacher
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Créer si aucune marque existante ne correspond exactement */}
+      {q && !exactExists && (
         <button
           type="button"
-          disabled={busy || !name.trim()}
+          disabled={busy}
           onClick={() => onCreate(name.trim())}
           className="text-[11px] font-semibold px-2 py-1 rounded-md text-white disabled:opacity-50"
           style={{ backgroundColor: INK }}
         >
-          Créer
+          Créer « {name.trim()} »
         </button>
-      </div>
+      )}
+
       {error && <p className="text-[11px] text-red-600">{error}</p>}
     </div>
   );
@@ -394,6 +454,12 @@ export default function MarqueDetailPage() {
   const [activeTab, setActiveTab] = useState<"activite" | "contacts" | "carto" | "collabs">("activite");
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [logoError, setLogoError] = useState(false);
+
+  // Édition inline de l'email d'un contact depuis la fiche marque
+  const [editEmailId, setEditEmailId] = useState<string | null>(null);
+  const [editEmailValue, setEditEmailValue] = useState("");
+  const [savingEmailId, setSavingEmailId] = useState<string | null>(null);
+  const [editEmailError, setEditEmailError] = useState<string | null>(null);
 
   const [exporting, setExporting] = useState(false);
 
@@ -552,6 +618,46 @@ export default function MarqueDetailPage() {
     }
   };
 
+  /** Crée une nouvelle marque (résolue/dédoublonnée par le serveur) puis renvoie son id. */
+  const createMarque = async (nom: string): Promise<string | null> => {
+    const res = await fetch("/api/marques", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nom }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setHierarchyError(d.message || "Erreur lors de la création de la marque.");
+      return null;
+    }
+    const m = await res.json();
+    return m?.id || null;
+  };
+
+  /** Crée une sous-marque et la rattache à la marque courante. */
+  const createAndAttachChild = async (nom: string) => {
+    setHierarchyBusy(true);
+    setHierarchyError(null);
+    try {
+      const newId = await createMarque(nom);
+      if (newId) await attachChild(newId);
+    } finally {
+      setHierarchyBusy(false);
+    }
+  };
+
+  /** Crée une marque mère et y rattache la marque courante. */
+  const createAndAttachParent = async (nom: string) => {
+    setHierarchyBusy(true);
+    setHierarchyError(null);
+    try {
+      const newId = await createMarque(nom);
+      if (newId) await attachParent(newId);
+    } finally {
+      setHierarchyBusy(false);
+    }
+  };
+
   /** Rattache un contact à une sous-marque (fille existante ou nouvelle). Ne le déplace pas. */
   const assignContact = async (
     contact: Contact,
@@ -614,6 +720,55 @@ export default function MarqueDetailPage() {
     navigator.clipboard.writeText(email);
     setCopiedEmail(email);
     setTimeout(() => setCopiedEmail(null), 2000);
+  };
+
+  /** Ouvre l'édition inline de l'email d'un contact. */
+  const startEditEmail = (contact: Contact) => {
+    setEditEmailError(null);
+    setEditEmailId(contact.id);
+    setEditEmailValue(contact.email || "");
+  };
+
+  const cancelEditEmail = () => {
+    setEditEmailId(null);
+    setEditEmailValue("");
+    setEditEmailError(null);
+  };
+
+  /** Enregistre le nouvel email d'un contact (fiche marque). */
+  const saveContactEmail = async (contact: Contact) => {
+    if (savingEmailId) return;
+    const email = editEmailValue.trim();
+    if (email === (contact.email || "")) {
+      cancelEditEmail();
+      return;
+    }
+    setEditEmailError(null);
+    setSavingEmailId(contact.id);
+    try {
+      const res = await fetch(`/api/marques/${params.id}/contacts`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: contact.id, email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur lors de la modification de l'email.");
+      setMarque((prev) =>
+        prev
+          ? {
+              ...prev,
+              contacts: prev.contacts.map((c) =>
+                c.id === contact.id ? { ...c, email: email || null } : c
+              ),
+            }
+          : prev
+      );
+      cancelEditEmail();
+    } catch (e) {
+      setEditEmailError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingEmailId(null);
+    }
   };
 
   const submitNewContact = async () => {
@@ -1132,10 +1287,12 @@ export default function MarqueDetailPage() {
                           !(marque.children || []).some((c) => c.id === m.id)
                       )}
                       busy={hierarchyBusy}
-                      placeholder="Chercher la marque mère…"
+                      placeholder="Chercher ou créer la marque mère…"
                       query={hierarchyQuery}
                       onQuery={setHierarchyQuery}
                       onPick={attachParent}
+                      onCreate={createAndAttachParent}
+                      createLabel="Créer la mère"
                       onCancel={() => {
                         setParentPickerOpen(false);
                         setHierarchyQuery("");
@@ -1210,10 +1367,12 @@ export default function MarqueDetailPage() {
                             !(marque.children || []).some((c) => c.id === m.id)
                         )}
                         busy={hierarchyBusy}
-                        placeholder="Chercher une sous-marque…"
+                        placeholder="Chercher ou créer une sous-marque…"
                         query={hierarchyQuery}
                         onQuery={setHierarchyQuery}
                         onPick={attachChild}
+                        onCreate={createAndAttachChild}
+                        createLabel="Créer la sous-marque"
                         onCancel={() => {
                           setChildPickerOpen(false);
                           setHierarchyQuery("");
@@ -1501,7 +1660,53 @@ export default function MarqueDetailPage() {
 
                               {/* Coordonnées */}
                               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5">
-                                {contact.email ? (
+                                {editEmailId === contact.id ? (
+                                  <span className="inline-flex flex-col gap-1">
+                                    <span className="inline-flex items-center gap-1.5">
+                                      <Mail className="w-3.5 h-3.5 text-gray-300" />
+                                      <input
+                                        type="email"
+                                        autoFocus
+                                        value={editEmailValue}
+                                        onChange={(e) => setEditEmailValue(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            saveContactEmail(contact);
+                                          } else if (e.key === "Escape") {
+                                            cancelEditEmail();
+                                          }
+                                        }}
+                                        placeholder="email@marque.com"
+                                        className="text-[12.5px] px-2 py-1 rounded-md border border-gray-200 focus:outline-none focus:ring-1"
+                                        style={{ minWidth: 220 }}
+                                      />
+                                      <button
+                                        onClick={() => saveContactEmail(contact)}
+                                        disabled={savingEmailId === contact.id}
+                                        className="p-1 rounded-md hover:bg-emerald-50 disabled:opacity-50"
+                                        title="Enregistrer"
+                                      >
+                                        {savingEmailId === contact.id ? (
+                                          <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                                        ) : (
+                                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={cancelEditEmail}
+                                        disabled={savingEmailId === contact.id}
+                                        className="p-1 rounded-md hover:bg-gray-100 disabled:opacity-50"
+                                        title="Annuler"
+                                      >
+                                        <X className="w-3.5 h-3.5 text-gray-400" />
+                                      </button>
+                                    </span>
+                                    {editEmailError && (
+                                      <span className="text-[11px] text-red-500">{editEmailError}</span>
+                                    )}
+                                  </span>
+                                ) : contact.email ? (
                                   <span className="inline-flex items-center gap-1">
                                     <a
                                       href={`mailto:${contact.email}`}
@@ -1521,12 +1726,30 @@ export default function MarqueDetailPage() {
                                         <Copy className="w-3 h-3 text-gray-400" />
                                       )}
                                     </button>
+                                    {!readOnly && (
+                                      <button
+                                        onClick={() => startEditEmail(contact)}
+                                        className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-gray-100 transition-all"
+                                        title="Modifier l'email"
+                                      >
+                                        <Pencil className="w-3 h-3 text-gray-400" />
+                                      </button>
+                                    )}
                                   </span>
-                                ) : (
+                                ) : readOnly ? (
                                   <span className="inline-flex items-center gap-1.5 text-xs text-gray-300 italic">
                                     <Mail className="w-3.5 h-3.5" />
                                     email à compléter dans Outreach
                                   </span>
+                                ) : (
+                                  <button
+                                    onClick={() => startEditEmail(contact)}
+                                    className="inline-flex items-center gap-1.5 text-xs text-gray-400 italic hover:text-gray-700"
+                                    title="Ajouter un email"
+                                  >
+                                    <Mail className="w-3.5 h-3.5" />
+                                    Ajouter un email
+                                  </button>
                                 )}
                                 {contact.telephone && (
                                   <span className="inline-flex items-center gap-1.5 text-[12.5px] text-gray-600">
@@ -1610,6 +1833,7 @@ export default function MarqueDetailPage() {
                                           setAssignOpenId(
                                             assignOpenId === contact.id ? null : contact.id
                                           );
+                                          loadAllMarques();
                                         }}
                                         className="inline-flex items-center gap-1 text-[11px] font-medium hover:underline"
                                         style={{ color: ROSE }}
@@ -1627,10 +1851,19 @@ export default function MarqueDetailPage() {
                                                 (s) => s.marque.id === c.id
                                               )
                                           )}
+                                          allMarques={allMarques}
+                                          excludeIds={
+                                            new Set<string>([
+                                              marque.id,
+                                              ...(contact.sousMarques || []).map(
+                                                (s) => s.marque.id
+                                              ),
+                                            ])
+                                          }
                                           busy={assignBusy}
                                           error={assignError}
-                                          onAssign={(childId) =>
-                                            assignContact(contact, { childId })
+                                          onAssign={(marqueId) =>
+                                            assignContact(contact, { childId: marqueId })
                                           }
                                           onCreate={(newName) =>
                                             assignContact(contact, { newName })

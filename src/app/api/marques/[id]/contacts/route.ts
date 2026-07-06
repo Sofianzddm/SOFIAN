@@ -109,6 +109,11 @@ export async function PATCH(
     const body = (await request.json().catch(() => ({}))) as {
       contactId?: string;
       language?: string;
+      email?: string;
+      prenom?: string;
+      nom?: string;
+      poste?: string;
+      telephone?: string;
       addSousMarqueId?: string;
       removeSousMarqueId?: string;
       newSousMarqueName?: string;
@@ -142,39 +147,61 @@ export async function PATCH(
         return NextResponse.json({ ok: true });
       }
 
-      // Résout la sous-marque à rattacher (existante ou créée à la volée).
+      // Résout la sous-marque à rattacher (existante par id, existante par nom,
+      // ou créée à la volée). findOrCreateMarque dédoublonne par slug : taper
+      // « Dove » retombe sur la fiche Dove existante si elle existe.
       let targetId = addSousMarqueId;
       if (!targetId && newSousMarqueName) {
         const resolved = await findOrCreateMarque({ name: newSousMarqueName, source: "MANUAL" });
         targetId = resolved.marqueId;
-        if (targetId === id) {
+      }
+      if (!targetId) {
+        return NextResponse.json({ error: "Sous-marque cible requise." }, { status: 400 });
+      }
+      if (targetId === id) {
+        return NextResponse.json(
+          { error: "Une marque ne peut pas être sa propre sous-marque." },
+          { status: 400 }
+        );
+      }
+
+      const target = await prisma.marque.findUnique({
+        where: { id: targetId },
+        select: { id: true, nom: true, parentMarqueId: true },
+      });
+      if (!target) {
+        return NextResponse.json({ error: "Marque cible introuvable." }, { status: 404 });
+      }
+
+      // Adopte la marque comme fille de la marque courante si elle ne l'est pas
+      // déjà (garde anti-cycle + refus si elle a déjà une AUTRE marque mère).
+      if (target.parentMarqueId !== id) {
+        if (target.parentMarqueId) {
           return NextResponse.json(
-            { error: "Une marque ne peut pas être sa propre sous-marque." },
+            { error: "Cette marque est déjà rattachée à une autre marque mère." },
             { status: 400 }
           );
         }
-        const t = await prisma.marque.findUnique({
-          where: { id: targetId },
-          select: { parentMarqueId: true },
-        });
-        if (t && !t.parentMarqueId) {
-          await prisma.marque.update({
-            where: { id: targetId },
-            data: { parentMarqueId: id },
+        let cursor: string | null = id;
+        let guard = 0;
+        while (cursor && guard < 50) {
+          const p: { parentMarqueId: string | null } | null = await prisma.marque.findUnique({
+            where: { id: cursor },
+            select: { parentMarqueId: true },
           });
+          cursor = p?.parentMarqueId ?? null;
+          if (cursor === target.id) {
+            return NextResponse.json(
+              { error: "Hiérarchie circulaire : cette marque est une ascendante." },
+              { status: 400 }
+            );
+          }
+          guard += 1;
         }
-      }
-
-      // La cible doit être une sous-marque de la marque courante.
-      const target = await prisma.marque.findFirst({
-        where: { id: targetId, parentMarqueId: id },
-        select: { id: true, nom: true },
-      });
-      if (!target) {
-        return NextResponse.json(
-          { error: "La marque cible n'est pas une sous-marque de cette marque." },
-          { status: 400 }
-        );
+        await prisma.marque.update({
+          where: { id: target.id },
+          data: { parentMarqueId: id },
+        });
       }
 
       await prisma.marqueContactSousMarque.upsert({
@@ -183,7 +210,84 @@ export async function PATCH(
         update: {},
       });
 
-      return NextResponse.json({ ok: true, target });
+      return NextResponse.json({ ok: true, target: { id: target.id, nom: target.nom } });
+    }
+
+    // Mode « édition contact » : modifier email / prénom / nom / poste / téléphone
+    // directement depuis la fiche marque (sans passer par la page d'édition).
+    const wantsFieldEdit =
+      body.email !== undefined ||
+      body.prenom !== undefined ||
+      body.nom !== undefined ||
+      body.poste !== undefined ||
+      body.telephone !== undefined;
+    if (wantsFieldEdit) {
+      const contact = await prisma.marqueContact.findFirst({
+        where: { id: contactId, marqueId: id },
+        select: { id: true, email: true },
+      });
+      if (!contact) {
+        return NextResponse.json({ error: "Contact non trouvé." }, { status: 404 });
+      }
+
+      const data: {
+        email?: string | null;
+        prenom?: string | null;
+        nom?: string;
+        poste?: string | null;
+        telephone?: string | null;
+      } = {};
+
+      let newEmail: string | null = null;
+      if (body.email !== undefined) {
+        newEmail = (body.email || "").trim().toLowerCase();
+        if (newEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+          return NextResponse.json({ error: "Email invalide." }, { status: 400 });
+        }
+        if (newEmail) {
+          const dup = await prisma.marqueContact.findFirst({
+            where: {
+              marqueId: id,
+              email: { equals: newEmail, mode: "insensitive" },
+              id: { not: contact.id },
+            },
+            select: { id: true },
+          });
+          if (dup) {
+            return NextResponse.json(
+              { error: "Un contact avec cet email existe déjà sur cette marque." },
+              { status: 409 }
+            );
+          }
+        }
+        data.email = newEmail || null;
+      }
+      if (body.prenom !== undefined) data.prenom = (body.prenom || "").trim() || null;
+      // `nom` est non-nullable : on ne l'écrase que par une valeur non vide.
+      if (body.nom !== undefined) {
+        const trimmedNom = (body.nom || "").trim();
+        if (trimmedNom) data.nom = trimmedNom;
+      }
+      if (body.poste !== undefined) data.poste = (body.poste || "").trim() || null;
+      if (body.telephone !== undefined)
+        data.telephone = (body.telephone || "").trim() || null;
+
+      const updated = await prisma.marqueContact.update({
+        where: { id: contact.id },
+        data,
+      });
+
+      // Si l'email change, on répercute sur la cible Outreach déjà dans le cycle
+      // (matchée par l'ancien email) pour garder tout cohérent.
+      const oldEmail = (contact.email || "").trim().toLowerCase();
+      if (body.email !== undefined && oldEmail && newEmail && oldEmail !== newEmail) {
+        await prisma.outreachTarget.updateMany({
+          where: { marqueId: id, email: oldEmail },
+          data: { email: newEmail },
+        });
+      }
+
+      return NextResponse.json({ contact: updated });
     }
 
     if (body.language !== "fr" && body.language !== "en") {
