@@ -656,6 +656,10 @@ model Marque {
   outreachTargets      OutreachTarget[]
   cartoFiles           MarqueCartoFile[]
 
+  // Contacts (portés par une autre marque, souvent la mère) rattachés à cette
+  // marque en tant que sous-marque qu'ils couvrent.
+  sousMarqueContacts MarqueContactSousMarque[] @relation("SousMarqueContacts")
+
   @@index([slug])
   @@index([parentMarqueId])
   @@map("marques")
@@ -796,7 +800,27 @@ model MarqueContact {
   quotes          Quote[]
   outreachTargets OutreachTarget[]
 
+  // Sous-marques (marques filles) sur lesquelles ce contact intervient.
+  // Un contact reste rattaché à sa marque (souvent la mère) mais peut couvrir
+  // plusieurs sous-marques (ex. Home Care ET Personal Care chez Unilever).
+  sousMarques MarqueContactSousMarque[]
+
   @@map("marque_contacts")
+}
+
+// Liaison plusieurs-à-plusieurs entre un contact et les sous-marques qu'il couvre.
+model MarqueContactSousMarque {
+  id        String   @id @default(cuid())
+  contactId String
+  marqueId  String
+  createdAt DateTime @default(now())
+
+  contact MarqueContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  marque  Marque        @relation("SousMarqueContacts", fields: [marqueId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, marqueId])
+  @@index([marqueId])
+  @@map("marque_contact_sous_marques")
 }
 
 // ============================================

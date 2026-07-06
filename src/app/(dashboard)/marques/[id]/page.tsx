@@ -73,6 +73,7 @@ type Contact = {
   linkedinUrl?: string | null;
   source?: string | null;
   outreachTargets?: OutreachInfo[];
+  sousMarques?: { marque: { id: string; nom: string } }[];
 };
 
 interface MarqueDetail {
@@ -115,7 +116,19 @@ interface MarqueDetail {
     nom: string;
     secteur: string | null;
     ville: string | null;
-    _count: { contacts: number; collaborations: number };
+    _count: { contacts: number; collaborations: number; sousMarqueContacts: number };
+  }[];
+  sousMarqueContacts?: {
+    id: string;
+    contact: {
+      id: string;
+      prenom: string | null;
+      nom: string;
+      email: string | null;
+      poste: string | null;
+      principal: boolean;
+      marque: { id: string; nom: string };
+    };
   }[];
   _count: { collaborations: number };
 }
@@ -539,7 +552,7 @@ export default function MarqueDetailPage() {
     }
   };
 
-  /** Déplace un contact vers une sous-marque (existante via childId, ou nouvelle via newName). */
+  /** Rattache un contact à une sous-marque (fille existante ou nouvelle). Ne le déplace pas. */
   const assignContact = async (
     contact: Contact,
     opts: { childId?: string; newName?: string }
@@ -552,17 +565,36 @@ export default function MarqueDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contactId: contact.id,
-          moveToMarqueId: opts.childId,
-          newChildName: opts.newName,
+          addSousMarqueId: opts.childId,
+          newSousMarqueName: opts.newName,
         }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setAssignError(d.error || d.message || "Erreur lors de l'attribution.");
+        setAssignError(d.error || d.message || "Erreur lors du rattachement.");
       } else {
-        setAssignOpenId(null);
+        // On garde le panneau ouvert : un contact peut couvrir plusieurs sous-marques.
         await fetchMarque();
       }
+    } finally {
+      setAssignBusy(false);
+    }
+  };
+
+  /** Détache une sous-marque d'un contact. */
+  const removeSousMarque = async (contact: Contact, sousMarqueId: string) => {
+    setAssignBusy(true);
+    setAssignError(null);
+    try {
+      const res = await fetch(`/api/marques/${params.id}/contacts`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: contact.id,
+          removeSousMarqueId: sousMarqueId,
+        }),
+      });
+      if (res.ok) await fetchMarque();
     } finally {
       setAssignBusy(false);
     }
@@ -1145,9 +1177,14 @@ export default function MarqueDetailPage() {
                             style={{ color: INK }}
                           >
                             {c.nom}
-                            <span className="text-gray-400 text-xs ml-1.5">
-                              {c._count.contacts} contact{c._count.contacts > 1 ? "s" : ""}
-                            </span>
+                            {(() => {
+                              const n = c._count.contacts + c._count.sousMarqueContacts;
+                              return (
+                                <span className="text-gray-400 text-xs ml-1.5">
+                                  {n} contact{n > 1 ? "s" : ""}
+                                </span>
+                              );
+                            })()}
                           </Link>
                           {!readOnly && (
                             <button
@@ -1399,7 +1436,9 @@ export default function MarqueDetailPage() {
                   </div>
                 )}
 
-                {marque.contacts.length === 0 && !showAddContact ? (
+                {marque.contacts.length === 0 &&
+                !showAddContact &&
+                (!marque.sousMarqueContacts || marque.sousMarqueContacts.length === 0) ? (
                   <div className="text-center py-14">
                     <Users className="w-10 h-10 text-gray-200 mx-auto mb-3" />
                     <p className="text-sm text-gray-400">Aucun contact enregistré</p>
@@ -1533,35 +1572,72 @@ export default function MarqueDetailPage() {
                                 )}
                               </div>
 
-                              {/* Attribuer ce contact à une sous-marque (marque fille) */}
-                              {!readOnly && (
+                              {/* Sous-marques couvertes par ce contact (peut en avoir plusieurs) */}
+                              {((contact.sousMarques && contact.sousMarques.length > 0) ||
+                                !readOnly) && (
                                 <div className="mt-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setAssignError(null);
-                                      setAssignOpenId(
-                                        assignOpenId === contact.id ? null : contact.id
-                                      );
-                                    }}
-                                    className="inline-flex items-center gap-1 text-[11px] font-medium hover:underline"
-                                    style={{ color: ROSE }}
-                                  >
-                                    <Building2 className="w-3 h-3" />
-                                    Attribuer une sous-marque
-                                  </button>
-                                  {assignOpenId === contact.id && (
-                                    <AssignSubMarqueControl
-                                      subMarques={marque.children || []}
-                                      busy={assignBusy}
-                                      error={assignError}
-                                      onAssign={(childId) =>
-                                        assignContact(contact, { childId })
-                                      }
-                                      onCreate={(newName) =>
-                                        assignContact(contact, { newName })
-                                      }
-                                    />
+                                  {contact.sousMarques && contact.sousMarques.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                      {contact.sousMarques.map((s) => (
+                                        <span
+                                          key={s.marque.id}
+                                          className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-[3px] rounded-md ring-1 ring-inset ring-black/[0.06]"
+                                          style={{ backgroundColor: "#F5EBE0", color: INK }}
+                                        >
+                                          <Building2 className="w-2.5 h-2.5" style={{ color: ROSE }} />
+                                          {s.marque.nom}
+                                          {!readOnly && (
+                                            <button
+                                              type="button"
+                                              onClick={() => removeSousMarque(contact, s.marque.id)}
+                                              disabled={assignBusy}
+                                              className="ml-0.5 text-gray-400 hover:text-red-500 disabled:opacity-50"
+                                              title="Retirer cette sous-marque"
+                                            >
+                                              <X className="w-2.5 h-2.5" />
+                                            </button>
+                                          )}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {!readOnly && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAssignError(null);
+                                          setAssignOpenId(
+                                            assignOpenId === contact.id ? null : contact.id
+                                          );
+                                        }}
+                                        className="inline-flex items-center gap-1 text-[11px] font-medium hover:underline"
+                                        style={{ color: ROSE }}
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        {contact.sousMarques && contact.sousMarques.length > 0
+                                          ? "Ajouter une sous-marque"
+                                          : "Attribuer une sous-marque"}
+                                      </button>
+                                      {assignOpenId === contact.id && (
+                                        <AssignSubMarqueControl
+                                          subMarques={(marque.children || []).filter(
+                                            (c) =>
+                                              !(contact.sousMarques || []).some(
+                                                (s) => s.marque.id === c.id
+                                              )
+                                          )}
+                                          busy={assignBusy}
+                                          error={assignError}
+                                          onAssign={(childId) =>
+                                            assignContact(contact, { childId })
+                                          }
+                                          onCreate={(newName) =>
+                                            assignContact(contact, { newName })
+                                          }
+                                        />
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               )}
@@ -1632,6 +1708,54 @@ export default function MarqueDetailPage() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* Contacts rattachés à cette marque en tant que sous-marque */}
+                {marque.sousMarqueContacts && marque.sousMarqueContacts.length > 0 && (
+                  <div className="border-t border-gray-100">
+                    <div className="px-5 py-2.5 bg-gray-50/60">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">
+                        Rattachés depuis la marque mère ({marque.sousMarqueContacts.length})
+                      </p>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {marque.sousMarqueContacts.map((sc) => (
+                        <div key={sc.id} className="px-5 py-3 flex items-start gap-3.5">
+                          <div
+                            className="w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-bold text-white shrink-0"
+                            style={{ background: "linear-gradient(135deg, #3A2E2A, #16110F)" }}
+                          >
+                            {initials(sc.contact.prenom, sc.contact.nom)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[13.5px] font-semibold" style={{ color: INK }}>
+                                {[sc.contact.prenom, sc.contact.nom].filter(Boolean).join(" ")}
+                              </span>
+                              <Link
+                                href={`/marques/${sc.contact.marque.id}`}
+                                className="text-[11px] text-gray-400 hover:underline"
+                              >
+                                via {sc.contact.marque.nom}
+                              </Link>
+                            </div>
+                            {sc.contact.poste && (
+                              <p className="text-[12px] text-gray-500 mt-0.5">{sc.contact.poste}</p>
+                            )}
+                            {sc.contact.email && (
+                              <a
+                                href={`mailto:${sc.contact.email}`}
+                                className="inline-flex items-center gap-1.5 text-[12px] text-gray-600 hover:text-gray-900 mt-0.5"
+                              >
+                                <Mail className="w-3.5 h-3.5 text-gray-300" />
+                                {sc.contact.email}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

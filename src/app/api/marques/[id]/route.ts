@@ -31,6 +31,9 @@ export async function GET(
                 lastRepliedAt: true,
               },
             },
+            sousMarques: {
+              include: { marque: { select: { id: true, nom: true } } },
+            },
           },
         },
         cartoFiles: {
@@ -45,9 +48,28 @@ export async function GET(
             nom: true,
             secteur: true,
             ville: true,
-            _count: { select: { contacts: true, collaborations: true } },
+            _count: {
+              select: { contacts: true, collaborations: true, sousMarqueContacts: true },
+            },
           },
           orderBy: { nom: "asc" },
+        },
+        // Contacts rattachés à cette marque en tant que sous-marque (portés par
+        // une autre marque, souvent la mère) — affichés sur la fiche fille.
+        sousMarqueContacts: {
+          include: {
+            contact: {
+              select: {
+                id: true,
+                prenom: true,
+                nom: true,
+                email: true,
+                poste: true,
+                principal: true,
+                marque: { select: { id: true, nom: true } },
+              },
+            },
+          },
         },
         collaborations: {
           include: {

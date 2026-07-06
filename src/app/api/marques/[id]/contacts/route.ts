@@ -109,8 +109,9 @@ export async function PATCH(
     const body = (await request.json().catch(() => ({}))) as {
       contactId?: string;
       language?: string;
-      moveToMarqueId?: string;
-      newChildName?: string;
+      addSousMarqueId?: string;
+      removeSousMarqueId?: string;
+      newSousMarqueName?: string;
     };
 
     const contactId = (body.contactId || "").trim();
@@ -118,23 +119,33 @@ export async function PATCH(
       return NextResponse.json({ error: "contactId requis." }, { status: 400 });
     }
 
-    // Mode « attribuer une sous-marque » : déplace le contact vers une marque
-    // fille (existante ou créée à la volée), plutôt que de changer sa langue.
-    const moveTargetId = (body.moveToMarqueId || "").trim();
-    const newChildName = (body.newChildName || "").trim();
-    if (moveTargetId || newChildName) {
+    // Mode « sous-marques » : rattache / détache le contact à une ou plusieurs
+    // marques filles (le contact RESTE sur sa marque, il peut couvrir plusieurs
+    // sous-marques). Différent du déplacement : c'est une liaison N-à-N.
+    const addSousMarqueId = (body.addSousMarqueId || "").trim();
+    const removeSousMarqueId = (body.removeSousMarqueId || "").trim();
+    const newSousMarqueName = (body.newSousMarqueName || "").trim();
+    if (addSousMarqueId || removeSousMarqueId || newSousMarqueName) {
       const contact = await prisma.marqueContact.findFirst({
         where: { id: contactId, marqueId: id },
-        select: { id: true, email: true },
+        select: { id: true },
       });
       if (!contact) {
         return NextResponse.json({ error: "Contact non trouvé." }, { status: 404 });
       }
 
-      // Résout la sous-marque cible.
-      let targetId = moveTargetId;
-      if (!targetId && newChildName) {
-        const resolved = await findOrCreateMarque({ name: newChildName, source: "MANUAL" });
+      // Détacher une sous-marque
+      if (removeSousMarqueId) {
+        await prisma.marqueContactSousMarque.deleteMany({
+          where: { contactId: contact.id, marqueId: removeSousMarqueId },
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // Résout la sous-marque à rattacher (existante ou créée à la volée).
+      let targetId = addSousMarqueId;
+      if (!targetId && newSousMarqueName) {
+        const resolved = await findOrCreateMarque({ name: newSousMarqueName, source: "MANUAL" });
         targetId = resolved.marqueId;
         if (targetId === id) {
           return NextResponse.json(
@@ -142,7 +153,6 @@ export async function PATCH(
             { status: 400 }
           );
         }
-        // Rattache la marque comme fille si elle n'a pas déjà une mère.
         const t = await prisma.marque.findUnique({
           where: { id: targetId },
           select: { parentMarqueId: true },
@@ -167,39 +177,13 @@ export async function PATCH(
         );
       }
 
-      // Évite un doublon d'email sur la sous-marque cible.
-      const emailLc = (contact.email || "").trim().toLowerCase();
-      if (emailLc) {
-        const dup = await prisma.marqueContact.findFirst({
-          where: { marqueId: target.id, email: { equals: emailLc, mode: "insensitive" } },
-          select: { id: true },
-        });
-        if (dup) {
-          return NextResponse.json(
-            { error: "Un contact avec cet email existe déjà sur cette sous-marque." },
-            { status: 409 }
-          );
-        }
-      }
-
-      await prisma.marqueContact.update({
-        where: { id: contact.id },
-        data: { marqueId: target.id },
+      await prisma.marqueContactSousMarque.upsert({
+        where: { contactId_marqueId: { contactId: contact.id, marqueId: target.id } },
+        create: { contactId: contact.id, marqueId: target.id },
+        update: {},
       });
 
-      // Suit le contact dans le cycle Outreach : la cible pointe vers la fille.
-      if (emailLc) {
-        try {
-          await prisma.outreachTarget.updateMany({
-            where: { marqueId: id, email: emailLc },
-            data: { marqueId: target.id, company: target.nom },
-          });
-        } catch (e) {
-          console.error("Réaffectation outreach (sous-marque) ignorée:", e);
-        }
-      }
-
-      return NextResponse.json({ moved: true, target });
+      return NextResponse.json({ ok: true, target });
     }
 
     if (body.language !== "fr" && body.language !== "en") {
