@@ -71,6 +71,16 @@ export default function PartnerDetailPage() {
   const [topTalents, setTopTalents] = useState<TopTalent[]>([]);
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [period, setPeriod] = useState("7d");
+  const [editingContact, setEditingContact] = useState<AgencyContact | null>(null);
+  const [editForm, setEditForm] = useState({
+    prenom: "",
+    nom: "",
+    email: "",
+    poste: "",
+    language: "fr",
+  });
+  const [savingContact, setSavingContact] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
     if (params.id) {
@@ -92,6 +102,52 @@ export default function PartnerDetailPage() {
       console.error("Erreur:", error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  function openEditContact(c: AgencyContact) {
+    setEditingContact(c);
+    setEditForm({
+      prenom: c.prenom || "",
+      nom: c.nom || "",
+      email: c.email || "",
+      poste: c.poste || "",
+      language: c.language || "fr",
+    });
+    setEditError(null);
+  }
+
+  async function saveContact() {
+    if (!editingContact || !partner) return;
+    setSavingContact(true);
+    setEditError(null);
+    try {
+      const res = await fetch(
+        `/api/partners/${partner.id}/agency-contacts/${editingContact.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prenom: editForm.prenom,
+            nom: editForm.nom,
+            email: editForm.email,
+            poste: editForm.poste,
+            language: editForm.language,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEditError(data.error || "Erreur lors de l'enregistrement.");
+        return;
+      }
+      setEditingContact(null);
+      await fetchData();
+    } catch (error) {
+      console.error("Erreur:", error);
+      setEditError("Erreur réseau, réessaie.");
+    } finally {
+      setSavingContact(false);
     }
   }
 
@@ -305,6 +361,7 @@ export default function PartnerDetailPage() {
                   <th className="py-2 pr-4 font-medium">Statut</th>
                   <th className="py-2 pr-4 font-medium">Engagement</th>
                   <th className="py-2 pr-4 font-medium">Dernier envoi</th>
+                  <th className="py-2 pr-2 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -388,6 +445,16 @@ export default function PartnerDetailPage() {
                     <td className="py-3 pr-4 text-xs text-gray-500">
                       {formatDate(c.lastSentAt)}
                     </td>
+                    <td className="py-3 pr-2 text-right">
+                      <button
+                        onClick={() => openEditContact(c)}
+                        title="Modifier le contact (email, nom…)"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs border rounded-lg hover:bg-gray-50 text-gray-600"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Modifier
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -464,6 +531,105 @@ export default function PartnerDetailPage() {
           )}
         </div>
       </div>
+
+      {editingContact && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold mb-1">Modifier le contact</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              La correction est propagée automatiquement à la Prospection Agences.
+            </p>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Prénom</label>
+                  <input
+                    type="text"
+                    value={editForm.prenom}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, prenom: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nom</label>
+                  <input
+                    type="text"
+                    value={editForm.nom}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, nom: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, email: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Poste</label>
+                  <input
+                    type="text"
+                    value={editForm.poste}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, poste: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Langue</label>
+                  <select
+                    value={editForm.language}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, language: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="fr">FR</option>
+                    <option value="en">EN</option>
+                  </select>
+                </div>
+              </div>
+
+              {editError && (
+                <p className="text-sm text-red-600">{editError}</p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setEditingContact(null)}
+                disabled={savingContact}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={saveContact}
+                disabled={savingContact}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingContact && <Loader2 className="w-4 h-4 animate-spin" />}
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
