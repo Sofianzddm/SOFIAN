@@ -132,14 +132,7 @@ export async function POST(request: NextRequest) {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean).length;
-    const multiBrandNoteFr =
-      brandCount > 1
-        ? `\nIMPORTANT : « ${brandName} » sont PLUSIEURS marques (marques filles d'un même groupe) que ce contact gère. Écris pour CES marques précises (évoque-les naturellement, pas forcément toutes), jamais pour la maison mère de façon générique.`
-        : "";
-    const multiBrandNoteEn =
-      brandCount > 1
-        ? `\nIMPORTANT: "${brandName}" are SEVERAL brands (sister brands of the same group) managed by this contact. Write for THESE specific brands (mention them naturally, not necessarily all of them), never generically for the parent company.`
-        : "";
+    const firstBrand = brandName.split(",")[0]?.trim() || "";
 
     const recipientFirstName =
       typeof body.recipient?.firstName === "string"
@@ -152,6 +145,28 @@ export async function POST(request: NextRequest) {
     const useDirectRecipient = Boolean(recipientFirstName || recipientBrandName);
     const firstNameToken = recipientFirstName || "{{ contact.firstname }}";
     const brandNameToken = recipientBrandName || "{{ contact.company }}";
+
+    // Quand plusieurs marques filles sont fournies (ex. « Dove, Axe, Rexona »),
+    // on précise à l'IA qu'il s'agit de plusieurs marques d'un même groupe gérées
+    // par le contact, pour équilibrer les mentions (pas une seule marque partout).
+    const multiBrandNoteFr =
+      brandCount > 1
+        ? `\nIMPORTANT — PLUSIEURS MARQUES : « ${brandName} » sont PLUSIEURS marques (marques filles d'un même groupe) gérées par ce contact.
+- NE MARTÈLE PAS une seule marque (ne répète pas ${firstBrand || "la première"} partout). C'est l'erreur à éviter absolument.
+- Reconnais d'entrée que la personne gère un portefeuille de marques (tu peux les nommer brièvement, ex. « ${brandName} »).
+- Cite AU MAXIMUM 2 nouveautés concrètes, issues de 2 marques DIFFÉRENTES (pas deux nouveautés de la même marque).
+- Le reste du mail parle du portefeuille en général et des créateurs, sans re-citer une marque en boucle.
+- N'utilise ${brandNameToken} (la maison mère) que si c'est naturel ; sinon parle des marques filles.`
+        : "";
+    const multiBrandNoteEn =
+      brandCount > 1
+        ? `\nIMPORTANT — MULTIPLE BRANDS: "${brandName}" are SEVERAL brands (sister brands of the same group) managed by this contact.
+- DO NOT hammer a single brand (do not repeat ${firstBrand || "the first one"} everywhere). This is the key mistake to avoid.
+- Acknowledge upfront that this person manages a portfolio of brands (you may briefly name them, e.g. "${brandName}").
+- Mention AT MOST 2 concrete launches, from 2 DIFFERENT brands (not two launches from the same brand).
+- The rest of the email talks about the portfolio in general and the creators, without repeating one brand over and over.
+- Only use ${brandNameToken} (the parent company) if natural; otherwise talk about the sister brands.`
+        : "";
 
     function formatFollowersCompact(n: number): string {
       if (!Number.isFinite(n) || n <= 0) return "0";
