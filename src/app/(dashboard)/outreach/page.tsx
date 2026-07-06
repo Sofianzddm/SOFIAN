@@ -1966,12 +1966,18 @@ export default function OutreachPage() {
           senderAccounts={senderAccounts}
           allowSenderChoice={isAdmin}
           onClose={() => setShowAddModal(false)}
-          onAdded={() => {
+          onAdded={(count) => {
             setShowAddModal(false);
             setActiveTab("TO_CONTACT");
-            flash("success", "Client ajouté à la file « À contacter ».");
+            flash(
+              "success",
+              count > 1
+                ? `${count} clients ajoutés à la file « À contacter ».`
+                : "Client ajouté à la file « À contacter »."
+            );
             loadTargets();
           }}
+          onRefresh={loadTargets}
           onError={(m) => flash("error", m)}
         />
       )}
@@ -2119,42 +2125,75 @@ type ContactOption = {
   outreachStatus: TargetStatus | null;
 };
 
-function AddClientModal({
-  senderAccounts,
-  allowSenderChoice,
-  onClose,
-  onAdded,
-  onError,
+/**
+ * Une ligne du formulaire multi-contacts : une marque (existante ou nouvelle)
+ * + un contact. Permet d'ajouter d'un coup plusieurs contacts répartis sur
+ * plusieurs marques différentes (ex. Unilever → Dove, Axe, Ben & Jerry's…).
+ */
+type ClientLine = {
+  key: string;
+  selectedMarque: MarqueOption | null;
+  createMode: boolean;
+  query: string;
+  selectedContactId: string | null;
+  firstname: string;
+  lastname: string;
+  email: string;
+  poste: string;
+  language: "fr" | "en" | null;
+  error: string | null;
+};
+
+function makeClientLine(marque: MarqueOption | null = null): ClientLine {
+  return {
+    key: Math.random().toString(36).slice(2),
+    selectedMarque: marque,
+    createMode: false,
+    query: "",
+    selectedContactId: null,
+    firstname: "",
+    lastname: "",
+    email: "",
+    poste: "",
+    language: null,
+    error: null,
+  };
+}
+
+function isClientLineComplete(line: ClientLine): boolean {
+  const companyChosen =
+    Boolean(line.selectedMarque) || (line.createMode && line.query.trim().length > 0);
+  return Boolean(
+    companyChosen && line.firstname.trim() && line.email.trim() && line.language !== null
+  );
+}
+
+/**
+ * Éditeur d'une ligne (marque + contact). Recherche CRM débouncée locale à la
+ * ligne, sélection/création de marque, pré-remplissage depuis un contact existant.
+ */
+function ClientLineEditor({
+  line,
+  index,
+  canRemove,
+  onChange,
+  onRemove,
+  onAddContactSameMarque,
 }: {
-  senderAccounts: SenderAccount[];
-  /** Choix de la boîte d'envoi réservé à l'ADMIN — sinon tout part de Leyna. */
-  allowSenderChoice: boolean;
-  onClose: () => void;
-  onAdded: () => void;
-  onError: (message: string) => void;
+  line: ClientLine;
+  index: number;
+  canRemove: boolean;
+  onChange: (patch: Partial<ClientLine>) => void;
+  onRemove: () => void;
+  onAddContactSameMarque: () => void;
 }) {
-  // Étape 1 : la boîte ou la personne (recherche CRM unifiée, ou création)
-  const [query, setQuery] = useState("");
   const [options, setOptions] = useState<MarqueOption[]>([]);
   const [contactOptions, setContactOptions] = useState<ContactOption[]>([]);
   const [searching, setSearching] = useState(false);
-  const [selectedMarque, setSelectedMarque] = useState<MarqueOption | null>(null);
-  const [createMode, setCreateMode] = useState(false);
 
-  // Étape 2 : le contact
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
-  const [firstname, setFirstname] = useState("");
-  const [lastname, setLastname] = useState("");
-  const [email, setEmail] = useState("");
-  const [poste, setPoste] = useState("");
-  const [language, setLanguage] = useState<"fr" | "en" | null>(null);
-  const [fromEmail, setFromEmail] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  // Recherche débouncée dans le CRM (marques + personnes)
   useEffect(() => {
-    if (selectedMarque || createMode) return;
-    const q = query.trim();
+    if (line.selectedMarque || line.createMode) return;
+    const q = line.query.trim();
     if (q.length < 2) {
       setOptions([]);
       setContactOptions([]);
@@ -2174,392 +2213,549 @@ function AddClientModal({
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, selectedMarque, createMode]);
+  }, [line.query, line.selectedMarque, line.createMode]);
 
-  const pickContact = (c: MarqueOption["contacts"][number]) => {
-    setSelectedContactId(c.id);
-    setFirstname(c.prenom || "");
-    setLastname(c.prenom ? c.nom : "");
-    setEmail(c.email || "");
-    setPoste(c.poste || "");
-  };
+  const pickContact = (c: MarqueOption["contacts"][number]) =>
+    onChange({
+      selectedContactId: c.id,
+      firstname: c.prenom || "",
+      lastname: c.prenom ? c.nom : "",
+      email: c.email || "",
+      poste: c.poste || "",
+    });
 
-  const clearContact = () => {
-    setSelectedContactId(null);
-    setFirstname("");
-    setLastname("");
-    setEmail("");
-    setPoste("");
-  };
+  const clearContact = () =>
+    onChange({ selectedContactId: null, firstname: "", lastname: "", email: "", poste: "" });
 
   const resetMarque = () => {
-    setSelectedMarque(null);
-    setCreateMode(false);
-    setQuery("");
+    onChange({
+      selectedMarque: null,
+      createMode: false,
+      query: "",
+      selectedContactId: null,
+      firstname: "",
+      lastname: "",
+      email: "",
+      poste: "",
+    });
     setOptions([]);
     setContactOptions([]);
-    clearContact();
   };
 
   /** Résultat « personne » : sélectionne sa marque + pré-remplit le contact */
   const pickContactOption = (c: ContactOption) => {
-    setSelectedMarque(c.marque);
+    onChange({
+      selectedMarque: c.marque,
+      selectedContactId: c.id,
+      firstname: c.prenom || "",
+      lastname: c.prenom ? c.nom : "",
+      email: c.email || "",
+      poste: c.poste || "",
+    });
     setOptions([]);
     setContactOptions([]);
-    pickContact(c);
   };
 
-  const companyChosen = Boolean(selectedMarque) || (createMode && query.trim());
-  const canSubmit =
-    companyChosen && firstname.trim() && email.trim() && language !== null && !saving;
+  const companyChosen =
+    Boolean(line.selectedMarque) || (line.createMode && line.query.trim());
+
+  return (
+    <div
+      className="rounded-2xl border p-4 space-y-4"
+      style={{ borderColor: "#EDE7DF", backgroundColor: "#FDFBF8" }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: LICORICE }}>
+          Contact {index + 1}
+        </span>
+        {canRemove && (
+          <button
+            onClick={onRemove}
+            className="text-xs text-gray-400 hover:text-gray-700 inline-flex items-center gap-1"
+          >
+            <X className="w-3.5 h-3.5" />
+            Retirer
+          </button>
+        )}
+      </div>
+
+      {line.error && (
+        <div
+          className="rounded-lg border px-3 py-2 text-xs"
+          style={{ borderColor: "#F0C9C9", backgroundColor: "#FDF3F3", color: "#B23B3B" }}
+        >
+          {line.error}
+        </div>
+      )}
+
+      {/* ---------- Étape 1 : la boîte ---------- */}
+      <div>
+        <label className="block text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: OLD_ROSE }}>
+          1. La boîte
+        </label>
+
+        {line.selectedMarque ? (
+          <div className="flex items-center justify-between rounded-xl border px-4 py-3" style={{ borderColor: TEA_GREEN, backgroundColor: "#F8FCEF" }}>
+            <div>
+              <div className="text-sm font-semibold" style={{ color: LICORICE }}>
+                {line.selectedMarque.nom}
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                {[line.selectedMarque.secteur, line.selectedMarque.ville].filter(Boolean).join(" · ") || "Fiche CRM existante"}
+                {line.selectedMarque._count.collaborations > 0 &&
+                  ` · ${line.selectedMarque._count.collaborations} collab${line.selectedMarque._count.collaborations > 1 ? "s" : ""}`}
+              </div>
+            </div>
+            <button onClick={resetMarque} className="text-xs text-gray-500 hover:text-gray-800 underline">
+              Changer
+            </button>
+          </div>
+        ) : line.createMode ? (
+          <div className="flex items-center justify-between rounded-xl border px-4 py-3" style={{ borderColor: "#E5E0DA", backgroundColor: "#FBF8F4" }}>
+            <div>
+              <div className="text-sm font-semibold" style={{ color: LICORICE }}>
+                {line.query.trim() || "—"}
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                Nouvelle marque — sera créée dans le CRM
+              </div>
+            </div>
+            <button onClick={resetMarque} className="text-xs text-gray-500 hover:text-gray-800 underline">
+              Changer
+            </button>
+          </div>
+        ) : (
+          <div className="relative">
+            <input
+              value={line.query}
+              onChange={(e) => onChange({ query: e.target.value })}
+              autoFocus={index === 0}
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+              style={{ borderColor: "#E5E0DA" }}
+              placeholder="Rechercher une marque ou une personne… (ex. Dove, Marie, marie@dove.com)"
+            />
+            {searching && (
+              <Loader2 className="w-4 h-4 animate-spin absolute right-3 top-2.5 text-gray-300" />
+            )}
+            {line.query.trim().length >= 2 && (
+              <div className="mt-2 rounded-xl border overflow-hidden" style={{ borderColor: "#EDE7DF" }}>
+                {options.length > 0 && (
+                  <div className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50">
+                    Marques
+                  </div>
+                )}
+                {options.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      onChange({ selectedMarque: m });
+                      setOptions([]);
+                      setContactOptions([]);
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-gray-50 transition flex items-center justify-between gap-2 border-t"
+                    style={{ borderColor: "#F5F1EB" }}
+                  >
+                    <div>
+                      <div className="text-sm font-medium" style={{ color: LICORICE }}>
+                        {m.nom}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {[m.secteur, m.ville].filter(Boolean).join(" · ") || "—"}
+                        {m.contacts.length > 0 &&
+                          ` · ${m.contacts.length} contact${m.contacts.length > 1 ? "s" : ""}`}
+                      </div>
+                    </div>
+                    {m._count.outreachTargets > 0 && (
+                      <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: OLD_LACE, color: LICORICE }}>
+                        Déjà en cycle
+                      </span>
+                    )}
+                  </button>
+                ))}
+                {contactOptions.length > 0 && (
+                  <div className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50">
+                    Personnes
+                  </div>
+                )}
+                {contactOptions.map((c) => {
+                  const alreadyTracked = Boolean(c.outreachStatus);
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => !alreadyTracked && pickContactOption(c)}
+                      disabled={alreadyTracked}
+                      className="w-full text-left px-4 py-2.5 transition flex items-center justify-between gap-2 border-t disabled:cursor-not-allowed disabled:opacity-60 hover:bg-gray-50"
+                      style={{ borderColor: "#F5F1EB" }}
+                      title={alreadyTracked ? "Ce contact est déjà suivi dans le cycle Outreach" : undefined}
+                    >
+                      <div>
+                        <div className="text-sm font-medium" style={{ color: LICORICE }}>
+                          {[c.prenom, c.prenom ? c.nom : null].filter(Boolean).join(" ") || c.nom}
+                          <span className="ml-2 font-normal" style={{ color: OLD_ROSE }}>
+                            {c.marque.nom}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {[c.email, c.poste].filter(Boolean).join(" · ") || "—"}
+                        </div>
+                      </div>
+                      {alreadyTracked && (
+                        <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: OLD_LACE, color: LICORICE }}>
+                          Déjà en cycle
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+                {!searching && options.length === 0 && contactOptions.length === 0 && (
+                  <div className="px-4 py-2.5 text-xs text-gray-400 border-t" style={{ borderColor: "#F5F1EB" }}>
+                    Aucun résultat dans le CRM pour « {line.query.trim()} »
+                  </div>
+                )}
+                <button
+                  onClick={() => onChange({ createMode: true })}
+                  className="w-full text-left px-4 py-2.5 hover:bg-gray-50 transition text-sm flex items-center gap-2 border-t"
+                  style={{ color: OLD_ROSE, borderColor: "#F5F1EB" }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Créer la marque « {line.query.trim()} »
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ---------- Étape 2 : le contact ---------- */}
+      {companyChosen && (
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: OLD_ROSE }}>
+            2. Le contact
+          </label>
+
+          {line.selectedMarque && line.selectedMarque.contacts.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs text-gray-500 mb-1.5">
+                Contacts déjà dans le CRM — clique pour pré-remplir :
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {line.selectedMarque.contacts.map((c) => {
+                  const active = line.selectedContactId === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => (active ? clearContact() : pickContact(c))}
+                      className="px-2.5 py-1.5 rounded-lg border text-xs text-left transition"
+                      style={
+                        active
+                          ? { borderColor: LICORICE, backgroundColor: LICORICE, color: "white" }
+                          : { borderColor: "#E5E0DA", backgroundColor: "white", color: LICORICE }
+                      }
+                    >
+                      <span className="font-medium">
+                        {[c.prenom, c.prenom ? c.nom : null].filter(Boolean).join(" ") || c.nom}
+                      </span>
+                      {c.principal && <span className="ml-1">★</span>}
+                      {c.email && (
+                        <span className={active ? "block opacity-80" : "block text-gray-400"}>
+                          {c.email}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Prénom *</label>
+              <input
+                value={line.firstname}
+                onChange={(e) => onChange({ firstname: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                style={{ borderColor: "#E5E0DA" }}
+                placeholder="Marie"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Nom</label>
+              <input
+                value={line.lastname}
+                onChange={(e) => onChange({ lastname: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                style={{ borderColor: "#E5E0DA" }}
+                placeholder="Dupont"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+              <input
+                type="email"
+                value={line.email}
+                onChange={(e) => onChange({ email: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                style={{ borderColor: "#E5E0DA" }}
+                placeholder="marie@dove.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Poste</label>
+              <input
+                value={line.poste}
+                onChange={(e) => onChange({ poste: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                style={{ borderColor: "#E5E0DA" }}
+                placeholder="Responsable influence"
+              />
+            </div>
+          </div>
+          <div className="mt-3">
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Langue du client <span className="text-red-500">*</span>
+            </label>
+            <div className="flex gap-1.5">
+              {(["fr", "en"] as const).map((lang) => {
+                const active = line.language === lang;
+                return (
+                  <button
+                    key={lang}
+                    onClick={() => onChange({ language: lang })}
+                    className="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
+                    style={
+                      active
+                        ? { borderColor: LICORICE, backgroundColor: LICORICE, color: "white" }
+                        : { borderColor: "#E5E0DA", backgroundColor: "white", color: LICORICE }
+                    }
+                  >
+                    {lang === "fr" ? "Français" : "English"}
+                  </button>
+                );
+              })}
+            </div>
+            {line.language === null ? (
+              <p className="text-xs mt-1" style={{ color: OLD_ROSE }}>
+                Choix obligatoire : indique si le client parle français ou anglais.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">
+                Le mail et la relance auto J+3 partiront dans cette langue.
+              </p>
+            )}
+          </div>
+
+          {line.selectedMarque && (
+            <button
+              onClick={onAddContactSameMarque}
+              className="mt-3 text-xs font-medium inline-flex items-center gap-1.5 hover:underline"
+              style={{ color: OLD_ROSE }}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Ajouter un autre contact chez {line.selectedMarque.nom}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddClientModal({
+  senderAccounts,
+  allowSenderChoice,
+  onClose,
+  onAdded,
+  onRefresh,
+  onError,
+}: {
+  senderAccounts: SenderAccount[];
+  /** Choix de la boîte d'envoi réservé à l'ADMIN — sinon tout part de Leyna. */
+  allowSenderChoice: boolean;
+  onClose: () => void;
+  /** Succès complet : nombre de contacts ajoutés (ferme le modal). */
+  onAdded: (count: number) => void;
+  /** Succès partiel : recharge la liste sans fermer le modal. */
+  onRefresh: () => void;
+  onError: (message: string) => void;
+}) {
+  const [lines, setLines] = useState<ClientLine[]>(() => [makeClientLine()]);
+  const [fromEmail, setFromEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const updateLine = (key: string, patch: Partial<ClientLine>) =>
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.key !== key) return l;
+        const next = { ...l, ...patch };
+        // Toute édition efface l'erreur affichée (sauf si le patch la fixe).
+        if (patch.error === undefined) next.error = null;
+        return next;
+      })
+    );
+
+  const addLine = () => setLines((prev) => [...prev, makeClientLine()]);
+  const addContactForMarque = (marque: MarqueOption) =>
+    setLines((prev) => [...prev, makeClientLine(marque)]);
+  const removeLine = (key: string) =>
+    setLines((prev) => (prev.length > 1 ? prev.filter((l) => l.key !== key) : prev));
+
+  const completeCount = lines.filter(isClientLineComplete).length;
+  const canSubmit = !saving && lines.length > 0 && lines.every(isClientLineComplete);
 
   const submit = async () => {
     if (!canSubmit) return;
     setSaving(true);
-    try {
-      const res = await fetch(outreachApi("/targets"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          marqueId: selectedMarque?.id || undefined,
-          company: selectedMarque ? undefined : query.trim(),
-          firstname,
-          lastname,
-          email,
-          poste,
-          language,
-          fromEmail: allowSenderChoice ? fromEmail || undefined : undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      onAdded();
-    } catch (e) {
-      onError(e instanceof Error ? e.message : "Erreur");
-      setSaving(false);
+
+    // Envoi séquentiel : un contact récalcitrant (email en doublon…) ne bloque
+    // pas les autres. On collecte le résultat ligne par ligne.
+    const results: { key: string; ok: boolean; error?: string }[] = [];
+    for (const line of lines) {
+      try {
+        const res = await fetch(outreachApi("/targets"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            marqueId: line.selectedMarque?.id || undefined,
+            company: line.selectedMarque ? undefined : line.query.trim(),
+            firstname: line.firstname,
+            lastname: line.lastname,
+            email: line.email,
+            poste: line.poste,
+            language: line.language,
+            fromEmail: allowSenderChoice ? fromEmail || undefined : undefined,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Erreur");
+        results.push({ key: line.key, ok: true });
+      } catch (e) {
+        results.push({ key: line.key, ok: false, error: e instanceof Error ? e.message : "Erreur" });
+      }
+    }
+
+    const okCount = results.filter((r) => r.ok).length;
+    const failed = results.filter((r) => !r.ok);
+
+    if (failed.length === 0) {
+      onAdded(okCount);
+      return;
+    }
+
+    // Succès partiel : on ne garde que les lignes en échec, avec leur message.
+    const failedKeys = new Set(failed.map((f) => f.key));
+    setLines((prev) =>
+      prev
+        .filter((l) => failedKeys.has(l.key))
+        .map((l) => ({ ...l, error: failed.find((f) => f.key === l.key)?.error || "Erreur" }))
+    );
+    setSaving(false);
+    if (okCount > 0) {
+      onRefresh();
+      onError(
+        `${okCount} contact${okCount > 1 ? "s" : ""} ajouté${okCount > 1 ? "s" : ""} au cycle. ${failed.length} en échec — voir ci-dessous.`
+      );
+    } else {
+      onError(failed[0].error || "Erreur");
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white rounded-t-2xl" style={{ borderColor: "#F0EBE4" }}>
-          <h2 className="font-semibold" style={{ color: LICORICE }}>
-            Nouveau client
-          </h2>
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl">
+        <div className="flex items-start justify-between px-5 py-4 border-b sticky top-0 bg-white rounded-t-2xl z-10" style={{ borderColor: "#F0EBE4" }}>
+          <div>
+            <h2 className="font-semibold" style={{ color: LICORICE }}>
+              Nouveaux clients
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Ajoute plusieurs contacts d&apos;un coup, chacun rattaché à sa marque
+              (ex. Unilever → Dove, Axe, Ben &amp; Jerry&apos;s…).
+            </p>
+          </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
             <X className="w-4 h-4 text-gray-400" />
           </button>
         </div>
 
         <div className="px-5 py-4 space-y-4">
-          {/* ---------- Étape 1 : la boîte ---------- */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: OLD_ROSE }}>
-              1. La boîte
-            </label>
+          {lines.map((line, i) => (
+            <ClientLineEditor
+              key={line.key}
+              line={line}
+              index={i}
+              canRemove={lines.length > 1}
+              onChange={(patch) => updateLine(line.key, patch)}
+              onRemove={() => removeLine(line.key)}
+              onAddContactSameMarque={() =>
+                line.selectedMarque && addContactForMarque(line.selectedMarque)
+              }
+            />
+          ))}
 
-            {selectedMarque ? (
-              <div className="flex items-center justify-between rounded-xl border px-4 py-3" style={{ borderColor: TEA_GREEN, backgroundColor: "#F8FCEF" }}>
-                <div>
-                  <div className="text-sm font-semibold" style={{ color: LICORICE }}>
-                    {selectedMarque.nom}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {[selectedMarque.secteur, selectedMarque.ville].filter(Boolean).join(" · ") || "Fiche CRM existante"}
-                    {selectedMarque._count.collaborations > 0 &&
-                      ` · ${selectedMarque._count.collaborations} collab${selectedMarque._count.collaborations > 1 ? "s" : ""}`}
-                  </div>
-                </div>
-                <button onClick={resetMarque} className="text-xs text-gray-500 hover:text-gray-800 underline">
-                  Changer
-                </button>
-              </div>
-            ) : createMode ? (
-              <div className="flex items-center justify-between rounded-xl border px-4 py-3" style={{ borderColor: "#E5E0DA", backgroundColor: "#FBF8F4" }}>
-                <div>
-                  <div className="text-sm font-semibold" style={{ color: LICORICE }}>
-                    {query.trim() || "—"}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    Nouvelle marque — sera créée dans le CRM
-                  </div>
-                </div>
-                <button onClick={resetMarque} className="text-xs text-gray-500 hover:text-gray-800 underline">
-                  Changer
-                </button>
-              </div>
-            ) : (
-              <div className="relative">
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  autoFocus
-                  className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-                  style={{ borderColor: "#E5E0DA" }}
-                  placeholder="Rechercher une marque ou une personne… (ex. Nike, Marie, marie@nike.com)"
-                />
-                {searching && (
-                  <Loader2 className="w-4 h-4 animate-spin absolute right-3 top-2.5 text-gray-300" />
-                )}
-                {query.trim().length >= 2 && (
-                  <div className="mt-2 rounded-xl border overflow-hidden" style={{ borderColor: "#EDE7DF" }}>
-                    {options.length > 0 && (
-                      <div className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50">
-                        Marques
-                      </div>
-                    )}
-                    {options.map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => {
-                          setSelectedMarque(m);
-                          setOptions([]);
-                          setContactOptions([]);
-                        }}
-                        className="w-full text-left px-4 py-2.5 hover:bg-gray-50 transition flex items-center justify-between gap-2 border-t"
-                        style={{ borderColor: "#F5F1EB" }}
-                      >
-                        <div>
-                          <div className="text-sm font-medium" style={{ color: LICORICE }}>
-                            {m.nom}
-                          </div>
-                          <div className="text-xs text-gray-400">
-                            {[m.secteur, m.ville].filter(Boolean).join(" · ") || "—"}
-                            {m.contacts.length > 0 &&
-                              ` · ${m.contacts.length} contact${m.contacts.length > 1 ? "s" : ""}`}
-                          </div>
-                        </div>
-                        {m._count.outreachTargets > 0 && (
-                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: OLD_LACE, color: LICORICE }}>
-                            Déjà en cycle
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                    {contactOptions.length > 0 && (
-                      <div className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50">
-                        Personnes
-                      </div>
-                    )}
-                    {contactOptions.map((c) => {
-                      const alreadyTracked = Boolean(c.outreachStatus);
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={() => !alreadyTracked && pickContactOption(c)}
-                          disabled={alreadyTracked}
-                          className="w-full text-left px-4 py-2.5 transition flex items-center justify-between gap-2 border-t disabled:cursor-not-allowed disabled:opacity-60 hover:bg-gray-50"
-                          style={{ borderColor: "#F5F1EB" }}
-                          title={alreadyTracked ? "Ce contact est déjà suivi dans le cycle Outreach" : undefined}
-                        >
-                          <div>
-                            <div className="text-sm font-medium" style={{ color: LICORICE }}>
-                              {[c.prenom, c.prenom ? c.nom : null].filter(Boolean).join(" ") || c.nom}
-                              <span className="ml-2 font-normal" style={{ color: OLD_ROSE }}>
-                                {c.marque.nom}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-400">
-                              {[c.email, c.poste].filter(Boolean).join(" · ") || "—"}
-                            </div>
-                          </div>
-                          {alreadyTracked && (
-                            <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: OLD_LACE, color: LICORICE }}>
-                              Déjà en cycle
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                    {!searching && options.length === 0 && contactOptions.length === 0 && (
-                      <div className="px-4 py-2.5 text-xs text-gray-400 border-t" style={{ borderColor: "#F5F1EB" }}>
-                        Aucun résultat dans le CRM pour « {query.trim()} »
-                      </div>
-                    )}
-                    <button
-                      onClick={() => setCreateMode(true)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-gray-50 transition text-sm flex items-center gap-2 border-t"
-                      style={{ color: OLD_ROSE, borderColor: "#F5F1EB" }}
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Créer la marque « {query.trim()} »
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <button
+            onClick={addLine}
+            className="w-full rounded-xl border border-dashed px-4 py-3 text-sm font-medium inline-flex items-center justify-center gap-2 hover:bg-gray-50 transition"
+            style={{ borderColor: "#D8D0C6", color: OLD_ROSE }}
+          >
+            <Plus className="w-4 h-4" />
+            Ajouter un contact / une marque
+          </button>
 
-          {/* ---------- Étape 2 : le contact ---------- */}
-          {companyChosen && (
-            <div>
+          <p className="text-xs text-gray-400">
+            Un nouveau contact est ajouté à la fiche marque s&apos;il n&apos;existe pas déjà
+            (dédoublonnage par email).
+          </p>
+
+          {/* Boîte d'envoi (ADMIN) — commune à tous les contacts ajoutés */}
+          {allowSenderChoice && senderAccounts.length > 1 && (
+            <div className="pt-1">
               <label className="block text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: OLD_ROSE }}>
-                2. Le contact
+                Boîte d&apos;envoi
               </label>
-
-              {/* Contacts existants de la fiche CRM */}
-              {selectedMarque && selectedMarque.contacts.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-xs text-gray-500 mb-1.5">
-                    Contacts déjà dans le CRM — clique pour pré-remplir :
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedMarque.contacts.map((c) => {
-                      const active = selectedContactId === c.id;
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={() => (active ? clearContact() : pickContact(c))}
-                          className="px-2.5 py-1.5 rounded-lg border text-xs text-left transition"
-                          style={
-                            active
-                              ? { borderColor: LICORICE, backgroundColor: LICORICE, color: "white" }
-                              : { borderColor: "#E5E0DA", backgroundColor: "white", color: LICORICE }
-                          }
-                        >
-                          <span className="font-medium">
-                            {[c.prenom, c.prenom ? c.nom : null].filter(Boolean).join(" ") || c.nom}
-                          </span>
-                          {c.principal && <span className="ml-1">★</span>}
-                          {c.email && (
-                            <span className={active ? "block opacity-80" : "block text-gray-400"}>
-                              {c.email}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Prénom *</label>
-                  <input
-                    value={firstname}
-                    onChange={(e) => setFirstname(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-                    style={{ borderColor: "#E5E0DA" }}
-                    placeholder="Marie"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Nom</label>
-                  <input
-                    value={lastname}
-                    onChange={(e) => setLastname(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-                    style={{ borderColor: "#E5E0DA" }}
-                    placeholder="Dupont"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-                    style={{ borderColor: "#E5E0DA" }}
-                    placeholder="marie@nike.com"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Poste</label>
-                  <input
-                    value={poste}
-                    onChange={(e) => setPoste(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-                    style={{ borderColor: "#E5E0DA" }}
-                    placeholder="Responsable influence"
-                  />
-                </div>
-              </div>
-              <div className="mt-3">
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Langue du client <span className="text-red-500">*</span>
-                </label>
-                <div className="flex gap-1.5">
-                  {(["fr", "en"] as const).map((lang) => {
-                    const active = language === lang;
-                    return (
-                      <button
-                        key={lang}
-                        onClick={() => setLanguage(lang)}
-                        className="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
-                        style={
-                          active
-                            ? { borderColor: LICORICE, backgroundColor: LICORICE, color: "white" }
-                            : { borderColor: "#E5E0DA", backgroundColor: "white", color: LICORICE }
-                        }
-                      >
-                        {lang === "fr" ? "Français" : "English"}
-                      </button>
-                    );
-                  })}
-                </div>
-                {language === null ? (
-                  <p className="text-xs mt-1" style={{ color: OLD_ROSE }}>
-                    Choix obligatoire : indique si le client parle français ou anglais.
-                  </p>
-                ) : (
-                  <p className="text-xs text-gray-400 mt-1">
-                    Le mail et la relance auto J+3 partiront dans cette langue.
-                  </p>
-                )}
-              </div>
-              <p className="text-xs text-gray-400 mt-2">
-                Un nouveau contact est ajouté à la fiche marque s&apos;il n&apos;existe pas déjà (dédoublonnage par email).
+              <select
+                value={fromEmail}
+                onChange={(e) => setFromEmail(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                style={{ borderColor: "#E5E0DA" }}
+              >
+                <option value="">Leyna (par défaut) — {DEFAULT_SENDER_EMAIL}</option>
+                {senderAccounts
+                  .filter((a) => a.email.toLowerCase() !== DEFAULT_SENDER_EMAIL)
+                  .map((a) => (
+                    <option key={a.email} value={a.email}>
+                      {a.label} — {a.email}
+                    </option>
+                  ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1.5">
+                Tout le cycle de ces clients (mails, relances, détection de réponses)
+                partira de cette boîte.
               </p>
-
-              {/* ---------- Étape 3 : la boîte d'envoi (ADMIN uniquement) ---------- */}
-              {allowSenderChoice && senderAccounts.length > 1 && (
-                <div className="mt-4">
-                  <label className="block text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: OLD_ROSE }}>
-                    3. Boîte d&apos;envoi
-                  </label>
-                  <select
-                    value={fromEmail}
-                    onChange={(e) => setFromEmail(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-                    style={{ borderColor: "#E5E0DA" }}
-                  >
-                    <option value="">Leyna (par défaut) — {DEFAULT_SENDER_EMAIL}</option>
-                    {senderAccounts
-                      .filter((a) => a.email.toLowerCase() !== DEFAULT_SENDER_EMAIL)
-                      .map((a) => (
-                        <option key={a.email} value={a.email}>
-                          {a.label} — {a.email}
-                        </option>
-                      ))}
-                  </select>
-                  <p className="text-xs text-gray-400 mt-1.5">
-                    Tout le cycle de ce client (mails, relances, détection de réponses)
-                    partira de cette boîte.
-                  </p>
-                </div>
-              )}
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-2 px-5 py-4 border-t sticky bottom-0 bg-white rounded-b-2xl" style={{ borderColor: "#F0EBE4" }}>
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
-            Annuler
-          </button>
-          <button
-            onClick={submit}
-            disabled={!canSubmit}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
-            style={{ backgroundColor: LICORICE }}
-          >
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            Ajouter au cycle
-          </button>
+        <div className="flex items-center justify-between gap-2 px-5 py-4 border-t sticky bottom-0 bg-white rounded-b-2xl" style={{ borderColor: "#F0EBE4" }}>
+          <span className="text-xs text-gray-400">
+            {completeCount} / {lines.length} prêt{completeCount > 1 ? "s" : ""}
+          </span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
+              Annuler
+            </button>
+            <button
+              onClick={submit}
+              disabled={!canSubmit}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+              style={{ backgroundColor: LICORICE }}
+            >
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Ajouter au cycle{completeCount > 1 ? ` (${completeCount})` : ""}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -2873,6 +3069,8 @@ type CartoParsedRow = {
   localisation: string;
   linkedinUrl: string;
   email: string;
+  /** Marque / sous-marque du contact (colonne « Marque » du fichier), sinon "". */
+  marque: string;
 };
 
 /** Valeur de cellule ExcelJS → texte (gère liens, texte riche, formules). */
@@ -2970,6 +3168,20 @@ function parseCartoText(text: string): {
         else if (c.startsWith("local")) cols.localisation = idx;
         else if (c.includes("linkedin")) cols.linkedinUrl = idx;
         else if (c.includes("mail")) cols.email = idx;
+        // Colonne « Marque » / « Sous-marque » / « Brand » / « Enseigne »… :
+        // permet de répartir les contacts d'un même fichier sur plusieurs
+        // marques (ex. carto Unilever → Dove, Axe, Ben & Jerry's).
+        else if (
+          c.startsWith("marque") ||
+          c.startsWith("sous-marque") ||
+          c.startsWith("sous marque") ||
+          c.startsWith("sousmarque") ||
+          c === "brand" ||
+          c === "enseigne" ||
+          c === "societe" ||
+          c === "entreprise"
+        )
+          cols.marque = idx;
       });
       break;
     }
@@ -3012,6 +3224,7 @@ function parseCartoText(text: string): {
       localisation: cell(cells, "localisation"),
       linkedinUrl: cell(cells, "linkedinUrl"),
       email: cell(cells, "email"),
+      marque: cell(cells, "marque"),
     });
   }
 
@@ -3020,6 +3233,136 @@ function parseCartoText(text: string): {
     suggestedCompany,
     error: rows.length === 0 ? "Aucun contact trouvé sous la ligne d'en-tête." : null,
   };
+}
+
+/**
+ * Champ marque d'une ligne d'import avec recherche CRM : au fur et à mesure de
+ * la frappe, propose les marques existantes (pour éviter les doublons / fautes
+ * de frappe) ; si rien ne correspond, indique que la marque sera créée.
+ *
+ * Le menu est rendu en `position: fixed` (coordonnées calculées depuis l'input)
+ * pour ne pas être rogné par le conteneur scrollable de l'aperçu.
+ */
+function RowMarqueInput({
+  value,
+  placeholder,
+  apiBase,
+  onChange,
+}: {
+  value: string;
+  placeholder: string;
+  apiBase: string;
+  onChange: (v: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [options, setOptions] = useState<MarqueOption[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const place = () => {
+    const r = inputRef.current?.getBoundingClientRect();
+    if (r) setCoords({ top: r.bottom + 4, left: r.left, width: r.width });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const q = value.trim();
+    if (q.length < 2) {
+      setOptions([]);
+      return;
+    }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${apiBase}/marques?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (res.ok) setOptions(data.marques || []);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [value, open, apiBase]);
+
+  const trimmed = value.trim();
+  const exactMatch = options.some(
+    (m) => m.nom.trim().toLowerCase() === trimmed.toLowerCase()
+  );
+  const showList = open && trimmed.length >= 2;
+
+  return (
+    <div className="relative flex-1 min-w-0">
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          place();
+        }}
+        onFocus={() => {
+          setOpen(true);
+          place();
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder={placeholder}
+        className="w-full px-2 py-1 rounded-md border text-xs focus:outline-none focus:ring-2"
+        style={{ borderColor: exactMatch ? TEA_GREEN : "#E5E0DA" }}
+        title="Marque de ce contact — vide = marque par défaut ci-dessous"
+      />
+      {showList && coords && (
+        <div
+          className="fixed z-[60] rounded-md border bg-white shadow-lg max-h-44 overflow-y-auto"
+          style={{ top: coords.top, left: coords.left, width: coords.width, borderColor: "#E5E0DA" }}
+        >
+          {searching && (
+            <div className="px-2 py-1.5 text-xs text-gray-400 flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Recherche…
+            </div>
+          )}
+          {!searching &&
+            options.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChange(m.nom);
+                  setOpen(false);
+                }}
+                className="w-full text-left px-2 py-1.5 text-xs hover:bg-gray-50 flex items-center justify-between gap-2"
+              >
+                <span className="font-medium truncate" style={{ color: LICORICE }}>
+                  {m.nom}
+                  {[m.secteur, m.ville].filter(Boolean).length > 0 && (
+                    <span className="ml-1.5 font-normal text-gray-400">
+                      {[m.secteur, m.ville].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
+                </span>
+                <span
+                  className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                  style={{ backgroundColor: "#F8FCEF", color: LICORICE }}
+                >
+                  existe
+                </span>
+              </button>
+            ))}
+          {!searching && !exactMatch && (
+            <div
+              className="px-2 py-1.5 text-xs border-t"
+              style={{ color: OLD_ROSE, borderColor: "#F5F1EB" }}
+            >
+              <Plus className="w-3 h-3 inline mr-1" />
+              Nouvelle marque « {trimmed} » — sera créée
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ImportCartoModal({
@@ -3062,6 +3405,16 @@ function ImportCartoModal({
   // dans les deux fiches (FR + BENELUX) et prospecté dans chaque pipeline.
   const [rowMarkets, setRowMarkets] = useState<Record<number, RowMarket>>({});
   const marketForRow = (i: number): RowMarket => rowMarkets[i] ?? importMarket;
+  // Override de marque par contact (index → nom de marque). Vide → le contact
+  // est rattaché à la marque par défaut (section « La marque » ci-dessous).
+  // Pré-rempli depuis la colonne « Marque » du fichier si elle existe.
+  const [rowMarques, setRowMarques] = useState<Record<number, string>>({});
+  const marqueForRow = (i: number): string =>
+    rowMarques[i] ?? parsed[i]?.marque ?? "";
+  // Mode multi-marques : le plus souvent un import = une seule marque, donc on
+  // masque le champ marque par contact. On l'active pour les cas exceptionnels
+  // (ex. Unilever → Dove, Axe…) ou automatiquement si le fichier a une colonne.
+  const [multiMarque, setMultiMarque] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Marché par défaut (toggle d'en-tête) : l'appliquer remet à zéro les choix
@@ -3111,14 +3464,19 @@ function ImportCartoModal({
     setRawText(text);
     setRowLangs({});
     setRowMarkets({});
+    setRowMarques({});
     if (!text.trim()) {
       setParsed([]);
       setParseError(null);
+      setMultiMarque(false);
       return;
     }
     const result = parseCartoText(text);
     setParsed(result.rows);
     setParseError(result.error);
+    // Le fichier contient une colonne « Marque » → on active le multi-marques
+    // pour afficher directement la répartition détectée.
+    setMultiMarque(result.rows.some((r) => r.marque.trim().length > 0));
     // Pré-remplit la recherche marque depuis le titre du tableau, sinon
     // depuis le nom du fichier (« Bonsoirs - Top Contacts.xlsx » → Bonsoirs)
     const suggestion =
@@ -3156,6 +3514,9 @@ function ImportCartoModal({
   const canSubmit =
     companyChosen && parsed.length > 0 && language !== null && !saving;
 
+  // Marque appliquée aux contacts sans marque propre (colonne / override vide).
+  const defaultBrandName = selectedMarque?.nom ?? query.trim();
+
   /** Encode le fichier original en base64 pour le conserver sur la fiche marque. */
   const encodeFile = async (file: File): Promise<string> => {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -3188,7 +3549,10 @@ function ImportCartoModal({
       const defaultLang: "fr" | "en" = language ?? "fr";
       parsed.forEach((row, i) => {
         const mkt = marketForRow(i);
-        const enriched = { ...row, language: rowLangs[i] ?? defaultLang };
+        // Marque du contact : override UI > colonne du fichier > marque par
+        // défaut (résolue côté serveur si la valeur ligne est vide).
+        const rowMarque = marqueForRow(i).trim();
+        const enriched = { ...row, language: rowLangs[i] ?? defaultLang, marque: rowMarque };
         // « BOTH » : le contact est dupliqué dans les deux pipelines.
         if (mkt === "FR" || mkt === "BOTH") groups.FR.push(enriched);
         if (mkt === "BENELUX" || mkt === "BOTH") groups.BENELUX.push(enriched);
@@ -3332,8 +3696,26 @@ function ImportCartoModal({
             {parsed.length > 0 && (
               <div className="mt-2 rounded-xl border overflow-hidden" style={{ borderColor: "#E5E0DA" }}>
                 <div className="px-3 py-2 border-b flex items-center justify-between gap-2" style={{ backgroundColor: "#FBF8F4", borderColor: "#F0EBE4" }}>
-                  <span className="text-xs font-semibold" style={{ color: LICORICE }}>
-                    {parsed.length} contact{parsed.length > 1 ? "s" : ""} détecté{parsed.length > 1 ? "s" : ""}
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs font-semibold" style={{ color: LICORICE }}>
+                      {parsed.length} contact{parsed.length > 1 ? "s" : ""} détecté{parsed.length > 1 ? "s" : ""}
+                    </span>
+                    {/* Cas exceptionnel (ex. Unilever) : répartir sur plusieurs
+                        marques → affiche un champ marque par contact. */}
+                    <button
+                      type="button"
+                      onClick={() => setMultiMarque((v) => !v)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition"
+                      style={
+                        multiMarque
+                          ? { borderColor: LICORICE, backgroundColor: LICORICE, color: "white" }
+                          : { borderColor: "#E5E0DA", backgroundColor: "white", color: OLD_ROSE }
+                      }
+                      title="Répartir les contacts sur plusieurs marques (ex. Unilever → Dove, Axe…)"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Plusieurs marques
+                    </button>
                   </span>
                   {/* Marché par défaut : appliqué à tous, surchargeable par ligne. */}
                   <span className="flex items-center gap-1.5" title="Marché appliqué à tous les contacts (modifiable client par client ci-dessous)">
@@ -3374,7 +3756,8 @@ function ImportCartoModal({
                     const rowLang = rowLangs[i] ?? language;
                     const rowMkt = marketForRow(i);
                     return (
-                    <div key={i} className="px-3 py-1.5 flex items-center gap-2 text-xs">
+                    <div key={i} className="px-3 py-1.5 text-xs">
+                      <div className="flex items-center gap-2">
                       {row.priorite && (
                         <span className="px-1.5 py-0.5 rounded font-bold text-[10px] bg-gray-100 text-gray-600 shrink-0">
                           {row.priorite}
@@ -3450,6 +3833,20 @@ function ImportCartoModal({
                           })}
                         </span>
                       </span>
+                      </div>
+                      {multiMarque && (
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 shrink-0">
+                            Marque
+                          </span>
+                          <RowMarqueInput
+                            value={marqueForRow(i)}
+                            placeholder={defaultBrandName || "Marque par défaut"}
+                            apiBase={importMarket === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach"}
+                            onChange={(v) => setRowMarques((prev) => ({ ...prev, [i]: v }))}
+                          />
+                        </div>
+                      )}
                     </div>
                     );
                   })}
@@ -3458,11 +3855,16 @@ function ImportCartoModal({
             )}
           </div>
 
-          {/* ---------- 2. La marque ---------- */}
+          {/* ---------- 2. La marque par défaut ---------- */}
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: OLD_ROSE }}>
-              2. La marque
+            <label className="block text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: OLD_ROSE }}>
+              2. {multiMarque ? "La marque par défaut" : "La marque"}
             </label>
+            <p className="text-xs text-gray-400 mb-2">
+              {multiMarque
+                ? "Marque appliquée aux contacts dont la marque n'est pas précisée ci-dessus. Le fichier est archivé sur cette fiche."
+                : "Tous les contacts sont rattachés à cette marque. Cas exceptionnel de plusieurs marques (ex. Unilever) : active « Plusieurs marques » ci-dessus."}
+            </p>
             {selectedMarque ? (
               <div className="flex items-center justify-between rounded-xl border px-4 py-3" style={{ borderColor: TEA_GREEN, backgroundColor: "#F8FCEF" }}>
                 <div>

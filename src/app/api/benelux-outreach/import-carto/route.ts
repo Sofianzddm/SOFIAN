@@ -34,6 +34,8 @@ type CartoRow = {
   linkedinUrl?: string;
   email?: string;
   language?: string;
+  /** Entreprise/marque propre au contact ; vide → entreprise par défaut. */
+  marque?: string;
 };
 
 const clean = (v: unknown): string | null => {
@@ -102,21 +104,53 @@ export async function POST(request: NextRequest) {
       company = resolved.nom;
     }
 
-    await prisma.beneluxContact.updateMany({
-      where: { companyId, outreachExcluded: true },
-      data: { outreachExcluded: false },
-    });
+    // Contexte de déduplication par entreprise : un même fichier peut répartir
+    // ses contacts sur plusieurs entreprises (colonne « Marque »), chacune avec
+    // ses propres contacts déjà connus.
+    type CompanyCtx = {
+      companyId: string;
+      companyName: string;
+      emails: Set<string>;
+      names: Set<string>;
+    };
+    const companyCache = new Map<string, CompanyCtx>();
 
-    const existing = await prisma.beneluxContact.findMany({
-      where: { companyId },
-      select: { id: true, prenom: true, nom: true, email: true },
-    });
-    const existingEmails = new Set(
-      existing.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
-    );
-    const existingNames = new Set(
-      existing.map((c) => `${(c.prenom || "").toLowerCase()}|${(c.nom || "").toLowerCase()}`)
-    );
+    const loadCompanyCtx = async (id: string, nom: string): Promise<CompanyCtx> => {
+      const cached = companyCache.get(id);
+      if (cached) return cached;
+      await prisma.beneluxContact.updateMany({
+        where: { companyId: id, outreachExcluded: true },
+        data: { outreachExcluded: false },
+      });
+      const existing = await prisma.beneluxContact.findMany({
+        where: { companyId: id },
+        select: { prenom: true, nom: true, email: true },
+      });
+      const ctx: CompanyCtx = {
+        companyId: id,
+        companyName: nom,
+        emails: new Set(
+          existing.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
+        ),
+        names: new Set(
+          existing.map((c) => `${(c.prenom || "").toLowerCase()}|${(c.nom || "").toLowerCase()}`)
+        ),
+      };
+      companyCache.set(id, ctx);
+      return ctx;
+    };
+
+    // Entreprise par défaut (fallback pour les lignes sans marque propre).
+    const defaultCtx = await loadCompanyCtx(companyId, company);
+
+    const resolveRowCtx = async (rawMarque: string | null): Promise<CompanyCtx> => {
+      if (!rawMarque) return defaultCtx;
+      const resolved = await findOrCreateBeneluxCompany(rawMarque, session.user.id);
+      if (resolved.id === companyId) return defaultCtx;
+      const cached = companyCache.get(resolved.id);
+      if (cached) return cached;
+      return loadCompanyCtx(resolved.id, resolved.nom);
+    };
 
     let created = 0;
     let skipped = 0;
@@ -132,8 +166,11 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // Entreprise de ce contact (colonne « Marque ») ou entreprise par défaut.
+      const ctx = await resolveRowCtx(clean(row.marque));
+
       const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
-      if ((email && existingEmails.has(email)) || existingNames.has(nameKey)) {
+      if ((email && ctx.emails.has(email)) || ctx.names.has(nameKey)) {
         skipped += 1;
         continue;
       }
@@ -143,7 +180,7 @@ export async function POST(request: NextRequest) {
 
       const contact = await prisma.beneluxContact.create({
         data: {
-          companyId,
+          companyId: ctx.companyId,
           prenom: prenom || nom || "Contact",
           nom: prenom ? nom : null,
           email,
@@ -156,8 +193,8 @@ export async function POST(request: NextRequest) {
           source: "CARTO",
         },
       });
-      existingNames.add(nameKey);
-      if (email) existingEmails.add(email);
+      ctx.names.add(nameKey);
+      if (email) ctx.emails.add(email);
       created += 1;
 
       if (email) {
@@ -168,12 +205,12 @@ export async function POST(request: NextRequest) {
         if (!alreadyInCycle) {
           await prisma.beneluxOutreachTarget.create({
             data: {
-              companyId,
+              companyId: ctx.companyId,
               beneluxContactId: contact.id,
               firstname: prenom || nom || "Contact",
               lastname: prenom ? nom : null,
               email,
-              companyName: company,
+              companyName: ctx.companyName,
               language: rowLanguage,
               createdById: session.user.id,
             },

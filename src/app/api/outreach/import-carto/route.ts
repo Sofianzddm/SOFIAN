@@ -10,11 +10,16 @@ import { findOrCreateMarque } from "@/lib/marque-resolver";
  * dans le cycle de contact. La carto reste visible sur la fiche marque.
  *
  * Body : {
- *   marqueId?: string,          // marque existante sélectionnée
+ *   marqueId?: string,          // marque PAR DÉFAUT existante sélectionnée
  *   company?: string,           // sinon résolution/création par nom
  *   language: "fr" | "en",      // OBLIGATOIRE : langue des contacts importés
- *   rows: [{ prenom?, nom, poste?, perimetre?, localisation?, priorite?, linkedinUrl?, email? }]
+ *   rows: [{ prenom?, nom, poste?, perimetre?, localisation?, priorite?, linkedinUrl?, email?, marque? }]
  * }
+ *
+ * Chaque ligne peut porter sa propre `marque` (colonne « Marque » du fichier) :
+ * le contact est alors rattaché à cette marque (résolue/créée sans doublon),
+ * sinon à la marque par défaut. Un même fichier peut donc répartir ses contacts
+ * sur plusieurs marques (ex. Unilever → Dove, Axe…).
  */
 
 const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
@@ -31,6 +36,8 @@ type CartoRow = {
   linkedinUrl?: string;
   email?: string;
   language?: string;
+  /** Marque/sous-marque propre au contact ; vide → marque par défaut de l'import. */
+  marque?: string;
 };
 
 const clean = (v: unknown): string | null => {
@@ -97,24 +104,60 @@ export async function POST(request: NextRequest) {
       marqueId = resolved.marqueId;
     }
 
-    // Réimporter une carto = réintégrer la marque à l'outreach : on lève une
-    // éventuelle exclusion posée par un précédent « Retirer de l'outreach »,
-    // pour que ses contacts puissent revenir en « en attente d'email ».
-    await prisma.marqueContact.updateMany({
-      where: { marqueId, outreachExcluded: true },
-      data: { outreachExcluded: false },
-    });
+    // Contexte de déduplication par marque : chaque marque (par défaut ou
+    // sous-marque d'une colonne « Marque ») a ses propres contacts déjà connus.
+    // Un même fichier peut ainsi répartir ses contacts sur plusieurs marques
+    // (ex. carto Unilever → Dove, Axe, Ben & Jerry's).
+    type BrandCtx = {
+      marqueId: string;
+      company: string;
+      emails: Set<string>;
+      names: Set<string>;
+    };
+    const brandCache = new Map<string, BrandCtx>();
 
-    const existing = await prisma.marqueContact.findMany({
-      where: { marqueId },
-      select: { id: true, prenom: true, nom: true, email: true },
-    });
-    const existingEmails = new Set(
-      existing.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
-    );
-    const existingNames = new Set(
-      existing.map((c) => `${(c.prenom || "").toLowerCase()}|${c.nom.toLowerCase()}`)
-    );
+    const loadBrandCtx = async (id: string, nom: string): Promise<BrandCtx> => {
+      const cached = brandCache.get(id);
+      if (cached) return cached;
+      // Réimporter une carto = réintégrer la marque à l'outreach : on lève une
+      // éventuelle exclusion posée par un précédent « Retirer de l'outreach ».
+      await prisma.marqueContact.updateMany({
+        where: { marqueId: id, outreachExcluded: true },
+        data: { outreachExcluded: false },
+      });
+      const existing = await prisma.marqueContact.findMany({
+        where: { marqueId: id },
+        select: { prenom: true, nom: true, email: true },
+      });
+      const ctx: BrandCtx = {
+        marqueId: id,
+        company: nom,
+        emails: new Set(
+          existing.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
+        ),
+        names: new Set(
+          existing.map((c) => `${(c.prenom || "").toLowerCase()}|${c.nom.toLowerCase()}`)
+        ),
+      };
+      brandCache.set(id, ctx);
+      return ctx;
+    };
+
+    // Marque par défaut (fallback pour les lignes sans marque propre).
+    const defaultCtx = await loadBrandCtx(marqueId, company);
+
+    const resolveRowCtx = async (rawMarque: string | null): Promise<BrandCtx> => {
+      if (!rawMarque) return defaultCtx;
+      const resolved = await findOrCreateMarque({ name: rawMarque, source: "IMPORT" });
+      if (resolved.marqueId === marqueId) return defaultCtx;
+      const cached = brandCache.get(resolved.marqueId);
+      if (cached) return cached;
+      const m = await prisma.marque.findUnique({
+        where: { id: resolved.marqueId },
+        select: { nom: true },
+      });
+      return loadBrandCtx(resolved.marqueId, m?.nom || rawMarque);
+    };
 
     let created = 0;
     let skipped = 0;
@@ -130,8 +173,11 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // Marque de ce contact (colonne « Marque ») ou marque par défaut.
+      const ctx = await resolveRowCtx(clean(row.marque));
+
       const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
-      if ((email && existingEmails.has(email)) || existingNames.has(nameKey)) {
+      if ((email && ctx.emails.has(email)) || ctx.names.has(nameKey)) {
         skipped += 1;
         continue;
       }
@@ -141,7 +187,7 @@ export async function POST(request: NextRequest) {
 
       const contact = await prisma.marqueContact.create({
         data: {
-          marqueId,
+          marqueId: ctx.marqueId,
           prenom,
           nom: nom || prenom || "Contact",
           email,
@@ -154,8 +200,8 @@ export async function POST(request: NextRequest) {
           source: "CARTO",
         },
       });
-      existingNames.add(nameKey);
-      if (email) existingEmails.add(email);
+      ctx.names.add(nameKey);
+      if (email) ctx.emails.add(email);
       created += 1;
 
       // Email présent dans le fichier → le contact entre directement dans
@@ -168,12 +214,12 @@ export async function POST(request: NextRequest) {
         if (!alreadyInCycle) {
           await prisma.outreachTarget.create({
             data: {
-              marqueId,
+              marqueId: ctx.marqueId,
               marqueContactId: contact.id,
               firstname: prenom || nom || "Contact",
               lastname: prenom ? nom : null,
               email,
-              company,
+              company: ctx.company,
               language: rowLanguage,
               createdById: session.user.id,
             },
