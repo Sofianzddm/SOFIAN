@@ -125,7 +125,8 @@ export default function NegociationDetailPage() {
 
   const isAdmin = session?.user?.role === "ADMIN";
   const isHeadOf = session?.user?.role === "HEAD_OF" || session?.user?.role === "HEAD_OF_INFLUENCE" || session?.user?.role === "ADMIN";
-  const canValidate = isAdmin || isHeadOf;
+  const isTM = session?.user?.role === "TM";
+  const canValidate = isAdmin || isHeadOf || isTM;
   const canEdit = nego?.statut !== "VALIDEE";
   const isOwner = session?.user?.id === nego?.tm.id;
 
@@ -601,13 +602,15 @@ export default function NegociationDetailPage() {
             >
               <CheckCircle2 className="h-4 w-4" /> Valider → Créer collab
             </button>
-            <button
-              onClick={() => setShowRefusModal(true)}
-              disabled={validating}
-              className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-5 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-            >
-              <XCircle className="h-4 w-4" /> Refuser
-            </button>
+            {!isTM && (
+              <button
+                onClick={() => setShowRefusModal(true)}
+                disabled={validating}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-5 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                <XCircle className="h-4 w-4" /> Refuser
+              </button>
+            )}
           </div>
           {isHeadOf && !isEditingContrePropo && (
             <p className="text-xs text-slate-500 mt-3">

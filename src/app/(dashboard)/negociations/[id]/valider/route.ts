@@ -39,8 +39,8 @@ export async function POST(
 
     const user = session.user as { id: string; role: string };
 
-    // Seuls ADMIN et HEAD_OF peuvent valider
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(user.role)) {
+    // Talent Manager, ADMIN et HEAD_OF peuvent valider
+    if (!["TM", "ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour valider" },
         { status: 403 }
@@ -54,6 +54,14 @@ export async function POST(
       return NextResponse.json(
         { error: "Action invalide (valider ou refuser)" },
         { status: 400 }
+      );
+    }
+
+    // Le Talent Manager peut uniquement valider, pas refuser
+    if (action === "refuser" && user.role === "TM") {
+      return NextResponse.json(
+        { error: "Vous n'avez pas les droits pour refuser" },
+        { status: 403 }
       );
     }
 

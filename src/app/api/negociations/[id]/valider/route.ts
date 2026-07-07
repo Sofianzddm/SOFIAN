@@ -17,8 +17,8 @@ export async function POST(
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
     }
 
-    // Seuls Head Of, Head of Influence et Admin peuvent valider
-    if (!["HEAD_OF", "HEAD_OF_INFLUENCE", "ADMIN"].includes(session.user.role)) {
+    // Seuls Talent Manager, Head Of, Head of Influence et Admin peuvent valider
+    if (!["TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "ADMIN"].includes(session.user.role)) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 403 });
     }
 
@@ -26,6 +26,11 @@ export async function POST(
 
     if (!["valider", "refuser"].includes(action)) {
       return NextResponse.json({ message: "Action invalide" }, { status: 400 });
+    }
+
+    // Le Talent Manager peut uniquement valider, pas refuser
+    if (action === "refuser" && session.user.role === "TM") {
+      return NextResponse.json({ message: "Non autorisé" }, { status: 403 });
     }
 
     // Récupérer la négo avec ses livrables
