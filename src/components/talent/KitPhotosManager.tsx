@@ -11,6 +11,46 @@ interface IgPhoto {
 }
 
 /**
+ * Parse une réponse fetch en JSON de façon défensive.
+ *
+ * Les routes serverless (Vercel) peuvent renvoyer une page d'erreur en
+ * texte/HTML (« A server error has occurred… », « An error occurred… »,
+ * timeout, 413…) au lieu du JSON attendu. Un `res.json()` direct planterait
+ * alors avec « Unexpected token 'A'… is not valid JSON ».
+ * Ici on lit le corps en texte puis on tente de le parser, et on remonte un
+ * message d'erreur exploitable si ce n'est pas du JSON.
+ */
+async function parseJsonResponse<T>(res: Response, fallbackError: string): Promise<T> {
+  const raw = await res.text();
+  let data: unknown = null;
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      // Réponse non-JSON (page d'erreur serveur, HTML, timeout…)
+      if (!res.ok) {
+        throw new Error(
+          res.status === 413
+            ? "Fichier trop volumineux."
+            : res.status === 504
+              ? "Le serveur a mis trop de temps à répondre (délai dépassé)."
+              : `${fallbackError} (erreur ${res.status})`
+        );
+      }
+      throw new Error(fallbackError);
+    }
+  }
+
+  if (!res.ok) {
+    const message =
+      (data as { error?: string } | null)?.error || `${fallbackError} (erreur ${res.status})`;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
+/**
  * Manager des 10 photos additionnelles (`kitPhotos`) utilisées par le
  * Kit Media public (/kit/[slug]).
  *
@@ -61,8 +101,10 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
     (async () => {
       try {
         const res = await fetch(`/api/talents/${talentId}/kit-photos`);
-        if (!res.ok) throw new Error("Erreur chargement");
-        const data = (await res.json()) as { kitPhotos: (string | null)[] };
+        const data = await parseJsonResponse<{ kitPhotos: (string | null)[] }>(
+          res,
+          "Erreur chargement"
+        );
         if (!cancelled) setPhotos(data.kitPhotos);
       } catch (e) {
         console.error(e);
@@ -97,9 +139,19 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ talentId }),
         });
-        if (!sigRes.ok) throw new Error("Erreur signature");
         const { signature, timestamp, folder, publicId, cloudName, apiKey } =
-          await sigRes.json();
+          await parseJsonResponse<{
+            signature: string;
+            timestamp: number;
+            folder: string;
+            publicId: string;
+            cloudName?: string;
+            apiKey?: string;
+          }>(sigRes, "Erreur signature");
+
+        if (!cloudName) {
+          throw new Error("Configuration Cloudinary manquante côté serveur");
+        }
 
         // 2. Upload Cloudinary — on respecte exactement les params signés.
         const formData = new FormData();
@@ -108,14 +160,16 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
         formData.append("timestamp", timestamp.toString());
         formData.append("folder", folder);
         formData.append("public_id", publicId);
-        formData.append("api_key", apiKey);
+        formData.append("api_key", apiKey ?? "");
 
         const cloudRes = await fetch(
           `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
           { method: "POST", body: formData }
         );
-        if (!cloudRes.ok) throw new Error("Erreur upload Cloudinary");
-        const { secure_url } = await cloudRes.json();
+        const { secure_url } = await parseJsonResponse<{ secure_url: string }>(
+          cloudRes,
+          "Erreur upload Cloudinary"
+        );
 
         // 3. Persiste le slot
         const patchRes = await fetch(`/api/talents/${talentId}/kit-photos`, {
@@ -123,12 +177,14 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ index, url: secure_url }),
         });
-        if (!patchRes.ok) throw new Error("Erreur mise à jour");
-        const data = (await patchRes.json()) as { kitPhotos: (string | null)[] };
+        const data = await parseJsonResponse<{ kitPhotos: (string | null)[] }>(
+          patchRes,
+          "Erreur mise à jour"
+        );
         setPhotos(data.kitPhotos);
       } catch (e) {
         console.error("Erreur upload kit photo:", e);
-        setError("Erreur lors de l'upload");
+        setError(e instanceof Error ? e.message : "Erreur lors de l'upload");
       } finally {
         setUploadingIndex(null);
         const input = fileInputsRef.current[index];
@@ -158,10 +214,10 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
             body: JSON.stringify({ overwrite }),
           }
         );
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data?.error || "Erreur d'import Instagram");
-        }
+        const data = await parseJsonResponse<{
+          kitPhotos: (string | null)[];
+          imported: number;
+        }>(res, "Erreur d'import Instagram");
         setPhotos(data.kitPhotos);
         setImportMessage(
           `${data.imported} photo${data.imported > 1 ? "s" : ""} importée${
@@ -189,12 +245,14 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ index, url: null }),
         });
-        if (!res.ok) throw new Error("Erreur suppression");
-        const data = (await res.json()) as { kitPhotos: (string | null)[] };
+        const data = await parseJsonResponse<{ kitPhotos: (string | null)[] }>(
+          res,
+          "Erreur suppression"
+        );
         setPhotos(data.kitPhotos);
       } catch (e) {
         console.error(e);
-        setError("Erreur lors de la suppression");
+        setError(e instanceof Error ? e.message : "Erreur lors de la suppression");
       }
     },
     [talentId]
@@ -209,11 +267,11 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
       setIgError(null);
       try {
         const res = await fetch(`/api/talents/${talentId}/instagram-photos`);
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data?.error || "Erreur de récupération Instagram");
-        }
-        setIgPhotos((data.photos as IgPhoto[]) || []);
+        const data = await parseJsonResponse<{ photos?: IgPhoto[] }>(
+          res,
+          "Erreur de récupération Instagram"
+        );
+        setIgPhotos(data.photos || []);
       } catch (e) {
         console.error(e);
         setIgError(
@@ -254,10 +312,10 @@ export default function KitPhotosManager({ talentId }: { talentId: string }) {
             body: JSON.stringify({ index: pickerSlot, imageUrl }),
           }
         );
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data?.error || "Erreur lors de la sélection");
-        }
+        const data = await parseJsonResponse<{ kitPhotos: (string | null)[] }>(
+          res,
+          "Erreur lors de la sélection"
+        );
         setPhotos(data.kitPhotos);
         closePicker();
       } catch (e) {
