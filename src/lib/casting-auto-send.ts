@@ -654,39 +654,46 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
 
 /**
  * Template du mail de relance J+3 (manuel ou cron).
- * - Court, chaleureux, professionnel
+ * - Court volontairement : à J+3 le mail initial est encore frais, son rôle est
+ *   de remonter dans la boîte avec une vraie question (la relance « valeur
+ *   ajoutée » media kit/stats/call, c'est la relance 2 à J+10)
+ * - Personnalisé talent x marque
  * - Variables : {{contact.firstname}} → Bonjour Marie / Bonjour
  * - Signature alignée avec le mail initial (Leyna · Glow Up Agence)
  */
 export function buildDefaultRelanceTemplate(
   targetBrand: string,
-  language: "fr" | "en" = "fr"
+  language: "fr" | "en" = "fr",
+  creatorName?: string
 ): string {
   const brand = (targetBrand || "").trim();
+  const talent = (creatorName || "").trim().replace(/\s+/g, " ");
 
   if (language === "en") {
-    const brandLine = brand
-      ? `regarding our collaboration proposal with <strong>${brand}</strong>`
-      : `regarding our collaboration proposal`;
+    const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
+    const proposalLine = talent
+      ? `my message about a collaboration between <strong>${talent}</strong> and ${brandPart}`
+      : `my collaboration proposal for ${brandPart}`;
 
     return [
       `<p>Hi {{contact.firstname}},</p>`,
-      `<p>I just wanted to follow up ${brandLine}.</p>`,
-      `<p>Have you had a chance to take a look? I would be happy to answer any questions or set up a quick call.</p>`,
-      `<p>Looking forward to hearing from you,</p>`,
+      `<p>I hope you're doing well 😊</p>`,
+      `<p>I just wanted to bring ${proposalLine} back to the top of your inbox — I'd love to hear your first impressions, even in one line.</p>`,
+      `<p>Is this something that could be of interest on your side?</p>`,
       `<p>Best regards,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
     ].join("");
   }
 
-  const brandLine = brand
-    ? `concernant notre proposition de collaboration avec <strong>${brand}</strong>`
-    : `concernant notre proposition de collaboration`;
+  const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
+  const proposalLine = talent
+    ? `mon message concernant une collaboration entre <strong>${talent}</strong> et ${brandPart}`
+    : `ma proposition de collaboration pour ${brandPart}`;
 
   return [
     `<p>Bonjour {{contact.firstname}},</p>`,
-    `<p>Je me permets de revenir vers vous ${brandLine}.</p>`,
-    `<p>Avez-vous eu l'occasion d'en prendre connaissance ? Je reste à votre disposition pour échanger ou répondre à vos questions.</p>`,
-    `<p>Au plaisir d'avoir de vos nouvelles,</p>`,
+    `<p>J'espère que vous allez bien 😊</p>`,
+    `<p>Je me permets de faire remonter ${proposalLine} — je serais ravie d'avoir votre premier retour, même en une ligne.</p>`,
+    `<p>Est-ce un sujet qui pourrait vous intéresser de votre côté ?</p>`,
     `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
   ].join("");
 }
@@ -891,7 +898,11 @@ export async function buildCastingRelanceDraft(
     : `Re: ${subjectSrc || defaultSubjectBase}`;
 
   const targetBrand = String(mission.targetBrand || "").trim();
-  const bodyTemplate = buildDefaultRelanceTemplate(targetBrand, relanceLang);
+  const bodyTemplate = buildDefaultRelanceTemplate(
+    targetBrand,
+    relanceLang,
+    String(mission.creatorName || "")
+  );
 
   const recipients: CastingRelanceRecipient[] = [];
   const skipped: CastingRelanceSkipped[] = [];
@@ -1074,7 +1085,7 @@ export async function executeCastingRelance(
             lang,
             mission.sentAt ? new Date(mission.sentAt) : null
           )
-        : buildDefaultRelanceTemplate(targetBrand, lang));
+        : buildDefaultRelanceTemplate(targetBrand, lang, String(mission.creatorName || "")));
     const sentDateLabel = mission.sentAt
       ? formatRelanceDate(new Date(mission.sentAt), lang)
       : "";
