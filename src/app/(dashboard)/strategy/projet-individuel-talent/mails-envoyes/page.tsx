@@ -23,6 +23,8 @@ import {
 import { businessDeadlineWithJitter } from "@/lib/business-days";
 
 const RELANCE_BUSINESS_DAYS = 3;
+// Relance 2 « valeur ajoutée » : J+10 ouvrés après la relance J+3.
+const RELANCE2_BUSINESS_DAYS = 10;
 
 type Recipient = { firstname: string; lastname: string; email: string; role: string };
 
@@ -54,6 +56,8 @@ type SentMission = {
   clickCount: number;
   relanceSentAt: string | null;
   relanceError: string | null;
+  relance2SentAt: string | null;
+  relance2Error: string | null;
   relanceCancelledAt: string | null;
   replied: boolean;
 };
@@ -95,26 +99,46 @@ function relativeDate(dateStr: string) {
 }
 
 /**
- * Relance unique J+3 (jours ouvrés Lun-Ven, Europe/Paris), calculée À L'HEURE
- * près à partir de l'envoi initial, avec un décalage anti-robot propre à chaque
- * mission : un mail parti à 17h sera relancé un peu après 17h le 3e jour ouvré
- * (jamais pile à la même minute). Le cron tourne toutes les 15 min ; si
- * l'échéance est passée, la relance part au prochain passage (quelques minutes).
+ * Prochaine relance automatique (2 rounds max) :
+ *  - Relance 1 : J+3 ouvrés (Lun-Ven, Europe/Paris) après le mail initial.
+ *  - Relance 2 : J+10 ouvrés après la relance 1 (relance « valeur ajoutée »
+ *    style Outreach : media kit, stats, proposition de call).
+ * Calculée À L'HEURE près, avec un décalage anti-robot propre à chaque mission :
+ * un mail parti à 17h sera relancé un peu après 17h le N-ième jour ouvré (jamais
+ * pile à la même minute). Le cron tourne toutes les 15 min ; si l'échéance est
+ * passée, la relance part au prochain passage (quelques minutes).
  */
 function computeNextRelance(
   seed: string,
   sentAt: string | null,
   relanceSentAt: string | null,
   replied: boolean,
-  relanceCancelledAt: string | null = null
-): { scheduledAt: Date; isOverdue: boolean } | null {
-  if (!sentAt || replied || relanceSentAt || relanceCancelledAt) return null;
-  const sent = new Date(sentAt);
-  const eligibleAt = businessDeadlineWithJitter(sent, RELANCE_BUSINESS_DAYS, seed);
+  relanceCancelledAt: string | null = null,
+  relance2SentAt: string | null = null
+): { round: 1 | 2; scheduledAt: Date; isOverdue: boolean } | null {
+  if (!sentAt || replied || relanceCancelledAt) return null;
   const now = new Date();
-  if (eligibleAt > now) return { scheduledAt: eligibleAt, isOverdue: false };
-  // Échéance dépassée → partira au prochain passage du cron (toutes les 15 min).
-  return { scheduledAt: now, isOverdue: true };
+  if (!relanceSentAt) {
+    const eligibleAt = businessDeadlineWithJitter(
+      new Date(sentAt),
+      RELANCE_BUSINESS_DAYS,
+      seed
+    );
+    if (eligibleAt > now) return { round: 1, scheduledAt: eligibleAt, isOverdue: false };
+    // Échéance dépassée → partira au prochain passage du cron (toutes les 15 min).
+    return { round: 1, scheduledAt: now, isOverdue: true };
+  }
+  if (!relance2SentAt) {
+    // Même seed suffixée que le cron (`:r2`) pour afficher la même échéance.
+    const eligibleAt = businessDeadlineWithJitter(
+      new Date(relanceSentAt),
+      RELANCE2_BUSINESS_DAYS,
+      `${seed}:r2`
+    );
+    if (eligibleAt > now) return { round: 2, scheduledAt: eligibleAt, isOverdue: false };
+    return { round: 2, scheduledAt: now, isOverdue: true };
+  }
+  return null;
 }
 
 function formatRelativeFuture(date: Date): string {
@@ -145,12 +169,14 @@ function RelanceStatus({
   relanceSentAt,
   replied,
   relanceCancelledAt,
+  relance2SentAt,
 }: {
   id: string;
   sentAt: string | null;
   relanceSentAt: string | null;
   replied: boolean;
   relanceCancelledAt: string | null;
+  relance2SentAt: string | null;
 }) {
   if (replied && relanceSentAt) {
     return (
@@ -176,14 +202,14 @@ function RelanceStatus({
     );
   }
 
-  if (relanceSentAt) {
+  if (relance2SentAt) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700"
-        title={`Envoyée le ${formatDate(relanceSentAt)}`}
+        title={`Relance J+3 le ${relanceSentAt ? formatDate(relanceSentAt) : "—"} · Relance 2 le ${formatDate(relance2SentAt)}`}
       >
         <CheckCircle2 className="h-3 w-3" />
-        Relance · {relativeDate(relanceSentAt)}
+        Relance 2 · {relativeDate(relance2SentAt)}
       </span>
     );
   }
@@ -192,7 +218,7 @@ function RelanceStatus({
     return (
       <div
         className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700"
-        title={`Stoppée manuellement le ${formatDate(relanceCancelledAt)}`}
+        title={`Stoppée manuellement le ${formatDate(relanceCancelledAt)}${relanceSentAt ? ` (la relance J+3 était déjà partie le ${formatDate(relanceSentAt)})` : ""}`}
       >
         <BellOff className="h-3 w-3" />
         Stoppée manuellement
@@ -200,8 +226,28 @@ function RelanceStatus({
     );
   }
 
-  const next = computeNextRelance(id, sentAt, relanceSentAt, replied, relanceCancelledAt);
-  if (!next) return <span className="text-xs text-slate-400">—</span>;
+  const next = computeNextRelance(
+    id,
+    sentAt,
+    relanceSentAt,
+    replied,
+    relanceCancelledAt,
+    relance2SentAt
+  );
+  if (!next) {
+    if (relanceSentAt) {
+      return (
+        <span
+          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700"
+          title={`Envoyée le ${formatDate(relanceSentAt)}`}
+        >
+          <CheckCircle2 className="h-3 w-3" />
+          Relance · {relativeDate(relanceSentAt)}
+        </span>
+      );
+    }
+    return <span className="text-xs text-slate-400">—</span>;
+  }
 
   return (
     <span
@@ -218,7 +264,7 @@ function RelanceStatus({
       })} (cron toutes les 15 min, jours ouvrés)`}
     >
       {next.isOverdue ? <AlertCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-      Relance J+3 {formatRelativeFuture(next.scheduledAt)}
+      {next.round === 2 ? "Relance 2 (J+10)" : "Relance J+3"} {formatRelativeFuture(next.scheduledAt)}
     </span>
   );
 }
@@ -260,6 +306,43 @@ function RelanceTimeline({ mail }: { mail: SentMission }) {
       state: "done",
       date: `${formatDate(mail.relanceSentAt)} (${relativeDate(mail.relanceSentAt)})`,
     });
+    if (mail.relance2SentAt) {
+      steps.push({
+        label: "Relance 2 (valeur ajoutée) envoyée",
+        state: "done",
+        date: `${formatDate(mail.relance2SentAt)} (${relativeDate(mail.relance2SentAt)})`,
+        hint: "Media kit du talent, stats et proposition de call, aux contacts restés sans réponse.",
+      });
+    } else if (mail.relanceCancelledAt) {
+      steps.push({
+        label: "Relance 2 stoppée manuellement",
+        state: "stopped",
+        date: `${formatDate(mail.relanceCancelledAt)} (${relativeDate(mail.relanceCancelledAt)})`,
+        hint: "Tu peux la réactiver à tout moment depuis la table ou la pipeline.",
+      });
+    } else {
+      const next2 = computeNextRelance(
+        mail.id,
+        mail.sentAt,
+        mail.relanceSentAt,
+        mail.replied,
+        mail.relanceCancelledAt,
+        mail.relance2SentAt
+      );
+      if (next2) {
+        steps.push({
+          label: "Relance 2 (valeur ajoutée)",
+          state: "pending",
+          date: `Prévue ${formatRelativeFuture(next2.scheduledAt)} — ${next2.scheduledAt.toLocaleString(
+            "fr-FR",
+            { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }
+          )}`,
+          hint: next2.isOverdue
+            ? "Échéance dépassée, partira dans quelques minutes (cron toutes les 15 min)."
+            : "10 jours ouvrés après la relance J+3 : media kit du talent, stats, proposition de call. Uniquement aux contacts restés sans réponse.",
+        });
+      }
+    }
   } else if (mail.relanceCancelledAt) {
     steps.push({
       label: "Relance auto stoppée manuellement",
@@ -874,6 +957,7 @@ export default function PipelineMailsEnvoyesPage() {
                       relanceSentAt={m.relanceSentAt}
                       replied={m.replied}
                       relanceCancelledAt={m.relanceCancelledAt}
+                      relance2SentAt={m.relance2SentAt}
                     />
                   </td>
                   <td className="px-4 py-3 align-top text-right">
@@ -886,29 +970,31 @@ export default function PipelineMailsEnvoyesPage() {
                         <Mail className="h-3.5 w-3.5" />
                         Voir le mail
                       </button>
-                      {canManageRelance && !m.relanceSentAt && (
+                      {canManageRelance && (!m.relanceSentAt || !m.relance2SentAt) && (
                         <>
-                          <button
-                            type="button"
-                            disabled={previewLoadingId === m.id}
-                            onClick={() => void openRelancePreview(m)}
-                            className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100 disabled:opacity-50"
-                            title="Prévisualiser et envoyer la relance immédiatement"
-                          >
-                            {previewLoadingId === m.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Send className="h-3.5 w-3.5" />
-                            )}
-                            Relancer maintenant
-                          </button>
+                          {!m.relanceSentAt && (
+                            <button
+                              type="button"
+                              disabled={previewLoadingId === m.id}
+                              onClick={() => void openRelancePreview(m)}
+                              className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                              title="Prévisualiser et envoyer la relance immédiatement"
+                            >
+                              {previewLoadingId === m.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Send className="h-3.5 w-3.5" />
+                              )}
+                              Relancer maintenant
+                            </button>
+                          )}
                           {m.relanceCancelledAt ? (
                             <button
                               type="button"
                               disabled={togglingId === m.id}
                               onClick={() => void toggleRelance(m, "resume")}
                               className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
-                              title="Réactiver la relance automatique J+3"
+                              title="Réactiver les relances automatiques (J+3 puis relance 2 à J+10)"
                             >
                               <BellRing className="h-3.5 w-3.5" />
                               Réactiver auto
@@ -919,7 +1005,11 @@ export default function PipelineMailsEnvoyesPage() {
                               disabled={togglingId === m.id}
                               onClick={() => void toggleRelance(m, "cancel")}
                               className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-                              title="Stopper la relance automatique J+3"
+                              title={
+                                m.relanceSentAt
+                                  ? "Stopper la relance 2 automatique (J+10 après la relance J+3)"
+                                  : "Stopper les relances automatiques (J+3 puis relance 2 à J+10)"
+                              }
                             >
                               <BellOff className="h-3.5 w-3.5" />
                               Stopper auto
@@ -1033,21 +1123,23 @@ export default function PipelineMailsEnvoyesPage() {
 
               <RelanceTimeline mail={openMail} />
 
-              {canManageRelance && !openMail.relanceSentAt ? (
+              {canManageRelance && (!openMail.relanceSentAt || !openMail.relance2SentAt) ? (
                 <div className="flex flex-wrap justify-end gap-2">
-                  <button
-                    type="button"
-                    disabled={previewLoadingId === openMail.id}
-                    onClick={() => void openRelancePreview(openMail)}
-                    className="inline-flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
-                  >
-                    {previewLoadingId === openMail.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Send className="h-3.5 w-3.5" />
-                    )}
-                    Relancer maintenant
-                  </button>
+                  {!openMail.relanceSentAt && (
+                    <button
+                      type="button"
+                      disabled={previewLoadingId === openMail.id}
+                      onClick={() => void openRelancePreview(openMail)}
+                      className="inline-flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                    >
+                      {previewLoadingId === openMail.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Send className="h-3.5 w-3.5" />
+                      )}
+                      Relancer maintenant
+                    </button>
+                  )}
                   {openMail.relanceCancelledAt ? (
                     <button
                       type="button"
@@ -1056,7 +1148,7 @@ export default function PipelineMailsEnvoyesPage() {
                       className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
                     >
                       <BellRing className="h-3.5 w-3.5" />
-                      Réactiver la relance auto J+3
+                      Réactiver les relances auto
                     </button>
                   ) : (
                     <button
@@ -1066,7 +1158,9 @@ export default function PipelineMailsEnvoyesPage() {
                       className="inline-flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
                     >
                       <BellOff className="h-3.5 w-3.5" />
-                      Stopper la relance auto J+3
+                      {openMail.relanceSentAt
+                        ? "Stopper la relance 2 auto"
+                        : "Stopper les relances auto"}
                     </button>
                   )}
                 </div>

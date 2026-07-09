@@ -115,6 +115,8 @@ export async function GET(req: NextRequest) {
           clickCount: m.clickCount ?? 0,
           relanceSentAt: m.relanceSentAt ? m.relanceSentAt.toISOString() : null,
           relanceError: m.relanceError ?? null,
+          relance2SentAt: m.relance2SentAt ? m.relance2SentAt.toISOString() : null,
+          relance2Error: m.relance2Error ?? null,
           relanceCancelledAt: m.relanceCancelledAt ? m.relanceCancelledAt.toISOString() : null,
           replied: m.replied ?? false,
         };

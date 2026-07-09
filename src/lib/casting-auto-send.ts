@@ -44,6 +44,12 @@ export const CASTING_COOLDOWN_DAYS = 20;
  * de vrai jour de travail entre les deux mails.
  */
 export const CASTING_RELANCE_BUSINESS_DAYS = 3;
+/**
+ * Délai de la relance 2 (jours ouvrés) après le DERNIER mail envoyé, c.-à-d.
+ * la relance J+3. Style « valeur ajoutée » (comme le module Outreach) :
+ * rappel de la proposition initiale + media kit du talent + proposition de call.
+ */
+export const CASTING_RELANCE2_BUSINESS_DAYS = 10;
 export const CASTING_SEND_DELAY_MS = 30 * 1000;
 
 export type CastingContact = {
@@ -89,6 +95,26 @@ export function applyCastingTemplateVars(
   s = s.replace(/\{\{\s*contact\.marques\s*\}\}/gi, marquesCouvertes);
   s = s.replace(/\{\{\s*owner\.firstname\s*\}\}/gi, LEYNA_OWNER_FIRSTNAME);
   return s;
+}
+
+const FR_HINT_WORDS =
+  /\b(le|la|les|des|une|un|et|est|avec|pour|vous|nous|je|votre|notre|bonjour|merci|chez|très|cette|dans|qui|que|pas|plaisir|journée|n'hésitez|d'une|c'est)\b/gi;
+const EN_HINT_WORDS =
+  /\b(the|and|with|for|you|your|our|we|is|are|would|could|hello|hi|thanks|this|that|who|not|from|about|collaboration's|it's|don't|looking|forward)\b/gi;
+
+/**
+ * Détecte la langue RÉELLE d'un mail (sujet + corps HTML) par comptage de
+ * mots-outils. Nécessaire car `draftLanguage` / `clientLanguage` sont souvent
+ * absents ou faux en base (brouillons rédigés en anglais mais stockés « FR ») :
+ * se fier au texte évite de relancer en français un thread anglais.
+ */
+export function detectMailLanguage(subject: string, bodyHtml: string): "fr" | "en" {
+  const text = `${subject || ""} ${bodyHtml || ""}`
+    .replace(/<[^>]+>/g, " ")
+    .toLowerCase();
+  const fr = (text.match(FR_HINT_WORDS) || []).length;
+  const en = (text.match(EN_HINT_WORDS) || []).length;
+  return en > fr ? "en" : "fr";
 }
 
 function isValidEmail(value: string | undefined | null): boolean {
@@ -739,6 +765,76 @@ export function buildOutreachRelanceTemplate(
   ].join("");
 }
 
+/**
+ * Modèle de la relance 2 (J+10 ouvrés après la relance J+3) : relance « valeur
+ * ajoutée » à la manière du module Outreach, personnalisée pour UN talent.
+ * Rappelle la proposition initiale (date du premier mail), propose des éléments
+ * concrets (media kit du talent, stats, idées de contenus) et un court call.
+ */
+export function buildCastingRelance2Template(
+  targetBrand: string,
+  creatorName: string,
+  language: "fr" | "en" = "fr",
+  firstSentAt?: Date | null
+): string {
+  const brand = (targetBrand || "").trim();
+  const talent = (creatorName || "").trim().replace(/\s+/g, " ");
+
+  if (language === "en") {
+    const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
+    const talentPart = talent ? `<strong>${talent}</strong>` : `our creator`;
+    const intro = firstSentAt
+      ? `I wanted to circle back one last time on my message from ${formatRelanceDate(firstSentAt, "en")}, in which I suggested a collaboration between ${talentPart} and ${brandPart}.`
+      : `I wanted to circle back one last time on my previous message about a collaboration between ${talentPart} and ${brandPart}.`;
+
+    return [
+      `Hi {{contact.firstname}},`,
+      `<br /><br />`,
+      `I hope you're doing well 😊`,
+      `<br /><br />`,
+      intro,
+      `<br /><br />`,
+      `I still believe there's a really nice fit between ${talentPart} and ${brandPart} — to make it concrete, I can send you right away:`,
+      `<br />`,
+      `→ ${talent ? `${talent}'s` : "the creator's"} full media kit<br />`,
+      `→ audience &amp; engagement stats<br />`,
+      `→ a few content ideas tailored to ${brandPart}`,
+      `<br /><br />`,
+      `Would you have 10-15 minutes for a quick call this week or next? I'm very flexible on timing.`,
+      `<br /><br />`,
+      `And if this isn't the right moment or the right contact on your side, just let me know — I'll be happy to reach out at a better time.`,
+      `<br /><br />`,
+      `Have a great day,<br /><strong>Leyna</strong><br />Glow Up Agence`,
+    ].join("");
+  }
+
+  const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
+  const talentPart = talent ? `<strong>${talent}</strong>` : `notre talent`;
+  const intro = firstSentAt
+    ? `Je me permets de revenir vers vous une dernière fois suite à mon message du ${formatRelanceDate(firstSentAt, "fr")}, dans lequel je vous proposais une collaboration entre ${talentPart} et ${brandPart}.`
+    : `Je me permets de revenir vers vous une dernière fois suite à mon précédent message, dans lequel je vous proposais une collaboration entre ${talentPart} et ${brandPart}.`;
+
+  return [
+    `Bonjour {{contact.firstname}},`,
+    `<br /><br />`,
+    `J'espère que vous allez bien 😊`,
+    `<br /><br />`,
+    intro,
+    `<br /><br />`,
+    `Je reste convaincue qu'il y a un très beau fit entre ${talentPart} et ${brandPart} — pour vous aider à vous projeter, je peux vous envoyer immédiatement :`,
+    `<br />`,
+    `→ le media kit complet de ${talent || "la créatrice"}<br />`,
+    `→ ses statistiques d'audience &amp; d'engagement<br />`,
+    `→ quelques idées de contenus pensées pour ${brandPart}`,
+    `<br /><br />`,
+    `Auriez-vous 10-15 minutes pour un rapide call cette semaine ou la semaine prochaine ? Je reste très flexible sur les créneaux.`,
+    `<br /><br />`,
+    `Et si ce n'est pas le bon moment ou que je ne m'adresse pas à la bonne personne chez vous, dites-le-moi simplement — je reviendrai vers vous à un moment plus opportun.`,
+    `<br /><br />`,
+    `Belle journée à vous,<br /><strong>Leyna</strong><br />Glow Up Agence`,
+  ].join("");
+}
+
 export type CastingRelanceRecipient = {
   email: string;
   firstname: string;
@@ -845,6 +941,13 @@ export type CastingRelanceSendOptions = {
   subjectOverride?: string;
   bodyOverride?: string;
   /**
+   * Numéro de la relance : 1 = relance courte J+3 (défaut), 2 = relance
+   * « valeur ajoutée » J+10 ouvrés après la relance 1 (style Outreach,
+   * personnalisée talent). La relance 2 écrit dans relance2SentAt /
+   * relance2MessageIds / relance2Error et ne repart jamais deux fois.
+   */
+  round?: 1 | 2;
+  /**
    * Emails à NE PAS relancer (ex. contacts ayant déjà répondu). La relance
    * part quand même vers les autres destinataires de la mission : une réponse
    * d'un contact ne doit pas bloquer la relance des autres.
@@ -884,23 +987,41 @@ export async function executeCastingRelance(
   const mission = await contactMissionModel.findUnique({ where: { id: missionId } });
   if (!mission) throw new Error("Mission introuvable");
 
+  const round: 1 | 2 = options.round === 2 ? 2 : 1;
+
   const sentByEmail =
     mission.sentMessageIds && typeof mission.sentMessageIds === "object"
       ? (mission.sentMessageIds as Record<string, SentMessageRecord>)
       : {};
 
-  // Langue de la relance = captée PAR CONTACT depuis la fiche client
-  // (MarqueContact.language), comme l'envoi initial. La relance et la citation
-  // du mail d'origine partent donc dans la langue de chaque destinataire.
-  const sourceLang: "fr" | "en" =
+  // Langue de la relance = langue RÉELLE du thread de chaque contact.
+  // Deux cas à l'envoi initial :
+  //  - la langue du contact (fiche client / clientLanguage) différait de
+  //    `draftLanguage` → le mail a été TRADUIT → le thread est dans la langue
+  //    du contact ;
+  //  - sinon le brouillon est parti TEL QUEL → le thread est dans la langue
+  //    réelle du texte (détectée, car draftLanguage/clientLanguage sont
+  //    souvent vides ou faux en base : brouillons anglais marqués « FR »).
+  const draftDeclaredLang: "fr" | "en" =
     String(mission.draftLanguage || "").toLowerCase() === "en" ? "en" : "fr";
+  const draftActualLang: "fr" | "en" = detectMailLanguage(
+    String(mission.draftEmailSubject || ""),
+    String(mission.draftEmailBody || "")
+  );
+  // Langue utilisée pour la traduction du mail d'origine cité : celle du texte.
+  const sourceLang: "fr" | "en" = draftActualLang;
   const fallbackLang: "fr" | "en" =
     String(mission.clientLanguage || "").toUpperCase() === "EN"
       ? "en"
       : String(mission.clientLanguage || "").toUpperCase() === "FR"
       ? "fr"
-      : sourceLang;
+      : draftDeclaredLang;
   const contactLangByEmail = await loadBrandContactLanguages(mission);
+  /** Langue du thread Gmail de CE contact (cf. commentaire ci-dessus). */
+  const threadLangFor = (email: string): "fr" | "en" => {
+    const declared = contactLangByEmail.get(email.toLowerCase()) ?? fallbackLang;
+    return declared !== draftDeclaredLang ? declared : draftActualLang;
+  };
 
   const subjectSrcRaw = String(mission.draftEmailSubject || "").trim();
   const originalSrcRaw = String(mission.draftEmailBody || "").trim();
@@ -946,7 +1067,14 @@ export async function executeCastingRelance(
         : `Re: ${subjectSrc || defaultSubjectBase}`);
     const bodyTemplate =
       (options.bodyOverride && options.bodyOverride.trim()) ||
-      buildDefaultRelanceTemplate(targetBrand, lang);
+      (round === 2
+        ? buildCastingRelance2Template(
+            targetBrand,
+            String(mission.creatorName || ""),
+            lang,
+            mission.sentAt ? new Date(mission.sentAt) : null
+          )
+        : buildDefaultRelanceTemplate(targetBrand, lang));
     const sentDateLabel = mission.sentAt
       ? formatRelanceDate(new Date(mission.sentAt), lang)
       : "";
@@ -1011,8 +1139,8 @@ export async function executeCastingRelance(
     const firstname = contact?.firstname || "";
     const lastname = contact?.lastname || "";
     const vars = { firstname, lastname, company: targetBrand };
-    // Langue de CE contact, captée depuis la fiche client.
-    const contactLang = contactLangByEmail.get(email.toLowerCase()) ?? fallbackLang;
+    // Langue du thread de CE contact (fiche client + langue réelle du brouillon).
+    const contactLang = threadLangFor(email);
     const ver = await getRelanceVersion(contactLang);
     const bodyWithVars = applyCastingTemplateVars(ver.bodyTemplate, vars);
     const body = normalizeEditorHtmlForEmail(bodyWithVars);
@@ -1028,8 +1156,17 @@ export async function executeCastingRelance(
         })
       : "";
     const finalHtml = `${trackedBody}${quotedOriginal}`;
-    const inReplyTo = record.messageId
-      ? (await getMessageRfcId(LEYNA_FROM_EMAIL, record.messageId)) || undefined
+    // Relance 2 : on répond au message le plus récent du thread (la relance 1
+    // si elle est partie pour ce contact), sinon au mail initial.
+    const relance1Ids =
+      mission.relanceMessageIds && typeof mission.relanceMessageIds === "object"
+        ? (mission.relanceMessageIds as Record<string, string>)
+        : {};
+    const replyToMessageId =
+      (round === 2 ? relance1Ids[email] || relance1Ids[email.toLowerCase()] : undefined) ||
+      record.messageId;
+    const inReplyTo = replyToMessageId
+      ? (await getMessageRfcId(LEYNA_FROM_EMAIL, replyToMessageId)) || undefined
       : undefined;
 
     try {
@@ -1055,17 +1192,29 @@ export async function executeCastingRelance(
     // sont en bounce (attempted=0 à cause des exclusions). On marque quand
     // même la relance comme traitée pour que le cron ne repasse pas indéfiniment.
     const allRepliedNoSend = attempted === 0 && (skippedReplied > 0 || skippedBounced > 0);
+    const roundData =
+      round === 2
+        ? {
+            relance2SentAt:
+              succeeded > 0 || allRepliedNoSend ? new Date() : mission.relance2SentAt,
+            relance2MessageIds:
+              succeeded > 0 ? relanceMessages : mission.relance2MessageIds,
+            relance2Error: errors.length > 0 ? errors.join(" | ") : null,
+          }
+        : {
+            relanceSentAt:
+              succeeded > 0 || allRepliedNoSend ? new Date() : mission.relanceSentAt,
+            relanceMessageIds: succeeded > 0 ? relanceMessages : mission.relanceMessageIds,
+            relanceError: errors.length > 0 ? errors.join(" | ") : null,
+            // Si l'envoi manuel réussit on lève l'éventuelle annulation pour
+            // garder l'historique cohérent.
+            ...(succeeded > 0 ? { relanceCancelledAt: null, relanceCancelledById: null } : {}),
+          };
     const updated = await contactMissionModel.update({
       where: { id: missionId },
       data: {
-        relanceSentAt:
-          succeeded > 0 || allRepliedNoSend ? new Date() : mission.relanceSentAt,
-        relanceMessageIds: succeeded > 0 ? relanceMessages : mission.relanceMessageIds,
-        relanceError: errors.length > 0 ? errors.join(" | ") : null,
+        ...roundData,
         status: succeeded > 0 ? "RELANCED" : mission.status,
-        // Si l'envoi manuel réussit on lève l'éventuelle annulation pour
-        // garder l'historique cohérent.
-        ...(succeeded > 0 ? { relanceCancelledAt: null, relanceCancelledById: null } : {}),
         // Réponse détectée pendant le garde-fou (relance manuelle) : on
         // flagge la mission comme répondue pour le pipeline.
         ...(repliedDetected.length > 0
@@ -1075,10 +1224,10 @@ export async function executeCastingRelance(
             }
           : {}),
       },
-      select: { id: true, relanceSentAt: true, status: true },
+      select: { id: true, relanceSentAt: true, relance2SentAt: true, status: true },
     });
     console.info(
-      `[executeCastingRelance] ${missionId} attempted=${attempted} succeeded=${succeeded} failed=${failed} skippedReplied=${skippedReplied} skippedBounced=${skippedBounced} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} status=${updated.status}`
+      `[executeCastingRelance] ${missionId} round=${round} attempted=${attempted} succeeded=${succeeded} failed=${failed} skippedReplied=${skippedReplied} skippedBounced=${skippedBounced} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} relance2SentAt=${updated.relance2SentAt?.toISOString() ?? "null"} status=${updated.status}`
     );
   } catch (err) {
     // Cas critique : Gmail a expédié mais la DB n'a pas pu être mise à jour.

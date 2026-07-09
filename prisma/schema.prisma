@@ -2842,6 +2842,9 @@ model ContactMission {
   relanceSentAt        DateTime?
   relanceMessageIds    Json?
   relanceError         String?                    @db.Text
+  relance2SentAt       DateTime?
+  relance2MessageIds   Json?
+  relance2Error        String?                    @db.Text
   relanceCancelledAt   DateTime?
   relanceCancelledBy   User?                      @relation("ContactMissionRelanceCancelledBy", fields: [relanceCancelledById], references: [id])
   relanceCancelledById String?

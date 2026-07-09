@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 
-// Stoppe / reactive la relance auto J+3 d'une carte du pipeline prospection talent.
+// Stoppe / reactive les relances auto (J+3 puis J+10) d'une carte du pipeline
+// prospection talent. `relanceCancelledAt` bloque les DEUX rounds : on peut donc
+// stopper la relance 2 meme si la relance 1 est deja partie.
 // - POST   : set `relanceCancelledAt = now()` → le cron ignorera la mission
 // - DELETE : set `relanceCancelledAt = null` → le cron reprendra son traitement
 
@@ -43,6 +45,7 @@ export async function POST(
         sentAt: true,
         replied: true,
         relanceSentAt: true,
+        relance2SentAt: true,
         relanceCancelledAt: true,
       },
     });
@@ -56,11 +59,11 @@ export async function POST(
       );
     }
     // NB : on autorise le stop meme si `replied=true`. Une reponse d'UN contact
-    // ne stoppe plus la relance des autres : tant que la relance n'est pas
-    // partie, l'utilisateur peut encore la stopper manuellement.
-    if (mission.relanceSentAt) {
+    // ne stoppe plus la relance des autres : tant qu'une relance reste a
+    // envoyer, l'utilisateur peut encore la stopper manuellement.
+    if (mission.relanceSentAt && mission.relance2SentAt) {
       return NextResponse.json(
-        { error: "La relance a deja ete envoyee, impossible de la stopper." },
+        { error: "Les deux relances ont deja ete envoyees, plus rien a stopper." },
         { status: 409 }
       );
     }
@@ -100,14 +103,20 @@ export async function DELETE(
     const { id } = await params;
     const mission = await contactMissionModel.findUnique({
       where: { id },
-      select: { id: true, relanceCancelledAt: true, relanceSentAt: true, replied: true },
+      select: {
+        id: true,
+        relanceCancelledAt: true,
+        relanceSentAt: true,
+        relance2SentAt: true,
+        replied: true,
+      },
     });
     if (!mission) {
       return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
     }
-    if (mission.relanceSentAt) {
+    if (mission.relanceSentAt && mission.relance2SentAt) {
       return NextResponse.json(
-        { error: "La relance a deja ete envoyee, reactivation impossible." },
+        { error: "Les deux relances ont deja ete envoyees, reactivation inutile." },
         { status: 409 }
       );
     }

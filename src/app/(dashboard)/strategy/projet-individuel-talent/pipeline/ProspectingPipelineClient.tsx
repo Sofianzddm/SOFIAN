@@ -44,6 +44,8 @@ type Mission = {
   sendError?: string | null;
   relanceSentAt?: string | null;
   relanceError?: string | null;
+  relance2SentAt?: string | null;
+  relance2Error?: string | null;
   relanceCancelledAt?: string | null;
   replied?: boolean;
   openCount?: number;
@@ -947,6 +949,14 @@ export function ProspectingPipelineClient() {
                       Relance J+3 envoyée le {new Date(m.relanceSentAt).toLocaleDateString("fr-FR")}
                     </p>
                   )}
+                  {m.relance2SentAt && (
+                    <p
+                      className="mt-1 inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+                      title="Relance « valeur ajoutée » (media kit, stats, call) envoyée 10 jours ouvrés après la relance J+3, aux contacts restés sans réponse."
+                    >
+                      Relance 2 envoyée le {new Date(m.relance2SentAt).toLocaleDateString("fr-FR")}
+                    </p>
+                  )}
                   {m.replied && (
                     <p
                       className="mt-1 inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700"
@@ -956,7 +966,7 @@ export function ProspectingPipelineClient() {
                       Client a répondu
                     </p>
                   )}
-                  {!m.replied && m.relanceCancelledAt && !m.relanceSentAt && (
+                  {!m.replied && m.relanceCancelledAt && (!m.relanceSentAt || !m.relance2SentAt) && (
                     <p
                       className="mt-1 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
                       title={`Stoppée manuellement le ${new Date(m.relanceCancelledAt).toLocaleString("fr-FR")}`}
@@ -1092,14 +1102,14 @@ export function ProspectingPipelineClient() {
                     {(role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_SALES" || role === "STRATEGY_PLANNER") &&
                       stage === "SENT" &&
                       !m.replied &&
-                      !m.relanceSentAt && (
+                      (!m.relanceSentAt || !m.relance2SentAt) && (
                         m.relanceCancelledAt ? (
                           <button
                             type="button"
                             disabled={updatingId === m.id}
                             onClick={() => void toggleRelanceCancellation(m, "resume")}
                             className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
-                            title="Réactiver la relance automatique J+3"
+                            title="Réactiver les relances automatiques (J+3 puis relance 2 à J+10)"
                           >
                             <BellRing className="h-3 w-3" />
                             Réactiver relance
@@ -1110,7 +1120,11 @@ export function ProspectingPipelineClient() {
                             disabled={updatingId === m.id}
                             onClick={() => void toggleRelanceCancellation(m, "cancel")}
                             className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700"
-                            title="Stopper la relance automatique J+3"
+                            title={
+                              m.relanceSentAt
+                                ? "Stopper la relance 2 automatique (J+10 après la relance J+3)"
+                                : "Stopper les relances automatiques (J+3 puis relance 2 à J+10)"
+                            }
                           >
                             <BellOff className="h-3 w-3" />
                             Stopper relance
