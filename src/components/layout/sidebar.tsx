@@ -30,6 +30,7 @@ import {
   Calculator,
   Repeat,
   Camera,
+  Sparkles,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -72,6 +73,12 @@ const menuItems = [
     label: "Prospection Agences",
     href: "/agency-outreach",
     icon: Building2,
+    roles: ["HEAD_OF_SALES", "ADMIN"],
+  },
+  {
+    label: "Réponses IA",
+    href: "/sales-reply",
+    icon: Sparkles,
     roles: ["HEAD_OF_SALES", "ADMIN"],
   },
   {

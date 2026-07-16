@@ -297,6 +297,8 @@ export const config = {
     "/objectifs/:path*",
     "/casting-outreach",
     "/casting-outreach/:path*",
+    // Assistant Réponses Sales (Grok)
+    "/sales-reply",
     "/demandes-entrantes",
     "/demandes-entrantes/:path*",
     "/cannes-2026",
