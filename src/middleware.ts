@@ -159,6 +159,15 @@ export async function middleware(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
+  // Assistant Réponses Sales : réservé HEAD_OF_SALES + ADMIN
+  if (
+    pathname === "/sales-reply" &&
+    effectiveRole !== "HEAD_OF_SALES" &&
+    effectiveRole !== "ADMIN"
+  ) {
+    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
+  }
+
   if (pathname.startsWith("/juriste") && effectiveRole !== "JURISTE") {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
