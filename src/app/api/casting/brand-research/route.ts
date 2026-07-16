@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { xaiResponse } from "@/lib/xai";
 
-export const maxDuration = 120;
+// Recherche web + X avec modèle de raisonnement : peut dépasser 2 min,
+// surtout avec la relance automatique (2 tentatives × 110 s max par marque).
+export const maxDuration = 300;
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "STRATEGY_PLANNER", "ADMIN"] as const;
 
@@ -89,14 +91,32 @@ Réponds UNIQUEMENT en JSON strict :
 `;
 }
 
-/** Analyse une seule marque via x.ai (recherche web + X). */
+/**
+ * Analyse une seule marque via x.ai (recherche web + X).
+ * Le modèle de raisonnement + recherche peut être lent : on laisse jusqu'à
+ * 110 s par tentative et on relance une fois en cas de timeout / parse raté.
+ */
 async function researchOneBrand(brand: string): Promise<BrandResearchPayload> {
-  const text = await xaiResponse(buildBrandPrompt(brand), {
-    tools: [...BRAND_RESEARCH_TOOLS],
-    // Timeout par marque : court car les appels tournent en parallèle.
-    timeoutMs: 90_000,
-  });
-  return tryParseBrandJson(text);
+  const MAX_ATTEMPTS = 2;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const text = await xaiResponse(buildBrandPrompt(brand), {
+        tools: [...BRAND_RESEARCH_TOOLS],
+        timeoutMs: 110_000,
+      });
+      return tryParseBrandJson(text);
+    } catch (e) {
+      lastError = e;
+      if (attempt < MAX_ATTEMPTS) {
+        console.warn(
+          `x.ai brand-research (${brand}) tentative ${attempt} échouée, relance :`,
+          e instanceof Error ? e.message : e
+        );
+      }
+    }
+  }
+  throw lastError;
 }
 
 export async function POST(request: NextRequest) {
