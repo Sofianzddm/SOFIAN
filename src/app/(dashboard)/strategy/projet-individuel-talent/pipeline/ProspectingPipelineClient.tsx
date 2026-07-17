@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X } from "lucide-react";
+import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X, Clock } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
-import { hasBusinessDaysElapsed } from "@/lib/business-days";
+import { businessDaysAfter, hasBusinessDaysElapsed } from "@/lib/business-days";
 
 type Role = "STRATEGY_PLANNER" | "CASTING_MANAGER" | "HEAD_OF_SALES" | "HEAD_OF" | "ADMIN";
 type Stage =
@@ -80,6 +80,43 @@ type ContactSearchState = {
 };
 
 const REMINDER_BUSINESS_DAYS = 3;
+/** Doit rester aligné sur CASTING_RELANCE2_BUSINESS_DAYS (src/lib/casting-auto-send.ts). */
+const RELANCE2_BUSINESS_DAYS = 10;
+
+/**
+ * Date du dernier mail parti vers le client (mail initial ou relance auto).
+ * Le rappel « relance à faire » se base dessus et NON sur `updatedAt` : ce
+ * dernier est rafraîchi à chaque ouverture du mail par le client (pixel de
+ * tracking), ce qui masquait le rappel sur les cartes souvent ouvertes.
+ */
+function lastMailSentAt(m: Mission): Date | null {
+  // Fallback updatedAt pour les cartes passées en « Envoyé » sans envoi via
+  // la plateforme (ancien comportement conservé).
+  const raw = m.relance2SentAt || m.relanceSentAt || m.sentAt || m.updatedAt;
+  if (!raw) return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Rappel « relance client à faire » : 3 jours ouvrés après le dernier mail parti. */
+function manualReminderDue(m: Mission, now: Date = new Date()): boolean {
+  if (m.stage !== "SENT") return false;
+  const lastMail = lastMailSentAt(m);
+  return lastMail !== null && hasBusinessDaysElapsed(lastMail, REMINDER_BUSINESS_DAYS, now);
+}
+
+/**
+ * Date prévue de la relance 2 auto (J+10 ouvrés après la relance J+3), ou null
+ * si non applicable (relance 1 pas encore partie, relance 2 déjà envoyée,
+ * relances stoppées manuellement, ou carte sortie du périmètre du cron).
+ */
+function relance2PlannedAt(m: Mission): Date | null {
+  if (!m.relanceSentAt || m.relance2SentAt || m.relanceCancelledAt) return null;
+  if (m.stage !== "SENT" && m.stage !== "RESPONSE_RECEIVED") return null;
+  const relance1 = new Date(m.relanceSentAt);
+  if (Number.isNaN(relance1.getTime())) return null;
+  return businessDaysAfter(relance1, RELANCE2_BUSINESS_DAYS);
+}
 
 type TalentOption = { id: string; name: string };
 const ALL_TALENTS = "__ALL_TALENTS__";
@@ -153,6 +190,10 @@ export function ProspectingPipelineClient() {
   const [missions, setMissions] = useState<Mission[]>([]);
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  // Rappels acquittés via le bouton « Relancer » pendant la session : le
+  // badge est masqué immédiatement (il réapparaît au rechargement tant
+  // qu'aucun nouveau mail n'est parti).
+  const [ackedReminderIds, setAckedReminderIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -713,13 +754,10 @@ export function ProspectingPipelineClient() {
 
   const sentReminderCount = useMemo(() => {
     const now = new Date();
-    return grouped.SENT.filter((mission) => {
-      if (!mission.updatedAt) return false;
-      const lastUpdate = new Date(mission.updatedAt);
-      if (Number.isNaN(lastUpdate.getTime())) return false;
-      return hasBusinessDaysElapsed(lastUpdate, REMINDER_BUSINESS_DAYS, now);
-    }).length;
-  }, [grouped.SENT]);
+    return grouped.SENT.filter(
+      (mission) => manualReminderDue(mission, now) && !ackedReminderIds.has(mission.id)
+    ).length;
+  }, [grouped.SENT, ackedReminderIds]);
 
   return (
     <main
@@ -840,12 +878,7 @@ export function ProspectingPipelineClient() {
             <div className={isCastingManager ? "mt-3 space-y-3 overflow-y-auto" : "mt-2 space-y-2"}>
               {grouped[stage].map((m) => (
                 (() => {
-                  const lastUpdate = m.updatedAt ? new Date(m.updatedAt) : null;
-                  const reminderDue =
-                    m.stage === "SENT" &&
-                    lastUpdate !== null &&
-                    !Number.isNaN(lastUpdate.getTime()) &&
-                    hasBusinessDaysElapsed(lastUpdate, REMINDER_BUSINESS_DAYS);
+                  const reminderDue = manualReminderDue(m) && !ackedReminderIds.has(m.id);
                   return (
                 <article
                   key={m.id}
@@ -949,6 +982,19 @@ export function ProspectingPipelineClient() {
                       Relance J+3 envoyée le {new Date(m.relanceSentAt).toLocaleDateString("fr-FR")}
                     </p>
                   )}
+                  {(() => {
+                    const plannedR2 = relance2PlannedAt(m);
+                    if (!plannedR2) return null;
+                    return (
+                      <p
+                        className="mt-1 inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
+                        title="Relance « valeur ajoutée » automatique (media kit, stats, call) envoyée 10 jours ouvrés après la relance J+3 aux contacts restés sans réponse."
+                      >
+                        <Clock className="h-3 w-3" />
+                        Relance 2 prévue le {plannedR2.toLocaleDateString("fr-FR")}
+                      </p>
+                    );
+                  })()}
                   {m.relance2SentAt && (
                     <p
                       className="mt-1 inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700"
@@ -1093,7 +1139,10 @@ export function ProspectingPipelineClient() {
                         <button
                           type="button"
                           disabled={updatingId === m.id}
-                          onClick={() => void patchMission(m.id, { stage: "SENT", status: "RELANCED" })}
+                          onClick={() => {
+                            setAckedReminderIds((prev) => new Set(prev).add(m.id));
+                            void patchMission(m.id, { stage: "SENT", status: "RELANCED" });
+                          }}
                           className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700"
                         >
                           Relancer
