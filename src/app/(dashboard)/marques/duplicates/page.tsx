@@ -90,6 +90,9 @@ export default function MarquesDuplicatesPage() {
 
   const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>([]);
   const [aiPendingCount, setAiPendingCount] = useState(0);
+  // Sélection multiple (onglet IA) : ids des suggestions cochées pour la
+  // fusion groupée. Seuls les groupes fusionnables (MERGE + cible) sont cochables.
+  const [aiChecked, setAiChecked] = useState<Set<string>>(new Set());
 
   const loadDuplicates = async (m: "exact" | "fuzzy", t: number = threshold) => {
     setLoading(true);
@@ -117,8 +120,14 @@ export default function MarquesDuplicatesPage() {
         cache: "no-store",
       });
       const data = await res.json();
-      setAiSuggestions(data.suggestions || []);
-      setAiPendingCount(data.statusCounts?.PENDING ?? (data.suggestions?.length || 0));
+      const suggestions: AiSuggestion[] = data.suggestions || [];
+      setAiSuggestions(suggestions);
+      setAiPendingCount(data.statusCounts?.PENDING ?? (suggestions.length || 0));
+      // Purge des coches devenues obsolètes (groupes déjà traités/refetchés).
+      setAiChecked((prev) => {
+        const ids = new Set(suggestions.map((s) => s.id));
+        return new Set([...prev].filter((id) => ids.has(id)));
+      });
     } finally {
       setLoading(false);
     }
@@ -286,6 +295,72 @@ export default function MarquesDuplicatesPage() {
     setGroups((prev) => prev.filter((g) => g.key !== key));
   };
 
+  const toggleAiCheck = (id: string) => {
+    setAiChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Groupes fusionnables de l'onglet IA (verdict MERGE + cible recommandée).
+  const aiMergeable = aiSuggestions.filter(
+    (s) => s.verdict === "MERGE" && s.recommendedTargetId
+  );
+
+  const toggleAiCheckAll = () => {
+    setAiChecked((prev) =>
+      prev.size >= aiMergeable.length ? new Set() : new Set(aiMergeable.map((s) => s.id))
+    );
+  };
+
+  // Fusion groupée : approuve les suggestions cochées une par une (chaque
+  // fusion est une transaction côté serveur) avec progression affichée.
+  const aiBulkApprove = async () => {
+    const ids = aiMergeable.filter((s) => aiChecked.has(s.id)).map((s) => s.id);
+    if (ids.length === 0) return;
+    if (
+      !confirm(
+        `Fusionner les ${ids.length} groupe(s) sélectionné(s) ? La fiche « à garder » de chaque groupe absorbe les autres.`
+      )
+    )
+      return;
+    setRunning(true);
+    setResultMsg(null);
+    let done = 0;
+    let failed = 0;
+    try {
+      for (const id of ids) {
+        try {
+          const res = await fetch(`/api/marques/dedupe-suggestions/${id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "approve" }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || "Erreur");
+          }
+          done += 1;
+        } catch (e) {
+          console.error(`Fusion suggestion ${id}:`, e);
+          failed += 1;
+        }
+        setResultMsg(`Fusion en cours… ${done + failed}/${ids.length}`);
+      }
+      setResultMsg(
+        failed === 0
+          ? `✓ ${done} groupe(s) fusionné(s).`
+          : `✓ ${done} groupe(s) fusionné(s), ${failed} en erreur (voir console).`
+      );
+      setAiChecked(new Set());
+      await loadAiReview();
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const switchTab = (tab: TabMode) => {
     setMode(tab);
     setResultMsg(null);
@@ -439,16 +514,52 @@ export default function MarquesDuplicatesPage() {
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Barre de fusion groupée : coche les groupes puis fusionne d'un coup */}
+            {aiMergeable.length > 0 && (
+              <div className="sticky top-2 z-20 bg-white rounded-2xl border border-violet-200 shadow-sm px-5 py-3 flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={aiChecked.size >= aiMergeable.length && aiMergeable.length > 0}
+                    onChange={toggleAiCheckAll}
+                    className="w-4 h-4 rounded border-gray-300 accent-violet-600"
+                  />
+                  Tout sélectionner ({aiMergeable.length} groupe{aiMergeable.length > 1 ? "s" : ""} fusionnable{aiMergeable.length > 1 ? "s" : ""})
+                </label>
+                <button
+                  type="button"
+                  onClick={aiBulkApprove}
+                  disabled={running || aiChecked.size === 0}
+                  className="flex items-center gap-1.5 text-sm px-4 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 font-medium"
+                >
+                  <Check className="w-4 h-4" />
+                  Fusionner la sélection ({aiChecked.size})
+                </button>
+              </div>
+            )}
             {aiSuggestions.map((s) => {
               const v = VERDICT_LABELS[s.verdict];
               const marques = s.marquesSnapshot || [];
+              const mergeable = s.verdict === "MERGE" && Boolean(s.recommendedTargetId);
               return (
                 <div
                   key={s.id}
-                  className="bg-white rounded-2xl border border-violet-100 overflow-hidden"
+                  className={`bg-white rounded-2xl border overflow-hidden ${
+                    aiChecked.has(s.id) ? "border-emerald-400 ring-1 ring-emerald-200" : "border-violet-100"
+                  }`}
                 >
                   <div className="px-5 py-3 bg-violet-50 border-b border-violet-100 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2 flex-wrap">
+                      {mergeable && (
+                        <input
+                          type="checkbox"
+                          checked={aiChecked.has(s.id)}
+                          onChange={() => toggleAiCheck(s.id)}
+                          disabled={running}
+                          className="w-4 h-4 rounded border-gray-300 accent-violet-600 cursor-pointer"
+                          title="Sélectionner ce groupe pour la fusion groupée"
+                        />
+                      )}
                       <Bot className="w-4 h-4 text-violet-600" />
                       <span
                         className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${v.color}`}
