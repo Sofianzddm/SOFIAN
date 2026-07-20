@@ -723,11 +723,15 @@ export default function MarqueDetailPage() {
     }
   };
 
-  /** Envoie la marque vers un projet strategy (crée une opportunité « À qualifier »). */
+  /** Envoie la marque vers un projet strategy : opportunité directement dans le
+   *  pipeline actif (colonne « Identifiée »), avec la langue du client déduite
+   *  des contacts de la marque (FR par défaut). */
   const sendToStrategyProject = async (projet: { slug: string; nom: string }) => {
     if (!marque || sendingToProject) return;
     setSendingToProject(projet.slug);
     setStrategyFlash(null);
+    const langs = marque.contacts.map((c) => (c.language || "").toLowerCase());
+    const clientLang = langs.filter((l) => l === "en").length > langs.filter((l) => l === "fr").length ? "EN" : "FR";
     try {
       const res = await fetch("/api/strategy/opportunites", {
         method: "POST",
@@ -737,13 +741,15 @@ export default function MarqueDetailPage() {
           marqueId: marque.id,
           nomMarque: marque.nom,
           secteur: marque.secteur || undefined,
+          statut: "IDENTIFIEE",
+          angleNote: `[CLIENT_LANG:${clientLang}]`,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setStrategyFlash({
           type: "success",
-          message: `${marque.nom} ajoutée au projet ${projet.nom}.`,
+          message: `${marque.nom} ajoutée au pipeline « Identifiée » du projet ${projet.nom}.`,
           projetSlug: projet.slug,
           projetNom: projet.nom,
         });

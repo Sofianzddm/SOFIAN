@@ -60,7 +60,11 @@ export async function POST(request: NextRequest) {
       typeActivation?: string;
       talents?: unknown;
       ownerId?: string | null;
+      statut?: string;
     };
+
+    const STATUTS_AUTORISES = ["A_QUALIFIER", "IDENTIFIEE", "CONTACTEE", "EN_NEGO", "SIGNEE", "PERDUE"];
+    const statut = STATUTS_AUTORISES.includes(body.statut || "") ? (body.statut as string) : "A_QUALIFIER";
 
     const projetSlug = (body.projetSlug || "villa-cannes").trim();
     const projet = await getOrCreateVillaProject(projetSlug);
@@ -115,7 +119,7 @@ export async function POST(request: NextRequest) {
         talents: Array.isArray(body.talents) ? body.talents : [],
         ownerId: body.ownerId ?? null,
         createdById: session.user.id,
-        statut: "A_QUALIFIER",
+        statut,
       },
     });
 
