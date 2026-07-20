@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSessionAndContact } from "../route";
-import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
+import {
+  findOrCreateMarque,
+  ensureMarqueContact,
+  parseSenderName,
+} from "@/lib/marque-resolver";
 
 export async function POST(
   request: NextRequest,
@@ -20,11 +24,21 @@ export async function POST(
       montant,
       devise,
       notes,
+      emailContact: emailContactRaw,
+      contactMarque: contactMarqueRaw,
+      contactKind: contactKindRaw,
+      contactAgence: contactAgenceRaw,
+      contactLanguage: contactLanguageRaw,
     } = body as {
       talentId?: string;
       montant?: number | string;
       devise?: string;
       notes?: string;
+      emailContact?: string;
+      contactMarque?: string;
+      contactKind?: string;
+      contactAgence?: string;
+      contactLanguage?: string;
     };
 
     if (!talentId) {
@@ -39,6 +53,44 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    // Mêmes garde-fous que POST /api/negociations : sans email + nom du
+    // contact + qualification, la négo n'entrerait jamais dans le cycle
+    // outreach 45j (et une agence pourrait finir dans Outreach Clients).
+    const emailContact =
+      String(emailContactRaw ?? contact.email ?? "").trim().toLowerCase();
+    if (!emailContact || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailContact)) {
+      return NextResponse.json(
+        { error: "Email du contact client obligatoire" },
+        { status: 400 }
+      );
+    }
+    const contactMarque = String(
+      contactMarqueRaw ??
+        [contact.prenom, contact.nom].filter(Boolean).join(" ")
+    ).trim();
+    if (!contactMarque) {
+      return NextResponse.json(
+        { error: "Prénom et nom du contact client obligatoires" },
+        { status: 400 }
+      );
+    }
+    const contactKind = String(contactKindRaw || "").trim().toUpperCase();
+    if (contactKind !== "MARQUE" && contactKind !== "AGENCE") {
+      return NextResponse.json(
+        { error: "Précisez si le contact est la marque en direct ou une agence" },
+        { status: 400 }
+      );
+    }
+    const contactAgence = String(contactAgenceRaw || "").trim();
+    if (contactKind === "AGENCE" && !contactAgence) {
+      return NextResponse.json(
+        { error: "Nom de l'agence obligatoire" },
+        { status: 400 }
+      );
+    }
+    const contactLanguage =
+      String(contactLanguageRaw || "").trim().toLowerCase() === "en" ? "en" : "fr";
 
     const year = new Date().getFullYear();
     const compteur = await prisma.compteur.upsert({
@@ -67,10 +119,12 @@ export async function POST(
         source: "PROSPECTION",
       });
       marqueId = resolved.marqueId;
+      const parsedContact = parseSenderName(contactMarque);
       await ensureMarqueContact({
         marqueId,
-        email: contact.email || null,
-        nom: [contact.prenom, contact.nom].filter(Boolean).join(" ") || null,
+        email: emailContact,
+        prenom: parsedContact.prenom,
+        nom: parsedContact.nom || contactMarque,
       });
     }
 
@@ -81,9 +135,11 @@ export async function POST(
         talentId,
         marqueId,
         nomMarqueSaisi: marqueId ? null : brandLabel,
-        contactMarque:
-          [contact.prenom, contact.nom].filter(Boolean).join(" ") || null,
-        emailContact: contact.email || null,
+        contactMarque,
+        emailContact,
+        contactKind,
+        contactAgence: contactAgence || null,
+        contactLanguage,
         source: "INBOUND",
         brief,
         budgetMarque: montantNumber,

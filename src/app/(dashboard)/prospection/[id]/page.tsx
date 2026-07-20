@@ -268,8 +268,37 @@ export default function FichierProspectionPage() {
   const [convertTalentId, setConvertTalentId] = useState<string>("");
   const [convertMontant, setConvertMontant] = useState<string>("");
   const [convertNotes, setConvertNotes] = useState<string>("");
+  // Champs obligatoires pour la négo créée (mêmes règles que /negociations/new) :
+  // sans email + nom + qualification, elle n'entrerait pas dans le cycle outreach.
+  const [convertEmail, setConvertEmail] = useState<string>("");
+  const [convertContactName, setConvertContactName] = useState<string>("");
+  const [convertKind, setConvertKind] = useState<"" | "MARQUE" | "AGENCE">("");
+  const [convertAgence, setConvertAgence] = useState<string>("");
+  const [convertLanguage, setConvertLanguage] = useState<"fr" | "en">("fr");
   const [convertLoading, setConvertLoading] = useState(false);
+  const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
   const [talents, setTalents] = useState<{ id: string; name: string }[]>([]);
+
+  // Pré-remplir email + nom du contact depuis la ligne de prospection, et
+  // charger les agences existantes (suggestions anti-doublon).
+  useEffect(() => {
+    if (!convertModal.open || !convertModal.contactId) return;
+    const c = fichier?.contacts.find((x) => x.id === convertModal.contactId);
+    if (c) {
+      setConvertEmail(c.email || "");
+      setConvertContactName([c.prenom, c.nom].filter(Boolean).join(" "));
+    }
+    setConvertKind("");
+    setConvertAgence("");
+    setConvertLanguage("fr");
+    if (agencyOptions.length === 0) {
+      fetch("/api/partners/options")
+        .then((r) => (r.ok ? r.json() : { partners: [] }))
+        .then((d) => setAgencyOptions(Array.isArray(d.partners) ? d.partners : []))
+        .catch(() => setAgencyOptions([]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convertModal.open, convertModal.contactId]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -700,6 +729,26 @@ export default function FichierProspectionPage() {
       });
       return;
     }
+    const email = convertEmail.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setToast({ message: "Email du contact client obligatoire.", type: "error" });
+      return;
+    }
+    if (!convertContactName.trim()) {
+      setToast({ message: "Prénom et nom du contact obligatoires.", type: "error" });
+      return;
+    }
+    if (convertKind !== "MARQUE" && convertKind !== "AGENCE") {
+      setToast({
+        message: "Précisez si le contact est la marque en direct ou une agence.",
+        type: "error",
+      });
+      return;
+    }
+    if (convertKind === "AGENCE" && !convertAgence.trim()) {
+      setToast({ message: "Indiquez le nom de l'agence.", type: "error" });
+      return;
+    }
     try {
       setConvertLoading(true);
       await ensureTalentsLoaded();
@@ -712,6 +761,11 @@ export default function FichierProspectionPage() {
             talentId: convertTalentId,
             montant,
             notes: convertNotes.trim() || undefined,
+            emailContact: email,
+            contactMarque: convertContactName.trim(),
+            contactKind: convertKind,
+            contactAgence: convertAgence.trim() || undefined,
+            contactLanguage: convertLanguage,
           }),
         }
       );
@@ -1461,6 +1515,76 @@ export default function FichierProspectionPage() {
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C8F285]"
                 />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Contact (prénom et nom) *</p>
+                  <input
+                    type="text"
+                    value={convertContactName}
+                    onChange={(e) => setConvertContactName(e.target.value)}
+                    placeholder="Ex: Marie Dupont"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C8F285]"
+                  />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Email du contact *</p>
+                  <input
+                    type="email"
+                    value={convertEmail}
+                    onChange={(e) => setConvertEmail(e.target.value)}
+                    placeholder="contact@marque.com"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C8F285]"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Type de contact *</p>
+                  <select
+                    value={convertKind}
+                    onChange={(e) =>
+                      setConvertKind(e.target.value as "" | "MARQUE" | "AGENCE")
+                    }
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C8F285] bg-white"
+                  >
+                    <option value="">Sélectionner</option>
+                    <option value="MARQUE">Marque en direct</option>
+                    <option value="AGENCE">Agence</option>
+                  </select>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Langue du contact *</p>
+                  <select
+                    value={convertLanguage}
+                    onChange={(e) => setConvertLanguage(e.target.value === "en" ? "en" : "fr")}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C8F285] bg-white"
+                  >
+                    <option value="fr">Français</option>
+                    <option value="en">Anglais</option>
+                  </select>
+                </div>
+              </div>
+              {convertKind === "AGENCE" && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Nom de l&apos;agence *</p>
+                  <input
+                    type="text"
+                    value={convertAgence}
+                    onChange={(e) => setConvertAgence(e.target.value)}
+                    list="convert-agency-options"
+                    placeholder="Ex: WOO, Influence4You…"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C8F285]"
+                  />
+                  <datalist id="convert-agency-options">
+                    {agencyOptions.map((a) => (
+                      <option key={a.id} value={a.name} />
+                    ))}
+                  </datalist>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Sélectionnez une agence existante ; un nouveau nom créera la fiche agence.
+                  </p>
+                </div>
+              )}
               <div>
                 <p className="text-xs text-gray-500 mb-1">Notes</p>
                 <textarea
