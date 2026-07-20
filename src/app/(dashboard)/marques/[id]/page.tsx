@@ -747,9 +747,14 @@ export default function MarqueDetailPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        const nbContacts = typeof data.contactsCopies === "number" ? data.contactsCopies : 0;
         setStrategyFlash({
           type: "success",
-          message: `${marque.nom} ajoutée au pipeline « Identifiée » du projet ${projet.nom}.`,
+          message:
+            `${marque.nom} ajoutée au pipeline « Identifiée » du projet ${projet.nom}` +
+            (nbContacts > 0
+              ? ` avec ${nbContacts} contact${nbContacts > 1 ? "s" : ""}.`
+              : ". Attention : aucun contact avec email sur la fiche, la prospection ne pourra pas partir."),
           projetSlug: projet.slug,
           projetNom: projet.nom,
         });

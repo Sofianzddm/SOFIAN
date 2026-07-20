@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
-import { canAccessStrategy, getOrCreateVillaProject } from "@/app/api/strategy/_utils";
+import {
+  canAccessStrategy,
+  getOrCreateVillaProject,
+  sanitizeOpportuniteForRole,
+} from "@/app/api/strategy/_utils";
 import { linkMarqueFromBrandName } from "@/lib/marque-resolver";
 
 export async function GET(request: NextRequest) {
@@ -73,11 +77,19 @@ export async function POST(request: NextRequest) {
     // on lie sans passer par la résolution floue sur le nom.
     let nomMarque = (body.nomMarque || "").trim();
     let marqueId: string | null = null;
+    // Contacts CRM de la marque copiés sur l'opportunité (format attendu par
+    // la prospection projet : [{ firstName, lastName, email, role }]).
+    let contactsOpportunite: Array<{ firstName: string; lastName: string; email: string; role: string }> = [];
 
     if (body.marqueId) {
       const marque = await prisma.marque.findUnique({
         where: { id: body.marqueId },
-        select: { id: true, nom: true, secteur: true },
+        select: {
+          id: true,
+          nom: true,
+          secteur: true,
+          contacts: { select: { prenom: true, nom: true, email: true, poste: true } },
+        },
       });
       if (!marque) {
         return NextResponse.json({ error: "Marque introuvable" }, { status: 404 });
@@ -95,6 +107,14 @@ export async function POST(request: NextRequest) {
       marqueId = marque.id;
       nomMarque = nomMarque || marque.nom;
       if (!body.secteur && marque.secteur) body.secteur = marque.secteur;
+      contactsOpportunite = marque.contacts
+        .filter((c) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((c.email || "").trim()))
+        .map((c) => ({
+          firstName: (c.prenom || "").trim(),
+          lastName: (c.nom || "").trim(),
+          email: (c.email as string).trim().toLowerCase(),
+          role: (c.poste || "").trim(),
+        }));
     } else {
       if (!nomMarque) {
         return NextResponse.json({ error: "nomMarque est requis" }, { status: 400 });
@@ -120,10 +140,15 @@ export async function POST(request: NextRequest) {
         ownerId: body.ownerId ?? null,
         createdById: session.user.id,
         statut,
+        contacts: contactsOpportunite,
+        contactQualifie: contactsOpportunite.length > 0,
       },
     });
 
-    return NextResponse.json({ opportunite }, { status: 201 });
+    return NextResponse.json(
+      { opportunite: sanitizeOpportuniteForRole(role, opportunite), contactsCopies: contactsOpportunite.length },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Erreur POST /api/strategy/opportunites:", error);
     return NextResponse.json(
