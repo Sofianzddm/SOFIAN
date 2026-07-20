@@ -4,10 +4,12 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 /**
- * GET /api/marques/options — liste légère des marques (id + nom) pour les
- * champs « Nom de la marque » (négo, collab…). Le but : suggérer les fiches
- * existantes pour que l'utilisateur réutilise la bonne orthographe et qu'on
- * ne crée jamais de doublon. Accessible à tout le staff (pas aux talents).
+ * GET /api/marques/options — liste légère des marques pour les champs
+ * « Nom de la marque » / « Client » (négo, collab…). Le but : suggérer les
+ * fiches existantes pour que l'utilisateur réutilise la bonne fiche et qu'on
+ * ne crée jamais de doublon. Les infos de facturation + le contact principal
+ * permettent de pré-remplir les formulaires. Accessible à tout le staff
+ * (pas aux talents).
  */
 export async function GET() {
   try {
@@ -22,7 +24,22 @@ export async function GET() {
 
     const marques = await prisma.marque.findMany({
       orderBy: { nom: "asc" },
-      select: { id: true, nom: true },
+      select: {
+        id: true,
+        nom: true,
+        raisonSociale: true,
+        adresseRue: true,
+        codePostal: true,
+        ville: true,
+        pays: true,
+        siret: true,
+        numeroTVA: true,
+        contacts: {
+          orderBy: { principal: "desc" },
+          take: 1,
+          select: { prenom: true, nom: true, email: true },
+        },
+      },
     });
 
     return NextResponse.json({ marques });

@@ -33,6 +33,20 @@ interface Talent {
   tarifs: Record<string, number | null> | null;
 }
 
+// Client déjà présent dans le CRM (fiche marque existante)
+interface CrmClientOption {
+  id: string;
+  nom: string;
+  raisonSociale: string | null;
+  adresseRue: string | null;
+  codePostal: string | null;
+  ville: string | null;
+  pays: string | null;
+  siret: string | null;
+  numeroTVA: string | null;
+  contacts: { prenom: string | null; nom: string; email: string | null }[];
+}
+
 // Résultat API recherche entreprise (api.gouv.fr)
 interface EntrepriseSearchResult {
   nom_entreprise: string;
@@ -139,13 +153,57 @@ export default function NewCollaborationPage() {
   // Agences existantes : suggérées dans le champ « Nom de l'agence » pour
   // réutiliser la fiche (pas de doublon) ; un nom inconnu crée l'agence.
   const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
+  // Clients déjà en base : dropdown live pendant la saisie ("Nik" → "Nike")
+  // pour rattacher la collab à la fiche existante au lieu d'en recréer une.
+  const [crmClients, setCrmClients] = useState<CrmClientOption[]>([]);
+  const [selectedMarqueId, setSelectedMarqueId] = useState<string | null>(null);
+  const [selectedMarqueNom, setSelectedMarqueNom] = useState<string>("");
 
   useEffect(() => {
     fetch("/api/partners/options")
       .then((r) => (r.ok ? r.json() : { partners: [] }))
       .then((d) => setAgencyOptions(Array.isArray(d.partners) ? d.partners : []))
       .catch(() => setAgencyOptions([]));
+    fetch("/api/marques/options")
+      .then((r) => (r.ok ? r.json() : { marques: [] }))
+      .then((d) => setCrmClients(Array.isArray(d.marques) ? d.marques : []))
+      .catch(() => setCrmClients([]));
   }, []);
+
+  // Suggestions CRM filtrées en direct sur la saisie (min. 2 caractères)
+  const normalize = (s: string) =>
+    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const crmSuggestions =
+    searchQuery.trim().length >= 2 && !selectedMarqueId
+      ? crmClients
+          .filter((m) => {
+            const q = normalize(searchQuery);
+            return normalize(m.nom).includes(q) || normalize(m.raisonSociale || "").includes(q);
+          })
+          .slice(0, 8)
+      : [];
+
+  const pickCrmClient = (m: CrmClientOption) => {
+    setSelectedMarqueId(m.id);
+    setSelectedMarqueNom(m.nom);
+    setSearchQuery(m.nom);
+    setShowSearchResults(false);
+    const contact = m.contacts[0];
+    setBillingData((prev) => ({
+      ...prev,
+      raisonSociale: m.raisonSociale || m.nom,
+      adresseRue: m.adresseRue || prev.adresseRue,
+      codePostal: m.codePostal || prev.codePostal,
+      ville: m.ville || prev.ville,
+      pays: m.pays || prev.pays,
+      siret: m.siret || prev.siret,
+      numeroTVA: m.numeroTVA || prev.numeroTVA,
+      contactName: contact
+        ? [contact.prenom, contact.nom].filter(Boolean).join(" ")
+        : prev.contactName,
+      emailClient: contact?.email || prev.emailClient,
+    }));
+  };
 
   const [livrables, setLivrables] = useState<Livrable[]>([
     {
@@ -340,28 +398,34 @@ export default function NewCollaborationPage() {
 
     setLoading(true);
     try {
-      // 1. Créer la marque avec les infos de facturation
-      const marqueRes = await fetch("/api/marques", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nom: billingData.raisonSociale.trim(),
-          raisonSociale: billingData.raisonSociale.trim(),
-          adresseRue: billingData.adresseRue.trim(),
-          codePostal: billingData.codePostal.trim(),
-          ville: billingData.ville.trim(),
-          pays: billingData.pays.trim(),
-          siret: billingData.siret.trim() || null,
-          numeroTVA: billingData.numeroTVA.trim() || null,
-        }),
-      });
-      if (!marqueRes.ok) {
-        const err = await marqueRes.json();
-        alert(err.message || "Erreur lors de la création de la marque");
-        setLoading(false);
-        return;
+      // 1. Résoudre la fiche marque : si un client existant a été choisi dans
+      // le dropdown CRM on réutilise sa fiche telle quelle ; sinon
+      // find-or-create côté serveur (dédup par slug/alias).
+      let marqueId = selectedMarqueId;
+      if (!marqueId) {
+        const marqueRes = await fetch("/api/marques", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            nom: billingData.raisonSociale.trim(),
+            raisonSociale: billingData.raisonSociale.trim(),
+            adresseRue: billingData.adresseRue.trim(),
+            codePostal: billingData.codePostal.trim(),
+            ville: billingData.ville.trim(),
+            pays: billingData.pays.trim(),
+            siret: billingData.siret.trim() || null,
+            numeroTVA: billingData.numeroTVA.trim() || null,
+          }),
+        });
+        if (!marqueRes.ok) {
+          const err = await marqueRes.json();
+          alert(err.message || "Erreur lors de la création de la marque");
+          setLoading(false);
+          return;
+        }
+        const marque = await marqueRes.json();
+        marqueId = marque.id;
       }
-      const marque = await marqueRes.json();
 
       // 2. Créer la collaboration
       const res = await fetch("/api/collaborations", {
@@ -369,7 +433,7 @@ export default function NewCollaborationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
-          marqueId: marque.id,
+          marqueId,
           isPrivate: canSetPrivate ? formData.isPrivate : false,
           contactKind: contactQualif.contactKind,
           contactAgence: contactQualif.contactAgence.trim() || null,
@@ -464,12 +528,38 @@ export default function NewCollaborationPage() {
                         value={searchQuery}
                         onChange={(e) => {
                           setSearchQuery(e.target.value);
+                          if (selectedMarqueId) {
+                            setSelectedMarqueId(null);
+                            setSelectedMarqueNom("");
+                          }
                           if (!e.target.value.trim()) setShowSearchResults(false);
                         }}
                         onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), searchEntreprise())}
                         placeholder="Ex : L'Oréal, Nike ou 123 456 789 00012"
                         className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice bg-white text-sm"
                       />
+                      {crmSuggestions.length > 0 && (
+                        <div className="absolute z-20 left-0 right-0 top-full mt-1 max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                          <p className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                            Clients déjà en base
+                          </p>
+                          {crmSuggestions.map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => pickCrmClient(m)}
+                              className="w-full px-3 py-2.5 text-left hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors"
+                            >
+                              <p className="font-medium text-gray-900 text-sm">{m.nom}</p>
+                              {(m.raisonSociale || m.ville) && (
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  {[m.raisonSociale, m.ville].filter(Boolean).join(" • ")}
+                                </p>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -506,9 +596,15 @@ export default function NewCollaborationPage() {
                       )}
                     </div>
                   )}
-                  <p className="text-xs text-gray-500 mt-1.5">
-                    Recherche via API officielle (api.gouv.fr). Vous pouvez aussi remplir la facturation à la main ci‑dessous.
-                  </p>
+                  {selectedMarqueId ? (
+                    <p className="text-xs text-green-700 mt-1.5 font-medium">
+                      ✓ Client existant sélectionné : {selectedMarqueNom} — la collab sera rattachée à sa fiche (pas de doublon).
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      Tapez le nom : les clients déjà en base sont proposés en premier. Sinon, recherche via api.gouv.fr ou saisie manuelle ci‑dessous.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
