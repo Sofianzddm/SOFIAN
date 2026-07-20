@@ -75,12 +75,19 @@ export default function NewNegociationPage() {
   // Agences existantes : suggérées dans le champ « Nom de l'agence » pour
   // réutiliser la fiche (pas de doublon) ; un nom inconnu crée l'agence.
   const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
+  // Marques existantes : suggérées dans « Nom de la marque » pour reprendre
+  // la fiche existante (le serveur déduplique par slug/alias de toute façon).
+  const [marqueOptions, setMarqueOptions] = useState<{ id: string; nom: string }[]>([]);
 
   useEffect(() => {
     fetch("/api/partners/options")
       .then((r) => (r.ok ? r.json() : { partners: [] }))
       .then((d) => setAgencyOptions(Array.isArray(d.partners) ? d.partners : []))
       .catch(() => setAgencyOptions([]));
+    fetch("/api/marques/options")
+      .then((r) => (r.ok ? r.json() : { marques: [] }))
+      .then((d) => setMarqueOptions(Array.isArray(d.marques) ? d.marques : []))
+      .catch(() => setMarqueOptions([]));
   }, []);
 
   const [formData, setFormData] = useState({
@@ -378,10 +385,16 @@ export default function NewNegociationPage() {
                     onChange={handleChange}
                     placeholder="Ex: Nike France"
                     required
+                    list="marque-options"
                     className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
                   />
+                  <datalist id="marque-options">
+                    {marqueOptions.map((m) => (
+                      <option key={m.id} value={m.nom} />
+                    ))}
+                  </datalist>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">La fiche marque sera créée ou reliée à la validation (évite les doublons)</p>
+                <p className="text-xs text-gray-500 mt-1">Si la marque existe déjà, sélectionnez-la dans la liste : la fiche existante sera réutilisée (jamais de doublon)</p>
               </div>
             </div>
 

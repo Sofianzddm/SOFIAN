@@ -8,7 +8,7 @@ import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { NewNegociationEmail } from "@/lib/emails/NewNegociationEmail";
-import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
+import { findOrCreateMarque, ensureMarqueContact, parseSenderName } from "@/lib/marque-resolver";
 
 // GET - Liste des négociations (filtrée par rôle)
 export async function GET(request: NextRequest) {
@@ -159,15 +159,23 @@ export async function POST(request: NextRequest) {
     const nomMarqueSaisi = data.nomMarqueSaisi ? String(data.nomMarqueSaisi).trim() : null;
     let marqueId: string | null = data.marqueId || null;
     if (!marqueId && nomMarqueSaisi) {
+      // Le résolveur matche par slug/alias : "Nike", "NIKE", "Nike France"
+      // pointent vers la même fiche, création uniquement si vraiment inconnue.
       const resolved = await findOrCreateMarque({
         name: nomMarqueSaisi,
         source: "NEGOCIATION",
       });
       marqueId = resolved.marqueId;
+    }
+    // Enrichir la fiche marque avec le contact (dédup par email : si déjà
+    // présent on n'ajoute rien) — aussi quand la marque existait déjà.
+    if (marqueId) {
+      const parsedContact = parseSenderName(contactMarque);
       await ensureMarqueContact({
         marqueId,
         email: emailContact,
-        nom: contactMarque,
+        prenom: parsedContact.prenom,
+        nom: parsedContact.nom || contactMarque,
       });
     }
     // TM ne gère que les entrants → forcer INBOUND côté serveur
