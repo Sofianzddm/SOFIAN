@@ -113,6 +113,16 @@ export default function InboundDetailPage() {
   // Qualification locale (le mode Agence n'est sauvegardé qu'avec un nom d'agence).
   const [qualifKind, setQualifKind] = useState<"" | "MARQUE" | "AGENCE">("");
   const [qualifAgence, setQualifAgence] = useState("");
+  // Agences existantes : suggérées dans le champ « Nom de l'agence » pour
+  // réutiliser la fiche (pas de doublon) ; un nom inconnu crée l'agence.
+  const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/partners/options", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { partners: [] }))
+      .then((d) => setAgencyOptions(Array.isArray(d.partners) ? d.partners : []))
+      .catch(() => setAgencyOptions([]));
+  }, []);
   const [recentSends, setRecentSends] = useState<{
     windowDays: number;
     sameEmail: RecentSendEntry[];
@@ -705,6 +715,7 @@ export default function InboundDetailPage() {
                   <label className="mb-1 block text-xs text-slate-500">Nom de l&apos;agence *</label>
                   <input
                     type="text"
+                    list="agency-options"
                     value={qualifAgence}
                     onChange={(e) => setQualifAgence(e.target.value)}
                     onBlur={() => {
@@ -716,9 +727,18 @@ export default function InboundDetailPage() {
                     placeholder="Ex: WOO, Influence4You…"
                     className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   />
-                  {!qualifAgence.trim() && (
+                  <datalist id="agency-options">
+                    {agencyOptions.map((a) => (
+                      <option key={a.id} value={a.name} />
+                    ))}
+                  </datalist>
+                  {!qualifAgence.trim() ? (
                     <p className="mt-1 text-xs text-amber-600">
                       Indique le nom de l&apos;agence pour enregistrer la qualification.
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Choisis une agence existante dans la liste ; un nouveau nom créera la fiche agence.
                     </p>
                   )}
                 </div>

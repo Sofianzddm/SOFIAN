@@ -83,6 +83,16 @@ export default function EditNegociationPage() {
   const [saving, setSaving] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
   const [negoStatut, setNegoStatut] = useState<string>("");
+  // Agences existantes : suggérées dans le champ « Nom de l'agence » pour
+  // réutiliser la fiche (pas de doublon) ; un nom inconnu crée l'agence.
+  const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/partners/options")
+      .then((r) => (r.ok ? r.json() : { partners: [] }))
+      .then((d) => setAgencyOptions(Array.isArray(d.partners) ? d.partners : []))
+      .catch(() => setAgencyOptions([]));
+  }, []);
 
   const [formData, setFormData] = useState({
     talentId: "",
@@ -502,12 +512,21 @@ export default function EditNegociationPage() {
                 <input
                   type="text"
                   name="contactAgence"
+                  list="agency-options"
                   value={formData.contactAgence}
                   onChange={(e) => setFormData({ ...formData, contactAgence: e.target.value })}
                   placeholder="Ex: WOO, Influence4You…"
                   required
                   className={inputClass}
                 />
+                <datalist id="agency-options">
+                  {agencyOptions.map((a) => (
+                    <option key={a.id} value={a.name} />
+                  ))}
+                </datalist>
+                <p className="text-xs text-gray-500 mt-1">
+                  Sélectionnez une agence existante dans la liste ; un nouveau nom créera la fiche agence.
+                </p>
               </div>
             )}
             <div>

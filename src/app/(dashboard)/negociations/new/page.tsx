@@ -72,6 +72,16 @@ export default function NewNegociationPage() {
   const [loading, setLoading] = useState(false);
   const [talents, setTalents] = useState<Talent[]>([]);
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
+  // Agences existantes : suggérées dans le champ « Nom de l'agence » pour
+  // réutiliser la fiche (pas de doublon) ; un nom inconnu crée l'agence.
+  const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/partners/options")
+      .then((r) => (r.ok ? r.json() : { partners: [] }))
+      .then((d) => setAgencyOptions(Array.isArray(d.partners) ? d.partners : []))
+      .catch(() => setAgencyOptions([]));
+  }, []);
 
   const [formData, setFormData] = useState({
     talentId: searchParams.get("talent") || "",
@@ -429,12 +439,21 @@ export default function NewNegociationPage() {
                   <input
                     type="text"
                     name="contactAgence"
+                    list="agency-options"
                     value={formData.contactAgence}
                     onChange={handleChange}
                     placeholder="Ex: WOO, Influence4You…"
                     required
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
                   />
+                  <datalist id="agency-options">
+                    {agencyOptions.map((a) => (
+                      <option key={a.id} value={a.name} />
+                    ))}
+                  </datalist>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Sélectionnez une agence existante dans la liste ; un nouveau nom créera la fiche agence.
+                  </p>
                 </div>
               )}
               <div>

@@ -39,7 +39,19 @@ export async function findOrCreatePartnerByName(
     select: { id: true, name: true, slug: true, market: true },
   });
   if (existing) return existing;
-  const slug = await generateUniquePartnerSlug(slugifyPartner(trimmed));
+
+  // Filet anti-doublon : même nom écrit différemment (accents, espaces,
+  // ponctuation) → même slug normalisé → on réutilise la fiche existante.
+  const baseSlug = slugifyPartner(trimmed);
+  if (baseSlug) {
+    const bySlug = await prisma.partner.findUnique({
+      where: { slug: baseSlug },
+      select: { id: true, name: true, slug: true, market: true },
+    });
+    if (bySlug) return bySlug;
+  }
+
+  const slug = await generateUniquePartnerSlug(baseSlug);
   return prisma.partner.create({
     data: { name: trimmed, slug, createdBy },
     select: { id: true, name: true, slug: true, market: true },
