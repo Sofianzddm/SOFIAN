@@ -864,3 +864,215 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
 
   return result;
 }
+
+// ============================================================
+// Enrôlement des contacts CRM dormants (appelé par /api/cron/relances)
+// ============================================================
+
+/** Délai de carence après la création du contact avant enrôlement auto. */
+export const CRM_ENROLL_GRACE_DAYS = 14;
+/** Fenêtre « échange récent » : marque touchée il y a moins de N jours → on attend. */
+const CRM_RECENT_EXCHANGE_DAYS = OUTREACH_RECONTACT_DAYS;
+/** Petits lots pour un flux digeste dans la file « à contacter » de Leyna. */
+const CRM_ENROLL_BATCH_SIZE = 25;
+
+/**
+ * Adresses techniques auxquelles il est inutile d'écrire (no-reply, robots,
+ * notifications) : présentes dans le CRM via des mails automatiques archivés.
+ */
+function isNoReplyEmail(email: string): boolean {
+  const local = email.split("@")[0] || "";
+  return /no[-_.]?reply|ne[-_.]?pas[-_.]?repondre|do[-_.]?not[-_.]?reply|mailer[-_.]?daemon|notification|automated|donotanswer/i.test(
+    local
+  );
+}
+
+export type CrmEnrollSweepResult = {
+  contactsProcessed: number;
+  enrolledClient: number;
+  enrolledAgency: number;
+  alreadyTracked: number;
+  skipped: number;
+};
+
+/**
+ * Filet de sécurité « aucune fiche ne dort » : tout contact marque du CRM avec
+ * un email valide, présent dans AUCUN pipeline outreach, dont la marque n'a ni
+ * flux actif (négo / collab / inbound / demande en cours) ni échange récent
+ * (< 45j), entre automatiquement dans le cycle en TO_CONTACT — il apparaît
+ * dans la file « à contacter » (aucun envoi automatique ici).
+ *
+ * Couvre les fiches marques créées à la main avec leurs contacts (ex. import
+ * carto) qui ne passent par aucun flux : sans ce sweep, personne ne les
+ * prospecterait jamais.
+ *
+ * Routage : domaine/email d'agence connue → Prospection Agences ; sinon →
+ * Outreach Clients. Respecte `outreachExcluded` (contact sorti volontairement).
+ * Idempotent : chaque contact traité est marqué (outreachEnrolledAt), y compris
+ * les emails invalides. Les contacts dont la marque a un flux actif ne sont pas
+ * marqués : ils sont exclus par la requête et reviendront naturellement quand
+ * le flux sera clos (le pont de clôture couvre alors le contact du deal).
+ */
+export async function runCrmDormantEnrollSweep(): Promise<CrmEnrollSweepResult> {
+  const result: CrmEnrollSweepResult = {
+    contactsProcessed: 0,
+    enrolledClient: 0,
+    enrolledAgency: 0,
+    alreadyTracked: 0,
+    skipped: 0,
+  };
+
+  const createdById = await resolveBridgeCreatedById();
+  if (!createdById) {
+    console.warn("[crm-enroll] aucun ADMIN actif : sweep ignoré.");
+    return result;
+  }
+
+  const now = Date.now();
+  const graceCutoff = new Date(now - CRM_ENROLL_GRACE_DAYS * 24 * 60 * 60 * 1000);
+  const recentCutoff = new Date(now - CRM_RECENT_EXCHANGE_DAYS * 24 * 60 * 60 * 1000);
+
+  const contacts = await prisma.marqueContact.findMany({
+    where: {
+      outreachEnrolledAt: null,
+      outreachExcluded: false,
+      email: { not: null },
+      createdAt: { lt: graceCutoff },
+      marque: {
+        // Flux actif ou échange récent (< 45j) sur la marque → on n'enrôle pas
+        // maintenant ; le contact sera repris à un prochain passage (non marqué).
+        collaborations: {
+          none: {
+            OR: [
+              { statut: { in: ["NEGO", "GAGNE", "EN_COURS"] } },
+              { updatedAt: { gt: recentCutoff } },
+            ],
+          },
+        },
+        negociations: {
+          none: {
+            OR: [
+              { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } },
+              { updatedAt: { gt: recentCutoff } },
+            ],
+          },
+        },
+        inboundOpportunities: {
+          none: {
+            OR: [
+              { outreachBridgedAt: null, status: { in: ["NEW", "READY", "IN_REVIEW"] } },
+              { receivedAt: { gt: recentCutoff } },
+            ],
+          },
+        },
+        demandesEntrantes: {
+          none: {
+            OR: [
+              { outreachBridgedAt: null, status: { notIn: ["repondu", "relance_terminee"] } },
+              { date: { gt: recentCutoff } },
+            ],
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+    take: CRM_ENROLL_BATCH_SIZE,
+    select: {
+      id: true,
+      email: true,
+      prenom: true,
+      nom: true,
+      poste: true,
+      language: true,
+      marqueId: true,
+      marque: { select: { nom: true } },
+    },
+  });
+
+  for (const contact of contacts) {
+    result.contactsProcessed += 1;
+    const email = (contact.email || "").trim().toLowerCase();
+    let ref: string;
+
+    try {
+      if (!email || !isValidEmail(email)) {
+        result.skipped += 1;
+        ref = "skipped:email-invalide";
+      } else if (isNoReplyEmail(email)) {
+        result.skipped += 1;
+        ref = "skipped:no-reply";
+      } else {
+        const resolution = await resolveOutreachPipeline(email);
+
+        if (resolution.kind === "existing-target") {
+          // Déjà suivi quelque part : rien à créer, on trace juste le lien.
+          result.alreadyTracked += 1;
+          ref = `${resolution.pipeline}:${resolution.target.id}`;
+        } else if (resolution.kind === "known-agency") {
+          // Contact d'agence rangé par erreur dans une fiche marque : il part
+          // en Prospection Agences — jamais dans Outreach Clients.
+          const { partner } = resolution;
+          const language = contact.language === "en" ? "en" : "fr";
+          const agencyContact = await prisma.agencyContact.upsert({
+            where: { partnerId_email: { partnerId: partner.id, email } },
+            update: {},
+            create: {
+              partnerId: partner.id,
+              prenom: contact.prenom || contact.nom,
+              nom: contact.prenom ? contact.nom : null,
+              email,
+              language,
+              createdById,
+            },
+          });
+          const target = await prisma.agencyOutreachTarget.create({
+            data: {
+              partnerId: partner.id,
+              agencyContactId: agencyContact.id,
+              firstname: contact.prenom || contact.nom,
+              lastname: contact.prenom ? contact.nom : null,
+              email,
+              company: partner.name,
+              partnerSlug: partner.slug,
+              language,
+              market: partner.market === "BENELUX" ? "BENELUX" : "FR",
+              // status TO_CONTACT (défaut) : file « à contacter », pas d'envoi auto.
+              createdById,
+            },
+          });
+          result.enrolledAgency += 1;
+          ref = `agency:${target.id}`;
+        } else {
+          const target = await prisma.outreachTarget.create({
+            data: {
+              marqueId: contact.marqueId,
+              marqueContactId: contact.id,
+              firstname: contact.prenom || contact.nom,
+              lastname: contact.prenom ? contact.nom : null,
+              email,
+              company: contact.marque.nom,
+              language: contact.language === "en" ? "en" : "fr",
+              // status TO_CONTACT (défaut) : file « à contacter », pas d'envoi auto.
+              createdById,
+            },
+          });
+          result.enrolledClient += 1;
+          ref = `client:${target.id}`;
+        }
+      }
+    } catch (error) {
+      console.warn(`[crm-enroll] contact ${contact.id} (${email}):`, error);
+      result.skipped += 1;
+      ref = "skipped:erreur";
+    }
+
+    await prisma.marqueContact
+      .update({
+        where: { id: contact.id },
+        data: { outreachEnrolledAt: new Date(), outreachTargetRef: ref },
+      })
+      .catch((e) => console.warn(`[crm-enroll] marquage contact ${contact.id}:`, e));
+  }
+
+  return result;
+}

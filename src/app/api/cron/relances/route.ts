@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runRelances } from "@/lib/relances";
-import { runOutreachBridgeSweep } from "@/lib/outreach-bridge";
+import {
+  runOutreachBridgeSweep,
+  runCrmDormantEnrollSweep,
+} from "@/lib/outreach-bridge";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -23,5 +26,15 @@ export async function GET(request: NextRequest) {
     console.error("[cron/relances] sweep pont outreach:", error);
   }
 
-  return NextResponse.json({ ...result, bridge });
+  // Filet « aucune fiche ne dort » : les contacts CRM avec email, dans aucun
+  // pipeline et sans échange récent, entrent en TO_CONTACT par petits lots
+  // (aucun envoi de mail ici non plus).
+  let crmEnroll = null;
+  try {
+    crmEnroll = await runCrmDormantEnrollSweep();
+  } catch (error) {
+    console.error("[cron/relances] sweep contacts CRM dormants:", error);
+  }
+
+  return NextResponse.json({ ...result, bridge, crmEnroll });
 }

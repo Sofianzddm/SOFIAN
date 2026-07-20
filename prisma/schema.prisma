@@ -796,6 +796,13 @@ model MarqueContact {
   // dans le CRM mais ne réapparaît plus dans la liste « en attente d'email ».
   outreachExcluded Boolean @default(false)
 
+  // Enrôlement automatique dans le cycle outreach 45j (sweep « contacts CRM
+  // dormants ») : contact avec email valide, dans aucun pipeline, dont la
+  // marque n'a aucun flux actif ni échange récent → il entre en TO_CONTACT.
+  // outreachTargetRef = "<pipeline>:<targetId>" ou "skipped:<raison>".
+  outreachEnrolledAt DateTime?
+  outreachTargetRef  String?
+
   createdAt       DateTime         @default(now())
   quotes          Quote[]
   outreachTargets OutreachTarget[]
