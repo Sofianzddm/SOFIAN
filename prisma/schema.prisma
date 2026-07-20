@@ -1106,6 +1106,13 @@ model Negociation {
   reviewedAt          DateTime?
   dateSubmitted       DateTime?
 
+  // Pont vers le cycle outreach 45j : posé quand la négo est terminée
+  // (refusée/annulée ou devenue collab) et que le contact marque a été ajouté
+  // (ou re-planifié) dans un pipeline outreach.
+  // outreachTargetRef = "<pipeline>:<targetId>" ou "skipped:<raison>".
+  outreachBridgedAt DateTime?
+  outreachTargetRef String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

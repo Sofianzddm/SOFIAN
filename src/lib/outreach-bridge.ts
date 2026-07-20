@@ -391,6 +391,7 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
 export type BridgeSweepResult = {
   inboundProcessed: number;
   demandesProcessed: number;
+  negosProcessed: number;
   created: number;
   rescheduled: number;
   skipped: number;
@@ -433,10 +434,12 @@ async function resolveBridgeCreatedById(): Promise<string | null> {
 }
 
 /**
- * Fait entrer dans le cycle outreach 45j les flux entrants clôturés :
+ * Fait entrer dans le cycle outreach 45j les flux clôturés :
  *  - InboundOpportunity : réponse reçue, séquence R1/R2 épuisée, ou archivée
  *    (hors CONVERTED, géré par la conversion elle-même).
  *  - DemandeEntrante : status "repondu" ou "relance_terminee".
+ *  - Negociation : refusée/annulée, ou devenue collaboration (hors collab
+ *    encore en négo) — le contact marque du deal revient dans la boucle.
  *
  * Idempotent : chaque ligne traitée est marquée (outreachBridgedAt), y compris
  * en cas d'échec de routage (ref "skipped:<raison>") pour ne pas boucler.
@@ -445,6 +448,7 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
   const result: BridgeSweepResult = {
     inboundProcessed: 0,
     demandesProcessed: 0,
+    negosProcessed: 0,
     created: 0,
     rescheduled: 0,
     skipped: 0,
@@ -559,6 +563,68 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
       updatedAt: true,
     },
   });
+
+  // --- Négociations terminées (refusées/annulées ou devenues collabs) ---
+  // Le contact marque du deal entre dans le cycle : recontact = dernière
+  // activité du deal + 45j. Les négos encore en discussion ne sont pas
+  // touchées (on est en train de leur parler) ; elles entreront à la clôture.
+  const negos = await prisma.negociation.findMany({
+    where: {
+      outreachBridgedAt: null,
+      emailContact: { not: null },
+      statut: { in: ["REFUSEE", "ANNULEE", "VALIDEE"] },
+    },
+    orderBy: { updatedAt: "asc" },
+    take: SWEEP_BATCH_SIZE,
+    select: {
+      id: true,
+      emailContact: true,
+      contactMarque: true,
+      nomMarqueSaisi: true,
+      marqueId: true,
+      dateValidation: true,
+      lastModifiedAt: true,
+      updatedAt: true,
+      collaboration: { select: { marqueId: true, updatedAt: true } },
+    },
+  });
+
+  for (const nego of negos) {
+    result.negosProcessed += 1;
+    const lastExchangeAt =
+      maxDate(
+        nego.lastModifiedAt,
+        nego.dateValidation,
+        nego.collaboration?.updatedAt
+      ) || nego.updatedAt;
+
+    const sender = parseSenderName(nego.contactMarque);
+    let ref: string;
+    try {
+      const bridge = await bridgeContactToOutreach({
+        email: (nego.emailContact || "").trim(),
+        firstname: sender.prenom,
+        lastname: sender.prenom ? sender.nom : null,
+        company: nego.nomMarqueSaisi,
+        marqueId: nego.marqueId || nego.collaboration?.marqueId,
+        lastExchangeAt,
+        createdById,
+        sourceLabel: "négo/collab",
+      });
+      ref = applyResult(bridge);
+    } catch (error) {
+      console.warn(`[outreach-bridge] négo ${nego.id} (${nego.emailContact}):`, error);
+      result.skipped += 1;
+      ref = "skipped:erreur";
+    }
+
+    await prisma.negociation
+      .update({
+        where: { id: nego.id },
+        data: { outreachBridgedAt: new Date(), outreachTargetRef: ref },
+      })
+      .catch((e) => console.warn(`[outreach-bridge] marquage négo ${nego.id}:`, e));
+  }
 
   for (const demande of demandes) {
     result.demandesProcessed += 1;
