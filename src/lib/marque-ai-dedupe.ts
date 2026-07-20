@@ -290,16 +290,17 @@ export async function runMarqueDedupeAiJob(
   const groups = detectAllCandidateGroups(rows, config.fuzzyThreshold).slice(0, config.maxGroups);
   const blockedPairs = await loadBlockedPairKeys();
 
-  const recentPending = await prisma.marqueDedupeSuggestion.findMany({
-    where: {
-      status: "PENDING",
-      createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-    },
+  // Anti-redite : TOUTES les suggestions encore en attente (sans fenêtre de
+  // temps — tant qu'un groupe n'est pas validé/rejeté, on ne le repropose pas),
+  // et on saute aussi tout groupe qui PARTAGE une marque avec une suggestion en
+  // attente (groupe recomposé d'une nuit à l'autre → même doublon affiché deux
+  // fois, et fusions potentiellement contradictoires).
+  const allPending = await prisma.marqueDedupeSuggestion.findMany({
+    where: { status: "PENDING" },
     select: { marqueIds: true },
   });
-  const pendingMemberKeys = new Set(
-    recentPending.map((s) => groupMemberKey(s.marqueIds))
-  );
+  const pendingMemberKeys = new Set(allPending.map((s) => groupMemberKey(s.marqueIds)));
+  const pendingMarqueIds = new Set(allPending.flatMap((s) => s.marqueIds));
 
   for (const group of groups) {
     if (groupHasBlockedPair(group, blockedPairs)) {
@@ -307,8 +308,9 @@ export async function runMarqueDedupeAiJob(
       continue;
     }
 
-    const memberKey = groupMemberKey(group.marques.map((m) => m.id));
-    if (pendingMemberKeys.has(memberKey)) {
+    const groupIds = group.marques.map((m) => m.id);
+    const memberKey = groupMemberKey(groupIds);
+    if (pendingMemberKeys.has(memberKey) || groupIds.some((id) => pendingMarqueIds.has(id))) {
       result.skipped++;
       continue;
     }
