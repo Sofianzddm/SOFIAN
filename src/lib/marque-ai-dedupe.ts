@@ -443,12 +443,34 @@ export async function approveDedupeSuggestion(
     throw new Error("Cible ou sources manquantes pour la fusion.");
   }
 
-  for (const sid of sourceIds) {
+  // Certaines marques ont pu être fusionnées entre-temps (suggestion en
+  // doublon déjà traitée) : on ne fusionne que celles qui existent encore,
+  // et si plus rien à faire on écarte la suggestion au lieu de planter.
+  const existing = await prisma.marque.findMany({
+    where: { id: { in: [targetId, ...sourceIds] } },
+    select: { id: true },
+  });
+  const existingIds = new Set(existing.map((m) => m.id));
+  const remainingSources = sourceIds.filter((id) => existingIds.has(id));
+
+  if (!existingIds.has(targetId) || remainingSources.length === 0) {
+    await prisma.marqueDedupeSuggestion.update({
+      where: { id: suggestionId },
+      data: {
+        status: "DISCARDED",
+        reviewedAt: new Date(),
+        reviewedBy: reviewedBy ?? null,
+      },
+    });
+    return;
+  }
+
+  for (const sid of remainingSources) {
     await mergeMarques(targetId, sid);
   }
 
   await upsertPairDecisions(
-    [targetId, ...sourceIds],
+    [targetId, ...remainingSources],
     "MERGE",
     "HUMAN_UI",
     suggestion.reasoning

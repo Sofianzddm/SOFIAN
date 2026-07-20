@@ -12,12 +12,48 @@ import { prisma } from "../src/lib/prisma";
 const dryRun = process.argv.includes("--dry-run");
 
 async function main() {
-  const pending = await prisma.marqueDedupeSuggestion.findMany({
+  const allPending = await prisma.marqueDedupeSuggestion.findMany({
     where: { status: "PENDING" },
     orderBy: { createdAt: "desc" },
-    select: { id: true, marqueIds: true, groupKey: true, createdAt: true },
+    select: {
+      id: true,
+      marqueIds: true,
+      groupKey: true,
+      createdAt: true,
+      recommendedTargetId: true,
+      recommendedSourceIds: true,
+    },
   });
-  console.log(`Suggestions PENDING : ${pending.length}`);
+  console.log(`Suggestions PENDING : ${allPending.length}`);
+
+  // Passe 1 : suggestions "fantômes" dont la cible ou toutes les sources
+  // recommandées n'existent plus (marques déjà fusionnées/supprimées).
+  const allIds = [...new Set(allPending.flatMap((s) => s.marqueIds))];
+  const existing = await prisma.marque.findMany({
+    where: { id: { in: allIds } },
+    select: { id: true },
+  });
+  const existingIds = new Set(existing.map((m) => m.id));
+
+  const ghosts = allPending.filter((s) => {
+    const target = s.recommendedTargetId;
+    const sources = s.recommendedSourceIds.filter((id) => existingIds.has(id));
+    return !target || !existingIds.has(target) || sources.length === 0;
+  });
+  console.log(`Fantômes (marques déjà fusionnées) : ${ghosts.length}`);
+  for (const g of ghosts) {
+    console.log(`  - ${g.groupKey} (créée ${g.createdAt.toISOString().slice(0, 10)})`);
+  }
+
+  if (!dryRun && ghosts.length > 0) {
+    await prisma.marqueDedupeSuggestion.updateMany({
+      where: { id: { in: ghosts.map((g) => g.id) } },
+      data: { status: "DISCARDED", reviewedAt: new Date(), reviewedBy: "CLEANUP_SCRIPT" },
+    });
+  }
+
+  const ghostIds = new Set(ghosts.map((g) => g.id));
+  const pending = allPending.filter((s) => !ghostIds.has(s.id));
 
   const seenMarqueIds = new Set<string>();
   const keep: string[] = [];
