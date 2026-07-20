@@ -388,6 +388,8 @@ export default function OutreachPage() {
   const [showCartoModal, setShowCartoModal] = useState(false);
   const [pendingContacts, setPendingContacts] = useState<PendingContact[]>([]);
   const [editTarget, setEditTarget] = useState<Target | null>(null);
+  // Correction d'erreur de classement : ce « client » est en réalité une agence.
+  const [convertTarget, setConvertTarget] = useState<Target | null>(null);
   const [composerGroup, setComposerGroup] = useState<{
     company: string;
     targets: Target[];
@@ -1857,6 +1859,16 @@ export default function OutreachPage() {
                           >
                             <PenLine className="w-4 h-4" />
                           </button>
+                          {market === "FR" && (
+                            <button
+                              onClick={() => setConvertTarget(target)}
+                              disabled={busy}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-700 hover:bg-indigo-50 transition disabled:opacity-50"
+                              title="Ce contact est en réalité une agence : le déplacer vers Prospection Agences"
+                            >
+                              <Building2 className="w-4 h-4" />
+                            </button>
+                          )}
                           {target.status !== "STOPPED" ? (
                             <button
                               onClick={() => handleStopResume(target, "stop")}
@@ -2089,6 +2101,18 @@ export default function OutreachPage() {
           onSaved={() => {
             setEditTarget(null);
             flash("success", "Client mis à jour.");
+            loadTargets();
+          }}
+          onError={(m) => flash("error", m)}
+        />
+      )}
+      {convertTarget && (
+        <ConvertToAgencyModal
+          target={convertTarget}
+          onClose={() => setConvertTarget(null)}
+          onConverted={(message) => {
+            setConvertTarget(null);
+            flash("success", message);
             loadTargets();
           }}
           onError={(m) => flash("error", m)}
@@ -3044,6 +3068,165 @@ function EditClientModal({
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
             Enregistrer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Passer un client en agence (erreur de classement)                   */
+/* ------------------------------------------------------------------ */
+
+function ConvertToAgencyModal({
+  target,
+  onClose,
+  onConverted,
+  onError,
+}: {
+  target: Target;
+  onClose: () => void;
+  onConverted: (message: string) => void;
+  onError: (message: string) => void;
+}) {
+  const [partners, setPartners] = useState<{ id: string; name: string; market: string }[]>([]);
+  const [loadingPartners, setLoadingPartners] = useState(true);
+  // "" = nouvelle agence, sinon id du Partner existant sélectionné.
+  const [partnerId, setPartnerId] = useState("");
+  const [newName, setNewName] = useState(target.company);
+  const [newMarket, setNewMarket] = useState<"FR" | "BENELUX">("FR");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/partners/options")
+      .then((r) => (r.ok ? r.json() : { partners: [] }))
+      .then((d) => setPartners(Array.isArray(d.partners) ? d.partners : []))
+      .catch(() => setPartners([]))
+      .finally(() => setLoadingPartners(false));
+  }, []);
+
+  const canSubmit = !saving && (partnerId !== "" || newName.trim() !== "");
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/outreach/targets/${target.id}/convert-to-agency`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          partnerId
+            ? { partnerId }
+            : { agencyName: newName.trim(), market: newMarket }
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur lors de la conversion");
+      onConverted(data.message || "Contact déplacé vers Prospection Agences.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Erreur lors de la conversion");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#F0EBE4" }}>
+          <h2 className="font-semibold" style={{ color: LICORICE }}>
+            Passer en agence
+          </h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <p className="text-sm text-gray-600">
+            <strong style={{ color: LICORICE }}>
+              {target.firstname} {target.lastname || ""}
+            </strong>{" "}
+            ({target.email}) sera sorti d&apos;Outreach Clients et suivi en{" "}
+            <strong style={{ color: LICORICE }}>Prospection Agences</strong>. Son statut et son
+            compteur de recontact sont conservés.
+          </p>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Agence *</label>
+            <select
+              value={partnerId}
+              onChange={(e) => setPartnerId(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 bg-white"
+              style={{ borderColor: "#E5E0DA" }}
+            >
+              <option value="">➕ Nouvelle agence…</option>
+              {partners.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.market === "BENELUX" ? " (Benelux)" : ""}
+                </option>
+              ))}
+            </select>
+            {loadingPartners && (
+              <p className="text-xs text-gray-400 mt-1">Chargement des agences…</p>
+            )}
+          </div>
+          {partnerId === "" && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Nom de la nouvelle agence *
+                </label>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Ex: WOO, Influence4You…"
+                  className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                  style={{ borderColor: "#E5E0DA" }}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Une fiche agence (talent book inclus) sera créée. Si ce nom existe déjà, la
+                  fiche existante sera réutilisée.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Marché</label>
+                <div className="flex gap-1.5">
+                  {(["FR", "BENELUX"] as const).map((m) => {
+                    const active = newMarket === m;
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => setNewMarket(m)}
+                        className="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
+                        style={
+                          active
+                            ? { borderColor: LICORICE, backgroundColor: LICORICE, color: "white" }
+                            : { borderColor: "#E5E0DA", backgroundColor: "white", color: LICORICE }
+                        }
+                      >
+                        {m === "FR" ? "France" : "Benelux"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t" style={{ borderColor: "#F0EBE4" }}>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
+            Annuler
+          </button>
+          <button
+            onClick={submit}
+            disabled={!canSubmit}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+            style={{ backgroundColor: LICORICE }}
+          >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            <Building2 className="w-4 h-4" />
+            Passer en agence
           </button>
         </div>
       </div>
