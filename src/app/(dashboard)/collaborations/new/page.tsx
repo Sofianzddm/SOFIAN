@@ -119,6 +119,7 @@ export default function NewCollaborationPage() {
   // Bloc facturation client — toujours rempli à la création de collab
   const [billingData, setBillingData] = useState({
     raisonSociale: "",
+    contactName: "",
     emailClient: "",
     adresseRue: "",
     codePostal: "",
@@ -323,6 +324,11 @@ export default function NewCollaborationPage() {
       return;
     }
 
+    if (!billingData.contactName.trim()) {
+      alert("Le prénom et nom du contact client sont obligatoires.");
+      return;
+    }
+
     if (contactQualif.contactKind !== "MARQUE" && contactQualif.contactKind !== "AGENCE") {
       alert("Précisez si le contact est la marque en direct ou une agence.");
       return;
@@ -380,6 +386,7 @@ export default function NewCollaborationPage() {
           montantNet,
           billing: {
             raisonSociale: billingData.raisonSociale.trim(),
+            contactName: billingData.contactName.trim(),
             emailClient,
             adresseRue: billingData.adresseRue.trim(),
             codePostal: billingData.codePostal.trim(),
@@ -530,19 +537,35 @@ export default function NewCollaborationPage() {
                     required
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Email du client *
-                  </label>
-                  <input
-                    type="email"
-                    value={billingData.emailClient}
-                    onChange={(e) => setBillingData((prev) => ({ ...prev, emailClient: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
-                    placeholder="contact@marque.com"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Obligatoire : email du contact client (devis, facture, signature).</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Contact client (prénom et nom) *
+                    </label>
+                    <input
+                      type="text"
+                      value={billingData.contactName}
+                      onChange={(e) => setBillingData((prev) => ({ ...prev, contactName: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                      placeholder="Ex: Marie Dupont"
+                      required
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Obligatoire : la personne avec qui vous échangez.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Email du client *
+                    </label>
+                    <input
+                      type="email"
+                      value={billingData.emailClient}
+                      onChange={(e) => setBillingData((prev) => ({ ...prev, emailClient: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                      placeholder="contact@marque.com"
+                      required
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Obligatoire : email du contact client (devis, facture, signature).</p>
+                  </div>
                 </div>
 
                 {/* Qualification du contact : agence vs marque en direct + langue */}

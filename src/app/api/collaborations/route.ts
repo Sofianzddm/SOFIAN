@@ -3,7 +3,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { generateCollabReference } from "@/lib/generateCollabReference";
 import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
-import { ensureMarqueContact } from "@/lib/marque-resolver";
+import { ensureMarqueContact, parseSenderName } from "@/lib/marque-resolver";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -208,6 +208,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Prénom/nom du contact client obligatoire : la fiche contact et le cycle
+    // outreach en ont besoin (personnalisation des mails après la collab).
+    const contactName = billing.contactName ? String(billing.contactName).trim() : "";
+    if (!contactName) {
+      return NextResponse.json(
+        { message: "Prénom et nom du contact client obligatoires." },
+        { status: 400 }
+      );
+    }
+
     // Qualification du contact obligatoire : agence ou marque en direct + langue.
     // Route le contact vers le bon pipeline outreach à la fin de la collab
     // (jamais d'agence dans Outreach Clients).
@@ -243,11 +253,14 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Enregistrer l'email du client comme contact marque (dédup par email)
+    // Enregistrer le contact client sur la fiche marque (dédup par email),
+    // avec son vrai prénom/nom (et non la raison sociale).
+    const parsedContact = parseSenderName(contactName);
     await ensureMarqueContact({
       marqueId: data.marqueId,
       email: emailClient,
-      nom: String(billing.raisonSociale).trim() || null,
+      prenom: parsedContact.prenom || null,
+      nom: parsedContact.nom || contactName,
       principal: true,
     });
 

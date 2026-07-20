@@ -98,6 +98,19 @@ export async function PUT(
       return NextResponse.json({ error: "Email du contact client obligatoire" }, { status: 400 });
     }
 
+    // Prénom/nom du contact : obligatoire quand le champ est envoyé (formulaire
+    // d'édition) ; les PUT techniques qui ne le renvoient pas conservent l'existant.
+    let contactMarque: string | undefined;
+    if (data.contactMarque !== undefined) {
+      contactMarque = String(data.contactMarque || "").trim();
+      if (!contactMarque) {
+        return NextResponse.json(
+          { error: "Prénom et nom du contact client obligatoires" },
+          { status: 400 }
+        );
+      }
+    }
+
     // Qualification du contact (agence vs marque en direct + langue) : validée
     // strictement quand elle est envoyée (formulaire d'édition) ; les PUT
     // techniques qui ne renvoient pas ces champs (ex. contre-proposition)
@@ -174,7 +187,7 @@ export async function PUT(
           talentId: data.talentId,
           marqueId: data.marqueId || null,
           nomMarqueSaisi: nomMarqueSaisi ?? undefined,
-          contactMarque: data.contactMarque || null,
+          contactMarque,
           emailContact,
           contactKind,
           contactAgence,

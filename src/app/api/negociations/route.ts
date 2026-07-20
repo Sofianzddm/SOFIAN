@@ -117,6 +117,15 @@ export async function POST(request: NextRequest) {
     if (!emailContact || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailContact)) {
       return NextResponse.json({ message: "Email du contact client obligatoire" }, { status: 400 });
     }
+    // Prénom/nom du contact obligatoire : la fiche contact et le cycle outreach
+    // en ont besoin (personnalisation des mails).
+    const contactMarque = data.contactMarque ? String(data.contactMarque).trim() : "";
+    if (!contactMarque) {
+      return NextResponse.json(
+        { message: "Prénom et nom du contact client obligatoires" },
+        { status: 400 }
+      );
+    }
     // Qualification du contact obligatoire : agence ou marque en direct + langue.
     // Route le contact vers le bon pipeline outreach à la clôture du deal
     // (jamais d'agence dans Outreach Clients).
@@ -158,7 +167,7 @@ export async function POST(request: NextRequest) {
       await ensureMarqueContact({
         marqueId,
         email: emailContact,
-        nom: data.contactMarque || null,
+        nom: contactMarque,
       });
     }
     // TM ne gère que les entrants → forcer INBOUND côté serveur
@@ -173,7 +182,7 @@ export async function POST(request: NextRequest) {
         talentId: data.talentId,
         marqueId,
         nomMarqueSaisi: nomMarqueSaisi || null,
-        contactMarque: data.contactMarque || null,
+        contactMarque,
         emailContact,
         contactKind,
         contactAgence: contactAgence || null,

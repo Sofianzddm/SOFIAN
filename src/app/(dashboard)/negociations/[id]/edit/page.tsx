@@ -264,6 +264,11 @@ export default function EditNegociationPage() {
       return;
     }
 
+    if (!formData.contactMarque.trim()) {
+      alert("Le prénom et nom du contact client sont obligatoires.");
+      return;
+    }
+
     if (formData.contactKind !== "MARQUE" && formData.contactKind !== "AGENCE") {
       alert("Précisez si le contact est la marque en direct ou une agence.");
       return;
@@ -461,15 +466,17 @@ export default function EditNegociationPage() {
 
           <div className="grid md:grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Contact marque</label>
+              <label className={labelClass}>Contact marque (prénom et nom) *</label>
               <input
                 type="text"
                 name="contactMarque"
                 value={formData.contactMarque}
                 onChange={(e) => setFormData({ ...formData, contactMarque: e.target.value })}
-                placeholder="Prénom Nom"
+                placeholder="Ex: Marie Dupont"
+                required
                 className={inputClass}
               />
+              <p className="text-xs text-gray-500 mt-1">Obligatoire : sert à la fiche contact et aux futurs mails du cycle.</p>
             </div>
 
             <div>
