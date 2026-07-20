@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       projetSlug?: string;
       nomMarque?: string;
+      marqueId?: string;
       secteur?: string;
       angleNote?: string;
       budgetEstime?: number;
@@ -61,25 +62,52 @@ export async function POST(request: NextRequest) {
       ownerId?: string | null;
     };
 
-    const nomMarque = (body.nomMarque || "").trim();
-    if (!nomMarque) {
-      return NextResponse.json({ error: "nomMarque est requis" }, { status: 400 });
-    }
-
     const projetSlug = (body.projetSlug || "villa-cannes").trim();
     const projet = await getOrCreateVillaProject(projetSlug);
 
-    const linked = await linkMarqueFromBrandName({
-      brandName: nomMarque,
-      source: "OPPORTUNITE_MARQUE",
-      createDefaults: { secteur: body.secteur?.trim() || null },
-    });
+    // Envoi depuis une fiche marque : le client fournit directement marqueId,
+    // on lie sans passer par la résolution floue sur le nom.
+    let nomMarque = (body.nomMarque || "").trim();
+    let marqueId: string | null = null;
+
+    if (body.marqueId) {
+      const marque = await prisma.marque.findUnique({
+        where: { id: body.marqueId },
+        select: { id: true, nom: true, secteur: true },
+      });
+      if (!marque) {
+        return NextResponse.json({ error: "Marque introuvable" }, { status: 404 });
+      }
+      const dejaPresente = await prisma.opportuniteMarque.findFirst({
+        where: { projetId: projet.id, marqueId: marque.id },
+        select: { id: true },
+      });
+      if (dejaPresente) {
+        return NextResponse.json(
+          { error: `${marque.nom} est déjà dans ce projet.` },
+          { status: 409 }
+        );
+      }
+      marqueId = marque.id;
+      nomMarque = nomMarque || marque.nom;
+      if (!body.secteur && marque.secteur) body.secteur = marque.secteur;
+    } else {
+      if (!nomMarque) {
+        return NextResponse.json({ error: "nomMarque est requis" }, { status: 400 });
+      }
+      const linked = await linkMarqueFromBrandName({
+        brandName: nomMarque,
+        source: "OPPORTUNITE_MARQUE",
+        createDefaults: { secteur: body.secteur?.trim() || null },
+      });
+      marqueId = linked?.marqueId ?? null;
+    }
 
     const opportunite = await prisma.opportuniteMarque.create({
       data: {
         projetId: projet.id,
         nomMarque,
-        marqueId: linked?.marqueId ?? null,
+        marqueId,
         secteur: body.secteur?.trim() || null,
         angleNote: body.angleNote?.trim() || null,
         budgetEstime: typeof body.budgetEstime === "number" ? body.budgetEstime : null,

@@ -41,6 +41,7 @@ import {
   ReceiptText,
   Star,
   Download,
+  Briefcase,
 } from "lucide-react";
 import { MarqueCrmTab } from "./MarqueCrmTab";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
@@ -142,6 +143,14 @@ type MarqueLite = { id: string; nom: string; secteur?: string | null; ville?: st
 
 const INK = "#16110F";
 const ROSE = "#C08B8B";
+
+/** Projets strategy vers lesquels on peut envoyer la marque (mêmes slugs que la sidebar). */
+const STRATEGY_PROJECTS = [
+  { slug: "villa-cannes", nom: "Villa Cannes 2026" },
+  { slug: "ski-trip", nom: "Ski Trip 2027" },
+  { slug: "coachella-2026", nom: "Coachella 2026" },
+  { slug: "ynov-campus", nom: "Ynov Campus" },
+] as const;
 
 const COLLAB_STATUS_STYLE: Record<string, string> = {
   PAYE: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
@@ -505,6 +514,14 @@ export default function MarqueDetailPage() {
   const [assignBusy, setAssignBusy] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
 
+  // Envoi de la marque vers un projet strategy (Ski Trip, Villa Cannes, ...)
+  const canStrategy = ["ADMIN", "STRATEGY_PLANNER"].includes(session?.user?.role || "");
+  const [strategyPickerOpen, setStrategyPickerOpen] = useState(false);
+  const [sendingToProject, setSendingToProject] = useState<string | null>(null);
+  const [strategyFlash, setStrategyFlash] = useState<
+    { type: "success" | "error"; message: string; projetSlug?: string; projetNom?: string } | null
+  >(null);
+
   const fetchMarque = useCallback(async () => {
     try {
       const res = await fetch(`/api/marques/${params.id}`);
@@ -703,6 +720,46 @@ export default function MarqueDetailPage() {
       if (res.ok) await fetchMarque();
     } finally {
       setAssignBusy(false);
+    }
+  };
+
+  /** Envoie la marque vers un projet strategy (crée une opportunité « À qualifier »). */
+  const sendToStrategyProject = async (projet: { slug: string; nom: string }) => {
+    if (!marque || sendingToProject) return;
+    setSendingToProject(projet.slug);
+    setStrategyFlash(null);
+    try {
+      const res = await fetch("/api/strategy/opportunites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projetSlug: projet.slug,
+          marqueId: marque.id,
+          nomMarque: marque.nom,
+          secteur: marque.secteur || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setStrategyFlash({
+          type: "success",
+          message: `${marque.nom} ajoutée au projet ${projet.nom}.`,
+          projetSlug: projet.slug,
+          projetNom: projet.nom,
+        });
+        setStrategyPickerOpen(false);
+      } else {
+        setStrategyFlash({
+          type: "error",
+          message: data.error || "Erreur lors de l'envoi vers le projet.",
+        });
+      }
+      setTimeout(() => setStrategyFlash(null), 8000);
+    } catch {
+      setStrategyFlash({ type: "error", message: "Erreur lors de l'envoi vers le projet." });
+      setTimeout(() => setStrategyFlash(null), 8000);
+    } finally {
+      setSendingToProject(null);
     }
   };
 
@@ -1087,8 +1144,54 @@ export default function MarqueDetailPage() {
             </span>
           </div>
 
-          {!readOnly && (
+          {(!readOnly || canStrategy) && (
             <div className="flex items-center gap-2 shrink-0">
+              {canStrategy && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setStrategyPickerOpen((o) => !o)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
+                    style={{ color: INK }}
+                  >
+                    {sendingToProject ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: ROSE }} />
+                    ) : (
+                      <Briefcase className="w-3.5 h-3.5" style={{ color: ROSE }} />
+                    )}
+                    Stratégie
+                  </button>
+                  {strategyPickerOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setStrategyPickerOpen(false)} />
+                      <div className="absolute right-0 top-full mt-1.5 z-20 w-60 rounded-xl bg-white ring-1 ring-black/[0.08] shadow-lg py-1.5">
+                        <p className="px-3 pt-1 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">
+                          Envoyer vers un projet
+                        </p>
+                        {STRATEGY_PROJECTS.map((projet) => (
+                          <button
+                            key={projet.slug}
+                            type="button"
+                            disabled={!!sendingToProject}
+                            onClick={() => sendToStrategyProject(projet)}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-left hover:bg-gray-50 transition-colors disabled:opacity-50"
+                            style={{ color: INK }}
+                          >
+                            {sendingToProject === projet.slug ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" style={{ color: ROSE }} />
+                            ) : (
+                              <Briefcase className="w-3.5 h-3.5 shrink-0 text-gray-300" />
+                            )}
+                            {projet.nom}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              {!readOnly && (
+              <>
               <Link
                 href="/outreach"
                 className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
@@ -1120,9 +1223,33 @@ export default function MarqueDetailPage() {
               >
                 <Trash2 className="w-4 h-4" />
               </button>
+              </>
+              )}
             </div>
           )}
         </div>
+
+        {strategyFlash && (
+          <div
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] ring-1 ring-inset"
+            style={
+              strategyFlash.type === "success"
+                ? { backgroundColor: "#F8FCEF", color: "#3D8B40" }
+                : { backgroundColor: "#FEF2F2", color: "#B91C1C" }
+            }
+          >
+            {strategyFlash.type === "success" ? <Check className="w-4 h-4 shrink-0" /> : <X className="w-4 h-4 shrink-0" />}
+            <span>{strategyFlash.message}</span>
+            {strategyFlash.projetSlug && (
+              <Link
+                href={`/strategy/projets/${strategyFlash.projetSlug}`}
+                className="font-semibold underline underline-offset-2 hover:opacity-80"
+              >
+                Voir le projet
+              </Link>
+            )}
+          </div>
+        )}
 
         {/* ====================== Identité ====================== */}
         <div className="flex items-center gap-4">
