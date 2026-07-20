@@ -98,6 +98,36 @@ export async function PUT(
       return NextResponse.json({ error: "Email du contact client obligatoire" }, { status: 400 });
     }
 
+    // Qualification du contact (agence vs marque en direct + langue) : validée
+    // strictement quand elle est envoyée (formulaire d'édition) ; les PUT
+    // techniques qui ne renvoient pas ces champs (ex. contre-proposition)
+    // conservent les valeurs existantes.
+    let contactKind: string | undefined;
+    let contactAgence: string | null | undefined;
+    if (data.contactKind !== undefined) {
+      contactKind = String(data.contactKind || "").trim().toUpperCase();
+      if (contactKind !== "MARQUE" && contactKind !== "AGENCE") {
+        return NextResponse.json(
+          { error: "Précisez si le contact est la marque en direct ou une agence" },
+          { status: 400 }
+        );
+      }
+      contactAgence =
+        contactKind === "AGENCE" ? String(data.contactAgence || "").trim() : null;
+      if (contactKind === "AGENCE" && !contactAgence) {
+        return NextResponse.json(
+          { error: "Nom de l'agence obligatoire quand le contact est une agence" },
+          { status: 400 }
+        );
+      }
+    }
+    const contactLanguage: string | undefined =
+      data.contactLanguage !== undefined
+        ? String(data.contactLanguage || "").trim().toLowerCase() === "en"
+          ? "en"
+          : "fr"
+        : undefined;
+
     // Récupérer la négociation actuelle
     const negoActuelle = await prisma.negociation.findUnique({
       where: { id },
@@ -146,6 +176,9 @@ export async function PUT(
           nomMarqueSaisi: nomMarqueSaisi ?? undefined,
           contactMarque: data.contactMarque || null,
           emailContact,
+          contactKind,
+          contactAgence,
+          contactLanguage,
           // TM ne gère que les entrants → forcer INBOUND côté serveur
           source: isTM ? "INBOUND" : data.source || negoActuelle.source,
           brief: data.brief || null,

@@ -78,6 +78,11 @@ export default function NewNegociationPage() {
     nomMarqueSaisi: searchParams.get("marque") || "", // Nom libre ; fiche marque créée/reliée à la validation
     contactMarque: "",
     emailContact: "",
+    // Qualification obligatoire : route le contact vers le bon pipeline
+    // outreach à la clôture du deal (agence → Prospection Agences uniquement).
+    contactKind: "" as "" | "MARQUE" | "AGENCE",
+    contactAgence: "",
+    contactLanguage: "fr" as "fr" | "en",
     source: "INBOUND" as "INBOUND" | "OUTBOUND",
     brief: "",
     budgetMarque: "",
@@ -256,6 +261,15 @@ export default function NewNegociationPage() {
       return;
     }
 
+    if (formData.contactKind !== "MARQUE" && formData.contactKind !== "AGENCE") {
+      alert("Précisez si le contact est la marque en direct ou une agence.");
+      return;
+    }
+    if (formData.contactKind === "AGENCE" && !formData.contactAgence.trim()) {
+      alert("Indiquez le nom de l'agence.");
+      return;
+    }
+
     setLoading(true);
     try {
       // 1. Créer la négociation (BROUILLON)
@@ -384,6 +398,59 @@ export default function NewNegociationPage() {
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">Obligatoire : email du contact côté marque/client.</p>
+              </div>
+            </div>
+
+            {/* Qualification du contact : agence vs marque en direct + langue */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Type de contact *</label>
+                <div className="relative">
+                  <select
+                    name="contactKind"
+                    value={formData.contactKind}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-3 pr-8 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm"
+                  >
+                    <option value="">Sélectionner</option>
+                    <option value="MARQUE">Marque en direct</option>
+                    <option value="AGENCE">Agence</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Une agence part en Prospection Agences après le deal, jamais dans Outreach Clients.
+                </p>
+              </div>
+              {formData.contactKind === "AGENCE" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom de l&apos;agence *</label>
+                  <input
+                    type="text"
+                    name="contactAgence"
+                    value={formData.contactAgence}
+                    onChange={handleChange}
+                    placeholder="Ex: WOO, Influence4You…"
+                    required
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Langue du contact *</label>
+                <div className="relative">
+                  <select
+                    name="contactLanguage"
+                    value={formData.contactLanguage}
+                    onChange={handleChange}
+                    className="w-full px-3 pr-8 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm"
+                  >
+                    <option value="fr">Français</option>
+                    <option value="en">Anglais</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
               </div>
             </div>
           </div>

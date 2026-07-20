@@ -117,6 +117,26 @@ export async function POST(request: NextRequest) {
     if (!emailContact || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailContact)) {
       return NextResponse.json({ message: "Email du contact client obligatoire" }, { status: 400 });
     }
+    // Qualification du contact obligatoire : agence ou marque en direct + langue.
+    // Route le contact vers le bon pipeline outreach à la clôture du deal
+    // (jamais d'agence dans Outreach Clients).
+    const contactKind = String(data.contactKind || "").trim().toUpperCase();
+    if (contactKind !== "MARQUE" && contactKind !== "AGENCE") {
+      return NextResponse.json(
+        { message: "Précisez si le contact est la marque en direct ou une agence" },
+        { status: 400 }
+      );
+    }
+    const contactAgence =
+      contactKind === "AGENCE" ? String(data.contactAgence || "").trim() : "";
+    if (contactKind === "AGENCE" && !contactAgence) {
+      return NextResponse.json(
+        { message: "Nom de l'agence obligatoire quand le contact est une agence" },
+        { status: 400 }
+      );
+    }
+    const contactLanguage =
+      String(data.contactLanguage || "").trim().toLowerCase() === "en" ? "en" : "fr";
 
     // Générer la référence NEG-2026-0001
     const year = new Date().getFullYear();
@@ -155,6 +175,9 @@ export async function POST(request: NextRequest) {
         nomMarqueSaisi: nomMarqueSaisi || null,
         contactMarque: data.contactMarque || null,
         emailContact,
+        contactKind,
+        contactAgence: contactAgence || null,
+        contactLanguage,
         source,
         brief: data.brief || null,
         budgetMarque: data.budgetMarque ? parseFloat(data.budgetMarque) : null,

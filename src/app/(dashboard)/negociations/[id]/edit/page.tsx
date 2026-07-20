@@ -90,6 +90,11 @@ export default function EditNegociationPage() {
     source: "INBOUND",
     contactMarque: "",
     emailContact: "",
+    // Qualification obligatoire : route le contact vers le bon pipeline
+    // outreach à la clôture du deal (agence → Prospection Agences uniquement).
+    contactKind: "" as "" | "MARQUE" | "AGENCE",
+    contactAgence: "",
+    contactLanguage: "fr" as "fr" | "en",
     brief: "",
     budgetMarque: "",
     budgetSouhaite: "",
@@ -122,6 +127,9 @@ export default function EditNegociationPage() {
           source: nego.source,
           contactMarque: nego.contactMarque || "",
           emailContact: nego.emailContact || "",
+          contactKind: nego.contactKind === "AGENCE" ? "AGENCE" : nego.contactKind === "MARQUE" ? "MARQUE" : "",
+          contactAgence: nego.contactAgence || "",
+          contactLanguage: nego.contactLanguage === "en" ? "en" : "fr",
           brief: nego.brief || "",
           budgetMarque: nego.budgetMarque || "",
           budgetSouhaite: nego.budgetSouhaite || "",
@@ -246,6 +254,15 @@ export default function EditNegociationPage() {
       return;
     }
 
+    if (formData.contactKind !== "MARQUE" && formData.contactKind !== "AGENCE") {
+      alert("Précisez si le contact est la marque en direct ou une agence.");
+      return;
+    }
+    if (formData.contactKind === "AGENCE" && !formData.contactAgence.trim()) {
+      alert("Indiquez le nom de l'agence.");
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch(`/api/negociations/${params.id}`, {
@@ -257,6 +274,9 @@ export default function EditNegociationPage() {
           source: formData.source,
           contactMarque: formData.contactMarque,
           emailContact: formData.emailContact,
+          contactKind: formData.contactKind,
+          contactAgence: formData.contactAgence || null,
+          contactLanguage: formData.contactLanguage,
           brief: formData.brief,
           budgetMarque: formData.budgetMarque || null,
           budgetSouhaite: formData.budgetSouhaite || null,
@@ -454,6 +474,53 @@ export default function EditNegociationPage() {
                 className={inputClass}
               />
               <p className="text-xs text-gray-500 mt-1">Obligatoire : email du contact côté marque/client.</p>
+            </div>
+          </div>
+
+          {/* Qualification du contact : agence vs marque en direct + langue */}
+          <div className="grid md:grid-cols-3 gap-4 mt-4">
+            <div>
+              <label className={labelClass}>Type de contact *</label>
+              <select
+                name="contactKind"
+                value={formData.contactKind}
+                onChange={(e) => setFormData({ ...formData, contactKind: e.target.value as any })}
+                required
+                className={inputClass}
+              >
+                <option value="">Sélectionner</option>
+                <option value="MARQUE">Marque en direct</option>
+                <option value="AGENCE">Agence</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Une agence part en Prospection Agences après le deal, jamais dans Outreach Clients.
+              </p>
+            </div>
+            {formData.contactKind === "AGENCE" && (
+              <div>
+                <label className={labelClass}>Nom de l&apos;agence *</label>
+                <input
+                  type="text"
+                  name="contactAgence"
+                  value={formData.contactAgence}
+                  onChange={(e) => setFormData({ ...formData, contactAgence: e.target.value })}
+                  placeholder="Ex: WOO, Influence4You…"
+                  required
+                  className={inputClass}
+                />
+              </div>
+            )}
+            <div>
+              <label className={labelClass}>Langue du contact *</label>
+              <select
+                name="contactLanguage"
+                value={formData.contactLanguage}
+                onChange={(e) => setFormData({ ...formData, contactLanguage: e.target.value as any })}
+                className={inputClass}
+              >
+                <option value="fr">Français</option>
+                <option value="en">Anglais</option>
+              </select>
             </div>
           </div>
         </div>

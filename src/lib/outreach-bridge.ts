@@ -13,13 +13,16 @@
  *     (réponse reçue ou séquence de relances épuisée) rejoint le cycle
  *     perpétuel au lieu de disparaître des radars.
  *
- * Routage : email déjà suivi → on repousse simplement son compteur ; email /
- * domaine d'une agence partenaire (Partner) → pipeline Prospection Agences ;
- * sinon → pipeline Outreach Clients (marque résolue/créée via le CRM).
+ * Routage : email déjà suivi → on repousse simplement son compteur ; contact
+ * qualifié « AGENCE » à la saisie (négo/inbound) → pipeline Prospection
+ * Agences, agence créée à la volée si inconnue ; email / domaine d'une agence
+ * partenaire (Partner) → pipeline Prospection Agences ; sinon → pipeline
+ * Outreach Clients (marque résolue/créée via le CRM).
  */
 
 import { prisma } from "@/lib/prisma";
 import { OUTREACH_RECONTACT_DAYS } from "@/lib/outreach-send";
+import { findOrCreatePartnerByName } from "@/lib/agency-partner";
 import {
   emailDomain,
   isGenericEmailDomain,
@@ -161,6 +164,15 @@ export type BridgeInput = {
   company?: string | null;
   /** Marque CRM déjà liée au flux entrant, si connue. */
   marqueId?: string | null;
+  /**
+   * Qualification manuelle du contact : "AGENCE" force le routage vers la
+   * Prospection Agences (agence créée à la volée si inconnue), même si le
+   * domaine ne matche aucune agence en base. "MARQUE" / null : routage normal
+   * (la détection par domaine d'agence connue reste prioritaire, par sécurité).
+   */
+  contactKind?: string | null;
+  /** Nom de l'agence saisi (si contactKind = AGENCE). */
+  contactAgence?: string | null;
   language?: string | null;
   /** Date du dernier échange : le compteur 45j part de là. */
   lastExchangeAt: Date;
@@ -216,47 +228,7 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
     `recontact planifié au ${formatFrDate(nextRecontactAt)} (J+${OUTREACH_RECONTACT_DAYS}).`;
 
   const resolution = await resolveOutreachPipeline(email);
-
-  // 1. Déjà suivi quelque part : on repousse juste son compteur.
-  if (resolution.kind === "existing-target") {
-    const { pipeline, target } = resolution;
-    if (target.status === "STOPPED") {
-      return {
-        ok: true,
-        action: "skipped-stopped",
-        pipeline,
-        targetId: target.id,
-        company: target.company,
-      };
-    }
-
-    // Jamais avancé : si le compteur existant est déjà plus loin, on le garde.
-    const keepExisting =
-      target.nextRecontactAt &&
-      target.nextRecontactAt.getTime() >= nextRecontactAt.getTime();
-    const data = {
-      status: "WAITING" as const,
-      ...(keepExisting ? {} : { nextRecontactAt }),
-      autoRescheduleReason: reason,
-      autoRescheduledAt: new Date(),
-    };
-
-    if (pipeline === "client") {
-      await prisma.outreachTarget.update({ where: { id: target.id }, data });
-    } else if (pipeline === "agency") {
-      await prisma.agencyOutreachTarget.update({ where: { id: target.id }, data });
-    } else {
-      await prisma.beneluxOutreachTarget.update({ where: { id: target.id }, data });
-    }
-
-    return {
-      ok: true,
-      action: "rescheduled",
-      pipeline,
-      targetId: target.id,
-      company: target.company,
-    };
-  }
+  const forcedAgency = (input.contactKind || "").trim().toUpperCase() === "AGENCE";
 
   const fallbackName = parseSenderName(
     [input.firstname, input.lastname].filter(Boolean).join(" ") ||
@@ -265,9 +237,50 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
   const firstname = (input.firstname || "").trim() || fallbackName.prenom || fallbackName.nom;
   const lastname = (input.lastname || "").trim() || (fallbackName.prenom ? fallbackName.nom : "");
 
-  // 2. Agence partenaire connue : pipeline Prospection Agences.
-  if (resolution.kind === "known-agency") {
-    const { partner } = resolution;
+  /** Entre le contact en Prospection Agences (contact + target sous `partner`). */
+  const enterAgencyPipeline = async (partner: {
+    id: string;
+    name: string;
+    slug: string;
+    market: string;
+  }): Promise<BridgeResult> => {
+    // L'email peut déjà avoir un target agence (ex. migration depuis un
+    // pipeline marque alors qu'un doublon historique existait) : on le
+    // re-planifie au lieu de violer l'unicité de l'email.
+    const existing = await prisma.agencyOutreachTarget.findUnique({
+      where: { email },
+      select: { id: true, company: true, status: true, nextRecontactAt: true },
+    });
+    if (existing) {
+      if (existing.status === "STOPPED") {
+        return {
+          ok: true,
+          action: "skipped-stopped",
+          pipeline: "agency",
+          targetId: existing.id,
+          company: existing.company,
+        };
+      }
+      const keepExisting =
+        existing.nextRecontactAt &&
+        existing.nextRecontactAt.getTime() >= nextRecontactAt.getTime();
+      await prisma.agencyOutreachTarget.update({
+        where: { id: existing.id },
+        data: {
+          status: "WAITING",
+          ...(keepExisting ? {} : { nextRecontactAt }),
+          autoRescheduleReason: reason,
+          autoRescheduledAt: new Date(),
+        },
+      });
+      return {
+        ok: true,
+        action: "rescheduled",
+        pipeline: "agency",
+        targetId: existing.id,
+        company: existing.company,
+      };
+    }
 
     const contact = await prisma.agencyContact.upsert({
       where: { partnerId_email: { partnerId: partner.id, email } },
@@ -308,6 +321,91 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
       targetId: target.id,
       company: partner.name,
     };
+  };
+
+  // 1. Déjà suivi quelque part : on repousse juste son compteur.
+  if (resolution.kind === "existing-target") {
+    const { pipeline, target } = resolution;
+    if (target.status === "STOPPED") {
+      return {
+        ok: true,
+        action: "skipped-stopped",
+        pipeline,
+        targetId: target.id,
+        company: target.company,
+      };
+    }
+
+    // Requalifié AGENCE alors qu'il est suivi dans un pipeline marque : on
+    // stoppe l'ancien target (trace conservée) et il migre vers la Prospection
+    // Agences — jamais d'agence dans Outreach Clients / Benelux.
+    if (forcedAgency && pipeline !== "agency") {
+      const migrationNote =
+        `Contact requalifié « agence » (${sourceLabel}) : ` +
+        `déplacé vers Prospection Agences le ${formatFrDate(new Date())}.`;
+      const stopData = {
+        status: "STOPPED" as const,
+        autoRescheduleReason: migrationNote,
+        autoRescheduledAt: new Date(),
+      };
+      if (pipeline === "client") {
+        await prisma.outreachTarget.update({ where: { id: target.id }, data: stopData });
+      } else {
+        await prisma.beneluxOutreachTarget.update({ where: { id: target.id }, data: stopData });
+      }
+
+      const agencyName =
+        (input.contactAgence || "").trim() || target.company || (input.company || "").trim();
+      if (!agencyName) return { ok: false, reason: "agence-sans-nom" };
+      const partner = await findOrCreatePartnerByName(agencyName, input.createdById);
+      return enterAgencyPipeline(partner);
+    }
+
+    // Jamais avancé : si le compteur existant est déjà plus loin, on le garde.
+    const keepExisting =
+      target.nextRecontactAt &&
+      target.nextRecontactAt.getTime() >= nextRecontactAt.getTime();
+    const data = {
+      status: "WAITING" as const,
+      ...(keepExisting ? {} : { nextRecontactAt }),
+      autoRescheduleReason: reason,
+      autoRescheduledAt: new Date(),
+    };
+
+    if (pipeline === "client") {
+      await prisma.outreachTarget.update({ where: { id: target.id }, data });
+    } else if (pipeline === "agency") {
+      await prisma.agencyOutreachTarget.update({ where: { id: target.id }, data });
+    } else {
+      await prisma.beneluxOutreachTarget.update({ where: { id: target.id }, data });
+    }
+
+    return {
+      ok: true,
+      action: "rescheduled",
+      pipeline,
+      targetId: target.id,
+      company: target.company,
+    };
+  }
+
+  // 2. Agence partenaire connue (email/domaine) : pipeline Prospection Agences.
+  if (resolution.kind === "known-agency") {
+    return enterAgencyPipeline(resolution.partner);
+  }
+
+  // 2bis. Qualifié AGENCE à la saisie mais agence inconnue en base : on crée
+  // le Partner à la volée (nom saisi, sinon marque/domaine) et il entre en
+  // Prospection Agences — il ne passera jamais par Outreach Clients.
+  if (forcedAgency) {
+    const agencyName =
+      (input.contactAgence || "").trim() ||
+      (input.company || "").trim() ||
+      brandNameFromEmailDomain(email) ||
+      "";
+    if (!agencyName) return { ok: false, reason: "agence-sans-nom" };
+    const partner = await findOrCreatePartnerByName(agencyName, input.createdById);
+    return enterAgencyPipeline(partner);
   }
 
   // 3. Pipeline Outreach Clients : marque requise (liée, ou résolue par nom /
@@ -392,6 +490,7 @@ export type BridgeSweepResult = {
   inboundProcessed: number;
   demandesProcessed: number;
   negosProcessed: number;
+  collabsProcessed: number;
   created: number;
   rescheduled: number;
   skipped: number;
@@ -440,6 +539,8 @@ async function resolveBridgeCreatedById(): Promise<string | null> {
  *  - DemandeEntrante : status "repondu" ou "relance_terminee".
  *  - Negociation : refusée/annulée, ou devenue collaboration (hors collab
  *    encore en négo) — le contact marque du deal revient dans la boucle.
+ *  - Collaboration directe (sans négo) : publiée / facturée / payée / perdue —
+ *    le contact billing de la marque revient dans la boucle.
  *
  * Idempotent : chaque ligne traitée est marquée (outreachBridgedAt), y compris
  * en cas d'échec de routage (ref "skipped:<raison>") pour ne pas boucler.
@@ -449,6 +550,7 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
     inboundProcessed: 0,
     demandesProcessed: 0,
     negosProcessed: 0,
+    collabsProcessed: 0,
     created: 0,
     rescheduled: 0,
     skipped: 0,
@@ -490,6 +592,9 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
       senderName: true,
       extractedBrand: true,
       marqueId: true,
+      contactKind: true,
+      contactAgence: true,
+      contactLanguage: true,
       receivedAt: true,
       sentAt: true,
       relance1SentAt: true,
@@ -523,6 +628,9 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
         lastname: sender.prenom ? sender.nom : null,
         company: opp.extractedBrand,
         marqueId: opp.marqueId,
+        contactKind: opp.contactKind,
+        contactAgence: opp.contactAgence,
+        language: opp.contactLanguage,
         lastExchangeAt,
         createdById,
         sourceLabel: "inbound",
@@ -580,6 +688,9 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
       id: true,
       emailContact: true,
       contactMarque: true,
+      contactKind: true,
+      contactAgence: true,
+      contactLanguage: true,
       nomMarqueSaisi: true,
       marqueId: true,
       dateValidation: true,
@@ -607,6 +718,9 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
         lastname: sender.prenom ? sender.nom : null,
         company: nego.nomMarqueSaisi,
         marqueId: nego.marqueId || nego.collaboration?.marqueId,
+        contactKind: nego.contactKind,
+        contactAgence: nego.contactAgence,
+        language: nego.contactLanguage,
         lastExchangeAt,
         createdById,
         sourceLabel: "négo/collab",
@@ -624,6 +738,89 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
         data: { outreachBridgedAt: new Date(), outreachTargetRef: ref },
       })
       .catch((e) => console.warn(`[outreach-bridge] marquage négo ${nego.id}:`, e));
+  }
+
+  // --- Collaborations directes terminées (créées sans négo) ---
+  // Les collabs issues d'une négo sont bridgées via la négo ; ici on couvre
+  // les collabs saisies en direct (formulaire + billing). Le contact client
+  // (email billing → contact principal de la marque) entre dans le cycle une
+  // fois la collab publiée / facturée / payée (ou perdue).
+  const collabs = await prisma.collaboration.findMany({
+    where: {
+      outreachBridgedAt: null,
+      negociation: { is: null },
+      statut: { in: ["PERDU", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
+    },
+    orderBy: { updatedAt: "asc" },
+    take: SWEEP_BATCH_SIZE,
+    select: {
+      id: true,
+      marqueId: true,
+      contactKind: true,
+      contactAgence: true,
+      contactLanguage: true,
+      datePublication: true,
+      factureTalentRecueAt: true,
+      marquePayeeAt: true,
+      paidAt: true,
+      updatedAt: true,
+      marque: {
+        select: {
+          nom: true,
+          contacts: {
+            where: { email: { not: null } },
+            orderBy: [{ principal: "desc" }, { createdAt: "desc" }],
+            take: 1,
+            select: { email: true, prenom: true, nom: true, language: true },
+          },
+        },
+      },
+    },
+  });
+
+  for (const collab of collabs) {
+    result.collabsProcessed += 1;
+    const contact = collab.marque.contacts[0];
+    let ref: string;
+    if (!contact?.email) {
+      result.skipped += 1;
+      ref = "skipped:email-manquant";
+    } else {
+      const lastExchangeAt =
+        maxDate(
+          collab.datePublication,
+          collab.factureTalentRecueAt,
+          collab.marquePayeeAt,
+          collab.paidAt
+        ) || collab.updatedAt;
+      try {
+        const bridge = await bridgeContactToOutreach({
+          email: contact.email,
+          firstname: contact.prenom,
+          lastname: contact.prenom ? contact.nom : null,
+          company: collab.marque.nom,
+          marqueId: collab.marqueId,
+          contactKind: collab.contactKind,
+          contactAgence: collab.contactAgence,
+          language: collab.contactLanguage || contact.language,
+          lastExchangeAt,
+          createdById,
+          sourceLabel: "collaboration",
+        });
+        ref = applyResult(bridge);
+      } catch (error) {
+        console.warn(`[outreach-bridge] collab ${collab.id} (${contact.email}):`, error);
+        result.skipped += 1;
+        ref = "skipped:erreur";
+      }
+    }
+
+    await prisma.collaboration
+      .update({
+        where: { id: collab.id },
+        data: { outreachBridgedAt: new Date(), outreachTargetRef: ref },
+      })
+      .catch((e) => console.warn(`[outreach-bridge] marquage collab ${collab.id}:`, e));
   }
 
   for (const demande of demandes) {

@@ -128,6 +128,14 @@ export default function NewCollaborationPage() {
     numeroTVA: "",
   });
 
+  // Qualification obligatoire du contact client : agence ou marque en direct
+  // + langue. Route le contact vers le bon pipeline outreach après la collab.
+  const [contactQualif, setContactQualif] = useState({
+    contactKind: "" as "" | "MARQUE" | "AGENCE",
+    contactAgence: "",
+    contactLanguage: "fr" as "fr" | "en",
+  });
+
   const [livrables, setLivrables] = useState<Livrable[]>([
     {
       id: "1",
@@ -305,6 +313,15 @@ export default function NewCollaborationPage() {
       return;
     }
 
+    if (contactQualif.contactKind !== "MARQUE" && contactQualif.contactKind !== "AGENCE") {
+      alert("Précisez si le contact est la marque en direct ou une agence.");
+      return;
+    }
+    if (contactQualif.contactKind === "AGENCE" && !contactQualif.contactAgence.trim()) {
+      alert("Indiquez le nom de l'agence.");
+      return;
+    }
+
     setLoading(true);
     try {
       // 1. Créer la marque avec les infos de facturation
@@ -338,6 +355,9 @@ export default function NewCollaborationPage() {
           ...formData,
           marqueId: marque.id,
           isPrivate: canSetPrivate ? formData.isPrivate : false,
+          contactKind: contactQualif.contactKind,
+          contactAgence: contactQualif.contactAgence.trim() || null,
+          contactLanguage: contactQualif.contactLanguage,
           livrables: validLivrables.map((l) => ({
             typeContenu: l.typeContenu,
             quantite: l.quantite,
@@ -514,6 +534,63 @@ export default function NewCollaborationPage() {
                   />
                   <p className="text-xs text-gray-500 mt-1">Obligatoire : email du contact client (devis, facture, signature).</p>
                 </div>
+
+                {/* Qualification du contact : agence vs marque en direct + langue */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Type de contact *</label>
+                    <select
+                      value={contactQualif.contactKind}
+                      onChange={(e) =>
+                        setContactQualif((prev) => ({
+                          ...prev,
+                          contactKind: e.target.value as "" | "MARQUE" | "AGENCE",
+                        }))
+                      }
+                      required
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm bg-white"
+                    >
+                      <option value="">Sélectionner</option>
+                      <option value="MARQUE">Marque en direct</option>
+                      <option value="AGENCE">Agence</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Une agence part en Prospection Agences après la collab, jamais dans Outreach Clients.
+                    </p>
+                  </div>
+                  {contactQualif.contactKind === "AGENCE" && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom de l&apos;agence *</label>
+                      <input
+                        type="text"
+                        value={contactQualif.contactAgence}
+                        onChange={(e) =>
+                          setContactQualif((prev) => ({ ...prev, contactAgence: e.target.value }))
+                        }
+                        placeholder="Ex: WOO, Influence4You…"
+                        required
+                        className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm"
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Langue du contact *</label>
+                    <select
+                      value={contactQualif.contactLanguage}
+                      onChange={(e) =>
+                        setContactQualif((prev) => ({
+                          ...prev,
+                          contactLanguage: e.target.value as "fr" | "en",
+                        }))
+                      }
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm bg-white"
+                    >
+                      <option value="fr">Français</option>
+                      <option value="en">Anglais</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">Adresse de facturation *</label>

@@ -32,16 +32,16 @@ export async function generateUniquePartnerSlug(baseSlug: string): Promise<strin
 export async function findOrCreatePartnerByName(
   name: string,
   createdBy: string
-): Promise<{ id: string; name: string; slug: string }> {
+): Promise<{ id: string; name: string; slug: string; market: string }> {
   const trimmed = name.trim();
   const existing = await prisma.partner.findFirst({
     where: { name: { equals: trimmed, mode: "insensitive" } },
-    select: { id: true, name: true, slug: true },
+    select: { id: true, name: true, slug: true, market: true },
   });
   if (existing) return existing;
   const slug = await generateUniquePartnerSlug(slugifyPartner(trimmed));
   return prisma.partner.create({
     data: { name: trimmed, slug, createdBy },
-    select: { id: true, name: true, slug: true },
+    select: { id: true, name: true, slug: true, market: true },
   });
 }

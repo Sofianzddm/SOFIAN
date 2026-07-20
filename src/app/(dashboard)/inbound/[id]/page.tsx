@@ -73,6 +73,9 @@ type Opportunity = {
   convertedToProspectionId?: string | null;
   outreachBridgedAt?: string | null;
   outreachTargetRef?: string | null;
+  contactKind?: string | null;
+  contactAgence?: string | null;
+  contactLanguage?: string | null;
 };
 
 // "agency:xyz" → "Prospection Agences", "client:xyz" → "Outreach Clients"…
@@ -107,6 +110,9 @@ export default function InboundDetailPage() {
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
+  // Qualification locale (le mode Agence n'est sauvegardé qu'avec un nom d'agence).
+  const [qualifKind, setQualifKind] = useState<"" | "MARQUE" | "AGENCE">("");
+  const [qualifAgence, setQualifAgence] = useState("");
   const [recentSends, setRecentSends] = useState<{
     windowDays: number;
     sameEmail: RecentSendEntry[];
@@ -127,7 +133,12 @@ export default function InboundDetailPage() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
-        setOpportunity(data.opportunity || null);
+        const opp: Opportunity | null = data.opportunity || null;
+        setOpportunity(opp);
+        setQualifKind(
+          opp?.contactKind === "AGENCE" ? "AGENCE" : opp?.contactKind === "MARQUE" ? "MARQUE" : ""
+        );
+        setQualifAgence(opp?.contactAgence || "");
       } catch {
         setOpportunity(null);
       } finally {
@@ -163,6 +174,35 @@ export default function InboundDetailPage() {
   const daysSince = (iso: string): number => {
     const ms = Date.now() - new Date(iso).getTime();
     return Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
+  };
+
+  // Qualification du contact (agence vs marque en direct + langue) : sauvegarde
+  // immédiate ; route le contact vers le bon pipeline outreach à la clôture.
+  const saveQualification = async (patch: {
+    contactKind?: string | null;
+    contactAgence?: string | null;
+    contactLanguage?: string;
+  }) => {
+    if (!opportunity) return;
+    const previous = opportunity;
+    setOpportunity({ ...opportunity, ...patch });
+    try {
+      const res = await fetch(`/api/inbound/opportunities/${opportunity.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      setOpportunity(data.opportunity || previous);
+    } catch (error) {
+      setOpportunity(previous);
+      setToast({
+        type: "error",
+        message: error instanceof Error ? error.message : "Erreur de sauvegarde",
+      });
+    }
   };
 
   const bodyText = useMemo(() => {
@@ -631,6 +671,69 @@ export default function InboundDetailPage() {
               {opportunity.extractedBudget ? <p><strong>Budget:</strong> {opportunity.extractedBudget}</p> : null}
               {opportunity.extractedDeadline ? <p><strong>Deadline:</strong> {opportunity.extractedDeadline}</p> : null}
               {opportunity.extractedDeliverables ? <p><strong>Deliverables:</strong> {opportunity.extractedDeliverables}</p> : null}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <h2 className="font-semibold text-slate-900">Qualification du contact</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Agence ou marque en direct + langue : une agence part en Prospection Agences
+              après l&apos;échange, jamais dans Outreach Clients.
+            </p>
+            <div className="mt-3 space-y-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Type de contact</label>
+                <select
+                  value={qualifKind}
+                  onChange={(e) => {
+                    const kind = e.target.value as "" | "MARQUE" | "AGENCE";
+                    setQualifKind(kind);
+                    if (kind !== "AGENCE") {
+                      setQualifAgence("");
+                      saveQualification({ contactKind: kind || null, contactAgence: null });
+                    }
+                  }}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">Non qualifié (détection auto par domaine)</option>
+                  <option value="MARQUE">Marque en direct</option>
+                  <option value="AGENCE">Agence</option>
+                </select>
+              </div>
+              {qualifKind === "AGENCE" && (
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">Nom de l&apos;agence *</label>
+                  <input
+                    type="text"
+                    value={qualifAgence}
+                    onChange={(e) => setQualifAgence(e.target.value)}
+                    onBlur={() => {
+                      const name = qualifAgence.trim();
+                      if (name) {
+                        saveQualification({ contactKind: "AGENCE", contactAgence: name });
+                      }
+                    }}
+                    placeholder="Ex: WOO, Influence4You…"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  />
+                  {!qualifAgence.trim() && (
+                    <p className="mt-1 text-xs text-amber-600">
+                      Indique le nom de l&apos;agence pour enregistrer la qualification.
+                    </p>
+                  )}
+                </div>
+              )}
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Langue du contact</label>
+                <select
+                  value={opportunity.contactLanguage === "en" ? "en" : "fr"}
+                  onChange={(e) => saveQualification({ contactLanguage: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="fr">Français</option>
+                  <option value="en">Anglais</option>
+                </select>
+              </div>
             </div>
           </div>
 

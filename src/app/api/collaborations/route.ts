@@ -208,6 +208,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Qualification du contact obligatoire : agence ou marque en direct + langue.
+    // Route le contact vers le bon pipeline outreach à la fin de la collab
+    // (jamais d'agence dans Outreach Clients).
+    const contactKind = String(data.contactKind || "").trim().toUpperCase();
+    if (contactKind !== "MARQUE" && contactKind !== "AGENCE") {
+      return NextResponse.json(
+        { message: "Précisez si le contact est la marque en direct ou une agence." },
+        { status: 400 }
+      );
+    }
+    const contactAgence =
+      contactKind === "AGENCE" ? String(data.contactAgence || "").trim() : "";
+    if (contactKind === "AGENCE" && !contactAgence) {
+      return NextResponse.json(
+        { message: "Nom de l'agence obligatoire quand le contact est une agence." },
+        { status: 400 }
+      );
+    }
+    const contactLanguage =
+      String(data.contactLanguage || "").trim().toLowerCase() === "en" ? "en" : "fr";
+
     // Mettre à jour les infos de facturation de la marque AVANT de créer la collaboration
     await prisma.marque.update({
       where: { id: data.marqueId },
@@ -247,6 +268,9 @@ export async function POST(request: NextRequest) {
         commissionEuros: parseFloat(data.commissionEuros) || 0,
         montantNet: parseFloat(data.montantNet) || 0,
         isLongTerme: data.isLongTerme || false,
+        contactKind,
+        contactAgence: contactAgence || null,
+        contactLanguage,
         statut: "EN_COURS", // Création manuelle = déjà en cours ; le TM peut mettre "Publié" en 1 clic
         createdById: user.id,
         isPrivate,

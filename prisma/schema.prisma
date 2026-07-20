@@ -906,6 +906,13 @@ model InboundOpportunity {
   relance2SentAt DateTime?
   replied        Boolean   @default(false)
 
+  // Qualification manuelle du contact : la personne écrit-elle pour la marque
+  // en direct ou via une agence ? null = non qualifié (le pont s'appuie alors
+  // sur la détection par domaine). Force le routage vers Prospection Agences.
+  contactKind     String? // "MARQUE" | "AGENCE"
+  contactAgence   String? // Nom de l'agence si contactKind = AGENCE
+  contactLanguage String  @default("fr") // "fr" | "en"
+
   // Pont vers le cycle outreach 45j : posé quand l'échange est clôturé et que
   // le contact a été ajouté (ou re-planifié) dans un pipeline outreach.
   // outreachTargetRef = "<pipeline>:<targetId>" ou "skipped:<raison>".
@@ -1074,6 +1081,13 @@ model Negociation {
 
   contactMarque String?
   emailContact  String?
+
+  // Qualification du contact (obligatoire à la saisie) : la personne écrit-elle
+  // pour la marque en direct ou via une agence ? Route le contact vers le bon
+  // pipeline outreach à la clôture du deal (jamais d'agence dans Outreach Clients).
+  contactKind     String  @default("MARQUE") // "MARQUE" | "AGENCE"
+  contactAgence   String? // Nom de l'agence si contactKind = AGENCE
+  contactLanguage String  @default("fr") // "fr" | "en"
 
   source Source @default(INBOUND)
 
@@ -1244,6 +1258,18 @@ model Collaboration {
    * Date du dépôt du PDF / scan officiellement signé (glisser-déposer « version finale signée »).
    */
   contratMarquePdfOfficielSigneDeposeAt DateTime?
+
+  // Qualification du contact client (collab créée en direct, sans négo) :
+  // agence ou marque en direct + langue. Route le contact vers le bon pipeline
+  // outreach à la fin de la collab (jamais d'agence dans Outreach Clients).
+  contactKind     String? // "MARQUE" | "AGENCE"
+  contactAgence   String? // Nom de l'agence si contactKind = AGENCE
+  contactLanguage String  @default("fr") // "fr" | "en"
+
+  // Pont vers le cycle outreach 45j (collabs directes, sans négo liée — les
+  // collabs issues d'une négo sont bridgées via la négo).
+  outreachBridgedAt DateTime?
+  outreachTargetRef String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

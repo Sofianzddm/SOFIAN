@@ -71,15 +71,54 @@ export async function PATCH(
     const draftEmailBody =
       typeof body.draftEmailBody === "string" ? body.draftEmailBody : "";
 
+    // Qualification manuelle du contact (agence vs marque en direct + langue) :
+    // envoyée seule ou avec le brouillon, elle route le contact vers le bon
+    // pipeline outreach à la clôture (agence → Prospection Agences uniquement).
+    const qualification: {
+      contactKind?: string | null;
+      contactAgence?: string | null;
+      contactLanguage?: string;
+    } = {};
+    if (body.contactKind !== undefined) {
+      const kind = String(body.contactKind || "").trim().toUpperCase();
+      if (kind && kind !== "MARQUE" && kind !== "AGENCE") {
+        return NextResponse.json(
+          { error: "Type de contact invalide (MARQUE ou AGENCE)" },
+          { status: 400 }
+        );
+      }
+      qualification.contactKind = kind || null;
+      const agence =
+        kind === "AGENCE" ? String(body.contactAgence || "").trim() : "";
+      if (kind === "AGENCE" && !agence) {
+        return NextResponse.json(
+          { error: "Nom de l'agence obligatoire quand le contact est une agence" },
+          { status: 400 }
+        );
+      }
+      qualification.contactAgence = agence || null;
+    }
+    if (body.contactLanguage !== undefined) {
+      qualification.contactLanguage =
+        String(body.contactLanguage || "").trim().toLowerCase() === "en" ? "en" : "fr";
+    }
+
     const { id } = await params;
     // On ne change PAS le statut quand on sauvegarde un brouillon : l'opportunité
     // reste dans l'onglet "Nouvelles". Seul l'envoi effectif (POST .../send)
     // bascule en READY.
+    const hasDraft =
+      body.draftEmailSubject !== undefined || body.draftEmailBody !== undefined;
     const updated = await prisma.inboundOpportunity.update({
       where: { id },
       data: {
-        draftEmailSubject: draftEmailSubject || null,
-        draftEmailBody: draftEmailBody || null,
+        ...(hasDraft
+          ? {
+              draftEmailSubject: draftEmailSubject || null,
+              draftEmailBody: draftEmailBody || null,
+            }
+          : {}),
+        ...qualification,
       },
       include: {
         talent: { select: { id: true, prenom: true, nom: true, photo: true } },
