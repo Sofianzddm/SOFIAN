@@ -906,6 +906,12 @@ model InboundOpportunity {
   relance2SentAt DateTime?
   replied        Boolean   @default(false)
 
+  // Pont vers le cycle outreach 45j : posé quand l'échange est clôturé et que
+  // le contact a été ajouté (ou re-planifié) dans un pipeline outreach.
+  // outreachTargetRef = "<pipeline>:<targetId>" ou "skipped:<raison>".
+  outreachBridgedAt DateTime?
+  outreachTargetRef String?
+
   status InboundStatus @default(NEW)
 
   convertedToProspectionId String?   @unique
@@ -1780,6 +1786,9 @@ model DemandeEntrante {
   status                String    @default("a_traiter")
   emailPret             String?   @db.Text
   sujetPret             String?
+  // Pont vers le cycle outreach 45j (cf. InboundOpportunity.outreachBridgedAt)
+  outreachBridgedAt     DateTime?
+  outreachTargetRef     String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 

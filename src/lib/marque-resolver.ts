@@ -359,6 +359,22 @@ const GENERIC_EMAIL_DOMAINS = new Set<string>([
   "mailinator.com",
 ]);
 
+/** Extrait le domaine (lowercase) d'un email ou d'un domaine brut, sinon null. */
+export function emailDomain(emailOrDomain: string | null | undefined): string | null {
+  const raw = (emailOrDomain || "").trim().toLowerCase();
+  if (!raw) return null;
+  let domain = raw.includes("@") ? raw.split("@").pop() || "" : raw;
+  domain = domain.replace(/^www\./, "").replace(/\.$/, "").trim();
+  if (!domain || !domain.includes(".")) return null;
+  return domain;
+}
+
+/** Domaine grand public (gmail, orange…) : jamais utilisé pour matcher une entreprise. */
+export function isGenericEmailDomain(domain: string | null | undefined): boolean {
+  if (!domain) return true;
+  return GENERIC_EMAIL_DOMAINS.has(domain.trim().toLowerCase());
+}
+
 /** Suffixes composés courants (TLD à deux niveaux). */
 const COMPOUND_TLDS = new Set<string>([
   "co.uk",

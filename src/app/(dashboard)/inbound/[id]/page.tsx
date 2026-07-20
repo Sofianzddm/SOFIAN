@@ -71,7 +71,18 @@ type Opportunity = {
   archivedAt?: string | null;
   archivedReason?: string | null;
   convertedToProspectionId?: string | null;
+  outreachBridgedAt?: string | null;
+  outreachTargetRef?: string | null;
 };
+
+// "agency:xyz" → "Prospection Agences", "client:xyz" → "Outreach Clients"…
+function outreachBridgeLabel(ref: string | null | undefined): string | null {
+  if (!ref || ref.startsWith("skipped:")) return null;
+  if (ref.startsWith("agency:")) return "Prospection Agences";
+  if (ref.startsWith("benelux:")) return "Prospection Benelux";
+  if (ref.startsWith("client:")) return "Outreach Clients";
+  return null;
+}
 
 const ALLOWED = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"];
 
@@ -568,6 +579,13 @@ export default function InboundDetailPage() {
         <div className="rounded-lg border border-slate-300 bg-slate-100 p-3 text-sm text-slate-700">
           Archivee le {opportunity.archivedAt ? new Date(opportunity.archivedAt).toLocaleString("fr-FR") : "—"}.
           {opportunity.archivedReason ? ` Raison: ${opportunity.archivedReason}` : ""}
+        </div>
+      )}
+      {opportunity.outreachBridgedAt && outreachBridgeLabel(opportunity.outreachTargetRef) && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+          Ajoutee au cycle {outreachBridgeLabel(opportunity.outreachTargetRef)} le{" "}
+          {new Date(opportunity.outreachBridgedAt).toLocaleDateString("fr-FR")} : le contact
+          sera reprospecte automatiquement 45 jours apres ce dernier echange.
         </div>
       )}
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runRelances } from "@/lib/relances";
+import { runOutreachBridgeSweep } from "@/lib/outreach-bridge";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -11,5 +12,16 @@ export async function GET(request: NextRequest) {
   }
 
   const result = await runRelances();
-  return NextResponse.json(result);
+
+  // Pont vers le cycle outreach 45j : les inbound / demandes entrantes dont
+  // l'échange est clôturé rejoignent le pipeline outreach (aucun envoi de mail
+  // ici, donc pas de garde-fou week-end / heures de bureau).
+  let bridge = null;
+  try {
+    bridge = await runOutreachBridgeSweep();
+  } catch (error) {
+    console.error("[cron/relances] sweep pont outreach:", error);
+  }
+
+  return NextResponse.json({ ...result, bridge });
 }

@@ -62,82 +62,85 @@ export async function GET(request: NextRequest) {
   const recontactByCreator = new Map<string, number>();
 
   for (const target of targets) {
+    // Un target peut être en WAITING sans aucun touch (entré via le pont
+    // inbound→outreach) : les étapes 1-2 sont sautées, la bascule J+45 reste.
     const touch = target.touches[0];
-    if (!touch?.sentAt || !touch.threadId) continue;
 
-    // 1. Détection de réponse (info) et de bounce (retrait du cycle).
-    let hasReplied = Boolean(touch.repliedAt);
-    let hasBounced = false;
-    if (!hasReplied) {
-      try {
-        const activity = await checkThreadActivity(
-          agencyOutreachFromEmail({ fromEmail: touch.fromEmail }),
-          touch.threadId
-        );
-        hasReplied = activity.replied;
-        hasBounced = activity.bounced && !activity.replied;
-      } catch (error) {
-        console.warn(`[cron/agency-outreach] checkThreadActivity ${target.email}:`, error);
-      }
-
-      if (hasBounced) {
-        bounces += 1;
-        await prisma.notification
-          .create({
-            data: {
-              userId: target.createdById,
-              type: "GENERAL",
-              titre: "Email invalide (Prospection Agences)",
-              message: `${target.firstname} ${target.lastname || ""} (${target.company}) : l'adresse ${target.email} n'existe pas — le mail est revenu en erreur, contact retiré du cycle.`,
-              lien: "/agency-outreach",
-            },
-          })
-          .catch((e) => console.warn("[cron/agency-outreach] notification bounce:", e));
-        await prisma.agencyOutreachTarget
-          .delete({ where: { id: target.id } })
-          .catch((e) =>
-            console.warn(`[cron/agency-outreach] suppression bounce ${target.email}:`, e)
+    if (touch?.sentAt && touch.threadId) {
+      // 1. Détection de réponse (info) et de bounce (retrait du cycle).
+      let hasReplied = Boolean(touch.repliedAt);
+      let hasBounced = false;
+      if (!hasReplied) {
+        try {
+          const activity = await checkThreadActivity(
+            agencyOutreachFromEmail({ fromEmail: touch.fromEmail }),
+            touch.threadId
           );
-        continue;
+          hasReplied = activity.replied;
+          hasBounced = activity.bounced && !activity.replied;
+        } catch (error) {
+          console.warn(`[cron/agency-outreach] checkThreadActivity ${target.email}:`, error);
+        }
+
+        if (hasBounced) {
+          bounces += 1;
+          await prisma.notification
+            .create({
+              data: {
+                userId: target.createdById,
+                type: "GENERAL",
+                titre: "Email invalide (Prospection Agences)",
+                message: `${target.firstname} ${target.lastname || ""} (${target.company}) : l'adresse ${target.email} n'existe pas — le mail est revenu en erreur, contact retiré du cycle.`,
+                lien: "/agency-outreach",
+              },
+            })
+            .catch((e) => console.warn("[cron/agency-outreach] notification bounce:", e));
+          await prisma.agencyOutreachTarget
+            .delete({ where: { id: target.id } })
+            .catch((e) =>
+              console.warn(`[cron/agency-outreach] suppression bounce ${target.email}:`, e)
+            );
+          continue;
+        }
+
+        if (hasReplied) {
+          replies += 1;
+          await prisma.$transaction([
+            prisma.agencyOutreachTouch.update({
+              where: { id: touch.id },
+              data: { repliedAt: now },
+            }),
+            prisma.agencyOutreachTarget.update({
+              where: { id: target.id },
+              data: { lastRepliedAt: now },
+            }),
+          ]);
+          await prisma.notification
+            .create({
+              data: {
+                userId: target.createdById,
+                type: "GENERAL",
+                titre: "Réponse agence (Prospection)",
+                message: `${target.firstname} ${target.lastname || ""} (${target.company}) a répondu au mail du cycle ${touch.cycleNumber}.`,
+                lien: "/agency-outreach",
+              },
+            })
+            .catch((e) => console.warn("[cron/agency-outreach] notification réponse:", e));
+        }
       }
 
-      if (hasReplied) {
-        replies += 1;
-        await prisma.$transaction([
-          prisma.agencyOutreachTouch.update({
-            where: { id: touch.id },
-            data: { repliedAt: now },
-          }),
-          prisma.agencyOutreachTarget.update({
-            where: { id: target.id },
-            data: { lastRepliedAt: now },
-          }),
-        ]);
-        await prisma.notification
-          .create({
-            data: {
-              userId: target.createdById,
-              type: "GENERAL",
-              titre: "Réponse agence (Prospection)",
-              message: `${target.firstname} ${target.lastname || ""} (${target.company}) a répondu au mail du cycle ${touch.cycleNumber}.`,
-              lien: "/agency-outreach",
-            },
-          })
-          .catch((e) => console.warn("[cron/agency-outreach] notification réponse:", e));
+      // 2. Relance auto J+3 ouvrés (sautée si réponse ou pause manuelle).
+      if (
+        withinRelanceHours &&
+        !hasReplied &&
+        !touch.relanceSentAt &&
+        !touch.relanceCancelledAt &&
+        relanceDue(touch.sentAt, AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
+      ) {
+        const result = await executeAgencyOutreachRelance(touch.id);
+        if (result.ok) relances += 1;
+        else console.warn(`[cron/agency-outreach] relance ${target.email}: ${result.error}`);
       }
-    }
-
-    // 2. Relance auto J+3 ouvrés (sautée si réponse ou pause manuelle).
-    if (
-      withinRelanceHours &&
-      !hasReplied &&
-      !touch.relanceSentAt &&
-      !touch.relanceCancelledAt &&
-      relanceDue(touch.sentAt, AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
-    ) {
-      const result = await executeAgencyOutreachRelance(touch.id);
-      if (result.ok) relances += 1;
-      else console.warn(`[cron/agency-outreach] relance ${target.email}: ${result.error}`);
     }
 
     // 3. Bascule J+45 → À recontacter (même si l'agence a répondu).

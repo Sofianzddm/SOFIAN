@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreatePartnerByName } from "@/lib/agency-partner";
+import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 
 /**
  * GET  → liste des contacts d'agences du cycle Prospection Agences (toutes files)
@@ -171,6 +172,20 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Anti double-prospection : jamais le même email dans deux pipelines.
+      const conflict = await findCrossPipelineConflict(
+        contact.email.toLowerCase(),
+        "agency"
+      );
+      if (conflict) {
+        return NextResponse.json(
+          {
+            error: `Ce contact est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
+          },
+          { status: 409 }
+        );
+      }
+
       const target = await prisma.agencyOutreachTarget.create({
         data: {
           partnerId: contact.partnerId,
@@ -229,6 +244,17 @@ export async function POST(request: NextRequest) {
     if (existing) {
       return NextResponse.json(
         { error: `Ce contact est déjà suivi (${existing.company}).` },
+        { status: 409 }
+      );
+    }
+
+    // Anti double-prospection : jamais le même email dans deux pipelines.
+    const conflict = await findCrossPipelineConflict(email, "agency");
+    if (conflict) {
+      return NextResponse.json(
+        {
+          error: `Ce contact est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
+        },
         { status: 409 }
       );
     }

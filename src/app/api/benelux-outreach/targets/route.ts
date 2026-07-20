@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateBeneluxCompany } from "@/lib/benelux-company";
+import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 
 /**
  * GET  → liste des prospects BENELUX du cycle (toutes files)
@@ -137,6 +138,17 @@ export async function POST(request: NextRequest) {
     if (existing) {
       return NextResponse.json(
         { error: `Ce contact est déjà suivi dans le cycle BENELUX (${existing.companyName}).` },
+        { status: 409 }
+      );
+    }
+
+    // Anti double-prospection : jamais le même email dans deux pipelines.
+    const conflict = await findCrossPipelineConflict(email, "benelux");
+    if (conflict) {
+      return NextResponse.json(
+        {
+          error: `Ce contact est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
+        },
         { status: 409 }
       );
     }

@@ -53,80 +53,83 @@ export async function GET(request: NextRequest) {
   const recontactByCreator = new Map<string, number>();
 
   for (const target of targets) {
+    // Un target peut être en WAITING sans aucun touch (entré via le pont
+    // inbound→outreach) : réponse/relance sautées, la bascule J+45 reste.
     const touch = target.touches[0];
-    if (!touch?.sentAt || !touch.threadId) continue;
 
-    let hasReplied = Boolean(touch.repliedAt);
-    let hasBounced = false;
-    if (!hasReplied) {
-      try {
-        const activity = await checkThreadActivity(
-          beneluxOutreachFromEmail({ fromEmail: touch.fromEmail }),
-          touch.threadId
-        );
-        hasReplied = activity.replied;
-        hasBounced = activity.bounced && !activity.replied;
-      } catch (error) {
-        console.warn(`[cron/benelux-outreach] checkThreadActivity ${target.email}:`, error);
-      }
-
-      if (hasBounced) {
-        bounces += 1;
-        await prisma.notification
-          .create({
-            data: {
-              userId: target.createdById,
-              type: "GENERAL",
-              titre: "Email invalide (Prospection BENELUX)",
-              message: `${target.firstname} ${target.lastname || ""} (${target.companyName}) : l'adresse ${target.email} n'existe pas — le mail est revenu en erreur, contact retiré du cycle.`,
-              lien: "/outreach",
-            },
-          })
-          .catch((e) => console.warn("[cron/benelux-outreach] notification bounce:", e));
-        await prisma.beneluxOutreachTarget
-          .delete({ where: { id: target.id } })
-          .catch((e) =>
-            console.warn(`[cron/benelux-outreach] suppression bounce ${target.email}:`, e)
+    if (touch?.sentAt && touch.threadId) {
+      let hasReplied = Boolean(touch.repliedAt);
+      let hasBounced = false;
+      if (!hasReplied) {
+        try {
+          const activity = await checkThreadActivity(
+            beneluxOutreachFromEmail({ fromEmail: touch.fromEmail }),
+            touch.threadId
           );
-        continue;
+          hasReplied = activity.replied;
+          hasBounced = activity.bounced && !activity.replied;
+        } catch (error) {
+          console.warn(`[cron/benelux-outreach] checkThreadActivity ${target.email}:`, error);
+        }
+
+        if (hasBounced) {
+          bounces += 1;
+          await prisma.notification
+            .create({
+              data: {
+                userId: target.createdById,
+                type: "GENERAL",
+                titre: "Email invalide (Prospection BENELUX)",
+                message: `${target.firstname} ${target.lastname || ""} (${target.companyName}) : l'adresse ${target.email} n'existe pas — le mail est revenu en erreur, contact retiré du cycle.`,
+                lien: "/outreach",
+              },
+            })
+            .catch((e) => console.warn("[cron/benelux-outreach] notification bounce:", e));
+          await prisma.beneluxOutreachTarget
+            .delete({ where: { id: target.id } })
+            .catch((e) =>
+              console.warn(`[cron/benelux-outreach] suppression bounce ${target.email}:`, e)
+            );
+          continue;
+        }
+
+        if (hasReplied) {
+          replies += 1;
+          await prisma.$transaction([
+            prisma.beneluxOutreachTouch.update({
+              where: { id: touch.id },
+              data: { repliedAt: now },
+            }),
+            prisma.beneluxOutreachTarget.update({
+              where: { id: target.id },
+              data: { lastRepliedAt: now },
+            }),
+          ]);
+          await prisma.notification
+            .create({
+              data: {
+                userId: target.createdById,
+                type: "GENERAL",
+                titre: "Réponse prospect (BENELUX)",
+                message: `${target.firstname} ${target.lastname || ""} (${target.companyName}) a répondu au mail du cycle ${touch.cycleNumber}.`,
+                lien: "/outreach",
+              },
+            })
+            .catch((e) => console.warn("[cron/benelux-outreach] notification réponse:", e));
+        }
       }
 
-      if (hasReplied) {
-        replies += 1;
-        await prisma.$transaction([
-          prisma.beneluxOutreachTouch.update({
-            where: { id: touch.id },
-            data: { repliedAt: now },
-          }),
-          prisma.beneluxOutreachTarget.update({
-            where: { id: target.id },
-            data: { lastRepliedAt: now },
-          }),
-        ]);
-        await prisma.notification
-          .create({
-            data: {
-              userId: target.createdById,
-              type: "GENERAL",
-              titre: "Réponse prospect (BENELUX)",
-              message: `${target.firstname} ${target.lastname || ""} (${target.companyName}) a répondu au mail du cycle ${touch.cycleNumber}.`,
-              lien: "/outreach",
-            },
-          })
-          .catch((e) => console.warn("[cron/benelux-outreach] notification réponse:", e));
+      if (
+        withinRelanceHours &&
+        !hasReplied &&
+        !touch.relanceSentAt &&
+        !touch.relanceCancelledAt &&
+        relanceDue(touch.sentAt, BENELUX_OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
+      ) {
+        const result = await executeBeneluxOutreachRelance(touch.id);
+        if (result.ok) relances += 1;
+        else console.warn(`[cron/benelux-outreach] relance ${target.email}: ${result.error}`);
       }
-    }
-
-    if (
-      withinRelanceHours &&
-      !hasReplied &&
-      !touch.relanceSentAt &&
-      !touch.relanceCancelledAt &&
-      relanceDue(touch.sentAt, BENELUX_OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
-    ) {
-      const result = await executeBeneluxOutreachRelance(touch.id);
-      if (result.ok) relances += 1;
-      else console.warn(`[cron/benelux-outreach] relance ${target.email}: ${result.error}`);
     }
 
     if (target.nextRecontactAt && target.nextRecontactAt.getTime() <= now.getTime()) {

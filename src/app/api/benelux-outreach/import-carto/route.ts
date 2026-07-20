@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateBeneluxCompany } from "@/lib/benelux-company";
+import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 
 /**
  * POST → importe une cartographie de contacts (fichier Claude / Excel collé)
@@ -202,7 +203,12 @@ export async function POST(request: NextRequest) {
           where: { email },
           select: { id: true },
         });
-        if (!alreadyInCycle) {
+        // Anti double-prospection : email déjà suivi dans un autre pipeline
+        // → contact créé sur la fiche mais pas dans le cycle.
+        const conflict = alreadyInCycle
+          ? null
+          : await findCrossPipelineConflict(email, "benelux");
+        if (!alreadyInCycle && !conflict) {
           await prisma.beneluxOutreachTarget.create({
             data: {
               companyId: ctx.companyId,

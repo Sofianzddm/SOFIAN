@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreatePartnerByName } from "@/lib/agency-partner";
+import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 
 /**
  * POST → importe une liste de contacts d'agence (fichier Excel / tableau collé)
@@ -138,12 +139,16 @@ export async function POST(request: NextRequest) {
       created += 1;
 
       // Email valide → entre directement dans le cycle « À contacter »
-      // (sauf s'il y est déjà via une autre agence : email unique global).
+      // (sauf s'il y est déjà via une autre agence : email unique global,
+      // ou déjà suivi dans un autre pipeline : anti double-prospection).
       const alreadyInCycle = await prisma.agencyOutreachTarget.findUnique({
         where: { email },
         select: { id: true },
       });
-      if (!alreadyInCycle) {
+      const conflict = alreadyInCycle
+        ? null
+        : await findCrossPipelineConflict(email, "agency");
+      if (!alreadyInCycle && !conflict) {
         await prisma.agencyOutreachTarget.create({
           data: {
             partnerId: partner.id,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
+import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 
 /**
  * GET  → liste des clients du cycle Outreach (toutes files) + stats
@@ -132,6 +133,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: `Ce contact est déjà suivi dans le cycle Outreach (${existing.company}).`,
+        },
+        { status: 409 }
+      );
+    }
+
+    // Anti double-prospection : jamais le même email dans deux pipelines.
+    const conflict = await findCrossPipelineConflict(email, "client");
+    if (conflict) {
+      return NextResponse.json(
+        {
+          error: `Ce contact est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
         },
         { status: 409 }
       );

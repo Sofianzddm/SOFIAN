@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
+import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 
 /**
  * POST → importe une cartographie de contacts (fichier Claude / Excel collé)
@@ -211,7 +212,12 @@ export async function POST(request: NextRequest) {
           where: { email },
           select: { id: true },
         });
-        if (!alreadyInCycle) {
+        // Anti double-prospection : email déjà suivi dans un autre pipeline
+        // (agences, Benelux) → contact créé sur la fiche mais pas dans le cycle.
+        const conflict = alreadyInCycle
+          ? null
+          : await findCrossPipelineConflict(email, "client");
+        if (!alreadyInCycle && !conflict) {
           await prisma.outreachTarget.create({
             data: {
               marqueId: ctx.marqueId,

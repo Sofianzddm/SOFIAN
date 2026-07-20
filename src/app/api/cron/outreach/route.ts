@@ -75,85 +75,90 @@ export async function GET(request: NextRequest) {
   const recontactByCreator = new Map<string, number>();
 
   for (const target of targets) {
+    // Un target peut être en WAITING sans aucun touch : mis en attente via le
+    // pont inbound→outreach ou une replanification (déjà contacté hors app).
+    // Les étapes 1-2 (réponse/bounce/relance) ne concernent que les targets
+    // avec un vrai mail de cycle ; la bascule J+45 (étape 3) vaut pour tous.
     const touch = target.touches[0];
-    if (!touch?.sentAt || !touch.threadId) continue;
 
-    // 1. Détection de réponse (info seulement, le cycle continue) et de
-    //    bounce (adresse invalide → contact retiré automatiquement du cycle)
-    let hasReplied = Boolean(touch.repliedAt);
-    let hasBounced = false;
-    if (!hasReplied) {
-      try {
-        // Le thread vit dans la boîte qui a envoyé ce touch (pas forcément
-        // la boîte actuelle du target).
-        const activity = await checkThreadActivity(
-          outreachFromEmail({ fromEmail: touch.fromEmail }),
-          touch.threadId
-        );
-        hasReplied = activity.replied;
-        hasBounced = activity.bounced && !activity.replied;
-      } catch (error) {
-        console.warn(`[cron/outreach] checkThreadActivity ${target.email}:`, error);
+    if (touch?.sentAt && touch.threadId) {
+      // 1. Détection de réponse (info seulement, le cycle continue) et de
+      //    bounce (adresse invalide → contact retiré automatiquement du cycle)
+      let hasReplied = Boolean(touch.repliedAt);
+      let hasBounced = false;
+      if (!hasReplied) {
+        try {
+          // Le thread vit dans la boîte qui a envoyé ce touch (pas forcément
+          // la boîte actuelle du target).
+          const activity = await checkThreadActivity(
+            outreachFromEmail({ fromEmail: touch.fromEmail }),
+            touch.threadId
+          );
+          hasReplied = activity.replied;
+          hasBounced = activity.bounced && !activity.replied;
+        } catch (error) {
+          console.warn(`[cron/outreach] checkThreadActivity ${target.email}:`, error);
+        }
+
+        if (hasBounced) {
+          bounces += 1;
+          await prisma.notification
+            .create({
+              data: {
+                userId: target.createdById,
+                type: "GENERAL",
+                titre: "Email invalide (Outreach)",
+                message: `${target.firstname} ${target.lastname || ""} (${target.company}) : l'adresse ${target.email} n'existe pas — le mail est revenu en erreur, contact retiré du cycle.`,
+                lien: "/outreach",
+                marqueId: target.marqueId,
+              },
+            })
+            .catch((e) => console.warn("[cron/outreach] notification bounce:", e));
+          await prisma.outreachTarget
+            .delete({ where: { id: target.id } })
+            .catch((e) => console.warn(`[cron/outreach] suppression bounce ${target.email}:`, e));
+          continue;
+        }
+
+        if (hasReplied) {
+          replies += 1;
+          await prisma.$transaction([
+            prisma.outreachTouch.update({
+              where: { id: touch.id },
+              data: { repliedAt: now },
+            }),
+            prisma.outreachTarget.update({
+              where: { id: target.id },
+              data: { lastRepliedAt: now },
+            }),
+          ]);
+          await prisma.notification
+            .create({
+              data: {
+                userId: target.createdById,
+                type: "GENERAL",
+                titre: "Réponse client (Outreach)",
+                message: `${target.firstname} ${target.lastname || ""} (${target.company}) a répondu au mail du cycle ${touch.cycleNumber}.`,
+                lien: "/outreach",
+                marqueId: target.marqueId,
+              },
+            })
+            .catch((e) => console.warn("[cron/outreach] notification réponse:", e));
+        }
       }
 
-      if (hasBounced) {
-        bounces += 1;
-        await prisma.notification
-          .create({
-            data: {
-              userId: target.createdById,
-              type: "GENERAL",
-              titre: "Email invalide (Outreach)",
-              message: `${target.firstname} ${target.lastname || ""} (${target.company}) : l'adresse ${target.email} n'existe pas — le mail est revenu en erreur, contact retiré du cycle.`,
-              lien: "/outreach",
-              marqueId: target.marqueId,
-            },
-          })
-          .catch((e) => console.warn("[cron/outreach] notification bounce:", e));
-        await prisma.outreachTarget
-          .delete({ where: { id: target.id } })
-          .catch((e) => console.warn(`[cron/outreach] suppression bounce ${target.email}:`, e));
-        continue;
+      // 2. Relance auto J+3 ouvrés (sautée si réponse ou pause manuelle sur ce touch)
+      if (
+        withinRelanceHours &&
+        !hasReplied &&
+        !touch.relanceSentAt &&
+        !touch.relanceCancelledAt &&
+        relanceDue(touch.sentAt, OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
+      ) {
+        const result = await executeOutreachRelance(touch.id);
+        if (result.ok) relances += 1;
+        else console.warn(`[cron/outreach] relance ${target.email}: ${result.error}`);
       }
-
-      if (hasReplied) {
-        replies += 1;
-        await prisma.$transaction([
-          prisma.outreachTouch.update({
-            where: { id: touch.id },
-            data: { repliedAt: now },
-          }),
-          prisma.outreachTarget.update({
-            where: { id: target.id },
-            data: { lastRepliedAt: now },
-          }),
-        ]);
-        await prisma.notification
-          .create({
-            data: {
-              userId: target.createdById,
-              type: "GENERAL",
-              titre: "Réponse client (Outreach)",
-              message: `${target.firstname} ${target.lastname || ""} (${target.company}) a répondu au mail du cycle ${touch.cycleNumber}.`,
-              lien: "/outreach",
-              marqueId: target.marqueId,
-            },
-          })
-          .catch((e) => console.warn("[cron/outreach] notification réponse:", e));
-      }
-    }
-
-    // 2. Relance auto J+3 ouvrés (sautée si réponse ou pause manuelle sur ce touch)
-    if (
-      withinRelanceHours &&
-      !hasReplied &&
-      !touch.relanceSentAt &&
-      !touch.relanceCancelledAt &&
-      relanceDue(touch.sentAt, OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
-    ) {
-      const result = await executeOutreachRelance(touch.id);
-      if (result.ok) relances += 1;
-      else console.warn(`[cron/outreach] relance ${target.email}: ${result.error}`);
     }
 
     // 3. Bascule J+45 → À recontacter (même si le client a répondu)
