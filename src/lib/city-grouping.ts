@@ -35,6 +35,20 @@ export const MAJOR_CITIES: MajorCity[] = [
   { name: "Liège", lat: 50.6326, lon: 5.5797 },
 ];
 
+// Corrections manuelles : fautes de frappe / communes introuvables au géocodage.
+// Clé = ville saisie normalisée (minuscules, sans accents), valeur = métropole.
+const CITY_GROUP_OVERRIDES: Record<string, string> = {
+  blaussac: "Nice", // faute de frappe pour « Blausasc » (Alpes-Maritimes)
+};
+
+function normalizeKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 const cache = new Map<string, string | null>();
 
 function haversineKm(
@@ -121,6 +135,10 @@ export async function getCityGroup(
 ): Promise<string | null> {
   const raw = (ville || "").trim();
   if (!raw) return null;
+
+  // Corrections manuelles prioritaires (fautes de frappe, cas introuvables)
+  const override = CITY_GROUP_OVERRIDES[normalizeKey(raw)];
+  if (override) return override;
 
   const isBelgium = (pays || "").trim().toLowerCase() === "belgique";
   const key = `${isBelgium ? "be" : "fr"}:${raw.toLowerCase()}`;
