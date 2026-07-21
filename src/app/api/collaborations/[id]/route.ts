@@ -220,12 +220,26 @@ export async function PATCH(
       return NextResponse.json({ message: "Raison obligatoire" }, { status: 400 });
     }
 
+    // Lien de publication obligatoire avant facturation : pour passer une collab
+    // en "Publié", il faut soit un lien de publication, soit cocher "Story".
+    if (data.statut === "PUBLIE") {
+      const isStory = data.isStory === true;
+      const lien = typeof data.lienPublication === "string" ? data.lienPublication.trim() : "";
+      if (!isStory && !lien) {
+        return NextResponse.json(
+          { error: "Lien de publication obligatoire (ou cochez « Story »)." },
+          { status: 400 }
+        );
+      }
+    }
+
     const updateData: any = {};
 
     const ancienStatut: string | undefined = data.statut ? undefined : undefined;
     if (data.statut) updateData.statut = data.statut;
     if (data.raisonPerdu !== undefined) updateData.raisonPerdu = data.raisonPerdu;
     if (data.lienPublication !== undefined) updateData.lienPublication = data.lienPublication;
+    if (data.isStory !== undefined) updateData.isStory = data.isStory === true;
     if (data.datePublication !== undefined) updateData.datePublication = new Date(data.datePublication);
     if (data.statut === "PAYE") updateData.paidAt = new Date();
     if (data.marquePayeeAt !== undefined) updateData.marquePayeeAt = data.marquePayeeAt ? new Date(data.marquePayeeAt) : null;

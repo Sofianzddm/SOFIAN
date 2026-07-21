@@ -26,6 +26,7 @@ const roleOptions = [
   { value: "TM", label: "Talent Manager" },
   { value: "CASTING_MANAGER", label: "Casting Manager" },
   { value: "CM", label: "Account Manager" },
+  { value: "COMMUNITY_MANAGER", label: "Community Manager" },
   { value: "TALENT", label: "Talent" },
   { value: "COIFFEUR", label: "Coiffeur" },
   { value: "COMPTABLE", label: "Expert-Comptable" },

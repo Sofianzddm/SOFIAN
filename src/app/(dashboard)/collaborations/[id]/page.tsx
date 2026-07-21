@@ -83,6 +83,7 @@ interface CollabDetail {
   raisonPerdu: string | null;
   lienPublication: string | null;
   datePublication: string | null;
+  isStory: boolean;
   isLongTerme: boolean;
   createdAt: string;
   factureTalentUrl: string | null;
@@ -233,6 +234,7 @@ export default function CollabDetailPage() {
   const [raisonPerdu, setRaisonPerdu] = useState("");
   const [showPublieModal, setShowPublieModal] = useState(false);
   const [lienPublication, setLienPublication] = useState("");
+  const [publieIsStory, setPublieIsStory] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showCompleteMarqueModal, setShowCompleteMarqueModal] = useState(false);
@@ -441,7 +443,11 @@ export default function CollabDetailPage() {
 
   const handleStatutChange = (newStatut: string) => {
     if (newStatut === "PERDU") setShowPerduModal(true);
-    else if (newStatut === "PUBLIE") setShowPublieModal(true);
+    else if (newStatut === "PUBLIE") {
+      setLienPublication(collab?.lienPublication || "");
+      setPublieIsStory(collab?.isStory || false);
+      setShowPublieModal(true);
+    }
     else updateStatut(newStatut);
   };
 
@@ -461,7 +467,18 @@ export default function CollabDetailPage() {
   };
 
   const confirmPerdu = () => { if (!raisonPerdu.trim()) return alert("Indiquez la raison"); updateStatut("PERDU", { raisonPerdu }); };
-  const confirmPublie = () => { updateStatut("PUBLIE", { lienPublication: lienPublication || null, datePublication: new Date().toISOString() }); };
+  const confirmPublie = () => {
+    const lien = lienPublication.trim();
+    if (!publieIsStory && !lien) {
+      alert("Ajoutez le lien de publication, ou cochez « Story » s'il n'y a pas de lien.");
+      return;
+    }
+    updateStatut("PUBLIE", {
+      lienPublication: publieIsStory ? null : lien,
+      isStory: publieIsStory,
+      datePublication: new Date().toISOString(),
+    });
+  };
 
   const checkMarqueInfos = (type: "DEVIS" | "FACTURE"): boolean => {
     if (!collab) return false;
@@ -1427,14 +1444,18 @@ export default function CollabDetailPage() {
                   </div>
                 ))}
               </div>
-            {(collab.description || collab.lienPublication) && (
+            {(collab.description || collab.lienPublication || collab.isStory) && (
               <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100 space-y-2">
                 {collab.description && <p className="text-sm text-gray-600">{collab.description}</p>}
-                {collab.lienPublication && (
+                {collab.lienPublication ? (
                   <a href={collab.lienPublication} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium">
                     <ExternalLink className="w-4 h-4" /> Voir la publication
                   </a>
-                )}
+                ) : collab.isStory ? (
+                  <span className="inline-flex items-center gap-2 text-sm text-gray-500 font-medium">
+                    <Eye className="w-4 h-4" /> Story (pas de lien de publication)
+                  </span>
+                ) : null}
               </div>
             )}
           </div>
@@ -3077,11 +3098,27 @@ export default function CollabDetailPage() {
               <Eye className="w-8 h-8 text-violet-600" />
             </div>
             <h3 className="text-xl font-bold text-glowup-licorice text-center mb-2">Marquer comme publié</h3>
-            <p className="text-sm text-gray-500 text-center mb-6">Ajoutez le lien de publication (optionnel)</p>
-            <input type="url" value={lienPublication} onChange={(e) => setLienPublication(e.target.value)} placeholder="https://instagram.com/p/..." className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 text-sm mb-6" />
+            <p className="text-sm text-gray-500 text-center mb-6">Le lien de publication est obligatoire avant facturation. S'il s'agit d'une story (pas de lien permanent), cochez « Story ».</p>
+            <input
+              type="url"
+              value={lienPublication}
+              onChange={(e) => setLienPublication(e.target.value)}
+              placeholder="https://instagram.com/p/..."
+              disabled={publieIsStory}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 text-sm mb-4 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+            />
+            <label className="flex items-center gap-3 mb-6 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={publieIsStory}
+                onChange={(e) => setPublieIsStory(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500/20"
+              />
+              <span className="text-sm text-gray-700">Story (pas de lien de publication)</span>
+            </label>
             <div className="flex gap-4">
               <button onClick={() => setShowPublieModal(false)} className="flex-1 px-6 py-3.5 text-gray-600 bg-gray-100 rounded-xl font-semibold hover:bg-gray-200 transition-colors">Annuler</button>
-              <button onClick={confirmPublie} disabled={updating} className="flex-1 px-6 py-3.5 bg-violet-600 text-white rounded-xl font-semibold hover:bg-violet-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
+              <button onClick={confirmPublie} disabled={updating || (!publieIsStory && !lienPublication.trim())} className="flex-1 px-6 py-3.5 bg-violet-600 text-white rounded-xl font-semibold hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
                 {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Confirmer
               </button>
             </div>

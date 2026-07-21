@@ -168,6 +168,28 @@ export async function middleware(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
+  // Compte community manager : uniquement l'espace /community (lecture seule des
+  // collabs publiées + liens) + son API + auth. Tout le reste redirige vers /community.
+  if (effectiveRole === "COMMUNITY_MANAGER") {
+    const allowed =
+      pathname === "/login" ||
+      pathname.startsWith("/api/auth") ||
+      pathname.startsWith("/community") ||
+      pathname.startsWith("/api/community");
+    if (!allowed) {
+      return withNoIndex(NextResponse.redirect(new URL("/community", request.url)));
+    }
+  }
+
+  // L'espace /community est réservé à COMMUNITY_MANAGER et ADMIN
+  if (
+    pathname.startsWith("/community") &&
+    effectiveRole !== "COMMUNITY_MANAGER" &&
+    effectiveRole !== "ADMIN"
+  ) {
+    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
+  }
+
   if (pathname.startsWith("/juriste") && effectiveRole !== "JURISTE") {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
@@ -248,6 +270,10 @@ export const config = {
     "/collaborations/:path*",
     "/juriste",
     "/juriste/:path*",
+    // Espace community manager (collabs publiées + liens)
+    "/community",
+    "/community/:path*",
+    "/api/community/:path*",
     // Espace expert-comptable
     "/comptable",
     "/comptable/:path*",

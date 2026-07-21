@@ -29,6 +29,7 @@ enum Role {
   CASTING_MANAGER
   COIFFEUR
   COMPTABLE
+  COMMUNITY_MANAGER
 }
 
 enum Departement {
@@ -1231,6 +1232,9 @@ model Collaboration {
 
   lienPublication String?
   datePublication DateTime?
+  // Contenu de type Story (pas de lien permanent) : dispense du lien de publication
+  // obligatoire avant facturation, tout en gardant la trace pour la community manager.
+  isStory         Boolean   @default(false)
 
   factureTalentUrl     String?
   factureTalentRecueAt DateTime?

@@ -71,6 +71,8 @@ export default function LoginPage() {
       // Redirection selon le rôle
       if (session?.user?.role === "TALENT") {
         router.push("/talent/dashboard");
+      } else if (session?.user?.role === "COMMUNITY_MANAGER") {
+        router.push("/community");
       } else {
         router.push("/dashboard");
       }
