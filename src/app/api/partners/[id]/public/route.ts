@@ -55,6 +55,9 @@ export async function GET(
         niches: true,
         ville: true,
         pays: true,
+        typePeau: true,
+        typeCheveux: true,
+        couleurCheveux: true,
         stats: {
           select: {
             igFollowers: true,
@@ -213,6 +216,9 @@ export async function GET(
       niches: talent.niches || [],
       ville: talent.ville || null,
       pays: talent.pays || "France",
+      typePeau: talent.typePeau || null,
+      typeCheveux: talent.typeCheveux || null,
+      couleurCheveux: talent.couleurCheveux || null,
       stats: talent.stats
         ? {
             igFollowers: talent.stats.igFollowers,

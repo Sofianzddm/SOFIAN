@@ -10,6 +10,7 @@ import {
   Handshake,
   FileText,
   Heart,
+  UserRound,
 } from "lucide-react";
 
 const menuItems: {
@@ -33,6 +34,12 @@ const menuItems: {
     label: "Factures",
     href: "/talent/factures",
     icon: FileText,
+  },
+  {
+    label: "Mon profil",
+    mobileLabel: "Profil",
+    href: "/talent/profil",
+    icon: UserRound,
   },
 ];
 
@@ -134,7 +141,7 @@ export function TalentSidebar() {
 
     {/* Navigation mobile (barre en bas d'écran) */}
     <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-[#F5EDE0] pb-[env(safe-area-inset-bottom)]">
-      <div className="grid grid-cols-3">
+      <div className="grid grid-cols-4">
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");

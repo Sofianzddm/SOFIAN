@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
+import { localizeTalentAttribute } from "@/lib/talent-attributes";
 
 // Helper pour générer un visitor ID anonyme
 function getVisitorId(): string {
@@ -57,6 +58,9 @@ interface Talent {
   youtube: string | null;
   niches: string[];
   ville: string | null;
+  typePeau: string | null;
+  typeCheveux: string | null;
+  couleurCheveux: string | null;
   stats: TalentStats | null;
 }
 
@@ -70,6 +74,9 @@ const translations = {
     all: "Tous",
     contentCreator: "CRÉATEUR DE CONTENU",
     presentation: "PRÉSENTATION",
+    skinType: "TYPE DE PEAU",
+    hairType: "TYPE DE CHEVEUX",
+    hairColor: "COULEUR DE CHEVEUX",
     community: "COMMUNAUTÉ",
     engagementRate: "TX D'ENGAGEMENT",
     clearAll: "Tout effacer",
@@ -96,6 +103,9 @@ const translations = {
     all: "All",
     contentCreator: "CONTENT CREATOR",
     presentation: "ABOUT",
+    skinType: "SKIN TYPE",
+    hairType: "HAIR TYPE",
+    hairColor: "HAIR COLOR",
     community: "COMMUNITY",
     engagementRate: "ENGAGEMENT RATE",
     clearAll: "Clear all",
@@ -521,6 +531,28 @@ function TalentModal({
                     {displayPresentation}
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* Apparence (peau / cheveux) */}
+            {(talent.typePeau || talent.typeCheveux || talent.couleurCheveux) && (
+              <div className="mb-5 md:mb-8 pb-4 md:pb-6 border-b border-[#220101]/15 grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {[
+                  { label: t.skinType, value: localizeTalentAttribute(talent.typePeau, lang) },
+                  { label: t.hairType, value: localizeTalentAttribute(talent.typeCheveux, lang) },
+                  { label: t.hairColor, value: localizeTalentAttribute(talent.couleurCheveux, lang) },
+                ]
+                  .filter((a) => a.value)
+                  .map((a) => (
+                    <div key={a.label}>
+                      <p className="text-[10px] md:text-[11px] text-[#220101]/50 uppercase tracking-[0.15em] mb-1 md:mb-2 font-switzer">
+                        {a.label}
+                      </p>
+                      <p className="text-[#220101] text-sm md:text-base font-spectral-light">
+                        {a.value}
+                      </p>
+                    </div>
+                  ))}
               </div>
             )}
 

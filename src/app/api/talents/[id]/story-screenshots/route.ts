@@ -10,6 +10,41 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// Emplacements de screenshots supportés :
+//  - Stories  : views30d / views7d / linkClicks30d
+//  - Démographie : geo / age / pays / ville
+const ALLOWED_SLOTS = [
+  "views30d",
+  "views7d",
+  "linkClicks30d",
+  "geo",
+  "age",
+  "pays",
+  "ville",
+] as const;
+type Slot = (typeof ALLOWED_SLOTS)[number];
+
+// Reconstruit un objet complet { slot: string[] } à partir de la valeur JSON
+// stockée, en gérant l'ancien format (tableau simple = anciennes stories 30j)
+// et en préservant tous les slots existants.
+function normalizeScreens(existing: unknown): Record<Slot, string[]> {
+  const base = Object.fromEntries(
+    ALLOWED_SLOTS.map((s) => [s, [] as string[]])
+  ) as Record<Slot, string[]>;
+
+  if (Array.isArray(existing)) {
+    base.views30d = existing.filter((u): u is string => typeof u === "string");
+  } else if (existing && typeof existing === "object") {
+    const obj = existing as Record<string, unknown>;
+    for (const s of ALLOWED_SLOTS) {
+      base[s] = Array.isArray(obj[s])
+        ? (obj[s] as unknown[]).filter((u): u is string => typeof u === "string")
+        : [];
+    }
+  }
+  return base;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -28,10 +63,10 @@ export async function POST(
     const { id: talentId } = await params;
 
     const formData = await request.formData();
-    const slot = formData.get("slot") as "views30d" | "views7d" | "linkClicks30d" | null;
+    const slot = formData.get("slot") as Slot | null;
     const files = formData.getAll("files") as File[];
 
-    if (!slot || !["views30d", "views7d", "linkClicks30d"].includes(slot)) {
+    if (!slot || !ALLOWED_SLOTS.includes(slot)) {
       return NextResponse.json({ error: "Slot invalide" }, { status: 400 });
     }
 
@@ -82,31 +117,10 @@ export async function POST(
       where: { talentId },
     });
 
-    const existing = stats?.storyScreenshots as any;
-    let base: {
-      views30d: string[];
-      views7d: string[];
-      linkClicks30d: string[];
-    } = { views30d: [], views7d: [], linkClicks30d: [] };
-
-    if (Array.isArray(existing)) {
-      base.views30d = existing.filter((u: any) => typeof u === "string");
-    } else if (existing && typeof existing === "object") {
-      base.views30d = (existing.views30d || []).filter((u: any) => typeof u === "string");
-      base.views7d = (existing.views7d || []).filter((u: any) => typeof u === "string");
-      base.linkClicks30d = (existing.linkClicks30d || []).filter(
-        (u: any) => typeof u === "string"
-      );
-    }
+    const base = normalizeScreens(stats?.storyScreenshots);
 
     // Ajouter les nouvelles URLs au slot existant (bouton + = ajout)
-    if (slot === "views30d") {
-      base.views30d = [...base.views30d, ...uploadedUrls];
-    } else if (slot === "views7d") {
-      base.views7d = [...base.views7d, ...uploadedUrls];
-    } else if (slot === "linkClicks30d") {
-      base.linkClicks30d = [...base.linkClicks30d, ...uploadedUrls];
-    }
+    base[slot] = [...base[slot], ...uploadedUrls];
 
     await prisma.talentStats.upsert({
       where: { talentId },
@@ -114,12 +128,7 @@ export async function POST(
       create: { talentId, storyScreenshots: base },
     });
 
-    return NextResponse.json({
-      success: true,
-      views30d: base.views30d,
-      views7d: base.views7d,
-      linkClicks30d: base.linkClicks30d,
-    });
+    return NextResponse.json({ success: true, ...base });
   } catch (error) {
     console.error("Erreur upload screenshots stories (API):", error);
     return NextResponse.json(
@@ -146,10 +155,12 @@ export async function PATCH(
 
     const { id: talentId } = await params;
     const body = await request.json();
-    const slot = body.slot as "views30d" | "views7d" | "linkClicks30d" | null;
-    const urls = Array.isArray(body.urls) ? body.urls.filter((u: unknown) => typeof u === "string") : [];
+    const slot = body.slot as Slot | null;
+    const urls = Array.isArray(body.urls)
+      ? body.urls.filter((u: unknown): u is string => typeof u === "string")
+      : [];
 
-    if (!slot || !["views30d", "views7d", "linkClicks30d"].includes(slot)) {
+    if (!slot || !ALLOWED_SLOTS.includes(slot)) {
       return NextResponse.json({ error: "Slot invalide" }, { status: 400 });
     }
 
@@ -162,23 +173,8 @@ export async function PATCH(
     }
 
     const stats = await prisma.talentStats.findUnique({ where: { talentId } });
-    const existing = stats?.storyScreenshots as any;
-    const base: { views30d: string[]; views7d: string[]; linkClicks30d: string[] } = {
-      views30d: [],
-      views7d: [],
-      linkClicks30d: [],
-    };
-    if (Array.isArray(existing)) {
-      base.views30d = existing.filter((u: any) => typeof u === "string");
-    } else if (existing && typeof existing === "object") {
-      base.views30d = (existing.views30d || []).filter((u: any) => typeof u === "string");
-      base.views7d = (existing.views7d || []).filter((u: any) => typeof u === "string");
-      base.linkClicks30d = (existing.linkClicks30d || []).filter((u: any) => typeof u === "string");
-    }
-
-    if (slot === "views30d") base.views30d = urls;
-    else if (slot === "views7d") base.views7d = urls;
-    else base.linkClicks30d = urls;
+    const base = normalizeScreens(stats?.storyScreenshots);
+    base[slot] = urls;
 
     await prisma.talentStats.upsert({
       where: { talentId },
@@ -186,12 +182,7 @@ export async function PATCH(
       create: { talentId, storyScreenshots: base },
     });
 
-    return NextResponse.json({
-      success: true,
-      views30d: base.views30d,
-      views7d: base.views7d,
-      linkClicks30d: base.linkClicks30d,
-    });
+    return NextResponse.json({ success: true, ...base });
   } catch (error) {
     console.error("Erreur PATCH story screenshots:", error);
     return NextResponse.json(

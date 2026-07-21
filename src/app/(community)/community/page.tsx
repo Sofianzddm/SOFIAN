@@ -132,27 +132,158 @@ export default function CommunityCollaborationsPage() {
   }, [collaborations]);
 
   const filtered = useMemo(() => {
-    return collaborations.filter((c) => {
-      const term = searchTerm.toLowerCase();
-      const matchSearch =
-        !term ||
-        c.marque.toLowerCase().includes(term) ||
-        c.talentNom.toLowerCase().includes(term) ||
-        c.reference.toLowerCase().includes(term);
-      const matchMarque = marqueFilter === ALL || c.marque === marqueFilter;
-      const matchTalent = talentFilter === ALL || c.talentNom === talentFilter;
+    return collaborations
+      .filter((c) => {
+        const term = searchTerm.toLowerCase();
+        const matchSearch =
+          !term ||
+          c.marque.toLowerCase().includes(term) ||
+          c.talentNom.toLowerCase().includes(term) ||
+          c.reference.toLowerCase().includes(term);
+        const matchMarque = marqueFilter === ALL || c.marque === marqueFilter;
+        const matchTalent = talentFilter === ALL || c.talentNom === talentFilter;
+        const d = new Date(c.datePublication || c.createdAt);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const matchMois = moisFilter === ALL || key === moisFilter;
+        return matchSearch && matchMarque && matchTalent && matchMois;
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.datePublication || b.createdAt).getTime() -
+          new Date(a.datePublication || a.createdAt).getTime()
+      );
+  }, [collaborations, searchTerm, marqueFilter, talentFilter, moisFilter]);
+
+  // Regroupe les publications par mois (les plus récentes en premier) pour
+  // qu'elle voie tout de suite les dernières publications.
+  const groups = useMemo(() => {
+    const map = new Map<string, { label: string; items: Collab[] }>();
+    filtered.forEach((c) => {
       const d = new Date(c.datePublication || c.createdAt);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const matchMois = moisFilter === ALL || key === moisFilter;
-      return matchSearch && matchMarque && matchTalent && matchMois;
+      if (!map.has(key)) {
+        const label = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+        map.set(key, { label: label.charAt(0).toUpperCase() + label.slice(1), items: [] });
+      }
+      map.get(key)!.items.push(c);
     });
-  }, [collaborations, searchTerm, marqueFilter, talentFilter, moisFilter]);
+    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filtered]);
+
+  const isRecent = (c: Collab) => {
+    const d = new Date(c.datePublication || c.createdAt).getTime();
+    return Date.now() - d <= 7 * 24 * 60 * 60 * 1000;
+  };
 
   const hasActiveFilter =
     marqueFilter !== ALL || talentFilter !== ALL || moisFilter !== ALL || !!searchTerm;
 
   const selectClass =
     "h-10 rounded-full border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm transition-colors hover:border-slate-300 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100";
+
+  const renderCard = (collab: Collab) => {
+    const platform = detectPlatform(collab.lienPublication);
+    const PlatformIcon = platform.icon;
+    const tags = collab.livrables.slice(0, 3);
+    const extraTags = collab.livrables.length - tags.length;
+    const recent = isRecent(collab);
+    return (
+      <div
+        key={collab.id}
+        className="group flex flex-col overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:ring-slate-300"
+      >
+        {/* Bandeau */}
+        <div className="relative h-24 bg-gradient-to-br from-slate-100 via-slate-50 to-violet-100/60">
+          <div className="absolute right-3 top-3 flex items-center gap-1.5">
+            {recent && (
+              <span className="inline-flex items-center rounded-full bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
+                Récent
+              </span>
+            )}
+            {collab.isStory && !collab.lienPublication && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-violet-600 backdrop-blur">
+                <Eye className="h-3.5 w-3.5" />
+                Story
+              </span>
+            )}
+          </div>
+          <div className="absolute -bottom-8 left-6">
+            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-md ring-4 ring-white">
+              {collab.talentPhoto ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={collab.talentPhoto}
+                  alt={collab.talentNom}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-lg font-semibold text-slate-400">
+                  {initials(collab.talentNom)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Corps */}
+        <div className="flex flex-1 flex-col px-6 pb-6 pt-10">
+          <h3 className="truncate text-lg font-semibold text-slate-900">{collab.marque}</h3>
+          <p className="mt-0.5 truncate text-sm text-slate-500">{collab.talentNom}</p>
+
+          {collab.datePublication && (
+            <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
+              <Calendar className="h-3.5 w-3.5 text-slate-400" />
+              Publié le{" "}
+              {new Date(collab.datePublication).toLocaleDateString("fr-FR", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </p>
+          )}
+
+          {tags.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {tags.map((l, i) => (
+                <span
+                  key={i}
+                  className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600"
+                >
+                  {l.quantite > 1 ? `${l.quantite}× ` : ""}
+                  {TYPE_LABELS[l.typeContenu] || l.typeContenu}
+                </span>
+              ))}
+              {extraTags > 0 && (
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-400">
+                  +{extraTags}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* CTA */}
+          <div className="mt-auto pt-6">
+            {collab.lienPublication ? (
+              <a
+                href={collab.lienPublication}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-transform hover:scale-[1.02] ${platform.classes}`}
+              >
+                <PlatformIcon className="h-4 w-4" />
+                Voir sur {platform.label}
+              </a>
+            ) : (
+              <div className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-600">
+                <Eye className="h-4 w-4" />
+                Story · sans lien permanent
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -250,101 +381,23 @@ export default function CommunityCollaborationsPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((collab) => {
-            const platform = detectPlatform(collab.lienPublication);
-            const PlatformIcon = platform.icon;
-            const tags = collab.livrables.slice(0, 3);
-            const extraTags = collab.livrables.length - tags.length;
-            return (
-              <div
-                key={collab.id}
-                className="group flex flex-col overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:ring-slate-300"
-              >
-                {/* Bandeau */}
-                <div className="relative h-24 bg-gradient-to-br from-slate-100 via-slate-50 to-violet-100/60">
-                  {collab.isStory && !collab.lienPublication && (
-                    <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-violet-600 backdrop-blur">
-                      <Eye className="h-3.5 w-3.5" />
-                      Story
-                    </span>
-                  )}
-                  <div className="absolute -bottom-8 left-6">
-                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-md ring-4 ring-white">
-                      {collab.talentPhoto ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={collab.talentPhoto}
-                          alt={collab.talentNom}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <span className="text-lg font-semibold text-slate-400">
-                          {initials(collab.talentNom)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Corps */}
-                <div className="flex flex-1 flex-col px-6 pb-6 pt-10">
-                  <h3 className="truncate text-lg font-semibold text-slate-900">{collab.marque}</h3>
-                  <p className="mt-0.5 truncate text-sm text-slate-500">{collab.talentNom}</p>
-
-                  {collab.datePublication && (
-                    <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-slate-400">
-                      <Calendar className="h-3.5 w-3.5" />
-                      {new Date(collab.datePublication).toLocaleDateString("fr-FR", {
-                        day: "numeric",
-                        month: "long",
-                        year: "numeric",
-                      })}
-                    </p>
-                  )}
-
-                  {tags.length > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-1.5">
-                      {tags.map((l, i) => (
-                        <span
-                          key={i}
-                          className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600"
-                        >
-                          {l.quantite > 1 ? `${l.quantite}× ` : ""}
-                          {TYPE_LABELS[l.typeContenu] || l.typeContenu}
-                        </span>
-                      ))}
-                      {extraTags > 0 && (
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-400">
-                          +{extraTags}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* CTA */}
-                  <div className="mt-auto pt-6">
-                    {collab.lienPublication ? (
-                      <a
-                        href={collab.lienPublication}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-transform hover:scale-[1.02] ${platform.classes}`}
-                      >
-                        <PlatformIcon className="h-4 w-4" />
-                        Voir sur {platform.label}
-                      </a>
-                    ) : (
-                      <div className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-600">
-                        <Eye className="h-4 w-4" />
-                        Story · sans lien permanent
-                      </div>
-                    )}
-                  </div>
-                </div>
+        <div className="space-y-10">
+          {groups.map(([key, group]) => (
+            <section key={key}>
+              <div className="mb-4 flex items-center gap-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+                  {group.label}
+                </h2>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-400">
+                  {group.items.length}
+                </span>
+                <div className="h-px flex-1 bg-slate-100" />
               </div>
-            );
-          })}
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {group.items.map((collab) => renderCard(collab))}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </div>

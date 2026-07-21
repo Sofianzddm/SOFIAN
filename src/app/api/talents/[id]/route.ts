@@ -160,6 +160,9 @@ export async function PUT(
     if (data.numeroTVA !== undefined) talentData.numeroTVA = data.numeroTVA || null;
     if (data.telephoneSecondaire !== undefined) talentData.telephoneSecondaire = data.telephoneSecondaire || null;
     if (data.nationalite !== undefined) talentData.nationalite = data.nationalite || null;
+    if (data.typePeau !== undefined) talentData.typePeau = data.typePeau || null;
+    if (data.typeCheveux !== undefined) talentData.typeCheveux = data.typeCheveux || null;
+    if (data.couleurCheveux !== undefined) talentData.couleurCheveux = data.couleurCheveux || null;
     if (data.contactUrgenceNom !== undefined) talentData.contactUrgenceNom = data.contactUrgenceNom || null;
     if (data.contactUrgenceTel !== undefined) talentData.contactUrgenceTel = data.contactUrgenceTel || null;
     if (data.contactUrgenceLien !== undefined) talentData.contactUrgenceLien = data.contactUrgenceLien || null;

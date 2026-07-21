@@ -26,6 +26,11 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { LISTE_PAYS } from "@/lib/pays";
+import {
+  TYPE_PEAU_OPTIONS,
+  TYPE_CHEVEUX_OPTIONS,
+  COULEUR_CHEVEUX_OPTIONS,
+} from "@/lib/talent-attributes";
 
 interface Manager {
   id: string;
@@ -113,6 +118,9 @@ export default function NewTalentPage() {
     telephoneSecondaire: "",
     dateNaissance: "",
     nationalite: "Française",
+    typePeau: "",
+    typeCheveux: "",
+    couleurCheveux: "",
     presentation: "",
     niches: [] as string[],
     selectedClients: "",
@@ -227,6 +235,9 @@ export default function NewTalentPage() {
             telephoneSecondaire: talent.telephoneSecondaire || "",
             dateNaissance: talent.dateNaissance ? String(talent.dateNaissance).slice(0, 10) : "",
             nationalite: talent.nationalite || "Française",
+            typePeau: talent.typePeau || "",
+            typeCheveux: talent.typeCheveux || "",
+            couleurCheveux: talent.couleurCheveux || "",
             presentation: talent.presentation || "",
             niches: Array.isArray(talent.niches) ? talent.niches : [],
             selectedClients: Array.isArray(talent.selectedClients) ? talent.selectedClients.join(", ") : "",
@@ -668,6 +679,79 @@ export default function NewTalentPage() {
                         {niche.emoji} {niche.value}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Apparence (attributs physiques demandés par les marques beauté) */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-pink-50 rounded-lg">
+                      <Sparkles className="w-5 h-5 text-pink-500" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold text-glowup-licorice">
+                        Apparence
+                      </h2>
+                      <p className="text-xs text-gray-500">
+                        Souvent demandé par les marques beauté (matching produit)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        Type de peau
+                      </label>
+                      <select
+                        name="typePeau"
+                        value={formData.typePeau}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+                      >
+                        <option value="">Non renseigné</option>
+                        {TYPE_PEAU_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        Type de cheveux
+                      </label>
+                      <select
+                        name="typeCheveux"
+                        value={formData.typeCheveux}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+                      >
+                        <option value="">Non renseigné</option>
+                        {TYPE_CHEVEUX_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        Couleur de cheveux
+                      </label>
+                      <select
+                        name="couleurCheveux"
+                        value={formData.couleurCheveux}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+                      >
+                        <option value="">Non renseigné</option>
+                        {COULEUR_CHEVEUX_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
 

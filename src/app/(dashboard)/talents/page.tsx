@@ -24,6 +24,11 @@ import {
   CheckCircle2,
   XCircle,
 } from "lucide-react";
+import {
+  TYPE_PEAU_OPTIONS,
+  TYPE_CHEVEUX_OPTIONS,
+  COULEUR_CHEVEUX_OPTIONS,
+} from "@/lib/talent-attributes";
 
 // Types
 interface Talent {
@@ -35,6 +40,10 @@ interface Talent {
   instagram: string | null;
   tiktok: string | null;
   niches: string[];
+  ville: string | null;
+  typePeau: string | null;
+  typeCheveux: string | null;
+  couleurCheveux: string | null;
   commissionInbound: number;
   commissionOutbound: number;
   orderBook?: number;
@@ -65,6 +74,10 @@ export default function TalentsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterNiche, setFilterNiche] = useState("");
+  const [filterVille, setFilterVille] = useState("");
+  const [filterPeau, setFilterPeau] = useState("");
+  const [filterCheveux, setFilterCheveux] = useState("");
+  const [filterCouleur, setFilterCouleur] = useState("");
   const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
 
   // Rôle effectif (via /api/auth/me) pour cohérence avec impersonation
@@ -239,7 +252,21 @@ export default function TalentsPage() {
       `${talent.prenom} ${talent.nom}`.toLowerCase().includes(search.toLowerCase()) ||
       talent.email.toLowerCase().includes(search.toLowerCase());
     const matchNiche = !filterNiche || talent.niches.includes(filterNiche);
-    if (!matchSearch || !matchNiche) return false;
+    const matchVille =
+      !filterVille ||
+      (talent.ville || "").toLowerCase().includes(filterVille.toLowerCase());
+    const matchPeau = !filterPeau || talent.typePeau === filterPeau;
+    const matchCheveux = !filterCheveux || talent.typeCheveux === filterCheveux;
+    const matchCouleur = !filterCouleur || talent.couleurCheveux === filterCouleur;
+    if (
+      !matchSearch ||
+      !matchNiche ||
+      !matchVille ||
+      !matchPeau ||
+      !matchCheveux ||
+      !matchCouleur
+    )
+      return false;
 
     if (!isTm) return true;
 
@@ -252,6 +279,27 @@ export default function TalentsPage() {
 
   const delegationTalents = talents.filter((t) => isTalentDeleguePourMoi(t));
   const allNiches = [...new Set(talents.flatMap((t) => t.niches))];
+  const allVilles = [
+    ...new Set(
+      talents.map((t) => (t.ville || "").trim()).filter(Boolean)
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+
+  const activeFilterCount = [
+    filterNiche,
+    filterVille,
+    filterPeau,
+    filterCheveux,
+    filterCouleur,
+  ].filter(Boolean).length;
+
+  const resetFilters = () => {
+    setFilterNiche("");
+    setFilterVille("");
+    setFilterPeau("");
+    setFilterCheveux("");
+    setFilterCouleur("");
+  };
 
   const formatFollowers = (count: number | null) => {
     if (!count) return "-";
@@ -406,6 +454,100 @@ export default function TalentsPage() {
             </select>
           </div>
         </div>
+
+        {/* Filtres avancés : ville + apparence (peau / cheveux) */}
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <div className="relative flex-1 min-w-[160px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Ville
+            </label>
+            <input
+              type="text"
+              list="talents-villes"
+              placeholder="Toutes les villes"
+              value={filterVille}
+              onChange={(e) => setFilterVille(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 bg-white"
+            />
+            <datalist id="talents-villes">
+              {allVilles.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Type de peau
+            </label>
+            <select
+              value={filterPeau}
+              onChange={(e) => setFilterPeau(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Toutes</option>
+              {TYPE_PEAU_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Type de cheveux
+            </label>
+            <select
+              value={filterCheveux}
+              onChange={(e) => setFilterCheveux(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Tous</option>
+              {TYPE_CHEVEUX_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Couleur de cheveux
+            </label>
+            <select
+              value={filterCouleur}
+              onChange={(e) => setFilterCouleur(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Toutes</option>
+              {COULEUR_CHEVEUX_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 hover:text-glowup-rose hover:bg-glowup-lace rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4" />
+              Réinitialiser ({activeFilterCount})
+            </button>
+          )}
+        </div>
+
+        {activeFilterCount > 0 && (
+          <p className="mt-3 text-sm text-gray-500">
+            {filteredTalents.length} talent{filteredTalents.length > 1 ? "s" : ""} correspond
+            {filteredTalents.length > 1 ? "ent" : ""} aux filtres
+          </p>
+        )}
       </div>
 
       {/* Table / Etat vide selon onglet */}

@@ -60,6 +60,9 @@ const SELECT_TALENT = {
   niches: true,
   ville: true,
   pays: true,
+  typePeau: true,
+  typeCheveux: true,
+  couleurCheveux: true,
   selectedClients: true,
   stats: { select: SELECT_STATS },
 } as const;
@@ -119,6 +122,9 @@ export async function GET(
     niches: talent.niches,
     ville: talent.ville,
     pays: talent.pays,
+    typePeau: talent.typePeau,
+    typeCheveux: talent.typeCheveux,
+    couleurCheveux: talent.couleurCheveux,
     selectedClients: talent.selectedClients,
     instagramStats: s
       ? {

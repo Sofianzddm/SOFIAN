@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { formatPercent } from "@/lib/format";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
+import { localizeTalentAttribute } from "@/lib/talent-attributes";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
 function getVisitorId(): string {
@@ -128,6 +129,9 @@ interface Talent {
   niches: string[];
   ville: string | null;
   pays: string | null;
+  typePeau: string | null;
+  typeCheveux: string | null;
+  couleurCheveux: string | null;
   stats: TalentStats | null;
   tarifs: TalentTarifs | null;
   /** true si ce talent a des tarifs négociés pour ce partenaire */
@@ -183,6 +187,9 @@ const translations = {
     all: "Tous",
     contentCreator: "CRÉATEUR DE CONTENU",
     presentation: "PRÉSENTATION",
+    skinType: "TYPE DE PEAU",
+    hairType: "TYPE DE CHEVEUX",
+    hairColor: "COULEUR DE CHEVEUX",
     community: "COMMUNAUTÉ",
     engagementRate: "TX D'ENGAGEMENT",
     clearAll: "Tout effacer",
@@ -211,6 +218,9 @@ const translations = {
     all: "All",
     contentCreator: "CONTENT CREATOR",
     presentation: "ABOUT",
+    skinType: "SKIN TYPE",
+    hairType: "HAIR TYPE",
+    hairColor: "HAIR COLOR",
     community: "COMMUNITY",
     engagementRate: "ENGAGEMENT RATE",
     clearAll: "Clear all",
@@ -723,6 +733,28 @@ function TalentModal({
                     {displayPresentation}
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* Apparence (peau / cheveux) */}
+            {(talent.typePeau || talent.typeCheveux || talent.couleurCheveux) && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {[
+                  { label: t.skinType, value: localizeTalentAttribute(talent.typePeau, lang) },
+                  { label: t.hairType, value: localizeTalentAttribute(talent.typeCheveux, lang) },
+                  { label: t.hairColor, value: localizeTalentAttribute(talent.couleurCheveux, lang) },
+                ]
+                  .filter((a) => a.value)
+                  .map((a) => (
+                    <div key={a.label}>
+                      <p className="text-xs text-[#220101]/50 uppercase tracking-[0.15em] mb-2 font-switzer">
+                        {a.label}
+                      </p>
+                      <p className="text-[#220101] text-base md:text-lg font-spectral-light">
+                        {a.value}
+                      </p>
+                    </div>
+                  ))}
               </div>
             )}
 

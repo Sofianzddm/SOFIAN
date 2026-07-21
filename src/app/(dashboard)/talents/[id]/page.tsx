@@ -60,6 +60,9 @@ interface TalentDetail {
   youtube: string | null;
   niches: string[];
   selectedClients: string[];
+  typePeau: string | null;
+  typeCheveux: string | null;
+  couleurCheveux: string | null;
   commissionInbound: number;
   commissionOutbound: number;
   dateArrivee: string;
@@ -183,9 +186,13 @@ export default function TalentDetailPage() {
 
   // Performances Stories — upload screenshots (inline)
   const [storyUploadingSlot, setStoryUploadingSlot] = useState<
-    "views30d" | "views7d" | "linkClicks30d" | null
+    "views30d" | "views7d" | "linkClicks30d" | "geo" | "age" | "pays" | "ville" | null
   >(null);
   const [storyScreensError, setStoryScreensError] = useState<string | null>(null);
+  // Onglet actif de la carte screenshots : Stories vs Démographie
+  const [statsScreensTab, setStatsScreensTab] = useState<"stories" | "demographie">(
+    "stories"
+  );
 
   const user = session?.user as { id: string; role: string } | undefined;
   const role = user?.role || "";
@@ -351,7 +358,14 @@ export default function TalentDetailPage() {
   // ========== FIN EDIT BIO ==========
 
   // ========== EDIT PERFORMANCES STORIES (inline) ==========
-  type StorySlot = "views30d" | "views7d" | "linkClicks30d";
+  type StorySlot =
+    | "views30d"
+    | "views7d"
+    | "linkClicks30d"
+    | "geo"
+    | "age"
+    | "pays"
+    | "ville";
 
   const handleStartEditStoryStats = () => {
     setStoryStatsDraft({
@@ -398,19 +412,20 @@ export default function TalentDetailPage() {
     }
   };
 
-  const updateStoryScreensInTalent = (data: {
-    views30d?: unknown;
-    views7d?: unknown;
-    linkClicks30d?: unknown;
-  }) => {
+  const updateStoryScreensInTalent = (data: Record<string, unknown>) => {
     const isStr = (u: unknown): u is string => typeof u === "string";
-    const screenshots = {
-      views30d: Array.isArray(data.views30d) ? data.views30d.filter(isStr) : [],
-      views7d: Array.isArray(data.views7d) ? data.views7d.filter(isStr) : [],
-      linkClicks30d: Array.isArray(data.linkClicks30d)
-        ? data.linkClicks30d.filter(isStr)
-        : [],
-    };
+    const slots: StorySlot[] = [
+      "views30d",
+      "views7d",
+      "linkClicks30d",
+      "geo",
+      "age",
+      "pays",
+      "ville",
+    ];
+    const screenshots = Object.fromEntries(
+      slots.map((s) => [s, Array.isArray(data[s]) ? (data[s] as unknown[]).filter(isStr) : []])
+    );
     setTalent((prev) =>
       prev
         ? {
@@ -630,16 +645,25 @@ export default function TalentDetailPage() {
   let storyScreens30d: string[] = [];
   let storyScreens7d: string[] = [];
   let storyScreensClicks30d: string[] = [];
+  // Démographie (nouvel onglet)
+  let demoScreensGeo: string[] = [];
+  let demoScreensAge: string[] = [];
+  let demoScreensPays: string[] = [];
+  let demoScreensVille: string[] = [];
 
   if (Array.isArray(rawStoryScreens)) {
     // Ancien format: toutes les images dans un seul tableau → on les met en 30j
     storyScreens30d = rawStoryScreens.filter((u: any) => typeof u === "string");
   } else if (rawStoryScreens && typeof rawStoryScreens === "object") {
-    storyScreens30d = (rawStoryScreens.views30d || []).filter((u: any) => typeof u === "string");
-    storyScreens7d = (rawStoryScreens.views7d || []).filter((u: any) => typeof u === "string");
-    storyScreensClicks30d = (rawStoryScreens.linkClicks30d || []).filter(
-      (u: any) => typeof u === "string"
-    );
+    const pick = (k: string): string[] =>
+      (rawStoryScreens[k] || []).filter((u: any) => typeof u === "string");
+    storyScreens30d = pick("views30d");
+    storyScreens7d = pick("views7d");
+    storyScreensClicks30d = pick("linkClicks30d");
+    demoScreensGeo = pick("geo");
+    demoScreensAge = pick("age");
+    demoScreensPays = pick("pays");
+    demoScreensVille = pick("ville");
   }
   const tarifs = talent.tarifs;
   const hasInstagram = talent.instagram && stats?.igFollowers;
@@ -861,6 +885,26 @@ export default function TalentDetailPage() {
                   <MapPin className="w-5 h-5" />
                   {talent.ville}{talent.ville && talent.pays && ", "}{talent.pays}
                 </p>
+              )}
+
+              {(talent.typePeau || talent.typeCheveux || talent.couleurCheveux) && (
+                <div className="flex flex-wrap justify-center lg:justify-start gap-2 mb-6">
+                  {[
+                    { label: "Peau", value: talent.typePeau },
+                    { label: "Cheveux", value: talent.typeCheveux },
+                    { label: "Couleur", value: talent.couleurCheveux },
+                  ]
+                    .filter((a) => a.value)
+                    .map((a) => (
+                      <span
+                        key={a.label}
+                        className="px-3 py-1 bg-white/10 backdrop-blur-md text-white/80 text-xs font-medium rounded-full border border-white/10"
+                      >
+                        <span className="text-white/50">{a.label} : </span>
+                        {a.value}
+                      </span>
+                    ))}
+                </div>
               )}
 
               {/* Quick stats */}
@@ -1401,19 +1445,23 @@ export default function TalentDetailPage() {
             stats?.storyLinkClicks30d ||
             storyScreens30d.length > 0 ||
             storyScreens7d.length > 0 ||
-            storyScreensClicks30d.length > 0) && (
+            storyScreensClicks30d.length > 0 ||
+            demoScreensGeo.length > 0 ||
+            demoScreensAge.length > 0 ||
+            demoScreensPays.length > 0 ||
+            demoScreensVille.length > 0) && (
             <div className="bg-gradient-to-br from-amber-50 via-white to-amber-50 rounded-3xl shadow-xl shadow-amber-100/80 p-8 border border-amber-100">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 bg-amber-100 rounded-xl">
                   <BarChart3 className="w-5 h-5 text-amber-600" />
                 </div>
                 <div className="flex-1">
-                  <h2 className="text-lg font-bold text-glowup-licorice">Performances Stories (interne)</h2>
+                  <h2 className="text-lg font-bold text-glowup-licorice">Performances (interne)</h2>
                   <p className="text-sm text-gray-500">
-                    Vues max stories (30j / 7j) + clics lien (30j) avec screenshots à l’appui.
+                    Screenshots de stats stories & démographie à l’appui.
                   </p>
                 </div>
-                {canEditBio && !editingStoryStats && (
+                {canEditBio && !editingStoryStats && statsScreensTab === "stories" && (
                   <button
                     type="button"
                     onClick={handleStartEditStoryStats}
@@ -1426,8 +1474,29 @@ export default function TalentDetailPage() {
                 )}
               </div>
 
-              {/* Cartes vues / clics */}
-              {editingStoryStats ? (
+              {/* Onglets : Stories vs Démographie */}
+              <div className="flex gap-2 mb-6">
+                {([
+                  { id: "stories" as const, label: "Stories" },
+                  { id: "demographie" as const, label: "Démographie" },
+                ]).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setStatsScreensTab(tab.id)}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                      statsScreensTab === tab.id
+                        ? "bg-amber-600 text-white shadow-sm"
+                        : "bg-white/70 text-amber-800 border border-amber-200 hover:bg-amber-100"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Cartes vues / clics (onglet Stories uniquement) */}
+              {statsScreensTab === "stories" && (editingStoryStats ? (
                 <div className="space-y-3 mb-6">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="bg-white/80 rounded-2xl p-4 border border-amber-200 shadow-sm">
@@ -1533,13 +1602,17 @@ export default function TalentDetailPage() {
                     </p>
                   </div>
                 </div>
-              )}
+              ))}
 
               {/* Screenshots — toujours affichés, et avec corbeille + bouton + pour les utilisateurs autorisés */}
               {(canEditBio ||
                 storyScreens30d.length > 0 ||
                 storyScreens7d.length > 0 ||
-                storyScreensClicks30d.length > 0) && (
+                storyScreensClicks30d.length > 0 ||
+                demoScreensGeo.length > 0 ||
+                demoScreensAge.length > 0 ||
+                demoScreensPays.length > 0 ||
+                demoScreensVille.length > 0) && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-xs font-semibold text-amber-900 tracking-wide uppercase">
@@ -1561,12 +1634,18 @@ export default function TalentDetailPage() {
                     <p className="text-xs text-red-600">{storyScreensError}</p>
                   )}
 
-                  {(
-                    [
-                      { slot: "views30d" as StorySlot, label: "Stories – 30 derniers jours", urls: storyScreens30d, dl: "stories-30j" },
-                      { slot: "views7d" as StorySlot, label: "Stories – 7 derniers jours", urls: storyScreens7d, dl: "stories-7j" },
-                      { slot: "linkClicks30d" as StorySlot, label: "Clics sur lien – 30 derniers jours", urls: storyScreensClicks30d, dl: "clics-lien-30j" },
-                    ] satisfies { slot: StorySlot; label: string; urls: string[]; dl: string }[]
+                  {(statsScreensTab === "stories"
+                    ? [
+                        { slot: "views30d" as StorySlot, label: "Stories – 30 derniers jours", urls: storyScreens30d, dl: "stories-30j" },
+                        { slot: "views7d" as StorySlot, label: "Stories – 7 derniers jours", urls: storyScreens7d, dl: "stories-7j" },
+                        { slot: "linkClicks30d" as StorySlot, label: "Clics sur lien – 30 derniers jours", urls: storyScreensClicks30d, dl: "clics-lien-30j" },
+                      ]
+                    : [
+                        { slot: "geo" as StorySlot, label: "Stats géographiques", urls: demoScreensGeo, dl: "geo" },
+                        { slot: "age" as StorySlot, label: "Tranches d’âge", urls: demoScreensAge, dl: "age" },
+                        { slot: "pays" as StorySlot, label: "Pays", urls: demoScreensPays, dl: "pays" },
+                        { slot: "ville" as StorySlot, label: "Villes", urls: demoScreensVille, dl: "ville" },
+                      ]
                   ).map(({ slot, label, urls, dl }) => {
                     if (!canEditBio && urls.length === 0) return null;
                     const inputId = `story-upload-${slot}`;

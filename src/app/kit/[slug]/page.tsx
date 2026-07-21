@@ -6,6 +6,7 @@ import {
   getInstagramProfileUrl,
   normalizeInstagramHandle,
 } from "@/lib/social-links";
+import { localizeTalentAttribute } from "@/lib/talent-attributes";
 
 // Intervalle de polling : on rafraîchit le kit toutes les 30s tant
 // que l'onglet est visible. À chaque retour de focus on force aussi
@@ -39,6 +40,9 @@ const translations = {
     presentationFallback: "Présentation à venir.",
     contact: "Contact",
     location: "Localisation",
+    skinType: "Type de peau",
+    hairType: "Type de cheveux",
+    hairColor: "Couleur de cheveux",
     selectedClients: "Selected clients",
     // Analytics
     instagramAnalyticsTitle: "INSTAGRAM ANALYTIQUE",
@@ -79,6 +83,9 @@ const translations = {
     presentationFallback: "About text coming soon.",
     contact: "Contact",
     location: "Location",
+    skinType: "Skin type",
+    hairType: "Hair type",
+    hairColor: "Hair color",
     selectedClients: "Selected clients",
     instagramAnalyticsTitle: "INSTAGRAM ANALYTICS",
     tiktokAnalyticsTitle: "TIKTOK ANALYTICS",
@@ -152,6 +159,9 @@ interface KitTalent {
   niches: string[];
   ville: string | null;
   pays: string | null;
+  typePeau: string | null;
+  typeCheveux: string | null;
+  couleurCheveux: string | null;
   selectedClients: string[];
   instagramStats: PlatformStats | null;
   tiktokStats: PlatformStats | null;
@@ -734,6 +744,17 @@ function PresentationPage({
       .join(", ");
   })();
 
+  // Attributs beauté (peau / cheveux) — affichés seulement si renseignés,
+  // traduits selon la langue du kit.
+  const beautyAttrs = [
+    { label: t.skinType, value: localizeTalentAttribute(talent.typePeau, lang) },
+    { label: t.hairType, value: localizeTalentAttribute(talent.typeCheveux, lang) },
+    {
+      label: t.hairColor,
+      value: localizeTalentAttribute(talent.couleurCheveux, lang),
+    },
+  ].filter((a) => a.value);
+
   return (
     <PageA4
       background={C.cream}
@@ -795,6 +816,17 @@ function PresentationPage({
                 </p>
               </div>
             )}
+
+            {beautyAttrs.map((attr) => (
+              <div key={attr.label}>
+                <p className="text-[8px] uppercase tracking-[0.25em] mb-[6px] font-switzer">
+                  {attr.label}
+                </p>
+                <p className="text-[10px] font-spectral-light tracking-wide leading-snug">
+                  {attr.value}
+                </p>
+              </div>
+            ))}
 
             {/* Socials toujours collés en bas de la sidebar */}
             {(igUrl || ttUrl) && (

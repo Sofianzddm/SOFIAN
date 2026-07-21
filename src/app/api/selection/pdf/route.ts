@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { localizeTalentAttribute } from "@/lib/talent-attributes";
 
 // Traductions pour le PDF
 const pdfTranslations = {
@@ -11,6 +12,9 @@ const pdfTranslations = {
     community: "COMMUNAUTÉ",
     engagementRate: "TX D'ENGAGEMENT",
     contentCreator: "CRÉATEUR DE CONTENU",
+    skinType: "TYPE DE PEAU",
+    hairType: "TYPE DE CHEVEUX",
+    hairColor: "COULEUR DE CHEVEUX",
   },
   en: {
     selectionTalents: "talent",
@@ -20,6 +24,9 @@ const pdfTranslations = {
     community: "COMMUNITY",
     engagementRate: "ENGAGEMENT RATE",
     contentCreator: "CONTENT CREATOR",
+    skinType: "SKIN TYPE",
+    hairType: "HAIR TYPE",
+    hairColor: "HAIR COLOR",
   },
 };
 
@@ -119,8 +126,15 @@ function generatePDFHtml(talents: any[], lang: Lang = "fr"): string {
   });
 
   const talentPages = talents
-    .map(
-      (talent, index) => `
+    .map((talent, index) => {
+      // Attributs beauté (peau / cheveux) — uniquement ceux renseignés.
+      const beautyAttrs = [
+        { label: t.skinType, value: localizeTalentAttribute(talent.typePeau, lang) },
+        { label: t.hairType, value: localizeTalentAttribute(talent.typeCheveux, lang) },
+        { label: t.hairColor, value: localizeTalentAttribute(talent.couleurCheveux, lang) },
+      ].filter((a) => a.value);
+
+      return `
     <!-- Page Talent ${index + 1} -->
     <div class="page talent-page">
       <div class="talent-content">
@@ -225,6 +239,25 @@ function generatePDFHtml(talents: any[], lang: Lang = "fr"): string {
           `
               : ""
           }
+
+          <!-- Attributs beauté (peau / cheveux) -->
+          ${
+            beautyAttrs.length > 0
+              ? `
+          <div class="beauty-section">
+            ${beautyAttrs
+              .map(
+                (a) => `
+            <div class="beauty-item">
+              <span class="beauty-label">${a.label}</span>
+              <span class="beauty-value">${a.value}</span>
+            </div>`
+              )
+              .join("")}
+          </div>
+          `
+              : ""
+          }
           
           <!-- Logo bas de page -->
           <div class="talent-footer">
@@ -240,8 +273,8 @@ function generatePDFHtml(talents: any[], lang: Lang = "fr"): string {
         </div>
       </div>
     </div>
-  `
-    )
+  `;
+    })
     .join("");
 
   return `
@@ -483,6 +516,36 @@ function generatePDFHtml(talents: any[], lang: Lang = "fr"): string {
     .presentation {
       font-size: 15px;
       line-height: 1.8;
+      color: #220101;
+      font-weight: 300;
+    }
+
+    /* Beauty attributes (peau / cheveux) */
+    .beauty-section {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 32px;
+      padding-top: 24px;
+      margin-top: 24px;
+      border-top: 1px solid rgba(34, 1, 1, 0.15);
+    }
+
+    .beauty-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .beauty-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: rgba(34, 1, 1, 0.5);
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .beauty-value {
+      font-size: 14px;
       color: #220101;
       font-weight: 300;
     }

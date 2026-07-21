@@ -436,6 +436,12 @@ model Talent {
   nationalite         String?
   notesInternes       String? @db.Text
 
+  // Attributs physiques (demandés par les marques beauté pour le matching)
+  // Valeurs canoniques FR — cf. src/lib/talent-attributes.ts
+  typePeau       String? // Normale / Sèche / Mixte / Grasse / Sensible
+  typeCheveux    String? // Raides / Ondulés / Bouclés / Crépus
+  couleurCheveux String? // Blond / Brun / Châtain / Roux / Noir / Coloré
+
   dateArrivee      DateTime @default(now())
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
