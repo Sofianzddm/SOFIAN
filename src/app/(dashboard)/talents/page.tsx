@@ -30,6 +30,10 @@ import {
   COULEUR_CHEVEUX_OPTIONS,
   TENDANCE_PEAU_OPTIONS,
   TENDANCE_CHEVEUX_OPTIONS,
+  ANIMAUX_OPTIONS,
+  AGES_ENFANTS_OPTIONS,
+  SPORTS_OPTIONS,
+  MOBILITE_OPTIONS,
 } from "@/lib/talent-attributes";
 
 // Types
@@ -48,6 +52,12 @@ interface Talent {
   couleurCheveux: string | null;
   tendancePeau: string[] | null;
   tendanceCheveux: string[] | null;
+  animaux: string[] | null;
+  nombreEnfants: number | null;
+  agesEnfants: string[] | null;
+  enceinte: boolean | null;
+  sports: string[] | null;
+  mobilite: string[] | null;
   commissionInbound: number;
   commissionOutbound: number;
   orderBook?: number;
@@ -84,6 +94,11 @@ export default function TalentsPage() {
   const [filterCouleur, setFilterCouleur] = useState("");
   const [filterTendancePeau, setFilterTendancePeau] = useState("");
   const [filterTendanceCheveux, setFilterTendanceCheveux] = useState("");
+  const [filterAnimaux, setFilterAnimaux] = useState("");
+  const [filterAges, setFilterAges] = useState("");
+  const [filterSports, setFilterSports] = useState("");
+  const [filterMobilite, setFilterMobilite] = useState("");
+  const [filterEnceinte, setFilterEnceinte] = useState("");
   const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
 
   // Rôle effectif (via /api/auth/me) pour cohérence avec impersonation
@@ -269,6 +284,12 @@ export default function TalentsPage() {
     const matchTendanceCheveux =
       !filterTendanceCheveux ||
       !!talent.tendanceCheveux?.includes(filterTendanceCheveux);
+    const matchAnimaux = !filterAnimaux || !!talent.animaux?.includes(filterAnimaux);
+    const matchAges = !filterAges || !!talent.agesEnfants?.includes(filterAges);
+    const matchSports = !filterSports || !!talent.sports?.includes(filterSports);
+    const matchMobilite =
+      !filterMobilite || !!talent.mobilite?.includes(filterMobilite);
+    const matchEnceinte = !filterEnceinte || talent.enceinte === true;
     if (
       !matchSearch ||
       !matchNiche ||
@@ -277,7 +298,12 @@ export default function TalentsPage() {
       !matchCheveux ||
       !matchCouleur ||
       !matchTendancePeau ||
-      !matchTendanceCheveux
+      !matchTendanceCheveux ||
+      !matchAnimaux ||
+      !matchAges ||
+      !matchSports ||
+      !matchMobilite ||
+      !matchEnceinte
     )
       return false;
 
@@ -306,6 +332,11 @@ export default function TalentsPage() {
     filterCouleur,
     filterTendancePeau,
     filterTendanceCheveux,
+    filterAnimaux,
+    filterAges,
+    filterSports,
+    filterMobilite,
+    filterEnceinte,
   ].filter(Boolean).length;
 
   const resetFilters = () => {
@@ -316,6 +347,11 @@ export default function TalentsPage() {
     setFilterCouleur("");
     setFilterTendancePeau("");
     setFilterTendanceCheveux("");
+    setFilterAnimaux("");
+    setFilterAges("");
+    setFilterSports("");
+    setFilterMobilite("");
+    setFilterEnceinte("");
   };
 
   const formatFollowers = (count: number | null) => {
@@ -580,6 +616,92 @@ export default function TalentsPage() {
                   {opt}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Âge des enfants
+            </label>
+            <select
+              value={filterAges}
+              onChange={(e) => setFilterAges(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Tous</option>
+              {AGES_ENFANTS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Animaux
+            </label>
+            <select
+              value={filterAnimaux}
+              onChange={(e) => setFilterAnimaux(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Tous</option>
+              {ANIMAUX_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Sports
+            </label>
+            <select
+              value={filterSports}
+              onChange={(e) => setFilterSports(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Tous</option>
+              {SPORTS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Mobilité
+            </label>
+            <select
+              value={filterMobilite}
+              onChange={(e) => setFilterMobilite(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Toutes</option>
+              {MOBILITE_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Grossesse
+            </label>
+            <select
+              value={filterEnceinte}
+              onChange={(e) => setFilterEnceinte(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Toutes</option>
+              <option value="oui">Enceinte</option>
             </select>
           </div>
 

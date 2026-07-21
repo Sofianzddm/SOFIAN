@@ -35,6 +35,12 @@ export async function GET(request: NextRequest) {
         couleurCheveux: true,
         tendancePeau: true,
         tendanceCheveux: true,
+        animaux: true,
+        nombreEnfants: true,
+        agesEnfants: true,
+        enceinte: true,
+        sports: true,
+        mobilite: true,
       },
     });
 
@@ -98,6 +104,12 @@ export async function PATCH(request: NextRequest) {
       couleurCheveux?: string | null;
       tendancePeau?: string[];
       tendanceCheveux?: string[];
+      animaux?: string[];
+      nombreEnfants?: number | null;
+      agesEnfants?: string[];
+      enceinte?: boolean;
+      sports?: string[];
+      mobilite?: string[];
     } = {};
     if (data.ville !== undefined) updateData.ville = data.ville || null;
     if (data.typePeau !== undefined) updateData.typePeau = data.typePeau || null;
@@ -113,6 +125,22 @@ export async function PATCH(request: NextRequest) {
       updateData.tendanceCheveux = Array.isArray(data.tendanceCheveux)
         ? data.tendanceCheveux
         : [];
+    if (data.animaux !== undefined)
+      updateData.animaux = Array.isArray(data.animaux) ? data.animaux : [];
+    if (data.nombreEnfants !== undefined)
+      updateData.nombreEnfants =
+        data.nombreEnfants === null || data.nombreEnfants === ""
+          ? null
+          : parseInt(String(data.nombreEnfants), 10);
+    if (data.agesEnfants !== undefined)
+      updateData.agesEnfants = Array.isArray(data.agesEnfants)
+        ? data.agesEnfants
+        : [];
+    if (data.enceinte !== undefined) updateData.enceinte = Boolean(data.enceinte);
+    if (data.sports !== undefined)
+      updateData.sports = Array.isArray(data.sports) ? data.sports : [];
+    if (data.mobilite !== undefined)
+      updateData.mobilite = Array.isArray(data.mobilite) ? data.mobilite : [];
 
     const updated = await prisma.talent.update({
       where: { id: talent.id },
@@ -127,6 +155,12 @@ export async function PATCH(request: NextRequest) {
         couleurCheveux: true,
         tendancePeau: true,
         tendanceCheveux: true,
+        animaux: true,
+        nombreEnfants: true,
+        agesEnfants: true,
+        enceinte: true,
+        sports: true,
+        mobilite: true,
       },
     });
 

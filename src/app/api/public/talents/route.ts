@@ -35,6 +35,12 @@ export async function GET(request: NextRequest) {
         couleurCheveux: true,
         tendancePeau: true,
         tendanceCheveux: true,
+        animaux: true,
+        nombreEnfants: true,
+        agesEnfants: true,
+        enceinte: true,
+        sports: true,
+        mobilite: true,
         stats: {
           select: {
             igFollowers: true,

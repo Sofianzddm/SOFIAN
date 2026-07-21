@@ -65,6 +65,12 @@ const SELECT_TALENT = {
   couleurCheveux: true,
   tendancePeau: true,
   tendanceCheveux: true,
+  animaux: true,
+  nombreEnfants: true,
+  agesEnfants: true,
+  enceinte: true,
+  sports: true,
+  mobilite: true,
   selectedClients: true,
   stats: { select: SELECT_STATS },
 } as const;
@@ -129,6 +135,12 @@ export async function GET(
     couleurCheveux: talent.couleurCheveux,
     tendancePeau: talent.tendancePeau,
     tendanceCheveux: talent.tendanceCheveux,
+    animaux: talent.animaux,
+    nombreEnfants: talent.nombreEnfants,
+    agesEnfants: talent.agesEnfants,
+    enceinte: talent.enceinte,
+    sports: talent.sports,
+    mobilite: talent.mobilite,
     selectedClients: talent.selectedClients,
     instagramStats: s
       ? {

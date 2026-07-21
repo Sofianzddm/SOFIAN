@@ -68,6 +68,58 @@ export const TENDANCE_CHEVEUX_OPTIONS = [
   "Chute / clairsemés",
 ] as const;
 
+// ─── Profil / lifestyle (demandé par les marques pour le matching & gifting) ───
+
+// Animaux (multi)
+export const ANIMAUX_OPTIONS = [
+  "Chien",
+  "Chat",
+  "Cheval",
+  "Rongeur",
+  "Oiseau",
+  "Reptile",
+  "Poisson",
+  "Autre",
+] as const;
+
+// Tranches d'âge des enfants (multi)
+export const AGES_ENFANTS_OPTIONS = [
+  "Bébé (0-2 ans)",
+  "Enfant (3-11 ans)",
+  "Ado (12-17 ans)",
+  "Adulte (18+)",
+] as const;
+
+// Sports & activités (multi)
+export const SPORTS_OPTIONS = [
+  "Running",
+  "Musculation/Fitness",
+  "Yoga",
+  "Pilates",
+  "Danse",
+  "Football",
+  "Tennis/Padel",
+  "Natation",
+  "Cyclisme",
+  "Randonnée",
+  "Ski/Sports d'hiver",
+  "Sports de combat",
+  "Crossfit",
+  "Équitation",
+  "Surf",
+  "Golf",
+  "Escalade",
+] as const;
+
+// Mobilité (multi)
+export const MOBILITE_OPTIONS = [
+  "Permis B",
+  "Véhicule personnel",
+  "Passeport valide",
+  "Dispo voyage (France)",
+  "Dispo voyage (International)",
+] as const;
+
 export type TypePeau = (typeof TYPE_PEAU_OPTIONS)[number];
 export type TypeCheveux = (typeof TYPE_CHEVEUX_OPTIONS)[number];
 export type CouleurCheveux = (typeof COULEUR_CHEVEUX_OPTIONS)[number];
@@ -120,6 +172,44 @@ export const TALENT_ATTRIBUTE_LABELS_EN: Record<string, string> = {
   Épais: "Thick",
   Frisottis: "Frizzy",
   "Chute / clairsemés": "Thinning / hair loss",
+  // Animaux
+  Chien: "Dog",
+  Chat: "Cat",
+  Cheval: "Horse",
+  Rongeur: "Small pet",
+  Oiseau: "Bird",
+  Reptile: "Reptile",
+  Poisson: "Fish",
+  Autre: "Other",
+  // Tranches d'âge enfants
+  "Bébé (0-2 ans)": "Baby (0-2)",
+  "Enfant (3-11 ans)": "Child (3-11)",
+  "Ado (12-17 ans)": "Teen (12-17)",
+  "Adulte (18+)": "Adult (18+)",
+  // Sports & activités
+  Running: "Running",
+  "Musculation/Fitness": "Strength / Fitness",
+  Yoga: "Yoga",
+  Pilates: "Pilates",
+  Danse: "Dance",
+  Football: "Football",
+  "Tennis/Padel": "Tennis / Padel",
+  Natation: "Swimming",
+  Cyclisme: "Cycling",
+  Randonnée: "Hiking",
+  "Ski/Sports d'hiver": "Ski / Winter sports",
+  "Sports de combat": "Combat sports",
+  Crossfit: "Crossfit",
+  Équitation: "Horse riding",
+  Surf: "Surf",
+  Golf: "Golf",
+  Escalade: "Climbing",
+  // Mobilité
+  "Permis B": "Driving license",
+  "Véhicule personnel": "Own vehicle",
+  "Passeport valide": "Valid passport",
+  "Dispo voyage (France)": "Available to travel (France)",
+  "Dispo voyage (International)": "Available to travel (International)",
 };
 
 /**

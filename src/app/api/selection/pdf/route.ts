@@ -20,6 +20,13 @@ const pdfTranslations = {
     hairColor: "COULEUR DE CHEVEUX",
     skinTrend: "TENDANCE DE PEAU",
     hairTrend: "TENDANCE CHEVEUX",
+    pets: "ANIMAUX",
+    children: "ENFANTS",
+    pregnant: "GROSSESSE",
+    pregnantYes: "Enceinte",
+    childSuffix: "enfant(s)",
+    sportsLabel: "SPORTS",
+    mobility: "MOBILITÉ",
   },
   en: {
     selectionTalents: "talent",
@@ -34,6 +41,13 @@ const pdfTranslations = {
     hairColor: "HAIR COLOR",
     skinTrend: "SKIN CONCERNS",
     hairTrend: "HAIR CONCERNS",
+    pets: "PETS",
+    children: "CHILDREN",
+    pregnant: "PREGNANCY",
+    pregnantYes: "Pregnant",
+    childSuffix: "child(ren)",
+    sportsLabel: "SPORTS",
+    mobility: "MOBILITY",
   },
 };
 
@@ -141,6 +155,17 @@ function generatePDFHtml(talents: any[], lang: Lang = "fr"): string {
         { label: t.hairColor, value: localizeTalentAttribute(talent.couleurCheveux, lang) },
         { label: t.skinTrend, value: localizeTalentAttributeList(talent.tendancePeau, lang) },
         { label: t.hairTrend, value: localizeTalentAttributeList(talent.tendanceCheveux, lang) },
+        { label: t.children, value: (() => {
+            const parts: string[] = [];
+            if (talent.nombreEnfants != null) parts.push(`${talent.nombreEnfants} ${t.childSuffix}`);
+            const ages = localizeTalentAttributeList(talent.agesEnfants, lang);
+            if (ages) parts.push(ages);
+            return parts.length ? parts.join(" · ") : null;
+          })() },
+        { label: t.pregnant, value: talent.enceinte ? t.pregnantYes : null },
+        { label: t.pets, value: localizeTalentAttributeList(talent.animaux, lang) },
+        { label: t.sportsLabel, value: localizeTalentAttributeList(talent.sports, lang) },
+        { label: t.mobility, value: localizeTalentAttributeList(talent.mobilite, lang) },
       ].filter((a) => a.value);
 
       return `

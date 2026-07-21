@@ -61,6 +61,12 @@ export async function GET(
         couleurCheveux: true,
         tendancePeau: true,
         tendanceCheveux: true,
+        animaux: true,
+        nombreEnfants: true,
+        agesEnfants: true,
+        enceinte: true,
+        sports: true,
+        mobilite: true,
         stats: {
           select: {
             igFollowers: true,
@@ -232,6 +238,12 @@ export async function GET(
       couleurCheveux: talent.couleurCheveux || null,
       tendancePeau: talent.tendancePeau || [],
       tendanceCheveux: talent.tendanceCheveux || [],
+      animaux: talent.animaux || [],
+      nombreEnfants: talent.nombreEnfants ?? null,
+      agesEnfants: talent.agesEnfants || [],
+      enceinte: talent.enceinte ?? false,
+      sports: talent.sports || [],
+      mobilite: talent.mobilite || [],
       stats: talent.stats
         ? {
             igFollowers: talent.stats.igFollowers,

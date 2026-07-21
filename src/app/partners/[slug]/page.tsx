@@ -25,6 +25,10 @@ import {
   COULEUR_CHEVEUX_OPTIONS,
   TENDANCE_PEAU_OPTIONS,
   TENDANCE_CHEVEUX_OPTIONS,
+  ANIMAUX_OPTIONS,
+  AGES_ENFANTS_OPTIONS,
+  SPORTS_OPTIONS,
+  MOBILITE_OPTIONS,
 } from "@/lib/talent-attributes";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
@@ -143,6 +147,12 @@ interface Talent {
   couleurCheveux: string | null;
   tendancePeau: string[];
   tendanceCheveux: string[];
+  animaux: string[];
+  nombreEnfants: number | null;
+  agesEnfants: string[];
+  enceinte: boolean;
+  sports: string[];
+  mobilite: string[];
   stats: TalentStats | null;
   tarifs: TalentTarifs | null;
   /** true si ce talent a des tarifs négociés pour ce partenaire */
@@ -203,6 +213,13 @@ const translations = {
     hairColor: "COULEUR DE CHEVEUX",
     skinTrend: "TENDANCE DE PEAU",
     hairTrend: "TENDANCE CHEVEUX",
+    pets: "ANIMAUX",
+    children: "ENFANTS",
+    pregnant: "GROSSESSE",
+    pregnantYes: "Enceinte",
+    childSuffix: "enfant(s)",
+    sportsLabel: "SPORTS",
+    mobility: "MOBILITÉ",
     city: "VILLE",
     allCities: "Toutes les villes",
     allSkin: "Type de peau",
@@ -210,6 +227,11 @@ const translations = {
     allColor: "Couleur de cheveux",
     allSkinTrend: "Tendance de peau",
     allHairTrend: "Tendance cheveux",
+    allPets: "Animaux",
+    allAges: "Âge des enfants",
+    allSports: "Sports",
+    allMobility: "Mobilité",
+    allPregnant: "Grossesse",
     community: "COMMUNAUTÉ",
     engagementRate: "TX D'ENGAGEMENT",
     clearAll: "Tout effacer",
@@ -243,6 +265,13 @@ const translations = {
     hairColor: "HAIR COLOR",
     skinTrend: "SKIN CONCERNS",
     hairTrend: "HAIR CONCERNS",
+    pets: "PETS",
+    children: "CHILDREN",
+    pregnant: "PREGNANCY",
+    pregnantYes: "Pregnant",
+    childSuffix: "child(ren)",
+    sportsLabel: "SPORTS",
+    mobility: "MOBILITY",
     city: "CITY",
     allCities: "All cities",
     allSkin: "Skin type",
@@ -250,6 +279,11 @@ const translations = {
     allColor: "Hair color",
     allSkinTrend: "Skin concerns",
     allHairTrend: "Hair concerns",
+    allPets: "Pets",
+    allAges: "Children age",
+    allSports: "Sports",
+    allMobility: "Mobility",
+    allPregnant: "Pregnancy",
     community: "COMMUNITY",
     engagementRate: "ENGAGEMENT RATE",
     clearAll: "Clear all",
@@ -765,8 +799,8 @@ function TalentModal({
               </div>
             )}
 
-            {/* Apparence (ville / peau / cheveux) */}
-            {(talent.ville || talent.typePeau || talent.typeCheveux || talent.couleurCheveux || talent.tendancePeau?.length || talent.tendanceCheveux?.length) && (
+            {/* Apparence + lifestyle */}
+            {(talent.ville || talent.typePeau || talent.typeCheveux || talent.couleurCheveux || talent.tendancePeau?.length || talent.tendanceCheveux?.length || talent.animaux?.length || talent.agesEnfants?.length || talent.nombreEnfants != null || talent.enceinte || talent.sports?.length || talent.mobilite?.length) && (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {[
                   { label: t.city, value: talent.ville },
@@ -775,6 +809,17 @@ function TalentModal({
                   { label: t.hairColor, value: localizeTalentAttribute(talent.couleurCheveux, lang) },
                   { label: t.skinTrend, value: localizeTalentAttributeList(talent.tendancePeau, lang) },
                   { label: t.hairTrend, value: localizeTalentAttributeList(talent.tendanceCheveux, lang) },
+                  { label: t.children, value: (() => {
+                      const parts: string[] = [];
+                      if (talent.nombreEnfants != null) parts.push(`${talent.nombreEnfants} ${t.childSuffix}`);
+                      const ages = localizeTalentAttributeList(talent.agesEnfants, lang);
+                      if (ages) parts.push(ages);
+                      return parts.length ? parts.join(" · ") : null;
+                    })() },
+                  { label: t.pregnant, value: talent.enceinte ? t.pregnantYes : null },
+                  { label: t.pets, value: localizeTalentAttributeList(talent.animaux, lang) },
+                  { label: t.sportsLabel, value: localizeTalentAttributeList(talent.sports, lang) },
+                  { label: t.mobility, value: localizeTalentAttributeList(talent.mobilite, lang) },
                 ]
                   .filter((a) => a.value)
                   .map((a) => (
@@ -1533,6 +1578,11 @@ export default function PartnerTalentBookPage() {
   const [filterCouleur, setFilterCouleur] = useState("");
   const [filterTendancePeau, setFilterTendancePeau] = useState("");
   const [filterTendanceCheveux, setFilterTendanceCheveux] = useState("");
+  const [filterAnimaux, setFilterAnimaux] = useState("");
+  const [filterAges, setFilterAges] = useState("");
+  const [filterSports, setFilterSports] = useState("");
+  const [filterMobilite, setFilterMobilite] = useState("");
+  const [filterEnceinte, setFilterEnceinte] = useState("");
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [favoritesLoaded, setFavoritesLoaded] = useState(false);
@@ -1748,6 +1798,12 @@ export default function PartnerTalentBookPage() {
     const tendanceCheveuxMatch =
       !filterTendanceCheveux ||
       tal.tendanceCheveux?.includes(filterTendanceCheveux);
+    const animauxMatch = !filterAnimaux || tal.animaux?.includes(filterAnimaux);
+    const agesMatch = !filterAges || tal.agesEnfants?.includes(filterAges);
+    const sportsMatch = !filterSports || tal.sports?.includes(filterSports);
+    const mobiliteMatch =
+      !filterMobilite || tal.mobilite?.includes(filterMobilite);
+    const enceinteMatch = !filterEnceinte || tal.enceinte === true;
 
     return (
       nicheMatch &&
@@ -1757,7 +1813,12 @@ export default function PartnerTalentBookPage() {
       cheveuxMatch &&
       couleurMatch &&
       tendancePeauMatch &&
-      tendanceCheveuxMatch
+      tendanceCheveuxMatch &&
+      animauxMatch &&
+      agesMatch &&
+      sportsMatch &&
+      mobiliteMatch &&
+      enceinteMatch
     );
   }));
 
@@ -1771,7 +1832,12 @@ export default function PartnerTalentBookPage() {
     filterCheveux ||
     filterCouleur ||
     filterTendancePeau ||
-    filterTendanceCheveux
+    filterTendanceCheveux ||
+    filterAnimaux ||
+    filterAges ||
+    filterSports ||
+    filterMobilite ||
+    filterEnceinte
   );
 
   const sortLabels: Record<SortOption, string> = {
@@ -2248,6 +2314,67 @@ export default function PartnerTalentBookPage() {
                 ))}
               </select>
 
+              <select
+                value={filterAges}
+                onChange={(e) => setFilterAges(e.target.value)}
+                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allAges}</option>
+                {AGES_ENFANTS_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {localizeTalentAttribute(opt, lang)}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterAnimaux}
+                onChange={(e) => setFilterAnimaux(e.target.value)}
+                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allPets}</option>
+                {ANIMAUX_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {localizeTalentAttribute(opt, lang)}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterSports}
+                onChange={(e) => setFilterSports(e.target.value)}
+                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allSports}</option>
+                {SPORTS_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {localizeTalentAttribute(opt, lang)}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterMobilite}
+                onChange={(e) => setFilterMobilite(e.target.value)}
+                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allMobility}</option>
+                {MOBILITE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {localizeTalentAttribute(opt, lang)}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterEnceinte}
+                onChange={(e) => setFilterEnceinte(e.target.value)}
+                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allPregnant}</option>
+                <option value="oui">{t.pregnantYes}</option>
+              </select>
+
               {hasAttrFilters && (
                 <button
                   type="button"
@@ -2258,6 +2385,11 @@ export default function PartnerTalentBookPage() {
                     setFilterCouleur("");
                     setFilterTendancePeau("");
                     setFilterTendanceCheveux("");
+                    setFilterAnimaux("");
+                    setFilterAges("");
+                    setFilterSports("");
+                    setFilterMobilite("");
+                    setFilterEnceinte("");
                   }}
                   className="px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-switzer text-[#B06F70] hover:bg-[#B06F70]/10 transition-all"
                 >
@@ -2292,6 +2424,11 @@ export default function PartnerTalentBookPage() {
                   setFilterCouleur("");
                   setFilterTendancePeau("");
                   setFilterTendanceCheveux("");
+                  setFilterAnimaux("");
+                  setFilterAges("");
+                  setFilterSports("");
+                  setFilterMobilite("");
+                  setFilterEnceinte("");
                 }}
                 className="mt-4 px-5 py-2.5 sm:px-6 sm:py-2 bg-[#220101] text-[#F5EDE0] rounded-full text-sm font-switzer touch-manipulation"
               >

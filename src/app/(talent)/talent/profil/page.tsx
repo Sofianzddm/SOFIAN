@@ -9,6 +9,10 @@ import {
   COULEUR_CHEVEUX_OPTIONS,
   TENDANCE_PEAU_OPTIONS,
   TENDANCE_CHEVEUX_OPTIONS,
+  ANIMAUX_OPTIONS,
+  AGES_ENFANTS_OPTIONS,
+  SPORTS_OPTIONS,
+  MOBILITE_OPTIONS,
 } from "@/lib/talent-attributes";
 
 interface ProfilData {
@@ -20,6 +24,12 @@ interface ProfilData {
   couleurCheveux: string;
   tendancePeau: string[];
   tendanceCheveux: string[];
+  animaux: string[];
+  nombreEnfants: string;
+  agesEnfants: string[];
+  enceinte: boolean;
+  sports: string[];
+  mobilite: string[];
 }
 
 const EMPTY: ProfilData = {
@@ -31,6 +41,12 @@ const EMPTY: ProfilData = {
   couleurCheveux: "",
   tendancePeau: [],
   tendanceCheveux: [],
+  animaux: [],
+  nombreEnfants: "",
+  agesEnfants: [],
+  enceinte: false,
+  sports: [],
+  mobilite: [],
 };
 
 export default function TalentProfilPage() {
@@ -57,6 +73,15 @@ export default function TalentProfilPage() {
             couleurCheveux: data.couleurCheveux || "",
             tendancePeau: data.tendancePeau || [],
             tendanceCheveux: data.tendanceCheveux || [],
+            animaux: data.animaux || [],
+            nombreEnfants:
+              data.nombreEnfants !== null && data.nombreEnfants !== undefined
+                ? String(data.nombreEnfants)
+                : "",
+            agesEnfants: data.agesEnfants || [],
+            enceinte: Boolean(data.enceinte),
+            sports: data.sports || [],
+            mobilite: data.mobilite || [],
           });
         }
       } catch (error) {
@@ -77,7 +102,13 @@ export default function TalentProfilPage() {
   };
 
   const toggleTendance = (
-    field: "tendancePeau" | "tendanceCheveux",
+    field:
+      | "tendancePeau"
+      | "tendanceCheveux"
+      | "animaux"
+      | "agesEnfants"
+      | "sports"
+      | "mobilite",
     opt: string
   ) => {
     setForm((prev) => ({
@@ -104,6 +135,12 @@ export default function TalentProfilPage() {
           couleurCheveux: form.couleurCheveux,
           tendancePeau: form.tendancePeau,
           tendanceCheveux: form.tendanceCheveux,
+          animaux: form.animaux,
+          nombreEnfants: form.nombreEnfants,
+          agesEnfants: form.agesEnfants,
+          enceinte: form.enceinte,
+          sports: form.sports,
+          mobilite: form.mobilite,
         }),
       });
       if (res.ok) {
@@ -311,6 +348,95 @@ export default function TalentProfilPage() {
             })}
           </div>
         </div>
+      </div>
+
+      {/* Profil / Lifestyle */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="p-2 bg-emerald-50 rounded-lg">
+            <Sparkles className="w-5 h-5 text-emerald-500" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-glowup-licorice">
+              Profil / Lifestyle
+            </h2>
+            <p className="text-xs text-gray-500">
+              Aide les marques à te proposer les bonnes campagnes (gifting inclus)
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Nombre d&apos;enfants
+            </label>
+            <select
+              name="nombreEnfants"
+              value={form.nombreEnfants}
+              onChange={handleChange}
+              className={selectClass}
+            >
+              <option value="">Non renseigné</option>
+              {["0", "1", "2", "3", "4", "5"].map((n) => (
+                <option key={n} value={n}>
+                  {n === "5" ? "5+" : n}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end">
+            <label className="flex items-center gap-2 cursor-pointer select-none py-2.5">
+              <input
+                type="checkbox"
+                checked={form.enceinte}
+                onChange={(e) => {
+                  setForm((prev) => ({ ...prev, enceinte: e.target.checked }));
+                  setSaved(false);
+                }}
+                className="w-4 h-4 rounded border-gray-300 text-glowup-rose focus:ring-glowup-rose"
+              />
+              <span className="text-sm font-medium text-gray-700">
+                Enceinte / grossesse en cours
+              </span>
+            </label>
+          </div>
+        </div>
+
+        {[
+          { key: "agesEnfants" as const, label: "Âge des enfants", options: AGES_ENFANTS_OPTIONS },
+          { key: "animaux" as const, label: "Animaux", options: ANIMAUX_OPTIONS },
+          { key: "sports" as const, label: "Sports & activités", options: SPORTS_OPTIONS },
+          { key: "mobilite" as const, label: "Mobilité", options: MOBILITE_OPTIONS },
+        ].map((group) => (
+          <div key={group.key} className="mt-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              {group.label}{" "}
+              <span className="text-gray-400 font-normal">
+                (plusieurs choix possibles)
+              </span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {group.options.map((opt) => {
+                const active = form[group.key].includes(opt);
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => toggleTendance(group.key, opt)}
+                    className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
+                      active
+                        ? "bg-glowup-rose text-white border-glowup-rose"
+                        : "bg-white text-gray-600 border-gray-300 hover:border-glowup-rose"
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Save */}

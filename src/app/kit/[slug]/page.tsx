@@ -48,6 +48,13 @@ const translations = {
     hairColor: "Couleur de cheveux",
     skinTrend: "Tendance de peau",
     hairTrend: "Tendance cheveux",
+    pets: "Animaux",
+    children: "Enfants",
+    pregnant: "Grossesse",
+    pregnantYes: "Enceinte",
+    childSuffix: "enfant(s)",
+    sportsLabel: "Sports",
+    mobility: "Mobilité",
     selectedClients: "Selected clients",
     // Analytics
     instagramAnalyticsTitle: "INSTAGRAM ANALYTIQUE",
@@ -93,6 +100,13 @@ const translations = {
     hairColor: "Hair color",
     skinTrend: "Skin concerns",
     hairTrend: "Hair concerns",
+    pets: "Pets",
+    children: "Children",
+    pregnant: "Pregnancy",
+    pregnantYes: "Pregnant",
+    childSuffix: "child(ren)",
+    sportsLabel: "Sports",
+    mobility: "Mobility",
     selectedClients: "Selected clients",
     instagramAnalyticsTitle: "INSTAGRAM ANALYTICS",
     tiktokAnalyticsTitle: "TIKTOK ANALYTICS",
@@ -171,6 +185,12 @@ interface KitTalent {
   couleurCheveux: string | null;
   tendancePeau: string[] | null;
   tendanceCheveux: string[] | null;
+  animaux: string[] | null;
+  nombreEnfants: number | null;
+  agesEnfants: string[] | null;
+  enceinte: boolean | null;
+  sports: string[] | null;
+  mobilite: string[] | null;
   selectedClients: string[];
   instagramStats: PlatformStats | null;
   tiktokStats: PlatformStats | null;
@@ -769,6 +789,27 @@ function PresentationPage({
     {
       label: t.hairTrend,
       value: localizeTalentAttributeList(talent.tendanceCheveux, lang),
+    },
+    {
+      label: t.children,
+      value: (() => {
+        const parts: string[] = [];
+        if (talent.nombreEnfants != null)
+          parts.push(`${talent.nombreEnfants} ${t.childSuffix}`);
+        const ages = localizeTalentAttributeList(talent.agesEnfants, lang);
+        if (ages) parts.push(ages);
+        return parts.length ? parts.join(" · ") : null;
+      })(),
+    },
+    { label: t.pregnant, value: talent.enceinte ? t.pregnantYes : null },
+    { label: t.pets, value: localizeTalentAttributeList(talent.animaux, lang) },
+    {
+      label: t.sportsLabel,
+      value: localizeTalentAttributeList(talent.sports, lang),
+    },
+    {
+      label: t.mobility,
+      value: localizeTalentAttributeList(talent.mobilite, lang),
     },
   ].filter((a) => a.value);
 

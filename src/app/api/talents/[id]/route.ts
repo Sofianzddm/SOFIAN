@@ -165,6 +165,16 @@ export async function PUT(
     if (data.couleurCheveux !== undefined) talentData.couleurCheveux = data.couleurCheveux || null;
     if (data.tendancePeau !== undefined) talentData.tendancePeau = Array.isArray(data.tendancePeau) ? data.tendancePeau : [];
     if (data.tendanceCheveux !== undefined) talentData.tendanceCheveux = Array.isArray(data.tendanceCheveux) ? data.tendanceCheveux : [];
+    if (data.animaux !== undefined) talentData.animaux = Array.isArray(data.animaux) ? data.animaux : [];
+    if (data.nombreEnfants !== undefined)
+      talentData.nombreEnfants =
+        data.nombreEnfants === null || data.nombreEnfants === ""
+          ? null
+          : parseInt(String(data.nombreEnfants), 10);
+    if (data.agesEnfants !== undefined) talentData.agesEnfants = Array.isArray(data.agesEnfants) ? data.agesEnfants : [];
+    if (data.enceinte !== undefined) talentData.enceinte = Boolean(data.enceinte);
+    if (data.sports !== undefined) talentData.sports = Array.isArray(data.sports) ? data.sports : [];
+    if (data.mobilite !== undefined) talentData.mobilite = Array.isArray(data.mobilite) ? data.mobilite : [];
     if (data.contactUrgenceNom !== undefined) talentData.contactUrgenceNom = data.contactUrgenceNom || null;
     if (data.contactUrgenceTel !== undefined) talentData.contactUrgenceTel = data.contactUrgenceTel || null;
     if (data.contactUrgenceLien !== undefined) talentData.contactUrgenceLien = data.contactUrgenceLien || null;

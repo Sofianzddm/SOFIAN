@@ -191,6 +191,17 @@ export async function POST(request: NextRequest) {
           couleurCheveux: data.couleurCheveux || null,
           tendancePeau: Array.isArray(data.tendancePeau) ? data.tendancePeau : [],
           tendanceCheveux: Array.isArray(data.tendanceCheveux) ? data.tendanceCheveux : [],
+          animaux: Array.isArray(data.animaux) ? data.animaux : [],
+          nombreEnfants:
+            data.nombreEnfants !== undefined &&
+            data.nombreEnfants !== null &&
+            data.nombreEnfants !== ""
+              ? parseInt(String(data.nombreEnfants), 10)
+              : null,
+          agesEnfants: Array.isArray(data.agesEnfants) ? data.agesEnfants : [],
+          enceinte: Boolean(data.enceinte),
+          sports: Array.isArray(data.sports) ? data.sports : [],
+          mobilite: Array.isArray(data.mobilite) ? data.mobilite : [],
           bio: data.bio || null,
           presentation: data.presentation || null,
           presentationEn: data.presentationEn || null,

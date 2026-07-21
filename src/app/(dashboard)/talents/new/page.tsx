@@ -32,6 +32,10 @@ import {
   COULEUR_CHEVEUX_OPTIONS,
   TENDANCE_PEAU_OPTIONS,
   TENDANCE_CHEVEUX_OPTIONS,
+  ANIMAUX_OPTIONS,
+  AGES_ENFANTS_OPTIONS,
+  SPORTS_OPTIONS,
+  MOBILITE_OPTIONS,
 } from "@/lib/talent-attributes";
 
 interface Manager {
@@ -125,6 +129,12 @@ export default function NewTalentPage() {
     couleurCheveux: "",
     tendancePeau: [] as string[],
     tendanceCheveux: [] as string[],
+    animaux: [] as string[],
+    nombreEnfants: "" as string,
+    agesEnfants: [] as string[],
+    enceinte: false,
+    sports: [] as string[],
+    mobilite: [] as string[],
     presentation: "",
     niches: [] as string[],
     selectedClients: "",
@@ -244,6 +254,15 @@ export default function NewTalentPage() {
             couleurCheveux: talent.couleurCheveux || "",
             tendancePeau: talent.tendancePeau || [],
             tendanceCheveux: talent.tendanceCheveux || [],
+            animaux: talent.animaux || [],
+            nombreEnfants:
+              talent.nombreEnfants !== null && talent.nombreEnfants !== undefined
+                ? String(talent.nombreEnfants)
+                : "",
+            agesEnfants: talent.agesEnfants || [],
+            enceinte: Boolean(talent.enceinte),
+            sports: talent.sports || [],
+            mobilite: talent.mobilite || [],
             presentation: talent.presentation || "",
             niches: Array.isArray(talent.niches) ? talent.niches : [],
             selectedClients: Array.isArray(talent.selectedClients) ? talent.selectedClients.join(", ") : "",
@@ -829,6 +848,107 @@ export default function NewTalentPage() {
                       })}
                     </div>
                   </div>
+                </div>
+
+                {/* Profil / Lifestyle (matching & gifting marques) */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-emerald-50 rounded-lg">
+                      <Sparkles className="w-5 h-5 text-emerald-500" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold text-glowup-licorice">
+                        Profil / Lifestyle
+                      </h2>
+                      <p className="text-xs text-gray-500">
+                        Utilisé par les marques pour le matching et le gifting
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        Nombre d&apos;enfants
+                      </label>
+                      <select
+                        name="nombreEnfants"
+                        value={formData.nombreEnfants}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+                      >
+                        <option value="">Non renseigné</option>
+                        {["0", "1", "2", "3", "4", "5"].map((n) => (
+                          <option key={n} value={n}>
+                            {n === "5" ? "5+" : n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-end">
+                      <label className="flex items-center gap-2 cursor-pointer select-none py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={formData.enceinte}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              enceinte: e.target.checked,
+                            }))
+                          }
+                          className="w-4 h-4 rounded border-gray-300 text-glowup-rose focus:ring-glowup-rose"
+                        />
+                        <span className="text-sm font-medium text-gray-700">
+                          Enceinte / grossesse en cours
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {[
+                    { key: "agesEnfants" as const, label: "Âge des enfants", options: AGES_ENFANTS_OPTIONS },
+                    { key: "animaux" as const, label: "Animaux", options: ANIMAUX_OPTIONS },
+                    { key: "sports" as const, label: "Sports & activités", options: SPORTS_OPTIONS },
+                    { key: "mobilite" as const, label: "Mobilité", options: MOBILITE_OPTIONS },
+                  ].map((group) => (
+                    <div key={group.key} className="mt-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        {group.label}{" "}
+                        <span className="text-gray-400 font-normal">
+                          (plusieurs choix possibles)
+                        </span>
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {group.options.map((opt) => {
+                          const active = (formData[group.key] as string[]).includes(opt);
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() =>
+                                setFormData((prev) => {
+                                  const current = prev[group.key] as string[];
+                                  return {
+                                    ...prev,
+                                    [group.key]: active
+                                      ? current.filter((x) => x !== opt)
+                                      : [...current, opt],
+                                  };
+                                })
+                              }
+                              className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
+                                active
+                                  ? "bg-glowup-rose text-white border-glowup-rose"
+                                  : "bg-white text-gray-600 border-gray-200 hover:border-glowup-rose"
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Présentation */}
