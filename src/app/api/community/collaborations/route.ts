@@ -21,8 +21,19 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: "Accès réservé" }, { status: 403 });
     }
 
+    // Toutes les collabs ayant été publiées : une fois publiée, une collab
+    // avance ensuite en FACTURE_RECUE puis PAYE — elle reste donc "publiée"
+    // pour la community manager, avec son lien de publication (ou Story).
+    // On exclut celles sans lien ET non marquées Story (anciennes collabs
+    // publiées avant que le lien devienne obligatoire).
     const collaborations = await prisma.collaboration.findMany({
-      where: { statut: "PUBLIE" },
+      where: {
+        statut: { in: ["PUBLIE", "FACTURE_RECUE", "PAYE"] },
+        OR: [
+          { AND: [{ lienPublication: { not: null } }, { lienPublication: { not: "" } }] },
+          { isStory: true },
+        ],
+      },
       include: {
         talent: { select: { id: true, prenom: true, nom: true, photo: true } },
         marque: { select: { id: true, nom: true, secteur: true } },
