@@ -153,7 +153,7 @@ export default function TalentDashboardPage() {
               {data.facturesAttente.map((collab: any) => (
                 <Link
                   key={collab.id}
-                  href={isDemo ? "/talent/collaborations?demo=1" : `/talent/collaborations/${collab.id}`}
+                  href={isDemo ? "/talent/collaborations?demo=1" : `/talent/collaborations?upload=${collab.id}`}
                   className="block rounded-xl border border-slate-200 bg-white p-3 transition hover:shadow-md"
                 >
                   <div className="flex items-center justify-between">

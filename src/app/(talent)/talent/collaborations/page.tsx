@@ -41,6 +41,8 @@ const STATUS_OPTIONS = [
 export default function TalentCollaborationsPage() {
   const searchParams = useSearchParams();
   const isDemo = searchParams.get("demo") === "1";
+  // Arrivée depuis le dashboard (« Envoyer ma facture ») : ouvre directement la modale d'upload
+  const uploadParam = searchParams.get("upload");
   const [collaborations, setCollaborations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -58,6 +60,15 @@ export default function TalentCollaborationsPage() {
   useEffect(() => {
     fetchCollaborations();
   }, [isDemo]);
+
+  // Ouvre la modale d'upload pour la collab ciblée par ?upload=<id> (si facture pas encore envoyée)
+  useEffect(() => {
+    if (!uploadParam || collaborations.length === 0) return;
+    const target = collaborations.find((c) => c.id === uploadParam);
+    if (target && target.statut === "PUBLIE" && !target.factureTalentUrl) {
+      setUploadingCollabId(target.id);
+    }
+  }, [uploadParam, collaborations]);
 
   async function fetchCollaborations() {
     try {
