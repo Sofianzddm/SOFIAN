@@ -63,6 +63,7 @@ interface Talent {
   youtube: string | null;
   niches: string[];
   ville: string | null;
+  villeGroup: string | null;
   typePeau: string | null;
   typeCheveux: string | null;
   couleurCheveux: string | null;
@@ -925,7 +926,7 @@ export default function TalentBookPage() {
         return false;
       });
 
-    const villeMatch = !filterVille || tal.ville === filterVille;
+    const villeMatch = !filterVille || tal.villeGroup === filterVille;
     const peauMatch = !filterPeau || tal.typePeau === filterPeau;
     const cheveuxMatch = !filterCheveux || tal.typeCheveux === filterCheveux;
     const couleurMatch = !filterCouleur || tal.couleurCheveux === filterCouleur;
@@ -941,7 +942,7 @@ export default function TalentBookPage() {
   }));
 
   const allVilles = [
-    ...new Set(talents.map((tal) => (tal.ville || "").trim()).filter(Boolean)),
+    ...new Set(talents.map((tal) => (tal.villeGroup || "").trim()).filter(Boolean)),
   ].sort((a, b) => a.localeCompare(b));
 
   const hasAttrFilters = !!(

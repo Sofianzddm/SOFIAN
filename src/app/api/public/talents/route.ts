@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { buildCityGroupMap } from "@/lib/city-grouping";
 
 // GET - Liste publique des talents pour le talent book
 // Param optionnel ?market=be pour ne renvoyer que les créateurs belges (pays = "Belgique").
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest) {
         youtube: true,
         niches: true,
         ville: true,
+        pays: true,
         typePeau: true,
         typeCheveux: true,
         couleurCheveux: true,
@@ -58,6 +60,11 @@ export async function GET(request: NextRequest) {
       ],
     });
 
+    // Regroupement géographique des villes (arrondi à la métropole la plus proche)
+    const cityGroups = await buildCityGroupMap(
+      talents.map((t) => ({ ville: t.ville, pays: t.pays }))
+    );
+
     // Transformer les Decimal en number pour le JSON
     const talentsFormatted = talents.map((talent) => {
       // Calculer la tranche d'âge dominante
@@ -85,6 +92,9 @@ export async function GET(request: NextRequest) {
 
       return {
         ...talent,
+        villeGroup: talent.ville
+          ? cityGroups.get(talent.ville.trim()) || talent.ville
+          : null,
         stats: talent.stats
           ? {
               igFollowers: talent.stats.igFollowers,

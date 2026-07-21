@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { buildCityGroupMap } from "@/lib/city-grouping";
 
 // Route publique: GET /api/partners/[id]/public
 // ATTENTION: le paramètre "id" est en réalité le slug du partenaire.
@@ -116,6 +117,11 @@ export async function GET(
     });
     const overrideMap = new Map(overrides.map((o) => [o.talentId, o]));
 
+    // Regroupement géographique des villes (arrondi à la métropole la plus proche)
+    const cityGroups = await buildCityGroupMap(
+      talentsList.map((t) => ({ ville: t.ville, pays: t.pays }))
+    );
+
     // Transformer les talents comme dans /api/public/talents et merger les tarifs négociés
     const talents = talentsList.map((talent) => {
       const ov = overrideMap.get(talent.id);
@@ -215,6 +221,9 @@ export async function GET(
       youtube: talent.youtube || null,
       niches: talent.niches || [],
       ville: talent.ville || null,
+      villeGroup: talent.ville
+        ? cityGroups.get(talent.ville.trim()) || talent.ville
+        : null,
       pays: talent.pays || "France",
       typePeau: talent.typePeau || null,
       typeCheveux: talent.typeCheveux || null,
