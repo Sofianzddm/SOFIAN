@@ -63,6 +63,8 @@ interface TalentDetail {
   typePeau: string | null;
   typeCheveux: string | null;
   couleurCheveux: string | null;
+  tendancePeau: string[] | null;
+  tendanceCheveux: string[] | null;
   commissionInbound: number;
   commissionOutbound: number;
   dateArrivee: string;
@@ -887,12 +889,14 @@ export default function TalentDetailPage() {
                 </p>
               )}
 
-              {(talent.typePeau || talent.typeCheveux || talent.couleurCheveux) && (
+              {(talent.typePeau || talent.typeCheveux || talent.couleurCheveux || talent.tendancePeau?.length || talent.tendanceCheveux?.length) && (
                 <div className="flex flex-wrap justify-center lg:justify-start gap-2 mb-6">
                   {[
                     { label: "Peau", value: talent.typePeau },
                     { label: "Cheveux", value: talent.typeCheveux },
                     { label: "Couleur", value: talent.couleurCheveux },
+                    { label: "Tendance peau", value: talent.tendancePeau?.length ? talent.tendancePeau.join(", ") : null },
+                    { label: "Tendance cheveux", value: talent.tendanceCheveux?.length ? talent.tendanceCheveux.join(", ") : null },
                   ]
                     .filter((a) => a.value)
                     .map((a) => (

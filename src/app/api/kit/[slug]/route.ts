@@ -63,6 +63,8 @@ const SELECT_TALENT = {
   typePeau: true,
   typeCheveux: true,
   couleurCheveux: true,
+  tendancePeau: true,
+  tendanceCheveux: true,
   selectedClients: true,
   stats: { select: SELECT_STATS },
 } as const;
@@ -125,6 +127,8 @@ export async function GET(
     typePeau: talent.typePeau,
     typeCheveux: talent.typeCheveux,
     couleurCheveux: talent.couleurCheveux,
+    tendancePeau: talent.tendancePeau,
+    tendanceCheveux: talent.tendanceCheveux,
     selectedClients: talent.selectedClients,
     instagramStats: s
       ? {

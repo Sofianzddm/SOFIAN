@@ -33,6 +33,8 @@ export async function GET(request: NextRequest) {
         typePeau: true,
         typeCheveux: true,
         couleurCheveux: true,
+        tendancePeau: true,
+        tendanceCheveux: true,
       },
     });
 
@@ -94,6 +96,8 @@ export async function PATCH(request: NextRequest) {
       typePeau?: string | null;
       typeCheveux?: string | null;
       couleurCheveux?: string | null;
+      tendancePeau?: string[];
+      tendanceCheveux?: string[];
     } = {};
     if (data.ville !== undefined) updateData.ville = data.ville || null;
     if (data.typePeau !== undefined) updateData.typePeau = data.typePeau || null;
@@ -101,6 +105,14 @@ export async function PATCH(request: NextRequest) {
       updateData.typeCheveux = data.typeCheveux || null;
     if (data.couleurCheveux !== undefined)
       updateData.couleurCheveux = data.couleurCheveux || null;
+    if (data.tendancePeau !== undefined)
+      updateData.tendancePeau = Array.isArray(data.tendancePeau)
+        ? data.tendancePeau
+        : [];
+    if (data.tendanceCheveux !== undefined)
+      updateData.tendanceCheveux = Array.isArray(data.tendanceCheveux)
+        ? data.tendanceCheveux
+        : [];
 
     const updated = await prisma.talent.update({
       where: { id: talent.id },
@@ -113,6 +125,8 @@ export async function PATCH(request: NextRequest) {
         typePeau: true,
         typeCheveux: true,
         couleurCheveux: true,
+        tendancePeau: true,
+        tendanceCheveux: true,
       },
     });
 

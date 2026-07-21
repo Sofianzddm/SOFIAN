@@ -163,6 +163,8 @@ export async function PUT(
     if (data.typePeau !== undefined) talentData.typePeau = data.typePeau || null;
     if (data.typeCheveux !== undefined) talentData.typeCheveux = data.typeCheveux || null;
     if (data.couleurCheveux !== undefined) talentData.couleurCheveux = data.couleurCheveux || null;
+    if (data.tendancePeau !== undefined) talentData.tendancePeau = Array.isArray(data.tendancePeau) ? data.tendancePeau : [];
+    if (data.tendanceCheveux !== undefined) talentData.tendanceCheveux = Array.isArray(data.tendanceCheveux) ? data.tendanceCheveux : [];
     if (data.contactUrgenceNom !== undefined) talentData.contactUrgenceNom = data.contactUrgenceNom || null;
     if (data.contactUrgenceTel !== undefined) talentData.contactUrgenceTel = data.contactUrgenceTel || null;
     if (data.contactUrgenceLien !== undefined) talentData.contactUrgenceLien = data.contactUrgenceLien || null;

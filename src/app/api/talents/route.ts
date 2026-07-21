@@ -189,6 +189,8 @@ export async function POST(request: NextRequest) {
           typePeau: data.typePeau || null,
           typeCheveux: data.typeCheveux || null,
           couleurCheveux: data.couleurCheveux || null,
+          tendancePeau: Array.isArray(data.tendancePeau) ? data.tendancePeau : [],
+          tendanceCheveux: Array.isArray(data.tendanceCheveux) ? data.tendanceCheveux : [],
           bio: data.bio || null,
           presentation: data.presentation || null,
           presentationEn: data.presentationEn || null,

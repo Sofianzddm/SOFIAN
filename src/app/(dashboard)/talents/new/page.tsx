@@ -30,6 +30,8 @@ import {
   TYPE_PEAU_OPTIONS,
   TYPE_CHEVEUX_OPTIONS,
   COULEUR_CHEVEUX_OPTIONS,
+  TENDANCE_PEAU_OPTIONS,
+  TENDANCE_CHEVEUX_OPTIONS,
 } from "@/lib/talent-attributes";
 
 interface Manager {
@@ -121,6 +123,8 @@ export default function NewTalentPage() {
     typePeau: "",
     typeCheveux: "",
     couleurCheveux: "",
+    tendancePeau: [] as string[],
+    tendanceCheveux: [] as string[],
     presentation: "",
     niches: [] as string[],
     selectedClients: "",
@@ -238,6 +242,8 @@ export default function NewTalentPage() {
             typePeau: talent.typePeau || "",
             typeCheveux: talent.typeCheveux || "",
             couleurCheveux: talent.couleurCheveux || "",
+            tendancePeau: talent.tendancePeau || [],
+            tendanceCheveux: talent.tendanceCheveux || [],
             presentation: talent.presentation || "",
             niches: Array.isArray(talent.niches) ? talent.niches : [],
             selectedClients: Array.isArray(talent.selectedClients) ? talent.selectedClients.join(", ") : "",
@@ -751,6 +757,76 @@ export default function NewTalentPage() {
                           </option>
                         ))}
                       </select>
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Tendance de peau{" "}
+                      <span className="text-gray-400 font-normal">
+                        (plusieurs choix possibles)
+                      </span>
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {TENDANCE_PEAU_OPTIONS.map((opt) => {
+                        const active = formData.tendancePeau.includes(opt);
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                tendancePeau: active
+                                  ? prev.tendancePeau.filter((x) => x !== opt)
+                                  : [...prev.tendancePeau, opt],
+                              }))
+                            }
+                            className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
+                              active
+                                ? "bg-glowup-rose text-white border-glowup-rose"
+                                : "bg-white text-gray-600 border-gray-200 hover:border-glowup-rose"
+                            }`}
+                          >
+                            {opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Tendance des cheveux{" "}
+                      <span className="text-gray-400 font-normal">
+                        (plusieurs choix possibles)
+                      </span>
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {TENDANCE_CHEVEUX_OPTIONS.map((opt) => {
+                        const active = formData.tendanceCheveux.includes(opt);
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                tendanceCheveux: active
+                                  ? prev.tendanceCheveux.filter((x) => x !== opt)
+                                  : [...prev.tendanceCheveux, opt],
+                              }))
+                            }
+                            className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
+                              active
+                                ? "bg-glowup-rose text-white border-glowup-rose"
+                                : "bg-white text-gray-600 border-gray-200 hover:border-glowup-rose"
+                            }`}
+                          >
+                            {opt}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

@@ -33,6 +33,8 @@ export async function GET(request: NextRequest) {
         typePeau: true,
         typeCheveux: true,
         couleurCheveux: true,
+        tendancePeau: true,
+        tendanceCheveux: true,
         stats: {
           select: {
             igFollowers: true,

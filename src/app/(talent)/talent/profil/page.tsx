@@ -7,6 +7,8 @@ import {
   TYPE_PEAU_OPTIONS,
   TYPE_CHEVEUX_OPTIONS,
   COULEUR_CHEVEUX_OPTIONS,
+  TENDANCE_PEAU_OPTIONS,
+  TENDANCE_CHEVEUX_OPTIONS,
 } from "@/lib/talent-attributes";
 
 interface ProfilData {
@@ -16,6 +18,8 @@ interface ProfilData {
   typePeau: string;
   typeCheveux: string;
   couleurCheveux: string;
+  tendancePeau: string[];
+  tendanceCheveux: string[];
 }
 
 const EMPTY: ProfilData = {
@@ -25,6 +29,8 @@ const EMPTY: ProfilData = {
   typePeau: "",
   typeCheveux: "",
   couleurCheveux: "",
+  tendancePeau: [],
+  tendanceCheveux: [],
 };
 
 export default function TalentProfilPage() {
@@ -49,6 +55,8 @@ export default function TalentProfilPage() {
             typePeau: data.typePeau || "",
             typeCheveux: data.typeCheveux || "",
             couleurCheveux: data.couleurCheveux || "",
+            tendancePeau: data.tendancePeau || [],
+            tendanceCheveux: data.tendanceCheveux || [],
           });
         }
       } catch (error) {
@@ -68,6 +76,19 @@ export default function TalentProfilPage() {
     setSaved(false);
   };
 
+  const toggleTendance = (
+    field: "tendancePeau" | "tendanceCheveux",
+    opt: string
+  ) => {
+    setForm((prev) => ({
+      ...prev,
+      [field]: prev[field].includes(opt)
+        ? prev[field].filter((x) => x !== opt)
+        : [...prev[field], opt],
+    }));
+    setSaved(false);
+  };
+
   async function handleSave() {
     if (isDemo) return;
     setSaving(true);
@@ -81,6 +102,8 @@ export default function TalentProfilPage() {
           typePeau: form.typePeau,
           typeCheveux: form.typeCheveux,
           couleurCheveux: form.couleurCheveux,
+          tendancePeau: form.tendancePeau,
+          tendanceCheveux: form.tendanceCheveux,
         }),
       });
       if (res.ok) {
@@ -230,6 +253,62 @@ export default function TalentProfilPage() {
                 </option>
               ))}
             </select>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Tendance de peau{" "}
+            <span className="text-gray-400 font-normal">
+              (plusieurs choix possibles)
+            </span>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {TENDANCE_PEAU_OPTIONS.map((opt) => {
+              const active = form.tendancePeau.includes(opt);
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => toggleTendance("tendancePeau", opt)}
+                  className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
+                    active
+                      ? "bg-glowup-rose text-white border-glowup-rose"
+                      : "bg-white text-gray-600 border-gray-300 hover:border-glowup-rose"
+                  }`}
+                >
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Tendance des cheveux{" "}
+            <span className="text-gray-400 font-normal">
+              (plusieurs choix possibles)
+            </span>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {TENDANCE_CHEVEUX_OPTIONS.map((opt) => {
+              const active = form.tendanceCheveux.includes(opt);
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => toggleTendance("tendanceCheveux", opt)}
+                  className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
+                    active
+                      ? "bg-glowup-rose text-white border-glowup-rose"
+                      : "bg-white text-gray-600 border-gray-300 hover:border-glowup-rose"
+                  }`}
+                >
+                  {opt}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

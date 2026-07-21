@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { localizeTalentAttribute } from "@/lib/talent-attributes";
+import {
+  localizeTalentAttribute,
+  localizeTalentAttributeList,
+} from "@/lib/talent-attributes";
 
 // Traductions pour le PDF
 const pdfTranslations = {
@@ -15,6 +18,8 @@ const pdfTranslations = {
     skinType: "TYPE DE PEAU",
     hairType: "TYPE DE CHEVEUX",
     hairColor: "COULEUR DE CHEVEUX",
+    skinTrend: "TENDANCE DE PEAU",
+    hairTrend: "TENDANCE CHEVEUX",
   },
   en: {
     selectionTalents: "talent",
@@ -27,6 +32,8 @@ const pdfTranslations = {
     skinType: "SKIN TYPE",
     hairType: "HAIR TYPE",
     hairColor: "HAIR COLOR",
+    skinTrend: "SKIN CONCERNS",
+    hairTrend: "HAIR CONCERNS",
   },
 };
 
@@ -132,6 +139,8 @@ function generatePDFHtml(talents: any[], lang: Lang = "fr"): string {
         { label: t.skinType, value: localizeTalentAttribute(talent.typePeau, lang) },
         { label: t.hairType, value: localizeTalentAttribute(talent.typeCheveux, lang) },
         { label: t.hairColor, value: localizeTalentAttribute(talent.couleurCheveux, lang) },
+        { label: t.skinTrend, value: localizeTalentAttributeList(talent.tendancePeau, lang) },
+        { label: t.hairTrend, value: localizeTalentAttributeList(talent.tendanceCheveux, lang) },
       ].filter((a) => a.value);
 
       return `

@@ -28,6 +28,8 @@ import {
   TYPE_PEAU_OPTIONS,
   TYPE_CHEVEUX_OPTIONS,
   COULEUR_CHEVEUX_OPTIONS,
+  TENDANCE_PEAU_OPTIONS,
+  TENDANCE_CHEVEUX_OPTIONS,
 } from "@/lib/talent-attributes";
 
 // Types
@@ -44,6 +46,8 @@ interface Talent {
   typePeau: string | null;
   typeCheveux: string | null;
   couleurCheveux: string | null;
+  tendancePeau: string[] | null;
+  tendanceCheveux: string[] | null;
   commissionInbound: number;
   commissionOutbound: number;
   orderBook?: number;
@@ -78,6 +82,8 @@ export default function TalentsPage() {
   const [filterPeau, setFilterPeau] = useState("");
   const [filterCheveux, setFilterCheveux] = useState("");
   const [filterCouleur, setFilterCouleur] = useState("");
+  const [filterTendancePeau, setFilterTendancePeau] = useState("");
+  const [filterTendanceCheveux, setFilterTendanceCheveux] = useState("");
   const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
 
   // Rôle effectif (via /api/auth/me) pour cohérence avec impersonation
@@ -258,13 +264,20 @@ export default function TalentsPage() {
     const matchPeau = !filterPeau || talent.typePeau === filterPeau;
     const matchCheveux = !filterCheveux || talent.typeCheveux === filterCheveux;
     const matchCouleur = !filterCouleur || talent.couleurCheveux === filterCouleur;
+    const matchTendancePeau =
+      !filterTendancePeau || !!talent.tendancePeau?.includes(filterTendancePeau);
+    const matchTendanceCheveux =
+      !filterTendanceCheveux ||
+      !!talent.tendanceCheveux?.includes(filterTendanceCheveux);
     if (
       !matchSearch ||
       !matchNiche ||
       !matchVille ||
       !matchPeau ||
       !matchCheveux ||
-      !matchCouleur
+      !matchCouleur ||
+      !matchTendancePeau ||
+      !matchTendanceCheveux
     )
       return false;
 
@@ -291,6 +304,8 @@ export default function TalentsPage() {
     filterPeau,
     filterCheveux,
     filterCouleur,
+    filterTendancePeau,
+    filterTendanceCheveux,
   ].filter(Boolean).length;
 
   const resetFilters = () => {
@@ -299,6 +314,8 @@ export default function TalentsPage() {
     setFilterPeau("");
     setFilterCheveux("");
     setFilterCouleur("");
+    setFilterTendancePeau("");
+    setFilterTendanceCheveux("");
   };
 
   const formatFollowers = (count: number | null) => {
@@ -523,6 +540,42 @@ export default function TalentsPage() {
             >
               <option value="">Toutes</option>
               {COULEUR_CHEVEUX_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Tendance de peau
+            </label>
+            <select
+              value={filterTendancePeau}
+              onChange={(e) => setFilterTendancePeau(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Toutes</option>
+              {TENDANCE_PEAU_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="min-w-[150px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Tendance des cheveux
+            </label>
+            <select
+              value={filterTendanceCheveux}
+              onChange={(e) => setFilterTendanceCheveux(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+            >
+              <option value="">Toutes</option>
+              {TENDANCE_CHEVEUX_OPTIONS.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt}
                 </option>

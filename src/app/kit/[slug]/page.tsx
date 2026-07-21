@@ -6,7 +6,10 @@ import {
   getInstagramProfileUrl,
   normalizeInstagramHandle,
 } from "@/lib/social-links";
-import { localizeTalentAttribute } from "@/lib/talent-attributes";
+import {
+  localizeTalentAttribute,
+  localizeTalentAttributeList,
+} from "@/lib/talent-attributes";
 
 // Intervalle de polling : on rafraîchit le kit toutes les 30s tant
 // que l'onglet est visible. À chaque retour de focus on force aussi
@@ -43,6 +46,8 @@ const translations = {
     skinType: "Type de peau",
     hairType: "Type de cheveux",
     hairColor: "Couleur de cheveux",
+    skinTrend: "Tendance de peau",
+    hairTrend: "Tendance cheveux",
     selectedClients: "Selected clients",
     // Analytics
     instagramAnalyticsTitle: "INSTAGRAM ANALYTIQUE",
@@ -86,6 +91,8 @@ const translations = {
     skinType: "Skin type",
     hairType: "Hair type",
     hairColor: "Hair color",
+    skinTrend: "Skin concerns",
+    hairTrend: "Hair concerns",
     selectedClients: "Selected clients",
     instagramAnalyticsTitle: "INSTAGRAM ANALYTICS",
     tiktokAnalyticsTitle: "TIKTOK ANALYTICS",
@@ -162,6 +169,8 @@ interface KitTalent {
   typePeau: string | null;
   typeCheveux: string | null;
   couleurCheveux: string | null;
+  tendancePeau: string[] | null;
+  tendanceCheveux: string[] | null;
   selectedClients: string[];
   instagramStats: PlatformStats | null;
   tiktokStats: PlatformStats | null;
@@ -752,6 +761,14 @@ function PresentationPage({
     {
       label: t.hairColor,
       value: localizeTalentAttribute(talent.couleurCheveux, lang),
+    },
+    {
+      label: t.skinTrend,
+      value: localizeTalentAttributeList(talent.tendancePeau, lang),
+    },
+    {
+      label: t.hairTrend,
+      value: localizeTalentAttributeList(talent.tendanceCheveux, lang),
     },
   ].filter((a) => a.value);
 

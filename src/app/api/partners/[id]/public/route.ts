@@ -59,6 +59,8 @@ export async function GET(
         typePeau: true,
         typeCheveux: true,
         couleurCheveux: true,
+        tendancePeau: true,
+        tendanceCheveux: true,
         stats: {
           select: {
             igFollowers: true,
@@ -228,6 +230,8 @@ export async function GET(
       typePeau: talent.typePeau || null,
       typeCheveux: talent.typeCheveux || null,
       couleurCheveux: talent.couleurCheveux || null,
+      tendancePeau: talent.tendancePeau || [],
+      tendanceCheveux: talent.tendanceCheveux || [],
       stats: talent.stats
         ? {
             igFollowers: talent.stats.igFollowers,

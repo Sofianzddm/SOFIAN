@@ -36,9 +36,43 @@ export const COULEUR_CHEVEUX_OPTIONS = [
   "Coloré",
 ] as const;
 
+// Tendances / préoccupations (sélection MULTIPLE — un talent peut cumuler)
+export const TENDANCE_PEAU_OPTIONS = [
+  "Acnéique",
+  "Points noirs",
+  "Sensible",
+  "Rougeurs / couperose",
+  "Déshydratée",
+  "Terne",
+  "Taches / hyperpigmentation",
+  "Pores dilatés",
+  "Mature",
+  "Atopique / eczéma",
+  "Excès de sébum",
+] as const;
+
+export const TENDANCE_CHEVEUX_OPTIONS = [
+  "Gras",
+  "Secs",
+  "Mixtes",
+  "Déshydratés",
+  "Cassants",
+  "Pointes fourchues",
+  "Pellicules",
+  "Cuir chevelu sensible",
+  "Colorés / méchés",
+  "Décolorés",
+  "Fins",
+  "Épais",
+  "Frisottis",
+  "Chute / clairsemés",
+] as const;
+
 export type TypePeau = (typeof TYPE_PEAU_OPTIONS)[number];
 export type TypeCheveux = (typeof TYPE_CHEVEUX_OPTIONS)[number];
 export type CouleurCheveux = (typeof COULEUR_CHEVEUX_OPTIONS)[number];
+export type TendancePeau = (typeof TENDANCE_PEAU_OPTIONS)[number];
+export type TendanceCheveux = (typeof TENDANCE_CHEVEUX_OPTIONS)[number];
 
 /** Libellés anglais pour l'affichage sur les books internationaux. */
 export const TALENT_ATTRIBUTE_LABELS_EN: Record<string, string> = {
@@ -60,6 +94,32 @@ export const TALENT_ATTRIBUTE_LABELS_EN: Record<string, string> = {
   Roux: "Red",
   Noir: "Black",
   Coloré: "Colored",
+  // Tendance de peau
+  Acnéique: "Acne-prone",
+  "Points noirs": "Blackhead-prone",
+  "Rougeurs / couperose": "Redness / rosacea",
+  Déshydratée: "Dehydrated",
+  Terne: "Dull",
+  "Taches / hyperpigmentation": "Dark spots / hyperpigmentation",
+  "Pores dilatés": "Enlarged pores",
+  Mature: "Mature",
+  "Atopique / eczéma": "Atopic / eczema",
+  "Excès de sébum": "Excess sebum",
+  // Tendance des cheveux
+  Gras: "Oily",
+  Secs: "Dry",
+  Mixtes: "Combination",
+  Déshydratés: "Dehydrated",
+  Cassants: "Brittle",
+  "Pointes fourchues": "Split ends",
+  Pellicules: "Dandruff",
+  "Cuir chevelu sensible": "Sensitive scalp",
+  "Colorés / méchés": "Color-treated",
+  Décolorés: "Bleached",
+  Fins: "Fine",
+  Épais: "Thick",
+  Frisottis: "Frizzy",
+  "Chute / clairsemés": "Thinning / hair loss",
 };
 
 /**
@@ -73,4 +133,19 @@ export function localizeTalentAttribute(
   if (!value) return null;
   if (lang === "en") return TALENT_ATTRIBUTE_LABELS_EN[value] || value;
   return value;
+}
+
+/**
+ * Traduit une liste de valeurs (champs à sélection multiple) et renvoie une
+ * chaîne prête à afficher (ex. "Acnéique, Sensible"). Renvoie null si vide.
+ */
+export function localizeTalentAttributeList(
+  values: string[] | null | undefined,
+  lang: "fr" | "en" = "fr"
+): string | null {
+  if (!values || values.length === 0) return null;
+  return values
+    .map((v) => localizeTalentAttribute(v, lang))
+    .filter(Boolean)
+    .join(", ");
 }

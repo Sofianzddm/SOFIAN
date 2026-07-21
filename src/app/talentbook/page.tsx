@@ -4,9 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 import {
   localizeTalentAttribute,
+  localizeTalentAttributeList,
   TYPE_PEAU_OPTIONS,
   TYPE_CHEVEUX_OPTIONS,
   COULEUR_CHEVEUX_OPTIONS,
+  TENDANCE_PEAU_OPTIONS,
+  TENDANCE_CHEVEUX_OPTIONS,
 } from "@/lib/talent-attributes";
 
 // Helper pour générer un visitor ID anonyme
@@ -67,6 +70,8 @@ interface Talent {
   typePeau: string | null;
   typeCheveux: string | null;
   couleurCheveux: string | null;
+  tendancePeau: string[];
+  tendanceCheveux: string[];
   stats: TalentStats | null;
 }
 
@@ -83,11 +88,15 @@ const translations = {
     skinType: "TYPE DE PEAU",
     hairType: "TYPE DE CHEVEUX",
     hairColor: "COULEUR DE CHEVEUX",
+    skinTrend: "TENDANCE DE PEAU",
+    hairTrend: "TENDANCE CHEVEUX",
     city: "Ville",
     allCities: "Toutes les villes",
     allSkin: "Type de peau",
     allHair: "Type de cheveux",
     allColor: "Couleur de cheveux",
+    allSkinTrend: "Tendance de peau",
+    allHairTrend: "Tendance cheveux",
     community: "COMMUNAUTÉ",
     engagementRate: "TX D'ENGAGEMENT",
     clearAll: "Tout effacer",
@@ -117,11 +126,15 @@ const translations = {
     skinType: "SKIN TYPE",
     hairType: "HAIR TYPE",
     hairColor: "HAIR COLOR",
+    skinTrend: "SKIN CONCERNS",
+    hairTrend: "HAIR CONCERNS",
     city: "City",
     allCities: "All cities",
     allSkin: "Skin type",
     allHair: "Hair type",
     allColor: "Hair color",
+    allSkinTrend: "Skin concerns",
+    allHairTrend: "Hair concerns",
     community: "COMMUNITY",
     engagementRate: "ENGAGEMENT RATE",
     clearAll: "Clear all",
@@ -551,13 +564,15 @@ function TalentModal({
             )}
 
             {/* Apparence (ville / peau / cheveux) */}
-            {(talent.ville || talent.typePeau || talent.typeCheveux || talent.couleurCheveux) && (
+            {(talent.ville || talent.typePeau || talent.typeCheveux || talent.couleurCheveux || talent.tendancePeau?.length || talent.tendanceCheveux?.length) && (
               <div className="mb-5 md:mb-8 pb-4 md:pb-6 border-b border-[#220101]/15 grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {[
                   { label: t.city, value: talent.ville },
                   { label: t.skinType, value: localizeTalentAttribute(talent.typePeau, lang) },
                   { label: t.hairType, value: localizeTalentAttribute(talent.typeCheveux, lang) },
                   { label: t.hairColor, value: localizeTalentAttribute(talent.couleurCheveux, lang) },
+                  { label: t.skinTrend, value: localizeTalentAttributeList(talent.tendancePeau, lang) },
+                  { label: t.hairTrend, value: localizeTalentAttributeList(talent.tendanceCheveux, lang) },
                 ]
                   .filter((a) => a.value)
                   .map((a) => (
@@ -787,6 +802,8 @@ export default function TalentBookPage() {
   const [filterPeau, setFilterPeau] = useState("");
   const [filterCheveux, setFilterCheveux] = useState("");
   const [filterCouleur, setFilterCouleur] = useState("");
+  const [filterTendancePeau, setFilterTendancePeau] = useState("");
+  const [filterTendanceCheveux, setFilterTendanceCheveux] = useState("");
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [favoritesLoaded, setFavoritesLoaded] = useState(false);
@@ -930,6 +947,11 @@ export default function TalentBookPage() {
     const peauMatch = !filterPeau || tal.typePeau === filterPeau;
     const cheveuxMatch = !filterCheveux || tal.typeCheveux === filterCheveux;
     const couleurMatch = !filterCouleur || tal.couleurCheveux === filterCouleur;
+    const tendancePeauMatch =
+      !filterTendancePeau || tal.tendancePeau?.includes(filterTendancePeau);
+    const tendanceCheveuxMatch =
+      !filterTendanceCheveux ||
+      tal.tendanceCheveux?.includes(filterTendanceCheveux);
 
     return (
       nicheMatch &&
@@ -937,7 +959,9 @@ export default function TalentBookPage() {
       villeMatch &&
       peauMatch &&
       cheveuxMatch &&
-      couleurMatch
+      couleurMatch &&
+      tendancePeauMatch &&
+      tendanceCheveuxMatch
     );
   }));
 
@@ -949,7 +973,9 @@ export default function TalentBookPage() {
     filterVille ||
     filterPeau ||
     filterCheveux ||
-    filterCouleur
+    filterCouleur ||
+    filterTendancePeau ||
+    filterTendanceCheveux
   );
 
   const sortLabels: Record<SortOption, string> = {
@@ -1221,6 +1247,32 @@ export default function TalentBookPage() {
                 ))}
               </select>
 
+              <select
+                value={filterTendancePeau}
+                onChange={(e) => setFilterTendancePeau(e.target.value)}
+                className="px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allSkinTrend}</option>
+                {TENDANCE_PEAU_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {localizeTalentAttribute(opt, lang)}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterTendanceCheveux}
+                onChange={(e) => setFilterTendanceCheveux(e.target.value)}
+                className="px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allHairTrend}</option>
+                {TENDANCE_CHEVEUX_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {localizeTalentAttribute(opt, lang)}
+                  </option>
+                ))}
+              </select>
+
               {hasAttrFilters && (
                 <button
                   type="button"
@@ -1229,6 +1281,8 @@ export default function TalentBookPage() {
                     setFilterPeau("");
                     setFilterCheveux("");
                     setFilterCouleur("");
+                    setFilterTendancePeau("");
+                    setFilterTendanceCheveux("");
                   }}
                   className="px-4 py-2 rounded-full text-sm font-switzer text-[#B06F70] hover:bg-[#B06F70]/10 transition-all"
                 >
@@ -1259,6 +1313,8 @@ export default function TalentBookPage() {
                   setFilterPeau("");
                   setFilterCheveux("");
                   setFilterCouleur("");
+                  setFilterTendancePeau("");
+                  setFilterTendanceCheveux("");
                 }}
                 className="mt-4 px-6 py-2 bg-[#220101] text-[#F5EDE0] rounded-full text-sm font-switzer"
               >
