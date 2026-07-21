@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Search,
   Calendar,
-  Building2,
   Loader2,
   ExternalLink,
-  Package,
+  Sparkles,
   Eye,
-  ChevronRight,
-  Filter,
+  Instagram,
+  Music2,
+  Youtube,
+  X,
 } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -55,6 +56,32 @@ interface Collab {
 
 const ALL = "all";
 
+type Platform = { label: string; icon: typeof Instagram; classes: string };
+
+function detectPlatform(url: string | null): Platform {
+  const u = (url || "").toLowerCase();
+  if (u.includes("instagram"))
+    return {
+      label: "Instagram",
+      icon: Instagram,
+      classes: "bg-gradient-to-r from-fuchsia-600 via-pink-600 to-orange-500",
+    };
+  if (u.includes("tiktok"))
+    return { label: "TikTok", icon: Music2, classes: "bg-slate-900" };
+  if (u.includes("youtu"))
+    return { label: "YouTube", icon: Youtube, classes: "bg-red-600" };
+  return { label: "la publication", icon: ExternalLink, classes: "bg-slate-900" };
+}
+
+function initials(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join("");
+}
+
 export default function CommunityCollaborationsPage() {
   const [collaborations, setCollaborations] = useState<Collab[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +89,6 @@ export default function CommunityCollaborationsPage() {
   const [marqueFilter, setMarqueFilter] = useState(ALL);
   const [talentFilter, setTalentFilter] = useState(ALL);
   const [moisFilter, setMoisFilter] = useState(ALL);
-  const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -99,10 +125,7 @@ export default function CommunityCollaborationsPage() {
       const d = new Date(c.datePublication || c.createdAt);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       if (!keys.has(key)) {
-        keys.set(
-          key,
-          d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
-        );
+        keys.set(key, d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }));
       }
     });
     return Array.from(keys.entries()).sort((a, b) => b[0].localeCompare(a[0]));
@@ -126,44 +149,40 @@ export default function CommunityCollaborationsPage() {
   }, [collaborations, searchTerm, marqueFilter, talentFilter, moisFilter]);
 
   const hasActiveFilter =
-    marqueFilter !== ALL || talentFilter !== ALL || moisFilter !== ALL;
+    marqueFilter !== ALL || talentFilter !== ALL || moisFilter !== ALL || !!searchTerm;
 
   const selectClass =
-    "h-10 rounded-lg border-0 bg-slate-50 px-3 text-sm text-slate-700 focus:ring-2 focus:ring-slate-200";
+    "h-10 rounded-full border border-slate-200 bg-white px-4 text-sm text-slate-700 shadow-sm transition-colors hover:border-slate-300 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100";
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Collaborations publiées
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          {filtered.length} collaboration{filtered.length > 1 ? "s" : ""}
-          {hasActiveFilter || searchTerm ? " (filtrée" + (filtered.length > 1 ? "s)" : ")") : ""}
+    <div className="mx-auto max-w-6xl px-4 py-8">
+      {/* Header */}
+      <div className="mb-8 overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-violet-900 p-8 text-white shadow-xl">
+        <div className="flex items-center gap-2 text-sm font-medium text-violet-200">
+          <Sparkles className="h-4 w-4" />
+          Espace Community
+        </div>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Publications</h1>
+        <p className="mt-1 text-sm text-slate-300">
+          {filtered.length} publication{filtered.length > 1 ? "s" : ""}
+          {hasActiveFilter ? " · filtré" + (filtered.length > 1 ? "es" : "e") : ""}
         </p>
       </div>
 
       {/* Recherche + filtres */}
-      <div className="mb-6 space-y-3">
-        <div className="relative w-full sm:max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <div className="mb-8 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative w-full lg:max-w-sm">
+          <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             placeholder="Rechercher une marque, un talent..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="h-10 w-full rounded-lg border-0 bg-slate-50 pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-200"
+            className="h-11 w-full rounded-full border border-slate-200 bg-white pl-11 pr-4 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
-            <Filter className="h-3.5 w-3.5" /> Filtres
-          </span>
-          <select
-            value={marqueFilter}
-            onChange={(e) => setMarqueFilter(e.target.value)}
-            className={selectClass}
-          >
+          <select value={marqueFilter} onChange={(e) => setMarqueFilter(e.target.value)} className={selectClass}>
             <option value={ALL}>Toutes les marques</option>
             {marques.map((m) => (
               <option key={m} value={m}>
@@ -171,11 +190,7 @@ export default function CommunityCollaborationsPage() {
               </option>
             ))}
           </select>
-          <select
-            value={talentFilter}
-            onChange={(e) => setTalentFilter(e.target.value)}
-            className={selectClass}
-          >
+          <select value={talentFilter} onChange={(e) => setTalentFilter(e.target.value)} className={selectClass}>
             <option value={ALL}>Tous les talents</option>
             {talents.map((t) => (
               <option key={t} value={t}>
@@ -183,11 +198,7 @@ export default function CommunityCollaborationsPage() {
               </option>
             ))}
           </select>
-          <select
-            value={moisFilter}
-            onChange={(e) => setMoisFilter(e.target.value)}
-            className={selectClass}
-          >
+          <select value={moisFilter} onChange={(e) => setMoisFilter(e.target.value)} className={selectClass}>
             <option value={ALL}>Tous les mois</option>
             {moisOptions.map(([key, label]) => (
               <option key={key} value={key}>
@@ -195,7 +206,7 @@ export default function CommunityCollaborationsPage() {
               </option>
             ))}
           </select>
-          {(hasActiveFilter || searchTerm) && (
+          {hasActiveFilter && (
             <button
               onClick={() => {
                 setSearchTerm("");
@@ -203,9 +214,10 @@ export default function CommunityCollaborationsPage() {
                 setTalentFilter(ALL);
                 setMoisFilter(ALL);
               }}
-              className="h-10 rounded-lg bg-slate-100 px-3 text-sm font-medium text-slate-600 hover:bg-slate-200"
+              className="inline-flex h-10 items-center gap-1.5 rounded-full bg-slate-100 px-4 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-200"
             >
-              Réinitialiser
+              <X className="h-3.5 w-3.5" />
+              Effacer
             </button>
           )}
         </div>
@@ -213,125 +225,123 @@ export default function CommunityCollaborationsPage() {
 
       {/* Contenu */}
       {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="animate-pulse rounded-xl bg-slate-100/80 p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex gap-4">
-                  <div className="h-11 w-11 rounded-lg bg-slate-200" />
-                  <div className="space-y-2">
-                    <div className="h-5 w-40 rounded bg-slate-200" />
-                    <div className="h-4 w-24 rounded bg-slate-200" />
-                  </div>
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="animate-pulse rounded-3xl bg-slate-100/80 p-6">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-full bg-slate-200" />
+                <div className="space-y-2">
+                  <div className="h-4 w-28 rounded bg-slate-200" />
+                  <div className="h-3 w-20 rounded bg-slate-200" />
                 </div>
               </div>
+              <div className="mt-6 h-10 w-full rounded-full bg-slate-200" />
             </div>
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-24">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
-            <Package className="h-7 w-7 text-slate-400" />
+        <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50/50 py-24">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-100 to-fuchsia-100">
+            <Sparkles className="h-7 w-7 text-violet-500" />
           </div>
-          <h3 className="text-base font-medium text-slate-900">Aucune collaboration</h3>
+          <h3 className="text-base font-medium text-slate-900">Aucune publication</h3>
           <p className="mt-1 max-w-sm text-center text-sm text-slate-500">
-            Aucune collaboration publiée ne correspond à ta recherche.
+            Aucune publication ne correspond à ta recherche.
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((collab) => {
-            const isExpanded = expanded === collab.id;
+            const platform = detectPlatform(collab.lienPublication);
+            const PlatformIcon = platform.icon;
+            const tags = collab.livrables.slice(0, 3);
+            const extraTags = collab.livrables.length - tags.length;
             return (
               <div
                 key={collab.id}
-                className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-200/60 transition-all hover:ring-slate-300"
+                className="group flex flex-col overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:ring-slate-300"
               >
-                <div
-                  className="flex cursor-pointer flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"
-                  onClick={() => setExpanded(isExpanded ? null : collab.id)}
-                >
-                  <div className="flex min-w-0 gap-4">
-                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100">
-                      <Building2 className="h-5 w-5 text-slate-500" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="truncate font-semibold text-slate-900">{collab.marque}</h3>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
-                        <span className="truncate">{collab.talentNom}</span>
-                        {collab.datePublication && (
-                          <span className="flex items-center gap-1.5">
-                            <Calendar className="h-3.5 w-3.5" />
-                            {new Date(collab.datePublication).toLocaleDateString("fr-FR", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                            })}
-                          </span>
-                        )}
-                      </div>
+                {/* Bandeau */}
+                <div className="relative h-24 bg-gradient-to-br from-slate-100 via-slate-50 to-violet-100/60">
+                  {collab.isStory && !collab.lienPublication && (
+                    <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-violet-600 backdrop-blur">
+                      <Eye className="h-3.5 w-3.5" />
+                      Story
+                    </span>
+                  )}
+                  <div className="absolute -bottom-8 left-6">
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-md ring-4 ring-white">
+                      {collab.talentPhoto ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={collab.talentPhoto}
+                          alt={collab.talentNom}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-lg font-semibold text-slate-400">
+                          {initials(collab.talentNom)}
+                        </span>
+                      )}
                     </div>
                   </div>
+                </div>
 
-                  <div className="flex flex-shrink-0 items-center gap-3">
+                {/* Corps */}
+                <div className="flex flex-1 flex-col px-6 pb-6 pt-10">
+                  <h3 className="truncate text-lg font-semibold text-slate-900">{collab.marque}</h3>
+                  <p className="mt-0.5 truncate text-sm text-slate-500">{collab.talentNom}</p>
+
+                  {collab.datePublication && (
+                    <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-slate-400">
+                      <Calendar className="h-3.5 w-3.5" />
+                      {new Date(collab.datePublication).toLocaleDateString("fr-FR", {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </p>
+                  )}
+
+                  {tags.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-1.5">
+                      {tags.map((l, i) => (
+                        <span
+                          key={i}
+                          className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600"
+                        >
+                          {l.quantite > 1 ? `${l.quantite}× ` : ""}
+                          {TYPE_LABELS[l.typeContenu] || l.typeContenu}
+                        </span>
+                      ))}
+                      {extraTags > 0 && (
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-400">
+                          +{extraTags}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* CTA */}
+                  <div className="mt-auto pt-6">
                     {collab.lienPublication ? (
                       <a
                         href={collab.lienPublication}
                         target="_blank"
                         rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+                        className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-transform hover:scale-[1.02] ${platform.classes}`}
                       >
-                        <ExternalLink className="h-4 w-4" />
-                        Voir la publication
+                        <PlatformIcon className="h-4 w-4" />
+                        Voir sur {platform.label}
                       </a>
-                    ) : collab.isStory ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-600">
-                        <Eye className="h-3.5 w-3.5" />
-                        Story
-                      </span>
                     ) : (
-                      <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
-                        Sans lien
-                      </span>
+                      <div className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-600">
+                        <Eye className="h-4 w-4" />
+                        Story · sans lien permanent
+                      </div>
                     )}
-                    <ChevronRight
-                      className={`h-5 w-5 text-slate-400 transition-transform ${
-                        isExpanded ? "rotate-90" : ""
-                      }`}
-                    />
                   </div>
                 </div>
-
-                {isExpanded && (
-                  <div className="border-t border-slate-100 bg-slate-50/30 px-5 py-4">
-                    {collab.livrables.length > 0 ? (
-                      <>
-                        <h4 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">
-                          Livrables
-                        </h4>
-                        <div className="space-y-2">
-                          {collab.livrables.map((l, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center justify-between rounded-lg bg-white px-4 py-3 ring-1 ring-slate-200/60"
-                            >
-                              <span className="font-medium text-slate-900">
-                                {l.quantite}x {TYPE_LABELS[l.typeContenu] || l.typeContenu}
-                              </span>
-                              {l.description && (
-                                <span className="text-sm text-slate-500">{l.description}</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-sm text-slate-500">Aucun livrable renseigné.</p>
-                    )}
-                    <div className="mt-4 text-xs text-slate-400">Réf. {collab.reference}</div>
-                  </div>
-                )}
               </div>
             );
           })}
