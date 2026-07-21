@@ -2,7 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
-import { localizeTalentAttribute } from "@/lib/talent-attributes";
+import {
+  localizeTalentAttribute,
+  TYPE_PEAU_OPTIONS,
+  TYPE_CHEVEUX_OPTIONS,
+  COULEUR_CHEVEUX_OPTIONS,
+} from "@/lib/talent-attributes";
 
 // Marché de ce book (créateurs belges uniquement)
 const MARKET = "BE";
@@ -80,6 +85,11 @@ const translations = {
     skinType: "TYPE DE PEAU",
     hairType: "TYPE DE CHEVEUX",
     hairColor: "COULEUR DE CHEVEUX",
+    city: "Ville",
+    allCities: "Toutes les villes",
+    allSkin: "Type de peau",
+    allHair: "Type de cheveux",
+    allColor: "Couleur de cheveux",
     community: "COMMUNAUTÉ",
     engagementRate: "TX D'ENGAGEMENT",
     clearAll: "Tout effacer",
@@ -109,6 +119,11 @@ const translations = {
     skinType: "SKIN TYPE",
     hairType: "HAIR TYPE",
     hairColor: "HAIR COLOR",
+    city: "City",
+    allCities: "All cities",
+    allSkin: "Skin type",
+    allHair: "Hair type",
+    allColor: "Hair color",
     community: "COMMUNITY",
     engagementRate: "ENGAGEMENT RATE",
     clearAll: "Clear all",
@@ -537,10 +552,11 @@ function TalentModal({
               </div>
             )}
 
-            {/* Apparence (peau / cheveux) */}
-            {(talent.typePeau || talent.typeCheveux || talent.couleurCheveux) && (
+            {/* Apparence (ville / peau / cheveux) */}
+            {(talent.ville || talent.typePeau || talent.typeCheveux || talent.couleurCheveux) && (
               <div className="mb-5 md:mb-8 pb-4 md:pb-6 border-b border-[#220101]/15 grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {[
+                  { label: t.city, value: talent.ville },
                   { label: t.skinType, value: localizeTalentAttribute(talent.typePeau, lang) },
                   { label: t.hairType, value: localizeTalentAttribute(talent.typeCheveux, lang) },
                   { label: t.hairColor, value: localizeTalentAttribute(talent.couleurCheveux, lang) },
@@ -768,6 +784,10 @@ export default function TalentBookBelgiquePage() {
   const [talents, setTalents] = useState<Talent[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedNiche, setSelectedNiche] = useState("all");
+  const [filterVille, setFilterVille] = useState("");
+  const [filterPeau, setFilterPeau] = useState("");
+  const [filterCheveux, setFilterCheveux] = useState("");
+  const [filterCouleur, setFilterCouleur] = useState("");
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([]);
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -894,22 +914,45 @@ export default function TalentBookBelgiquePage() {
     }
   }
 
-  const filteredTalents = sortTalents(talents.filter((t) => {
+  const filteredTalents = sortTalents(talents.filter((tal) => {
     const nicheMatch =
       selectedNiche === "all" ||
-      t.niches.some((n) => n.toLowerCase().includes(selectedNiche.toLowerCase()));
+      tal.niches.some((n) => n.toLowerCase().includes(selectedNiche.toLowerCase()));
 
     const networkMatch =
       selectedNetworks.length === 0 ||
       selectedNetworks.some((network) => {
-        if (network === "instagram") return t.stats?.igFollowers;
-        if (network === "tiktok") return t.stats?.ttFollowers;
-        if (network === "youtube") return t.stats?.ytAbonnes;
+        if (network === "instagram") return tal.stats?.igFollowers;
+        if (network === "tiktok") return tal.stats?.ttFollowers;
+        if (network === "youtube") return tal.stats?.ytAbonnes;
         return false;
       });
 
-    return nicheMatch && networkMatch;
+    const villeMatch = !filterVille || tal.ville === filterVille;
+    const peauMatch = !filterPeau || tal.typePeau === filterPeau;
+    const cheveuxMatch = !filterCheveux || tal.typeCheveux === filterCheveux;
+    const couleurMatch = !filterCouleur || tal.couleurCheveux === filterCouleur;
+
+    return (
+      nicheMatch &&
+      networkMatch &&
+      villeMatch &&
+      peauMatch &&
+      cheveuxMatch &&
+      couleurMatch
+    );
   }));
+
+  const allVilles = [
+    ...new Set(talents.map((tal) => (tal.ville || "").trim()).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b));
+
+  const hasAttrFilters = !!(
+    filterVille ||
+    filterPeau ||
+    filterCheveux ||
+    filterCouleur
+  );
 
   const sortLabels: Record<SortOption, string> = {
     default: t.sortDefault,
@@ -1126,6 +1169,76 @@ export default function TalentBookBelgiquePage() {
                 )}
               </div>
             </div>
+
+            {/* Filtres apparence : ville + peau / cheveux / couleur */}
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={filterVille}
+                onChange={(e) => setFilterVille(e.target.value)}
+                className="px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allCities}</option>
+                {allVilles.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterPeau}
+                onChange={(e) => setFilterPeau(e.target.value)}
+                className="px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allSkin}</option>
+                {TYPE_PEAU_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {localizeTalentAttribute(opt, lang)}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterCheveux}
+                onChange={(e) => setFilterCheveux(e.target.value)}
+                className="px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allHair}</option>
+                {TYPE_CHEVEUX_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {localizeTalentAttribute(opt, lang)}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterCouleur}
+                onChange={(e) => setFilterCouleur(e.target.value)}
+                className="px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
+              >
+                <option value="">{t.allColor}</option>
+                {COULEUR_CHEVEUX_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {localizeTalentAttribute(opt, lang)}
+                  </option>
+                ))}
+              </select>
+
+              {hasAttrFilters && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterVille("");
+                    setFilterPeau("");
+                    setFilterCheveux("");
+                    setFilterCouleur("");
+                  }}
+                  className="px-4 py-2 rounded-full text-sm font-switzer text-[#B06F70] hover:bg-[#B06F70]/10 transition-all"
+                >
+                  {t.clearAll}
+                </button>
+              )}
+            </div>
           </div>
         </nav>
 
@@ -1145,6 +1258,10 @@ export default function TalentBookBelgiquePage() {
                 onClick={() => {
                   setSelectedNiche("all");
                   setSelectedNetworks([]);
+                  setFilterVille("");
+                  setFilterPeau("");
+                  setFilterCheveux("");
+                  setFilterCouleur("");
                 }}
                 className="mt-4 px-6 py-2 bg-[#220101] text-[#F5EDE0] rounded-full text-sm font-switzer"
               >
