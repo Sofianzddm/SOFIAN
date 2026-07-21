@@ -1802,7 +1802,7 @@ export default function TalentDetailPage() {
 
         {/* Contrats en signature électronique (DocuSeal) — ADMIN et HEAD_OF_INFLUENCE uniquement */}
         {["ADMIN", "HEAD_OF_INFLUENCE"].includes(role) && (
-          <ContratsTalentBloc talentId={talent.id} />
+          <ContratsTalentBloc talentId={talent.id} talentEmail={talent.email} />
         )}
 
         {/* Action Buttons */}

@@ -17,6 +17,7 @@ import {
   Clock,
   CheckCircle2,
   PenLine,
+  X,
 } from "lucide-react";
 
 type Contrat = {
@@ -68,7 +69,13 @@ function formatDate(iso: string | null): string {
   });
 }
 
-export default function ContratsTalentBloc({ talentId }: { talentId: string }) {
+export default function ContratsTalentBloc({
+  talentId,
+  talentEmail = "",
+}: {
+  talentId: string;
+  talentEmail?: string;
+}) {
   const router = useRouter();
   const [contrats, setContrats] = useState<Contrat[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +92,10 @@ export default function ContratsTalentBloc({ talentId }: { talentId: string }) {
   // Actions par contrat
   const [actionId, setActionId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  // Relance : édition email avant renvoi
+  const [relanceContratId, setRelanceContratId] = useState<string | null>(null);
+  const [relanceEmail, setRelanceEmail] = useState("");
 
   const loadContrats = useCallback(async () => {
     try {
@@ -174,17 +185,46 @@ export default function ContratsTalentBloc({ talentId }: { talentId: string }) {
     }
   };
 
-  const handleRelancer = async (contratId: string) => {
-    setActionId(contratId);
+  const openRelance = (contrat: Contrat) => {
+    setError(null);
     setFeedback(null);
+    // En attente agence : renvoi direct (pas d'édition d'email talent)
+    if (contrat.statut === "EN_ATTENTE_AGENCE") {
+      void handleRelancer(contrat.id);
+      return;
+    }
+    setRelanceContratId(contrat.id);
+    setRelanceEmail(talentEmail || "");
+  };
+
+  const handleRelancer = async (contratId?: string) => {
+    const id = contratId ?? relanceContratId;
+    if (!id) return;
+    const email = relanceEmail.trim();
+    // Formulaire ouvert = email requis ; renvoi agence = sans email
+    if (!contratId) {
+      if (!email) {
+        setError("Indiquez l'adresse email");
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setError("Adresse email invalide");
+        return;
+      }
+    }
+    setActionId(id);
+    setFeedback(null);
+    setError(null);
     try {
-      const res = await fetch(
-        `/api/talents/${talentId}/contrats/${contratId}/relancer`,
-        { method: "POST" }
-      );
+      const res = await fetch(`/api/talents/${talentId}/contrats/${id}/relancer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(!contratId && email ? { email } : {}),
+      });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         setFeedback(`Relance envoyée à ${data.relanceEmail}`);
+        setRelanceContratId(null);
       } else {
         setError(data.error || "Erreur lors de la relance");
       }
@@ -328,104 +368,153 @@ export default function ContratsTalentBloc({ talentId }: { talentId: string }) {
           {contrats.map((contrat) => {
             const ui = STATUT_UI[contrat.statut];
             const busy = actionId === contrat.id;
+            const showRelanceForm = relanceContratId === contrat.id;
             return (
               <div
                 key={contrat.id}
-                className="flex flex-wrap items-center gap-3 p-4 rounded-2xl border border-gray-100 bg-gray-50"
+                className="p-4 rounded-2xl border border-gray-100 bg-gray-50 space-y-3"
               >
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-glowup-licorice truncate">
-                    {contrat.titre}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {contrat.statut === "SIGNE" && contrat.signeAt
-                      ? `Signé le ${formatDate(contrat.signeAt)}`
-                      : contrat.envoyeAt
-                        ? `Envoyé le ${formatDate(contrat.envoyeAt)}`
-                        : `Créé le ${formatDate(contrat.createdAt)}`}
-                    {contrat.createdBy
-                      ? ` · par ${contrat.createdBy.prenom} ${contrat.createdBy.nom}`
-                      : ""}
-                  </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-glowup-licorice truncate">
+                      {contrat.titre}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {contrat.statut === "SIGNE" && contrat.signeAt
+                        ? `Signé le ${formatDate(contrat.signeAt)}`
+                        : contrat.envoyeAt
+                          ? `Envoyé le ${formatDate(contrat.envoyeAt)}`
+                          : `Créé le ${formatDate(contrat.createdAt)}`}
+                      {contrat.createdBy
+                        ? ` · par ${contrat.createdBy.prenom} ${contrat.createdBy.nom}`
+                        : ""}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${ui.className}`}
+                  >
+                    {ui.icon}
+                    {ui.label}
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    {contrat.statut === "BROUILLON" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(
+                              `/talents/${talentId}/contrats/${contrat.id}/builder`
+                            )
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                        >
+                          <Send className="w-3.5 h-3.5" /> Placer les champs
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(contrat.id)}
+                          disabled={busy}
+                          className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                          title="Supprimer le brouillon"
+                        >
+                          {busy ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      </>
+                    )}
+
+                    {["EN_ATTENTE_TALENT", "EN_ATTENTE_AGENCE"].includes(
+                      contrat.statut
+                    ) &&
+                      !showRelanceForm && (
+                        <button
+                          type="button"
+                          onClick={() => openRelance(contrat)}
+                          disabled={busy}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-60"
+                          title={
+                            contrat.statut === "EN_ATTENTE_TALENT"
+                              ? "Modifier l'email et renvoyer le lien"
+                              : "Renvoyer le lien de signature"
+                          }
+                        >
+                          {busy ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Bell className="w-3.5 h-3.5" />
+                          )}
+                          Relancer
+                        </button>
+                      )}
+
+                    {contrat.statut === "SIGNE" && contrat.signedDocumentUrl && (
+                      <a
+                        href={contrat.signedDocumentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-lg hover:bg-emerald-200 transition-colors"
+                      >
+                        <Download className="w-3.5 h-3.5" /> PDF signé
+                      </a>
+                    )}
+
+                    <a
+                      href={contrat.fichierUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2"
+                      title="Voir le PDF d'origine"
+                    >
+                      Original
+                    </a>
+                  </div>
                 </div>
 
-                <span
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${ui.className}`}
-                >
-                  {ui.icon}
-                  {ui.label}
-                </span>
-
-                <div className="flex items-center gap-2">
-                  {contrat.statut === "BROUILLON" && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          router.push(
-                            `/talents/${talentId}/contrats/${contrat.id}/builder`
-                          )
-                        }
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-                      >
-                        <Send className="w-3.5 h-3.5" /> Placer les champs
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(contrat.id)}
+                {showRelanceForm && (
+                  <div className="flex flex-wrap items-end gap-2 pt-1 border-t border-gray-200/80">
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Email de relance
+                      </label>
+                      <input
+                        type="email"
+                        value={relanceEmail}
+                        onChange={(e) => setRelanceEmail(e.target.value)}
                         disabled={busy}
-                        className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Supprimer le brouillon"
-                      >
-                        {busy ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </button>
-                    </>
-                  )}
-
-                  {["EN_ATTENTE_TALENT", "EN_ATTENTE_AGENCE"].includes(
-                    contrat.statut
-                  ) && (
+                        placeholder="email@exemple.com"
+                        className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none disabled:opacity-60"
+                        autoFocus
+                      />
+                    </div>
                     <button
                       type="button"
-                      onClick={() => handleRelancer(contrat.id)}
+                      onClick={() => handleRelancer()}
                       disabled={busy}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-60"
-                      title="Renvoyer le lien de signature"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-60"
                     >
                       {busy ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
-                        <Bell className="w-3.5 h-3.5" />
+                        <Send className="w-3.5 h-3.5" />
                       )}
-                      Relancer
+                      Renvoyer
                     </button>
-                  )}
-
-                  {contrat.statut === "SIGNE" && contrat.signedDocumentUrl && (
-                    <a
-                      href={contrat.signedDocumentUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-lg hover:bg-emerald-200 transition-colors"
+                    <button
+                      type="button"
+                      onClick={() => setRelanceContratId(null)}
+                      disabled={busy}
+                      className="p-2 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                      title="Annuler"
                     >
-                      <Download className="w-3.5 h-3.5" /> PDF signé
-                    </a>
-                  )}
-
-                  <a
-                    href={contrat.fichierUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2"
-                    title="Voir le PDF d'origine"
-                  >
-                    Original
-                  </a>
-                </div>
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

@@ -61,6 +61,16 @@ export async function POST(
       );
     }
 
+    let bodyEmail: string | undefined;
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (body && typeof body.email === "string") {
+        bodyEmail = body.email.trim();
+      }
+    } catch {
+      // body optionnel
+    }
+
     const contrat = await prisma.talentContrat.findUnique({
       where: { id: contratId },
       include: {
@@ -77,12 +87,29 @@ export async function POST(
       );
     }
 
-    const talentEmail = contrat.talent.email?.trim();
+    const talentEmail = (bodyEmail || contrat.talent.email || "").trim();
     if (!talentEmail) {
       return NextResponse.json(
         { error: "Ce talent n'a pas d'email renseigné" },
         { status: 400 }
       );
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(talentEmail)) {
+      return NextResponse.json(
+        { error: "Adresse email invalide" },
+        { status: 400 }
+      );
+    }
+
+    // Si l'email a été modifié à l'envoi, synchroniser la fiche talent
+    if (
+      bodyEmail &&
+      bodyEmail.toLowerCase() !== (contrat.talent.email || "").trim().toLowerCase()
+    ) {
+      await prisma.talent.update({
+        where: { id },
+        data: { email: talentEmail },
+      });
     }
     const talentName =
       `${contrat.talent.prenom} ${contrat.talent.nom}`.trim() || "Talent";
@@ -203,6 +230,7 @@ export async function POST(
       submissionId,
       statut: updated.statut,
       emailEnvoye,
+      email: talentEmail,
     });
   } catch (error) {
     console.error("Erreur envoi contrat talent:", error);

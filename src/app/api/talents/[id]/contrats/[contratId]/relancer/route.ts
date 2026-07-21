@@ -38,6 +38,22 @@ export async function POST(
       return NextResponse.json({ error: "Resend n'est pas configuré" }, { status: 503 });
     }
 
+    let bodyEmail: string | undefined;
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (body && typeof body.email === "string") {
+        bodyEmail = body.email.trim();
+      }
+    } catch {
+      // body optionnel
+    }
+    if (bodyEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bodyEmail)) {
+      return NextResponse.json(
+        { error: "Adresse email invalide" },
+        { status: 400 }
+      );
+    }
+
     const contrat = await prisma.talentContrat.findUnique({
       where: { id: contratId },
       include: { talent: { select: { prenom: true, nom: true, email: true } } },
@@ -99,6 +115,21 @@ export async function POST(
     }
 
     const isAgence = pending.role === "Agence";
+    // Email override uniquement pour le talent (pas pour l'agence)
+    const relanceEmail =
+      !isAgence && bodyEmail ? bodyEmail : pending.email.trim();
+
+    if (
+      !isAgence &&
+      bodyEmail &&
+      bodyEmail.toLowerCase() !== (contrat.talent.email || "").trim().toLowerCase()
+    ) {
+      await prisma.talent.update({
+        where: { id },
+        data: { email: bodyEmail },
+      });
+    }
+
     const signerName = isAgence
       ? process.env.NEXT_PUBLIC_AGENCE_NOM?.trim() || "Glow Up Agence"
       : contrat.talent.prenom || `${contrat.talent.prenom} ${contrat.talent.nom}`.trim();
@@ -115,7 +146,7 @@ export async function POST(
     );
     await resend.emails.send({
       from: `Glow Up Agence <${fromEmail}>`,
-      to: pending.email,
+      to: relanceEmail,
       subject: `Rappel — Votre contrat Glow Up — ${contrat.titre}`,
       html,
     });
@@ -129,7 +160,7 @@ export async function POST(
       isRelance: true,
     });
 
-    return NextResponse.json({ success: true, relanceEmail: pending.email });
+    return NextResponse.json({ success: true, relanceEmail });
   } catch (error) {
     console.error("Erreur relance contrat talent:", error);
     return NextResponse.json(
