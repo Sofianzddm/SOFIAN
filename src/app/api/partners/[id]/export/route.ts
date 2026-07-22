@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
+import { buildCityGroupMap } from "@/lib/city-grouping";
 
 // Route publique: GET /api/partners/[id]/export
 // ATTENTION: le paramètre "id" est en réalité le slug du partenaire.
@@ -36,6 +37,11 @@ export async function GET(
     });
     const overrideMap = new Map(overrides.map((o) => [o.talentId, o]));
 
+    // Métropoles (même logique que le filtre ville du book partenaire)
+    const cityGroups = await buildCityGroupMap(
+      talentsList.map((t) => ({ ville: t.ville, pays: t.pays }))
+    );
+
     // Créer le workbook Excel
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "Glow Up Agence";
@@ -45,7 +51,7 @@ export async function GET(
     const talentsSheet = workbook.addWorksheet("Talents");
     
     // Titre principal (ligne 1)
-    talentsSheet.mergeCells("A1:I1");
+    talentsSheet.mergeCells("A1:J1");
     const titleRow = talentsSheet.getRow(1);
     titleRow.height = 30;
     titleRow.getCell(1).value = "TALENTS";
@@ -69,6 +75,7 @@ export async function GET(
     const talentsHeaders = [
       "Prénom",
       "Nom",
+      "Ville",
       "Handle IG",
       "Handle TT",
       "Niches",
@@ -80,6 +87,7 @@ export async function GET(
     talentsSheet.columns = [
       { key: "prenom", width: 18 },
       { key: "nom", width: 18 },
+      { key: "ville", width: 18 },
       { key: "handleIg", width: 22 },
       { key: "handleTt", width: 22 },
       { key: "niches", width: 35 },
@@ -124,9 +132,14 @@ export async function GET(
       const handleIg = normalizeInstagramHandle(talent.instagram) || "";
       const instagramUrl = getInstagramProfileUrl(talent.instagram);
       const handleTt = talent.tiktok?.replace("@", "") || "";
+      const villeRaw = (talent.ville || "").trim();
+      const villeGroup = villeRaw
+        ? cityGroups.get(villeRaw) || villeRaw
+        : "";
       const row = talentsSheet.addRow({
         prenom: talent.prenom,
         nom: talent.nom,
+        ville: villeGroup,
         handleIg,
         handleTt,
         niches: (talent.niches || []).join(", "),
