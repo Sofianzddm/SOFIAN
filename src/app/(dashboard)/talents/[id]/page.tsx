@@ -461,12 +461,62 @@ export default function TalentDetailPage() {
     setStoryScreensError(null);
     setStoryUploadingSlot(slot);
     try {
-      const fd = new FormData();
-      fd.append("slot", slot);
-      Array.from(files).forEach((f) => fd.append("files", f));
+      // Upload direct Cloudinary (bypass limite body ~4.5 Mo de Vercel)
+      const uploadedUrls: string[] = [];
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) continue;
+        if (file.size > 100 * 1024 * 1024) {
+          throw new Error("Chaque image ne doit pas dépasser 100MB");
+        }
+
+        const signatureRes = await fetch("/api/upload/signature", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            talentId: talent.id,
+            purpose: "storyScreenshots",
+          }),
+        });
+        if (!signatureRes.ok) {
+          throw new Error("Erreur de signature");
+        }
+        const { signature, timestamp, folder, publicId, cloudName, apiKey } =
+          await signatureRes.json();
+        if (!cloudName || !apiKey) {
+          throw new Error("Configuration Cloudinary manquante");
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("signature", signature);
+        formData.append("timestamp", String(timestamp));
+        formData.append("folder", folder);
+        formData.append("public_id", publicId);
+        formData.append("api_key", apiKey);
+
+        const cloudinaryRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          { method: "POST", body: formData }
+        );
+        if (!cloudinaryRes.ok) {
+          throw new Error("Erreur upload Cloudinary");
+        }
+        const cloudinaryData = await cloudinaryRes.json();
+        if (!cloudinaryData.secure_url) {
+          throw new Error("URL Cloudinary manquante");
+        }
+        uploadedUrls.push(cloudinaryData.secure_url);
+      }
+
+      if (uploadedUrls.length === 0) {
+        throw new Error("Aucune image valide à uploader");
+      }
+
+      // Enregistrement des URLs en base (payload JSON léger)
       const res = await fetch(`/api/talents/${talent.id}/story-screenshots`, {
         method: "POST",
-        body: fd,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slot, urls: uploadedUrls }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
