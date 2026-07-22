@@ -3390,6 +3390,10 @@ function excelCellToText(value: unknown): string {
 /**
  * Lit un fichier de carto (.xlsx via ExcelJS, sinon texte .csv/.tsv) et le
  * convertit en texte tabulé pour le parseur commun.
+ *
+ * Convention multi-feuilles :
+ * - Feuille 1 → influence (contacts carto) — lue ici
+ * - Feuille 2 → AO / Appel d'offre — extraite côté API à l'import
  */
 async function cartoFileToText(file: File): Promise<string> {
   if (/\.xlsx$/i.test(file.name)) {

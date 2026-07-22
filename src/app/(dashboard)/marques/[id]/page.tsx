@@ -102,6 +102,7 @@ interface MarqueDetail {
     fileName: string;
     size: number;
     createdAt: string;
+    kind?: string;
   }[];
   collaborations: {
     id: string;
@@ -458,9 +459,10 @@ export default function MarqueDetailPage() {
   // Lancer un contact dans le cycle Outreach est réservé aux rôles qui y ont
   // accès côté API (ADMIN / CASTING_MANAGER).
   const canOutreach = ["ADMIN", "CASTING_MANAGER"].includes(session?.user?.role || "");
+  const isAdmin = (session?.user?.role || "") === "ADMIN";
   const [marque, setMarque] = useState<MarqueDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"activite" | "contacts" | "carto" | "collabs">("activite");
+  const [activeTab, setActiveTab] = useState<"activite" | "contacts" | "carto" | "ao" | "collabs">("activite");
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [logoError, setLogoError] = useState(false);
 
@@ -1006,7 +1008,9 @@ export default function MarqueDetailPage() {
   const cartoContacts = marque.contacts
     .filter((c) => c.source === "CARTO")
     .sort((a, b) => (a.priorite || "P9").localeCompare(b.priorite || "P9"));
-  const cartoFiles = marque.cartoFiles || [];
+  const allCartoFiles = marque.cartoFiles || [];
+  const cartoFiles = allCartoFiles.filter((f) => (f.kind || "CARTO") !== "AO");
+  const aoFiles = allCartoFiles.filter((f) => f.kind === "AO");
 
   /** Regénère le fichier Excel de la cartographie (emails et statuts à jour). */
   const downloadCartoExcel = async () => {
@@ -1110,6 +1114,9 @@ export default function MarqueDetailPage() {
     { id: "contacts" as const, label: "Contacts", icon: Users, badge: marque.contacts.length || null },
     ...(cartoContacts.length > 0 || cartoFiles.length > 0
       ? [{ id: "carto" as const, label: "Cartographie", icon: FileSpreadsheet, badge: (cartoContacts.length || null) as number | null }]
+      : []),
+    ...(isAdmin
+      ? [{ id: "ao" as const, label: "Achats - AO", icon: Briefcase, badge: (aoFiles.length || null) as number | null }]
       : []),
     { id: "collabs" as const, label: "Collaborations", icon: Handshake, badge: marque._count.collaborations || null },
   ];
@@ -2319,6 +2326,56 @@ export default function MarqueDetailPage() {
                 <div className="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-300">
                   Importée via « Importer une carto » dans Outreach — complète les emails manquants là-bas pour lancer les cycles de contact.
                 </div>
+              </div>
+            )}
+
+            {activeTab === "ao" && isAdmin && (
+              <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+                  <div className="text-[13px] text-gray-500">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Briefcase className="w-4 h-4 text-amber-600" />
+                      <span className="font-semibold" style={{ color: INK }}>
+                        Appel d&apos;offre
+                      </span>
+                      <span className="text-gray-300">·</span>
+                      feuille 2 extraite à l&apos;import carto
+                    </span>
+                  </div>
+                </div>
+
+                {aoFiles.length === 0 ? (
+                  <div className="text-center py-14">
+                    <Briefcase className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+                    <p className="text-sm text-gray-400">Aucun fichier AO pour l&apos;instant</p>
+                    <p className="text-xs text-gray-300 mt-1 max-w-sm mx-auto">
+                      Importe une carto Excel avec une 2ᵉ feuille dédiée à l&apos;appel d&apos;offre.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="px-5 py-4 flex flex-wrap gap-2">
+                    {aoFiles.map((file) => (
+                      <a
+                        key={file.id}
+                        href={`/api/marques/${marque.id}/carto-files/${file.id}`}
+                        className="group inline-flex items-center gap-2 pl-2.5 pr-3 py-1.5 rounded-lg bg-white ring-1 ring-black/[0.07] hover:ring-black/20 transition-all text-[12.5px]"
+                        style={{ color: INK }}
+                        title="Télécharger la feuille Appel d'offre"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span className="font-medium truncate max-w-[260px]">{file.fileName}</span>
+                        <span className="text-[11px] text-gray-300">
+                          {(file.size / 1024).toFixed(0)} Ko ·{" "}
+                          {new Date(file.createdAt).toLocaleDateString("fr-FR", {
+                            day: "2-digit",
+                            month: "short",
+                          })}
+                        </span>
+                        <Download className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-600 transition-colors shrink-0" />
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

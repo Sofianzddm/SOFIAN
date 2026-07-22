@@ -15,6 +15,7 @@ export async function GET(
     }
 
     const { id } = await params;
+    const isAdmin = (session.user.role || "") === "ADMIN";
     const marque = await prisma.marque.findUnique({
       where: { id: id },
       include: {
@@ -37,7 +38,9 @@ export async function GET(
           },
         },
         cartoFiles: {
-          select: { id: true, fileName: true, size: true, createdAt: true },
+          // Feuilles AO réservées aux admins
+          where: isAdmin ? undefined : { kind: "CARTO" },
+          select: { id: true, fileName: true, size: true, createdAt: true, kind: true },
           orderBy: { createdAt: "desc" },
         },
         // Hiérarchie mère / filles (Unilever → Dove, Axe…).

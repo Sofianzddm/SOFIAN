@@ -22,6 +22,11 @@ export async function GET(
       return NextResponse.json({ error: "Fichier introuvable" }, { status: 404 });
     }
 
+    // Feuille AO : réservée aux admins
+    if (file.kind === "AO" && (session.user.role || "") !== "ADMIN") {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+    }
+
     return new NextResponse(new Uint8Array(file.data), {
       headers: {
         "Content-Type": file.mimeType,
@@ -36,7 +41,7 @@ export async function GET(
   }
 }
 
-/** DELETE → retire un fichier de carto de la fiche (Admin/Head). */
+/** DELETE → retire un fichier de carto / AO de la fiche (Admin). */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; fileId: string }> }
@@ -45,6 +50,9 @@ export async function DELETE(
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if ((session.user.role || "") !== "ADMIN") {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     const { id, fileId } = await params;

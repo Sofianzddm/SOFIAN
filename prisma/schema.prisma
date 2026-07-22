@@ -685,6 +685,8 @@ model Marque {
 
 // Fichier de cartographie original (Excel/CSV importé) — conservé tel quel
 // pour consultation/téléchargement depuis la fiche marque.
+// kind: CARTO = classeur d'origine (feuille 1 = influence) ;
+//       AO    = feuille 2 extraite (Appel d'offre), visible admin seulement.
 model MarqueCartoFile {
   id String @id @default(cuid())
 
@@ -695,11 +697,14 @@ model MarqueCartoFile {
   mimeType String
   size     Int
   data     Bytes
+  /// CARTO | AO
+  kind     String @default("CARTO")
 
   uploadedById String?
   createdAt    DateTime @default(now())
 
   @@index([marqueId])
+  @@index([marqueId, kind])
   @@map("marque_carto_files")
 }
 

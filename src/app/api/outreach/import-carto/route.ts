@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
+import { aoFileNameFromOriginal, extractWorksheetAsXlsx } from "@/lib/carto-excel";
 
 /**
  * POST → importe une cartographie de contacts (fichier Claude / Excel collé)
@@ -10,11 +11,16 @@ import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
  * il suffit ensuite de noter l'email dans /outreach pour les faire entrer
  * dans le cycle de contact. La carto reste visible sur la fiche marque.
  *
+ * Convention Excel multi-feuilles :
+ * - Feuille 1 → influence (contacts parsés côté client)
+ * - Feuille 2 → AO / Appel d'offre (extraite et stockée kind=AO, admin only)
+ *
  * Body : {
  *   marqueId?: string,          // marque PAR DÉFAUT existante sélectionnée
  *   company?: string,           // sinon résolution/création par nom
  *   language: "fr" | "en",      // OBLIGATOIRE : langue des contacts importés
  *   rows: [{ prenom?, nom, poste?, perimetre?, localisation?, priorite?, linkedinUrl?, email?, marque? }]
+ *   file?: { name?, type?, base64? }
  * }
  *
  * Chaque ligne peut porter sa propre `marque` (colonne « Marque » du fichier) :
@@ -235,8 +241,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Conserve le fichier original sur la fiche marque (consultable/téléchargeable)
+    // Conserve le fichier original (feuille 1 = influence) + extrait la feuille 2 (AO)
     let fileStored = false;
+    let aoFileStored = false;
     if (body.file?.base64 && body.file.name) {
       try {
         const data = Buffer.from(body.file.base64, "base64");
@@ -248,17 +255,50 @@ export async function POST(request: NextRequest) {
               mimeType: body.file.type || "application/octet-stream",
               size: data.length,
               data,
+              kind: "CARTO",
               uploadedById: session.user.id,
             },
           });
           fileStored = true;
+
+          // Feuille 2 → Appel d'offre (visible admin uniquement sur la fiche marque)
+          if (/\.xlsx$/i.test(body.file.name)) {
+            try {
+              const ao = await extractWorksheetAsXlsx(data, 1);
+              if (ao && ao.buffer.length > 0 && ao.buffer.length <= 10 * 1024 * 1024) {
+                await prisma.marqueCartoFile.create({
+                  data: {
+                    marqueId,
+                    fileName: aoFileNameFromOriginal(body.file.name, ao.sheetName),
+                    mimeType:
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    size: ao.buffer.length,
+                    data: ao.buffer,
+                    kind: "AO",
+                    uploadedById: session.user.id,
+                  },
+                });
+                aoFileStored = true;
+              }
+            } catch (aoError) {
+              console.warn("[import-carto] extraction feuille AO échouée:", aoError);
+            }
+          }
         }
       } catch (error) {
         console.warn("[import-carto] stockage du fichier original échoué:", error);
       }
     }
 
-    return NextResponse.json({ marqueId, company, created, skipped, addedToCycle, fileStored });
+    return NextResponse.json({
+      marqueId,
+      company,
+      created,
+      skipped,
+      addedToCycle,
+      fileStored,
+      aoFileStored,
+    });
   } catch (error) {
     console.error("POST /api/outreach/import-carto:", error);
     return NextResponse.json(
