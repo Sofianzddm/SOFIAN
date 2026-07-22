@@ -2,13 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { parseCartoTsv } from "@/lib/carto-excel";
-import ExcelJS from "exceljs";
+import { parseWorksheetCartoRows } from "@/lib/carto-excel";
 
 /**
- * POST → parse les fichiers AO déjà stockés et crée les contacts source=AO
- * manquants (utile pour les imports faits avant le parsing des contacts AO).
- * Réservé ADMIN.
+ * POST → parse la feuille 2 (AO) des classeurs carto d'origine et crée les
+ * contacts source=AO manquants. Réservé ADMIN.
  */
 export async function POST(
   _request: NextRequest,
@@ -32,12 +30,16 @@ export async function POST(
       return NextResponse.json({ error: "Marque introuvable" }, { status: 404 });
     }
 
-    const aoFiles = await prisma.marqueCartoFile.findMany({
-      where: { marqueId, kind: "AO" },
+    // On parse la feuille 2 du classeur ORIGINAL (plus fiable que le fichier AO extrait)
+    const sourceFiles = await prisma.marqueCartoFile.findMany({
+      where: {
+        marqueId,
+        OR: [{ kind: "CARTO" }, { kind: "AO" }],
+      },
       orderBy: { createdAt: "desc" },
     });
-    if (aoFiles.length === 0) {
-      return NextResponse.json({ created: 0, message: "Aucun fichier AO." });
+    if (sourceFiles.length === 0) {
+      return NextResponse.json({ created: 0, message: "Aucun fichier carto/AO." });
     }
 
     const existing = await prisma.marqueContact.findMany({
@@ -58,32 +60,21 @@ export async function POST(
     const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
     let created = 0;
+    const seenKeys = new Set<string>();
 
-    for (const file of aoFiles) {
-      const workbook = new ExcelJS.Workbook();
-      const ab = file.data.buffer.slice(
-        file.data.byteOffset,
-        file.data.byteOffset + file.data.byteLength
-      ) as ArrayBuffer;
-      await workbook.xlsx.load(ab);
-      const sheet = workbook.worksheets[0];
-      if (!sheet) continue;
+    for (const file of sourceFiles) {
+      const bytes = Buffer.from(file.data);
+      // Classeur original → feuille 2 ; fichier AO extrait → feuille 1
+      const sheetIndex = file.kind === "AO" ? 0 : 1;
+      let rows;
+      try {
+        rows = await parseWorksheetCartoRows(bytes, sheetIndex);
+      } catch (e) {
+        console.warn("[sync-ao] parse échoué pour", file.fileName, e);
+        continue;
+      }
+      if (rows.length === 0) continue;
 
-      const lines: string[] = [];
-      sheet.eachRow({ includeEmpty: true }, (row) => {
-        const values = row.values as unknown[];
-        const cells: string[] = [];
-        for (let col = 1; col < Math.max(values.length, 2); col++) {
-          const v = values[col];
-          if (v == null) cells.push("");
-          else if (typeof v === "object" && v !== null && "text" in (v as object)) {
-            cells.push(String((v as { text?: string }).text ?? ""));
-          } else cells.push(String(v));
-        }
-        lines.push(cells.join("\t"));
-      });
-
-      const rows = parseCartoTsv(lines.join("\n"));
       for (const row of rows.slice(0, 200)) {
         const prenom = clean(row.prenom);
         const nom = clean(row.nom);
@@ -92,6 +83,8 @@ export async function POST(
         if (!nom && !prenom) continue;
 
         const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
+        if (seenKeys.has(nameKey)) continue;
+        seenKeys.add(nameKey);
         if ((email && emails.has(email)) || names.has(nameKey)) continue;
 
         await prisma.marqueContact.create({
@@ -112,6 +105,9 @@ export async function POST(
         if (email) emails.add(email);
         created += 1;
       }
+
+      // Un classeur original a suffi
+      if (file.kind === "CARTO" && rows.length > 0) break;
     }
 
     return NextResponse.json({ created });

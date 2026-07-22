@@ -1048,6 +1048,99 @@ export default function MarqueDetailPage() {
     .filter((c) => c.source === "AO")
     .sort((a, b) => (a.priorite || "P9").localeCompare(b.priorite || "P9"));
 
+  /** Regénère le fichier Excel AO (contacts feuille 2). */
+  const downloadAoExcel = async () => {
+    if (exporting || aoContacts.length === 0) return;
+    setExporting(true);
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const workbook = new ExcelJS.Workbook();
+      const ws = workbook.addWorksheet("Appel d'offre");
+
+      ws.columns = [
+        { width: 10 },
+        { width: 14 },
+        { width: 16 },
+        { width: 46 },
+        { width: 36 },
+        { width: 18 },
+        { width: 32 },
+        { width: 48 },
+      ];
+
+      ws.mergeCells("A1:H1");
+      const title = ws.getCell("A1");
+      title.value = `${marque.nom} — Appel d'offre`;
+      title.font = { bold: true, size: 14 };
+
+      ws.addRow([]);
+      const headerRow = ws.addRow([
+        "Priorité",
+        "Prénom",
+        "Nom",
+        "Rôle",
+        "Périmètre",
+        "Localisation",
+        "Email",
+        "URL LinkedIn",
+      ]);
+      headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      headerRow.eachCell((cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF16110F" } };
+        cell.alignment = { vertical: "middle" };
+      });
+
+      for (const contact of aoContacts) {
+        const row = ws.addRow([
+          contact.priorite?.toUpperCase() || "",
+          contact.prenom || "",
+          contact.nom || "",
+          contact.poste || "",
+          contact.perimetre || "",
+          contact.localisation || "",
+          contact.email || "",
+          contact.linkedinUrl || "",
+        ]);
+        if (contact.linkedinUrl) {
+          row.getCell(8).value = { text: contact.linkedinUrl, hyperlink: contact.linkedinUrl };
+          row.getCell(8).font = { color: { argb: "FF2563A8" }, underline: true };
+        }
+        if (contact.email) {
+          row.getCell(7).value = { text: contact.email, hyperlink: `mailto:${contact.email}` };
+        }
+      }
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${marque.nom} - Appel d'offre.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Export AO:", e);
+      alert("Impossible de générer le fichier Excel.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const syncAoContacts = async () => {
+    if (!marque || aoSyncing) return;
+    setAoSyncing(true);
+    try {
+      const res = await fetch(`/api/marques/${marque.id}/sync-ao`, { method: "POST" });
+      if (res.ok) await fetchMarque();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setAoSyncing(false);
+    }
+  };
+
   /** Regénère le fichier Excel de la cartographie (emails et statuts à jour). */
   const downloadCartoExcel = async () => {
     if (exporting || cartoContacts.length === 0) return;
@@ -2367,29 +2460,56 @@ export default function MarqueDetailPage() {
 
             {activeTab === "ao" && isAdmin && (
               <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 border-b border-gray-100">
                   <div className="text-[13px] text-gray-500">
                     <span className="inline-flex items-center gap-1.5">
                       <Briefcase className="w-4 h-4 text-amber-600" />
                       <span className="font-semibold" style={{ color: INK }}>
-                        Appel d&apos;offre
+                        {aoContacts.length}
                       </span>
-                      {aoContacts.length > 0 && (
-                        <>
-                          <span className="text-gray-300">·</span>
-                          <span>
-                            {aoContacts.length} contact{aoContacts.length > 1 ? "s" : ""}
-                          </span>
-                        </>
-                      )}
+                      contact{aoContacts.length > 1 ? "s" : ""} importé
+                      {aoContacts.length > 1 ? "s" : ""} — appel d&apos;offre chez {marque.nom}
                     </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {(aoFiles.length > 0 || cartoFiles.length > 0) && aoContacts.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={syncAoContacts}
+                        disabled={aoSyncing}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors disabled:opacity-50"
+                        style={{ color: INK }}
+                      >
+                        {aoSyncing ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Repeat className="w-3.5 h-3.5 text-amber-600" />
+                        )}
+                        Charger les contacts
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={downloadAoExcel}
+                      disabled={exporting || aoContacts.length === 0}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+                      style={{ backgroundColor: INK }}
+                      title="Regénère le fichier Excel AO"
+                    >
+                      {exporting ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                      Télécharger l&apos;Excel
+                    </button>
                   </div>
                 </div>
 
                 {aoFiles.length > 0 && (
                   <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-300 mb-2">
-                      Fichier{aoFiles.length > 1 ? "s" : ""} AO
+                      Fichier{aoFiles.length > 1 ? "s" : ""} d&apos;origine
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {aoFiles.map((file) => (
@@ -2425,15 +2545,10 @@ export default function MarqueDetailPage() {
                   <div className="text-center py-14">
                     <Briefcase className="w-10 h-10 text-gray-200 mx-auto mb-3" />
                     <p className="text-sm text-gray-400">
-                      {aoFiles.length > 0
-                        ? "Aucun contact trouvé dans la feuille AO (colonnes Prénom / Nom requises)."
+                      {aoFiles.length > 0 || cartoFiles.length > 0
+                        ? "Aucun contact AO pour l'instant — clique sur « Charger les contacts »."
                         : "Aucun fichier AO pour l'instant"}
                     </p>
-                    {aoFiles.length === 0 && (
-                      <p className="text-xs text-gray-300 mt-1 max-w-sm mx-auto">
-                        Importe une carto Excel avec une 2ᵉ feuille dédiée à l&apos;appel d&apos;offre.
-                      </p>
-                    )}
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -2445,7 +2560,8 @@ export default function MarqueDetailPage() {
                           <th className="px-3 py-2.5 font-semibold">Rôle</th>
                           <th className="px-3 py-2.5 font-semibold hidden lg:table-cell">Périmètre</th>
                           <th className="px-3 py-2.5 font-semibold hidden md:table-cell">Localisation</th>
-                          <th className="px-5 py-2.5 font-semibold">Email</th>
+                          <th className="px-3 py-2.5 font-semibold">Email</th>
+                          <th className="px-5 py-2.5 font-semibold text-right"> </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
@@ -2489,17 +2605,34 @@ export default function MarqueDetailPage() {
                             <td className="px-3 py-3 text-[12.5px] text-gray-500 hidden md:table-cell whitespace-nowrap">
                               {contact.localisation || <span className="text-gray-200">—</span>}
                             </td>
-                            <td className="px-5 py-3">
+                            <td className="px-3 py-3">
                               {contact.email ? (
-                                <a
-                                  href={`mailto:${contact.email}`}
-                                  className="text-[12.5px] text-gray-600 hover:text-gray-900 whitespace-nowrap"
-                                >
-                                  {contact.email}
-                                </a>
+                                <span className="inline-flex items-center gap-1">
+                                  <a
+                                    href={`mailto:${contact.email}`}
+                                    className="text-[12.5px] text-gray-600 hover:text-gray-900 whitespace-nowrap"
+                                  >
+                                    {contact.email}
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyEmail(contact.email!)}
+                                    className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-gray-100 transition-all"
+                                    title="Copier"
+                                  >
+                                    {copiedEmail === contact.email ? (
+                                      <Check className="w-3 h-3 text-emerald-500" />
+                                    ) : (
+                                      <Copy className="w-3 h-3 text-gray-300" />
+                                    )}
+                                  </button>
+                                </span>
                               ) : (
                                 <span className="text-xs text-gray-200">—</span>
                               )}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <span className="text-xs text-gray-200">—</span>
                             </td>
                           </tr>
                         ))}
@@ -2507,6 +2640,10 @@ export default function MarqueDetailPage() {
                     </table>
                   </div>
                 )}
+
+                <div className="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-300">
+                  Feuille 2 du classeur importé via Outreach — visible admin uniquement.
+                </div>
               </div>
             )}
 
