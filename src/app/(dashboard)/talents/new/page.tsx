@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -107,8 +108,14 @@ function interpolateTarif(
 export default function NewTalentPage() {
   const router = useRouter();
   const params = useParams<{ id?: string }>();
+  const { data: session } = useSession();
   const talentId = params?.id;
   const isEditMode = Boolean(talentId);
+  const user = session?.user as { id?: string; role?: string; name?: string } | undefined;
+  const role = user?.role || "";
+  const isTm = role === "TM";
+  const canManageManagers =
+    role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
@@ -228,14 +235,43 @@ export default function NewTalentPage() {
     const load = async () => {
       setInitialLoading(true);
       try {
-        const usersRes = await fetch("/api/users?role=TM");
-        const users = await usersRes.json();
-        setManagers(users);
+        // TM ne peut pas créer de talent
+        if (!isEditMode && isTm) {
+          router.push("/talents");
+          return;
+        }
+
+        if (canManageManagers) {
+          const usersRes = await fetch("/api/users?role=TM");
+          if (usersRes.ok) {
+            const users = await usersRes.json();
+            if (Array.isArray(users)) setManagers(users);
+          }
+        }
 
         if (isEditMode && talentId) {
           const talentRes = await fetch(`/api/talents/${talentId}`);
           if (!talentRes.ok) throw new Error("Talent introuvable");
           const talent = await talentRes.json();
+
+          // TM : uniquement ses propres talents
+          if (isTm && user?.id && talent.managerId !== user.id) {
+            alert("Vous ne pouvez modifier que vos propres talents");
+            router.push("/talents");
+            return;
+          }
+
+          // Pour un TM, /api/users est inaccessible : on affiche le manager du talent
+          if (isTm && talent.manager) {
+            setManagers([
+              {
+                id: talent.manager.id,
+                prenom: talent.manager.prenom,
+                nom: talent.manager.nom,
+              },
+            ]);
+          }
+
           const stats = talent.stats || {};
           const tarifs = talent.tarifs || {};
           const adresseParts = typeof talent.adresse === "string" ? talent.adresse.split(" – ") : [];
@@ -347,8 +383,10 @@ export default function NewTalentPage() {
       }
     };
 
+    // Attendre la session pour les guards TM
+    if (session === undefined) return;
     load();
-  }, [isEditMode, router, talentId]);
+  }, [isEditMode, router, talentId, isTm, canManageManagers, user?.id, session]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -418,11 +456,14 @@ export default function NewTalentPage() {
       const adresse = [formData.adresseRue, formData.adresseComplement].filter(Boolean).join(" – ") || null;
       const endpoint = isEditMode && talentId ? `/api/talents/${talentId}` : "/api/talents";
       const method = isEditMode ? "PUT" : "POST";
+      const { managerId, ...restForm } = formData;
       const res = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...formData,
+          ...restForm,
+          // TM ne peut pas réassigner le manager
+          ...(isTm ? {} : { managerId }),
           adresse,
           codePostal: formData.codePostal || null,
           ville: formData.ville || null,
@@ -665,7 +706,8 @@ export default function NewTalentPage() {
                           name="managerId"
                           value={formData.managerId}
                           onChange={handleChange}
-                          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white"
+                          disabled={isTm}
+                          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose appearance-none bg-white disabled:bg-gray-50 disabled:text-gray-500"
                         >
                           <option value="">Sélectionner</option>
                           {managers.map((tm) => (

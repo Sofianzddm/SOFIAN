@@ -20,6 +20,8 @@ import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-l
 import {
   localizeTalentAttribute,
   localizeTalentAttributeList,
+  matchesSelectedAny,
+  matchesSelectedValue,
   TYPE_PEAU_OPTIONS,
   TYPE_CHEVEUX_OPTIONS,
   COULEUR_CHEVEUX_OPTIONS,
@@ -30,6 +32,7 @@ import {
   SPORTS_OPTIONS,
   MOBILITE_OPTIONS,
 } from "@/lib/talent-attributes";
+import { MultiSelectFilter } from "@/components/talentbook/MultiSelectFilter";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
 function getVisitorId(): string {
@@ -1572,16 +1575,16 @@ export default function PartnerTalentBookPage() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedNiche, setSelectedNiche] = useState("all");
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([]);
-  const [filterVille, setFilterVille] = useState("");
-  const [filterPeau, setFilterPeau] = useState("");
-  const [filterCheveux, setFilterCheveux] = useState("");
-  const [filterCouleur, setFilterCouleur] = useState("");
-  const [filterTendancePeau, setFilterTendancePeau] = useState("");
-  const [filterTendanceCheveux, setFilterTendanceCheveux] = useState("");
-  const [filterAnimaux, setFilterAnimaux] = useState("");
-  const [filterAges, setFilterAges] = useState("");
-  const [filterSports, setFilterSports] = useState("");
-  const [filterMobilite, setFilterMobilite] = useState("");
+  const [filterVille, setFilterVille] = useState<string[]>([]);
+  const [filterPeau, setFilterPeau] = useState<string[]>([]);
+  const [filterCheveux, setFilterCheveux] = useState<string[]>([]);
+  const [filterCouleur, setFilterCouleur] = useState<string[]>([]);
+  const [filterTendancePeau, setFilterTendancePeau] = useState<string[]>([]);
+  const [filterTendanceCheveux, setFilterTendanceCheveux] = useState<string[]>([]);
+  const [filterAnimaux, setFilterAnimaux] = useState<string[]>([]);
+  const [filterAges, setFilterAges] = useState<string[]>([]);
+  const [filterSports, setFilterSports] = useState<string[]>([]);
+  const [filterMobilite, setFilterMobilite] = useState<string[]>([]);
   const [filterEnceinte, setFilterEnceinte] = useState("");
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -1789,20 +1792,19 @@ export default function PartnerTalentBookPage() {
         return false;
       });
 
-    const villeMatch = !filterVille || tal.villeGroup === filterVille;
-    const peauMatch = !filterPeau || tal.typePeau === filterPeau;
-    const cheveuxMatch = !filterCheveux || tal.typeCheveux === filterCheveux;
-    const couleurMatch = !filterCouleur || tal.couleurCheveux === filterCouleur;
-    const tendancePeauMatch =
-      !filterTendancePeau || tal.tendancePeau?.includes(filterTendancePeau);
-    const tendanceCheveuxMatch =
-      !filterTendanceCheveux ||
-      tal.tendanceCheveux?.includes(filterTendanceCheveux);
-    const animauxMatch = !filterAnimaux || tal.animaux?.includes(filterAnimaux);
-    const agesMatch = !filterAges || tal.agesEnfants?.includes(filterAges);
-    const sportsMatch = !filterSports || tal.sports?.includes(filterSports);
-    const mobiliteMatch =
-      !filterMobilite || tal.mobilite?.includes(filterMobilite);
+    const villeMatch = matchesSelectedValue(filterVille, tal.villeGroup);
+    const peauMatch = matchesSelectedValue(filterPeau, tal.typePeau);
+    const cheveuxMatch = matchesSelectedValue(filterCheveux, tal.typeCheveux);
+    const couleurMatch = matchesSelectedValue(filterCouleur, tal.couleurCheveux);
+    const tendancePeauMatch = matchesSelectedAny(filterTendancePeau, tal.tendancePeau);
+    const tendanceCheveuxMatch = matchesSelectedAny(
+      filterTendanceCheveux,
+      tal.tendanceCheveux
+    );
+    const animauxMatch = matchesSelectedAny(filterAnimaux, tal.animaux);
+    const agesMatch = matchesSelectedAny(filterAges, tal.agesEnfants);
+    const sportsMatch = matchesSelectedAny(filterSports, tal.sports);
+    const mobiliteMatch = matchesSelectedAny(filterMobilite, tal.mobilite);
     const enceinteMatch = !filterEnceinte || tal.enceinte === true;
 
     return (
@@ -1826,19 +1828,34 @@ export default function PartnerTalentBookPage() {
     ...new Set(talents.map((tal) => (tal.villeGroup || "").trim()).filter(Boolean)),
   ].sort((a, b) => a.localeCompare(b));
 
-  const hasAttrFilters = !!(
-    filterVille ||
-    filterPeau ||
-    filterCheveux ||
-    filterCouleur ||
-    filterTendancePeau ||
-    filterTendanceCheveux ||
-    filterAnimaux ||
-    filterAges ||
-    filterSports ||
-    filterMobilite ||
-    filterEnceinte
-  );
+  const hasAttrFilters =
+    filterVille.length > 0 ||
+    filterPeau.length > 0 ||
+    filterCheveux.length > 0 ||
+    filterCouleur.length > 0 ||
+    filterTendancePeau.length > 0 ||
+    filterTendanceCheveux.length > 0 ||
+    filterAnimaux.length > 0 ||
+    filterAges.length > 0 ||
+    filterSports.length > 0 ||
+    filterMobilite.length > 0 ||
+    !!filterEnceinte;
+
+  const attrLabel = (opt: string) => localizeTalentAttribute(opt, lang) || opt;
+
+  const clearAttrFilters = () => {
+    setFilterVille([]);
+    setFilterPeau([]);
+    setFilterCheveux([]);
+    setFilterCouleur([]);
+    setFilterTendancePeau([]);
+    setFilterTendanceCheveux([]);
+    setFilterAnimaux([]);
+    setFilterAges([]);
+    setFilterSports([]);
+    setFilterMobilite([]);
+    setFilterEnceinte("");
+  };
 
   const sortLabels: Record<SortOption, string> = {
     default: t.sortDefault,
@@ -2234,138 +2251,87 @@ export default function PartnerTalentBookPage() {
               </div>
             </div>
 
-            {/* Filtres apparence : ville + peau / cheveux / couleur */}
+            {/* Filtres apparence / lifestyle — multi-sélection */}
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              <select
-                value={filterVille}
-                onChange={(e) => setFilterVille(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allCities}</option>
-                {allVilles.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterPeau}
-                onChange={(e) => setFilterPeau(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allSkin}</option>
-                {TYPE_PEAU_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {localizeTalentAttribute(opt, lang)}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterCheveux}
-                onChange={(e) => setFilterCheveux(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allHair}</option>
-                {TYPE_CHEVEUX_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {localizeTalentAttribute(opt, lang)}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterCouleur}
-                onChange={(e) => setFilterCouleur(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allColor}</option>
-                {COULEUR_CHEVEUX_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {localizeTalentAttribute(opt, lang)}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterTendancePeau}
-                onChange={(e) => setFilterTendancePeau(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allSkinTrend}</option>
-                {TENDANCE_PEAU_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {localizeTalentAttribute(opt, lang)}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterTendanceCheveux}
-                onChange={(e) => setFilterTendanceCheveux(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allHairTrend}</option>
-                {TENDANCE_CHEVEUX_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {localizeTalentAttribute(opt, lang)}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterAges}
-                onChange={(e) => setFilterAges(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allAges}</option>
-                {AGES_ENFANTS_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {localizeTalentAttribute(opt, lang)}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterAnimaux}
-                onChange={(e) => setFilterAnimaux(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allPets}</option>
-                {ANIMAUX_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {localizeTalentAttribute(opt, lang)}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterSports}
-                onChange={(e) => setFilterSports(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allSports}</option>
-                {SPORTS_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {localizeTalentAttribute(opt, lang)}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterMobilite}
-                onChange={(e) => setFilterMobilite(e.target.value)}
-                className="px-3 sm:px-4 py-2 bg-white border border-[#220101]/20 rounded-full text-xs sm:text-sm font-switzer text-[#220101]/70 hover:border-[#220101]/40 transition-all focus:outline-none"
-              >
-                <option value="">{t.allMobility}</option>
-                {MOBILITE_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {localizeTalentAttribute(opt, lang)}
-                  </option>
-                ))}
-              </select>
-
+              <MultiSelectFilter
+                compact
+                label={t.allCities}
+                options={allVilles}
+                selected={filterVille}
+                onChange={setFilterVille}
+              />
+              <MultiSelectFilter
+                compact
+                label={t.allSkin}
+                options={TYPE_PEAU_OPTIONS}
+                selected={filterPeau}
+                onChange={setFilterPeau}
+                getOptionLabel={attrLabel}
+              />
+              <MultiSelectFilter
+                compact
+                label={t.allHair}
+                options={TYPE_CHEVEUX_OPTIONS}
+                selected={filterCheveux}
+                onChange={setFilterCheveux}
+                getOptionLabel={attrLabel}
+              />
+              <MultiSelectFilter
+                compact
+                label={t.allColor}
+                options={COULEUR_CHEVEUX_OPTIONS}
+                selected={filterCouleur}
+                onChange={setFilterCouleur}
+                getOptionLabel={attrLabel}
+              />
+              <MultiSelectFilter
+                compact
+                label={t.allSkinTrend}
+                options={TENDANCE_PEAU_OPTIONS}
+                selected={filterTendancePeau}
+                onChange={setFilterTendancePeau}
+                getOptionLabel={attrLabel}
+              />
+              <MultiSelectFilter
+                compact
+                label={t.allHairTrend}
+                options={TENDANCE_CHEVEUX_OPTIONS}
+                selected={filterTendanceCheveux}
+                onChange={setFilterTendanceCheveux}
+                getOptionLabel={attrLabel}
+              />
+              <MultiSelectFilter
+                compact
+                label={t.allAges}
+                options={AGES_ENFANTS_OPTIONS}
+                selected={filterAges}
+                onChange={setFilterAges}
+                getOptionLabel={attrLabel}
+              />
+              <MultiSelectFilter
+                compact
+                label={t.allPets}
+                options={ANIMAUX_OPTIONS}
+                selected={filterAnimaux}
+                onChange={setFilterAnimaux}
+                getOptionLabel={attrLabel}
+              />
+              <MultiSelectFilter
+                compact
+                label={t.allSports}
+                options={SPORTS_OPTIONS}
+                selected={filterSports}
+                onChange={setFilterSports}
+                getOptionLabel={attrLabel}
+              />
+              <MultiSelectFilter
+                compact
+                label={t.allMobility}
+                options={MOBILITE_OPTIONS}
+                selected={filterMobilite}
+                onChange={setFilterMobilite}
+                getOptionLabel={attrLabel}
+              />
               <select
                 value={filterEnceinte}
                 onChange={(e) => setFilterEnceinte(e.target.value)}
@@ -2378,19 +2344,7 @@ export default function PartnerTalentBookPage() {
               {hasAttrFilters && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setFilterVille("");
-                    setFilterPeau("");
-                    setFilterCheveux("");
-                    setFilterCouleur("");
-                    setFilterTendancePeau("");
-                    setFilterTendanceCheveux("");
-                    setFilterAnimaux("");
-                    setFilterAges("");
-                    setFilterSports("");
-                    setFilterMobilite("");
-                    setFilterEnceinte("");
-                  }}
+                  onClick={clearAttrFilters}
                   className="px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-switzer text-[#B06F70] hover:bg-[#B06F70]/10 transition-all"
                 >
                   {t.clearAll}
@@ -2418,17 +2372,7 @@ export default function PartnerTalentBookPage() {
                 onClick={() => {
                   setSelectedNiche("all");
                   setSelectedNetworks([]);
-                  setFilterVille("");
-                  setFilterPeau("");
-                  setFilterCheveux("");
-                  setFilterCouleur("");
-                  setFilterTendancePeau("");
-                  setFilterTendanceCheveux("");
-                  setFilterAnimaux("");
-                  setFilterAges("");
-                  setFilterSports("");
-                  setFilterMobilite("");
-                  setFilterEnceinte("");
+                  clearAttrFilters();
                 }}
                 className="mt-4 px-5 py-2.5 sm:px-6 sm:py-2 bg-[#220101] text-[#F5EDE0] rounded-full text-sm font-switzer touch-manipulation"
               >

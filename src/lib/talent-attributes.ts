@@ -239,3 +239,29 @@ export function localizeTalentAttributeList(
     .filter(Boolean)
     .join(", ");
 }
+
+/** Ajoute ou retire une valeur d'une liste de filtres multi-sélection. */
+export function toggleFilterValue(selected: string[], value: string): string[] {
+  return selected.includes(value)
+    ? selected.filter((v) => v !== value)
+    : [...selected, value];
+}
+
+/** Match filtre multi vs champ mono-valeur (OR). */
+export function matchesSelectedValue(
+  selected: string[],
+  value: string | null | undefined
+): boolean {
+  return selected.length === 0 || (!!value && selected.includes(value));
+}
+
+/** Match filtre multi vs champ tableau (OR : au moins une valeur en commun). */
+export function matchesSelectedAny(
+  selected: string[],
+  values: string[] | null | undefined
+): boolean {
+  return (
+    selected.length === 0 ||
+    (!!values?.length && selected.some((s) => values.includes(s)))
+  );
+}

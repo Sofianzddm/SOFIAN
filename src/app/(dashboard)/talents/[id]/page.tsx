@@ -206,13 +206,17 @@ export default function TalentDetailPage() {
   const role = user?.role || "";
   const userId = user?.id || "";
 
-  const canEditTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
+  const isMyTalent = talent?.managerId === userId;
+  // TM : édition complète (attributs, bio…) de ses propres talents — aligné sur PUT /api/talents/[id]
+  const canEditTalent =
+    role === "ADMIN" ||
+    role === "HEAD_OF" ||
+    role === "HEAD_OF_INFLUENCE" ||
+    (role === "TM" && isMyTalent);
   const canDeleteTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canUpdateStats = role === "TM" || role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES";
   const canUploadPhoto = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES" || role === "TM";
-  const isMyTalent = talent?.managerId === userId;
-  // Le TM peut modifier la bio uniquement de ses propres talents.
-  const canEditBio = canEditTalent || (role === "TM" && isMyTalent);
+  const canEditBio = canEditTalent;
 
   useEffect(() => {
     if (params.id) fetchTalent();
