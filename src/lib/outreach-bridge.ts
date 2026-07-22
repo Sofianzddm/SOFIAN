@@ -1,17 +1,20 @@
 /**
  * Pont vers le cycle outreach 45 jours — « on n'oublie personne ».
  *
- * Deux rôles :
+ * Trois rôles :
  *  1. `resolveOutreachPipeline(email)` : dit si un email est déjà suivi dans un
  *     des trois pipelines outreach (clients FR, agences, Benelux) ou s'il
  *     appartient à une agence partenaire connue (match email ou domaine).
  *     Sert aussi de garde-fou anti double-prospection à la création manuelle.
- *  2. `bridgeContactToOutreach(...)` : fait entrer un contact dans le bon
+ *  2. `parkOutreachOnInboundReceived(...)` : à la réception inbound, sort un
+ *     contact déjà suivi de « À contacter » / « À recontacter » vers WAITING
+ *     (J+45) — pas de doublon avec le traitement inbound.
+ *  3. `bridgeContactToOutreach(...)` : fait entrer un contact dans le bon
  *     pipeline avec un compteur 45j calé sur le dernier échange. Utilisé par le
  *     sweep de clôture des flux entrants (`runOutreachBridgeSweep`, appelé par
  *     le cron /api/cron/relances) : un inbound / une demande entrante terminé
  *     (réponse reçue ou séquence de relances épuisée) rejoint le cycle
- *     perpétuel au lieu de disparaître des radars.
+ *     perpétuel en WAITING — jamais en TO_CONTACT.
  *
  * Routage : email déjà suivi → on repousse simplement son compteur ; contact
  * qualifié « AGENCE » à la saisie (négo/inbound) → pipeline Prospection
@@ -202,6 +205,72 @@ function formatFrDate(date: Date): string {
 
 function addRecontactDelay(from: Date): Date {
   return new Date(from.getTime() + OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * À la réception d'un inbound : si le contact est déjà dans un cycle outreach
+ * (À contacter / À recontacter / En attente), on le bascule immédiatement en
+ * WAITING avec recontact J+45 — sinon doublon UX (file « à contacter » +
+ * traitement inbound en parallèle). Ne crée jamais de nouveau target : l'entrée
+ * dans le cycle se fait uniquement à la clôture via `bridgeContactToOutreach`
+ * (après qu'on les ait contactés). Un STOPPED reste stoppé.
+ */
+export async function parkOutreachOnInboundReceived(input: {
+  email: string;
+  receivedAt: Date;
+}): Promise<BridgeResult | { ok: true; action: "noop" }> {
+  const email = (input.email || "").trim().toLowerCase();
+  if (!email || !isValidEmail(email)) {
+    return { ok: false, reason: "email-invalide" };
+  }
+
+  const resolution = await resolveOutreachPipeline(email);
+  if (resolution.kind !== "existing-target") {
+    return { ok: true, action: "noop" };
+  }
+
+  const { pipeline, target } = resolution;
+  if (target.status === "STOPPED") {
+    return {
+      ok: true,
+      action: "skipped-stopped",
+      pipeline,
+      targetId: target.id,
+      company: target.company,
+    };
+  }
+
+  const nextRecontactAt = addRecontactDelay(input.receivedAt);
+  const reason =
+    `Inbound reçu le ${formatFrDate(input.receivedAt)} : ` +
+    `sorti de la file prospection, recontact planifié au ${formatFrDate(nextRecontactAt)} ` +
+    `(J+${OUTREACH_RECONTACT_DAYS}).`;
+
+  const keepExisting =
+    target.nextRecontactAt &&
+    target.nextRecontactAt.getTime() >= nextRecontactAt.getTime();
+  const data = {
+    status: "WAITING" as const,
+    ...(keepExisting ? {} : { nextRecontactAt }),
+    autoRescheduleReason: reason,
+    autoRescheduledAt: new Date(),
+  };
+
+  if (pipeline === "client") {
+    await prisma.outreachTarget.update({ where: { id: target.id }, data });
+  } else if (pipeline === "agency") {
+    await prisma.agencyOutreachTarget.update({ where: { id: target.id }, data });
+  } else {
+    await prisma.beneluxOutreachTarget.update({ where: { id: target.id }, data });
+  }
+
+  return {
+    ok: true,
+    action: "rescheduled",
+    pipeline,
+    targetId: target.id,
+    company: target.company,
+  };
 }
 
 /**
@@ -574,6 +643,9 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
   };
 
   // --- InboundOpportunity clôturées ---
+  // Uniquement après qu'on les ait contactés (réponse client, R2, ou archive
+  // d'un fil auquel on a répondu). Une simple archive sans envoi ne crée pas
+  // d'entrée « À contacter » / cycle — évite les doublons avec l'inbound.
   const inbounds = await prisma.inboundOpportunity.findMany({
     where: {
       outreachBridgedAt: null,
@@ -581,7 +653,7 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
       OR: [
         { replied: true },
         { relance2SentAt: { not: null } },
-        { status: "ARCHIVED" },
+        { status: "ARCHIVED", sentAt: { not: null } },
       ],
     },
     orderBy: { updatedAt: "asc" },

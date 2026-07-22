@@ -10,6 +10,7 @@ import {
   linkMarqueFromBrandName,
   parseSenderName,
 } from "@/lib/marque-resolver";
+import { parkOutreachOnInboundReceived } from "@/lib/outreach-bridge";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
 type AllowedRole = (typeof ALLOWED_ROLES)[number];
@@ -174,6 +175,18 @@ export async function POST(req: NextRequest) {
       }
       throw createError;
     }
+
+    // Déjà dans Outreach (À contacter / À recontacter) → attente J+45 tout de
+    // suite, pour ne pas prospecter en parallèle du traitement inbound.
+    await parkOutreachOnInboundReceived({
+      email: data.senderEmail,
+      receivedAt: opportunity.receivedAt,
+    }).catch((err) => {
+      console.warn(
+        `[inbound] park outreach ${data.senderEmail}:`,
+        err instanceof Error ? err.message : err
+      );
+    });
 
     const recipients = await prisma.user.findMany({
       where: { role: { in: [...ALLOWED_ROLES] }, actif: true },
