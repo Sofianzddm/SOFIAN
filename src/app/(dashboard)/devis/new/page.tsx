@@ -46,6 +46,7 @@ export default function NouveauDevisLibrePage() {
     { description: "", quantite: 1, prixUnitaire: 0, tauxTVA: 20 },
   ]);
   const [notes, setNotes] = useState("");
+  const [inclureCgv, setInclureCgv] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -76,6 +77,7 @@ export default function NouveauDevisLibrePage() {
           setDateValidite(new Date(doc.dateEcheance).toISOString().slice(0, 10));
         }
         setNotes(doc.notes ?? "");
+        setInclureCgv(doc.inclureCgv !== false);
         if (Array.isArray(doc.lignes) && doc.lignes.length > 0) {
           setLignes(
             doc.lignes.map((l: any) => ({
@@ -203,6 +205,7 @@ export default function NouveauDevisLibrePage() {
         dateValidite,
         lignes,
         notes: notes.trim() || undefined,
+        inclureCgv,
         finaliser,
       };
 
@@ -549,6 +552,22 @@ export default function NouveauDevisLibrePage() {
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
               placeholder="Informations complémentaires, mentions légales, etc."
             />
+            <label className="flex items-start gap-3 mt-4 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={inclureCgv}
+                onChange={(e) => setInclureCgv(e.target.checked)}
+                className="mt-1 rounded border-gray-300 text-[#C08B8B] focus:ring-[#C08B8B]"
+              />
+              <span>
+                <span className="block text-sm font-medium text-gray-700">
+                  Inclure les CGV au PDF
+                </span>
+                <span className="block text-xs text-gray-500 mt-0.5">
+                  Décochez si le client demande un devis sans conditions générales
+                </span>
+              </span>
+            </label>
           </div>
           <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-2">
             <div className="flex justify-between text-sm">

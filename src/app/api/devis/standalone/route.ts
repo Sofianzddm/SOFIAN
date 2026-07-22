@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
       lignes,
       notes,
       finaliser,
+      inclureCgv,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
       lignes: LigneInput[];
       notes?: string;
       finaliser?: boolean;
+      inclureCgv?: boolean;
     };
 
     if (!clientNom || !lignes || !Array.isArray(lignes) || lignes.length === 0) {
@@ -136,6 +138,7 @@ export async function POST(request: NextRequest) {
         clientAdresse: clientAdresse || null,
         clientPays: paysClient,
         notes: commentaireTVA,
+        inclureCgv: inclureCgv !== false,
         createdBy: { connect: { id: user.id } },
       },
     });

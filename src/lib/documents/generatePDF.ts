@@ -108,6 +108,7 @@ export function documentToPDFData(document: any): FactureData | DevisData {
       mentionTVA: document.mentionTVA || null,
       typeTVA: document.typeTVA || "FRANCE",
       commentaires: document.notes || undefined,
+      inclureCgv: document.inclureCgv !== false,
     } as DevisData;
   }
 

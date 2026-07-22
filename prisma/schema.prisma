@@ -1535,6 +1535,9 @@ model Document {
 
   notes String? @db.Text
 
+  // Devis : inclure les pages CGV dans le PDF (true par défaut)
+  inclureCgv Boolean @default(true)
+
   // Signature électronique DocuSeal
   signatureStatus       String? // PENDING, SIGNED, DECLINED
   signatureSubmissionId String? // ID DocuSeal

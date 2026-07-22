@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       delaiPaiementJours = 30,
       pays: paysClient, // optionnel : pays du client pour la TVA (sinon pris sur la marque)
       numeroTVA: numeroTVAClient,
+      inclureCgv = true,
     } = body;
 
     // Validation
@@ -178,6 +179,7 @@ export async function POST(request: NextRequest) {
         poClient: poClient || null,
         modePaiement: "Virement bancaire",
         notes: commentaires || AGENCE_CONFIG.conditionsPaiement,
+        inclureCgv: type === "DEVIS" ? inclureCgv !== false : true,
         createdById: user.id,
       },
     });

@@ -100,7 +100,8 @@ export async function PUT(
       dateEcheance,
       poClient,
       modePaiement,
-      referencePaiement
+      referencePaiement,
+      inclureCgv,
     } = body;
 
     // Déterminer le type de TVA à utiliser
@@ -186,6 +187,9 @@ export async function PUT(
         poClient: poClient !== undefined ? poClient : document.poClient,
         modePaiement: modePaiement || document.modePaiement,
         referencePaiement: referencePaiement !== undefined ? referencePaiement : document.referencePaiement,
+        ...(document.type === "DEVIS" && typeof inclureCgv === "boolean"
+          ? { inclureCgv }
+          : {}),
         pdfBase64: null, // Invalider le cache PDF pour forcer la régénération avec les nouvelles données
       },
     });

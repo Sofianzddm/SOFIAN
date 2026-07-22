@@ -256,6 +256,7 @@ export default function CollabDetailPage() {
   const [facturePreviewUrl, setFacturePreviewUrl] = useState<string | null>(null);
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [notesDevis, setNotesDevis] = useState("");
+  const [inclureCgvDevis, setInclureCgvDevis] = useState(true);
   const [paysDevis, setPaysDevis] = useState("France");
   const [numeroTVADevis, setNumeroTVADevis] = useState("");
   const [delaiPaiementJours, setDelaiPaiementJours] = useState<number>(30);
@@ -284,6 +285,7 @@ export default function CollabDetailPage() {
     poClient: string;
     modePaiement: string;
     referencePaiement: string;
+    inclureCgv: boolean;
     lignes: Array<{
       description: string;
       quantite: number;
@@ -298,6 +300,7 @@ export default function CollabDetailPage() {
     poClient: "",
     modePaiement: "Virement",
     referencePaiement: "",
+    inclureCgv: true,
     lignes: [],
   });
   const [editModalTab, setEditModalTab] = useState<"general" | "lignes" | "facturation">("general");
@@ -557,6 +560,7 @@ export default function CollabDetailPage() {
     }
     setPendingGenerateType(type);
     setNotesDevis("");
+    setInclureCgvDevis(true);
     setPaysDevis(collab.marque?.pays || "France");
     setNumeroTVADevis(collab.marque?.numeroTVA || "");
     setShowNotesModal(true);
@@ -568,7 +572,8 @@ export default function CollabDetailPage() {
     notes?: string,
     pays?: string,
     numeroTVA?: string,
-    delai?: number
+    delai?: number,
+    inclureCgv?: boolean
   ) => {
     if (!collab) return;
     if (!skipCheck && !checkMarqueInfos(type)) { setPendingDocType(type); initMarqueForm(); setShowCompleteMarqueModal(true); return; }
@@ -596,6 +601,7 @@ export default function CollabDetailPage() {
           pays: pays || undefined,
           numeroTVA: numeroTVA?.trim() || undefined,
           delaiPaiementJours: delai,
+          ...(type === "DEVIS" ? { inclureCgv: inclureCgv !== false } : {}),
         }),
       });
       if (res.ok) { const data = await res.json(); window.open(`/api/documents/${data.document.id}/pdf`, "_blank"); fetchCollab(); }
@@ -645,6 +651,7 @@ export default function CollabDetailPage() {
           poClient: docData.poClient || "",
           modePaiement: docData.modePaiement || "Virement",
           referencePaiement: docData.referencePaiement || "",
+          inclureCgv: docData.inclureCgv !== false,
           lignes: (docData.lignes || []).map((l: any) => ({
             description: l.description,
             quantite: l.quantite,
@@ -799,6 +806,7 @@ export default function CollabDetailPage() {
           modePaiement: editFormData.modePaiement,
           referencePaiement: editFormData.referencePaiement,
           lignes: editFormData.lignes,
+          ...(editingDoc.type === "DEVIS" ? { inclureCgv: editFormData.inclureCgv } : {}),
         }),
       });
       console.log("📡 Update response status:", res.status);
@@ -2536,6 +2544,25 @@ export default function CollabDetailPage() {
               </p>
             </div>
 
+            {pendingGenerateType === "DEVIS" && (
+              <label className="flex items-start gap-3 mb-6 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={inclureCgvDevis}
+                  onChange={(e) => setInclureCgvDevis(e.target.checked)}
+                  className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-gray-700">
+                    Inclure les CGV au PDF
+                  </span>
+                  <span className="block text-xs text-gray-500 mt-0.5">
+                    Décochez si le client demande un devis sans conditions générales de vente
+                  </span>
+                </span>
+              </label>
+            )}
+
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
               <div className="flex gap-3">
                 <div className="flex-shrink-0">
@@ -2581,6 +2608,7 @@ export default function CollabDetailPage() {
                   setShowNotesModal(false);
                   setPendingGenerateType(null);
                   setNotesDevis("");
+                  setInclureCgvDevis(true);
                   setNumeroTVADevis("");
                 }}
                 className="flex-1 px-6 py-3.5 text-gray-600 bg-gray-100 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
@@ -2595,7 +2623,8 @@ export default function CollabDetailPage() {
                     notesDevis || undefined,
                     paysDevis,
                     numeroTVADevis,
-                    delaiPaiementJours
+                    delaiPaiementJours,
+                    inclureCgvDevis
                   )
                 }
                 disabled={generatingDoc}
@@ -2751,6 +2780,27 @@ export default function CollabDetailPage() {
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm resize-none font-mono"
                     />
                   </div>
+
+                  {editingDoc.type === "DEVIS" && (
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editFormData.inclureCgv}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({ ...prev, inclureCgv: e.target.checked }))
+                        }
+                        className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-gray-700">
+                          Inclure les CGV au PDF
+                        </span>
+                        <span className="block text-xs text-gray-500 mt-0.5">
+                          Décochez pour générer le devis sans les pages de conditions générales
+                        </span>
+                      </span>
+                    </label>
+                  )}
                 </>
               )}
 

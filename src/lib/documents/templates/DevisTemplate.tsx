@@ -398,6 +398,8 @@ interface DevisData {
   mentionTVA?: string | null;
   typeTVA?: string;
   commentaires?: string;
+  /** Inclure les pages CGV (défaut true) */
+  inclureCgv?: boolean;
 }
 
 // Le capital social est toujours libellé en EUR (siège France), peu importe la
@@ -416,6 +418,8 @@ const formatDate = (dateStr: string) => {
 export function DevisTemplate({ data }: { data: DevisData }) {
   const devise = getDeviseInfo(data.devise).code;
   const formatMoney = (amount: number) => formatMontant(amount, devise);
+  const inclureCgv = data.inclureCgv !== false;
+  const totalPages = inclureCgv ? 3 : 1;
   return (
     <Document>
       {/* PAGE 1 : Devis */}
@@ -656,11 +660,12 @@ export function DevisTemplate({ data }: { data: DevisData }) {
             {"\n"}
             Capital de {formatMoneyEUR(data.emetteur.capital)} - APE {data.emetteur.ape}
           </Text>
-          <Text style={styles.pageNumber}>1/3</Text>
+          <Text style={styles.pageNumber}>1/{totalPages}</Text>
         </View>
       </Page>
       
-      {/* PAGE 2-3 : CGV */}
+      {/* PAGE 2-3 : CGV (optionnelles) */}
+      {inclureCgv ? (
       <Page size="A4" style={styles.cgvPage}>
         <Text style={styles.cgvTitle}>CONDITIONS GÉNÉRALES DE VENTE</Text>
         
@@ -719,7 +724,9 @@ export function DevisTemplate({ data }: { data: DevisData }) {
           <Text style={styles.pageNumber}>2/3</Text>
         </View>
       </Page>
-      
+      ) : null}
+
+      {inclureCgv ? (
       <Page size="A4" style={styles.cgvPage}>
         <View style={styles.cgvClause}>
           <Text style={styles.cgvClauseTitle}>**Clause n° 7 : Clause de réserve de propriété**</Text>
@@ -775,6 +782,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
           <Text style={styles.pageNumber}>3/3</Text>
         </View>
       </Page>
+      ) : null}
     </Document>
   );
 }

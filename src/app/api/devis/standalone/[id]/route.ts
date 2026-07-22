@@ -66,6 +66,7 @@ export async function PATCH(
       lignes,
       notes,
       finaliser,
+      inclureCgv,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -77,6 +78,7 @@ export async function PATCH(
       lignes: LigneInput[];
       notes?: string;
       finaliser?: boolean;
+      inclureCgv?: boolean;
     };
 
     if (!clientNom || !lignes || !Array.isArray(lignes) || lignes.length === 0) {
@@ -156,6 +158,8 @@ export async function PATCH(
         clientAdresse: clientAdresse ?? null,
         clientPays: paysClient,
         notes: commentaireTVA,
+        ...(typeof inclureCgv === "boolean" ? { inclureCgv } : {}),
+        pdfBase64: null,
       },
     });
 
