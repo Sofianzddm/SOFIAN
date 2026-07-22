@@ -7,7 +7,7 @@
  * (Activité 360°, Contacts avec carto + statut outreach, Collaborations).
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -524,6 +524,9 @@ export default function MarqueDetailPage() {
     { type: "success" | "error"; message: string; projetSlug?: string; projetNom?: string } | null
   >(null);
 
+  const [aoSyncing, setAoSyncing] = useState(false);
+  const aoSyncTriedRef = useRef(false);
+
   const fetchMarque = useCallback(async () => {
     try {
       const res = await fetch(`/api/marques/${params.id}`);
@@ -536,8 +539,37 @@ export default function MarqueDetailPage() {
   }, [params.id]);
 
   useEffect(() => {
+    aoSyncTriedRef.current = false;
     if (params.id) fetchMarque();
   }, [params.id, fetchMarque]);
+
+  // Imports AO antérieurs : fichier stocké sans contacts → sync à l'ouverture de l'onglet
+  useEffect(() => {
+    if (!isAdmin || activeTab !== "ao" || !marque || aoSyncing || aoSyncTriedRef.current) return;
+    const files = (marque.cartoFiles || []).filter((f) => f.kind === "AO");
+    const contactsAo = marque.contacts.filter((c) => c.source === "AO");
+    if (files.length === 0 || contactsAo.length > 0) return;
+
+    aoSyncTriedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      setAoSyncing(true);
+      try {
+        const res = await fetch(`/api/marques/${marque.id}/sync-ao`, { method: "POST" });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          if (data.created > 0) await fetchMarque();
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) setAoSyncing(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, activeTab, marque, aoSyncing, fetchMarque]);
 
   // Charge la liste des marques (pour le sélecteur de rattachement) à la demande.
   const loadAllMarques = useCallback(async () => {
@@ -961,11 +993,12 @@ export default function MarqueDetailPage() {
   const totalCA = marque.collaborations
     .filter((c) => c.statut !== "PERDU" && c.statut !== "NEGO")
     .reduce((acc, c) => acc + Number(c.montantBrut), 0);
-  const contactsInCycle = marque.contacts.filter((c) =>
+  const crmContacts = marque.contacts.filter((c) => c.source !== "AO");
+  const contactsInCycle = crmContacts.filter((c) =>
     (c.outreachTargets || []).some((t) => t.status !== "STOPPED")
   ).length;
   const cartoCount = marque.contacts.filter((c) => c.source === "CARTO").length;
-  const repliedCount = marque.contacts.filter((c) =>
+  const repliedCount = crmContacts.filter((c) =>
     (c.outreachTargets || []).some((t) => t.lastRepliedAt)
   ).length;
   const siteDomain = marque.siteWeb ? marque.siteWeb.replace(/^https?:\/\//, "").split("/")[0] : null;
@@ -984,7 +1017,7 @@ export default function MarqueDetailPage() {
     },
     {
       label: "Contacts",
-      value: String(marque.contacts.length),
+      value: String(crmContacts.length),
       sub: cartoCount > 0 ? `${cartoCount} via carto` : null,
       icon: Users,
       tint: "text-blue-600 bg-blue-50",
@@ -1011,6 +1044,9 @@ export default function MarqueDetailPage() {
   const allCartoFiles = marque.cartoFiles || [];
   const cartoFiles = allCartoFiles.filter((f) => (f.kind || "CARTO") !== "AO");
   const aoFiles = allCartoFiles.filter((f) => f.kind === "AO");
+  const aoContacts = marque.contacts
+    .filter((c) => c.source === "AO")
+    .sort((a, b) => (a.priorite || "P9").localeCompare(b.priorite || "P9"));
 
   /** Regénère le fichier Excel de la cartographie (emails et statuts à jour). */
   const downloadCartoExcel = async () => {
@@ -1111,12 +1147,12 @@ export default function MarqueDetailPage() {
 
   const TABS = [
     { id: "activite" as const, label: "Activité 360°", icon: Activity, badge: null as number | null },
-    { id: "contacts" as const, label: "Contacts", icon: Users, badge: marque.contacts.length || null },
+    { id: "contacts" as const, label: "Contacts", icon: Users, badge: crmContacts.length || null },
     ...(cartoContacts.length > 0 || cartoFiles.length > 0
       ? [{ id: "carto" as const, label: "Cartographie", icon: FileSpreadsheet, badge: (cartoContacts.length || null) as number | null }]
       : []),
     ...(isAdmin
-      ? [{ id: "ao" as const, label: "Achats - AO", icon: Briefcase, badge: (aoFiles.length || null) as number | null }]
+      ? [{ id: "ao" as const, label: "Achats - AO", icon: Briefcase, badge: (aoContacts.length || aoFiles.length || null) as number | null }]
       : []),
     { id: "collabs" as const, label: "Collaborations", icon: Handshake, badge: marque._count.collaborations || null },
   ];
@@ -1626,9 +1662,9 @@ export default function MarqueDetailPage() {
                 <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-b border-gray-100">
                   <div className="text-[13px] text-gray-500">
                     <span className="font-semibold" style={{ color: INK }}>
-                      {marque.contacts.length}
+                      {crmContacts.length}
                     </span>{" "}
-                    contact{marque.contacts.length > 1 ? "s" : ""}
+                    contact{crmContacts.length > 1 ? "s" : ""}
                     {cartoCount > 0 && (
                       <span className="inline-flex items-center gap-1 ml-2 text-xs text-gray-400">
                         <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
@@ -1740,7 +1776,7 @@ export default function MarqueDetailPage() {
                   </div>
                 )}
 
-                {marque.contacts.length === 0 &&
+                {crmContacts.length === 0 &&
                 !showAddContact &&
                 (!marque.sousMarqueContacts || marque.sousMarqueContacts.length === 0) ? (
                   <div className="text-center py-14">
@@ -1754,7 +1790,7 @@ export default function MarqueDetailPage() {
                   </div>
                 ) : (
                   <div className="divide-y divide-gray-50">
-                    {marque.contacts.map((contact) => {
+                    {crmContacts.map((contact) => {
                       const outreach = (contact.outreachTargets || [])[0] || null;
                       return (
                         <div key={contact.id} className="group px-5 py-3.5 hover:bg-gray-50/60 transition-colors">
@@ -2338,42 +2374,137 @@ export default function MarqueDetailPage() {
                       <span className="font-semibold" style={{ color: INK }}>
                         Appel d&apos;offre
                       </span>
-                      <span className="text-gray-300">·</span>
-                      feuille 2 extraite à l&apos;import carto
+                      {aoContacts.length > 0 && (
+                        <>
+                          <span className="text-gray-300">·</span>
+                          <span>
+                            {aoContacts.length} contact{aoContacts.length > 1 ? "s" : ""}
+                          </span>
+                        </>
+                      )}
                     </span>
                   </div>
                 </div>
 
-                {aoFiles.length === 0 ? (
+                {aoFiles.length > 0 && (
+                  <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/50">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-300 mb-2">
+                      Fichier{aoFiles.length > 1 ? "s" : ""} AO
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {aoFiles.map((file) => (
+                        <a
+                          key={file.id}
+                          href={`/api/marques/${marque.id}/carto-files/${file.id}`}
+                          className="group inline-flex items-center gap-2 pl-2.5 pr-3 py-1.5 rounded-lg bg-white ring-1 ring-black/[0.07] hover:ring-black/20 transition-all text-[12.5px]"
+                          style={{ color: INK }}
+                          title="Télécharger la feuille Appel d'offre"
+                        >
+                          <FileSpreadsheet className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span className="font-medium truncate max-w-[260px]">{file.fileName}</span>
+                          <span className="text-[11px] text-gray-300">
+                            {(file.size / 1024).toFixed(0)} Ko ·{" "}
+                            {new Date(file.createdAt).toLocaleDateString("fr-FR", {
+                              day: "2-digit",
+                              month: "short",
+                            })}
+                          </span>
+                          <Download className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-600 transition-colors shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {aoSyncing ? (
+                  <div className="flex items-center justify-center gap-2 py-14 text-sm text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Import des contacts AO…
+                  </div>
+                ) : aoContacts.length === 0 ? (
                   <div className="text-center py-14">
                     <Briefcase className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-                    <p className="text-sm text-gray-400">Aucun fichier AO pour l&apos;instant</p>
-                    <p className="text-xs text-gray-300 mt-1 max-w-sm mx-auto">
-                      Importe une carto Excel avec une 2ᵉ feuille dédiée à l&apos;appel d&apos;offre.
+                    <p className="text-sm text-gray-400">
+                      {aoFiles.length > 0
+                        ? "Aucun contact trouvé dans la feuille AO (colonnes Prénom / Nom requises)."
+                        : "Aucun fichier AO pour l'instant"}
                     </p>
+                    {aoFiles.length === 0 && (
+                      <p className="text-xs text-gray-300 mt-1 max-w-sm mx-auto">
+                        Importe une carto Excel avec une 2ᵉ feuille dédiée à l&apos;appel d&apos;offre.
+                      </p>
+                    )}
                   </div>
                 ) : (
-                  <div className="px-5 py-4 flex flex-wrap gap-2">
-                    {aoFiles.map((file) => (
-                      <a
-                        key={file.id}
-                        href={`/api/marques/${marque.id}/carto-files/${file.id}`}
-                        className="group inline-flex items-center gap-2 pl-2.5 pr-3 py-1.5 rounded-lg bg-white ring-1 ring-black/[0.07] hover:ring-black/20 transition-all text-[12.5px]"
-                        style={{ color: INK }}
-                        title="Télécharger la feuille Appel d'offre"
-                      >
-                        <FileSpreadsheet className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span className="font-medium truncate max-w-[260px]">{file.fileName}</span>
-                        <span className="text-[11px] text-gray-300">
-                          {(file.size / 1024).toFixed(0)} Ko ·{" "}
-                          {new Date(file.createdAt).toLocaleDateString("fr-FR", {
-                            day: "2-digit",
-                            month: "short",
-                          })}
-                        </span>
-                        <Download className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-600 transition-colors shrink-0" />
-                      </a>
-                    ))}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-gray-100 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-300">
+                          <th className="px-5 py-2.5 font-semibold w-16">Prio</th>
+                          <th className="px-3 py-2.5 font-semibold">Contact</th>
+                          <th className="px-3 py-2.5 font-semibold">Rôle</th>
+                          <th className="px-3 py-2.5 font-semibold hidden lg:table-cell">Périmètre</th>
+                          <th className="px-3 py-2.5 font-semibold hidden md:table-cell">Localisation</th>
+                          <th className="px-5 py-2.5 font-semibold">Email</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {aoContacts.map((contact) => (
+                          <tr key={contact.id} className="group hover:bg-gray-50/60 transition-colors align-top">
+                            <td className="px-5 py-3">
+                              {contact.priorite ? (
+                                <span
+                                  className={`inline-block text-[10px] font-bold px-1.5 py-[2px] rounded-md ring-1 ring-inset ${prioriteStyle(contact.priorite)}`}
+                                >
+                                  {contact.priorite.toUpperCase()}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-200">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[13px] font-semibold whitespace-nowrap" style={{ color: INK }}>
+                                  {[contact.prenom, contact.nom].filter(Boolean).join(" ")}
+                                </span>
+                                {contact.linkedinUrl && (
+                                  <a
+                                    href={contact.linkedinUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1 rounded-md text-[#0A66C2] bg-[#0A66C2]/[0.07] hover:bg-[#0A66C2]/15 transition-colors shrink-0"
+                                    title="Profil LinkedIn"
+                                  >
+                                    <Linkedin className="w-3 h-3" />
+                                  </a>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-[12.5px] text-gray-600 max-w-[260px]">
+                              {contact.poste || <span className="text-gray-200">—</span>}
+                            </td>
+                            <td className="px-3 py-3 text-[12.5px] text-gray-500 hidden lg:table-cell max-w-[220px]">
+                              {contact.perimetre || <span className="text-gray-200">—</span>}
+                            </td>
+                            <td className="px-3 py-3 text-[12.5px] text-gray-500 hidden md:table-cell whitespace-nowrap">
+                              {contact.localisation || <span className="text-gray-200">—</span>}
+                            </td>
+                            <td className="px-5 py-3">
+                              {contact.email ? (
+                                <a
+                                  href={`mailto:${contact.email}`}
+                                  className="text-[12.5px] text-gray-600 hover:text-gray-900 whitespace-nowrap"
+                                >
+                                  {contact.email}
+                                </a>
+                              ) : (
+                                <span className="text-xs text-gray-200">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>

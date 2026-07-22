@@ -20,6 +20,7 @@ export async function GET(
       where: { id: id },
       include: {
         contacts: {
+          where: isAdmin ? undefined : { NOT: { source: "AO" } },
           orderBy: [{ principal: "desc" }, { priorite: "asc" }, { createdAt: "asc" }],
           include: {
             outreachTargets: {

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
-import { aoFileNameFromOriginal, extractWorksheetAsXlsx } from "@/lib/carto-excel";
+import { aoFileNameFromOriginal, extractWorksheetAsXlsx, parseWorksheetCartoRows } from "@/lib/carto-excel";
 
 /**
  * POST → importe une cartographie de contacts (fichier Claude / Excel collé)
@@ -244,6 +244,7 @@ export async function POST(request: NextRequest) {
     // Conserve le fichier original (feuille 1 = influence) + extrait la feuille 2 (AO)
     let fileStored = false;
     let aoFileStored = false;
+    let aoContactsCreated = 0;
     if (body.file?.base64 && body.file.name) {
       try {
         const data = Buffer.from(body.file.base64, "base64");
@@ -261,7 +262,7 @@ export async function POST(request: NextRequest) {
           });
           fileStored = true;
 
-          // Feuille 2 → Appel d'offre (visible admin uniquement sur la fiche marque)
+          // Feuille 2 → Appel d'offre (fichier + contacts, visibles admin uniquement)
           if (/\.xlsx$/i.test(body.file.name)) {
             try {
               const ao = await extractWorksheetAsXlsx(data, 1);
@@ -281,6 +282,55 @@ export async function POST(request: NextRequest) {
                 });
                 aoFileStored = true;
               }
+
+              // Contacts de la feuille AO (pas d'entrée dans le cycle outreach).
+              // Dédup uniquement contre les contacts AO existants (un même
+              // interlocuteur peut figurer en influence ET en AO).
+              const aoExisting = await prisma.marqueContact.findMany({
+                where: { marqueId, source: "AO" },
+                select: { prenom: true, nom: true, email: true },
+              });
+              const aoEmails = new Set(
+                aoExisting.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
+              );
+              const aoNames = new Set(
+                aoExisting.map(
+                  (c) => `${(c.prenom || "").toLowerCase()}|${c.nom.toLowerCase()}`
+                )
+              );
+
+              const aoRows = await parseWorksheetCartoRows(data, 1);
+              for (const row of aoRows.slice(0, 200)) {
+                const prenom = clean(row.prenom);
+                const nom = clean(row.nom);
+                const rawEmail = clean(row.email)?.toLowerCase() || null;
+                const email = rawEmail && isValidEmail(rawEmail) ? rawEmail : null;
+                if (!nom && !prenom) continue;
+
+                const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
+                if ((email && aoEmails.has(email)) || aoNames.has(nameKey)) {
+                  continue;
+                }
+
+                await prisma.marqueContact.create({
+                  data: {
+                    marqueId,
+                    prenom,
+                    nom: nom || prenom || "Contact",
+                    email,
+                    poste: clean(row.poste),
+                    perimetre: clean(row.perimetre),
+                    localisation: clean(row.localisation),
+                    priorite: clean(row.priorite),
+                    linkedinUrl: clean(row.linkedinUrl),
+                    language,
+                    source: "AO",
+                  },
+                });
+                aoNames.add(nameKey);
+                if (email) aoEmails.add(email);
+                aoContactsCreated += 1;
+              }
             } catch (aoError) {
               console.warn("[import-carto] extraction feuille AO échouée:", aoError);
             }
@@ -299,6 +349,7 @@ export async function POST(request: NextRequest) {
       addedToCycle,
       fileStored,
       aoFileStored,
+      aoContactsCreated,
     });
   } catch (error) {
     console.error("POST /api/outreach/import-carto:", error);
