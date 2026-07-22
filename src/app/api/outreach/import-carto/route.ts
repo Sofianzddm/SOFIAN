@@ -273,7 +273,8 @@ export async function POST(request: NextRequest) {
                     mimeType:
                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     size: ao.buffer.length,
-                    data: new Uint8Array(ao.buffer),
+                    // Copie pour obtenir un Uint8Array<ArrayBuffer> acceptable par Prisma Bytes
+                    data: Buffer.from(ao.buffer),
                     kind: "AO",
                     uploadedById: session.user.id,
                   },

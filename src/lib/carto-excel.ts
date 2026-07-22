@@ -5,11 +5,16 @@ import ExcelJS from "exceljs";
  * (une seule feuille). Utilisé pour isoler la feuille AO (index 1) à l'import carto.
  */
 export async function extractWorksheetAsXlsx(
-  sourceData: Buffer,
+  sourceData: Uint8Array,
   sheetIndex: number
-): Promise<{ buffer: Buffer; sheetName: string } | null> {
+): Promise<{ buffer: Uint8Array; sheetName: string } | null> {
   const source = new ExcelJS.Workbook();
-  await source.xlsx.load(sourceData);
+  // ExcelJS attend ArrayBuffer ; on évite les conflits Buffer Node / types.
+  const arrayBuffer = sourceData.buffer.slice(
+    sourceData.byteOffset,
+    sourceData.byteOffset + sourceData.byteLength
+  ) as ArrayBuffer;
+  await source.xlsx.load(arrayBuffer);
   const sheet = source.worksheets[sheetIndex];
   if (!sheet) return null;
 
@@ -33,7 +38,7 @@ export async function extractWorksheetAsXlsx(
   });
 
   const buf = await dest.xlsx.writeBuffer();
-  return { buffer: Buffer.from(buf), sheetName };
+  return { buffer: new Uint8Array(buf), sheetName };
 }
 
 /** Nom de fichier pour la feuille AO extraite. */
