@@ -14,7 +14,7 @@ export function canReadContratMarqueReview(
   userId: string,
   role: ContratMarqueRole,
   collaboration: Pick<Collaboration, "accountManagerId"> & {
-    talent: { managerId: string | null };
+    talent: { managerId?: string | null };
   }
 ): boolean {
   if (ROLES_CONTRAT_MARQUE_MANAGE.includes(role as (typeof ROLES_CONTRAT_MARQUE_MANAGE)[number])) {
@@ -28,7 +28,7 @@ export function canReadContratMarqueReview(
 export function canUploadContratMarque(
   userId: string,
   role: ContratMarqueRole,
-  collaboration: { talent: { managerId: string | null } }
+  collaboration: { talent: { managerId?: string | null } }
 ): boolean {
   if (ROLES_CONTRAT_MARQUE_MANAGE.includes(role as (typeof ROLES_CONTRAT_MARQUE_MANAGE)[number])) {
     return true;
