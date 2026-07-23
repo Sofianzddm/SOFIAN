@@ -13,6 +13,7 @@
 export type EmailPatternKind =
   | "prenom.nom"
   | "p.nom"
+  | "pnom"
   | "prenom"
   | "prenom_nom"
   | "prenomnom"
@@ -61,7 +62,7 @@ function buildLocal(
   const p = emailSlug(prenom);
   const n = emailSlug(nom);
   if (!n && kind !== "prenom") return null;
-  if (!p && (kind === "prenom" || kind === "prenom.nom" || kind === "p.nom" || kind === "prenom_nom" || kind === "prenomnom" || kind === "nom.prenom")) {
+  if (!p && (kind === "prenom" || kind === "prenom.nom" || kind === "p.nom" || kind === "pnom" || kind === "prenom_nom" || kind === "prenomnom" || kind === "nom.prenom")) {
     return null;
   }
   switch (kind) {
@@ -69,6 +70,8 @@ function buildLocal(
       return p && n ? `${p}.${n}` : null;
     case "p.nom":
       return p && n ? `${p[0]}.${n}` : null;
+    case "pnom":
+      return p && n ? `${p[0]}${n}` : null;
     case "prenom":
       return p || null;
     case "prenom_nom":
@@ -87,6 +90,7 @@ function buildLocal(
 const PATTERN_LABELS: Record<EmailPatternKind, string> = {
   "prenom.nom": "prénom.nom@",
   "p.nom": "p.nom@",
+  pnom: "pnom@",
   prenom: "prénom@",
   prenom_nom: "prénom_nom@",
   prenomnom: "prénomnom@",
@@ -97,6 +101,7 @@ const PATTERN_LABELS: Record<EmailPatternKind, string> = {
 const ALL_KINDS: EmailPatternKind[] = [
   "prenom.nom",
   "p.nom",
+  "pnom",
   "prenom",
   "prenom_nom",
   "prenomnom",
@@ -249,8 +254,12 @@ export function suggestEmailsForContact(opts: {
     // Alternatives courantes sur le même domaine si le motif principal est p.nom / prenom.nom
     if (opts.pattern.kind === "p.nom") {
       push("prenom.nom", opts.pattern.domain, "low");
+      push("pnom", opts.pattern.domain, "low");
     } else if (opts.pattern.kind === "prenom.nom") {
       push("p.nom", opts.pattern.domain, "low");
+    } else if (opts.pattern.kind === "pnom") {
+      push("p.nom", opts.pattern.domain, "low");
+      push("prenom.nom", opts.pattern.domain, "low");
     }
   } else if (opts.fallbackDomain) {
     // Pas encore de motif : on propose les 2 formes les plus fréquentes en France.
