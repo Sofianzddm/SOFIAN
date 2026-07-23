@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
     // Mode spécial: récupération des talents filtrés pour le formulaire de création
     if (mode === "talents") {
-      if (!["TM", "CM", "ADMIN"].includes(user.role)) {
+      if (!["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE"].includes(user.role)) {
         return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
       }
 
@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
           },
         ];
       }
+      // CM / ADMIN / HEAD_OF_INFLUENCE : tous les talents actifs
 
       const talents = await prisma.talent.findMany({
         where: whereTalent,
@@ -180,10 +181,13 @@ export async function POST(req: NextRequest) {
 
     const user = session.user as { id: string; role: string };
 
-    // Seuls les TM, CM et ADMIN peuvent créer des demandes
-    if (!["TM", "CM", "ADMIN"].includes(user.role)) {
+    // Seuls les TM, CM, ADMIN et Head of Influence peuvent créer des demandes
+    if (!["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE"].includes(user.role)) {
       return NextResponse.json(
-        { error: "Seuls les Talent Managers, Account Managers et Admin peuvent créer des demandes de gifts" },
+        {
+          error:
+            "Seuls les Talent Managers, Account Managers, Head of Influence et Admin peuvent créer des demandes de gifts",
+        },
         { status: 403 }
       );
     }
@@ -245,7 +249,7 @@ export async function POST(req: NextRequest) {
         );
       }
     } else {
-      // Pour les CM / ADMIN, vérifier simplement que le talent existe
+      // Pour les CM / ADMIN / HEAD_OF_INFLUENCE, vérifier simplement que le talent existe
       talent = await prisma.talent.findUnique({
         where: { id: talentId },
       });
@@ -282,7 +286,7 @@ export async function POST(req: NextRequest) {
       data: {
         reference,
         talentId,
-        // Si création par CM/ADMIN, la demande est rattachée au TM responsable du talent.
+        // Si création hors TM, la demande est rattachée au TM responsable du talent.
         tmId: user.role === "TM" ? user.id : talent.managerId ?? user.id,
         marqueId: marqueId || null,
         typeGift,

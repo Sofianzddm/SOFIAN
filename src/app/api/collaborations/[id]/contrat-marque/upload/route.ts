@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { canUploadContratMarque } from "@/lib/contratMarqueAccess";
 import { v2 as cloudinary } from "cloudinary";
 
 cloudinary.config({
@@ -44,10 +45,7 @@ export async function POST(
     if (!collaboration) {
       return NextResponse.json({ error: "Collaboration non trouvée" }, { status: 404 });
     }
-    const canManageContract =
-      ["ADMIN", "HEAD_OF_INFLUENCE", "JURISTE"].includes(session.user.role) ||
-      (session.user.role === "TM" && collaboration.talent.managerId === session.user.id);
-    if (!canManageContract) {
+    if (!canUploadContratMarque(session.user.id, session.user.role, collaboration)) {
       return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
     }
 

@@ -16,7 +16,7 @@ export async function POST(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!["ADMIN", "HEAD_OF_INFLUENCE"].includes(session.user.role)) {
+    if (!["ADMIN", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(session.user.role)) {
       return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
     }
 

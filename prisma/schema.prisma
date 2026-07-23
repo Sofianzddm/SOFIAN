@@ -819,6 +819,12 @@ model MarqueContact {
   // dans le CRM mais ne réapparaît plus dans la liste « en attente d'email ».
   outreachExcluded Boolean @default(false)
 
+  // Enrichissement : recherche / complétion d'email avant passage outreach.
+  // null = pas en file ; QUEUED = à trouver ; FOUND = complété ; NOT_FOUND = introuvable.
+  emailLookupStatus   String?   // QUEUED | FOUND | NOT_FOUND
+  emailLookupQueuedAt DateTime?
+  emailSuggested      String?   // suggestion motif (p.nom@domaine…)
+
   // Enrôlement automatique dans le cycle outreach 45j (sweep « contacts CRM
   // dormants ») : contact avec email valide, dans aucun pipeline, dont la
   // marque n'a aucun flux actif ni échange récent → il entre en TO_CONTACT.
@@ -3688,6 +3694,11 @@ model BeneluxContact {
   // Exclu de la prospection (ne pas proposer / contacter).
   outreachExcluded Boolean @default(false)
 
+  // Enrichissement emails (même logique que MarqueContact FR).
+  emailLookupStatus   String? // QUEUED | FOUND | NOT_FOUND
+  emailLookupQueuedAt DateTime?
+  emailSuggested      String?
+
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -3696,6 +3707,7 @@ model BeneluxContact {
 
   @@unique([companyId, email])
   @@index([companyId])
+  @@index([emailLookupStatus])
   @@map("benelux_contacts")
 }
 

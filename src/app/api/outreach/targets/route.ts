@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
+import { tryEnrollMarqueAfterEmailComplete } from "@/lib/envoyer-marque-outreach";
 
 /**
  * GET  → liste des clients du cycle Outreach (toutes files) + stats
@@ -160,9 +161,59 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
       }
 
+      // Enrichissement / gate marque : si ce contact (ou d'autres de la marque)
+      // est en QUEUED, on ne lance le cycle qu'une fois TOUS les emails influence
+      // complétés (+ AO présent).
+      const queuedOnMarque = await prisma.marqueContact.count({
+        where: {
+          marqueId: contact.marqueId,
+          source: "CARTO",
+          emailLookupStatus: "QUEUED",
+          outreachExcluded: false,
+        },
+      });
+      const inAssistantFlow =
+        contact.emailLookupStatus === "QUEUED" || queuedOnMarque > 0;
+
+      if (body.language === "en" || body.language === "fr") {
+        await prisma.marqueContact.update({
+          where: { id: contact.id },
+          data: { language },
+        });
+      }
+
+      if (inAssistantFlow) {
+        await prisma.marqueContact.update({
+          where: { id: contact.id },
+          data: {
+            email,
+            emailLookupStatus: "FOUND",
+            emailSuggested: null,
+          },
+        });
+        const enroll = await tryEnrollMarqueAfterEmailComplete({
+          marqueId: contact.marqueId,
+          userId: session.user.id,
+        });
+        return NextResponse.json(
+          {
+            deferred: enroll.enrolled === 0,
+            enrolled: enroll.enrolled,
+            stillQueued: enroll.stillQueued,
+            message:
+              enroll.enrolled > 0
+                ? `${enroll.enrolled} contact(s) ajouté(s) au cycle.`
+                : enroll.stillQueued > 0
+                  ? `Email noté. Encore ${enroll.stillQueued} email(s) à trouver avant outreach.`
+                  : "Email noté.",
+          },
+          { status: 201 }
+        );
+      }
+
       const updated = await prisma.marqueContact.update({
         where: { id: contact.id },
-        data: { email },
+        data: { email, emailLookupStatus: "FOUND", emailSuggested: null },
         select: { id: true, prenom: true, nom: true },
       });
 

@@ -52,8 +52,11 @@ type Mission = {
   openedAt?: string | null;
   clickCount?: number;
   clickedAt?: string | null;
+  createdAt?: string;
   updatedAt?: string;
 };
+
+type SortOrder = "oldest" | "newest";
 
 type ScheduledSend = {
   missionId: string;
@@ -187,6 +190,7 @@ export function ProspectingPipelineClient() {
   const [role, setRole] = useState<Role | null>(null);
   const [talents, setTalents] = useState<TalentOption[]>([]);
   const [selectedTalentId, setSelectedTalentId] = useState(ALL_TALENTS);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("oldest");
   const [missions, setMissions] = useState<Mission[]>([]);
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -749,8 +753,18 @@ export function ProspectingPipelineClient() {
       LOST: [],
     };
     for (const m of missions) map[m.stage].push(m);
+    const timeOf = (m: Mission): number => {
+      const raw = m.createdAt || m.updatedAt;
+      const t = raw ? new Date(raw).getTime() : NaN;
+      return Number.isNaN(t) ? 0 : t;
+    };
+    for (const stage of Object.keys(map) as Stage[]) {
+      map[stage].sort((a, b) =>
+        sortOrder === "oldest" ? timeOf(a) - timeOf(b) : timeOf(b) - timeOf(a)
+      );
+    }
     return map;
-  }, [missions]);
+  }, [missions, sortOrder]);
 
   const sentReminderCount = useMemo(() => {
     const now = new Date();
@@ -817,7 +831,7 @@ export function ProspectingPipelineClient() {
             </button>
           </div>
         </div>
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <select
             value={selectedTalentId}
             onChange={(e) => setSelectedTalentId(e.target.value)}
@@ -834,6 +848,20 @@ export function ProspectingPipelineClient() {
                 {t.name}
               </option>
             ))}
+          </select>
+          <select
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+            className="rounded-lg border px-3 py-2 text-sm"
+            style={
+              isCastingManager
+                ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
+                : undefined
+            }
+            title="Trier les cartes de chaque colonne par date de création"
+          >
+            <option value="oldest">Du plus ancien au plus récent</option>
+            <option value="newest">Du plus récent au plus ancien</option>
           </select>
         </div>
       </section>

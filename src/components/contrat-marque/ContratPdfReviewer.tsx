@@ -30,6 +30,7 @@ import {
 import type { T_ViewportHighlight } from "react-pdf-highlighter/dist/components/PdfHighlighter";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { ContratMarqueVersionClient } from "@/lib/contratMarqueVersions";
+import { canUploadContratMarque } from "@/lib/contratMarqueAccess";
 import { FixedPdfLoader } from "@/components/contrat-marque/FixedPdfLoader";
 import { PDFJS_DIST_WORKER_SRC } from "@/lib/pdfjsWorkerSrc";
 import { ChevronDown, ChevronUp, MessageSquare, Package } from "lucide-react";
@@ -361,12 +362,12 @@ export default function ContratPdfReviewer({
   /** Décisions juriste / admin uniquement sur la version courante (ou mode sans versioning). */
   const canActOnCurrentVersion = !isArchivedVersion;
 
-  /** Aligné sur `canManageContract` côté API upload (TM = manager du talent sur la collab). */
-  const canShowUploadButton =
-    currentUser.role === "ADMIN" ||
-    currentUser.role === "HEAD_OF_INFLUENCE" ||
-    currentUser.role === "JURISTE" ||
-    (currentUser.role === "TM" && collaboration.talent.managerId === currentUser.id);
+  /** Aligné sur `canUploadContratMarque` côté API upload (TM = manager du talent sur la collab). */
+  const canShowUploadButton = canUploadContratMarque(
+    currentUser.id,
+    currentUser.role,
+    collaboration
+  );
   /** Barre avec sélecteur de versions et/ou upload (upload visible aussi sans lignes `ContratMarqueVersion`). */
   const showViewerToolbar = versions.length > 0 || canShowUploadButton;
 

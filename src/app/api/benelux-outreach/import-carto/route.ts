@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateBeneluxCompany } from "@/lib/benelux-company";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
+import { queueBeneluxEnrichissement } from "@/lib/envoyer-marque-outreach";
 
 /**
  * POST → importe une cartographie de contacts (fichier Claude / Excel collé)
@@ -37,6 +38,8 @@ type CartoRow = {
   language?: string;
   /** Entreprise/marque propre au contact ; vide → entreprise par défaut. */
   marque?: string;
+  /** Feuille d'origine : "AO" (achats/appel d'offre) ou "CARTO" (influence, défaut). */
+  source?: string;
 };
 
 const clean = (v: unknown): string | null => {
@@ -108,11 +111,15 @@ export async function POST(request: NextRequest) {
     // Contexte de déduplication par entreprise : un même fichier peut répartir
     // ses contacts sur plusieurs entreprises (colonne « Marque »), chacune avec
     // ses propres contacts déjà connus.
+    // Dédup séparée influence (CARTO/null) vs AO : un même interlocuteur peut
+    // figurer dans les deux feuilles, on le garde une fois par feuille.
     type CompanyCtx = {
       companyId: string;
       companyName: string;
-      emails: Set<string>;
-      names: Set<string>;
+      emailsCarto: Set<string>;
+      namesCarto: Set<string>;
+      emailsAo: Set<string>;
+      namesAo: Set<string>;
     };
     const companyCache = new Map<string, CompanyCtx>();
 
@@ -125,18 +132,27 @@ export async function POST(request: NextRequest) {
       });
       const existing = await prisma.beneluxContact.findMany({
         where: { companyId: id },
-        select: { prenom: true, nom: true, email: true },
+        select: { prenom: true, nom: true, email: true, source: true },
       });
       const ctx: CompanyCtx = {
         companyId: id,
         companyName: nom,
-        emails: new Set(
-          existing.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
-        ),
-        names: new Set(
-          existing.map((c) => `${(c.prenom || "").toLowerCase()}|${(c.nom || "").toLowerCase()}`)
-        ),
+        emailsCarto: new Set(),
+        namesCarto: new Set(),
+        emailsAo: new Set(),
+        namesAo: new Set(),
       };
+      for (const c of existing) {
+        const email = (c.email || "").toLowerCase();
+        const nameKey = `${(c.prenom || "").toLowerCase()}|${(c.nom || "").toLowerCase()}`;
+        if (c.source === "AO") {
+          if (email) ctx.emailsAo.add(email);
+          ctx.namesAo.add(nameKey);
+        } else {
+          if (email) ctx.emailsCarto.add(email);
+          ctx.namesCarto.add(nameKey);
+        }
+      }
       companyCache.set(id, ctx);
       return ctx;
     };
@@ -170,8 +186,12 @@ export async function POST(request: NextRequest) {
       // Entreprise de ce contact (colonne « Marque ») ou entreprise par défaut.
       const ctx = await resolveRowCtx(clean(row.marque));
 
+      const contactSource: "CARTO" | "AO" = row.source === "AO" ? "AO" : "CARTO";
+      const emailsSet = contactSource === "AO" ? ctx.emailsAo : ctx.emailsCarto;
+      const namesSet = contactSource === "AO" ? ctx.namesAo : ctx.namesCarto;
+
       const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
-      if ((email && ctx.emails.has(email)) || ctx.names.has(nameKey)) {
+      if ((email && emailsSet.has(email)) || namesSet.has(nameKey)) {
         skipped += 1;
         continue;
       }
@@ -191,14 +211,15 @@ export async function POST(request: NextRequest) {
           priorite: clean(row.priorite),
           linkedinUrl: clean(row.linkedinUrl),
           language: rowLanguage,
-          source: "CARTO",
+          source: contactSource,
         },
       });
-      ctx.names.add(nameKey);
-      if (email) ctx.emails.add(email);
+      namesSet.add(nameKey);
+      if (email) emailsSet.add(email);
       created += 1;
 
-      if (email) {
+      // Les contacts AO ne rentrent jamais dans le cycle outreach.
+      if (email && contactSource === "CARTO") {
         const alreadyInCycle = await prisma.beneluxOutreachTarget.findUnique({
           where: { email },
           select: { id: true },
@@ -226,7 +247,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ companyId, company, created, skipped, addedToCycle });
+    // Mise en file d'enrichissement : contacts (influence + AO) sans email des
+    // entreprises touchées → complétion dans /enrichissement.
+    let queuedForEnrichment = 0;
+    for (const id of companyCache.keys()) {
+      const q = await queueBeneluxEnrichissement({ companyId: id });
+      if (q.ok) queuedForEnrichment += q.queued;
+    }
+
+    return NextResponse.json({
+      companyId,
+      company,
+      created,
+      skipped,
+      addedToCycle,
+      queuedForEnrichment,
+    });
   } catch (error) {
     console.error("POST /api/benelux-outreach/import-carto:", error);
     return NextResponse.json(

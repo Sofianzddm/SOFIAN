@@ -70,6 +70,12 @@ const menuItems = [
     roles: ["CASTING_MANAGER", "ADMIN"],
   },
   {
+    label: "Enrichissement",
+    href: "/enrichissement",
+    icon: Mail,
+    roles: ["CASTING_MANAGER", "ADMIN"],
+  },
+  {
     label: "Prospection Agences",
     href: "/agency-outreach",
     icon: Building2,

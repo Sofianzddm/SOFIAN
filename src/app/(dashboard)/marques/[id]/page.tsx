@@ -495,6 +495,7 @@ export default function MarqueDetailPage() {
   // Lancement d'un contact dans le cycle Outreach depuis la fiche marque
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [launchError, setLaunchError] = useState<{ id: string; message: string } | null>(null);
+  const [envoyerBusy, setEnvoyerBusy] = useState(false);
 
   // Suppression d'un contact depuis la fiche marque
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
@@ -968,6 +969,31 @@ export default function MarqueDetailPage() {
       setLaunchError({ id: contact.id, message: e instanceof Error ? e.message : "Erreur" });
     } finally {
       setLaunchingId(null);
+    }
+  };
+
+  /**
+   * Envoie toute la carto influence en outreach.
+   * Gate : AO obligatoire. Sans email → file enrichissement ; avec tous les mails → cycle.
+   */
+  const envoyerCartoEnOutreach = async () => {
+    if (envoyerBusy || !marque) return;
+    setEnvoyerBusy(true);
+    setCartoFlash(null);
+    try {
+      const res = await fetch(`/api/marques/${marque.id}/envoyer-outreach`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Impossible d'envoyer en outreach.");
+      setCartoFlash(data.message || "OK");
+      setTimeout(() => setCartoFlash(null), 10000);
+      await fetchMarque();
+    } catch (e) {
+      setCartoFlash(e instanceof Error ? e.message : "Erreur");
+      setTimeout(() => setCartoFlash(null), 10000);
+    } finally {
+      setEnvoyerBusy(false);
     }
   };
 
@@ -2272,6 +2298,15 @@ export default function MarqueDetailPage() {
             {/* ============ Cartographie importée ============ */}
             {activeTab === "carto" && (
               <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
+                {cartoFlash && (
+                  <div className="px-5 py-2.5 border-b border-gray-100 text-[13px] flex items-center gap-2" style={{ backgroundColor: "#F8FCEF", color: "#3D8B40" }}>
+                    <Check className="w-4 h-4 shrink-0" />
+                    {cartoFlash}
+                    <Link href="/enrichissement" className="ml-auto text-xs font-semibold underline" style={{ color: ROSE }}>
+                      Enrichissement
+                    </Link>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 border-b border-gray-100">
                   <div className="text-[13px] text-gray-500">
                     <span className="inline-flex items-center gap-1.5">
@@ -2283,6 +2318,23 @@ export default function MarqueDetailPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
+                    {canOutreach && !readOnly && cartoContacts.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={envoyerCartoEnOutreach}
+                        disabled={envoyerBusy}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+                        style={{ backgroundColor: ROSE }}
+                        title="Envoie la carto en outreach. Sans email → enrichissement. Bloqué tant que l'AO n'est pas importé."
+                      >
+                        {envoyerBusy ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Send className="w-3.5 h-3.5" />
+                        )}
+                        Envoyer en outreach
+                      </button>
+                    )}
                     <Link
                       href="/outreach"
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
@@ -2728,7 +2780,7 @@ export default function MarqueDetailPage() {
         <ImportCartoModal
           lockedMarque={{ id: marque.id, nom: marque.nom }}
           onClose={() => setShowImportCarto(false)}
-          onImported={(_company, created, skipped, addedToCycle) => {
+          onImported={({ created, skipped, addedToCycle }) => {
             setShowImportCarto(false);
             const parts: string[] = [];
             parts.push(`${created} contact${created > 1 ? "s" : ""} importé${created > 1 ? "s" : ""}`);
@@ -2738,6 +2790,7 @@ export default function MarqueDetailPage() {
             setTimeout(() => setCartoFlash(null), 8000);
             fetchMarque().then(() => setActiveTab("carto"));
           }}
+          showMarket={false}
           onError={(message) => alert(message)}
         />
       )}

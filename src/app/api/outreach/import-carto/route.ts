@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { aoFileNameFromOriginal, extractWorksheetAsXlsx, parseWorksheetCartoRows } from "@/lib/carto-excel";
+import { queueMarqueEnrichissement } from "@/lib/envoyer-marque-outreach";
 
 /**
  * POST → importe une cartographie de contacts (fichier Claude / Excel collé)
@@ -45,6 +46,8 @@ type CartoRow = {
   language?: string;
   /** Marque/sous-marque propre au contact ; vide → marque par défaut de l'import. */
   marque?: string;
+  /** Feuille d'origine : "AO" (achats/appel d'offre) ou "CARTO" (influence, défaut). */
+  source?: string;
 };
 
 const clean = (v: unknown): string | null => {
@@ -72,6 +75,8 @@ export async function POST(request: NextRequest) {
       language?: string;
       /** Fichier original (Excel/CSV) conservé tel quel sur la fiche marque */
       file?: { name?: string; type?: string; base64?: string };
+      /** Le client a déjà lu la feuille AO et l'a incluse dans `rows`. */
+      aoRowsIncluded?: boolean;
     };
 
     const rows = Array.isArray(body.rows) ? body.rows.slice(0, MAX_ROWS) : [];
@@ -115,11 +120,15 @@ export async function POST(request: NextRequest) {
     // sous-marque d'une colonne « Marque ») a ses propres contacts déjà connus.
     // Un même fichier peut ainsi répartir ses contacts sur plusieurs marques
     // (ex. carto Unilever → Dove, Axe, Ben & Jerry's).
+    // Dédup séparée influence (CARTO/null) vs AO : un même interlocuteur peut
+    // figurer dans les deux feuilles, on le garde une fois par feuille.
     type BrandCtx = {
       marqueId: string;
       company: string;
-      emails: Set<string>;
-      names: Set<string>;
+      emailsCarto: Set<string>;
+      namesCarto: Set<string>;
+      emailsAo: Set<string>;
+      namesAo: Set<string>;
     };
     const brandCache = new Map<string, BrandCtx>();
 
@@ -134,18 +143,27 @@ export async function POST(request: NextRequest) {
       });
       const existing = await prisma.marqueContact.findMany({
         where: { marqueId: id },
-        select: { prenom: true, nom: true, email: true },
+        select: { prenom: true, nom: true, email: true, source: true },
       });
       const ctx: BrandCtx = {
         marqueId: id,
         company: nom,
-        emails: new Set(
-          existing.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
-        ),
-        names: new Set(
-          existing.map((c) => `${(c.prenom || "").toLowerCase()}|${c.nom.toLowerCase()}`)
-        ),
+        emailsCarto: new Set(),
+        namesCarto: new Set(),
+        emailsAo: new Set(),
+        namesAo: new Set(),
       };
+      for (const c of existing) {
+        const email = (c.email || "").toLowerCase();
+        const nameKey = `${(c.prenom || "").toLowerCase()}|${c.nom.toLowerCase()}`;
+        if (c.source === "AO") {
+          if (email) ctx.emailsAo.add(email);
+          ctx.namesAo.add(nameKey);
+        } else {
+          if (email) ctx.emailsCarto.add(email);
+          ctx.namesCarto.add(nameKey);
+        }
+      }
       brandCache.set(id, ctx);
       return ctx;
     };
@@ -183,8 +201,12 @@ export async function POST(request: NextRequest) {
       // Marque de ce contact (colonne « Marque ») ou marque par défaut.
       const ctx = await resolveRowCtx(clean(row.marque));
 
+      const contactSource: "CARTO" | "AO" = row.source === "AO" ? "AO" : "CARTO";
+      const emailsSet = contactSource === "AO" ? ctx.emailsAo : ctx.emailsCarto;
+      const namesSet = contactSource === "AO" ? ctx.namesAo : ctx.namesCarto;
+
       const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
-      if ((email && ctx.emails.has(email)) || ctx.names.has(nameKey)) {
+      if ((email && emailsSet.has(email)) || namesSet.has(nameKey)) {
         skipped += 1;
         continue;
       }
@@ -204,16 +226,17 @@ export async function POST(request: NextRequest) {
           priorite: clean(row.priorite),
           linkedinUrl: clean(row.linkedinUrl),
           language: rowLanguage,
-          source: "CARTO",
+          source: contactSource,
         },
       });
-      ctx.names.add(nameKey);
-      if (email) ctx.emails.add(email);
+      namesSet.add(nameKey);
+      if (email) emailsSet.add(email);
       created += 1;
 
-      // Email présent dans le fichier → le contact entre directement dans
-      // le cycle « À contacter » (sinon il reste en attente d'email).
-      if (email) {
+      // Les contacts AO ne rentrent jamais dans le cycle outreach.
+      // Email présent dans le fichier → le contact influence entre directement
+      // dans « À contacter » (sinon il reste en attente d'email).
+      if (email && contactSource === "CARTO") {
         const alreadyInCycle = await prisma.outreachTarget.findUnique({
           where: { email },
           select: { id: true },
@@ -284,52 +307,57 @@ export async function POST(request: NextRequest) {
               }
 
               // Contacts de la feuille AO (pas d'entrée dans le cycle outreach).
-              // Dédup uniquement contre les contacts AO existants (un même
-              // interlocuteur peut figurer en influence ET en AO).
-              const aoExisting = await prisma.marqueContact.findMany({
-                where: { marqueId, source: "AO" },
-                select: { prenom: true, nom: true, email: true },
-              });
-              const aoEmails = new Set(
-                aoExisting.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
-              );
-              const aoNames = new Set(
-                aoExisting.map(
-                  (c) => `${(c.prenom || "").toLowerCase()}|${c.nom.toLowerCase()}`
-                )
-              );
-
-              const aoRows = await parseWorksheetCartoRows(data, 1);
-              for (const row of aoRows.slice(0, 200)) {
-                const prenom = clean(row.prenom);
-                const nom = clean(row.nom);
-                const rawEmail = clean(row.email)?.toLowerCase() || null;
-                const email = rawEmail && isValidEmail(rawEmail) ? rawEmail : null;
-                if (!nom && !prenom) continue;
-
-                const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
-                if ((email && aoEmails.has(email)) || aoNames.has(nameKey)) {
-                  continue;
-                }
-
-                await prisma.marqueContact.create({
-                  data: {
-                    marqueId,
-                    prenom,
-                    nom: nom || prenom || "Contact",
-                    email,
-                    poste: clean(row.poste),
-                    perimetre: clean(row.perimetre),
-                    localisation: clean(row.localisation),
-                    priorite: clean(row.priorite),
-                    linkedinUrl: clean(row.linkedinUrl),
-                    language,
-                    source: "AO",
-                  },
+              // Si le client a déjà lu et envoyé la feuille AO (aoRowsIncluded),
+              // les contacts sont créés dans la boucle principale (avec leur
+              // langue individuelle) → on ne les ré-extrait pas ici.
+              if (!body.aoRowsIncluded) {
+                // Dédup uniquement contre les contacts AO existants (un même
+                // interlocuteur peut figurer en influence ET en AO).
+                const aoExisting = await prisma.marqueContact.findMany({
+                  where: { marqueId, source: "AO" },
+                  select: { prenom: true, nom: true, email: true },
                 });
-                aoNames.add(nameKey);
-                if (email) aoEmails.add(email);
-                aoContactsCreated += 1;
+                const aoEmails = new Set(
+                  aoExisting.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
+                );
+                const aoNames = new Set(
+                  aoExisting.map(
+                    (c) => `${(c.prenom || "").toLowerCase()}|${c.nom.toLowerCase()}`
+                  )
+                );
+
+                const aoRows = await parseWorksheetCartoRows(data, 1);
+                for (const row of aoRows.slice(0, 200)) {
+                  const prenom = clean(row.prenom);
+                  const nom = clean(row.nom);
+                  const rawEmail = clean(row.email)?.toLowerCase() || null;
+                  const email = rawEmail && isValidEmail(rawEmail) ? rawEmail : null;
+                  if (!nom && !prenom) continue;
+
+                  const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
+                  if ((email && aoEmails.has(email)) || aoNames.has(nameKey)) {
+                    continue;
+                  }
+
+                  await prisma.marqueContact.create({
+                    data: {
+                      marqueId,
+                      prenom,
+                      nom: nom || prenom || "Contact",
+                      email,
+                      poste: clean(row.poste),
+                      perimetre: clean(row.perimetre),
+                      localisation: clean(row.localisation),
+                      priorite: clean(row.priorite),
+                      linkedinUrl: clean(row.linkedinUrl),
+                      language,
+                      source: "AO",
+                    },
+                  });
+                  aoNames.add(nameKey);
+                  if (email) aoEmails.add(email);
+                  aoContactsCreated += 1;
+                }
               }
             } catch (aoError) {
               console.warn("[import-carto] extraction feuille AO échouée:", aoError);
@@ -341,6 +369,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Mise en file d'enrichissement : tous les contacts (influence + AO) sans
+    // email des marques touchées passent en QUEUED, pour que leur adresse soit
+    // complétée dans /enrichissement — quel que soit le point d'entrée de
+    // l'import (Outreach, fiche marque ou page Enrichissement).
+    let queuedForEnrichment = 0;
+    for (const id of brandCache.keys()) {
+      const q = await queueMarqueEnrichissement({ marqueId: id });
+      if (q.ok) queuedForEnrichment += q.queued;
+    }
+
     return NextResponse.json({
       marqueId,
       company,
@@ -350,6 +388,7 @@ export async function POST(request: NextRequest) {
       fileStored,
       aoFileStored,
       aoContactsCreated,
+      queuedForEnrichment,
     });
   } catch (error) {
     console.error("POST /api/outreach/import-carto:", error);

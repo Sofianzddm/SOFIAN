@@ -25,6 +25,14 @@ export async function GET(request: NextRequest) {
         source: "CARTO",
         outreachExcluded: false,
         outreachTargets: { none: {} },
+        // On masque UNIQUEMENT les contacts encore en file d'enrichissement
+        // (emails à trouver). Tous les autres (statut null, FOUND, NOT_FOUND…)
+        // restent visibles. NB : `{ not: "QUEUED" }` seul exclurait aussi les
+        // null, d'où le OR explicite pour les conserver.
+        OR: [
+          { emailLookupStatus: null },
+          { emailLookupStatus: { not: "QUEUED" } },
+        ],
       },
       orderBy: [{ priorite: "asc" }, { createdAt: "asc" }],
       select: {
@@ -38,8 +46,10 @@ export async function GET(request: NextRequest) {
         priorite: true,
         linkedinUrl: true,
         language: true,
+        emailSuggested: true,
+        emailLookupStatus: true,
         marqueId: true,
-        marque: { select: { nom: true } },
+        marque: { select: { nom: true, siteWeb: true } },
         sousMarques: { select: { marque: { select: { nom: true } } } },
       },
     });
@@ -72,6 +82,9 @@ export async function GET(request: NextRequest) {
       language: string;
       marqueId: string;
       company: string;
+      siteWeb: string | null;
+      emailSuggested: string | null;
+      emailLookupStatus: string | null;
       brands: Set<string>;
     };
     const byEmail = new Map<string, Entry>();
@@ -103,6 +116,9 @@ export async function GET(request: NextRequest) {
         language: c.language,
         marqueId: c.marqueId,
         company: own,
+        siteWeb: c.marque.siteWeb,
+        emailSuggested: c.emailSuggested,
+        emailLookupStatus: c.emailLookupStatus,
         brands: new Set<string>([own, ...subs]),
       };
       if (emailLc) byEmail.set(emailLc, entry);
@@ -110,7 +126,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      contacts: ordered.map(({ brands, ...c }) => ({
+      contacts: ordered.map(({ brands, siteWeb: _sw, ...c }) => ({
         ...c,
         coveredBrands: Array.from(brands).filter((b) => b && b !== c.company),
       })),

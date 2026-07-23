@@ -62,7 +62,8 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const role = currentUser.role;
-  const canManage = role === "ADMIN" || role === "HEAD_OF_INFLUENCE";
+  const canManage =
+    role === "ADMIN" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES";
   const isTmAssigne = collaboration.talent.managerId === currentUser.id;
   const canUploadContract = canManage || isTmAssigne;
   const canComment = canManage || isTmAssigne;

@@ -37,9 +37,7 @@ export default function GiftsPage() {
   const isAM = user?.role === "CM" || user?.role === "ADMIN";
   const canCreate =
     !!user?.role &&
-    ["TM", "CM", "ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(
-      user.role
-    );
+    ["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE"].includes(user.role);
 
   useEffect(() => {
     fetchDemandes();

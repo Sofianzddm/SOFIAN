@@ -256,6 +256,15 @@ type PendingContact = {
   company: string;
   /** Autres marques couvertes par cette personne (agrégées par email). */
   coveredBrands?: string[];
+  emailSuggested?: string | null;
+  emailLookupStatus?: string | null;
+  suggestions?: Array<{
+    email: string;
+    kind: string;
+    domain: string;
+    confidence: string;
+    label: string;
+  }>;
 };
 
 const TAB_DEFS: { key: TargetStatus; label: string }[] = [
@@ -1219,10 +1228,24 @@ export default function OutreachPage() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
-        flash(
-          "success",
-          `${contact.prenom || contact.nom} (${contact.company}) entre dans le cycle — email enregistré sur la fiche marque.`
-        );
+        if (data.deferred || (typeof data.stillQueued === "number" && data.stillQueued > 0)) {
+          flash(
+            "success",
+            data.message ||
+              `Email noté pour ${contact.prenom || contact.nom}. Encore des mails à trouver avant outreach.`
+          );
+        } else if (data.enrolled && data.enrolled > 0) {
+          flash(
+            "success",
+            data.message ||
+              `${data.enrolled} contact(s) de ${contact.company} ajouté(s) au cycle.`
+          );
+        } else {
+          flash(
+            "success",
+            `${contact.prenom || contact.nom} (${contact.company}) entre dans le cycle — email enregistré sur la fiche marque.`
+          );
+        }
         await Promise.all([loadTargets(), loadPendingContacts()]);
       } catch (e) {
         flash("error", e instanceof Error ? e.message : "Erreur");
@@ -1303,6 +1326,17 @@ export default function OutreachPage() {
             )}
             Vérifier les bounces
           </button>
+          {!isBenelux && (
+            <a
+              href="/enrichissement"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition hover:bg-gray-50"
+              style={{ borderColor: "#E5E0DA", color: LICORICE }}
+              title="Enrichissement : marques dont les emails manquent"
+            >
+              <Mail className="w-4 h-4" style={{ color: OLD_ROSE }} />
+              Enrichissement
+            </a>
+          )}
           <button
             onClick={() => setShowCartoModal(true)}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition hover:bg-gray-50"
@@ -3270,6 +3304,15 @@ function PendingContactRow({
           >
             {contact.language === "en" ? "🇬🇧 EN" : "🇫🇷 FR"}
           </span>
+          {contact.emailLookupStatus === "QUEUED" && (
+            <span
+              className="px-1.5 py-0.5 rounded text-[10px] font-bold"
+              style={{ backgroundColor: "#FEF3C7", color: "#92400E" }}
+              title="En file enrichissement — emails à trouver"
+            >
+              Enrich.
+            </span>
+          )}
           {contact.priorite && (
             <span
               className="px-1.5 py-0.5 rounded text-[10px] font-bold"
