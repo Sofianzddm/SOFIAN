@@ -89,7 +89,7 @@ export async function loadMarquesForDedupe(
     .filter((r) => Boolean(r.slug));
 }
 
-function levenshtein(a: string, b: string): number {
+export function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   const al = a.length;
   const bl = b.length;
@@ -116,7 +116,7 @@ function trigrams(s: string): Set<string> {
   return out;
 }
 
-function trigramSimilarity(a: string, b: string): number {
+export function trigramSimilarity(a: string, b: string): number {
   if (a === b) return 1;
   const ta = trigrams(a);
   const tb = trigrams(b);

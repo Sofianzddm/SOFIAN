@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
+import {
+  loadFuzzyCandidatesCached,
+  rankFuzzyCandidates,
+} from "@/lib/marque-fuzzy-search";
 
 /**
  * GET ?q=nike → recherche unifiée CRM pour l'ajout d'un client Outreach.
@@ -47,6 +51,8 @@ export async function GET(request: NextRequest) {
       _count: { select: { collaborations: true, outreachTargets: true } },
     };
 
+    const MAX_RESULTS = 8;
+
     const [marques, contactRows] = await Promise.all([
       prisma.marque.findMany({
         where: {
@@ -57,7 +63,7 @@ export async function GET(request: NextRequest) {
         },
         select: marqueSelect,
         orderBy: { nom: "asc" },
-        take: 8,
+        take: MAX_RESULTS,
       }),
       // Recherche par personne : prénom, nom ou email
       prisma.marqueContact.findMany({
@@ -82,6 +88,40 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
+    // Fallback flou : si peu de résultats exacts, on rapproche les marques même
+    // en cas de faute de frappe (ex. "nkie" → "Nike", "adiddas" → "Adidas").
+    let marquesResult = marques;
+    if (marques.length < MAX_RESULTS) {
+      const candidates = await loadFuzzyCandidatesCached("outreach:marques", async () => {
+        const rows = await prisma.marque.findMany({
+          select: { id: true, nom: true, aliases: { select: { label: true } } },
+        });
+        return rows.map((r) => ({
+          id: r.id,
+          labels: [r.nom, ...r.aliases.map((a) => a.label)],
+        }));
+      });
+
+      const strongIds = new Set(marques.map((m) => m.id));
+      const ranked = rankFuzzyCandidates(q, candidates, { limit: MAX_RESULTS });
+      const extraIds = ranked
+        .map((r) => r.id)
+        .filter((id) => !strongIds.has(id))
+        .slice(0, MAX_RESULTS - marques.length);
+
+      if (extraIds.length) {
+        const extra = await prisma.marque.findMany({
+          where: { id: { in: extraIds } },
+          select: marqueSelect,
+        });
+        const byId = new Map(extra.map((m) => [m.id, m]));
+        const ordered = extraIds
+          .map((id) => byId.get(id))
+          .filter((m): m is (typeof extra)[number] => Boolean(m));
+        marquesResult = [...marques, ...ordered];
+      }
+    }
+
     // Marque les contacts déjà suivis dans le cycle Outreach
     const emails = contactRows
       .map((c) => c.email?.toLowerCase())
@@ -105,7 +145,7 @@ export async function GET(request: NextRequest) {
       outreachStatus: c.email ? trackedByEmail.get(c.email.toLowerCase()) || null : null,
     }));
 
-    return NextResponse.json({ marques, contacts });
+    return NextResponse.json({ marques: marquesResult, contacts });
   } catch (error) {
     console.error("GET /api/outreach/marques:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

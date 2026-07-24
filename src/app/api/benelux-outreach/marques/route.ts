@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
+import {
+  loadFuzzyCandidatesCached,
+  rankFuzzyCandidates,
+} from "@/lib/marque-fuzzy-search";
 
 /**
  * GET ?q=… → recherche unifiée pour l'ajout d'un prospect BENELUX.
@@ -46,12 +50,14 @@ export async function GET(request: NextRequest) {
       _count: { select: { outreachTargets: true } },
     };
 
+    const MAX_RESULTS = 8;
+
     const [marques, contactRows] = await Promise.all([
       prisma.beneluxCompany.findMany({
         where: { nom: { contains: q, mode: "insensitive" } },
         select: companySelect,
         orderBy: { nom: "asc" },
-        take: 8,
+        take: MAX_RESULTS,
       }),
       prisma.beneluxContact.findMany({
         where: {
@@ -76,6 +82,36 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
+    // Fallback flou : rapproche les entreprises même en cas de faute de frappe.
+    let marquesResult = marques;
+    if (marques.length < MAX_RESULTS) {
+      const candidates = await loadFuzzyCandidatesCached("benelux:companies", async () => {
+        const rows = await prisma.beneluxCompany.findMany({
+          select: { id: true, nom: true },
+        });
+        return rows.map((r) => ({ id: r.id, labels: [r.nom] }));
+      });
+
+      const strongIds = new Set(marques.map((m) => m.id));
+      const ranked = rankFuzzyCandidates(q, candidates, { limit: MAX_RESULTS });
+      const extraIds = ranked
+        .map((r) => r.id)
+        .filter((id) => !strongIds.has(id))
+        .slice(0, MAX_RESULTS - marques.length);
+
+      if (extraIds.length) {
+        const extra = await prisma.beneluxCompany.findMany({
+          where: { id: { in: extraIds } },
+          select: companySelect,
+        });
+        const byId = new Map(extra.map((m) => [m.id, m]));
+        const ordered = extraIds
+          .map((id) => byId.get(id))
+          .filter((m): m is (typeof extra)[number] => Boolean(m));
+        marquesResult = [...marques, ...ordered];
+      }
+    }
+
     const emails = contactRows
       .map((c) => c.email?.toLowerCase())
       .filter((e): e is string => Boolean(e));
@@ -99,7 +135,7 @@ export async function GET(request: NextRequest) {
       outreachStatus: c.email ? trackedByEmail.get(c.email.toLowerCase()) || null : null,
     }));
 
-    return NextResponse.json({ marques, contacts });
+    return NextResponse.json({ marques: marquesResult, contacts });
   } catch (error) {
     console.error("GET /api/benelux-outreach/marques:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
