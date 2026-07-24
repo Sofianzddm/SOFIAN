@@ -144,14 +144,28 @@ export async function resolveOutreachPipeline(
  * Garde-fou anti double-prospection à la création manuelle / import : dit si
  * l'email est déjà suivi dans un AUTRE pipeline outreach que `ownPipeline`.
  * Retourne le conflit (pipeline + libellé + entreprise) ou null.
+ *
+ * `allowClientBeneluxSibling` : FR (client) et Benelux sont des marchés
+ * PARALLÈLES. Quand un contact est volontairement placé sur les deux marchés
+ * (« FR + BE »), sa présence dans le marché frère n'est PAS un conflit — on
+ * veut la même personne dans les deux cycles. Le conflit avec la prospection
+ * agences reste bloquant dans tous les cas.
  */
 export async function findCrossPipelineConflict(
   email: string,
-  ownPipeline: OutreachPipeline
+  ownPipeline: OutreachPipeline,
+  opts?: { allowClientBeneluxSibling?: boolean }
 ): Promise<{ pipeline: OutreachPipeline; label: string; company: string } | null> {
   const resolution = await resolveOutreachPipeline(email);
   if (resolution.kind !== "existing-target") return null;
   if (resolution.pipeline === ownPipeline) return null;
+  if (
+    opts?.allowClientBeneluxSibling &&
+    ((ownPipeline === "client" && resolution.pipeline === "benelux") ||
+      (ownPipeline === "benelux" && resolution.pipeline === "client"))
+  ) {
+    return null;
+  }
   return {
     pipeline: resolution.pipeline,
     label: outreachPipelineLabel(resolution.pipeline),

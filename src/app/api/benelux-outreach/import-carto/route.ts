@@ -40,6 +40,8 @@ type CartoRow = {
   marque?: string;
   /** Feuille d'origine : "AO" (achats/appel d'offre) ou "CARTO" (influence, défaut). */
   source?: string;
+  /** Contact placé « FR + BE » : la présence dans le marché frère n'est pas un conflit. */
+  bothMarkets?: boolean;
 };
 
 const clean = (v: unknown): string | null => {
@@ -69,7 +71,11 @@ export async function POST(request: NextRequest) {
       language?: string;
       // Ignoré côté BENELUX (pas de stockage du fichier original).
       file?: unknown;
+      /** Import CRM seul : contacts hors cycle outreach ET hors file d'enrichissement. */
+      skipOutreach?: boolean;
     };
+
+    const skipOutreach = body.skipOutreach === true;
 
     const companyIdInput = body.companyId || body.marqueId;
 
@@ -126,10 +132,13 @@ export async function POST(request: NextRequest) {
     const loadCompanyCtx = async (id: string, nom: string): Promise<CompanyCtx> => {
       const cached = companyCache.get(id);
       if (cached) return cached;
-      await prisma.beneluxContact.updateMany({
-        where: { companyId: id, outreachExcluded: true },
-        data: { outreachExcluded: false },
-      });
+      // Import CRM seul : on ne réactive pas l'outreach d'anciens contacts exclus.
+      if (!skipOutreach) {
+        await prisma.beneluxContact.updateMany({
+          where: { companyId: id, outreachExcluded: true },
+          data: { outreachExcluded: false },
+        });
+      }
       const existing = await prisma.beneluxContact.findMany({
         where: { companyId: id },
         select: { prenom: true, nom: true, email: true, source: true },
@@ -212,6 +221,8 @@ export async function POST(request: NextRequest) {
           linkedinUrl: clean(row.linkedinUrl),
           language: rowLanguage,
           source: contactSource,
+          // Import CRM seul → hors outreach ET hors file d'enrichissement.
+          outreachExcluded: skipOutreach,
         },
       });
       namesSet.add(nameKey);
@@ -219,16 +230,20 @@ export async function POST(request: NextRequest) {
       created += 1;
 
       // Les contacts AO ne rentrent jamais dans le cycle outreach.
-      if (email && contactSource === "CARTO") {
+      // Import CRM seul (skipOutreach) → aucune entrée dans le cycle.
+      if (!skipOutreach && email && contactSource === "CARTO") {
         const alreadyInCycle = await prisma.beneluxOutreachTarget.findUnique({
           where: { email },
           select: { id: true },
         });
         // Anti double-prospection : email déjà suivi dans un autre pipeline
         // → contact créé sur la fiche mais pas dans le cycle.
+        // Exception « FR + BE » : la présence dans le marché frère est voulue.
         const conflict = alreadyInCycle
           ? null
-          : await findCrossPipelineConflict(email, "benelux");
+          : await findCrossPipelineConflict(email, "benelux", {
+              allowClientBeneluxSibling: row.bothMarkets === true,
+            });
         if (!alreadyInCycle && !conflict) {
           await prisma.beneluxOutreachTarget.create({
             data: {
@@ -249,10 +264,13 @@ export async function POST(request: NextRequest) {
 
     // Mise en file d'enrichissement : contacts (influence + AO) sans email des
     // entreprises touchées → complétion dans /enrichissement.
+    // Import CRM seul (skipOutreach) → on ne met rien en file d'enrichissement.
     let queuedForEnrichment = 0;
-    for (const id of companyCache.keys()) {
-      const q = await queueBeneluxEnrichissement({ companyId: id });
-      if (q.ok) queuedForEnrichment += q.queued;
+    if (!skipOutreach) {
+      for (const id of companyCache.keys()) {
+        const q = await queueBeneluxEnrichissement({ companyId: id });
+        if (q.ok) queuedForEnrichment += q.queued;
+      }
     }
 
     return NextResponse.json({

@@ -65,6 +65,8 @@ export async function enrollInfluenceContacts(opts: {
   marqueId: string;
   company: string;
   createdById: string;
+  /** Emails volontairement placés « FR + BE » : le marché frère n'est pas un conflit. */
+  crossMarketEmails?: Set<string>;
 }): Promise<number> {
   const contacts = await prisma.marqueContact.findMany({
     where: {
@@ -88,7 +90,9 @@ export async function enrollInfluenceContacts(opts: {
     const email = (c.email || "").trim().toLowerCase();
     if (!isValidEmail(email)) continue;
 
-    const conflict = await findCrossPipelineConflict(email, "client");
+    const conflict = await findCrossPipelineConflict(email, "client", {
+      allowClientBeneluxSibling: opts.crossMarketEmails?.has(email),
+    });
     if (conflict) continue;
 
     const existing = await prisma.outreachTarget.findUnique({
@@ -424,6 +428,8 @@ export async function envoyerMarqueEnOutreach(opts: {
 export async function tryEnrollMarqueAfterEmailComplete(opts: {
   marqueId: string;
   userId: string;
+  /** Emails volontairement placés « FR + BE » : le marché frère n'est pas un conflit. */
+  crossMarketEmails?: Set<string>;
 }): Promise<{ enrolled: number; stillQueued: number }> {
   const marque = await prisma.marque.findUnique({
     where: { id: opts.marqueId },
@@ -458,6 +464,7 @@ export async function tryEnrollMarqueAfterEmailComplete(opts: {
     marqueId: marque.id,
     company: marque.nom,
     createdById: opts.userId,
+    crossMarketEmails: opts.crossMarketEmails,
   });
   return { enrolled, stillQueued: 0 };
 }
@@ -466,6 +473,8 @@ export async function tryEnrollMarqueAfterEmailComplete(opts: {
 export async function tryEnrollBeneluxAfterEmailComplete(opts: {
   companyId: string;
   userId: string;
+  /** Emails volontairement placés « FR + BE » : le marché frère n'est pas un conflit. */
+  crossMarketEmails?: Set<string>;
 }): Promise<{ enrolled: number; stillQueued: number }> {
   const company = await prisma.beneluxCompany.findUnique({
     where: { id: opts.companyId },
@@ -497,7 +506,9 @@ export async function tryEnrollBeneluxAfterEmailComplete(opts: {
     const email = (c.email || "").trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
 
-    const conflict = await findCrossPipelineConflict(email, "benelux");
+    const conflict = await findCrossPipelineConflict(email, "benelux", {
+      allowClientBeneluxSibling: opts.crossMarketEmails?.has(email),
+    });
     if (conflict) continue;
 
     const existing = await prisma.beneluxOutreachTarget.findUnique({

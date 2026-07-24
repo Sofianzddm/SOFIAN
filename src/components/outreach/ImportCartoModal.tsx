@@ -210,6 +210,8 @@ export type ImportCartoResult = {
   /** Compat : premier marché importé (FR en priorité). */
   marqueId: string;
   markets: Array<{ market: Market; id: string; company: string }>;
+  /** Import CRM seul : contacts créés hors cycle outreach / file d'enrichissement. */
+  skipOutreach: boolean;
 };
 
 export function ImportCartoModal({
@@ -220,6 +222,7 @@ export function ImportCartoModal({
   initialFile,
   defaultMarket = "FR",
   showMarket = true,
+  allowSkipOutreach = false,
 }: {
   onClose: () => void;
   onImported: (result: ImportCartoResult) => void;
@@ -229,6 +232,8 @@ export function ImportCartoModal({
   defaultMarket?: Market;
   /** Afficher FR / BENELUX / FR+BE (désactivé sur fiche marque). */
   showMarket?: boolean;
+  /** Proposer la case « Ne pas mettre en Outreach » (import CRM seul). */
+  allowSkipOutreach?: boolean;
 }) {
   const [rawText, setRawText] = useState("");
   const [parsed, setParsed] = useState<CartoParsedRow[]>([]);
@@ -264,6 +269,9 @@ export function ImportCartoModal({
   const [rowMarkets, setRowMarkets] = useState<Record<number, RowMarket>>({});
   const marketForRow = (i: number): RowMarket => rowMarkets[i] ?? importMarket;
   const [saving, setSaving] = useState(false);
+  // Import CRM seul : contacts rattachés à la fiche marque mais hors cycle
+  // outreach (« À contacter ») et hors file d'enrichissement.
+  const [skipOutreach, setSkipOutreach] = useState(false);
 
   const searchApi =
     importMarket === "BENELUX" ? "/api/benelux-outreach/marques" : "/api/outreach/marques";
@@ -401,11 +409,20 @@ export function ImportCartoModal({
 
       // Répartition PAR CONTACT selon son marché (toggle par ligne, défaut =
       // marché global). « BOTH » → le contact est envoyé dans FR ET BENELUX.
-      type EnrichedRow = CartoParsedRow & { language: "fr" | "en" };
+      // `bothMarkets` signale au serveur que la présence dans le marché frère
+      // (France ↔ Benelux) est voulue et ne doit pas bloquer l'enregistrement.
+      type EnrichedRow = CartoParsedRow & {
+        language: "fr" | "en";
+        bothMarkets: boolean;
+      };
       const groups: Record<Market, EnrichedRow[]> = { FR: [], BENELUX: [] };
       parsed.forEach((row, i) => {
         const mkt = allowMarket ? marketForRow(i) : "FR";
-        const enriched: EnrichedRow = { ...row, language: rowLangs[i] ?? language };
+        const enriched: EnrichedRow = {
+          ...row,
+          language: rowLangs[i] ?? language,
+          bothMarkets: mkt === "BOTH",
+        };
         if (mkt === "FR" || mkt === "BOTH") groups.FR.push(enriched);
         if (mkt === "BENELUX" || mkt === "BOTH") groups.BENELUX.push(enriched);
       });
@@ -439,6 +456,8 @@ export function ImportCartoModal({
             file: m === "FR" ? filePayload : undefined,
             // Le client a déjà lu la feuille AO → le serveur ne la ré-extrait pas.
             aoRowsIncluded: aoSheetPresent,
+            // Import CRM seul (hors outreach / enrichissement) si la case est cochée.
+            skipOutreach: allowSkipOutreach && skipOutreach,
           }),
         });
         const data = await res.json();
@@ -459,6 +478,7 @@ export function ImportCartoModal({
         addedToCycle: totalCycle,
         marqueId: markets[0]?.id || "",
         markets,
+        skipOutreach: allowSkipOutreach && skipOutreach,
       });
     } catch (e) {
       onError(e instanceof Error ? e.message : "Erreur d'import");
@@ -832,6 +852,31 @@ export function ImportCartoModal({
               </p>
             )}
           </div>
+          {/* ---------- Import CRM seul (hors outreach) ---------- */}
+          {allowSkipOutreach && (
+            <label
+              className="flex items-start gap-2.5 rounded-xl border px-4 py-3 cursor-pointer"
+              style={{
+                borderColor: skipOutreach ? OLD_ROSE : "#E5E0DA",
+                backgroundColor: skipOutreach ? "#FCF5F5" : "#FBF8F4",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={skipOutreach}
+                onChange={(e) => setSkipOutreach(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0"
+              />
+              <span className="text-xs" style={{ color: LICORICE }}>
+                <span className="font-semibold">Ne pas mettre en Outreach</span>
+                <span className="block text-gray-500 mt-0.5">
+                  Les contacts sont rattachés à la fiche marque (dispo pour le CRM et
+                  le pipeline talent) mais n&apos;entrent pas dans le cycle « À
+                  contacter » ni dans la file d&apos;enrichissement.
+                </span>
+              </span>
+            </label>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-4 border-t sticky bottom-0 bg-white rounded-b-2xl" style={{ borderColor: "#F0EBE4" }}>

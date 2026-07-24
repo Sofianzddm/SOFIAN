@@ -48,6 +48,8 @@ type CartoRow = {
   marque?: string;
   /** Feuille d'origine : "AO" (achats/appel d'offre) ou "CARTO" (influence, défaut). */
   source?: string;
+  /** Contact placé « FR + BE » : la présence dans le marché frère n'est pas un conflit. */
+  bothMarkets?: boolean;
 };
 
 const clean = (v: unknown): string | null => {
@@ -77,7 +79,12 @@ export async function POST(request: NextRequest) {
       file?: { name?: string; type?: string; base64?: string };
       /** Le client a déjà lu la feuille AO et l'a incluse dans `rows`. */
       aoRowsIncluded?: boolean;
+      /** Import CRM seul : contacts rattachés à la fiche mais hors cycle outreach
+       *  ET hors file d'enrichissement (marqués `outreachExcluded`). */
+      skipOutreach?: boolean;
     };
+
+    const skipOutreach = body.skipOutreach === true;
 
     const rows = Array.isArray(body.rows) ? body.rows.slice(0, MAX_ROWS) : [];
     if (rows.length === 0) {
@@ -137,10 +144,13 @@ export async function POST(request: NextRequest) {
       if (cached) return cached;
       // Réimporter une carto = réintégrer la marque à l'outreach : on lève une
       // éventuelle exclusion posée par un précédent « Retirer de l'outreach ».
-      await prisma.marqueContact.updateMany({
-        where: { marqueId: id, outreachExcluded: true },
-        data: { outreachExcluded: false },
-      });
+      // (Sauf import CRM seul : on ne réactive rien.)
+      if (!skipOutreach) {
+        await prisma.marqueContact.updateMany({
+          where: { marqueId: id, outreachExcluded: true },
+          data: { outreachExcluded: false },
+        });
+      }
       const existing = await prisma.marqueContact.findMany({
         where: { marqueId: id },
         select: { prenom: true, nom: true, email: true, source: true },
@@ -227,6 +237,8 @@ export async function POST(request: NextRequest) {
           linkedinUrl: clean(row.linkedinUrl),
           language: rowLanguage,
           source: contactSource,
+          // Import CRM seul → hors outreach ET hors file d'enrichissement.
+          outreachExcluded: skipOutreach,
         },
       });
       namesSet.add(nameKey);
@@ -236,16 +248,20 @@ export async function POST(request: NextRequest) {
       // Les contacts AO ne rentrent jamais dans le cycle outreach.
       // Email présent dans le fichier → le contact influence entre directement
       // dans « À contacter » (sinon il reste en attente d'email).
-      if (email && contactSource === "CARTO") {
+      // Import CRM seul (skipOutreach) → aucune entrée dans le cycle.
+      if (!skipOutreach && email && contactSource === "CARTO") {
         const alreadyInCycle = await prisma.outreachTarget.findUnique({
           where: { email },
           select: { id: true },
         });
         // Anti double-prospection : email déjà suivi dans un autre pipeline
         // (agences, Benelux) → contact créé sur la fiche mais pas dans le cycle.
+        // Exception « FR + BE » : la présence dans le marché frère est voulue.
         const conflict = alreadyInCycle
           ? null
-          : await findCrossPipelineConflict(email, "client");
+          : await findCrossPipelineConflict(email, "client", {
+              allowClientBeneluxSibling: row.bothMarkets === true,
+            });
         if (!alreadyInCycle && !conflict) {
           await prisma.outreachTarget.create({
             data: {
@@ -352,6 +368,7 @@ export async function POST(request: NextRequest) {
                       linkedinUrl: clean(row.linkedinUrl),
                       language,
                       source: "AO",
+                      outreachExcluded: skipOutreach,
                     },
                   });
                   aoNames.add(nameKey);
@@ -373,10 +390,13 @@ export async function POST(request: NextRequest) {
     // email des marques touchées passent en QUEUED, pour que leur adresse soit
     // complétée dans /enrichissement — quel que soit le point d'entrée de
     // l'import (Outreach, fiche marque ou page Enrichissement).
+    // Import CRM seul (skipOutreach) → on ne met rien en file d'enrichissement.
     let queuedForEnrichment = 0;
-    for (const id of brandCache.keys()) {
-      const q = await queueMarqueEnrichissement({ marqueId: id });
-      if (q.ok) queuedForEnrichment += q.queued;
+    if (!skipOutreach) {
+      for (const id of brandCache.keys()) {
+        const q = await queueMarqueEnrichissement({ marqueId: id });
+        if (q.ok) queuedForEnrichment += q.queued;
+      }
     }
 
     return NextResponse.json({

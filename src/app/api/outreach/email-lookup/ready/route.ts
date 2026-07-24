@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as {
       market?: string;
       marqueId?: string;
-      contacts?: Array<{ id?: string; email?: string }>;
+      contacts?: Array<{ id?: string; email?: string; bothMarkets?: boolean }>;
     };
 
     const market = body.market === "BENELUX" ? "BENELUX" : "FR";
@@ -47,6 +47,9 @@ export async function POST(request: NextRequest) {
 
     const ownPipeline = market === "BENELUX" ? "benelux" : "client";
     const saved: string[] = [];
+    // Emails d'un contact placé volontairement « FR + BE » : leur présence dans
+    // le marché frère (France ↔ Benelux) ne doit pas bloquer l'enregistrement.
+    const crossMarketEmails = new Set<string>();
 
     for (const row of rows) {
       const id = String(row.id || "").trim();
@@ -60,7 +63,12 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const conflict = await findCrossPipelineConflict(email, ownPipeline);
+      const bothMarkets = row.bothMarkets === true;
+      if (bothMarkets) crossMarketEmails.add(email);
+
+      const conflict = await findCrossPipelineConflict(email, ownPipeline, {
+        allowClientBeneluxSibling: bothMarkets,
+      });
       if (conflict) {
         return NextResponse.json(
           {
@@ -106,10 +114,12 @@ export async function POST(request: NextRequest) {
         ? await tryEnrollBeneluxAfterEmailComplete({
             companyId: marqueId,
             userId: session.user.id,
+            crossMarketEmails,
           })
         : await tryEnrollMarqueAfterEmailComplete({
             marqueId,
             userId: session.user.id,
+            crossMarketEmails,
           });
 
     const suffix = market === "BENELUX" ? " BENELUX" : "";

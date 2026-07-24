@@ -215,9 +215,17 @@ export default function EnrichissementPage() {
   const handleImported = async (result: {
     company: string;
     markets: Array<{ market: "FR" | "BENELUX"; id: string; company: string }>;
+    skipOutreach?: boolean;
   }) => {
     setShowCartoModal(false);
     setDroppedFile(null);
+    // Import CRM seul : contacts rattachés à la fiche marque, hors outreach et
+    // hors file d'enrichissement — rien à mettre en file ici.
+    if (result.skipOutreach) {
+      setFlash(`${result.company} — importé dans le CRM (hors Outreach)`);
+      await load({ silent: true });
+      return;
+    }
     try {
       let totalQueued = 0;
       for (const m of result.markets) {
@@ -271,10 +279,19 @@ export default function EnrichissementPage() {
       // Le mail saisi une fois est propagé à chaque copie (FR et/ou BE). On
       // regroupe les refs par pipeline (marché + fiche) → un appel « ready » par
       // pipeline.
-      type Group = { market: "FR" | "BENELUX"; marqueId: string; contacts: Array<{ id: string; email: string }> };
+      type Group = {
+        market: "FR" | "BENELUX";
+        marqueId: string;
+        contacts: Array<{ id: string; email: string; bothMarkets: boolean }>;
+      };
       const groups = new Map<string, Group>();
       for (const p of active.people) {
         const email = (drafts[p.key] || "").trim().toLowerCase();
+        // Contact volontairement sur les deux marchés → le mail part dans les
+        // deux fiches (France + Benelux) sans que l'un bloque l'autre.
+        const personMarkets = new Set(p.refs.map((r) => r.market));
+        const bothMarkets =
+          personMarkets.has("FR") && personMarkets.has("BENELUX");
         for (const ref of p.refs) {
           const k = `${ref.market}:${ref.marqueId}`;
           let g = groups.get(k);
@@ -282,7 +299,7 @@ export default function EnrichissementPage() {
             g = { market: ref.market, marqueId: ref.marqueId, contacts: [] };
             groups.set(k, g);
           }
-          g.contacts.push({ id: ref.id, email });
+          g.contacts.push({ id: ref.id, email, bothMarkets });
         }
       }
 
@@ -631,6 +648,7 @@ export default function EnrichissementPage() {
       {showCartoModal && (
         <ImportCartoModal
           initialFile={droppedFile}
+          allowSkipOutreach
           onClose={() => {
             setShowCartoModal(false);
             setDroppedFile(null);
