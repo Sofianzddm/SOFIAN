@@ -3,6 +3,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { findMarqueByName } from "@/lib/marque-resolver";
+import {
+  loadFuzzyCandidatesCached,
+  rankFuzzyCandidates,
+} from "@/lib/marque-fuzzy-search";
 
 type SearchedContact = {
   id: string;
@@ -28,18 +32,43 @@ type HubSpotSearchResponse = {
 
 const HUBSPOT_BASE_URL = "https://api.hubapi.com";
 
+/**
+ * Résout une marque à partir d'un nom saisi.
+ * 1. Essai exact (slug/alias) via `findMarqueByName`.
+ * 2. Repli flou tolérant aux fautes / suffixes : "Grazia" → "Grazia France",
+ *    "grazai" → "Grazia", etc. Évite le "ça ne remonte pas" quand le nom stocké
+ *    diffère légèrement de ce qui est tapé.
+ */
+async function resolveMarqueId(brand: string): Promise<string | null> {
+  const exact = await findMarqueByName(brand);
+  if (exact) return exact.marqueId;
+
+  const candidates = await loadFuzzyCandidatesCached("marques:all", async () => {
+    const rows = await prisma.marque.findMany({
+      select: { id: true, nom: true, aliases: { select: { label: true } } },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      labels: [r.nom, ...r.aliases.map((a) => a.label)],
+    }));
+  });
+
+  const ranked = rankFuzzyCandidates(brand, candidates, { threshold: 0.6, limit: 1 });
+  return ranked[0]?.id ?? null;
+}
+
 // Recherche les contacts d'une marque dans le CRM interne (table `marques`).
 async function searchAppContacts(brand: string): Promise<{
   contacts: SearchedContact[];
   marqueId: string | null;
 }> {
-  const resolved = await findMarqueByName(brand);
-  if (!resolved) {
+  const marqueId = await resolveMarqueId(brand);
+  if (!marqueId) {
     return { contacts: [], marqueId: null };
   }
 
   const rows = await prisma.marqueContact.findMany({
-    where: { marqueId: resolved.marqueId, email: { not: null } },
+    where: { marqueId, email: { not: null } },
     select: {
       id: true,
       prenom: true,
@@ -52,7 +81,7 @@ async function searchAppContacts(brand: string): Promise<{
   });
 
   const marque = await prisma.marque.findUnique({
-    where: { id: resolved.marqueId },
+    where: { id: marqueId },
     select: { nom: true },
   });
 
@@ -68,7 +97,7 @@ async function searchAppContacts(brand: string): Promise<{
     }))
     .filter((c) => c.email);
 
-  return { contacts, marqueId: resolved.marqueId };
+  return { contacts, marqueId };
 }
 
 // Recherche les contacts d'une marque dans HubSpot (par nom de société).
