@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Plus,
@@ -18,6 +19,7 @@ import {
   Package,
   Download,
   Lock,
+  Archive,
 } from "lucide-react";
 
 interface Livrable {
@@ -74,18 +76,28 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function CollaborationsPage() {
+  const searchParams = useSearchParams();
   const [collaborations, setCollaborations] = useState<Collaboration[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterStatut, setFilterStatut] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [zippingFactures, setZippingFactures] = useState(false);
   const [userRole, setUserRole] = useState("");
 
   useEffect(() => {
     fetchCollaborations();
     fetchUserRole();
   }, []);
+
+  // Pré-filtre via l'URL (ex. depuis « Factures talent à valider » du dashboard).
+  useEffect(() => {
+    const statut = searchParams.get("statut");
+    if (statut && STATUTS.some((s) => s.value === statut)) {
+      setFilterStatut(statut);
+    }
+  }, [searchParams]);
 
   const fetchUserRole = async () => {
     try {
@@ -241,6 +253,39 @@ export default function CollaborationsPage() {
     }
   };
 
+  const handleDownloadFacturesTalent = async () => {
+    if (zippingFactures) return;
+    try {
+      setZippingFactures(true);
+      const p = new URLSearchParams();
+      if (filterStatut) p.set("statut", filterStatut);
+      if (filterMonth) p.set("month", filterMonth);
+      const query = p.toString() ? `?${p.toString()}` : "";
+      const res = await fetch(`/api/factures/talents/download-all${query}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Aucune facture talent à télécharger");
+        return;
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("content-disposition") || "";
+      const match = cd.match(/filename="?([^"]+)"?/i);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = match?.[1] || "factures-talent.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Erreur téléchargement factures talent:", error);
+      alert("Erreur de connexion lors du téléchargement");
+    } finally {
+      setZippingFactures(false);
+    }
+  };
+
   // Résumé des livrables
   const getLivrablesLabel = (livrables: Livrable[]) => {
     if (livrables.length === 0) return "-";
@@ -373,6 +418,20 @@ export default function CollaborationsPage() {
               <Download className="w-4 h-4" />
             )}
             Export Excel
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadFacturesTalent}
+            disabled={zippingFactures}
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[180px]"
+            title="Télécharger les factures talent (selon le filtre) dans un ZIP"
+          >
+            {zippingFactures ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Archive className="w-4 h-4" />
+            )}
+            Factures talent (ZIP)
           </button>
         </div>
       </div>

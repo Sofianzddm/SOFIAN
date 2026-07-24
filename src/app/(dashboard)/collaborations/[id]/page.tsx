@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { LISTE_PAYS } from "@/lib/pays";
+import { downloadHref } from "@/lib/download";
 import {
   ArrowLeft,
   Pencil,
@@ -1278,10 +1279,7 @@ export default function CollabDetailPage() {
                 Voir
               </button>
               <a
-                href={collab.factureTalentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
+                href={downloadHref(collab.factureTalentUrl, `facture-${collab.reference || "talent"}.pdf`)}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
               >
                 <Download className="w-4 h-4" />
@@ -1331,10 +1329,7 @@ export default function CollabDetailPage() {
                 Voir
               </button>
               <a
-                href={collab.factureTalentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
+                href={downloadHref(collab.factureTalentUrl, `facture-${collab.reference || "talent"}.pdf`)}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-700 transition-colors"
               >
                 <Download className="w-4 h-4" />
@@ -3183,10 +3178,7 @@ export default function CollabDetailPage() {
             <span className="text-sm font-medium text-slate-700">Aperçu de la facture talent</span>
             <div className="flex items-center gap-2">
               <a
-                href={facturePreviewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
+                href={downloadHref(facturePreviewUrl, `facture-${collab?.reference || "talent"}.pdf`)}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
               >
                 <Download className="w-4 h-4" />

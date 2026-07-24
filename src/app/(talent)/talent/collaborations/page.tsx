@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { downloadHref } from "@/lib/download";
 import {
   Search,
   Calendar,
@@ -424,10 +425,7 @@ export default function TalentCollaborationsPage() {
                             Voir
                           </button>
                           <a
-                            href={collab.factureTalentUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            download
+                            href={downloadHref(collab.factureTalentUrl, `facture-${collab.reference || collab.marque || "talent"}.pdf`)}
                             className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-100/80 rounded-lg hover:bg-emerald-100 transition-colors"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -454,10 +452,7 @@ export default function TalentCollaborationsPage() {
             <span className="text-sm font-medium text-slate-700">Aperçu de ta facture</span>
             <div className="flex items-center gap-2">
               <a
-                href={facturePreviewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
+                href={downloadHref(facturePreviewUrl, "facture-talent.pdf")}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
               >
                 <Download className="h-4 w-4" />

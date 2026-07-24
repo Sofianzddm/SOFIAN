@@ -2055,7 +2055,7 @@ function FactureTalentAValiderList({ items }: { items: { id: string; reference: 
           </div>
         </div>
         {items.length > 0 && (
-          <Link href="/collaborations" className="text-sm font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1">
+          <Link href="/collaborations?statut=FACTURE_RECUE" className="text-sm font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1">
             Voir tout <ChevronRight className="w-4 h-4" />
           </Link>
         )}

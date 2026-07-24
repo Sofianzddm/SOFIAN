@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import { downloadHref } from "@/lib/download";
 import {
   ArrowLeft,
   FileText,
@@ -541,8 +542,7 @@ export default function DossierCompletPage() {
                   )}
                 </div>
                 <a
-                  href={dossier.factureTalentUrl}
-                  target="_blank"
+                  href={downloadHref(dossier.factureTalentUrl, `facture-${dossier.reference || "talent"}.pdf`)}
                   className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium"
                 >
                   <Download className="w-4 h-4" />
