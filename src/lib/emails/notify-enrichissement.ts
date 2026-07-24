@@ -43,7 +43,7 @@ export async function notifyEnrichissementReady(opts: {
   try {
     const resend = new Resend(key);
     await resend.emails.send({
-      from: "Glow Up <enrichissement@glowupagence.fr>",
+      from: "Glow Up <contact@glowupagence.fr>",
       to,
       subject,
       html,
