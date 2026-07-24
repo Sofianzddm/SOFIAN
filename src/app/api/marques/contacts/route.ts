@@ -69,8 +69,13 @@ async function searchAppContacts(brand: string): Promise<{
 
   // On renvoie aussi les contacts sans email (importés via carto) : ils doivent
   // « remonter » pour que l'utilisateur puisse les compléter manuellement.
+  // En revanche on exclut les contacts « Achats / Appel d'offre » (source "AO"),
+  // qui n'ont pas leur place dans le pipeline de prospection talent.
   const rows = await prisma.marqueContact.findMany({
-    where: { marqueId },
+    where: {
+      marqueId,
+      OR: [{ source: { not: "AO" } }, { source: null }],
+    },
     select: {
       id: true,
       prenom: true,
