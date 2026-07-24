@@ -18,6 +18,7 @@ import {
   domainFromWebsite,
   suggestEmailsForContact,
 } from "@/lib/email-pattern";
+import { notifyEnrichissementReady } from "@/lib/emails/notify-enrichissement";
 
 export type EnvoyerOutreachResult =
   | {
@@ -174,6 +175,10 @@ export async function queueMarqueEnrichissement(opts: {
     marque.siteWeb
   );
   const now = new Date();
+  // Contacts réellement nouveaux (pas déjà en file) → base de la notification.
+  const newlyQueued = withoutEmail.filter(
+    (c) => c.emailLookupStatus !== "QUEUED"
+  ).length;
   for (const c of withoutEmail) {
     const suggestions = suggestEmailsForContact({
       prenom: c.prenom,
@@ -189,6 +194,14 @@ export async function queueMarqueEnrichissement(opts: {
           c.emailLookupStatus === "QUEUED" ? undefined : now,
         emailSuggested: suggestions[0]?.email || null,
       },
+    });
+  }
+
+  if (newlyQueued > 0) {
+    await notifyEnrichissementReady({
+      company: marque.nom,
+      market: "FR",
+      count: newlyQueued,
     });
   }
 
@@ -250,6 +263,9 @@ export async function queueBeneluxEnrichissement(opts: {
   );
   const fallbackDomain = pattern?.domain || domainFromWebsite(company.siteWeb);
   const now = new Date();
+  const newlyQueued = withoutEmail.filter(
+    (c) => c.emailLookupStatus !== "QUEUED"
+  ).length;
   for (const c of withoutEmail) {
     const suggestions = suggestEmailsForContact({
       prenom: c.prenom,
@@ -264,6 +280,14 @@ export async function queueBeneluxEnrichissement(opts: {
         emailLookupQueuedAt: c.emailLookupStatus === "QUEUED" ? undefined : now,
         emailSuggested: suggestions[0]?.email || null,
       },
+    });
+  }
+
+  if (newlyQueued > 0) {
+    await notifyEnrichissementReady({
+      company: company.nom,
+      market: "BENELUX",
+      count: newlyQueued,
     });
   }
 
