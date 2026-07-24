@@ -428,8 +428,7 @@ export function ProspectingPipelineClient() {
           role: String(c.role || "").trim(),
           companyName: String(c.companyName || "").trim(),
           source: c.source === "hubspot" ? "hubspot" : "app",
-        }))
-        .filter((c: SearchedContact) => c.email);
+        }));
       setContactSearchByMission((prev) => ({
         ...prev,
         [m.id]: { loading: false, results, searched: true },
@@ -445,10 +444,10 @@ export function ProspectingPipelineClient() {
 
   function addSearchedContactToForm(missionId: string, sc: SearchedContact) {
     const email = String(sc.email || "").trim().toLowerCase();
-    if (!email) return;
     setContactFormByMission((prev) => {
       const existing = prev[missionId]?.contacts || [];
-      if (existing.some((c) => c.email.trim().toLowerCase() === email)) {
+      // Dédoublonnage par email seulement si un email est présent.
+      if (email && existing.some((c) => c.email.trim().toLowerCase() === email)) {
         return prev;
       }
       const draft: ContactDraft = {
@@ -1284,11 +1283,12 @@ export function ProspectingPipelineClient() {
                         {(contactSearchByMission[m.id]?.results.length ?? 0) > 0 && (
                           <ul className="grid gap-1">
                             {contactSearchByMission[m.id]?.results.map((sc) => {
-                              const already = (contactFormByMission[m.id]?.contacts || []).some(
-                                (c) =>
-                                  c.email.trim().toLowerCase() ===
-                                  sc.email.trim().toLowerCase()
-                              );
+                              const scEmail = sc.email.trim().toLowerCase();
+                              const already =
+                                !!scEmail &&
+                                (contactFormByMission[m.id]?.contacts || []).some(
+                                  (c) => c.email.trim().toLowerCase() === scEmail
+                                );
                               return (
                                 <li
                                   key={sc.id || sc.email}
@@ -1298,7 +1298,8 @@ export function ProspectingPipelineClient() {
                                     <p className="flex items-center gap-1.5 truncate text-xs font-medium text-gray-800">
                                       <span className="truncate">
                                         {[sc.firstname, sc.lastname].filter(Boolean).join(" ") ||
-                                          sc.email}
+                                          sc.email ||
+                                          "Contact sans nom"}
                                       </span>
                                       <span
                                         className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
@@ -1309,9 +1310,14 @@ export function ProspectingPipelineClient() {
                                       >
                                         {sc.source === "hubspot" ? "HubSpot" : "App"}
                                       </span>
+                                      {!scEmail && (
+                                        <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                                          email à compléter
+                                        </span>
+                                      )}
                                     </p>
                                     <p className="truncate text-[11px] text-gray-500">
-                                      {sc.email}
+                                      {sc.email || "— email manquant —"}
                                       {sc.companyName ? ` · ${sc.companyName}` : ""}
                                       {sc.role ? ` · ${sc.role}` : ""}
                                     </p>

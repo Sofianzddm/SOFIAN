@@ -67,8 +67,10 @@ async function searchAppContacts(brand: string): Promise<{
     return { contacts: [], marqueId: null };
   }
 
+  // On renvoie aussi les contacts sans email (importés via carto) : ils doivent
+  // « remonter » pour que l'utilisateur puisse les compléter manuellement.
   const rows = await prisma.marqueContact.findMany({
-    where: { marqueId, email: { not: null } },
+    where: { marqueId },
     select: {
       id: true,
       prenom: true,
@@ -94,8 +96,7 @@ async function searchAppContacts(brand: string): Promise<{
       role: (c.poste || "").trim(),
       companyName: marque?.nom || brand,
       source: "app" as const,
-    }))
-    .filter((c) => c.email);
+    }));
 
   return { contacts, marqueId };
 }
@@ -191,15 +192,17 @@ export async function GET(request: NextRequest) {
     ]);
 
     // Fusion : contacts de l'app d'abord, puis HubSpot ; dédoublonnage par email.
-    const byEmail = new Map<string, SearchedContact>();
+    // Les contacts sans email (à compléter) sont conservés, dédoublonnés par id.
+    const byKey = new Map<string, SearchedContact>();
     for (const c of [...app.contacts, ...hubspot]) {
-      const key = c.email.trim().toLowerCase();
-      if (!key || byEmail.has(key)) continue;
-      byEmail.set(key, c);
+      const email = c.email.trim().toLowerCase();
+      const key = email || `id:${c.id}`;
+      if (byKey.has(key)) continue;
+      byKey.set(key, c);
     }
 
     return NextResponse.json({
-      contacts: Array.from(byEmail.values()),
+      contacts: Array.from(byKey.values()),
       marqueId: app.marqueId,
     });
   } catch (error) {
