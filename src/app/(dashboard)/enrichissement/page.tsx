@@ -279,6 +279,23 @@ export default function EnrichissementPage() {
       // Le mail saisi une fois est propagé à chaque copie (FR et/ou BE). On
       // regroupe les refs par pipeline (marché + fiche) → un appel « ready » par
       // pipeline.
+      // Recense les marchés par email sur toute la fiche. Un même email présent
+      // à la fois côté FR et BE (même personne fusionnée OU deux contacts
+      // distincts partageant l'email, ex. contact@marque.com) est « FR + BE » :
+      // sa présence dans le marché frère ne doit pas bloquer l'autre validation.
+      const marketsByEmail = new Map<string, Set<"FR" | "BENELUX">>();
+      for (const p of active.people) {
+        const email = (drafts[p.key] || "").trim().toLowerCase();
+        if (!email) continue;
+        const set = marketsByEmail.get(email) ?? new Set<"FR" | "BENELUX">();
+        for (const ref of p.refs) set.add(ref.market);
+        marketsByEmail.set(email, set);
+      }
+      const isCrossMarket = (email: string): boolean => {
+        const s = marketsByEmail.get(email);
+        return Boolean(s && s.has("FR") && s.has("BENELUX"));
+      };
+
       type Group = {
         market: "FR" | "BENELUX";
         marqueId: string;
@@ -287,11 +304,9 @@ export default function EnrichissementPage() {
       const groups = new Map<string, Group>();
       for (const p of active.people) {
         const email = (drafts[p.key] || "").trim().toLowerCase();
-        // Contact volontairement sur les deux marchés → le mail part dans les
-        // deux fiches (France + Benelux) sans que l'un bloque l'autre.
-        const personMarkets = new Set(p.refs.map((r) => r.market));
-        const bothMarkets =
-          personMarkets.has("FR") && personMarkets.has("BENELUX");
+        // Contact sur les deux marchés → le mail part dans les deux fiches
+        // (France + Benelux) sans que l'un bloque l'autre.
+        const bothMarkets = isCrossMarket(email);
         for (const ref of p.refs) {
           const k = `${ref.market}:${ref.marqueId}`;
           let g = groups.get(k);

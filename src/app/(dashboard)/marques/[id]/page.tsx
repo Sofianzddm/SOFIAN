@@ -73,6 +73,7 @@ type Contact = {
   localisation?: string | null;
   linkedinUrl?: string | null;
   source?: string | null;
+  outreachExcluded?: boolean;
   outreachTargets?: OutreachInfo[];
   sousMarques?: { marque: { id: string; nom: string } }[];
 };
@@ -496,6 +497,7 @@ export default function MarqueDetailPage() {
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [launchError, setLaunchError] = useState<{ id: string; message: string } | null>(null);
   const [envoyerBusy, setEnvoyerBusy] = useState(false);
+  const [toggleOutreachBusy, setToggleOutreachBusy] = useState(false);
 
   // Suppression d'un contact depuis la fiche marque
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
@@ -997,6 +999,30 @@ export default function MarqueDetailPage() {
     }
   };
 
+  /** Bascule la marque en / hors Outreach (« Mettre en Outreach » / « Retirer »). */
+  const toggleMarqueOutreach = async (enabled: boolean) => {
+    if (toggleOutreachBusy || !marque) return;
+    setToggleOutreachBusy(true);
+    setCartoFlash(null);
+    try {
+      const res = await fetch(`/api/marques/${marque.id}/outreach-toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Action impossible.");
+      setCartoFlash(data.message || "OK");
+      setTimeout(() => setCartoFlash(null), 10000);
+      await fetchMarque();
+    } catch (e) {
+      setCartoFlash(e instanceof Error ? e.message : "Erreur");
+      setTimeout(() => setCartoFlash(null), 10000);
+    } finally {
+      setToggleOutreachBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1067,6 +1093,10 @@ export default function MarqueDetailPage() {
   const cartoContacts = marque.contacts
     .filter((c) => c.source === "CARTO")
     .sort((a, b) => (a.priorite || "P9").localeCompare(b.priorite || "P9"));
+  // La carto influence est « hors outreach » si tous ses contacts sont exclus
+  // (import « Ne pas mettre en Outreach » ou « Retirer de l'Outreach »).
+  const cartoOutOfOutreach =
+    cartoContacts.length > 0 && cartoContacts.every((c) => c.outreachExcluded);
   const allCartoFiles = marque.cartoFiles || [];
   const cartoFiles = allCartoFiles.filter((f) => (f.kind || "CARTO") !== "AO");
   const aoFiles = allCartoFiles.filter((f) => f.kind === "AO");
@@ -2319,21 +2349,56 @@ export default function MarqueDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {canOutreach && !readOnly && cartoContacts.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={envoyerCartoEnOutreach}
-                        disabled={envoyerBusy}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
-                        style={{ backgroundColor: ROSE }}
-                        title="Envoie la carto en outreach. Sans email → enrichissement. Bloqué tant que l'AO n'est pas importé."
-                      >
-                        {envoyerBusy ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Send className="w-3.5 h-3.5" />
-                        )}
-                        Envoyer en outreach
-                      </button>
+                      cartoOutOfOutreach ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleMarqueOutreach(true)}
+                          disabled={toggleOutreachBusy}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+                          style={{ backgroundColor: "#3D8B40" }}
+                          title="Réintègre cette carto dans l'Outreach : contacts avec email → « À contacter », sans email → enrichissement."
+                        >
+                          {toggleOutreachBusy ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Send className="w-3.5 h-3.5" />
+                          )}
+                          Mettre en Outreach
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => toggleMarqueOutreach(false)}
+                            disabled={toggleOutreachBusy}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                            style={{ color: INK }}
+                            title="Retire cette carto de l'Outreach. Les contacts restent sur la fiche (CRM / pipeline talent) mais quittent le cycle « À contacter »."
+                          >
+                            {toggleOutreachBusy ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <X className="w-3.5 h-3.5" />
+                            )}
+                            Retirer de l&apos;Outreach
+                          </button>
+                          <button
+                            type="button"
+                            onClick={envoyerCartoEnOutreach}
+                            disabled={envoyerBusy}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+                            style={{ backgroundColor: ROSE }}
+                            title="Envoie la carto en outreach. Sans email → enrichissement. Bloqué tant que l'AO n'est pas importé."
+                          >
+                            {envoyerBusy ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Send className="w-3.5 h-3.5" />
+                            )}
+                            Envoyer en outreach
+                          </button>
+                        </>
+                      )
                     )}
                     <Link
                       href="/outreach"
