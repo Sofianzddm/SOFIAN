@@ -65,39 +65,52 @@ export async function POST(request: NextRequest) {
       }
 
       const bothMarkets = row.bothMarkets === true;
-      if (bothMarkets) crossMarketEmails.add(email);
 
-      const conflict = await findCrossPipelineConflict(email, ownPipeline, {
-        allowClientBeneluxSibling: bothMarkets,
-      });
-      if (conflict) {
-        return NextResponse.json(
-          {
-            error: `${email} est déjà suivi dans ${conflict.label} (${conflict.company}).`,
-          },
-          { status: 409 }
-        );
-      }
+      // Le contrôle anti-double-prospection ne concerne que les contacts qui
+      // entrent réellement dans un cycle outreach (CARTO / influence). Les
+      // contacts AO (Achats / Appel d'offre) ne sont jamais enrôlés : on
+      // enregistre simplement leur email dans le CRM, sans bloquer sur un
+      // conflit de pipeline.
+      const guardConflict = async (isAo: boolean): Promise<NextResponse | null> => {
+        if (isAo) return null;
+        if (bothMarkets) crossMarketEmails.add(email);
+        const conflict = await findCrossPipelineConflict(email, ownPipeline, {
+          allowClientBeneluxSibling: bothMarkets,
+        });
+        if (conflict) {
+          return NextResponse.json(
+            {
+              error: `${email} est déjà suivi dans ${conflict.label} (${conflict.company}).`,
+            },
+            { status: 409 }
+          );
+        }
+        return null;
+      };
 
       if (market === "BENELUX") {
         const contact = await prisma.beneluxContact.findFirst({
           where: { id, companyId: marqueId },
-          select: { id: true },
+          select: { id: true, source: true },
         });
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
+        const blocked = await guardConflict(contact.source === "AO");
+        if (blocked) return blocked;
         // Respecte l'unicité (companyId, email) : un doublon partageant l'email
         // est sorti de la file au lieu de faire échouer la validation.
         await writeBeneluxContactEmail(id, marqueId, email);
       } else {
         const contact = await prisma.marqueContact.findFirst({
           where: { id, marqueId },
-          select: { id: true },
+          select: { id: true, source: true },
         });
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
+        const blocked = await guardConflict(contact.source === "AO");
+        if (blocked) return blocked;
         await prisma.marqueContact.update({
           where: { id },
           data: { email, emailLookupStatus: "FOUND", emailSuggested: null },

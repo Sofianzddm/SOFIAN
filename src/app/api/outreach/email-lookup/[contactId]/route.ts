@@ -42,6 +42,7 @@ export async function PATCH(
         select: {
           id: true,
           companyId: true,
+          source: true,
           company: { select: { nom: true } },
         },
       });
@@ -68,14 +69,18 @@ export async function PATCH(
         return NextResponse.json({ error: "Email invalide." }, { status: 400 });
       }
 
-      const conflict = await findCrossPipelineConflict(email, ownPipeline);
-      if (conflict) {
-        return NextResponse.json(
-          {
-            error: `Cet email est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
-          },
-          { status: 409 }
-        );
+      // Les contacts AO n'entrent jamais en outreach → pas de contrôle
+      // anti-double-prospection, on enregistre juste l'email au CRM.
+      if (contact.source !== "AO") {
+        const conflict = await findCrossPipelineConflict(email, ownPipeline);
+        if (conflict) {
+          return NextResponse.json(
+            {
+              error: `Cet email est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
+            },
+            { status: 409 }
+          );
+        }
       }
 
       // Respecte l'unicité (companyId, email) : un doublon partageant l'email
@@ -95,6 +100,7 @@ export async function PATCH(
       select: {
         id: true,
         marqueId: true,
+        source: true,
         marque: { select: { nom: true } },
       },
     });
@@ -121,14 +127,18 @@ export async function PATCH(
       return NextResponse.json({ error: "Email invalide." }, { status: 400 });
     }
 
-    const conflict = await findCrossPipelineConflict(email, ownPipeline);
-    if (conflict) {
-      return NextResponse.json(
-        {
-          error: `Cet email est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
-        },
-        { status: 409 }
-      );
+    // Les contacts AO n'entrent jamais en outreach → pas de contrôle
+    // anti-double-prospection, on enregistre juste l'email au CRM.
+    if (contact.source !== "AO") {
+      const conflict = await findCrossPipelineConflict(email, ownPipeline);
+      if (conflict) {
+        return NextResponse.json(
+          {
+            error: `Cet email est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
+          },
+          { status: 409 }
+        );
+      }
     }
 
     await prisma.marqueContact.update({
