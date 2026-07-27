@@ -6,6 +6,7 @@ import {
   tryEnrollMarqueAfterEmailComplete,
   tryEnrollBeneluxAfterEmailComplete,
 } from "@/lib/envoyer-marque-outreach";
+import { writeBeneluxContactEmail } from "@/lib/benelux-contact-email";
 
 /**
  * POST → valide toute la fiche enrichissement d'un coup (« Prêt »).
@@ -86,10 +87,9 @@ export async function POST(request: NextRequest) {
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
-        await prisma.beneluxContact.update({
-          where: { id },
-          data: { email, emailLookupStatus: "FOUND", emailSuggested: null },
-        });
+        // Respecte l'unicité (companyId, email) : un doublon partageant l'email
+        // est sorti de la file au lieu de faire échouer la validation.
+        await writeBeneluxContactEmail(id, marqueId, email);
       } else {
         const contact = await prisma.marqueContact.findFirst({
           where: { id, marqueId },

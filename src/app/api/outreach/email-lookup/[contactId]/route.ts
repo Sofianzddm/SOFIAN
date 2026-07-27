@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
+import { writeBeneluxContactEmail } from "@/lib/benelux-contact-email";
 
 /**
  * PATCH → complète (ou marque introuvable) un email en file d'enrichissement.
@@ -77,10 +78,9 @@ export async function PATCH(
         );
       }
 
-      await prisma.beneluxContact.update({
-        where: { id: contactId },
-        data: { email, emailLookupStatus: "FOUND", emailSuggested: null },
-      });
+      // Respecte l'unicité (companyId, email) : un doublon partageant l'email
+      // est sorti de la file au lieu de faire échouer l'enregistrement.
+      await writeBeneluxContactEmail(contactId, contact.companyId, email);
 
       return NextResponse.json({
         ok: true,
