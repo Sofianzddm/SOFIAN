@@ -162,3 +162,65 @@ export async function PATCH(
     );
   }
 }
+
+/**
+ * DELETE → retire un contact de la file d'enrichissement (mauvais poste,
+ * doublon, importé par erreur…). Le contact est réellement supprimé du CRM.
+ * Query: ?market=FR|BENELUX
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ contactId: string }> }
+) {
+  try {
+    const session = await getAppSession(request);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!ALLOWED_ROLES.includes((session.user.role || "") as (typeof ALLOWED_ROLES)[number])) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+    }
+
+    const { contactId } = await params;
+    const market =
+      request.nextUrl.searchParams.get("market") === "BENELUX" ? "BENELUX" : "FR";
+
+    if (market === "BENELUX") {
+      const contact = await prisma.beneluxContact.findUnique({
+        where: { id: contactId },
+        select: { id: true, prenom: true, nom: true },
+      });
+      if (!contact) {
+        return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+      }
+      await prisma.beneluxContact.delete({ where: { id: contactId } });
+      const name = [contact.prenom, contact.nom].filter(Boolean).join(" ").trim();
+      return NextResponse.json({
+        ok: true,
+        deleted: true,
+        message: `${name || "Contact"} supprimé.`,
+      });
+    }
+
+    const contact = await prisma.marqueContact.findUnique({
+      where: { id: contactId },
+      select: { id: true, prenom: true, nom: true },
+    });
+    if (!contact) {
+      return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+    }
+    await prisma.marqueContact.delete({ where: { id: contactId } });
+    const name = [contact.prenom, contact.nom].filter(Boolean).join(" ").trim();
+    return NextResponse.json({
+      ok: true,
+      deleted: true,
+      message: `${name || "Contact"} supprimé.`,
+    });
+  } catch (error) {
+    console.error("DELETE /api/outreach/email-lookup/[contactId]:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Erreur serveur" },
+      { status: 500 }
+    );
+  }
+}

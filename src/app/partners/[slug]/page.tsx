@@ -14,6 +14,8 @@ import {
   Users,
   Heart,
   ExternalLink,
+  Search,
+  Loader2,
 } from "lucide-react";
 import { formatPercent } from "@/lib/format";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
@@ -32,6 +34,10 @@ import {
   SPORTS_OPTIONS,
   MOBILITE_OPTIONS,
 } from "@/lib/talent-attributes";
+import {
+  parseTalentQueryLocal,
+  type TalentSearchFilters,
+} from "@/lib/talent-search-local";
 import { MultiSelectFilter } from "@/components/talentbook/MultiSelectFilter";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
@@ -254,6 +260,14 @@ const translations = {
     sortTtFollowers: "Abonnés TikTok",
     sortYtFollowers: "Abonnés YouTube",
     sortName: "Nom A-Z",
+    aiSearchPlaceholder: "Décrivez le créateur idéal… ex : une créatrice cheveux blonds à Paris qui fait du yoga",
+    aiSearchButton: "Rechercher",
+    aiSearchLoading: "Recherche…",
+    aiSearchHint: "Écrivez ce que vous cherchez, la sélection s'ajuste automatiquement.",
+    aiSearchError: "Recherche momentanément indisponible, utilisez les filtres ci-dessous.",
+    aiSearchResultPrefix: "Filtres appliqués :",
+    aiSearchNoCriteria: "Aucun critère détecté, précisez votre recherche.",
+    aiSearchClear: "Réinitialiser",
   },
   en: {
     tagline: "THE RISE of IDEAS",
@@ -306,6 +320,14 @@ const translations = {
     sortTtFollowers: "TikTok followers",
     sortYtFollowers: "YouTube subscribers",
     sortName: "Name A-Z",
+    aiSearchPlaceholder: "Describe your ideal creator… e.g. a blonde creator in Paris who does yoga",
+    aiSearchButton: "Search",
+    aiSearchLoading: "Searching…",
+    aiSearchHint: "Type what you're looking for, the selection adjusts automatically.",
+    aiSearchError: "Search is temporarily unavailable, use the filters below.",
+    aiSearchResultPrefix: "Filters applied:",
+    aiSearchNoCriteria: "No criteria detected, try to be more specific.",
+    aiSearchClear: "Reset",
   },
 };
 
@@ -1586,6 +1608,10 @@ export default function PartnerTalentBookPage() {
   const [filterSports, setFilterSports] = useState<string[]>([]);
   const [filterMobilite, setFilterMobilite] = useState<string[]>([]);
   const [filterEnceinte, setFilterEnceinte] = useState("");
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiSummary, setAiSummary] = useState("");
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [favoritesLoaded, setFavoritesLoaded] = useState(false);
@@ -1855,7 +1881,93 @@ export default function PartnerTalentBookPage() {
     setFilterSports([]);
     setFilterMobilite([]);
     setFilterEnceinte("");
+    setAiSummary("");
+    setAiError("");
   };
+
+  function applyAiFilters(filters: TalentSearchFilters, summary: string) {
+    setSelectedNiche(filters.niche || "all");
+    setSelectedNetworks(filters.networks || []);
+    setFilterVille(filters.villes || []);
+    setFilterPeau(filters.peau || []);
+    setFilterCheveux(filters.cheveux || []);
+    setFilterCouleur(filters.couleur || []);
+    setFilterTendancePeau(filters.tendancePeau || []);
+    setFilterTendanceCheveux(filters.tendanceCheveux || []);
+    setFilterAnimaux(filters.animaux || []);
+    setFilterAges(filters.ages || []);
+    setFilterSports(filters.sports || []);
+    setFilterMobilite(filters.mobilite || []);
+    setFilterEnceinte(filters.enceinte ? "oui" : "");
+    setSortBy((filters.sort as SortOption) || "default");
+
+    const hasCriteria =
+      (filters.niche && filters.niche !== "all") ||
+      filters.networks.length > 0 ||
+      filters.villes.length > 0 ||
+      filters.peau.length > 0 ||
+      filters.cheveux.length > 0 ||
+      filters.couleur.length > 0 ||
+      filters.tendancePeau.length > 0 ||
+      filters.tendanceCheveux.length > 0 ||
+      filters.animaux.length > 0 ||
+      filters.ages.length > 0 ||
+      filters.sports.length > 0 ||
+      filters.mobilite.length > 0 ||
+      filters.enceinte === true;
+
+    setAiError(hasCriteria ? "" : t.aiSearchNoCriteria);
+    setAiSummary(summary || "");
+    return hasCriteria;
+  }
+
+  async function handleAiSearch() {
+    const query = aiQuery.trim();
+    if (!query || aiLoading) return;
+
+    setAiError("");
+    setAiSummary("");
+
+    // 1) Tentative locale (instantanée, gratuite). Si la requête est entièrement
+    //    couverte par le dictionnaire, on applique sans appel réseau.
+    const local = parseTalentQueryLocal(query, allVilles, lang);
+    if (local.covered) {
+      applyAiFilters(local.filters, local.summary);
+      return;
+    }
+
+    // 2) Sinon, renfort IA côté serveur (hybride + cache + rate-limit).
+    setAiLoading(true);
+    try {
+      const res = await fetch(`/api/partners/${slug}/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, availableCities: allVilles, lang }),
+      });
+
+      if (!res.ok) {
+        // Repli : on applique quand même ce que le local avait compris.
+        if (local.hasCriteria) {
+          applyAiFilters(local.filters, local.summary);
+        } else {
+          setAiError(t.aiSearchError);
+        }
+        return;
+      }
+
+      const { filters, summary } = await res.json();
+      applyAiFilters(filters, summary);
+    } catch (error) {
+      console.error("Erreur recherche:", error);
+      if (local.hasCriteria) {
+        applyAiFilters(local.filters, local.summary);
+      } else {
+        setAiError(t.aiSearchError);
+      }
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   const sortLabels: Record<SortOption, string> = {
     default: t.sortDefault,
@@ -2155,6 +2267,68 @@ export default function PartnerTalentBookPage() {
         {activeTab === "talents" && (
         <nav className="sticky top-0 z-30 bg-[#F5EDE0]/95 backdrop-blur-md border-b border-[#220101]/10 py-3 sm:py-4">
           <div className="max-w-6xl mx-auto px-3 sm:px-4">
+            {/* Barre de recherche en langage naturel */}
+            <div className="mb-3 sm:mb-4">
+              <div className="flex items-center gap-2 rounded-full bg-white border border-[#220101]/15 focus-within:border-[#B06F70] shadow-sm pl-3 sm:pl-4 pr-1.5 py-1.5 transition-colors">
+                <Search className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-[#220101]/40 shrink-0" />
+                <input
+                  type="text"
+                  value={aiQuery}
+                  onChange={(e) => setAiQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleAiSearch();
+                  }}
+                  placeholder={t.aiSearchPlaceholder}
+                  className="flex-1 min-w-0 bg-transparent text-xs sm:text-sm font-switzer text-[#220101] placeholder:text-[#220101]/40 focus:outline-none"
+                />
+                {aiQuery && !aiLoading && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAiQuery("");
+                      clearAttrFilters();
+                    }}
+                    className="text-[#220101]/40 hover:text-[#220101]/70 text-lg leading-none px-1.5 shrink-0"
+                    aria-label={t.aiSearchClear}
+                  >
+                    ×
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAiSearch}
+                  disabled={aiLoading || !aiQuery.trim()}
+                  className="flex items-center gap-1.5 bg-[#220101] text-[#F5EDE0] rounded-full px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-switzer font-medium hover:bg-[#220101]/90 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 touch-manipulation"
+                >
+                  {aiLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
+                  ) : (
+                    <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {aiLoading ? t.aiSearchLoading : t.aiSearchButton}
+                  </span>
+                </button>
+              </div>
+              {aiSummary && !aiError && (
+                <p className="mt-2 px-1 text-xs font-switzer text-[#220101]/60 flex items-center gap-1.5">
+                  <Search className="w-3 h-3 text-[#220101]/40 shrink-0" />
+                  <span>
+                    {t.aiSearchResultPrefix}{" "}
+                    <span className="text-[#220101] font-medium">{aiSummary}</span>
+                  </span>
+                </p>
+              )}
+              {aiError && (
+                <p className="mt-2 px-1 text-xs font-switzer text-[#B06F70]">{aiError}</p>
+              )}
+              {!aiSummary && !aiError && (
+                <p className="mt-1.5 px-1 text-[11px] font-switzer text-[#220101]/40 hidden sm:block">
+                  {t.aiSearchHint}
+                </p>
+              )}
+            </div>
+
             {/* Filtres réseaux */}
             <div className="flex flex-wrap justify-center gap-2 md:gap-3 mb-3 sm:mb-4">
               <button

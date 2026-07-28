@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   FileSpreadsheet,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
 import {
@@ -101,6 +102,8 @@ export default function EnrichissementPage() {
   const [showCartoModal, setShowCartoModal] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  /** Clé de la personne en cours de suppression (spinner sur le bouton). */
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -270,6 +273,45 @@ export default function EnrichissementPage() {
       return changed ? next : prev;
     });
   }, [active?.key, active?.people]);
+
+  const deletePerson = async (p: Person) => {
+    if (busy || deletingKey) return;
+    const name = [p.prenom, p.nom].filter(Boolean).join(" ") || "ce contact";
+    if (
+      !window.confirm(
+        `Supprimer ${name} de l'enrichissement ?\nLe contact sera retiré définitivement.`
+      )
+    ) {
+      return;
+    }
+    setDeletingKey(p.key);
+    setFlash(null);
+    try {
+      // Un contact « FR + BE » existe en plusieurs copies : on les supprime toutes.
+      for (const ref of p.refs) {
+        const res = await fetch(
+          `/api/outreach/email-lookup/${ref.id}?market=${ref.market}`,
+          { method: "DELETE" }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Échec de la suppression");
+      }
+      // Retire la copie locale sans recharger toute la file.
+      setContacts((prev) =>
+        prev.filter((c) => !p.refs.some((ref) => ref.id === c.id))
+      );
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[p.key];
+        return next;
+      });
+      setFlash(`${name} supprimé.`);
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setDeletingKey(null);
+    }
+  };
 
   const markReady = async () => {
     if (!active || !allReady || busy) return;
@@ -593,18 +635,33 @@ export default function EnrichissementPage() {
                           "—"}
                       </div>
                     </div>
-                    {p.linkedinUrl ? (
-                      <a
-                        href={p.linkedinUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 shrink-0 px-3 py-2 rounded-lg text-xs font-semibold text-white"
-                        style={{ backgroundColor: "#0A66C2" }}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {p.linkedinUrl ? (
+                        <a
+                          href={p.linkedinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white"
+                          style={{ backgroundColor: "#0A66C2" }}
+                        >
+                          <Linkedin className="w-3.5 h-3.5" />
+                          LinkedIn
+                        </a>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void deletePerson(p)}
+                        disabled={deletingKey === p.key || busy}
+                        title="Supprimer ce contact (mauvais poste, doublon…)"
+                        className="inline-flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition disabled:opacity-40"
                       >
-                        <Linkedin className="w-3.5 h-3.5" />
-                        LinkedIn
-                      </a>
-                    ) : null}
+                        {deletingKey === p.key ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   {suggestions.length > 0 && (
