@@ -50,11 +50,12 @@ function publicPayload(result: TalentSearchResult) {
   return { filters: result.filters, summary: result.summary };
 }
 
-// Route publique: POST /api/partners/[slug]/search
+// Route publique: POST /api/partners/[id]/search
+// (le paramètre "id" est en réalité le slug du partenaire, comme les autres routes)
 // Body: { query: string, availableCities?: string[], lang?: "fr" | "en" }
 export async function POST(
   request: NextRequest,
-  _ctx: { params: Promise<{ slug: string }> }
+  _ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -99,7 +100,7 @@ export async function POST(
     cacheSet(cacheKey, result);
     return NextResponse.json(publicPayload(result));
   } catch (error) {
-    console.error("Erreur POST /api/partners/[slug]/search:", error);
+    console.error("Erreur POST /api/partners/[id]/search:", error);
     return NextResponse.json(
       { error: "Erreur lors de la recherche." },
       { status: 500 }
