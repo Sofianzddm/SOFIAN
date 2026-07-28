@@ -11,6 +11,7 @@ import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { getDeviseInfo } from "@/lib/devises";
 import { computeDateEcheance, extractDelaiPaiementJours } from "@/lib/documents/echeance";
+import { normalizeLocale } from "@/lib/documents/i18n";
 
 export async function POST(
   request: NextRequest,
@@ -33,8 +34,9 @@ export async function POST(
       );
     }
     const body = await request.json();
-    const { titre, dateEcheance, notes, lignes, billing, devise } = body;
+    const { titre, dateEcheance, notes, lignes, billing, devise, langueDocument } = body;
     const deviseCode = getDeviseInfo(devise).code;
+    const langue = normalizeLocale(langueDocument);
 
     // Validation
     if (!titre || !lignes || lignes.length === 0) {
@@ -141,6 +143,7 @@ export async function POST(
       dateDocument: dateFacture.toISOString(),
       dateEcheance: dateEcheanceFinale.toISOString(),
       devise: deviseCode,
+      locale: langue,
       emetteur: {
         nom: AGENCE_CONFIG.raisonSociale,
         adresse: AGENCE_CONFIG.adresse,
@@ -208,6 +211,7 @@ export async function POST(
         collaborationId: collab.id,
         createdById: user.id,
         devise: deviseCode,
+        langueDocument: langue,
       },
     });
 

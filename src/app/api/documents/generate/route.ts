@@ -8,6 +8,7 @@ import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { computeDateEcheance } from "@/lib/documents/echeance";
+import { normalizeLocale } from "@/lib/documents/i18n";
 
 interface LigneInput {
   description: string;
@@ -47,7 +48,10 @@ export async function POST(request: NextRequest) {
       pays: paysClient, // optionnel : pays du client pour la TVA (sinon pris sur la marque)
       numeroTVA: numeroTVAClient,
       inclureCgv = true,
+      langueDocument,
     } = body;
+
+    const langue = normalizeLocale(langueDocument);
 
     // Validation
     if (!type || !collaborationId || !lignes || lignes.length === 0) {
@@ -180,6 +184,7 @@ export async function POST(request: NextRequest) {
         modePaiement: "Virement bancaire",
         notes: commentaires || AGENCE_CONFIG.conditionsPaiement,
         inclureCgv: type === "DEVIS" ? inclureCgv !== false : true,
+        langueDocument: langue,
         createdById: user.id,
       },
     });

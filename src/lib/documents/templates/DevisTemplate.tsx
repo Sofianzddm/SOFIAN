@@ -11,6 +11,16 @@ import {
 } from "@react-pdf/renderer";
 import path from "path";
 import { formatMontant, getDeviseInfo } from "@/lib/devises";
+import {
+  getDocLabels,
+  normalizeLocale,
+  intlLocale,
+  translateMentionTVA,
+  translateModePaiement,
+  getCGVClauses,
+  getCGVFooter,
+  type DocLocale,
+} from "@/lib/documents/i18n";
 
 // Couleurs Glow Up Agency
 const COLORS = {
@@ -400,26 +410,33 @@ interface DevisData {
   commentaires?: string;
   /** Inclure les pages CGV (défaut true) */
   inclureCgv?: boolean;
+  /** Langue du document ("fr" par défaut, "en" pour une version anglaise) */
+  locale?: DocLocale | string;
 }
 
-// Le capital social est toujours libellé en EUR (siège France), peu importe la
-// devise du devis. On garde donc une helper dédiée.
-const formatMoneyEUR = (amount: number) => formatMontant(amount, "EUR");
-
-const formatDate = (dateStr: string) => {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-};
-
 export function DevisTemplate({ data }: { data: DevisData }) {
+  const locale = normalizeLocale(data.locale);
+  const t = getDocLabels(locale);
+  const dateLocale = intlLocale(locale);
   const devise = getDeviseInfo(data.devise).code;
-  const formatMoney = (amount: number) => formatMontant(amount, devise);
+  const formatMoney = (amount: number) => formatMontant(amount, devise, dateLocale);
+  // Le capital social est toujours libellé en EUR (siège France), peu importe
+  // la devise du devis.
+  const formatMoneyEUR = (amount: number) => formatMontant(amount, "EUR", dateLocale);
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString(dateLocale, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  };
   const inclureCgv = data.inclureCgv !== false;
   const totalPages = inclureCgv ? 3 : 1;
+  const cgvClauses = getCGVClauses(locale);
+  const cgvFooter = getCGVFooter(locale);
+  const cgvClausesPage2 = cgvClauses.slice(0, 6);
+  const cgvClausesPage3 = cgvClauses.slice(6);
   return (
     <Document>
       {/* PAGE 1 : Devis */}
@@ -435,13 +452,13 @@ export function DevisTemplate({ data }: { data: DevisData }) {
               {"\n"}
               {data.emetteur.codePostal} {data.emetteur.ville} - {data.emetteur.pays}
               {"\n\n"}
-              Capital de {formatMoneyEUR(data.emetteur.capital)}
+              {t.capitalDe(formatMoneyEUR(data.emetteur.capital))}
               {"\n"}
-              Siret : {data.emetteur.siret}
+              {t.siret} {data.emetteur.siret}
               {"\n"}
-              Tel : {data.emetteur.telephone}
+              {t.tel} {data.emetteur.telephone}
               {"\n"}
-              Email : {data.emetteur.email}
+              {t.email} {data.emetteur.email}
             </Text>
           </View>
           
@@ -449,11 +466,11 @@ export function DevisTemplate({ data }: { data: DevisData }) {
           <View style={{ width: "50%" }}>
             {/* Info document */}
             <View style={styles.documentBox}>
-              <Text style={styles.documentType}>DEVIS</Text>
-              <Text style={styles.documentRef}>N°{data.reference}</Text>
-              <Text style={styles.documentDate}>DATE : {formatDate(data.dateDocument)}</Text>
+              <Text style={styles.documentType}>{t.documentType("DEVIS")}</Text>
+              <Text style={styles.documentRef}>{t.refPrefix}{data.reference}</Text>
+              <Text style={styles.documentDate}>{t.date} {formatDate(data.dateDocument)}</Text>
               <Text style={styles.documentDate}>
-                DATE D'ÉCHÉANCE : {formatDate(data.dateEcheance)}
+                {t.dueDate} {formatDate(data.dateEcheance)}
               </Text>
             </View>
             
@@ -474,7 +491,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
                 textTransform: "uppercase",
                 letterSpacing: 0.5
               }}>
-                Client
+                {t.client}
               </Text>
               <Text style={{
                 fontSize: 8,
@@ -486,8 +503,8 @@ export function DevisTemplate({ data }: { data: DevisData }) {
                 {data.client.adresse ? `${data.client.adresse}\n` : ""}
                 {data.client.codePostal && data.client.ville ? `${data.client.codePostal} ${data.client.ville}\n` : ""}
                 {data.client.pays ? `${data.client.pays}\n` : ""}
-                {data.client.tva ? `TVA : ${data.client.tva}\n` : ""}
-                {data.client.siret ? `SIRET : ${data.client.siret}` : ""}
+                {data.client.tva ? `${t.vat} ${data.client.tva}\n` : ""}
+                {data.client.siret ? `${t.siretShort} ${data.client.siret}` : ""}
               </Text>
             </View>
           </View>
@@ -503,18 +520,18 @@ export function DevisTemplate({ data }: { data: DevisData }) {
             textTransform: "uppercase",
             letterSpacing: 0.5
           }}>
-            Objet du devis
+            {t.objet("DEVIS")}
           </Text>
           <Text style={styles.campagneTitre}>{data.titre}</Text>
         </View>
         
         {/* Tableau header */}
         <View style={styles.tableHeader}>
-          <Text style={[styles.tableHeaderCell, styles.colDesignation]}>DÉSIGNATION</Text>
-          <Text style={[styles.tableHeaderCell, styles.colQte]}>QTÉ</Text>
-          <Text style={[styles.tableHeaderCell, styles.colPUHT]}>PU HT</Text>
-          <Text style={[styles.tableHeaderCell, styles.colTVA]}>TVA</Text>
-          <Text style={[styles.tableHeaderCell, styles.colTotalHT]}>TOTAL HT</Text>
+          <Text style={[styles.tableHeaderCell, styles.colDesignation]}>{t.colDesignation}</Text>
+          <Text style={[styles.tableHeaderCell, styles.colQte]}>{t.colQte}</Text>
+          <Text style={[styles.tableHeaderCell, styles.colPUHT]}>{t.colPUHT}</Text>
+          <Text style={[styles.tableHeaderCell, styles.colTVA]}>{t.colTVA}</Text>
+          <Text style={[styles.tableHeaderCell, styles.colTotalHT]}>{t.colTotalHT}</Text>
         </View>
         
         {/* Lignes */}
@@ -531,15 +548,15 @@ export function DevisTemplate({ data }: { data: DevisData }) {
         {/* Récap TVA */}
         <View style={styles.recapTVA}>
           <View style={styles.recapTVACol}>
-            <Text style={styles.recapTVALabel}>BASE HT</Text>
+            <Text style={styles.recapTVALabel}>{t.baseHT}</Text>
             <Text style={styles.recapTVAValue}>{formatMoney(data.montantHT)}</Text>
           </View>
           <View style={styles.recapTVACol}>
-            <Text style={styles.recapTVALabel}>TAUX</Text>
+            <Text style={styles.recapTVALabel}>{t.taux}</Text>
             <Text style={styles.recapTVAValue}>{data.tauxTVA.toFixed(2)} %</Text>
           </View>
           <View style={styles.recapTVACol}>
-            <Text style={styles.recapTVALabel}>TVA</Text>
+            <Text style={styles.recapTVALabel}>{t.tvaShort}</Text>
             <Text style={styles.recapTVAValue}>{formatMoney(data.montantTVA)}</Text>
           </View>
         </View>
@@ -563,7 +580,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
                 fontWeight: "bold",
               }}
             >
-              Régime de TVA applicable : {data.mentionTVA}
+              {t.regimeTVA} {translateMentionTVA(data.mentionTVA, locale)}
             </Text>
           </View>
         )}
@@ -572,19 +589,19 @@ export function DevisTemplate({ data }: { data: DevisData }) {
         <View style={styles.totauxWrapper} wrap={false}>
           <View style={styles.totauxBox}>
             <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>TOTAL HT</Text>
+              <Text style={styles.totalLabel}>{t.totalHT}</Text>
               <Text style={styles.totalValue}>{formatMoney(data.montantHT)}</Text>
             </View>
             <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total TVA</Text>
+              <Text style={styles.totalLabel}>{t.totalTVA}</Text>
               <Text style={styles.totalValue}>{formatMoney(data.montantTVA)}</Text>
             </View>
             <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>TOTAL TTC</Text>
+              <Text style={styles.totalLabel}>{t.totalTTC}</Text>
               <Text style={styles.totalValue}>{formatMoney(data.montantTTC)}</Text>
             </View>
             <View style={styles.netPayerRow}>
-              <Text style={styles.netPayerLabel}>NET À PAYER</Text>
+              <Text style={styles.netPayerLabel}>{t.netAPayer}</Text>
               <Text style={styles.netPayerValue}>{formatMoney(data.montantTTC)}</Text>
             </View>
           </View>
@@ -607,14 +624,14 @@ export function DevisTemplate({ data }: { data: DevisData }) {
             textTransform: "uppercase",
             letterSpacing: 0.5
           }}>
-            Conditions de paiement
+            {t.conditionsPaiement}
           </Text>
           <Text style={{
             fontSize: 8,
             color: "#333333",
             marginBottom: 5
           }}>
-            Mode de paiement : {data.modePaiement}
+            {t.modePaiement} {translateModePaiement(data.modePaiement, locale)}
           </Text>
           <Text
             style={{
@@ -622,31 +639,27 @@ export function DevisTemplate({ data }: { data: DevisData }) {
               color: "#333333",
             }}
           >
-            Échéance : {formatDate(data.dateEcheance)}
+            {t.echeance} {formatDate(data.dateEcheance)}
           </Text>
         </View>
         
         {/* Signature section (non coupée entre deux pages) */}
         <View style={styles.signatureSection} wrap={false}>
           <View style={styles.signatureBox}>
-            <Text style={styles.signatureLabel}>Bon pour accord le :</Text>
-            <Text style={styles.signatureText}>Signature du client</Text>
+            <Text style={styles.signatureLabel}>{t.bonPourAccord}</Text>
+            <Text style={styles.signatureText}>{t.signatureClient}</Text>
           </View>
         </View>
         
         {/* Pénalités */}
         <View style={styles.penalitesBox}>
-          <Text style={styles.penalitesText}>
-            Taux de pénalité : En cas de retard de paiement, application d'intérêts de 3 fois le taux légal selon la loi n°2008-776 du 4 août 2008.
-            {"\n"}
-            En cas de retard de paiement, application d'une indemnité forfaitaire pour frais de recouvrement de 40€ selon l'article D. 441-5 du code du commerce.
-          </Text>
+          <Text style={styles.penalitesText}>{t.penalitesDevis}</Text>
         </View>
         
         {/* Commentaires */}
         {data.commentaires && (
           <View style={styles.commentairesBox}>
-            <Text style={styles.commentairesLabel}>Commentaires :</Text>
+            <Text style={styles.commentairesLabel}>{t.commentaires}</Text>
             <Text style={styles.commentairesText}>{data.commentaires}</Text>
           </View>
         )}
@@ -656,128 +669,64 @@ export function DevisTemplate({ data }: { data: DevisData }) {
           <Text style={styles.footerText}>
             {data.emetteur.nom} - {data.emetteur.adresse} - {data.emetteur.codePostal} {data.emetteur.ville}, {data.emetteur.pays}
             {"\n"}
-            N°TVA {data.emetteur.tva} - SIREN {data.emetteur.siret} - RCS {data.emetteur.rcs}
+            {t.footerTVA} {data.emetteur.tva} - {t.footerSIREN} {data.emetteur.siret} - {t.footerRCS} {data.emetteur.rcs}
             {"\n"}
-            Capital de {formatMoneyEUR(data.emetteur.capital)} - APE {data.emetteur.ape}
+            {t.footerCapital(formatMoneyEUR(data.emetteur.capital))} - {t.footerAPE} {data.emetteur.ape}
           </Text>
           <Text style={styles.pageNumber}>1/{totalPages}</Text>
         </View>
       </Page>
       
-      {/* PAGE 2-3 : CGV (optionnelles) */}
+      {/* PAGE 2 : CGV (optionnelles) */}
       {inclureCgv ? (
       <Page size="A4" style={styles.cgvPage}>
-        <Text style={styles.cgvTitle}>CONDITIONS GÉNÉRALES DE VENTE</Text>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 1 : Objet et champ d'application**</Text>
-          <Text style={styles.cgvClauseText}>
-            Les présentes conditions générales de vente (CGV) constituent le socle de la négociation commerciale et sont systématiquement adressées ou remises à chaque acheteur pour lui permettre de passer commande. Les conditions générales de vente décrites ci-après détaillent les droits et obligations de la société SASU Glow Up Agency, située au *EUROPARC DE PICHAURY C7, 1330 AVENUE JEAN-RENÉ GUILLIBERT GAUTIER DE LA LAUZIERE, 13290 AIX-EN-PROVENCE* et de son client dans le cadre du devis de la prestation de service demandé. Toute acceptation du devis/bon de commande englobe la mention « Je reconnais avoir pris connaissance et j'accepte les conditions générales de vente ci-annexées », impliquant l'adhésion sans réserve de l'acheteur aux présentes conditions générales de vente.
-          </Text>
-        </View>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 2 : Prix**</Text>
-          <Text style={styles.cgvClauseText}>
-            Le prix des prestations de services vendues sont ceux en vigueur au jour de la prise de commande. Ils sont libellés en euros et calculés hors taxes. Par voie de conséquence, ils seront majorés du taux de TVA et des frais de transport applicables au jour de la commande. La société Glow Up Agency se réserve le droit de modifier ses tarifs à tout moment avant la signature. Toutefois, elle s'engage à facturer les prestations aux prix indiqués lors de l'enregistrement de la commande.
-          </Text>
-        </View>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 3 : Escompte**</Text>
-          <Text style={styles.cgvClauseText}>
-            Aucun escompte ne sera consenti en cas de paiement anticipé.
-          </Text>
-        </View>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 4 : Modalités de paiement**</Text>
-          <Text style={styles.cgvClauseText}>
-            Le règlement des commandes s'effectue uniquement par virement bancaire. Les règlements seront effectués selon les conditions suivantes : paiement sous 30 jours suivant la réception de la facture, sauf accord contractuel spécifique mentionné sur le devis.
-          </Text>
-        </View>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 5 : Retard de paiement**</Text>
-          <Text style={styles.cgvClauseText}>
-            En cas de défaut de paiement total à échéance, l'acheteur doit verser à la société Glow Up Agency une pénalité de retard égale à trois fois le taux de l'intérêt légal. Le taux de l'intérêt légal retenu est celui en vigueur au jour du devis. Cette pénalité est calculée sur le montant TTC de la somme restant due et court à compter de la date d'échéance du prix sans qu'aucune mise en demeure préalable ne soit nécessaire.
-            {"\n\n"}
-            En sus des indemnités de retard, toute somme non payée à sa date d'exigibilité produira de plein droit une indemnité forfaitaire de 40 euros due au titre des frais de recouvrement (Articles 441-10 et D. 441-5 du code de commerce).
-          </Text>
-        </View>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 6 : Clause résolutoire**</Text>
-          <Text style={styles.cgvClauseText}>
-            Si dans les quinze jours qui suivent la mise en œuvre de la clause « Retard de paiement », l'acheteur ne s'est pas acquitté des sommes restantes dues, la vente sera résolue de plein droit et pourra ouvrir droit à l'allocation de dommages et intérêts au profit de la société Glow Up Agency.
-          </Text>
-        </View>
-        
+        <Text style={styles.cgvTitle}>{t.cgvTitle}</Text>
+
+        {cgvClausesPage2.map((clause, index) => (
+          <View key={index} style={styles.cgvClause}>
+            <Text style={styles.cgvClauseTitle}>{clause.title}</Text>
+            <Text style={styles.cgvClauseText}>{clause.text}</Text>
+          </View>
+        ))}
+
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             {data.emetteur.nom} - {data.emetteur.adresse} - {data.emetteur.codePostal} {data.emetteur.ville}, {data.emetteur.pays}
             {"\n"}
-            N°TVA {data.emetteur.tva} - SIREN {data.emetteur.siret} - RCS {data.emetteur.rcs}
+            {t.footerTVA} {data.emetteur.tva} - {t.footerSIREN} {data.emetteur.siret} - {t.footerRCS} {data.emetteur.rcs}
             {"\n"}
-            Capital de {formatMoneyEUR(data.emetteur.capital)} - APE {data.emetteur.ape}
+            {t.footerCapital(formatMoneyEUR(data.emetteur.capital))} - {t.footerAPE} {data.emetteur.ape}
           </Text>
           <Text style={styles.pageNumber}>2/3</Text>
         </View>
       </Page>
       ) : null}
 
+      {/* PAGE 3 : CGV (suite) */}
       {inclureCgv ? (
       <Page size="A4" style={styles.cgvPage}>
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 7 : Clause de réserve de propriété**</Text>
-          <Text style={styles.cgvClauseText}>
-            La société Glow Up Agency conserve la propriété des biens vendus jusqu'au paiement intégral du prix, en principal et en accessoires. À ce titre, si l'acheteur fait l'objet d'un redressement ou d'une liquidation judiciaire, la société Glow Up Agency se réserve le droit de revendiquer, dans le cadre de la procédure collective, les prestations vendues et restées impayées.
-          </Text>
-        </View>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 8 : Force majeure**</Text>
-          <Text style={styles.cgvClauseText}>
-            La responsabilité de la société Glow Up Agency ne pourra pas être mise en œuvre si la non-exécution ou le retard dans l'exécution de l'une de ses obligations découle d'un cas de force majeure. À ce titre, la force majeure s'entend de tout événement extérieur, imprévisible et irrésistible au sens de l'article 1148 du Code civil.
-          </Text>
-        </View>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 9 : Protection des données personnelles**</Text>
-          <Text style={styles.cgvClauseText}>
-            La société Glow Up Agency s'engage à respecter la réglementation applicable en matière de protection des données personnelles, en particulier le Règlement Général sur la Protection des Données (RGPD). Les données collectées dans le cadre de l'exécution des présentes CGV sont strictement confidentielles et destinées uniquement à la gestion de la relation commerciale avec le client. Le client dispose d'un droit d'accès, de rectification, et de suppression de ses données, qu'il peut exercer en envoyant une demande écrite à l'adresse suivante : *s.zeddam@glowupagence.fr*.
-          </Text>
-        </View>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 10: Tribunal compétent**</Text>
-          <Text style={styles.cgvClauseText}>
-            Tout litige relatif à l'interprétation et à l'exécution des présentes conditions générales de vente est soumis au droit français. À défaut de résolution amiable, le litige sera porté devant le Tribunal de commerce d'Aix-en-Provence.
-          </Text>
-        </View>
-        
-        <View style={styles.cgvClause}>
-          <Text style={styles.cgvClauseTitle}>**Clause n° 11 : Communication externe d'un salarié**</Text>
-          <Text style={styles.cgvClauseText}>
-            Tout salarié de Glow Up Agency entrant en contact direct avec un client ou une autre entité externe en dehors du cadre défini par l'agence doit immédiatement en informer la direction. Le non-respect de cette obligation pourrait donner lieu à des sanctions appropriées, conformément aux règles internes de l'entreprise.
-          </Text>
-        </View>
-        
+        {cgvClausesPage3.map((clause, index) => (
+          <View key={index} style={styles.cgvClause}>
+            <Text style={styles.cgvClauseTitle}>{clause.title}</Text>
+            <Text style={styles.cgvClauseText}>{clause.text}</Text>
+          </View>
+        ))}
+
         <Text style={[styles.cgvClauseText, { marginTop: 20, textAlign: "center", fontStyle: "italic" }]}>
-          **Fait à Aix-en-Provence, à la date de signature du devis par le client.**
+          {cgvFooter.faitA}
           {"\n\n"}
           ---
           {"\n\n"}
-          **CGV VALABLE JUSQU'A DÉCEMBRE 2026**
+          {cgvFooter.valid}
         </Text>
         
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             {data.emetteur.nom} - {data.emetteur.adresse} - {data.emetteur.codePostal} {data.emetteur.ville}, {data.emetteur.pays}
             {"\n"}
-            N°TVA {data.emetteur.tva} - SIREN {data.emetteur.siret} - RCS {data.emetteur.rcs}
+            {t.footerTVA} {data.emetteur.tva} - {t.footerSIREN} {data.emetteur.siret} - {t.footerRCS} {data.emetteur.rcs}
             {"\n"}
-            Capital de {formatMoneyEUR(data.emetteur.capital)} - APE {data.emetteur.ape}
+            {t.footerCapital(formatMoneyEUR(data.emetteur.capital))} - {t.footerAPE} {data.emetteur.ape}
           </Text>
           <Text style={styles.pageNumber}>3/3</Text>
         </View>

@@ -102,7 +102,11 @@ export async function PUT(
       modePaiement,
       referencePaiement,
       inclureCgv,
+      langueDocument,
     } = body;
+
+    const langueValide =
+      langueDocument === "fr" || langueDocument === "en" ? langueDocument : undefined;
 
     // Déterminer le type de TVA à utiliser
     let typeTVA = document.typeTVA;
@@ -190,6 +194,7 @@ export async function PUT(
         ...(document.type === "DEVIS" && typeof inclureCgv === "boolean"
           ? { inclureCgv }
           : {}),
+        ...(langueValide ? { langueDocument: langueValide } : {}),
         pdfBase64: null, // Invalider le cache PDF pour forcer la régénération avec les nouvelles données
       },
     });

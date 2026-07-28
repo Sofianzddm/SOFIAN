@@ -209,10 +209,14 @@ export function isDeviseSupported(code?: string | null): boolean {
  * sont remplacés par un espace classique pour rester compatible avec
  * `@react-pdf/renderer` (police Helvetica n'a pas tous les espaces unicode).
  */
-export function formatMontant(amount: number, devise?: string | null): string {
+export function formatMontant(
+  amount: number,
+  devise?: string | null,
+  intlLocale: string = "fr-FR"
+): string {
   const info = getDeviseInfo(devise);
   try {
-    return new Intl.NumberFormat("fr-FR", {
+    return new Intl.NumberFormat(intlLocale, {
       style: "currency",
       currency: info.code,
       minimumFractionDigits: 2,
@@ -223,7 +227,7 @@ export function formatMontant(amount: number, devise?: string | null): string {
       .replace(/\u202F/g, " ")
       .replace(/\u00A0/g, " ");
   } catch {
-    const number = new Intl.NumberFormat("fr-FR", {
+    const number = new Intl.NumberFormat(intlLocale, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(Number(amount) || 0);

@@ -111,6 +111,7 @@ export async function POST(
         factureRef: facture.reference,
         modePaiement: "Avoir",
         notes: `Avoir total suite au remplacement de la facture ${facture.reference}`,
+        langueDocument: facture.langueDocument,
         createdById: user.id,
       },
     });
@@ -148,6 +149,7 @@ export async function POST(
         poClient: facture.poClient,
         modePaiement: facture.modePaiement,
         notes: facture.notes,
+        langueDocument: facture.langueDocument,
         createdById: user.id,
       },
     });

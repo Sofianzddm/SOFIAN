@@ -84,9 +84,14 @@ export async function POST(
       );
     }
 
-    // PDF : existant en base ou génération à la volée
+    // Langue du document (le PDF envoyé au client pour signature doit être
+    // généré dans cette langue).
+    const locale = (document as { langueDocument?: string }).langueDocument === "en" ? "en" : "fr";
+
+    // PDF : on n'utilise le cache que pour le français. Pour l'anglais, on
+    // régénère systématiquement (les anciens caches peuvent être en français).
     let pdfBase64: string;
-    if (document.pdfBase64) {
+    if (document.pdfBase64 && locale === "fr") {
       pdfBase64 = document.pdfBase64.replace(/^data:application\/pdf;base64,/, "");
     } else {
       if (!document.collaboration) {
@@ -95,7 +100,7 @@ export async function POST(
           { status: 400 }
         );
       }
-      const pdfData = documentToPDFData(document);
+      const pdfData = documentToPDFData(document, locale);
       const pdfBuffer = await generateDocumentPDF(pdfData, document.type);
       pdfBase64 = pdfBuffer.toString("base64");
     }

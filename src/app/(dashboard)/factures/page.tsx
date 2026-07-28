@@ -21,6 +21,7 @@ import {
   Clock,
   Mail,
   Bell,
+  Languages,
 } from "lucide-react";
 import { formatMontant } from "@/lib/devises";
 
@@ -772,6 +773,12 @@ export default function FacturesPage() {
   const handleBulkDownloadPdf = () => {
     selectedIds.forEach((id) => {
       window.open(`/api/documents/${id}/pdf`, "_blank");
+    });
+  };
+
+  const handleBulkDownloadPdfEn = () => {
+    selectedIds.forEach((id) => {
+      window.open(`/api/documents/${id}/pdf?locale=en`, "_blank");
     });
   };
 
@@ -1539,6 +1546,13 @@ export default function FacturesPage() {
               >
                 <Download className="w-4 h-4" />
                 Télécharger PDF
+              </button>
+              <button
+                onClick={handleBulkDownloadPdfEn}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-medium"
+              >
+                <Languages className="w-4 h-4" />
+                PDF (EN)
               </button>
               <button
                 onClick={clearSelection}

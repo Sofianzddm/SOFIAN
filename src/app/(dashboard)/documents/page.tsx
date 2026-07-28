@@ -22,6 +22,7 @@ import {
   X,
   RefreshCw,
   Check,
+  Languages,
 } from "lucide-react";
 
 interface Document {
@@ -460,6 +461,14 @@ export default function DocumentsPage() {
                           title="Télécharger le PDF"
                         >
                           <Download className="w-4 h-4" />
+                        </a>
+                        <a
+                          href={`/api/documents/${doc.id}/pdf?locale=en`}
+                          target="_blank"
+                          className="p-2 text-gray-400 hover:text-glowup-rose hover:bg-glowup-lace rounded-lg transition-all"
+                          title="Télécharger le PDF en anglais"
+                        >
+                          <Languages className="w-4 h-4" />
                         </a>
                         {/* Bouton Remplacer (uniquement pour les factures non annulées) */}
                         {doc.type === "FACTURE" && doc.statut !== "ANNULE" && (

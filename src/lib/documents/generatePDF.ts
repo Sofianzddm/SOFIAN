@@ -5,17 +5,22 @@ import { FactureTemplate, FactureData } from "@/lib/documents/templates/FactureT
 import { DevisTemplate, DevisData } from "@/lib/documents/templates/DevisTemplate";
 import { createElement } from "react";
 import { AGENCE_CONFIG } from "./config";
+import { conditionsPaiementLabel, normalizeLocale, type DocLocale } from "./i18n";
 
-function extractConditionsPaiementLabel(notes?: string | null): string {
+/**
+ * Détermine le nombre de jours de paiement à partir des notes stockées.
+ * Renvoie 0 pour un paiement comptant, sinon le nombre de jours (défaut 30).
+ */
+function extractDelaiPaiementJours(notes?: string | null): number {
   const text = notes || "";
   if (/Paiement\s+comptant/i.test(text)) {
-    return "Paiement comptant à réception de la facture.";
+    return 0;
   }
   const match = text.match(/Paiement\s+sous\s+(\d+)\s+jours/i);
   if (match?.[1]) {
-    return `Paiement sous ${match[1]} jours à compter de la date de facture.`;
+    return Number(match[1]);
   }
-  return "Paiement sous 30 jours à compter de la date de facture.";
+  return 30;
 }
 
 /**
@@ -43,8 +48,14 @@ export async function generateDocumentPDF(data: FactureData | DevisData, type: s
 
 /**
  * Convertit un document Prisma en données pour le template PDF
+ * @param document Document Prisma
+ * @param locale Langue du PDF ("fr" par défaut, "en" pour une version anglaise)
  */
-export function documentToPDFData(document: any): FactureData | DevisData {
+export function documentToPDFData(
+  document: any,
+  locale: DocLocale | string = "fr"
+): FactureData | DevisData {
+  const docLocale = normalizeLocale(locale);
   const marque = document.collaboration?.marque;
   const talent = document.collaboration?.talent;
   const lignes = (document.lignes as any[]) || [];
@@ -105,6 +116,7 @@ export function documentToPDFData(document: any): FactureData | DevisData {
   if (document.type === "DEVIS") {
     return {
       ...commonData,
+      locale: docLocale,
       mentionTVA: document.mentionTVA || null,
       typeTVA: document.typeTVA || "FRANCE",
       commentaires: document.notes || undefined,
@@ -115,6 +127,7 @@ export function documentToPDFData(document: any): FactureData | DevisData {
   // Sinon, retourner le format FactureData (avec RIB, mentions, etc.)
   return {
     ...commonData,
+    locale: docLocale,
     type: document.type as "DEVIS" | "FACTURE" | "AVOIR" | "BON_DE_COMMANDE",
     poClient: document.poClient || undefined,
     mentionTVA: document.mentionTVA || "",
@@ -124,6 +137,9 @@ export function documentToPDFData(document: any): FactureData | DevisData {
       bic: AGENCE_CONFIG.rib.bic,
     },
     notes: document.notes || undefined,
-    conditionsPaiementLabel: extractConditionsPaiementLabel(document.notes),
+    conditionsPaiementLabel: conditionsPaiementLabel(
+      extractDelaiPaiementJours(document.notes),
+      docLocale
+    ),
   } as FactureData;
 }

@@ -1511,6 +1511,10 @@ model Document {
   // Devise du document (EUR par défaut). Permet d'émettre des factures en devises étrangères.
   devise String @default("EUR")
 
+  // Langue du document ("fr" par défaut, "en" pour un devis/facture en anglais).
+  // Utilisée pour le rendu PDF et les emails liés au document.
+  langueDocument String @default("fr")
+
   typeTVA    TypeTVA @default(FRANCE)
   mentionTVA String?
 

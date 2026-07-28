@@ -149,7 +149,7 @@ export async function POST(
           include: { collaboration: { include: { marque: true, talent: true } } },
         });
         if (docForPdf) {
-          const pdfData = documentToPDFData(docForPdf);
+          const pdfData = documentToPDFData(docForPdf, (docForPdf as any).langueDocument);
           pdfBuffer = await generateDocumentPDF(pdfData, docForPdf.type);
         }
       }
@@ -172,6 +172,7 @@ export async function POST(
         dateEmission: document.dateEmission,
         dateEcheance: echeance,
         joursRetard,
+        locale: (document as any).langueDocument === "en" ? "en" : "fr",
       },
       pdfBuffer,
       pdfFilename,

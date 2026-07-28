@@ -14,6 +14,7 @@ import {
 } from "@/lib/documents/templates/FactureTemplate";
 import { getDeviseInfo } from "@/lib/devises";
 import { computeDateEcheance } from "@/lib/documents/echeance";
+import { normalizeLocale, conditionsPaiementLabel as buildConditionsPaiementLabel } from "@/lib/documents/i18n";
 
 interface LigneInput {
   description: string;
@@ -77,6 +78,7 @@ export async function PATCH(
       notes,
       pays,
       devise,
+      langueDocument,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -90,9 +92,14 @@ export async function PATCH(
       notes?: string;
       pays?: string;
       devise?: string;
+      langueDocument?: string;
     };
 
     const deviseCode = getDeviseInfo(devise ?? (existing as any).devise).code;
+    const langue =
+      langueDocument !== undefined
+        ? normalizeLocale(langueDocument)
+        : normalizeLocale((existing as any).langueDocument);
 
     if (!clientNom || !lignes || !Array.isArray(lignes) || lignes.length === 0) {
       return NextResponse.json(
@@ -176,12 +183,18 @@ export async function PATCH(
       totalHT: l.totalHT,
     }));
 
+    const conditionsPaiementLabelLocalized =
+      String(conditionsReglement) === "CUSTOM" && conditionsReglementLibre?.trim()
+        ? conditionsReglementLibre.trim()
+        : buildConditionsPaiementLabel(delai, langue);
+
     const factureData: FactureData = {
       reference: existing.reference,
       titre: objet || existing.titre || existing.reference,
       dateDocument: dateDoc.toISOString(),
       dateEcheance: dateEcheanceDocument.toISOString(),
       devise: deviseCode,
+      locale: langue,
       emetteur: {
         nom: AGENCE_CONFIG.raisonSociale,
         adresse: AGENCE_CONFIG.adresse,
@@ -211,7 +224,7 @@ export async function PATCH(
       montantTTC,
       mentionTVA,
       notes: notesDocument,
-      conditionsPaiementLabel: conditionPaiementLabel,
+      conditionsPaiementLabel: conditionsPaiementLabelLocalized,
     };
 
     const pdfBuffer = await renderToBuffer(
@@ -239,6 +252,7 @@ export async function PATCH(
         clientAdresse: clientAdresse ?? null,
         clientPays: paysClient,
         devise: deviseCode,
+        langueDocument: langue,
       },
     });
 

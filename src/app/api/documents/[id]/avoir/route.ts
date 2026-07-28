@@ -109,6 +109,7 @@ export async function POST(
         factureRef: facture.reference, // Référence à la facture annulée
         modePaiement: facture.modePaiement,
         notes: `Avoir annulant la facture ${facture.reference}`,
+        langueDocument: facture.langueDocument,
         createdById: user.id,
       },
     });

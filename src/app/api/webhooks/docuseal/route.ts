@@ -154,8 +154,9 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
             : "#");
         const montantHT = Number((document as { montantHT?: unknown }).montantHT) ?? 0;
         const talentNomFull = [talent?.prenom, talent?.nom].filter(Boolean).join(" ") || "";
+        const locale = (document as { langueDocument?: string }).langueDocument === "en" ? "en" : "fr";
         const clientSubmitter = body.data?.submitters?.find((s) => s.role === "Client");
-        const signerName = clientSubmitter?.name?.trim() ?? "vous";
+        const signerName = clientSubmitter?.name?.trim() ?? (locale === "en" ? "you" : "vous");
 
         let html: string;
         try {
@@ -168,6 +169,7 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
               montantHT,
               signedDocumentUrl: finalSignedUrl,
               auditLogUrl: body.data?.audit_log_url ?? undefined,
+              locale,
             })
           );
           console.log("HTML généré, longueur:", html.length);
@@ -180,7 +182,10 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
         const sendResult = await resend.emails.send({
           from: fromEmail.includes("<") ? fromEmail : `Glow Up Agence <${fromEmail}>`,
           to: emails,
-          subject: `Devis ${document.reference} signé - ${talent?.prenom ?? ""} x ${marque?.nom ?? ""}`,
+          subject:
+            locale === "en"
+              ? `Quote ${document.reference} signed - ${talent?.prenom ?? ""} x ${marque?.nom ?? ""}`
+              : `Devis ${document.reference} signé - ${talent?.prenom ?? ""} x ${marque?.nom ?? ""}`,
           html,
         });
 

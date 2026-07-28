@@ -43,6 +43,7 @@ export default function NouvelleFactureLibrePage() {
   const [conditionsReglementLibre, setConditionsReglementLibre] = useState("");
   const [modePaiement, setModePaiement] = useState("Virement");
   const [devise, setDevise] = useState<DeviseCode>("EUR");
+  const [langueDocument, setLangueDocument] = useState<"fr" | "en">("fr");
   const [lignes, setLignes] = useState<LigneForm[]>([
     { description: "", quantite: 1, prixUnitaire: 0, tauxTVA: 20 },
   ]);
@@ -77,6 +78,7 @@ export default function NouvelleFactureLibrePage() {
         if (doc.devise && typeof doc.devise === "string") {
           setDevise(doc.devise.toUpperCase() as DeviseCode);
         }
+        setLangueDocument(doc.langueDocument === "en" ? "en" : "fr");
         const notes: string = doc.notes ?? "";
         const paymentClause = notes.split("—").slice(1).join("—").trim();
         if (/Paiement\s+comptant/i.test(notes)) {
@@ -232,6 +234,7 @@ export default function NouvelleFactureLibrePage() {
         lignes,
         notes: notes.trim() || undefined,
         devise,
+        langueDocument,
       };
 
       const baseEndpoint = isAvoir ? "/api/avoirs/standalone" : "/api/factures/standalone";
@@ -507,6 +510,22 @@ export default function NouvelleFactureLibrePage() {
               </select>
               <p className="text-[11px] text-gray-500 mt-1">
                 Tous les montants (lignes, totaux, PDF) seront libellés dans cette devise.
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Langue du document
+              </label>
+              <select
+                value={langueDocument}
+                onChange={(e) => setLangueDocument(e.target.value as "fr" | "en")}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B] bg-white"
+              >
+                <option value="fr">Français</option>
+                <option value="en">Anglais (English)</option>
+              </select>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Le PDF et les emails seront générés dans cette langue.
               </p>
             </div>
           </div>

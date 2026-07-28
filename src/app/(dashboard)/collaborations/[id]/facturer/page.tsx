@@ -61,6 +61,7 @@ export default function FacturerPage() {
   ]);
 
   const [devise, setDevise] = useState<DeviseCode>("EUR");
+  const [langueDocument, setLangueDocument] = useState<"fr" | "en">("fr");
 
   useEffect(() => {
     fetchCollaboration();
@@ -250,6 +251,7 @@ export default function FacturerPage() {
           typeTVA: getTypeTVA(billingData.pays.trim(), billingData.numeroTVA.trim() || null),
           mentionTVA: tvaRegime.mention ?? undefined,
           devise,
+          langueDocument,
         }),
       });
 
@@ -446,6 +448,23 @@ export default function FacturerPage() {
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
                   Les lignes, totaux et le PDF seront libellés dans cette devise.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Langue de la facture
+                </label>
+                <select
+                  value={langueDocument}
+                  onChange={(e) => setLangueDocument(e.target.value as "fr" | "en")}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent bg-white"
+                >
+                  <option value="fr">Français</option>
+                  <option value="en">Anglais (English)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Le PDF et les emails seront générés dans cette langue.
                 </p>
               </div>
             </div>

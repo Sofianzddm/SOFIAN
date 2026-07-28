@@ -47,6 +47,7 @@ export default function NouveauDevisLibrePage() {
   ]);
   const [notes, setNotes] = useState("");
   const [inclureCgv, setInclureCgv] = useState(true);
+  const [langueDocument, setLangueDocument] = useState<"fr" | "en">("fr");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -78,6 +79,7 @@ export default function NouveauDevisLibrePage() {
         }
         setNotes(doc.notes ?? "");
         setInclureCgv(doc.inclureCgv !== false);
+        setLangueDocument(doc.langueDocument === "en" ? "en" : "fr");
         if (Array.isArray(doc.lignes) && doc.lignes.length > 0) {
           setLignes(
             doc.lignes.map((l: any) => ({
@@ -206,6 +208,7 @@ export default function NouveauDevisLibrePage() {
         lignes,
         notes: notes.trim() || undefined,
         inclureCgv,
+        langueDocument,
         finaliser,
       };
 
@@ -568,6 +571,22 @@ export default function NouveauDevisLibrePage() {
                 </span>
               </span>
             </label>
+            <div className="mt-4">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Langue du devis
+              </label>
+              <select
+                value={langueDocument}
+                onChange={(e) => setLangueDocument(e.target.value as "fr" | "en")}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
+              >
+                <option value="fr">Français</option>
+                <option value="en">Anglais (English)</option>
+              </select>
+              <span className="block text-xs text-gray-500 mt-1">
+                Le PDF (libellés + CGV) et les emails seront générés dans cette langue.
+              </span>
+            </div>
           </div>
           <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-2">
             <div className="flex justify-between text-sm">

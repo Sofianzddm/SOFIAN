@@ -11,6 +11,14 @@ import {
 } from "@react-pdf/renderer";
 import path from "path";
 import { formatMontant, getDeviseInfo } from "@/lib/devises";
+import {
+  getDocLabels,
+  normalizeLocale,
+  intlLocale,
+  translateMentionTVA,
+  conditionsPaiementLabel,
+  type DocLocale,
+} from "@/lib/documents/i18n";
 
 // Couleurs Glow Up Agency
 const COLORS = {
@@ -346,25 +354,29 @@ interface FactureData {
   mentionTVA?: string | null;
   notes?: string;
   conditionsPaiementLabel?: string;
+  /** Langue du document ("fr" par défaut, "en" pour une version anglaise) */
+  locale?: DocLocale | string;
 }
 
-// Le capital social est toujours libellé en EUR (siège France), peu importe la
-// devise de la facture. On garde donc une helper dédiée.
-const formatMoneyEUR = (amount: number) => formatMontant(amount, "EUR");
-
-const formatDate = (dateStr: string) => {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-};
-
 export function FactureTemplate({ data }: { data: FactureData }) {
+  const locale = normalizeLocale(data.locale);
+  const t = getDocLabels(locale);
+  const dateLocale = intlLocale(locale);
   const devise = getDeviseInfo(data.devise).code;
-  const formatMoney = (amount: number) => formatMontant(amount, devise);
+  const formatMoney = (amount: number) => formatMontant(amount, devise, dateLocale);
+  // Le capital social est toujours libellé en EUR (siège France), peu importe
+  // la devise de la facture.
+  const formatMoneyEUR = (amount: number) => formatMontant(amount, "EUR", dateLocale);
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString(dateLocale, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  };
   const isAvoir = (data.type || "FACTURE").toUpperCase() === "AVOIR";
+  const docType = isAvoir ? "AVOIR" : "FACTURE";
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -379,13 +391,13 @@ export function FactureTemplate({ data }: { data: FactureData }) {
               {"\n"}
               {data.emetteur.codePostal} {data.emetteur.ville} - {data.emetteur.pays}
               {"\n\n"}
-              Capital de {formatMoneyEUR(data.emetteur.capital)}
+              {t.capitalDe(formatMoneyEUR(data.emetteur.capital))}
               {"\n"}
-              Siret : {data.emetteur.siret}
+              {t.siret} {data.emetteur.siret}
               {"\n"}
-              Tel : {data.emetteur.telephone}
+              {t.tel} {data.emetteur.telephone}
               {"\n"}
-              Email : {data.emetteur.email}
+              {t.email} {data.emetteur.email}
             </Text>
           </View>
           
@@ -393,12 +405,12 @@ export function FactureTemplate({ data }: { data: FactureData }) {
           <View style={{ width: "50%" }}>
             {/* Info document */}
             <View style={styles.documentBox}>
-              <Text style={styles.documentType}>{isAvoir ? "AVOIR" : "FACTURE"}</Text>
-              <Text style={styles.documentRef}>N°{data.reference}</Text>
-              <Text style={styles.documentDate}>DATE : {formatDate(data.dateDocument)}</Text>
+              <Text style={styles.documentType}>{t.documentType(docType)}</Text>
+              <Text style={styles.documentRef}>{t.refPrefix}{data.reference}</Text>
+              <Text style={styles.documentDate}>{t.date} {formatDate(data.dateDocument)}</Text>
               {!isAvoir && (
                 <Text style={styles.documentDate}>
-                  DATE D'ÉCHÉANCE : {formatDate(data.dateEcheance)}
+                  {t.dueDate} {formatDate(data.dateEcheance)}
                 </Text>
               )}
             </View>
@@ -420,7 +432,7 @@ export function FactureTemplate({ data }: { data: FactureData }) {
                 textTransform: "uppercase",
                 letterSpacing: 0.5
               }}>
-                Talent / Prestataire
+                {t.talentPrestataire}
               </Text>
               <Text style={{
                 fontSize: 8,
@@ -432,8 +444,8 @@ export function FactureTemplate({ data }: { data: FactureData }) {
                 {data.client.adresse ? `${data.client.adresse}\n` : ""}
                 {data.client.codePostal && data.client.ville ? `${data.client.codePostal} ${data.client.ville}\n` : ""}
                 {data.client.pays ? `${data.client.pays}\n` : ""}
-                {data.client.tva ? `TVA : ${data.client.tva}\n` : ""}
-                {data.client.siret ? `SIRET : ${data.client.siret}` : ""}
+                {data.client.tva ? `${t.vat} ${data.client.tva}\n` : ""}
+                {data.client.siret ? `${t.siretShort} ${data.client.siret}` : ""}
               </Text>
             </View>
           </View>
@@ -449,18 +461,18 @@ export function FactureTemplate({ data }: { data: FactureData }) {
             textTransform: "uppercase",
             letterSpacing: 0.5
           }}>
-            {isAvoir ? "Objet de l'avoir" : "Objet de la facture"}
+            {t.objet(docType)}
           </Text>
           <Text style={styles.campagneTitre}>{data.titre}</Text>
         </View>
         
         {/* Tableau header */}
         <View style={styles.tableHeader}>
-          <Text style={[styles.tableHeaderCell, styles.colDesignation]}>DÉSIGNATION</Text>
-          <Text style={[styles.tableHeaderCell, styles.colQte]}>QTÉ</Text>
-          <Text style={[styles.tableHeaderCell, styles.colPUHT]}>PU HT</Text>
-          <Text style={[styles.tableHeaderCell, styles.colTVA]}>TVA</Text>
-          <Text style={[styles.tableHeaderCell, styles.colTotalHT]}>TOTAL HT</Text>
+          <Text style={[styles.tableHeaderCell, styles.colDesignation]}>{t.colDesignation}</Text>
+          <Text style={[styles.tableHeaderCell, styles.colQte]}>{t.colQte}</Text>
+          <Text style={[styles.tableHeaderCell, styles.colPUHT]}>{t.colPUHT}</Text>
+          <Text style={[styles.tableHeaderCell, styles.colTVA]}>{t.colTVA}</Text>
+          <Text style={[styles.tableHeaderCell, styles.colTotalHT]}>{t.colTotalHT}</Text>
         </View>
         
         {/* Lignes */}
@@ -477,15 +489,15 @@ export function FactureTemplate({ data }: { data: FactureData }) {
         {/* Récap TVA */}
         <View style={styles.recapTVA}>
           <View style={styles.recapTVACol}>
-            <Text style={styles.recapTVALabel}>BASE HT</Text>
+            <Text style={styles.recapTVALabel}>{t.baseHT}</Text>
             <Text style={styles.recapTVAValue}>{formatMoney(data.montantHT)}</Text>
           </View>
           <View style={styles.recapTVACol}>
-            <Text style={styles.recapTVALabel}>TAUX</Text>
+            <Text style={styles.recapTVALabel}>{t.taux}</Text>
             <Text style={styles.recapTVAValue}>{data.tauxTVA.toFixed(2)} %</Text>
           </View>
           <View style={styles.recapTVACol}>
-            <Text style={styles.recapTVALabel}>TVA</Text>
+            <Text style={styles.recapTVALabel}>{t.tvaShort}</Text>
             <Text style={styles.recapTVAValue}>{formatMoney(data.montantTVA)}</Text>
           </View>
         </View>
@@ -509,7 +521,7 @@ export function FactureTemplate({ data }: { data: FactureData }) {
                 fontWeight: "bold",
               }}
             >
-              Régime de TVA applicable : {data.mentionTVA}
+              {t.regimeTVA} {translateMentionTVA(data.mentionTVA, locale)}
             </Text>
           </View>
         )}
@@ -517,19 +529,19 @@ export function FactureTemplate({ data }: { data: FactureData }) {
         {/* Totaux */}
         <View style={styles.totauxBox}>
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>TOTAL HT</Text>
+            <Text style={styles.totalLabel}>{t.totalHT}</Text>
             <Text style={styles.totalValue}>{formatMoney(data.montantHT)}</Text>
           </View>
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total TVA</Text>
+            <Text style={styles.totalLabel}>{t.totalTVA}</Text>
             <Text style={styles.totalValue}>{formatMoney(data.montantTVA)}</Text>
           </View>
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>TOTAL TTC</Text>
+            <Text style={styles.totalLabel}>{t.totalTTC}</Text>
             <Text style={styles.totalValue}>{formatMoney(data.montantTTC)}</Text>
           </View>
           <View style={styles.netPayerRow}>
-            <Text style={styles.netPayerLabel}>{isAvoir ? "MONTANT DE L'AVOIR" : "NET À PAYER"}</Text>
+            <Text style={styles.netPayerLabel}>{isAvoir ? t.montantAvoir : t.netAPayer}</Text>
             <Text style={styles.netPayerValue}>{formatMoney(data.montantTTC)}</Text>
           </View>
         </View>
@@ -537,13 +549,13 @@ export function FactureTemplate({ data }: { data: FactureData }) {
         {/* Coordonnées bancaires (uniquement pour une facture) */}
         {data.emetteur.iban && !isAvoir && (
           <View style={styles.ibanBox}>
-            <Text style={styles.ibanTitle}>Coordonnées bancaires pour le paiement</Text>
+            <Text style={styles.ibanTitle}>{t.coordonneesBancaires}</Text>
             <Text style={styles.ibanText}>
-              IBAN : {data.emetteur.iban}
+              {t.iban} {data.emetteur.iban}
               {"\n"}
-              {data.emetteur.bic && `BIC : ${data.emetteur.bic}\n`}
+              {data.emetteur.bic && `${t.bic} ${data.emetteur.bic}\n`}
               {"\n"}
-              Merci d'effectuer le virement avec la référence : {data.reference}
+              {t.virementReference(data.reference)}
             </Text>
           </View>
         )}
@@ -551,13 +563,8 @@ export function FactureTemplate({ data }: { data: FactureData }) {
         {/* Note avoir */}
         {isAvoir && (
           <View style={styles.ibanBox}>
-            <Text style={styles.ibanTitle}>Avoir / Note de crédit</Text>
-            <Text style={styles.ibanText}>
-              Le présent avoir vient en déduction des sommes dues ou donne lieu à
-              remboursement par virement bancaire.
-              {"\n"}
-              Référence à rappeler : {data.reference}
-            </Text>
+            <Text style={styles.ibanTitle}>{t.avoirTitre}</Text>
+            <Text style={styles.ibanText}>{t.avoirTexte(data.reference)}</Text>
           </View>
         )}
 
@@ -565,11 +572,9 @@ export function FactureTemplate({ data }: { data: FactureData }) {
         {!isAvoir && (
           <View style={styles.penalitesBox}>
             <Text style={styles.penalitesText}>
-              En cas de retard de paiement, application d'intérêts de 3 fois le taux légal selon la loi n°2008-776 du 4 août 2008.
+              {t.penalitesFacture}
               {"\n"}
-              Indemnité forfaitaire pour frais de recouvrement : 40€ (article D. 441-5 du code de commerce).
-              {"\n"}
-              {data.conditionsPaiementLabel || "Paiement sous 30 jours à compter de la date de facture."}
+              {data.conditionsPaiementLabel || conditionsPaiementLabel(30, locale)}
             </Text>
           </View>
         )}
@@ -577,7 +582,7 @@ export function FactureTemplate({ data }: { data: FactureData }) {
         {/* Notes */}
         {data.notes && (
           <View style={styles.notesBox}>
-            <Text style={styles.notesLabel}>Notes :</Text>
+            <Text style={styles.notesLabel}>{t.notes}</Text>
             <Text style={styles.notesText}>{data.notes}</Text>
           </View>
         )}
@@ -587,9 +592,9 @@ export function FactureTemplate({ data }: { data: FactureData }) {
           <Text style={styles.footerText}>
             {data.emetteur.nom} - {data.emetteur.adresse} - {data.emetteur.codePostal} {data.emetteur.ville}, {data.emetteur.pays}
             {"\n"}
-            N°TVA {data.emetteur.tva} - SIREN {data.emetteur.siret} - RCS {data.emetteur.rcs}
+            {t.footerTVA} {data.emetteur.tva} - {t.footerSIREN} {data.emetteur.siret} - {t.footerRCS} {data.emetteur.rcs}
             {"\n"}
-            Capital de {formatMoneyEUR(data.emetteur.capital)} - APE {data.emetteur.ape}
+            {t.footerCapital(formatMoneyEUR(data.emetteur.capital))} - {t.footerAPE} {data.emetteur.ape}
           </Text>
         </View>
       </Page>

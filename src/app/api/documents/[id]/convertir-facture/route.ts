@@ -106,6 +106,7 @@ export async function POST(
         poClient: devis.poClient,
         modePaiement: devis.modePaiement,
         notes: devis.notes,
+        langueDocument: devis.langueDocument,
         createdById: user.id,
       },
     });

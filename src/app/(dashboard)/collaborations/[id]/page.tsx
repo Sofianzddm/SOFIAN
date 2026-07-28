@@ -36,6 +36,7 @@ import {
   MessageSquare,
   FileSignature,
   RefreshCw,
+  Languages,
 } from "lucide-react";
 import { MentionTextarea, renderCommentWithMentions, type MentionableUser } from "@/components/MentionTextarea";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
@@ -258,6 +259,7 @@ export default function CollabDetailPage() {
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [notesDevis, setNotesDevis] = useState("");
   const [inclureCgvDevis, setInclureCgvDevis] = useState(true);
+  const [langueDevis, setLangueDevis] = useState<"fr" | "en">("fr");
   const [paysDevis, setPaysDevis] = useState("France");
   const [numeroTVADevis, setNumeroTVADevis] = useState("");
   const [delaiPaiementJours, setDelaiPaiementJours] = useState<number>(30);
@@ -287,6 +289,7 @@ export default function CollabDetailPage() {
     modePaiement: string;
     referencePaiement: string;
     inclureCgv: boolean;
+    langueDocument: "fr" | "en";
     lignes: Array<{
       description: string;
       quantite: number;
@@ -302,6 +305,7 @@ export default function CollabDetailPage() {
     modePaiement: "Virement",
     referencePaiement: "",
     inclureCgv: true,
+    langueDocument: "fr",
     lignes: [],
   });
   const [editModalTab, setEditModalTab] = useState<"general" | "lignes" | "facturation">("general");
@@ -509,7 +513,7 @@ export default function CollabDetailPage() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(marqueFormData),
       });
-      if (res.ok) { setShowCompleteMarqueModal(false); setPappersShowResults(false); setPappersSearchQuery(""); await fetchCollab(); await generateDocument(pendingDocType, true); }
+      if (res.ok) { setShowCompleteMarqueModal(false); setPappersShowResults(false); setPappersSearchQuery(""); await fetchCollab(); await generateDocument(pendingDocType, true, notesDevis || undefined, paysDevis, numeroTVADevis, delaiPaiementJours, inclureCgvDevis, langueDevis); }
       else alert("Erreur lors de la mise à jour de la marque");
     } catch (error) { alert("Erreur lors de la mise à jour"); }
     finally { setSavingMarque(false); setPendingDocType(null); }
@@ -574,7 +578,8 @@ export default function CollabDetailPage() {
     pays?: string,
     numeroTVA?: string,
     delai?: number,
-    inclureCgv?: boolean
+    inclureCgv?: boolean,
+    langueDocument?: "fr" | "en"
   ) => {
     if (!collab) return;
     if (!skipCheck && !checkMarqueInfos(type)) { setPendingDocType(type); initMarqueForm(); setShowCompleteMarqueModal(true); return; }
@@ -602,6 +607,7 @@ export default function CollabDetailPage() {
           pays: pays || undefined,
           numeroTVA: numeroTVA?.trim() || undefined,
           delaiPaiementJours: delai,
+          langueDocument: langueDocument || "fr",
           ...(type === "DEVIS" ? { inclureCgv: inclureCgv !== false } : {}),
         }),
       });
@@ -653,6 +659,7 @@ export default function CollabDetailPage() {
           modePaiement: docData.modePaiement || "Virement",
           referencePaiement: docData.referencePaiement || "",
           inclureCgv: docData.inclureCgv !== false,
+          langueDocument: docData.langueDocument === "en" ? "en" : "fr",
           lignes: (docData.lignes || []).map((l: any) => ({
             description: l.description,
             quantite: l.quantite,
@@ -807,6 +814,7 @@ export default function CollabDetailPage() {
           modePaiement: editFormData.modePaiement,
           referencePaiement: editFormData.referencePaiement,
           lignes: editFormData.lignes,
+          langueDocument: editFormData.langueDocument,
           ...(editingDoc.type === "DEVIS" ? { inclureCgv: editFormData.inclureCgv } : {}),
         }),
       });
@@ -1950,6 +1958,11 @@ export default function CollabDetailPage() {
                     <Download className="w-4 h-4" /> Devis {activeDevis.reference}
                   </a>
                 )}
+                {activeDevis && (
+                  <a href={`/api/documents/${activeDevis.id}/pdf?locale=en`} target="_blank" className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-50/60 text-blue-700 rounded-xl text-xs font-semibold hover:bg-blue-100 transition-colors">
+                    <Languages className="w-4 h-4" /> Quote {activeDevis.reference} (EN)
+                  </a>
+                )}
                 {canUploadSignedDevis && activeDevisForManualUpload && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-2">
                     <input
@@ -2001,6 +2014,9 @@ export default function CollabDetailPage() {
                   <>
                     <a href={`/api/documents/${activeFacture.id}/pdf`} target="_blank" className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-semibold hover:bg-emerald-100 transition-colors">
                       <Download className="w-4 h-4" /> Facture {activeFacture.reference}
+                    </a>
+                    <a href={`/api/documents/${activeFacture.id}/pdf?locale=en`} target="_blank" className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-50/60 text-emerald-700 rounded-xl text-xs font-semibold hover:bg-emerald-100 transition-colors">
+                      <Languages className="w-4 h-4" /> Invoice {activeFacture.reference} (EN)
                     </a>
                     {activeFacture.statut !== "PAYE" && (
                       <button onClick={() => createAvoir(activeFacture.id)} disabled={generatingDoc} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-orange-50 text-orange-600 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-50">
@@ -2595,6 +2611,24 @@ export default function CollabDetailPage() {
                   </span>
                 </div>
               </div>
+
+              {/* Langue du document */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Langue du document
+                </label>
+                <select
+                  value={langueDevis}
+                  onChange={(e) => setLangueDevis(e.target.value as "fr" | "en")}
+                  className="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-glowup-rose/20 focus:border-glowup-rose text-sm bg-white"
+                >
+                  <option value="fr">Français</option>
+                  <option value="en">Anglais (English)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Le PDF (libellés + CGV) sera généré dans cette langue.
+                </p>
+              </div>
             </div>
 
             <div className="flex gap-4">
@@ -2617,11 +2651,12 @@ export default function CollabDetailPage() {
                     false,
                     notesDevis || undefined,
                     paysDevis,
-                    numeroTVADevis,
-                    delaiPaiementJours,
-                    inclureCgvDevis
-                  )
-                }
+                  numeroTVADevis,
+                  delaiPaiementJours,
+                  inclureCgvDevis,
+                  langueDevis
+                )
+              }
                 disabled={generatingDoc}
                 className={`flex-1 px-6 py-3.5 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-2 ${
                   pendingGenerateType === "DEVIS"
@@ -2796,6 +2831,28 @@ export default function CollabDetailPage() {
                       </span>
                     </label>
                   )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Langue du document
+                    </label>
+                    <select
+                      value={editFormData.langueDocument}
+                      onChange={(e) =>
+                        setEditFormData((prev) => ({
+                          ...prev,
+                          langueDocument: e.target.value as "fr" | "en",
+                        }))
+                      }
+                      className="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm bg-white"
+                    >
+                      <option value="fr">Français</option>
+                      <option value="en">Anglais (English)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Le PDF (libellés + CGV) et les emails seront générés dans cette langue.
+                    </p>
+                  </div>
                 </>
               )}
 

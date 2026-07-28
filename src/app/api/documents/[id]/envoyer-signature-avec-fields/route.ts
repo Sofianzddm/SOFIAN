@@ -172,8 +172,9 @@ export async function POST(
     const talentNom = talent?.nom ?? "";
     const marqueNom = marque?.nom ?? "";
     const montantHT = Number(document.montantHT) ?? 0;
+    const locale = (document as any).langueDocument === "en" ? "en" : "fr";
     const dateDocument = document.dateDocument
-      ? new Date(document.dateDocument).toLocaleDateString("fr-FR", {
+      ? new Date(document.dateDocument).toLocaleDateString(locale === "en" ? "en-GB" : "fr-FR", {
           day: "numeric",
           month: "long",
           year: "numeric",
@@ -183,7 +184,10 @@ export async function POST(
     if (useResend) {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const fromEmail = process.env.RESEND_FROM_EMAIL!.trim();
-      const subject = `Devis ${document.reference} à signer — ${talentPrenom} × ${marqueNom}`;
+      const subject =
+        locale === "en"
+          ? `Quote ${document.reference} to sign — ${talentPrenom} × ${marqueNom}`
+          : `Devis ${document.reference} à signer — ${talentPrenom} × ${marqueNom}`;
 
       for (const submitter of submissionList as Array<{
         email?: string;
@@ -211,6 +215,7 @@ export async function POST(
             montantHT: Number(montantHT) ?? 0,
             dateDocument,
             signingUrl,
+            locale,
           })
         );
         await resend.emails.send({

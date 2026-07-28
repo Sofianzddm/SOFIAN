@@ -14,6 +14,7 @@ import {
   type LigneFacture,
 } from "@/lib/documents/templates/FactureTemplate";
 import { getDeviseInfo } from "@/lib/devises";
+import { normalizeLocale } from "@/lib/documents/i18n";
 
 interface LigneInput {
   description: string;
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
       notes,
       pays,
       devise,
+      langueDocument,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -61,9 +63,11 @@ export async function POST(request: NextRequest) {
       notes?: string;
       pays?: string;
       devise?: string;
+      langueDocument?: string;
     };
 
     const deviseCode = getDeviseInfo(devise).code;
+    const langue = normalizeLocale(langueDocument);
 
     if (!clientNom || !lignes || !Array.isArray(lignes) || lignes.length === 0) {
       return NextResponse.json(
@@ -130,6 +134,7 @@ export async function POST(request: NextRequest) {
       dateDocument: dateDoc.toISOString(),
       dateEcheance: dateDoc.toISOString(),
       devise: deviseCode,
+      locale: langue,
       emetteur: {
         nom: AGENCE_CONFIG.raisonSociale,
         adresse: AGENCE_CONFIG.adresse,
@@ -192,6 +197,7 @@ export async function POST(request: NextRequest) {
         clientAdresse: clientAdresse || null,
         clientPays: paysClient,
         devise: deviseCode,
+        langueDocument: langue,
       },
     });
 

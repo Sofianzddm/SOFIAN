@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
+import { normalizeLocale } from "@/lib/documents/i18n";
 
 interface LigneInput {
   description: string;
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
       notes,
       finaliser,
       inclureCgv,
+      langueDocument,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -54,7 +56,10 @@ export async function POST(request: NextRequest) {
       notes?: string;
       finaliser?: boolean;
       inclureCgv?: boolean;
+      langueDocument?: string;
     };
+
+    const langue = normalizeLocale(langueDocument);
 
     if (!clientNom || !lignes || !Array.isArray(lignes) || lignes.length === 0) {
       return NextResponse.json(
@@ -139,6 +144,7 @@ export async function POST(request: NextRequest) {
         clientPays: paysClient,
         notes: commentaireTVA,
         inclureCgv: inclureCgv !== false,
+        langueDocument: langue,
         createdBy: { connect: { id: user.id } },
       },
     });

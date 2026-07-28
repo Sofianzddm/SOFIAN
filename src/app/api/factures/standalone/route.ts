@@ -15,6 +15,7 @@ import {
 } from "@/lib/documents/templates/FactureTemplate";
 import { getDeviseInfo } from "@/lib/devises";
 import { computeDateEcheance } from "@/lib/documents/echeance";
+import { normalizeLocale, conditionsPaiementLabel as buildConditionsPaiementLabel } from "@/lib/documents/i18n";
 
 interface LigneInput {
   description: string;
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
       notes,
       pays,
       devise,
+      langueDocument,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -66,9 +68,11 @@ export async function POST(request: NextRequest) {
       notes?: string;
       pays?: string;
       devise?: string;
+      langueDocument?: string;
     };
 
     const deviseCode = getDeviseInfo(devise).code;
+    const langue = normalizeLocale(langueDocument);
 
     if (!clientNom || !lignes || !Array.isArray(lignes) || lignes.length === 0) {
       return NextResponse.json(
@@ -155,12 +159,20 @@ export async function POST(request: NextRequest) {
       totalHT: l.totalHT,
     }));
 
+    // Libellé des conditions de paiement dans la langue du document (les
+    // conditions "libres" saisies manuellement ne sont pas traduites).
+    const conditionsPaiementLabelLocalized =
+      String(conditionsReglement) === "CUSTOM" && conditionsReglementLibre?.trim()
+        ? conditionsReglementLibre.trim()
+        : buildConditionsPaiementLabel(delai, langue);
+
     const factureData: FactureData = {
       reference,
       titre: objet || reference,
       dateDocument: dateDoc.toISOString(),
       dateEcheance: dateEcheanceDocument.toISOString(),
       devise: deviseCode,
+      locale: langue,
       emetteur: {
         nom: AGENCE_CONFIG.raisonSociale,
         adresse: AGENCE_CONFIG.adresse,
@@ -190,7 +202,7 @@ export async function POST(request: NextRequest) {
       montantTTC,
       mentionTVA,
       notes: notesDocument,
-      conditionsPaiementLabel: conditionPaiementLabel,
+      conditionsPaiementLabel: conditionsPaiementLabelLocalized,
     };
 
     const pdfBuffer = await renderToBuffer(
@@ -224,6 +236,7 @@ export async function POST(request: NextRequest) {
         clientAdresse: clientAdresse || null,
         clientPays: paysClient,
         devise: deviseCode,
+        langueDocument: langue,
       },
     });
 

@@ -40,6 +40,7 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
+  Languages,
 } from "lucide-react";
 
 type DocStatut = "BROUILLON" | "VALIDE" | "ENVOYE" | "PAYE" | "ANNULE" | "REFUSE";
@@ -346,6 +347,13 @@ export default function FactureDetailPage() {
     if (!id) return;
     setActionLoading("pdf");
     window.open(`/api/documents/${id}/pdf`, "_blank");
+    setTimeout(() => setActionLoading(null), 500);
+  }, [id]);
+
+  const handlePdfEn = useCallback(() => {
+    if (!id) return;
+    setActionLoading("pdf");
+    window.open(`/api/documents/${id}/pdf?locale=en`, "_blank");
     setTimeout(() => setActionLoading(null), 500);
   }, [id]);
 
@@ -789,6 +797,14 @@ export default function FactureDetailPage() {
                     >
                       <Download className="w-4 h-4" />
                       Télécharger PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { handlePdfEn(); setDownloadOpen(false); }}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <Languages className="w-4 h-4" />
+                      Télécharger PDF (Anglais)
                     </button>
                     <button
                       type="button"

@@ -35,7 +35,35 @@ export interface SignatureCompletedEmailProps {
   montantHT: number;
   signedDocumentUrl: string;
   auditLogUrl?: string;
+  locale?: "fr" | "en";
 }
+
+const T = {
+  fr: {
+    preview: (ref: string) => `Devis ${ref} signé — Glow Up Agence`,
+    greeting: (n: string) => `Bonjour ${n},`,
+    success: "✓ Le devis a été signé par toutes les parties.",
+    reference: "📄 Référence :",
+    collaboration: "🎯 Collaboration :",
+    montant: "💶 Montant HT :",
+    instruction: "Vous pouvez télécharger le document signé via le lien ci-dessous.",
+    cta: "📥 Voir le document signé",
+    audit: "📋 Voir le journal d'audit",
+    rights: "Tous droits réservés.",
+  },
+  en: {
+    preview: (ref: string) => `Quote ${ref} signed — Glow Up Agence`,
+    greeting: (n: string) => `Hello ${n},`,
+    success: "✓ The quote has been signed by all parties.",
+    reference: "📄 Reference:",
+    collaboration: "🎯 Collaboration:",
+    montant: "💶 Amount (excl. VAT):",
+    instruction: "You can download the signed document via the link below.",
+    cta: "📥 View the signed document",
+    audit: "📋 View the audit log",
+    rights: "All rights reserved.",
+  },
+} as const;
 
 export function SignatureCompletedEmail({
   signerName,
@@ -45,12 +73,14 @@ export function SignatureCompletedEmail({
   montantHT,
   signedDocumentUrl,
   auditLogUrl,
+  locale = "fr",
 }: SignatureCompletedEmailProps) {
   const montantStr = `${montantHT} €`;
+  const t = T[locale === "en" ? "en" : "fr"];
   return (
-    <Html lang="fr">
+    <Html lang={locale}>
       <Head />
-      <Preview>Devis {documentReference} signé — Glow Up Agence</Preview>
+      <Preview>{t.preview(documentReference)}</Preview>
       <Body style={body}>
         <Container style={container}>
           <Section style={headerSection}>
@@ -58,26 +88,26 @@ export function SignatureCompletedEmail({
           </Section>
 
           <Section style={cardSection}>
-            <Text style={greeting}>Bonjour {signerName},</Text>
-            <Text style={successTitle}>✓ Le devis a été signé par toutes les parties.</Text>
+            <Text style={greeting}>{t.greeting(signerName)}</Text>
+            <Text style={successTitle}>{t.success}</Text>
 
             <Section style={infoBox}>
-              <Text style={infoLine}>📄 Référence : <strong>{documentReference}</strong></Text>
-              <Text style={infoLine}>🎯 Collaboration : {talentNom} × {marqueNom}</Text>
-              <Text style={infoLine}>💶 Montant HT : {montantStr}</Text>
+              <Text style={infoLine}>{t.reference} <strong>{documentReference}</strong></Text>
+              <Text style={infoLine}>{t.collaboration} {talentNom} × {marqueNom}</Text>
+              <Text style={infoLine}>{t.montant} {montantStr}</Text>
             </Section>
 
             <Text style={paragraph}>
-              Vous pouvez télécharger le document signé via le lien ci-dessous.
+              {t.instruction}
             </Text>
 
             <Section style={buttonSection}>
               <Button style={button} href={signedDocumentUrl}>
-                📥 Voir le document signé
+                {t.cta}
               </Button>
               {auditLogUrl ? (
                 <Button href={auditLogUrl} style={buttonSecondary}>
-                  📋 Voir le journal d&apos;audit
+                  {t.audit}
                 </Button>
               ) : null}
             </Section>
@@ -90,7 +120,7 @@ export function SignatureCompletedEmail({
             <Text style={footerText}>1330 avenue Jean-René Guillibert Gautier de La Lauzière, 13290 Aix-en-Provence</Text>
             <Text style={footerText}>SIRET : 921 034 146 00024</Text>
             <Link href="mailto:contact@glowupagence.fr" style={footerLink}>contact@glowupagence.fr</Link>
-            <Text style={footerSmall}>© {new Date().getFullYear()} Glow Up Agence. Tous droits réservés.</Text>
+            <Text style={footerSmall}>© {new Date().getFullYear()} Glow Up Agence. {t.rights}</Text>
           </Section>
         </Container>
       </Body>
