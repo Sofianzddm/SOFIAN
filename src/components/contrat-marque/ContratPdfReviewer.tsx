@@ -34,6 +34,11 @@ import { canUploadContratMarque } from "@/lib/contratMarqueAccess";
 import { FixedPdfLoader } from "@/components/contrat-marque/FixedPdfLoader";
 import { PDFJS_DIST_WORKER_SRC } from "@/lib/pdfjsWorkerSrc";
 import { ChevronDown, ChevronUp, MessageSquare, Package } from "lucide-react";
+import {
+  MentionTextarea,
+  renderCommentWithMentions,
+  type MentionableUser,
+} from "@/components/MentionTextarea";
 
 const COLORS = [
   { label: "Jaune", value: "#FFE28F" },
@@ -289,6 +294,7 @@ export default function ContratPdfReviewer({
   const [commentaires, setCommentaires] = useState<CommentRow[]>(initialCommentaires);
   const [commentText, setCommentText] = useState("");
   const [posting, setPosting] = useState(false);
+  const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
   const [busy, setBusy] = useState(false);
   const [infoOpen, setInfoOpen] = useState(true);
   const [livrablesOpen, setLivrablesOpen] = useState(true);
@@ -344,6 +350,31 @@ export default function ContratPdfReviewer({
   useEffect(() => {
     setCommentaires(initialCommentaires);
   }, [initialCommentaires]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/users/mentionable");
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as MentionableUser[];
+        if (!cancelled) setMentionableUsers(data);
+      } catch {
+        // silencieux : la mention reste optionnelle
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const mentionUsersById = useMemo(() => {
+    const m = new Map<string, { firstName: string; lastName: string }>();
+    for (const u of mentionableUsers) {
+      m.set(u.id, { firstName: u.firstName, lastName: u.lastName });
+    }
+    return m;
+  }, [mentionableUsers]);
 
   const proxyUrl = useMemo(() => {
     const base = `/api/collaborations/${collaborationId}/contrat-marque/proxy-pdf`;
@@ -1433,24 +1464,33 @@ export default function ContratPdfReviewer({
                       <p className="text-[10px] text-gray-500">
                         {c.auteurRole} · {c.auteur} · {formatDateTimeFr(c.createdAt)}
                       </p>
-                      <p className="mt-1 text-gray-800 whitespace-pre-wrap">{c.contenu}</p>
+                      <p className="mt-1 text-gray-800 whitespace-pre-wrap">
+                        {renderCommentWithMentions(c.contenu, mentionUsersById, currentUser.id, {
+                          accentColor: "#C08B8B",
+                        })}
+                      </p>
                     </div>
                   ))
                 )}
               </div>
               {!isArchivedVersion ? (
                 <>
-                  <textarea
+                  <MentionTextarea
                     value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
+                    onChange={setCommentText}
+                    mentionableUsers={mentionableUsers}
                     rows={3}
-                    className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
+                    disabled={posting}
+                    className="text-xs !min-h-[64px]"
                     placeholder={
                       readOnly
-                        ? "Laissez un message à l'équipe (visible par le juriste et l'agence)…"
-                        : "Message au fil général…"
+                        ? "Laissez un message à l'équipe — tapez @ pour mentionner (ex. le juriste)…"
+                        : "Message au fil général — tapez @ pour mentionner quelqu'un…"
                     }
                   />
+                  <p className="mt-1 text-[10px] text-gray-400">
+                    Astuce : tapez @ pour mentionner une personne, elle recevra une notification.
+                  </p>
                   <button
                     type="button"
                     onClick={postComment}
