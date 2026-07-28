@@ -166,7 +166,7 @@ const menuItems = [
     label: "Confirmations",
     href: "/confirmations",
     icon: Link2,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"],
+    roles: ["ADMIN"],
   },
   {
     label: "Prospection",

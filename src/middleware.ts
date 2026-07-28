@@ -208,6 +208,15 @@ export async function middleware(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
+  // Module Confirmations : réservé à l'ADMIN pour l'instant (fermé aux autres rôles)
+  if (
+    (pathname.startsWith("/confirmations") ||
+      pathname.startsWith("/api/confirmations")) &&
+    effectiveRole !== "ADMIN"
+  ) {
+    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
+  }
+
   if (pathname.startsWith("/juriste") && effectiveRole !== "JURISTE") {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
