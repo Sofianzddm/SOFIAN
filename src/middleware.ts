@@ -19,6 +19,7 @@ const PUBLIC_NO_AUTH_PATHS = [
   /^\/p\//,
   /^\/talentbook(\/|$)/,
   /^\/dinner-client\//,
+  /^\/confirmation\//,
   /^\/talent-demo$/,
   /^\/api\/auth\//,
 ];
@@ -122,6 +123,23 @@ export async function middleware(request: NextRequest) {
 
   const t = token as { role?: string; impersonatedRole?: string };
   const effectiveRole = t.impersonatedRole ?? t.role;
+
+  // Compte talent : strictement confiné à son portail /talent/* (+ login + auth).
+  // Toute tentative d'accès aux outils internes (négociations, marques, finance…)
+  // redirige vers son dashboard. Les APIs du portail (/api/talents/me, /api/notifications,
+  // /api/collaborations/*) ne passent pas par le middleware et gardent leur propre contrôle.
+  if (effectiveRole === "TALENT") {
+    const allowed =
+      pathname === "/login" ||
+      pathname.startsWith("/api/auth") ||
+      pathname === "/talent" ||
+      pathname.startsWith("/talent/");
+    if (!allowed) {
+      return withNoIndex(
+        NextResponse.redirect(new URL("/talent/dashboard", request.url))
+      );
+    }
+  }
 
   // Compte coiffeur : uniquement Cannes 2026 + API coiffeur + liste talents Cannes + auth
   if (effectiveRole === "COIFFEUR") {
@@ -256,6 +274,7 @@ export const config = {
     "/talentbook",
     "/talentbook/:path*",
     "/dinner-client/:path*",
+    "/confirmation/:path*",
     "/talent-demo",
     "/api/auth/:path*",
     "/dashboard",
@@ -265,6 +284,10 @@ export const config = {
     "/talents/:path*",
     "/negociations",
     "/negociations/:path*",
+    // Module Confirmations talent (interne)
+    "/confirmations",
+    "/confirmations/:path*",
+    "/api/confirmations/:path*",
     // Collaborations & dossiers
     "/collaborations",
     "/collaborations/:path*",

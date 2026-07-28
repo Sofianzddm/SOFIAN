@@ -31,6 +31,7 @@ import {
   Repeat,
   Camera,
   Sparkles,
+  Link2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -159,6 +160,12 @@ const menuItems = [
     label: "Négociations",
     href: "/negociations",
     icon: TrendingUp,
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"],
+  },
+  {
+    label: "Confirmations",
+    href: "/confirmations",
+    icon: Link2,
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"],
   },
   {

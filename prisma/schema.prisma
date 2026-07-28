@@ -1174,6 +1174,56 @@ model Negociation {
 }
 
 // ============================================
+// CONFIRMATIONS TALENT (module autonome)
+// Feature anti « faux go » : on envoie au talent un lien (sans login)
+// affichant une offre. Il répond formellement (refusé / sous conditions /
+// option / confirmé). Indépendant des négociations et collaborations.
+// ============================================
+
+model TalentConfirmation {
+  id String @id @default(cuid())
+
+  token String @unique // token du lien public
+
+  // Talent concerné (référence simple, pas de FK pour rester découplé)
+  talentId String
+
+  // Créateur de la demande (membre de l'équipe)
+  createdById String
+
+  // ── Offre affichée au talent ──
+  marque            String
+  budgetBrut        Decimal  @default(0)
+  commissionPercent Decimal  @default(20)
+  budgetNet         Decimal  @default(0) // calculé à l'enregistrement
+  livrables         String? // ex. « 1 Reel + 3 Story »
+  dateTournage      DateTime?
+  datePublication   DateTime?
+  villeDepart       String?
+  deplacement       String? // « Pris en charge » | « À ta charge » | « Sur place »
+  droits            String? // exclusivité / usage en une ligne
+  optionUntil       DateTime? // offre réservée jusqu'au…
+
+  // Checklist TM (questions anticipées sécurisées avant l'envoi : VHR, billets,
+  // +1, droits, brief, produits…). Stockée en JSON { key: { value, detail } }.
+  checklist Json?
+
+  // ── Décision du talent ──
+  statut    String    @default("EN_ATTENTE") // EN_ATTENTE | REFUSE | SOUS_CONDITIONS | OPTION | CONFIRME
+  note      String?   @db.Text // ce qui bloque (SOUS_CONDITIONS)
+  decidedAt DateTime?
+
+  sentAt    DateTime? // date de génération / dernière mise à jour du lien
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([talentId])
+  @@index([createdById])
+  @@index([statut])
+  @@map("talent_confirmations")
+}
+
+// ============================================
 // LIVRABLES NÉGOCIATION
 // ============================================
 
