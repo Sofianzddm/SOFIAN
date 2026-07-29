@@ -52,7 +52,7 @@ function SignatureBuilderContent() {
   }, [id, templateId, email, name, agenceEmail, agenceName]);
 
   const sendToSigner = async () => {
-    if (!templateId || !email || !agenceEmail) return;
+    if (sending || !templateId || !email || !agenceEmail) return;
     setSending(true);
     try {
       const res = await fetch(`/api/documents/${id}/envoyer-signature-avec-fields`, {
@@ -125,11 +125,21 @@ function SignatureBuilderContent() {
             <span className="font-medium">Placer les champs de signature sur le devis</span>
           </span>
         </div>
-        {sending && (
-          <span className="flex items-center gap-2 text-sm text-amber-700">
-            <Loader2 className="w-4 h-4 animate-spin" /> Envoi en cours...
-          </span>
-        )}
+        {/* Bouton maison : le send natif DocuSeal enverrait son propre email + une 2e submission. */}
+        <button
+          type="button"
+          onClick={sendToSigner}
+          disabled={sending}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-60"
+        >
+          {sending ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" /> Envoi en cours...
+            </>
+          ) : (
+            "Envoyer au signataire"
+          )}
+        </button>
       </header>
       <main className="flex-1 min-h-0">
         <DocusealBuilder
@@ -138,10 +148,9 @@ function SignatureBuilderContent() {
             { email, role: "Client", name: name || undefined },
             { email: agenceEmail, role: "Agence", name: agenceName || undefined },
           ]}
-          onSend={sendToSigner}
           language="fr"
-          withSendButton={true}
-          sendButtonText="Envoyer au signataire"
+          withSendButton={false}
+          withSignYourselfButton={false}
         />
       </main>
     </div>

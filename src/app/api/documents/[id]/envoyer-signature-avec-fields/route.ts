@@ -70,14 +70,20 @@ export async function POST(
       );
     }
 
-    // Submitters sans doublon : chaque email une seule fois (client reçoit une fois, agence une fois)
-    const submitters: { email: string; name: string; role: string; order: number }[] = [];
+    // Submitters sans doublon ; send_email:false aussi au niveau submitter (belt & suspenders)
+    const submitters: {
+      email: string;
+      name: string;
+      role: string;
+      order: number;
+      send_email: false;
+    }[] = [];
     const seenEmails = new Set<string>();
     const add = (email: string, name: string, role: string, order: number) => {
       const key = email.toLowerCase();
       if (seenEmails.has(key)) return;
       seenEmails.add(key);
-      submitters.push({ email, name, role, order });
+      submitters.push({ email, name, role, order, send_email: false });
     };
     add(signerEmail, signerName, "Client", 1);
     add(agenceEmail, agenceName, "Agence", 2);
