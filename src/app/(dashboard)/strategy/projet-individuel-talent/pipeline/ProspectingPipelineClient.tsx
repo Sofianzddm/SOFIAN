@@ -82,6 +82,20 @@ type ContactSearchState = {
   searched: boolean;
 };
 
+type BrandMatch = {
+  id: string;
+  nom: string;
+  ville: string;
+  contactCount: number;
+};
+
+type BrandSearchState = {
+  query: string;
+  loading: boolean;
+  results: BrandMatch[];
+  searched: boolean;
+};
+
 const REMINDER_BUSINESS_DAYS = 3;
 /** Doit rester aligné sur CASTING_RELANCE2_BUSINESS_DAYS (src/lib/casting-auto-send.ts). */
 const RELANCE2_BUSINESS_DAYS = 10;
@@ -207,6 +221,9 @@ export function ProspectingPipelineClient() {
   >({});
   const [contactSearchByMission, setContactSearchByMission] = useState<
     Record<string, ContactSearchState>
+  >({});
+  const [brandSearchByMission, setBrandSearchByMission] = useState<
+    Record<string, BrandSearchState>
   >({});
   const [scheduledSends, setScheduledSends] = useState<ScheduledSend[]>([]);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
@@ -397,8 +414,8 @@ export function ProspectingPipelineClient() {
     cancelEditBrand();
   }
 
-  async function searchClientContacts(m: Mission) {
-    const brand = String(m.targetBrand || "").trim();
+  async function searchClientContacts(m: Mission, brandOverride?: string) {
+    const brand = String(brandOverride ?? m.targetBrand ?? "").trim();
     if (brand.length < 2) {
       setError("Nom de la boîte trop court pour rechercher des contacts.");
       return;
@@ -438,6 +455,53 @@ export function ProspectingPipelineClient() {
       setContactSearchByMission((prev) => ({
         ...prev,
         [m.id]: { loading: false, results: [], searched: true },
+      }));
+    }
+  }
+
+  // Recherche par préfixe dans la base marque interne : « star » → toutes les
+  // marques qui commencent par (Starbucks…), pour retrouver la bonne fiche sans
+  // connaître l'orthographe exacte.
+  async function searchBrands(missionId: string) {
+    const query = String(brandSearchByMission[missionId]?.query || "").trim();
+    if (query.length < 2) {
+      setError("Saisis au moins 2 caractères pour chercher une marque.");
+      return;
+    }
+    setError(null);
+    setBrandSearchByMission((prev) => ({
+      ...prev,
+      [missionId]: {
+        query,
+        loading: true,
+        results: prev[missionId]?.results || [],
+        searched: prev[missionId]?.searched || false,
+      },
+    }));
+    try {
+      const res = await fetch(
+        `/api/marques/search?q=${encodeURIComponent(query)}`,
+        { credentials: "include" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Recherche impossible.");
+      const results: BrandMatch[] = (Array.isArray(data.marques) ? data.marques : []).map(
+        (b: Record<string, unknown>) => ({
+          id: String(b.id || ""),
+          nom: String(b.nom || "").trim(),
+          ville: String(b.ville || "").trim(),
+          contactCount: Number(b.contactCount || 0),
+        })
+      );
+      setBrandSearchByMission((prev) => ({
+        ...prev,
+        [missionId]: { query, loading: false, results, searched: true },
+      }));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+      setBrandSearchByMission((prev) => ({
+        ...prev,
+        [missionId]: { query, loading: false, results: [], searched: true },
       }));
     }
   }
@@ -1271,6 +1335,84 @@ export function ProspectingPipelineClient() {
                             ) : null}
                             Rechercher « {m.targetBrand} »
                           </button>
+                        </div>
+                        <div className="grid gap-1 border-t border-dashed border-gray-300 pt-2">
+                          <span className="text-[11px] font-medium text-gray-500">
+                            Mauvaise orthographe ? Cherche dans la base marque
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={brandSearchByMission[m.id]?.query || ""}
+                              onChange={(e) =>
+                                setBrandSearchByMission((prev) => ({
+                                  ...prev,
+                                  [m.id]: {
+                                    query: e.target.value,
+                                    loading: prev[m.id]?.loading || false,
+                                    results: prev[m.id]?.results || [],
+                                    searched: prev[m.id]?.searched || false,
+                                  },
+                                }))
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void searchBrands(m.id);
+                                }
+                              }}
+                              placeholder="ex. star → Starbucks"
+                              className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-xs"
+                            />
+                            <button
+                              type="button"
+                              disabled={
+                                brandSearchByMission[m.id]?.loading ||
+                                (brandSearchByMission[m.id]?.query || "").trim().length < 2
+                              }
+                              onClick={() => void searchBrands(m.id)}
+                              className="inline-flex shrink-0 items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs disabled:opacity-50"
+                            >
+                              {brandSearchByMission[m.id]?.loading ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : null}
+                              Chercher
+                            </button>
+                          </div>
+                          {brandSearchByMission[m.id]?.searched &&
+                            !brandSearchByMission[m.id]?.loading &&
+                            (brandSearchByMission[m.id]?.results.length ?? 0) === 0 && (
+                              <p className="text-[11px] text-gray-500">
+                                Aucune marque « {brandSearchByMission[m.id]?.query} » dans la base.
+                              </p>
+                            )}
+                          {(brandSearchByMission[m.id]?.results.length ?? 0) > 0 && (
+                            <ul className="grid gap-1">
+                              {brandSearchByMission[m.id]?.results.map((b) => (
+                                <li
+                                  key={b.id}
+                                  className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-2 py-1"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate text-xs font-medium text-gray-800">
+                                      {b.nom}
+                                    </p>
+                                    <p className="truncate text-[11px] text-gray-500">
+                                      {b.contactCount} contact{b.contactCount > 1 ? "s" : ""}
+                                      {b.ville ? ` · ${b.ville}` : ""}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={contactSearchByMission[m.id]?.loading}
+                                    onClick={() => void searchClientContacts(m, b.nom)}
+                                    className="shrink-0 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] text-indigo-700 disabled:opacity-50"
+                                  >
+                                    Voir les contacts
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
                         {contactSearchByMission[m.id]?.searched &&
                           !contactSearchByMission[m.id]?.loading &&
