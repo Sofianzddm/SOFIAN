@@ -18,7 +18,7 @@ import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
  *   partnerName?: string,
  *   language: "fr" | "en",
  *   market?: "FR" | "BENELUX",
- *   rows: [{ prenom?, nom?, poste?, email?, language? }]
+ *   rows: [{ prenom?, nom?, poste?, email?, language?, linkedinUrl? }]
  * }
  */
 
@@ -32,6 +32,7 @@ type ImportRow = {
   poste?: string;
   email?: string;
   language?: string;
+  linkedinUrl?: string;
 };
 
 const clean = (v: unknown): string | null => {
@@ -154,6 +155,7 @@ export async function POST(request: NextRequest) {
           nom: prenom ? nom : null,
           email,
           poste: clean(row.poste),
+          linkedinUrl: clean(row.linkedinUrl),
           language: rowLanguage,
           createdById: session.user.id,
           ...(email

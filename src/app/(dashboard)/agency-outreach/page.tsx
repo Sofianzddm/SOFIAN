@@ -326,6 +326,7 @@ type ImportRow = {
   poste: string;
   email: string;
   language?: "fr" | "en";
+  linkedinUrl?: string;
 };
 
 /** Normalise une valeur de cellule « Langue » vers "fr" | "en" (ou undefined). */
@@ -426,6 +427,7 @@ function parseImportText(text: string): {
         if (c.includes("role") || c === "poste" || c === "titre" || c === "fonction") cols.poste = idx;
         else if (c.includes("mail")) cols.email = idx;
         else if (c === "langue" || c === "language" || c === "lang" || c.startsWith("langue")) cols.language = idx;
+        else if (c.includes("linkedin")) cols.linkedinUrl = idx;
       });
       break;
     }
@@ -464,6 +466,7 @@ function parseImportText(text: string): {
       poste: cell(cells, "poste"),
       email: cell(cells, "email"),
       language: parseLanguageValue(cell(cells, "language")),
+      linkedinUrl: cell(cells, "linkedinUrl"),
     });
   }
 
@@ -2204,9 +2207,9 @@ function ImportAgencyModal({
         <div className="p-5 space-y-4">
           <p className="text-xs opacity-70" style={{ color: LICORICE }}>
             Glisse un fichier Excel (.xlsx) ou CSV avec au minimum <strong>Prénom</strong> /{" "}
-            <strong>Nom</strong> (colonnes <strong>Email</strong>, <strong>Poste</strong> et{" "}
-            <strong>Langue</strong> — FR/EN — optionnelles). Avec email → « À contacter » ;
-            sans email → file{" "}
+            <strong>Nom</strong> (colonnes <strong>Email</strong>, <strong>Poste</strong>,{" "}
+            <strong>URL LinkedIn</strong> et <strong>Langue</strong> — FR/EN — optionnelles).
+            Avec email → « À contacter » ; sans email → file{" "}
             <a href="/enrichissement" className="underline font-semibold">
               /enrichissement
             </a>{" "}
@@ -2320,7 +2323,7 @@ function ImportAgencyModal({
                 setSheetInfo(null);
                 handleText(e.target.value);
               }}
-              placeholder={"Prénom\tNom\tPoste\tEmail\tLangue"}
+              placeholder={"Prénom\tNom\tPoste\tEmail\tURL LinkedIn\tLangue"}
               rows={5}
               className="w-full mt-2 px-3 py-2 rounded-xl border text-xs font-mono"
               style={{ borderColor: OLD_ROSE, color: LICORICE }}
@@ -2334,7 +2337,11 @@ function ImportAgencyModal({
               <p style={{ color: LICORICE }}>
                 <strong>{rows.length}</strong> ligne(s) détectée(s) —{" "}
                 <strong>{withEmail.length}</strong> avec email (cycle),{" "}
-                <strong>{withoutEmail.length}</strong> sans email (enrichissement).
+                <strong>{withoutEmail.length}</strong> sans email (enrichissement)
+                {rows.filter((r) => r.linkedinUrl?.trim()).length > 0
+                  ? ` · ${rows.filter((r) => r.linkedinUrl?.trim()).length} LinkedIn`
+                  : ""}
+                .
               </p>
               <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
                 {rows.slice(0, 50).map((r, i) => {
@@ -2346,6 +2353,11 @@ function ImportAgencyModal({
                       </span>
                       <span className="opacity-60 truncate">{r.poste}</span>
                       <span className="ml-auto opacity-60 shrink-0">{r.email || "(sans email)"}</span>
+                      {r.linkedinUrl?.trim() ? (
+                        <span className="shrink-0 font-medium" style={{ color: "#0A66C2" }}>
+                          in
+                        </span>
+                      ) : null}
                       <span
                         className="inline-flex rounded-md overflow-hidden border shrink-0"
                         style={{ borderColor: "#E5E0DA" }}

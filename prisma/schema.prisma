@@ -3562,6 +3562,9 @@ model AgencyContact {
   // Exclu de la prospection (ne pas proposer / contacter)
   excluded  Boolean @default(false)
 
+  // Lien LinkedIn (import carto) — affiché en enrichissement comme pour les marques.
+  linkedinUrl String?
+
   // Enrichissement emails (même logique que MarqueContact / BeneluxContact).
   // null = pas en file ; QUEUED = à trouver ; FOUND = complété ; NOT_FOUND = introuvable.
   emailLookupStatus   String? // QUEUED | FOUND | NOT_FOUND
