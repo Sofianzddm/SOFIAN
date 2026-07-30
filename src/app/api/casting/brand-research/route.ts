@@ -59,25 +59,60 @@ function tryParseBrandJson(raw: string): BrandResearchPayload {
   throw new Error("parse");
 }
 
+const FR_MONTHS = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+] as const;
+
+/** Mois en cours + mois précédent (libellés FR), pour borner la recherche d'actus. */
+function getResearchMonthWindow(now = new Date()): {
+  currentLabel: string;
+  previousLabel: string;
+  contextLabel: string;
+} {
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const prev = new Date(currentYear, currentMonth - 1, 1);
+  const currentLabel = `${FR_MONTHS[currentMonth]} ${currentYear}`;
+  const previousLabel = `${FR_MONTHS[prev.getMonth()]} ${prev.getFullYear()}`;
+  return {
+    currentLabel,
+    previousLabel,
+    contextLabel: `${previousLabel}–${currentLabel}`,
+  };
+}
+
 /** Prompt d'analyse pour UNE marque. */
 function buildBrandPrompt(brand: string): string {
+  const { currentLabel, previousLabel, contextLabel } = getResearchMonthWindow();
   return `Tu es un expert en marketing d'influence et en analyse de marques.
 
-Utilise les outils de recherche (web + X) pour identifier **la toute dernière nouveauté** de la marque "${brand}" (contexte actuel : avril 2026).
+Utilise les outils de recherche (web + X) pour identifier **la toute dernière nouveauté** de la marque "${brand}" (contexte actuel : ${currentLabel}).
 
-Objectif prioritaire : Trouver et décrire précisément **le lancement le plus récent des 3-4 derniers mois** (janvier-avril 2026 si possible, ou fin 2025 si rien de plus récent).
+Objectif prioritaire : Trouver et décrire précisément **le lancement le plus récent du mois en cours ou du mois précédent uniquement** (${contextLabel}). Rien d'antérieur à ${previousLabel}.
 
 Pour chaque champ JSON, rédige 2 à 4 phrases en français, concrètes et vivantes :
 
-- recentCampaigns : les activations et campagnes les plus récentes (2025-2026), en mettant l'accent sur ce qui est en cours ou très frais.
-- newProducts : **la toute dernière nouveauté** (nom exact du produit/collection, date de lancement, notes clés, vibe). Si plusieurs, priorise le plus récent. Sois précis.
+- recentCampaigns : les activations et campagnes de ${contextLabel} uniquement, en mettant l'accent sur ce qui est en cours ou très frais.
+- newProducts : **la toute dernière nouveauté** dans cette fenêtre (nom exact du produit/collection, date de lancement, notes clés, vibe). Si plusieurs, priorise le plus récent. Sois précis.
 - brandPositioning : le positionnement actuel, ce qui les distingue vraiment aujourd'hui.
 - influenceStrategy : comment ils travaillent avec les créateurs en ce moment (type de profils, formats, tonalité).
 
 Règles strictes :
-- Priorise toujours la nouveauté la plus récente des derniers mois.
+- Fenêtre temporelle MAXIMALE : ${previousLabel} et ${currentLabel} seulement. Ignore tout lancement / campagne antérieur.
+- Priorise toujours la nouveauté la plus récente dans cette fenêtre (idéalement ${currentLabel}).
 - Sois concret : nom du produit, date approximative, notes ou caractéristiques clés.
-- Si tu ne trouves rien de très récent, dis-le clairement au lieu d'inventer.
+- Si tu ne trouves rien dans ${contextLabel}, dis-le clairement au lieu d'inventer ou de remonter plus loin.
 - Parle comme quelqu'un qui suit vraiment la marque, pas comme un communiqué.
 
 Réponds UNIQUEMENT en JSON strict :
