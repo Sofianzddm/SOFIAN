@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { useParams } from "next/navigation";
 import {
   TrendingUp,
@@ -14,7 +14,6 @@ import {
   Users,
   Heart,
   ExternalLink,
-  Search,
   Loader2,
 } from "lucide-react";
 import { formatPercent } from "@/lib/format";
@@ -39,6 +38,7 @@ import {
   type TalentSearchFilters,
 } from "@/lib/talent-search-local";
 import { MultiSelectFilter } from "@/components/talentbook/MultiSelectFilter";
+import TalentSearchBar, { type Criterion } from "@/components/partners/TalentSearchBar";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
 function getVisitorId(): string {
@@ -1608,10 +1608,6 @@ export default function PartnerTalentBookPage() {
   const [filterSports, setFilterSports] = useState<string[]>([]);
   const [filterMobilite, setFilterMobilite] = useState<string[]>([]);
   const [filterEnceinte, setFilterEnceinte] = useState("");
-  const [aiQuery, setAiQuery] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState("");
-  const [aiSummary, setAiSummary] = useState("");
   const [selectedTalent, setSelectedTalent] = useState<Talent | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [favoritesLoaded, setFavoritesLoaded] = useState(false);
@@ -1628,6 +1624,7 @@ export default function PartnerTalentBookPage() {
   const sessionEndSentRef = useRef(false);
   const favoritesRef = useRef<string[]>(favorites);
   const slugRef = useRef(slug);
+  const aiCriteriaSessionRef = useRef(false);
   favoritesRef.current = favorites;
   slugRef.current = slug ?? undefined;
 
@@ -1881,8 +1878,6 @@ export default function PartnerTalentBookPage() {
     setFilterSports([]);
     setFilterMobilite([]);
     setFilterEnceinte("");
-    setAiSummary("");
-    setAiError("");
   };
 
   function applyAiFilters(filters: TalentSearchFilters, summary: string) {
@@ -1916,33 +1911,26 @@ export default function PartnerTalentBookPage() {
       filters.mobilite.length > 0 ||
       filters.enceinte === true;
 
-    setAiError(hasCriteria ? "" : t.aiSearchNoCriteria);
-    setAiSummary(summary || "");
     return hasCriteria;
   }
 
-  async function handleAiSearch() {
-    const query = aiQuery.trim();
-    if (!query || aiLoading) return;
-
-    setAiError("");
-    setAiSummary("");
-
+  async function fetchTalentsFromQuery(query: string) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return;
     // 1) Tentative locale (instantanée, gratuite). Si la requête est entièrement
     //    couverte par le dictionnaire, on applique sans appel réseau.
-    const local = parseTalentQueryLocal(query, allVilles, lang);
+    const local = parseTalentQueryLocal(trimmedQuery, allVilles, lang);
     if (local.covered) {
       applyAiFilters(local.filters, local.summary);
       return;
     }
 
     // 2) Sinon, renfort IA côté serveur (hybride + cache + rate-limit).
-    setAiLoading(true);
     try {
       const res = await fetch(`/api/partners/${slug}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, availableCities: allVilles, lang }),
+        body: JSON.stringify({ query: trimmedQuery, availableCities: allVilles, lang }),
       });
 
       if (!res.ok) {
@@ -1950,7 +1938,7 @@ export default function PartnerTalentBookPage() {
         if (local.hasCriteria) {
           applyAiFilters(local.filters, local.summary);
         } else {
-          setAiError(t.aiSearchError);
+          console.warn(t.aiSearchError);
         }
         return;
       }
@@ -1962,10 +1950,58 @@ export default function PartnerTalentBookPage() {
       if (local.hasCriteria) {
         applyAiFilters(local.filters, local.summary);
       } else {
-        setAiError(t.aiSearchError);
+        console.warn(t.aiSearchError);
       }
-    } finally {
-      setAiLoading(false);
+    }
+  }
+
+  function pushUnique(setter: Dispatch<SetStateAction<string[]>>, value?: string) {
+    if (!value) return;
+    setter((prev) => (prev.includes(value) ? prev : [...prev, value]));
+  }
+
+  function applyCriterionFilter(filter?: string, value?: string) {
+    if (!filter || !value) return;
+    switch (filter) {
+      case "Ville":
+        pushUnique(setFilterVille, value);
+        break;
+      case "Couleur de cheveux":
+        pushUnique(setFilterCouleur, value === "Brun" ? "Brun" : value);
+        break;
+      case "Type de peau":
+        pushUnique(setFilterPeau, value);
+        break;
+      case "Sports":
+        pushUnique(setFilterSports, value);
+        break;
+      case "Âge des enfants":
+        pushUnique(setFilterAges, "Bébé (0-2 ans)");
+        pushUnique(setFilterAges, "Enfant (3-11 ans)");
+        break;
+      case "Animaux":
+        pushUnique(setFilterAnimaux, value);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function applyCriterionMeta(criterion: Criterion) {
+    if (criterion.plat) {
+      const network = criterion.plat.toLowerCase();
+      setSelectedNetworks((prev) => (prev.includes(network) ? prev : [...prev, network]));
+    }
+    if (criterion.cat) {
+      const cat = criterion.cat.toLowerCase();
+      if (cat === "sport") setSelectedNiche("sport");
+      else if (cat === "family") setSelectedNiche("family");
+      else if (cat === "food") setSelectedNiche("food");
+      else if (cat === "lifestyle") setSelectedNiche("lifestyle");
+      else if (cat === "fashion") setSelectedNiche("fashion");
+      else if (cat === "voyage") setSelectedNiche("voyage");
+      else if (cat === "beauty") setSelectedNiche("beauty");
+      else if (cat === "animaux") setSelectedNiche("animaux");
     }
   }
 
@@ -2269,64 +2305,31 @@ export default function PartnerTalentBookPage() {
           <div className="max-w-6xl mx-auto px-3 sm:px-4">
             {/* Barre de recherche en langage naturel */}
             <div className="mb-3 sm:mb-4">
-              <div className="flex items-center gap-2 rounded-full bg-white border border-[#220101]/15 focus-within:border-[#B06F70] shadow-sm pl-3 sm:pl-4 pr-1.5 py-1.5 transition-colors">
-                <Search className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-[#220101]/40 shrink-0" />
-                <input
-                  type="text"
-                  value={aiQuery}
-                  onChange={(e) => setAiQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleAiSearch();
-                  }}
-                  placeholder={t.aiSearchPlaceholder}
-                  className="flex-1 min-w-0 bg-transparent text-xs sm:text-sm font-switzer text-[#220101] placeholder:text-[#220101]/40 focus:outline-none"
-                />
-                {aiQuery && !aiLoading && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAiQuery("");
-                      clearAttrFilters();
-                    }}
-                    className="text-[#220101]/40 hover:text-[#220101]/70 text-lg leading-none px-1.5 shrink-0"
-                    aria-label={t.aiSearchClear}
-                  >
-                    ×
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handleAiSearch}
-                  disabled={aiLoading || !aiQuery.trim()}
-                  className="flex items-center gap-1.5 bg-[#220101] text-[#F5EDE0] rounded-full px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-switzer font-medium hover:bg-[#220101]/90 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 touch-manipulation"
-                >
-                  {aiLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
-                  ) : (
-                    <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  )}
-                  <span className="hidden sm:inline">
-                    {aiLoading ? t.aiSearchLoading : t.aiSearchButton}
-                  </span>
-                </button>
-              </div>
-              {aiSummary && !aiError && (
-                <p className="mt-2 px-1 text-xs font-switzer text-[#220101]/60 flex items-center gap-1.5">
-                  <Search className="w-3 h-3 text-[#220101]/40 shrink-0" />
-                  <span>
-                    {t.aiSearchResultPrefix}{" "}
-                    <span className="text-[#220101] font-medium">{aiSummary}</span>
-                  </span>
-                </p>
-              )}
-              {aiError && (
-                <p className="mt-2 px-1 text-xs font-switzer text-[#B06F70]">{aiError}</p>
-              )}
-              {!aiSummary && !aiError && (
-                <p className="mt-1.5 px-1 text-[11px] font-switzer text-[#220101]/40 hidden sm:block">
-                  {t.aiSearchHint}
-                </p>
-              )}
+              <TalentSearchBar
+                typeSpeed={46}
+                accent="#220101"
+                className="w-full"
+                onCriterion={(criterion) => {
+                  if (!aiCriteriaSessionRef.current) {
+                    clearAttrFilters();
+                    setSelectedNiche("all");
+                    setSelectedNetworks([]);
+                    aiCriteriaSessionRef.current = true;
+                  }
+                  applyCriterionFilter(criterion.filter, criterion.value);
+                  applyCriterionMeta(criterion);
+                }}
+                onSearch={async (query) => {
+                  aiCriteriaSessionRef.current = false;
+                  await fetchTalentsFromQuery(query);
+                }}
+                onClear={() => {
+                  aiCriteriaSessionRef.current = false;
+                  clearAttrFilters();
+                  setSelectedNiche("all");
+                  setSelectedNetworks([]);
+                }}
+              />
             </div>
 
             {/* Filtres réseaux */}
