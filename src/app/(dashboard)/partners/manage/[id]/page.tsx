@@ -21,7 +21,7 @@ interface AgencyContact {
   id: string;
   prenom: string;
   nom: string | null;
-  email: string;
+  email: string | null;
   poste: string | null;
   language: string;
   principal: boolean;
@@ -390,10 +390,10 @@ export default function PartnerDetailPage() {
                         )}
                       </div>
                       <a
-                        href={`mailto:${c.email}`}
+                        href={c.email ? `mailto:${c.email}` : undefined}
                         className="text-xs text-gray-500 hover:text-blue-600"
                       >
-                        {c.email}
+                        {c.email || "—"}
                       </a>
                     </td>
                     <td className="py-3 pr-4 text-gray-600">{c.poste || "—"}</td>

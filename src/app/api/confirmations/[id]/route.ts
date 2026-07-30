@@ -24,7 +24,7 @@ export async function GET(
     }
     const talent = await prisma.talent.findUnique({
       where: { id: conf.talentId },
-      select: { id: true, prenom: true, nom: true, photo: true },
+      select: { id: true, prenom: true, nom: true, photo: true, telephone: true },
     });
     return NextResponse.json({
       ...conf,

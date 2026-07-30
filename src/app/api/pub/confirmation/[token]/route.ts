@@ -6,7 +6,7 @@ type StatutConfirm = (typeof STATUTS_VALIDES)[number];
 
 /** GET : l'offre affichée au talent (public, sans login). */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   try {
@@ -16,6 +16,20 @@ export async function GET(
     });
     if (!conf) {
       return NextResponse.json({ error: "Lien invalide" }, { status: 404 });
+    }
+
+    // Suivi « vu » : on marque l'ouverture sauf en prévisualisation par l'équipe.
+    const preview = request.nextUrl.searchParams.get("preview") === "1";
+    if (!preview) {
+      prisma.talentConfirmation
+        .update({
+          where: { id: conf.id },
+          data: {
+            openedAt: conf.openedAt ?? new Date(),
+            openCount: { increment: 1 },
+          },
+        })
+        .catch(() => {});
     }
 
     const talent = await prisma.talent.findUnique({
@@ -54,7 +68,6 @@ export async function POST(
     const { token } = await params;
     const conf = await prisma.talentConfirmation.findUnique({
       where: { token },
-      select: { id: true, createdById: true, marque: true, talentId: true },
     });
     if (!conf) {
       return NextResponse.json({ error: "Lien invalide" }, { status: 404 });
@@ -77,10 +90,34 @@ export async function POST(
       CONFIRME: "✅ Confirmé",
     };
 
+    const decidedAt = new Date();
+
+    // Preuve horodatée : on fige les termes exacts acceptés au moment du OUI.
+    const checklist = (conf.checklist as Record<string, { value?: string }> | null) || null;
+    const priseEnCharge = ["vhr_transport", "vhr_hebergement", "vhr_repas", "plus_un"]
+      .filter((k) => checklist?.[k]?.value === "OUI");
+    const confirmedSnapshot =
+      statut === "CONFIRME"
+        ? {
+            confirmedAt: decidedAt.toISOString(),
+            marque: conf.marque,
+            budgetNet: Number(conf.budgetNet),
+            budgetBrut: Number(conf.budgetBrut),
+            commissionPercent: Number(conf.commissionPercent),
+            livrables: conf.livrables,
+            dateTournage: conf.dateTournage ? conf.dateTournage.toISOString() : null,
+            datePublication: conf.datePublication ? conf.datePublication.toISOString() : null,
+            villeDepart: conf.villeDepart,
+            deplacement: conf.deplacement,
+            droits: conf.droits,
+            priseEnCharge,
+          }
+        : undefined;
+
     await prisma.$transaction(async (tx) => {
       await tx.talentConfirmation.update({
         where: { id: conf.id },
-        data: { statut, note, decidedAt: new Date() },
+        data: { statut, note, decidedAt, confirmedSnapshot },
       });
       await tx.notification.create({
         data: {

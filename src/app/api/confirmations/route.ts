@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { sendTalentConfirmationEmail } from "@/lib/emails/talent-confirmation";
 
 function computeNet(brut: number, commissionPercent: number) {
   return Math.round(brut * (1 - commissionPercent / 100));
@@ -90,7 +91,22 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ id: conf.id }, { status: 201 });
+    // Envoi email initial au talent (best-effort, ne bloque pas la création).
+    const talent = await prisma.talent.findUnique({
+      where: { id: talentId },
+      select: { prenom: true, email: true },
+    });
+    let emailSent = false;
+    if (talent?.email) {
+      emailSent = await sendTalentConfirmationEmail({
+        to: talent.email,
+        prenom: talent.prenom,
+        marque,
+        token: conf.token,
+      });
+    }
+
+    return NextResponse.json({ id: conf.id, emailSent }, { status: 201 });
   } catch (error) {
     console.error("Erreur POST confirmations:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

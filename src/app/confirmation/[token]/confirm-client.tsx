@@ -14,6 +14,7 @@ import {
   Plane,
 } from "lucide-react";
 import { GlowUpLogo } from "@/components/ui/logo";
+import { TALENT_RECAP_QUESTIONS } from "@/lib/confirmation-checklist";
 
 type Offer = {
   talent: { prenom: string; photo: string | null };
@@ -67,7 +68,7 @@ const DECISION_META: Record<Statut, { label: string; className: string; icon: ty
   CONFIRME: { label: "Je confirme", className: "border-emerald-400 text-emerald-700", icon: CheckCircle2 },
 };
 
-export function ConfirmationClient({ token }: { token: string }) {
+export function ConfirmationClient({ token, preview = false }: { token: string; preview?: boolean }) {
   const [offer, setOffer] = useState<Offer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +82,7 @@ export function ConfirmationClient({ token }: { token: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/pub/confirmation/${token}`, { cache: "no-store" });
+      const res = await fetch(`/api/pub/confirmation/${token}${preview ? "?preview=1" : ""}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Lien invalide");
       setOffer(json as Offer);
@@ -91,7 +92,7 @@ export function ConfirmationClient({ token }: { token: string }) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, preview]);
 
   useEffect(() => {
     load();
@@ -105,6 +106,14 @@ export function ConfirmationClient({ token }: { token: string }) {
       .filter((k) => offer.checklist?.[k]?.value === "OUI")
       .map((k) => PRISE_EN_CHARGE_LABELS[k]);
     return items.length ? items.join(" · ") : null;
+  }, [offer]);
+
+  const recap = useMemo(() => {
+    if (!offer?.checklist) return [];
+    return TALENT_RECAP_QUESTIONS.map((q) => {
+      const ans = offer.checklist?.[q.key];
+      return ans?.value ? { key: q.key, label: q.talentLabel || q.label, ...ans } : null;
+    }).filter((x): x is { key: string; label: string; value: string; detail?: string } => x !== null);
   }, [offer]);
 
   const attestationText = useMemo(() => {
@@ -270,6 +279,41 @@ export function ConfirmationClient({ token }: { token: string }) {
                   )}
               </div>
             </div>
+
+            {/* Récap des questions déjà répondues par l'agence */}
+            {recap.length > 0 && (
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-100">
+                  <p className="text-sm font-semibold text-slate-900">Déjà vérifié pour toi</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Les points souvent oubliés, déjà cadrés par ton agence.
+                  </p>
+                </div>
+                <div className="px-5 py-1 divide-y divide-slate-50">
+                  {recap.map((r) => (
+                    <div key={r.key} className="flex items-start justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm text-slate-700">{r.label}</p>
+                        {r.detail ? (
+                          <p className="text-xs text-slate-400 mt-0.5">{r.detail}</p>
+                        ) : null}
+                      </div>
+                      <span
+                        className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded ${
+                          r.value === "OUI"
+                            ? "bg-emerald-500/10 text-emerald-600"
+                            : r.value === "NON"
+                            ? "bg-red-500/10 text-red-600"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {r.value === "NA" ? "N/A" : r.value === "OUI" ? "Oui" : "Non"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Décision */}
             <div className="mt-6">

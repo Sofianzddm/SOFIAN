@@ -7,12 +7,16 @@ import {
   tryEnrollBeneluxAfterEmailComplete,
 } from "@/lib/envoyer-marque-outreach";
 import { writeBeneluxContactEmail } from "@/lib/benelux-contact-email";
+import {
+  writeAgencyContactEmail,
+  tryEnrollAgencyAfterEmailComplete,
+} from "@/lib/agency-contact-email";
 
 /**
  * POST → valide toute la fiche enrichissement d'un coup (« Prêt »).
  * Body: {
- *   market: "FR" | "BENELUX",
- *   marqueId: string,  // companyId si BENELUX
+ *   market: "FR" | "BENELUX" | "AGENCY",
+ *   marqueId: string,  // companyId si BENELUX, partnerId si AGENCY
  *   contacts: [{ id: string, email: string }]
  * }
  */
@@ -28,7 +32,8 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!ALLOWED_ROLES.includes((session.user.role || "") as (typeof ALLOWED_ROLES)[number])) {
+    const role = session.user.role || "";
+    if (!ALLOWED_ROLES.includes(role as (typeof ALLOWED_ROLES)[number])) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -38,7 +43,9 @@ export async function POST(request: NextRequest) {
       contacts?: Array<{ id?: string; email?: string; bothMarkets?: boolean }>;
     };
 
-    const market = body.market === "BENELUX" ? "BENELUX" : "FR";
+    const marketRaw = (body.market || "FR").toUpperCase();
+    const market =
+      marketRaw === "BENELUX" ? "BENELUX" : marketRaw === "AGENCY" ? "AGENCY" : "FR";
     const marqueId = String(body.marqueId || "").trim();
     const rows = Array.isArray(body.contacts) ? body.contacts : [];
 
@@ -46,10 +53,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Contacts requis." }, { status: 400 });
     }
 
-    const ownPipeline = market === "BENELUX" ? "benelux" : "client";
+    // Onglet Agences : réservé ADMIN.
+    if (market === "AGENCY" && role !== "ADMIN") {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+    }
+
+    const ownPipeline =
+      market === "BENELUX" ? "benelux" : market === "AGENCY" ? "agency" : "client";
     const saved: string[] = [];
-    // Emails d'un contact placé volontairement « FR + BE » : leur présence dans
-    // le marché frère (France ↔ Benelux) ne doit pas bloquer l'enregistrement.
     const crossMarketEmails = new Set<string>();
 
     for (const row of rows) {
@@ -66,11 +77,6 @@ export async function POST(request: NextRequest) {
 
       const bothMarkets = row.bothMarkets === true;
 
-      // Le contrôle anti-double-prospection ne concerne que les contacts qui
-      // entrent réellement dans un cycle outreach (CARTO / influence). Les
-      // contacts AO (Achats / Appel d'offre) ne sont jamais enrôlés : on
-      // enregistre simplement leur email dans le CRM, sans bloquer sur un
-      // conflit de pipeline.
       const guardConflict = async (isAo: boolean): Promise<NextResponse | null> => {
         if (isAo) return null;
         if (bothMarkets) crossMarketEmails.add(email);
@@ -88,7 +94,18 @@ export async function POST(request: NextRequest) {
         return null;
       };
 
-      if (market === "BENELUX") {
+      if (market === "AGENCY") {
+        const contact = await prisma.agencyContact.findFirst({
+          where: { id, partnerId: marqueId },
+          select: { id: true },
+        });
+        if (!contact) {
+          return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+        }
+        const blocked = await guardConflict(false);
+        if (blocked) return blocked;
+        await writeAgencyContactEmail(id, marqueId, email);
+      } else if (market === "BENELUX") {
         const contact = await prisma.beneluxContact.findFirst({
           where: { id, companyId: marqueId },
           select: { id: true, source: true },
@@ -98,8 +115,6 @@ export async function POST(request: NextRequest) {
         }
         const blocked = await guardConflict(contact.source === "AO");
         if (blocked) return blocked;
-        // Respecte l'unicité (companyId, email) : un doublon partageant l'email
-        // est sorti de la file au lieu de faire échouer la validation.
         await writeBeneluxContactEmail(id, marqueId, email);
       } else {
         const contact = await prisma.marqueContact.findFirst({
@@ -119,9 +134,23 @@ export async function POST(request: NextRequest) {
       saved.push(email);
     }
 
-    // « Prêt » = validation explicite des vrais emails → on enrôle DIRECTEMENT
-    // les contacts influence dans « À contacter » (création des OutreachTarget).
-    // Les AO ne sont jamais enrôlés (exclus par enrollInfluenceContacts).
+    if (market === "AGENCY") {
+      const enroll = await tryEnrollAgencyAfterEmailComplete({
+        partnerId: marqueId,
+        userId: session.user.id,
+        contactIds: rows.map((r) => String(r.id || "").trim()).filter(Boolean),
+      });
+      return NextResponse.json({
+        ok: true,
+        saved: saved.length,
+        enrolled: enroll.enrolled,
+        message:
+          enroll.enrolled > 0
+            ? `${enroll.enrolled} contact(s) envoyés dans « À contacter » agences.`
+            : `${saved.length} email(s) enregistrés.`,
+      });
+    }
+
     const enroll =
       market === "BENELUX"
         ? await tryEnrollBeneluxAfterEmailComplete({

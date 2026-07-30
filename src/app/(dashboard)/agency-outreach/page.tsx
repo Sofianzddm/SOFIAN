@@ -361,14 +361,25 @@ function excelCellToText(value: unknown): string {
   return "";
 }
 
-/** Lit un fichier (.xlsx via ExcelJS, sinon .csv/.tsv) → texte tabulé. */
-async function importFileToText(file: File): Promise<string> {
+/**
+ * Lit un fichier (.xlsx via ExcelJS, sinon .csv/.tsv) → texte tabulé.
+ *
+ * Agences ≠ marques : on ne lit QUE la 1ʳᵉ feuille du classeur.
+ * Les feuilles suivantes (AO, etc.) sont volontairement ignorées.
+ */
+async function importFileToText(file: File): Promise<{
+  text: string;
+  sheetName: string | null;
+  ignoredSheets: number;
+}> {
   if (/\.xlsx$/i.test(file.name)) {
     const ExcelJS = (await import("exceljs")).default;
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(await file.arrayBuffer());
+    // Première feuille visible du classeur uniquement (ordre des onglets Excel).
     const worksheet = workbook.worksheets[0];
     if (!worksheet) throw new Error("Le fichier Excel ne contient aucune feuille.");
+    const ignoredSheets = Math.max(0, workbook.worksheets.length - 1);
     const lines: string[] = [];
     worksheet.eachRow({ includeEmpty: true }, (row) => {
       const values = row.values as unknown[];
@@ -378,12 +389,16 @@ async function importFileToText(file: File): Promise<string> {
       }
       lines.push(cells.join("\t"));
     });
-    return lines.join("\n");
+    return {
+      text: lines.join("\n"),
+      sheetName: worksheet.name?.trim() || "Feuille 1",
+      ignoredSheets,
+    };
   }
   if (/\.(xls|numbers)$/i.test(file.name)) {
     throw new Error("Format non géré — enregistre en .xlsx ou .csv et réessaie.");
   }
-  return file.text();
+  return { text: await file.text(), sheetName: null, ignoredSheets: 0 };
 }
 
 /** Parse un tableau collé (TSV) ou CSV : détecte Prénom/Nom + email/poste. */
@@ -2016,10 +2031,13 @@ export default function AgencyOutreachPage() {
           onClose={() => setImportOpen(false)}
           onError={(m) => showToast("err", m)}
           onImported={(r) => {
-            showToast(
-              "ok",
-              `${r.company} : ${r.created} contact(s) importé(s), ${r.addedToCycle} ajouté(s) au cycle${r.skipped ? `, ${r.skipped} ignoré(s)` : ""}.`
-            );
+            const parts = [
+              `${r.created} contact(s) importé(s)`,
+              r.addedToCycle > 0 ? `${r.addedToCycle} ajouté(s) au cycle` : null,
+              r.queued > 0 ? `${r.queued} en enrichissement` : null,
+              r.skipped > 0 ? `${r.skipped} ignoré(s)` : null,
+            ].filter(Boolean);
+            showToast("ok", `${r.company} : ${parts.join(", ")}.`);
             setImportOpen(false);
             loadTargets();
           }}
@@ -2052,13 +2070,20 @@ function ImportAgencyModal({
   partners: PartnerRow[];
   market: Market;
   onClose: () => void;
-  onImported: (r: { company: string; created: number; skipped: number; addedToCycle: number }) => void;
+  onImported: (r: {
+    company: string;
+    created: number;
+    skipped: number;
+    addedToCycle: number;
+    queued: number;
+  }) => void;
   onError: (message: string) => void;
 }) {
   const [rawText, setRawText] = useState("");
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [sheetInfo, setSheetInfo] = useState<string | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [partnerName, setPartnerName] = useState("");
@@ -2094,12 +2119,21 @@ function ImportAgencyModal({
     if (!file) return;
     setFileLoading(true);
     setParseError(null);
+    setSheetInfo(null);
     try {
-      const text = await importFileToText(file);
+      const { text, sheetName, ignoredSheets } = await importFileToText(file);
       setFileName(file.name);
+      if (sheetName) {
+        setSheetInfo(
+          ignoredSheets > 0
+            ? `1ʳᵉ feuille « ${sheetName} » uniquement — ${ignoredSheets} autre${ignoredSheets > 1 ? "s" : ""} ignorée${ignoredSheets > 1 ? "s" : ""} (pas d’AO)`
+            : `Feuille « ${sheetName} »`
+        );
+      }
       handleText(text, file.name);
     } catch (e) {
       setFileName(null);
+      setSheetInfo(null);
       setParseError(e instanceof Error ? e.message : "Impossible de lire ce fichier.");
     } finally {
       setFileLoading(false);
@@ -2107,7 +2141,15 @@ function ImportAgencyModal({
   };
 
   const withEmail = rows.filter((r) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email.trim()));
-  const canSubmit = partnerName.trim().length > 0 && withEmail.length > 0 && !saving;
+  const withoutEmail = rows.filter(
+    (r) =>
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email.trim()) &&
+      (r.prenom.trim() || r.nom.trim())
+  );
+  const canSubmit =
+    partnerName.trim().length > 0 &&
+    (withEmail.length > 0 || withoutEmail.length > 0) &&
+    !saving;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -2129,6 +2171,7 @@ function ImportAgencyModal({
         created: data.created,
         skipped: data.skipped,
         addedToCycle: data.addedToCycle || 0,
+        queued: data.queued || 0,
       });
     } catch (e) {
       onError(e instanceof Error ? e.message : "Erreur d'import");
@@ -2160,10 +2203,17 @@ function ImportAgencyModal({
 
         <div className="p-5 space-y-4">
           <p className="text-xs opacity-70" style={{ color: LICORICE }}>
-            Glisse un fichier Excel (.xlsx) ou CSV avec au minimum les colonnes{" "}
-            <strong>Prénom</strong>, <strong>Nom</strong> et <strong>Email</strong> (colonnes{" "}
-            <strong>Poste</strong> et <strong>Langue</strong> — FR/EN — optionnelles). Les
-            contacts avec un email valide entrent directement dans « À contacter ».
+            Glisse un fichier Excel (.xlsx) ou CSV avec au minimum <strong>Prénom</strong> /{" "}
+            <strong>Nom</strong> (colonnes <strong>Email</strong>, <strong>Poste</strong> et{" "}
+            <strong>Langue</strong> — FR/EN — optionnelles). Avec email → « À contacter » ;
+            sans email → file{" "}
+            <a href="/enrichissement" className="underline font-semibold">
+              /enrichissement
+            </a>{" "}
+            (onglet Agences).
+            <br />
+            <strong>Contrairement aux marques</strong> : seule la <strong>1ʳᵉ feuille</strong> du
+            classeur est importée — les suivantes (AO, etc.) sont ignorées.
           </p>
 
           {/* Agence */}
@@ -2248,9 +2298,15 @@ function ImportAgencyModal({
             <span className="text-sm font-semibold" style={{ color: LICORICE }}>
               {fileName || "Glisse le fichier ici, ou clique pour le choisir"}
             </span>
-            <span className="text-xs opacity-60" style={{ color: LICORICE }}>
-              Excel (.xlsx) ou CSV
-            </span>
+            {sheetInfo ? (
+              <span className="text-xs font-medium" style={{ color: "#3D8B40" }}>
+                {sheetInfo}
+              </span>
+            ) : (
+              <span className="text-xs opacity-60" style={{ color: LICORICE }}>
+                Excel (.xlsx) ou CSV — 1ʳᵉ feuille uniquement
+              </span>
+            )}
           </label>
 
           <details>
@@ -2261,6 +2317,7 @@ function ImportAgencyModal({
               value={rawText}
               onChange={(e) => {
                 setFileName(null);
+                setSheetInfo(null);
                 handleText(e.target.value);
               }}
               placeholder={"Prénom\tNom\tPoste\tEmail\tLangue"}
@@ -2275,8 +2332,9 @@ function ImportAgencyModal({
           {rows.length > 0 && (
             <div className="rounded-xl border p-3 text-sm" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
               <p style={{ color: LICORICE }}>
-                <strong>{rows.length}</strong> ligne(s) détectée(s), dont{" "}
-                <strong>{withEmail.length}</strong> avec un email valide (les autres seront ignorées).
+                <strong>{rows.length}</strong> ligne(s) détectée(s) —{" "}
+                <strong>{withEmail.length}</strong> avec email (cycle),{" "}
+                <strong>{withoutEmail.length}</strong> sans email (enrichissement).
               </p>
               <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
                 {rows.slice(0, 50).map((r, i) => {
@@ -2332,7 +2390,10 @@ function ImportAgencyModal({
             style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            Importer {withEmail.length > 0 ? `(${withEmail.length})` : ""}
+            Importer{" "}
+            {withEmail.length + withoutEmail.length > 0
+              ? `(${withEmail.length + withoutEmail.length})`
+              : ""}
           </button>
         </div>
       </div>

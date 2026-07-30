@@ -1213,6 +1213,18 @@ model TalentConfirmation {
   note      String?   @db.Text // ce qui bloque (SOUS_CONDITIONS)
   decidedAt DateTime?
 
+  // Preuve horodatée : snapshot des termes exacts au moment où le talent a
+  // cliqué « Je confirme ». Fige l'offre même si elle est éditée après coup.
+  confirmedSnapshot Json?
+
+  // Suivi d'ouverture du lien (« vu ») — distingue « pas vu » de « ignoré ».
+  openedAt  DateTime? // première ouverture par le talent
+  openCount Int       @default(0)
+
+  // Relances email automatiques (cron) au talent tant qu'il n'a pas répondu.
+  lastReminderAt DateTime?
+  reminderCount  Int       @default(0)
+
   sentAt    DateTime? // date de génération / dernière mise à jour du lien
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3540,14 +3552,21 @@ model AgencyContact {
   partnerId String
   partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
 
-  prenom    String
-  nom       String?
-  email     String
-  poste     String?
+  prenom String
+  nom    String?
+  // Nullable : un contact carto peut être importé sans email (file /enrichissement).
+  email  String?
+  poste  String?
   language  String  @default("fr") // "fr" | "en"
   principal Boolean @default(false)
   // Exclu de la prospection (ne pas proposer / contacter)
   excluded  Boolean @default(false)
+
+  // Enrichissement emails (même logique que MarqueContact / BeneluxContact).
+  // null = pas en file ; QUEUED = à trouver ; FOUND = complété ; NOT_FOUND = introuvable.
+  emailLookupStatus   String? // QUEUED | FOUND | NOT_FOUND
+  emailLookupQueuedAt DateTime?
+  emailSuggested      String?
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -3555,8 +3574,10 @@ model AgencyContact {
 
   outreachTargets AgencyOutreachTarget[]
 
+  // Postgres : plusieurs NULL autorisés sous unique → contacts sans email OK.
   @@unique([partnerId, email])
   @@index([partnerId])
+  @@index([emailLookupStatus])
   @@map("agency_contacts")
 }
 

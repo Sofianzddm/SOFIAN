@@ -7,9 +7,12 @@ export const metadata = {
 
 export default async function ConfirmationPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ preview?: string }>;
 }) {
   const { token } = await params;
-  return <ConfirmationClient token={token} />;
+  const { preview } = await searchParams;
+  return <ConfirmationClient token={token} preview={preview === "1"} />;
 }

@@ -8,7 +8,8 @@ import {
 } from "@/lib/email-pattern";
 
 /**
- * GET → enrichissement : contacts carto FR + BENELUX en attente d'email (QUEUED).
+ * GET → enrichissement : contacts carto FR + BENELUX (+ Agences si ADMIN)
+ * en attente d'email (QUEUED).
  */
 
 const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
@@ -19,9 +20,11 @@ export async function GET(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!ALLOWED_ROLES.includes((session.user.role || "") as (typeof ALLOWED_ROLES)[number])) {
+    const role = session.user.role || "";
+    if (!ALLOWED_ROLES.includes(role as (typeof ALLOWED_ROLES)[number])) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
+    const isAdmin = role === "ADMIN";
 
     type Enriched = {
       id: string;
@@ -37,7 +40,7 @@ export async function GET(request: NextRequest) {
       emailLookupQueuedAt: Date | string | null;
       marqueId: string;
       company: string;
-      market: "FR" | "BENELUX";
+      market: "FR" | "BENELUX" | "AGENCY";
       source: "CARTO" | "AO" | null;
       pattern: {
         kind: string;
@@ -209,6 +212,82 @@ export async function GET(request: NextRequest) {
             : null,
           suggestions,
         });
+      }
+    }
+
+    // —— AGENCES (ADMIN seulement) ——
+    if (isAdmin) {
+      const agencyContacts = await prisma.agencyContact.findMany({
+        where: {
+          emailLookupStatus: "QUEUED",
+          excluded: false,
+        },
+        orderBy: [{ emailLookupQueuedAt: "asc" }],
+        select: {
+          id: true,
+          prenom: true,
+          nom: true,
+          poste: true,
+          language: true,
+          emailSuggested: true,
+          emailLookupQueuedAt: true,
+          partnerId: true,
+          partner: { select: { name: true } },
+        },
+      });
+
+      const byPartner = new Map<string, typeof agencyContacts>();
+      for (const c of agencyContacts) {
+        const list = byPartner.get(c.partnerId) || [];
+        list.push(c);
+        byPartner.set(c.partnerId, list);
+      }
+
+      for (const [partnerId, list] of byPartner) {
+        const known = await prisma.agencyContact.findMany({
+          where: { partnerId, email: { not: null } },
+          select: { email: true, prenom: true, nom: true },
+          take: 50,
+        });
+        const pattern = detectEmailPattern(
+          known.filter((k): k is typeof k & { email: string } => Boolean(k.email))
+        );
+        const fallbackDomain = pattern?.domain || null;
+
+        for (const c of list) {
+          const suggestions = suggestEmailsForContact({
+            prenom: c.prenom,
+            nom: c.nom,
+            pattern,
+            fallbackDomain,
+          });
+          enriched.push({
+            id: c.id,
+            prenom: c.prenom,
+            nom: c.nom || "",
+            poste: c.poste,
+            perimetre: null,
+            localisation: null,
+            priorite: null,
+            linkedinUrl: null,
+            language: c.language,
+            emailSuggested: c.emailSuggested,
+            emailLookupQueuedAt: c.emailLookupQueuedAt,
+            marqueId: c.partnerId,
+            company: c.partner.name,
+            market: "AGENCY",
+            source: "CARTO",
+            pattern: pattern
+              ? {
+                  kind: pattern.kind,
+                  domain: pattern.domain,
+                  matches: pattern.matches,
+                  label: `${pattern.kind}@${pattern.domain}`,
+                }
+              : null,
+            suggestions,
+          });
+        }
       }
     }
 

@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
         contactName: true,
         contactEmail: true,
         agencyContacts: {
-          where: { excluded: false },
+          where: { excluded: false, email: { not: null } },
           orderBy: [{ principal: "desc" }, { prenom: "asc" }],
           select: {
             id: true,

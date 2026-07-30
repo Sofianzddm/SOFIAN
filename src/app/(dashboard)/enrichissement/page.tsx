@@ -3,8 +3,9 @@
 /**
  * Enrichissement — /enrichissement
  *
- * Drop carto → liste des marques → ouvrir une fiche → noter tous les mails
- * (suggestions = motif déduit des mails déjà saisis sur CETTE fiche) → Prêt.
+ * Onglet Marques : drop carto → liste → fiche → mails → Prêt → outreach.
+ * Onglet Agences (ADMIN) : file des contacts partners sans email → Prêt →
+ * agency-outreach.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -43,6 +44,9 @@ const norm = (s: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
+type Market = "FR" | "BENELUX" | "AGENCY";
+type Tab = "marques" | "agences";
+
 type LookupContact = {
   id: string;
   prenom: string | null;
@@ -54,12 +58,12 @@ type LookupContact = {
   linkedinUrl: string | null;
   marqueId: string;
   company: string;
-  market: "FR" | "BENELUX";
+  market: Market;
   source: "CARTO" | "AO" | null;
 };
 
 /** Référence d'une copie d'un contact dans un pipeline donné. */
-type PersonRef = { id: string; market: "FR" | "BENELUX"; marqueId: string };
+type PersonRef = { id: string; market: Market; marqueId: string };
 
 /**
  * Personne dédupliquée : un même contact importé « FR+BE » existe en 2 lignes
@@ -79,11 +83,11 @@ type Person = {
   refs: PersonRef[];
 };
 
-/** Une marque = fusion des fiches FR et BE portant le même nom. */
+/** Une marque / agence = fusion des fiches FR et BE portant le même nom. */
 type BrandGroup = {
   key: string;
   company: string;
-  markets: Array<"FR" | "BENELUX">;
+  markets: Market[];
   people: Person[];
 };
 
@@ -91,7 +95,9 @@ export default function EnrichissementPage() {
   const { data: session, status } = useSession();
   const role = session?.user?.role || "";
   const allowed = ALLOWED.includes(role);
+  const isAdmin = role === "ADMIN";
 
+  const [tab, setTab] = useState<Tab>("marques");
   const [contacts, setContacts] = useState<LookupContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -123,14 +129,27 @@ export default function EnrichissementPage() {
     if (status === "authenticated" && allowed) load();
   }, [status, allowed, load]);
 
+  // CASTING_MANAGER n'a pas l'onglet Agences.
+  useEffect(() => {
+    if (!isAdmin && tab === "agences") setTab("marques");
+  }, [isAdmin, tab]);
+
+  const tabContacts = useMemo(
+    () =>
+      contacts.filter((c) =>
+        tab === "agences" ? c.market === "AGENCY" : c.market !== "AGENCY"
+      ),
+    [contacts, tab]
+  );
+
   const brands: BrandGroup[] = useMemo(() => {
     type Acc = {
       company: string;
-      markets: Set<"FR" | "BENELUX">;
+      markets: Set<Market>;
       people: Map<string, Person>;
     };
     const map = new Map<string, Acc>();
-    for (const c of contacts) {
+    for (const c of tabContacts) {
       const brandKey = norm(c.company);
       let b = map.get(brandKey);
       if (!b) {
@@ -139,7 +158,6 @@ export default function EnrichissementPage() {
       }
       const market = c.market || "FR";
       b.markets.add(market);
-      // Identité d'une personne : prénom + nom + feuille d'origine (influence/AO).
       const personId = `${norm(c.prenom || "")}|${norm(c.nom)}|${c.source || ""}`;
       let p = b.people.get(personId);
       if (!p) {
@@ -167,11 +185,20 @@ export default function EnrichissementPage() {
       markets: Array.from(b.markets),
       people: Array.from(b.people.values()),
     }));
-  }, [contacts]);
+  }, [tabContacts]);
+
+  const agencyCount = useMemo(
+    () => contacts.filter((c) => c.market === "AGENCY").length,
+    [contacts]
+  );
+  const marquesCount = useMemo(
+    () => contacts.filter((c) => c.market !== "AGENCY").length,
+    [contacts]
+  );
 
   const active = brands.find((b) => b.key === activeKey) || null;
+  const isAgencyTab = tab === "agences";
 
-  // Si la marque disparaît de la file → retour liste
   useEffect(() => {
     if (activeKey && !active) setActiveKey(null);
   }, [active, activeKey]);
@@ -192,7 +219,6 @@ export default function EnrichissementPage() {
 
   const suggestionFor = (p: Person): EmailSuggestion[] => {
     if (!livePattern) return [];
-    // Ne pas suggérer si ce contact a déjà un mail valide saisi
     if (isValidEmail(drafts[p.key] || "")) return [];
     return suggestEmailsForContact({
       prenom: p.prenom,
@@ -204,15 +230,23 @@ export default function EnrichissementPage() {
   const filledCount = active
     ? active.people.filter((p) => isValidEmail(drafts[p.key] || "")).length
     : 0;
-  const allReady = Boolean(active && filledCount === active.people.length && active.people.length > 0);
+  const allReady = Boolean(
+    active && filledCount === active.people.length && active.people.length > 0
+  );
 
   const openBrand = (b: BrandGroup) => {
     setFlash(null);
     setActiveKey(b.key);
-    // Reset drafts pour cette fiche (vides — elle part de zéro sur les mails)
     const next: Record<string, string> = {};
     for (const p of b.people) next[p.key] = "";
     setDrafts(next);
+  };
+
+  const switchTab = (next: Tab) => {
+    setTab(next);
+    setActiveKey(null);
+    setDrafts({});
+    setFlash(null);
   };
 
   const handleImported = async (result: {
@@ -222,8 +256,6 @@ export default function EnrichissementPage() {
   }) => {
     setShowCartoModal(false);
     setDroppedFile(null);
-    // Import CRM seul : contacts rattachés à la fiche marque, hors outreach et
-    // hors file d'enrichissement — rien à mettre en file ici.
     if (result.skipOutreach) {
       setFlash(`${result.company} — importé dans le CRM (hors Outreach)`);
       await load({ silent: true });
@@ -247,7 +279,6 @@ export default function EnrichissementPage() {
           : `${result.company} — aucun email manquant`
       );
       await load({ silent: true });
-      // Ouvre la fiche fusionnée (FR + BE) de la marque importée.
       if (totalQueued > 0 && result.company) {
         setActiveKey(norm(result.company));
         setDrafts({});
@@ -258,7 +289,6 @@ export default function EnrichissementPage() {
     }
   };
 
-  // Quand on ouvre une marque après import, init drafts
   useEffect(() => {
     if (!active) return;
     setDrafts((prev) => {
@@ -287,7 +317,6 @@ export default function EnrichissementPage() {
     setDeletingKey(p.key);
     setFlash(null);
     try {
-      // Un contact « FR + BE » existe en plusieurs copies : on les supprime toutes.
       for (const ref of p.refs) {
         const res = await fetch(
           `/api/outreach/email-lookup/${ref.id}?market=${ref.market}`,
@@ -296,7 +325,6 @@ export default function EnrichissementPage() {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Échec de la suppression");
       }
-      // Retire la copie locale sans recharger toute la file.
       setContacts((prev) =>
         prev.filter((c) => !p.refs.some((ref) => ref.id === c.id))
       );
@@ -318,19 +346,54 @@ export default function EnrichissementPage() {
     setBusy(true);
     setFlash(null);
     try {
-      // Le mail saisi une fois est propagé à chaque copie (FR et/ou BE). On
-      // regroupe les refs par pipeline (marché + fiche) → un appel « ready » par
-      // pipeline.
-      // Recense les marchés par email sur toute la fiche. Un même email présent
-      // à la fois côté FR et BE (même personne fusionnée OU deux contacts
-      // distincts partageant l'email, ex. contact@marque.com) est « FR + BE » :
-      // sa présence dans le marché frère ne doit pas bloquer l'autre validation.
+      if (isAgencyTab) {
+        const byPartner = new Map<string, Array<{ id: string; email: string }>>();
+        for (const p of active.people) {
+          const email = (drafts[p.key] || "").trim().toLowerCase();
+          for (const ref of p.refs) {
+            const list = byPartner.get(ref.marqueId) || [];
+            list.push({ id: ref.id, email });
+            byPartner.set(ref.marqueId, list);
+          }
+        }
+
+        let totalSaved = 0;
+        let totalEnrolled = 0;
+        for (const [partnerId, contactsPayload] of byPartner) {
+          const res = await fetch("/api/outreach/email-lookup/ready", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              market: "AGENCY",
+              marqueId: partnerId,
+              contacts: contactsPayload,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "Échec");
+          totalSaved += data.saved || 0;
+          totalEnrolled += data.enrolled || 0;
+        }
+
+        setFlash(
+          totalEnrolled > 0
+            ? `${active.company} — ${totalEnrolled} contact(s) envoyés dans Prospection Agences 🎉`
+            : `${totalSaved} email(s) enregistrés.`
+        );
+        setActiveKey(null);
+        setDrafts({});
+        await load({ silent: true });
+        return;
+      }
+
       const marketsByEmail = new Map<string, Set<"FR" | "BENELUX">>();
       for (const p of active.people) {
         const email = (drafts[p.key] || "").trim().toLowerCase();
         if (!email) continue;
         const set = marketsByEmail.get(email) ?? new Set<"FR" | "BENELUX">();
-        for (const ref of p.refs) set.add(ref.market);
+        for (const ref of p.refs) {
+          if (ref.market === "FR" || ref.market === "BENELUX") set.add(ref.market);
+        }
         marketsByEmail.set(email, set);
       }
       const isCrossMarket = (email: string): boolean => {
@@ -346,10 +409,9 @@ export default function EnrichissementPage() {
       const groups = new Map<string, Group>();
       for (const p of active.people) {
         const email = (drafts[p.key] || "").trim().toLowerCase();
-        // Contact sur les deux marchés → le mail part dans les deux fiches
-        // (France + Benelux) sans que l'un bloque l'autre.
         const bothMarkets = isCrossMarket(email);
         for (const ref of p.refs) {
+          if (ref.market !== "FR" && ref.market !== "BENELUX") continue;
           const k = `${ref.market}:${ref.marqueId}`;
           let g = groups.get(k);
           if (!g) {
@@ -393,7 +455,10 @@ export default function EnrichissementPage() {
     }
   };
 
-  if (status === "loading" || (status === "authenticated" && allowed && loading && contacts.length === 0 && !flash)) {
+  if (
+    status === "loading" ||
+    (status === "authenticated" && allowed && loading && contacts.length === 0 && !flash)
+  ) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <Loader2 className="w-7 h-7 animate-spin" style={{ color: ROSE }} />
@@ -412,53 +477,109 @@ export default function EnrichissementPage() {
           <h1 className="text-2xl font-bold" style={{ color: INK }}>
             Enrichissement
           </h1>
-          <p className="text-sm text-gray-500 mt-1 mb-5">
-            Glisse une carto · ouvre une marque · note tous les mails · Prêt
+          <p className="text-sm text-gray-500 mt-1 mb-4">
+            {isAgencyTab
+              ? "Ouvre une agence · note tous les mails · Prêt → Prospection Agences"
+              : "Glisse une carto · ouvre une marque · note tous les mails · Prêt"}
           </p>
 
-          <button
-            type="button"
-            onClick={() => {
-              setDroppedFile(null);
-              setShowCartoModal(true);
-            }}
-            onDragEnter={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              const file = e.dataTransfer.files?.[0] || null;
-              setDroppedFile(file);
-              setShowCartoModal(true);
-            }}
-            className="w-full rounded-xl border-2 border-dashed px-6 py-8 text-center transition mb-6"
-            style={{
-              borderColor: dragOver ? GREEN : "#E5E0DA",
-              backgroundColor: dragOver ? "#F2FAF2" : "#FBF8F4",
-            }}
-          >
-            <FileSpreadsheet
-              className="w-7 h-7 mx-auto mb-2"
-              style={{ color: dragOver ? GREEN : "#9CA3AF" }}
-            />
-            <div className="text-sm font-semibold" style={{ color: INK }}>
-              Glisse une carto Excel ici
+          {isAdmin && (
+            <div
+              className="flex gap-1 p-1 rounded-xl mb-5"
+              style={{ backgroundColor: CREAM }}
+            >
+              <button
+                type="button"
+                onClick={() => switchTab("marques")}
+                className="flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition"
+                style={
+                  tab === "marques"
+                    ? { backgroundColor: "#fff", color: INK }
+                    : { color: "#6B7280" }
+                }
+              >
+                Marques
+                {marquesCount > 0 ? (
+                  <span className="ml-1.5 text-xs opacity-60">{marquesCount}</span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => switchTab("agences")}
+                className="flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition"
+                style={
+                  tab === "agences"
+                    ? { backgroundColor: "#fff", color: INK }
+                    : { color: "#6B7280" }
+                }
+              >
+                Agences
+                {agencyCount > 0 ? (
+                  <span className="ml-1.5 text-xs opacity-60">{agencyCount}</span>
+                ) : null}
+              </button>
             </div>
-            <div className="text-xs text-gray-400 mt-1">ou clique pour choisir</div>
-          </button>
+          )}
+
+          {!isAgencyTab ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDroppedFile(null);
+                setShowCartoModal(true);
+              }}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const file = e.dataTransfer.files?.[0] || null;
+                setDroppedFile(file);
+                setShowCartoModal(true);
+              }}
+              className="w-full rounded-xl border-2 border-dashed px-6 py-8 text-center transition mb-6"
+              style={{
+                borderColor: dragOver ? GREEN : "#E5E0DA",
+                backgroundColor: dragOver ? "#F2FAF2" : "#FBF8F4",
+              }}
+            >
+              <FileSpreadsheet
+                className="w-7 h-7 mx-auto mb-2"
+                style={{ color: dragOver ? GREEN : "#9CA3AF" }}
+              />
+              <div className="text-sm font-semibold" style={{ color: INK }}>
+                Glisse une carto Excel ici
+              </div>
+              <div className="text-xs text-gray-400 mt-1">ou clique pour choisir</div>
+            </button>
+          ) : (
+            <div
+              className="w-full rounded-xl border border-dashed px-5 py-4 text-sm mb-6"
+              style={{ borderColor: "#E5E0DA", backgroundColor: "#FBF8F4", color: INK }}
+            >
+              Les contacts sans email importés depuis{" "}
+              <a href="/agency-outreach" className="underline font-semibold">
+                Prospection Agences
+              </a>{" "}
+              arrivent ici. Saisis les mails puis envoie-les dans le cycle.
+            </div>
+          )}
 
           {flash && (
-            <p className="mb-4 text-sm px-3 py-2 rounded-lg" style={{ backgroundColor: CREAM, color: INK }}>
+            <p
+              className="mb-4 text-sm px-3 py-2 rounded-lg"
+              style={{ backgroundColor: CREAM, color: INK }}
+            >
               {flash}
             </p>
           )}
@@ -488,9 +609,12 @@ export default function EnrichissementPage() {
                       {i + 1}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="font-semibold truncate flex items-center gap-2" style={{ color: INK }}>
+                      <div
+                        className="font-semibold truncate flex items-center gap-2"
+                        style={{ color: INK }}
+                      >
                         <span className="truncate">{b.company}</span>
-                        {b.markets.includes("FR") && (
+                        {!isAgencyTab && b.markets.includes("FR") && (
                           <span
                             className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
                             style={{ backgroundColor: CREAM, color: INK }}
@@ -498,7 +622,7 @@ export default function EnrichissementPage() {
                             🇫🇷 FR
                           </span>
                         )}
-                        {b.markets.includes("BENELUX") && (
+                        {!isAgencyTab && b.markets.includes("BENELUX") && (
                           <span
                             className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
                             style={{ backgroundColor: "#EEF2FF", color: INK }}
@@ -506,14 +630,25 @@ export default function EnrichissementPage() {
                             🇧🇪 BE
                           </span>
                         )}
+                        {isAgencyTab && (
+                          <span
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                            style={{ backgroundColor: "#EEF2FF", color: INK }}
+                          >
+                            Agence
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-gray-500">
                         {b.people.length} contact{b.people.length > 1 ? "s" : ""}
-                        {(() => {
-                          const ao = b.people.filter((p) => p.source === "AO").length;
-                          return ao > 0 ? ` · dont ${ao} AO` : "";
-                        })()}
-                        {b.markets.length > 1 ? " · FR + BE, mail saisi une fois" : ""}
+                        {!isAgencyTab &&
+                          (() => {
+                            const ao = b.people.filter((p) => p.source === "AO").length;
+                            return ao > 0 ? ` · dont ${ao} AO` : "";
+                          })()}
+                        {!isAgencyTab && b.markets.length > 1
+                          ? " · FR + BE, mail saisi une fois"
+                          : ""}
                       </div>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-300" />
@@ -524,7 +659,6 @@ export default function EnrichissementPage() {
           )}
         </>
       ) : (
-        /* —— FICHE MARQUE : tous les contacts —— */
         <>
           <div className="flex items-center justify-between gap-3 mb-4">
             <button
@@ -537,7 +671,7 @@ export default function EnrichissementPage() {
               className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
             >
               <ArrowLeft className="w-4 h-4" />
-              Marques
+              {isAgencyTab ? "Agences" : "Marques"}
             </button>
             <div className="text-xs text-gray-400">
               {filledCount} / {active.people.length} emails
@@ -545,9 +679,12 @@ export default function EnrichissementPage() {
           </div>
 
           <div className="mb-5">
-            <h1 className="text-2xl font-bold flex items-center gap-2 flex-wrap" style={{ color: INK }}>
+            <h1
+              className="text-2xl font-bold flex items-center gap-2 flex-wrap"
+              style={{ color: INK }}
+            >
               {active.company}
-              {active.markets.includes("FR") && (
+              {!isAgencyTab && active.markets.includes("FR") && (
                 <span
                   className="text-[11px] font-bold px-2 py-0.5 rounded"
                   style={{ backgroundColor: CREAM, color: INK }}
@@ -555,7 +692,7 @@ export default function EnrichissementPage() {
                   🇫🇷 France
                 </span>
               )}
-              {active.markets.includes("BENELUX") && (
+              {!isAgencyTab && active.markets.includes("BENELUX") && (
                 <span
                   className="text-[11px] font-bold px-2 py-0.5 rounded"
                   style={{ backgroundColor: "#EEF2FF", color: INK }}
@@ -563,8 +700,16 @@ export default function EnrichissementPage() {
                   🇧🇪 BENELUX
                 </span>
               )}
+              {isAgencyTab && (
+                <span
+                  className="text-[11px] font-bold px-2 py-0.5 rounded"
+                  style={{ backgroundColor: "#EEF2FF", color: INK }}
+                >
+                  Agence
+                </span>
+              )}
             </h1>
-            {active.markets.length > 1 && (
+            {!isAgencyTab && active.markets.length > 1 && (
               <p className="text-xs text-gray-500 mt-1">
                 Marque sur les deux marchés — saisis le mail une seule fois, il part
                 dans les fiches France et Benelux.
@@ -579,7 +724,10 @@ export default function EnrichissementPage() {
           </div>
 
           {flash && (
-            <p className="mb-4 text-sm px-3 py-2 rounded-lg" style={{ backgroundColor: CREAM, color: INK }}>
+            <p
+              className="mb-4 text-sm px-3 py-2 rounded-lg"
+              style={{ backgroundColor: CREAM, color: INK }}
+            >
               {flash}
             </p>
           )}
@@ -596,26 +744,30 @@ export default function EnrichissementPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-semibold flex items-center gap-2 flex-wrap" style={{ color: INK }}>
+                      <div
+                        className="font-semibold flex items-center gap-2 flex-wrap"
+                        style={{ color: INK }}
+                      >
                         <span>{[p.prenom, p.nom].filter(Boolean).join(" ")}</span>
-                        {p.source === "AO" ? (
-                          <span
-                            className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: "#FBE5D6", color: "#9A5B1E" }}
-                            title="Contact issu de la feuille Achats / Appel d'offre"
-                          >
-                            AO · Achats
-                          </span>
-                        ) : (
-                          <span
-                            className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: CREAM, color: INK }}
-                            title="Contact issu de la feuille Influence"
-                          >
-                            Influence
-                          </span>
-                        )}
-                        {p.refs.length > 1 && (
+                        {!isAgencyTab &&
+                          (p.source === "AO" ? (
+                            <span
+                              className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                              style={{ backgroundColor: "#FBE5D6", color: "#9A5B1E" }}
+                              title="Contact issu de la feuille Achats / Appel d'offre"
+                            >
+                              AO · Achats
+                            </span>
+                          ) : (
+                            <span
+                              className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                              style={{ backgroundColor: CREAM, color: INK }}
+                              title="Contact issu de la feuille Influence"
+                            >
+                              Influence
+                            </span>
+                          ))}
+                        {!isAgencyTab && p.refs.length > 1 && (
                           <span
                             className="text-[10px] font-bold px-1.5 py-0.5 rounded"
                             style={{ backgroundColor: "#EEF2FF", color: INK }}
@@ -689,7 +841,7 @@ export default function EnrichissementPage() {
                     onChange={(e) =>
                       setDrafts((prev) => ({ ...prev, [p.key]: e.target.value }))
                     }
-                    placeholder="email@marque.fr"
+                    placeholder={isAgencyTab ? "email@agence.com" : "email@marque.fr"}
                     className="w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2"
                     style={{
                       borderColor: valid ? GREEN : "#E5E0DA",
@@ -711,7 +863,9 @@ export default function EnrichissementPage() {
           >
             {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
             {allReady
-              ? "Prêt — envoyer dans « À contacter »"
+              ? isAgencyTab
+                ? "Prêt — envoyer dans Prospection Agences"
+                : "Prêt — envoyer dans « À contacter »"
               : `Prêt (${filledCount}/${active.people.length})`}
           </button>
         </>

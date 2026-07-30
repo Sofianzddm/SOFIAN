@@ -32,3 +32,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS "talent_confirmations_token_key" ON "talent_co
 CREATE INDEX IF NOT EXISTS "talent_confirmations_talentId_idx" ON "talent_confirmations" ("talentId");
 CREATE INDEX IF NOT EXISTS "talent_confirmations_createdById_idx" ON "talent_confirmations" ("createdById");
 CREATE INDEX IF NOT EXISTS "talent_confirmations_statut_idx" ON "talent_confirmations" ("statut");
+
+-- ── Ajouts : preuve horodatée, suivi « vu », relances email auto ──
+-- Idempotent : à exécuter même si la table existait déjà sans ces colonnes.
+ALTER TABLE "talent_confirmations" ADD COLUMN IF NOT EXISTS "confirmedSnapshot" JSONB;
+ALTER TABLE "talent_confirmations" ADD COLUMN IF NOT EXISTS "openedAt" TIMESTAMP(3);
+ALTER TABLE "talent_confirmations" ADD COLUMN IF NOT EXISTS "openCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "talent_confirmations" ADD COLUMN IF NOT EXISTS "lastReminderAt" TIMESTAMP(3);
+ALTER TABLE "talent_confirmations" ADD COLUMN IF NOT EXISTS "reminderCount" INTEGER NOT NULL DEFAULT 0;

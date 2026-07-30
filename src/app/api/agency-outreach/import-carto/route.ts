@@ -6,16 +6,18 @@ import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 
 /**
  * POST → importe une liste de contacts d'agence (fichier Excel / tableau collé)
- * et les rattache à une agence partenaire. Les contacts avec un email valide
- * entrent directement dans le cycle « À contacter ».
+ * et les rattache à une agence partenaire.
+ *  - email valide → entre directement dans le cycle « À contacter »
+ *  - sans email → file /enrichissement (QUEUED)
  *
  * Module isolé des marques : n'écrit que sur partners / agency_contacts /
  * agency_outreach_targets.
  *
  * Body : {
- *   partnerId?: string,         // agence existante sélectionnée
- *   partnerName?: string,       // sinon résolution/création par nom
- *   language: "fr" | "en",      // langue des contacts importés
+ *   partnerId?: string,
+ *   partnerName?: string,
+ *   language: "fr" | "en",
+ *   market?: "FR" | "BENELUX",
  *   rows: [{ prenom?, nom?, poste?, email?, language? }]
  * }
  */
@@ -39,6 +41,9 @@ const clean = (v: unknown): string | null => {
 
 const isValidEmail = (value: string): boolean =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const personKey = (prenom: string | null, nom: string | null) =>
+  `${(prenom || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim()}|${(nom || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim()}`;
 
 export async function POST(request: NextRequest) {
   try {
@@ -73,7 +78,6 @@ export async function POST(request: NextRequest) {
     }
     const language: "fr" | "en" = body.language;
 
-    // Résolution de l'agence (existante par id, sinon par nom → créée au besoin).
     const partnerId = (body.partnerId || "").trim();
     const partnerName = (body.partnerName || "").trim();
     if (!partnerId && !partnerName) {
@@ -93,17 +97,29 @@ export async function POST(request: NextRequest) {
       partner = await findOrCreatePartnerByName(partnerName, session.user.id);
     }
 
+    // Aligne le marché de l'agence sur celui de l'import (prospection).
+    await prisma.partner.update({
+      where: { id: partner.id },
+      data: { market },
+    });
+
     const existing = await prisma.agencyContact.findMany({
       where: { partnerId: partner.id },
-      select: { email: true },
+      select: { email: true, prenom: true, nom: true },
     });
     const existingEmails = new Set(
       existing.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
+    );
+    const existingPeople = new Set(
+      existing
+        .filter((c) => !c.email)
+        .map((c) => personKey(c.prenom, c.nom))
     );
 
     let created = 0;
     let skipped = 0;
     let addedToCycle = 0;
+    let queued = 0;
 
     for (const row of rows) {
       const prenom = clean(row.prenom);
@@ -111,14 +127,21 @@ export async function POST(request: NextRequest) {
       const rawEmail = clean(row.email)?.toLowerCase() || null;
       const email = rawEmail && isValidEmail(rawEmail) ? rawEmail : null;
 
-      // Un contact d'agence sans email valide ne peut pas être contacté : ignoré.
-      if (!email || (!prenom && !nom)) {
+      if (!prenom && !nom) {
         skipped += 1;
         continue;
       }
-      if (existingEmails.has(email)) {
+
+      if (email && existingEmails.has(email)) {
         skipped += 1;
         continue;
+      }
+      if (!email) {
+        const key = personKey(prenom, nom);
+        if (existingPeople.has(key)) {
+          skipped += 1;
+          continue;
+        }
       }
 
       const rowLanguage: "fr" | "en" =
@@ -133,37 +156,46 @@ export async function POST(request: NextRequest) {
           poste: clean(row.poste),
           language: rowLanguage,
           createdById: session.user.id,
+          ...(email
+            ? { emailLookupStatus: "FOUND" as const }
+            : {
+                emailLookupStatus: "QUEUED" as const,
+                emailLookupQueuedAt: new Date(),
+              }),
         },
       });
-      existingEmails.add(email);
       created += 1;
 
-      // Email valide → entre directement dans le cycle « À contacter »
-      // (sauf s'il y est déjà via une autre agence : email unique global,
-      // ou déjà suivi dans un autre pipeline : anti double-prospection).
-      const alreadyInCycle = await prisma.agencyOutreachTarget.findUnique({
-        where: { email },
-        select: { id: true },
-      });
-      const conflict = alreadyInCycle
-        ? null
-        : await findCrossPipelineConflict(email, "agency");
-      if (!alreadyInCycle && !conflict) {
-        await prisma.agencyOutreachTarget.create({
-          data: {
-            partnerId: partner.id,
-            agencyContactId: contact.id,
-            firstname: prenom || nom || "Contact",
-            lastname: prenom ? nom : null,
-            email,
-            company: partner.name,
-            partnerSlug: partner.slug,
-            language: rowLanguage,
-            market,
-            createdById: session.user.id,
-          },
+      if (email) {
+        existingEmails.add(email);
+
+        const alreadyInCycle = await prisma.agencyOutreachTarget.findUnique({
+          where: { email },
+          select: { id: true },
         });
-        addedToCycle += 1;
+        const conflict = alreadyInCycle
+          ? null
+          : await findCrossPipelineConflict(email, "agency");
+        if (!alreadyInCycle && !conflict) {
+          await prisma.agencyOutreachTarget.create({
+            data: {
+              partnerId: partner.id,
+              agencyContactId: contact.id,
+              firstname: prenom || nom || "Contact",
+              lastname: prenom ? nom : null,
+              email,
+              company: partner.name,
+              partnerSlug: partner.slug,
+              language: rowLanguage,
+              market,
+              createdById: session.user.id,
+            },
+          });
+          addedToCycle += 1;
+        }
+      } else {
+        existingPeople.add(personKey(prenom, nom));
+        queued += 1;
       }
     }
 
@@ -173,6 +205,7 @@ export async function POST(request: NextRequest) {
       created,
       skipped,
       addedToCycle,
+      queued,
     });
   } catch (error) {
     console.error("POST /api/agency-outreach/import-carto:", error);

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Link2, AlertTriangle, ClipboardCheck } from "lucide-react";
+import { ArrowLeft, Loader2, Link2, AlertTriangle, ClipboardCheck, Gauge } from "lucide-react";
 import {
   CHECKLIST_QUESTIONS,
   CHECKLIST_SECTIONS,
@@ -20,10 +20,19 @@ type TalentOption = {
   commissionInbound: number | null;
 };
 
+type TalentStats = {
+  total: number;
+  confirmed: number;
+  confirmationRate: number | null;
+  avgResponseHours: number | null;
+  activeConfirmed: number;
+};
+
 export default function NewConfirmationPage() {
   const router = useRouter();
   const [talents, setTalents] = useState<TalentOption[]>([]);
   const [saving, setSaving] = useState(false);
+  const [talentStats, setTalentStats] = useState<TalentStats | null>(null);
   const [checklist, setChecklist] = useState<ChecklistState>({});
   const [form, setForm] = useState({
     talentId: "",
@@ -75,6 +84,13 @@ export default function NewConfirmationPage() {
       commissionPercent:
         t?.commissionInbound != null ? String(t.commissionInbound) : f.commissionPercent,
     }));
+    setTalentStats(null);
+    if (id) {
+      fetch(`/api/confirmations/stats?talentId=${id}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((s) => s && setTalentStats(s))
+        .catch(() => {});
+    }
   };
 
   const setAnswer = (key: string, value: ChecklistValue) =>
@@ -85,7 +101,7 @@ export default function NewConfirmationPage() {
   const checklistComplete = isChecklistComplete(checklist);
   const nonSecured = unsecuredQuestions(checklist);
 
-  const canSubmit = form.talentId && form.marque.trim() && checklistComplete && !saving;
+  const canSubmit = form.talentId && form.marque.trim() && !saving;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -121,45 +137,14 @@ export default function NewConfirmationPage() {
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Nouvelle demande de confirmation</h1>
       </div>
 
-      {/* Identité */}
-      <div className="rounded-xl border border-slate-200 bg-white p-6 ring-1 ring-slate-200/60">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs font-medium text-slate-600">Talent *</label>
-            <select
-              value={form.talentId}
-              onChange={(e) => onSelectTalent(e.target.value)}
-              className={inputCls}
-            >
-              <option value="">— Choisir —</option>
-              {talents.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.prenom} {t.nom}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-slate-600">Marque *</label>
-            <input
-              type="text"
-              value={form.marque}
-              onChange={(e) => setForm((f) => ({ ...f, marque: e.target.value }))}
-              placeholder="Ex : Samsung"
-              className={inputCls}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Checklist TM — d'abord */}
+      {/* Checklist TM — AVANT l'opportunité */}
       <div className="rounded-xl border border-slate-200 bg-white p-6 ring-1 ring-slate-200/60">
         <div className="flex items-center gap-2">
           <ClipboardCheck className="h-5 w-5 text-glowup-rose" />
-          <h2 className="font-semibold text-slate-900">Checklist TM — à sécuriser avant d&apos;envoyer</h2>
+          <h2 className="font-semibold text-slate-900">Checklist TM — à vérifier avant l&apos;opportunité</h2>
         </div>
         <p className="text-sm text-slate-500 mt-1 mb-4">
-          Réponds à tout : ce sont les questions que le talent posera. Obligatoire pour générer le lien.
+          Les questions que le talent posera. Passe-les en revue avant de saisir l&apos;opportunité. Non bloquant, mais recommandé de tout vérifier.
         </p>
         <div className="space-y-5">
           {CHECKLIST_SECTIONS.map((section) => (
@@ -220,8 +205,80 @@ export default function NewConfirmationPage() {
         )}
       </div>
 
-      {/* Offre */}
+      {/* L'opportunité */}
       <div className="rounded-xl border border-slate-200 bg-white p-6 ring-1 ring-slate-200/60 space-y-5">
+        <div className="flex items-center gap-2">
+          <Link2 className="h-5 w-5 text-glowup-rose" />
+          <h2 className="font-semibold text-slate-900">L&apos;opportunité</h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-medium text-slate-600">Talent *</label>
+            <select
+              value={form.talentId}
+              onChange={(e) => onSelectTalent(e.target.value)}
+              className={inputCls}
+            >
+              <option value="">— Choisir —</option>
+              {talents.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.prenom} {t.nom}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-600">Marque *</label>
+            <input
+              type="text"
+              value={form.marque}
+              onChange={(e) => setForm((f) => ({ ...f, marque: e.target.value }))}
+              placeholder="Ex : Samsung"
+              className={inputCls}
+            />
+          </div>
+        </div>
+
+        {talentStats && talentStats.total > 0 && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 mb-2">
+              <Gauge className="h-4 w-4" /> Historique de ce talent
+            </div>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
+              <span>
+                Taux de confirmation :{" "}
+                <strong className="text-slate-800">
+                  {talentStats.confirmationRate != null ? `${talentStats.confirmationRate}%` : "—"}
+                </strong>
+              </span>
+              <span>
+                Délai moyen :{" "}
+                <strong className="text-slate-800">
+                  {talentStats.avgResponseHours != null
+                    ? talentStats.avgResponseHours < 48
+                      ? `${talentStats.avgResponseHours} h`
+                      : `${Math.round(talentStats.avgResponseHours / 24)} j`
+                    : "—"}
+                </strong>
+              </span>
+              <span>
+                Confirmées :{" "}
+                <strong className="text-slate-800">
+                  {talentStats.confirmed}/{talentStats.total}
+                </strong>
+              </span>
+            </div>
+            {talentStats.activeConfirmed > 0 && (
+              <div className="mt-2 flex items-start gap-2 text-xs text-amber-800">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Déjà <strong>{talentStats.activeConfirmed} offre(s) confirmée(s)</strong> non publiée(s) — attention
+                  au surbooking.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
           <div>
             <label className="text-xs font-medium text-slate-600">Budget brut (€)</label>
@@ -300,7 +357,7 @@ export default function NewConfirmationPage() {
 
       <div className="flex items-center justify-end gap-3 flex-wrap">
         {!checklistComplete && (
-          <p className="text-xs text-amber-600 mr-auto">Réponds à toute la checklist pour générer le lien.</p>
+          <p className="text-xs text-slate-400 mr-auto">Checklist incomplète — tu peux générer quand même (recommandé de tout vérifier).</p>
         )}
         <Link href="/confirmations" className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
           Annuler

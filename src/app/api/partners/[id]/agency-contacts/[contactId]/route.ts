@@ -71,7 +71,7 @@ export async function PATCH(
     }
 
     // Vérifs d'unicité uniquement si l'email change.
-    if (email !== contact.email.toLowerCase()) {
+    if (email !== (contact.email || "").toLowerCase()) {
       // Unicité au sein de l'agence (AgencyContact @@unique([partnerId, email]))
       const dupContact = await prisma.agencyContact.findFirst({
         where: { partnerId: id, email, NOT: { id: contactId } },
