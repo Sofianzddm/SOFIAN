@@ -719,34 +719,46 @@ export type AgencyOutreachRelanceResult =
   | { ok: true; messageId: string }
   | { ok: false; error: string };
 
-/** Template de relance J+3 pour une agence (campagnes d'influence). */
+/**
+ * Template de relance J+3 pour une agence.
+ * Aligné sur le mail d'ouverture (nouveauté recherche intelligente /
+ * espace privé + question campagnes rentrée).
+ */
 export function buildAgencyRelanceTemplate(
   language: "fr" | "en",
-  firstSentAt?: Date | null
+  _firstSentAt?: Date | null
 ): string {
   if (language === "en") {
     return [
-      `Hello {{contact.firstname}},`,
+      `Hey {{contact.firstname}},`,
       `<br /><br />`,
       `Just a quick follow-up on my email from last week 🙂`,
       `<br /><br />`,
-      `Do you have any campaigns or creator needs coming up at the moment?`,
+      `Did you get a chance to try the new smart search on your {{agence.nom}} by Glow Up space?`,
       `<br /><br />`,
-      `Let me know whenever, I'll put together a quick selection for you.`,
+      `{{agence.lien}}`,
       `<br /><br />`,
-      `Have a great day!<br />{{owner.firstname}}`,
+      `With the fall season coming up, if you have any campaigns or castings planned, just let me know — I can send you a casting quickly.`,
+      `<br /><br />`,
+      `Looking forward to hearing from you!`,
+      `<br /><br />`,
+      `Have a lovely day!`,
     ].join("");
   }
   return [
-    `Hello {{contact.firstname}},`,
+    `Coucou {{contact.firstname}},`,
     `<br /><br />`,
-    `Juste un petit follow-up sur mon mail de la semaine dernière 🙂`,
+    `Petit follow-up sur mon message de la semaine dernière 🙂`,
     `<br /><br />`,
-    `As-tu des campagnes ou besoins en créateurs qui se préparent en ce moment ?`,
+    `As-tu eu le temps de jeter un œil à la nouvelle recherche intelligente sur ton espace {{agence.nom}} by Glow Up ?`,
     `<br /><br />`,
-    `Dis-moi quand tu veux, je te fais une sélection rapide.`,
+    `{{agence.lien}}`,
     `<br /><br />`,
-    `Bonne journée !<br />{{owner.firstname}}`,
+    `Avec la rentrée qui approche, si tu as des campagnes ou castings en vue, dis-moi : je t'envoie un casting rapidement.`,
+    `<br /><br />`,
+    `J'attends de tes nouvelles !`,
+    `<br /><br />`,
+    `Belle journée à toi !`,
   ].join("");
 }
 
