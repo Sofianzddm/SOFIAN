@@ -5,6 +5,7 @@ import { getAppSession } from "@/lib/getAppSession";
 /**
  * GET    → fiche contact agence + historique complet des touches
  * PATCH  → { action: "stop" | "resume" } : sortir/remettre dans le cycle
+ *          { action: "to-contact" } : forcer le retour dans « À contacter »
  *          { action: "pause-relance" | "resume-relance" } : relance auto J+3
  *          { action: "draft", subject, bodyHtml } : enregistrer le brouillon
  *          { action: "edit", firstname, lastname, email, fromEmail?, language? }
@@ -75,6 +76,7 @@ export async function PATCH(
       action?:
         | "stop"
         | "resume"
+        | "to-contact"
         | "pause-relance"
         | "resume-relance"
         | "draft"
@@ -211,6 +213,25 @@ export async function PATCH(
       const updated = await prisma.agencyOutreachTarget.update({
         where: { id },
         data: { status, stoppedAt: null, stoppedById: null },
+      });
+      return NextResponse.json({ target: updated });
+    }
+
+    // Remet immédiatement le contact dans « À contacter » (ex. requalifié depuis
+    // Outreach Clients en conservant un WAITING / prochain recontact lointain).
+    if (body.action === "to-contact") {
+      if (target.status === "TO_CONTACT") {
+        return NextResponse.json({ target });
+      }
+      const updated = await prisma.agencyOutreachTarget.update({
+        where: { id },
+        data: {
+          status: "TO_CONTACT",
+          nextRecontactAt: null,
+          stoppedAt: null,
+          stoppedById: null,
+          scheduledSendAt: null,
+        },
       });
       return NextResponse.json({ target: updated });
     }

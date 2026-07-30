@@ -29,6 +29,7 @@ import {
   PlayCircle,
   Trash2,
   MessageSquareReply,
+  RotateCcw,
   Search,
   Bold,
   Italic,
@@ -976,6 +977,37 @@ export default function AgencyOutreachPage() {
     }
   };
 
+  const onToContact = async (t: Target) => {
+    try {
+      await patchTarget(t.id, { action: "to-contact" });
+      showToast("ok", `${t.firstname} remis dans « À contacter ».`);
+      await loadTargets();
+    } catch (e) {
+      showToast("err", e instanceof Error ? e.message : "Erreur");
+    }
+  };
+
+  const onToContactSelected = async () => {
+    const list = selectedTargets.filter(
+      (t) => t.status === "WAITING" || t.status === "TO_RECONTACT" || t.status === "STOPPED"
+    );
+    if (list.length === 0) return;
+    try {
+      for (const t of list) {
+        await patchTarget(t.id, { action: "to-contact" });
+      }
+      showToast(
+        "ok",
+        `${list.length} contact${list.length > 1 ? "s" : ""} remis dans « À contacter ».`
+      );
+      setSelected(new Set());
+      setActiveTab("TO_CONTACT");
+      await loadTargets();
+    } catch (e) {
+      showToast("err", e instanceof Error ? e.message : "Erreur");
+    }
+  };
+
   const onDelete = async (t: Target) => {
     if (role !== "ADMIN") return;
     if (!window.confirm(`Supprimer ${t.firstname} (${t.company}) du cycle ?`)) return;
@@ -1122,6 +1154,21 @@ export default function AgencyOutreachPage() {
               Rédiger ({selectedTargets.length})
             </button>
           )}
+          {selectedTargets.length > 0 &&
+            (activeTab === "WAITING" ||
+              activeTab === "TO_RECONTACT" ||
+              activeTab === "STOPPED") && (
+              <button
+                type="button"
+                onClick={() => void onToContactSelected()}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border-2"
+                style={{ borderColor: "#3D8B40", color: "#2F6B32" }}
+                title="Remettre la sélection dans « À contacter »"
+              >
+                <RotateCcw className="w-4 h-4" />
+                À contacter ({selectedTargets.length})
+              </button>
+            )}
           <button
             type="button"
             onClick={() => {
@@ -1327,6 +1374,18 @@ export default function AgencyOutreachPage() {
 
                         {/* Actions */}
                         <div className="flex items-center gap-1.5">
+                          {(t.status === "WAITING" ||
+                            t.status === "TO_RECONTACT" ||
+                            t.status === "STOPPED") && (
+                            <button
+                              type="button"
+                              onClick={() => void onToContact(t)}
+                              className="p-1.5 rounded-lg hover:bg-black/5"
+                              title="Remettre dans À contacter"
+                            >
+                              <RotateCcw className="w-4 h-4" style={{ color: "#3D8B40" }} />
+                            </button>
+                          )}
                           {t.status === "WAITING" && touch && !touch.relanceSentAt && !touch.repliedAt && (
                             <button
                               type="button"
