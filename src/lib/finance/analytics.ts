@@ -487,6 +487,17 @@ export function getPeriodeMoisEnCours(): PeriodeFilter {
 }
 
 /**
+ * Période mois précédent (calendaire)
+ */
+export function getPeriodeMoisDernier(): PeriodeFilter {
+  const lastMonth = subMonths(new Date(), 1);
+  return {
+    dateDebut: startOfMonth(lastMonth),
+    dateFin: endOfMonth(lastMonth),
+  };
+}
+
+/**
  * Période année en cours
  */
 export function getPeriodeAnneeEnCours(): PeriodeFilter {
@@ -495,6 +506,34 @@ export function getPeriodeAnneeEnCours(): PeriodeFilter {
     dateDebut: startOfYear(now),
     dateFin: endOfYear(now),
   };
+}
+
+export type PeriodeType = "mois" | "mois-dernier" | "annee" | "custom";
+
+/**
+ * Résout une période à partir du type + dates optionnelles
+ */
+export function resolvePeriode(opts: {
+  type?: string | null;
+  dateDebut?: string | null;
+  dateFin?: string | null;
+  pole?: "INFLUENCE" | "SALES" | null;
+}): PeriodeFilter {
+  const { type, dateDebut, dateFin, pole } = opts;
+  const withPole = (p: PeriodeFilter): PeriodeFilter => ({
+    ...p,
+    pole: pole || undefined,
+  });
+
+  if ((type === "custom" || (!type && dateDebut && dateFin)) && dateDebut && dateFin) {
+    return withPole({
+      dateDebut: new Date(dateDebut),
+      dateFin: new Date(dateFin),
+    });
+  }
+  if (type === "annee") return withPole(getPeriodeAnneeEnCours());
+  if (type === "mois-dernier") return withPole(getPeriodeMoisDernier());
+  return withPole(getPeriodeMoisEnCours());
 }
 
 /**
@@ -601,4 +640,533 @@ export async function getPrevisionCA() {
     nbCollabsEnCours: collabsEnCours.length,
     caTotal: caPrevi + caEnCours,
   };
+}
+
+export interface CollabValideeAvecDevis {
+  id: string;
+  reference: string;
+  dateValidation: Date;
+  pole: "INFLUENCE" | "SALES";
+  statut: string;
+  montantBrut: number;
+  commissionPercent: number;
+  commissionEuros: number;
+  montantNet: number;
+  talent: string;
+  talentPrenom: string;
+  marque: string;
+  createdBy: string | null;
+  createdByRole: string | null;
+  devisReference: string | null;
+  devisStatut: string | null;
+  devisEnvoyeAt: Date | null;
+  devisMontantHT: number | null;
+  /** Ex: "Devis", "Contrat", "Devis + Contrat", "—" */
+  documentsPresent: string;
+  /** Ex: "Devis", "Contrat", "Devis + Contrat", "—" */
+  documentsManquants: string;
+  hasDevis: boolean;
+  hasContrat: boolean;
+  /** Ligne hors règle CA (docs manquants, hors période, GAGNÉ sans collab…) */
+  alerte: boolean;
+  raison: string | null;
+  sourceLigne: "COLLAB" | "PROSPECTION";
+  /** Compte dans le CA du mois (collab créée sur la période + devis OU contrat) */
+  compteDansCA: boolean;
+  /** Collab hors période dont le devis a été généré sur la période → rouge Excel */
+  highlightRouge: boolean;
+}
+
+function normalizeFinanceText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function formatDateCourt(date: Date): string {
+  return new Intl.DateTimeFormat("fr-FR").format(date);
+}
+
+function collabHasContrat(c: {
+  contratStatut?: string | null;
+  contratMarqueStatut?: string | null;
+  contratSigneAt?: Date | null;
+  contratMarqueSigneAt?: Date | null;
+}): boolean {
+  if (c.contratSigneAt || c.contratMarqueSigneAt) return true;
+  if (c.contratMarqueStatut && c.contratMarqueStatut !== "AUCUN") return true;
+  if (c.contratStatut && c.contratStatut !== "NON_ENVOYE") return true;
+  return false;
+}
+
+function docsColumns(hasDevis: boolean, hasContrat: boolean): {
+  documentsPresent: string;
+  documentsManquants: string;
+} {
+  const present: string[] = [];
+  const missing: string[] = [];
+  if (hasDevis) present.push("Devis");
+  else missing.push("Devis");
+  if (hasContrat) present.push("Contrat");
+  else missing.push("Contrat");
+  return {
+    documentsPresent: present.length ? present.join(" + ") : "—",
+    documentsManquants: missing.length ? missing.join(" + ") : "—",
+  };
+}
+
+/**
+ * Export finance Influence/Sales avec alertes :
+ * - Collabs créées sur la période (CA si devis OU contrat)
+ * - Collabs hors période avec devis généré sur la période (rouge)
+ * - + prosp GAGNÉ du mois non couvertes
+ */
+export async function getCollabsValideesAvecDevis(
+  periode: PeriodeFilter
+): Promise<CollabValideeAvecDevis[]> {
+  const { dateDebut, dateFin, pole } = periode;
+  const mois = dateDebut.getMonth() + 1;
+  const annee = dateDebut.getFullYear();
+  const moisLabels = [
+    "Janvier",
+    "Février",
+    "Mars",
+    "Avril",
+    "Mai",
+    "Juin",
+    "Juillet",
+    "Août",
+    "Septembre",
+    "Octobre",
+    "Novembre",
+    "Décembre",
+  ];
+  const moisTitre = `${moisLabels[mois - 1]} ${annee}`;
+
+  const auteurInfluence = {
+    OR: [
+      { createdBy: { role: { in: ["TM", "HEAD_OF_INFLUENCE"] } } },
+      {
+        createdById: null,
+        negociation: {
+          is: { tm: { role: { in: ["TM", "HEAD_OF_INFLUENCE"] } } },
+        },
+      },
+    ],
+  };
+
+  const auteurSales = {
+    OR: [
+      { createdBy: { role: "HEAD_OF_SALES" } },
+      { isPrivate: true, createdBy: { role: { in: ["HEAD_OF_SALES", "ADMIN", "HEAD_OF"] } } },
+      { createdById: null, isPrivate: true },
+    ],
+  };
+
+  const poleAuteurClause =
+    pole === "INFLUENCE"
+      ? { AND: [{ source: "INBOUND" as const }, auteurInfluence] }
+      : pole === "SALES"
+        ? auteurSales
+        : {
+            OR: [
+              { AND: [{ source: "INBOUND" as const }, auteurInfluence] },
+              auteurSales,
+            ],
+          };
+
+  const collabSelect = {
+    id: true,
+    reference: true,
+    source: true,
+    statut: true,
+    montantBrut: true,
+    commissionPercent: true,
+    commissionEuros: true,
+    montantNet: true,
+    createdAt: true,
+    talentId: true,
+    contratStatut: true,
+    contratSigneAt: true,
+    contratMarqueStatut: true,
+    contratMarqueSigneAt: true,
+    talent: { select: { prenom: true, nom: true } },
+    marque: { select: { nom: true } },
+    createdBy: { select: { prenom: true, nom: true, role: true } },
+    documents: {
+      where: { type: "DEVIS" as const, statut: { not: "ANNULE" as const } },
+      orderBy: { createdAt: "desc" as const },
+      select: {
+        reference: true,
+        statut: true,
+        createdAt: true,
+        signatureSentAt: true,
+        signatureSignedAt: true,
+        dateEmission: true,
+        montantHT: true,
+      },
+    },
+  };
+
+  type CollabRow = Awaited<
+    ReturnType<typeof prisma.collaboration.findMany<{ select: typeof collabSelect }>>
+  >[number];
+
+  const toExportRow = (
+    c: CollabRow,
+    opts: {
+      inPeriode: boolean;
+      sourceLigne: "COLLAB" | "PROSPECTION";
+      createdByFallback?: string | null;
+      createdByRoleFallback?: string | null;
+      forceRaison?: string | null;
+      highlightRouge?: boolean;
+      dateDebut?: Date;
+      dateFin?: Date;
+    }
+  ): CollabValideeAvecDevis => {
+    const devisInPeriode =
+      opts.dateDebut && opts.dateFin
+        ? c.documents.find(
+            (d) => d.createdAt >= opts.dateDebut! && d.createdAt <= opts.dateFin!
+          )
+        : null;
+    const devis = devisInPeriode ?? c.documents[0] ?? null;
+    const hasDevis = c.documents.length > 0;
+    const hasContrat = collabHasContrat(c);
+    const docsOk = hasDevis || hasContrat;
+    const { documentsPresent, documentsManquants } = docsColumns(hasDevis, hasContrat);
+    const isSales =
+      c.createdBy?.role === "HEAD_OF_SALES" || c.source === "OUTBOUND";
+    const highlightRouge = Boolean(opts.highlightRouge);
+    const reasons: string[] = [];
+    if (opts.forceRaison) reasons.push(opts.forceRaison);
+    if (!opts.inPeriode && !opts.forceRaison && !highlightRouge) {
+      reasons.push(`Collab hors période (créée le ${formatDateCourt(c.createdAt)})`);
+    }
+    if (!docsOk) reasons.push("Devis et contrat manquants");
+    else if (highlightRouge) {
+      const devisDate = devisInPeriode?.createdAt ?? devis?.createdAt;
+      reasons.push(
+        `Devis généré sur la période${devisDate ? ` (${formatDateCourt(devisDate)})` : ""} — collab créée le ${formatDateCourt(c.createdAt)}`
+      );
+    }
+
+    return {
+      id: c.id,
+      reference: c.reference,
+      dateValidation: c.createdAt,
+      pole: isSales ? "SALES" : "INFLUENCE",
+      statut: c.statut,
+      montantBrut: Number(c.montantBrut),
+      commissionPercent: Number(c.commissionPercent),
+      commissionEuros: Number(c.commissionEuros),
+      montantNet: Number(c.montantNet),
+      talent: `${c.talent.prenom} ${c.talent.nom}`.trim(),
+      talentPrenom: c.talent.prenom,
+      marque: c.marque.nom,
+      createdBy: c.createdBy
+        ? `${c.createdBy.prenom} ${c.createdBy.nom || ""}`.trim()
+        : opts.createdByFallback ?? null,
+      createdByRole: c.createdBy?.role ?? opts.createdByRoleFallback ?? null,
+      devisReference: devis?.reference ?? null,
+      devisStatut: devis?.statut ?? null,
+      devisEnvoyeAt: devis?.signatureSentAt ?? devis?.dateEmission ?? null,
+      devisMontantHT: devis ? Number(devis.montantHT) : null,
+      documentsPresent,
+      documentsManquants,
+      hasDevis,
+      hasContrat,
+      alerte: !docsOk || highlightRouge || !opts.inPeriode,
+      raison: reasons.length ? reasons.join(" · ") : null,
+      sourceLigne: opts.sourceLigne,
+      compteDansCA: opts.inPeriode && docsOk,
+      highlightRouge,
+    };
+  };
+
+  // 1) Collabs créées sur la période
+  const collabs = await prisma.collaboration.findMany({
+    where: {
+      AND: [
+        poleAuteurClause,
+        { statut: { not: "PERDU" } },
+        { createdAt: { gte: dateDebut, lte: dateFin } },
+      ],
+    },
+    select: collabSelect,
+    orderBy: { createdAt: "asc" },
+  });
+
+  const rows: CollabValideeAvecDevis[] = collabs.map((c) =>
+    toExportRow(c, {
+      inPeriode: true,
+      sourceLigne: "COLLAB",
+      dateDebut,
+      dateFin,
+    })
+  );
+
+  const coveredCollabIds = new Set(rows.map((r) => r.id));
+
+  // 2) Collabs hors période dont le devis a été généré sur la période → rouge
+  const devisSurPeriode = await prisma.document.findMany({
+    where: {
+      type: "DEVIS",
+      statut: { not: "ANNULE" },
+      createdAt: { gte: dateDebut, lte: dateFin },
+      collaborationId: { not: null },
+      collaboration: {
+        AND: [
+          poleAuteurClause,
+          { statut: { not: "PERDU" } },
+          { createdAt: { lt: dateDebut } },
+        ],
+      },
+    },
+    select: { collaborationId: true },
+  });
+
+  const rougeIds = [
+    ...new Set(
+      devisSurPeriode
+        .map((d) => d.collaborationId)
+        .filter((id): id is string => Boolean(id) && !coveredCollabIds.has(id))
+    ),
+  ];
+
+  if (rougeIds.length > 0) {
+    const collabsRouge = await prisma.collaboration.findMany({
+      where: { id: { in: rougeIds } },
+      select: collabSelect,
+      orderBy: { createdAt: "asc" },
+    });
+    for (const c of collabsRouge) {
+      coveredCollabIds.add(c.id);
+      rows.push(
+        toExportRow(c, {
+          inPeriode: false,
+          sourceLigne: "COLLAB",
+          highlightRouge: true,
+          dateDebut,
+          dateFin,
+        })
+      );
+    }
+  }
+
+  // 3) Prospection GAGNÉ du mois (Influence) → écarts restants
+  if (pole !== "SALES") {
+    const prospGagnes = await prisma.prospectionContact.findMany({
+      where: {
+        statut: "GAGNE",
+        OR: [
+          { fichier: { mois, annee } },
+          {
+            fichier: {
+              titre: { contains: moisTitre, mode: "insensitive" },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        nomOpportunite: true,
+        montantBrut: true,
+        updatedAt: true,
+        talentId: true,
+        talent: { select: { prenom: true, nom: true } },
+        fichier: {
+          select: {
+            titre: true,
+            user: { select: { prenom: true, nom: true, role: true } },
+          },
+        },
+      },
+      orderBy: { updatedAt: "asc" },
+    });
+
+    const prospUnique = [
+      ...new Map(prospGagnes.map((p) => [p.id, p])).values(),
+    ];
+
+    const talentIds = [
+      ...new Set(
+        prospUnique.map((p) => p.talentId).filter((id): id is string => Boolean(id))
+      ),
+    ];
+
+    const collabsCandidats =
+      talentIds.length === 0
+        ? []
+        : await prisma.collaboration.findMany({
+            where: {
+              talentId: { in: talentIds },
+              statut: { not: "PERDU" },
+              source: "INBOUND",
+            },
+            select: collabSelect,
+            orderBy: { createdAt: "desc" },
+          });
+
+    for (const p of prospUnique) {
+      const opp = normalizeFinanceText(p.nomOpportunite || "");
+      const brutProsp = Number(p.montantBrut || 0);
+      const tmName = p.fichier.user
+        ? `${p.fichier.user.prenom} ${p.fichier.user.nom || ""}`.trim()
+        : null;
+
+      const scoreMatch = (c: CollabRow) => {
+        if (p.talentId && c.talentId !== p.talentId) return -1;
+        const marque = normalizeFinanceText(c.marque.nom);
+        const oppTokens = opp;
+        const marqueOk =
+          (marque.length >= 3 &&
+            oppTokens.includes(marque.slice(0, Math.min(6, marque.length)))) ||
+          (marque.length >= 5 && oppTokens.includes(marque.slice(0, 5))) ||
+          (oppTokens.includes("xiaomi") &&
+            (marque.includes("bump") || marque.includes("xiaomi"))) ||
+          (oppTokens.includes("dji") &&
+            (marque.includes("koli") || marque.includes("dji"))) ||
+          (oppTokens.includes("manhae") &&
+            (marque.includes("havea") || marque.includes("ponroy"))) ||
+          (oppTokens.includes("8inasia") && marque.includes("asia")) ||
+          (oppTokens.includes("mileade") && marque.includes("maddy")) ||
+          (oppTokens.includes("maddy") && marque.includes("maddy"));
+        if (!marqueOk) return -1;
+
+        const brutCollab = Number(c.montantBrut);
+        if (brutProsp > 0) {
+          const rel =
+            Math.abs(brutCollab - brutProsp) /
+            Math.max(brutProsp, brutCollab, 1);
+          if (rel > 0.25 && Math.abs(brutCollab - brutProsp) > 50) return -1;
+        }
+
+        let score = 3;
+        if (brutProsp > 0 && Math.abs(brutCollab - brutProsp) < 1) score += 3;
+        else if (
+          brutProsp > 0 &&
+          Math.abs(brutCollab - brutProsp) / Math.max(brutProsp, 1) < 0.2
+        ) {
+          score += 1;
+        }
+        return score;
+      };
+
+      let best: CollabRow | null = null;
+      let bestScore = 0;
+      for (const c of collabsCandidats) {
+        if (p.talentId && c.talentId !== p.talentId) continue;
+        const s = scoreMatch(c);
+        if (s > bestScore) {
+          bestScore = s;
+          best = c;
+        }
+      }
+
+      if (best && coveredCollabIds.has(best.id)) continue;
+
+      const alreadyInRows = rows.some((r) => {
+        if (r.sourceLigne !== "COLLAB" && !r.reference) return false;
+        const talentOk =
+          !p.talent ||
+          normalizeFinanceText(r.talentPrenom).includes(
+            normalizeFinanceText(p.talent.prenom)
+          ) ||
+          opp.includes(normalizeFinanceText(r.talentPrenom));
+        if (
+          talentOk &&
+          brutProsp > 0 &&
+          Math.abs(r.montantBrut - brutProsp) < 1
+        ) {
+          return true;
+        }
+        const blob = normalizeFinanceText(`${r.marque} ${r.talentPrenom}`);
+        const marqueFrag = normalizeFinanceText(r.marque).slice(0, 5);
+        const oppOk =
+          (marqueFrag.length >= 3 && opp.includes(marqueFrag)) ||
+          (opp.length >= 4 && blob.includes(opp.slice(0, 6)));
+        const brutOk =
+          brutProsp <= 0 ||
+          Math.abs(r.montantBrut - brutProsp) < 1 ||
+          Math.abs(r.montantBrut - brutProsp) / Math.max(brutProsp, 1) < 0.25;
+        return oppOk && brutOk && talentOk;
+      });
+      if (alreadyInRows) continue;
+
+      if (best) {
+        const inPeriode =
+          best.createdAt >= dateDebut && best.createdAt <= dateFin;
+        const docsOk =
+          best.documents.length > 0 || collabHasContrat(best);
+        if (inPeriode && docsOk) {
+          coveredCollabIds.add(best.id);
+          continue;
+        }
+
+        const devisInPeriode = best.documents.some(
+          (d) => d.createdAt >= dateDebut && d.createdAt <= dateFin
+        );
+        coveredCollabIds.add(best.id);
+        rows.push(
+          toExportRow(best, {
+            inPeriode,
+            sourceLigne: "PROSPECTION",
+            createdByFallback: tmName,
+            createdByRoleFallback: p.fichier.user?.role ?? null,
+            highlightRouge: !inPeriode && devisInPeriode,
+            dateDebut,
+            dateFin,
+          })
+        );
+        continue;
+      }
+
+      const talentPrenom =
+        p.talent?.prenom || p.nomOpportunite.split(/[x×]/i)[0]?.trim() || "";
+      const talentNom = p.talent?.nom || "";
+      const { documentsPresent, documentsManquants } = docsColumns(false, false);
+      rows.push({
+        id: `prosp-${p.id}`,
+        reference: "",
+        dateValidation: p.updatedAt,
+        pole: "INFLUENCE",
+        statut: "GAGNE_PROSPECTION",
+        montantBrut: brutProsp,
+        commissionPercent: 0,
+        commissionEuros: 0,
+        montantNet: brutProsp,
+        talent: `${talentPrenom} ${talentNom}`.trim() || p.nomOpportunite,
+        talentPrenom: talentPrenom || p.nomOpportunite,
+        marque: p.nomOpportunite,
+        createdBy: tmName,
+        createdByRole: p.fichier.user?.role ?? null,
+        devisReference: null,
+        devisStatut: null,
+        devisEnvoyeAt: null,
+        devisMontantHT: null,
+        documentsPresent,
+        documentsManquants,
+        hasDevis: false,
+        hasContrat: false,
+        alerte: true,
+        raison: "GAGNÉ en prospection sans collab créée",
+        sourceLigne: "PROSPECTION",
+        compteDansCA: false,
+        highlightRouge: false,
+      });
+    }
+  }
+
+  rows.sort((a, b) => {
+    if (a.compteDansCA !== b.compteDansCA) return a.compteDansCA ? -1 : 1;
+    if (a.highlightRouge !== b.highlightRouge) return a.highlightRouge ? -1 : 1;
+    if (a.alerte !== b.alerte) return a.alerte ? 1 : -1;
+    return a.dateValidation.getTime() - b.dateValidation.getTime();
+  });
+
+  return rows;
 }

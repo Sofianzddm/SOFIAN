@@ -120,7 +120,9 @@ const PIE_COLORS = [COLORS.green, COLORS.blue, COLORS.purple, COLORS.amber, COLO
 export default function FinancePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingCollabs, setExportingCollabs] = useState(false);
   const [stats, setStats] = useState<FinanceStats | null>(null);
   const [evolution, setEvolution] = useState<CAParMois[]>([]);
   const [repartitions, setRepartitions] = useState<Repartitions | null>(null);
@@ -128,33 +130,46 @@ export default function FinancePage() {
   const [prevision, setPrevision] = useState<Prevision | null>(null);
   
   // Filtres
-  const [periodeType, setPeriodeType] = useState<"mois" | "annee" | "custom">("mois");
+  const [periodeType, setPeriodeType] = useState<"mois" | "mois-dernier" | "annee" | "custom">("mois");
   const [dateDebut, setDateDebut] = useState("");
   const [dateFin, setDateFin] = useState("");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [poleFilter, setPoleFilter] = useState<"ALL" | "INFLUENCE" | "SALES">("ALL");
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (opts?: {
+    periodeType?: "mois" | "mois-dernier" | "annee" | "custom";
+    dateDebut?: string;
+    dateFin?: string;
+    poleFilter?: "ALL" | "INFLUENCE" | "SALES";
+  }) => {
+    const type = opts?.periodeType ?? periodeType;
+    const debut = opts?.dateDebut ?? dateDebut;
+    const fin = opts?.dateFin ?? dateFin;
+    const pole = opts?.poleFilter ?? poleFilter;
+
+    // Premier chargement : spinner plein écran. Sinon on garde l'UI (évite le "saut").
+    const isInitial = !stats;
+    if (isInitial) setLoading(true);
+    else setRefreshing(true);
+
     try {
-      let url = `/api/finance/analytics?type=${periodeType}`;
+      let url = `/api/finance/analytics?type=${type}`;
       let evolutionUrl = `/api/finance/evolution?nbMois=12`;
       let repartitionUrl = `/api/finance/repartition`;
       let conversionUrl = `/api/finance/conversion`;
-      
-      // Ajouter filtre pôle si sélectionné
-      const poleParam = poleFilter !== "ALL" ? `&pole=${poleFilter}` : "";
 
-      if (periodeType === "custom" && dateDebut && dateFin) {
-        url = `/api/finance/analytics?dateDebut=${dateDebut}&dateFin=${dateFin}${poleParam}`;
-        conversionUrl = `/api/finance/conversion?dateDebut=${dateDebut}&dateFin=${dateFin}${poleParam}`;
+      const poleParam = pole !== "ALL" ? `&pole=${pole}` : "";
+
+      if (type === "custom" && debut && fin) {
+        url = `/api/finance/analytics?type=custom&dateDebut=${debut}&dateFin=${fin}${poleParam}`;
+        conversionUrl = `/api/finance/conversion?type=custom&dateDebut=${debut}&dateFin=${fin}${poleParam}`;
         evolutionUrl = `/api/finance/evolution?nbMois=12${poleParam}`;
-        repartitionUrl = `/api/finance/repartition${poleParam ? `?${poleParam.slice(1)}` : ""}`;
+        repartitionUrl = `/api/finance/repartition?periodeType=custom&dateDebut=${debut}&dateFin=${fin}${poleParam}`;
       } else {
         url += poleParam;
         evolutionUrl += poleParam;
-        repartitionUrl += poleParam ? `?${poleParam.slice(1)}` : "";
-        conversionUrl += poleParam ? `?${poleParam.slice(1)}` : "";
+        conversionUrl += `?type=${type}${poleParam}`;
+        repartitionUrl += `?periodeType=${type}${poleParam}`;
       }
 
       const [statsRes, evolutionRes, repartitionsRes, conversionRes, previsionRes] = await Promise.all([
@@ -193,6 +208,7 @@ export default function FinancePage() {
       console.error("Erreur fetch finance:", error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -212,9 +228,14 @@ export default function FinancePage() {
       .catch(() => router.replace("/dashboard"));
   }, [router]);
 
+  // Ne pas dépendre de dateDebut/dateFin : sinon chaque frappe dans le date picker
+  // remonte le spinner plein écran et ferme le panneau.
   useEffect(() => {
-    if (isAdmin) fetchData();
-  }, [isAdmin, periodeType, dateDebut, dateFin, poleFilter]);
+    if (!isAdmin) return;
+    if (periodeType === "custom" && (!dateDebut || !dateFin)) return;
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dates custom appliquées via Appliquer / raccourcis
+  }, [isAdmin, periodeType, poleFilter]);
 
   const formatMoney = (value: number) => {
     return new Intl.NumberFormat("fr-FR", {
@@ -230,41 +251,77 @@ export default function FinancePage() {
     return `${sign}${value.toFixed(1)}%`;
   };
 
+  const buildExportBody = (extra: Record<string, unknown> = {}) => {
+    const body: Record<string, unknown> = { ...extra };
+    if (periodeType === "custom" && dateDebut && dateFin) {
+      body.dateDebut = dateDebut;
+      body.dateFin = dateFin;
+    } else {
+      body.periodeType = periodeType;
+    }
+    if (poleFilter !== "ALL") {
+      body.pole = poleFilter;
+    }
+    return body;
+  };
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
   const handleExport = async (format: "excel" | "csv") => {
     setExporting(true);
     try {
-      const body: any = { format };
-      if (periodeType === "custom" && dateDebut && dateFin) {
-        body.dateDebut = dateDebut;
-        body.dateFin = dateFin;
-      }
-      // Ajouter le filtre pôle si sélectionné
-      if (poleFilter !== "ALL") {
-        body.pole = poleFilter;
-      }
-
       const res = await fetch("/api/finance/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(buildExportBody({ format })),
       });
 
       if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `rapport-finance-${new Date().toISOString().split("T")[0]}.${format === "excel" ? "xlsx" : "csv"}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
+        downloadBlob(
+          await res.blob(),
+          `rapport-finance-${new Date().toISOString().split("T")[0]}.${format === "excel" ? "xlsx" : "csv"}`
+        );
       }
     } catch (error) {
       console.error("Erreur export:", error);
       alert("Erreur lors de l'export");
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleExportCollabsValidees = async () => {
+    setExportingCollabs(true);
+    try {
+      const res = await fetch("/api/finance/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildExportBody({ type: "collabs-validees" })),
+      });
+
+      if (res.ok) {
+        const poleSuffix = poleFilter !== "ALL" ? `-${poleFilter.toLowerCase()}` : "";
+        downloadBlob(
+          await res.blob(),
+          `collabs-creees-alertes${poleSuffix}-${new Date().toISOString().split("T")[0]}.xlsx`
+        );
+      } else {
+        alert("Erreur lors de l'export des collabs validées");
+      }
+    } catch (error) {
+      console.error("Erreur export collabs validées:", error);
+      alert("Erreur lors de l'export des collabs validées");
+    } finally {
+      setExportingCollabs(false);
     }
   };
 
@@ -284,10 +341,29 @@ export default function FinancePage() {
         break;
     }
 
-    setDateDebut(debut.toISOString().split("T")[0]);
-    setDateFin(now.toISOString().split("T")[0]);
+    const debutStr = debut.toISOString().split("T")[0];
+    const finStr = now.toISOString().split("T")[0];
+    setDateDebut(debutStr);
+    setDateFin(finStr);
     setPeriodeType("custom");
     setShowDatePicker(false);
+    // Si on était déjà en custom, periodeType ne change pas → fetch explicite
+    void fetchData({
+      periodeType: "custom",
+      dateDebut: debutStr,
+      dateFin: finStr,
+    });
+  };
+
+  const applyCustomPeriode = () => {
+    if (!dateDebut || !dateFin) return;
+    setPeriodeType("custom");
+    setShowDatePicker(false);
+    void fetchData({
+      periodeType: "custom",
+      dateDebut,
+      dateFin,
+    });
   };
 
   if (loading || isAdmin === null) {
@@ -308,7 +384,7 @@ export default function FinancePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-glowup-lace via-white to-glowup-lace/30 p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className={`max-w-7xl mx-auto ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between flex-wrap gap-4">
@@ -378,6 +454,16 @@ export default function FinancePage() {
                 }`}
               >
                 Mois en cours
+              </button>
+              <button
+                onClick={() => setPeriodeType("mois-dernier")}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  periodeType === "mois-dernier"
+                    ? "bg-glowup-rose text-white shadow-lg"
+                    : "bg-white text-gray-600 hover:bg-gray-50 border border-gray-200"
+                }`}
+              >
+                Mois dernier
               </button>
               <button
                 onClick={() => setPeriodeType("annee")}
@@ -458,14 +544,11 @@ export default function FinancePage() {
                         />
                       </div>
                       <button
-                        onClick={() => {
-                          setPeriodeType("custom");
-                          setShowDatePicker(false);
-                        }}
-                        disabled={!dateDebut || !dateFin}
+                        onClick={applyCustomPeriode}
+                        disabled={!dateDebut || !dateFin || refreshing}
                         className="w-full px-4 py-2 bg-glowup-rose text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Appliquer
+                        {refreshing ? "Chargement…" : "Appliquer"}
                       </button>
                     </div>
                   </div>
@@ -496,6 +579,19 @@ export default function FinancePage() {
                   <Download className="w-4 h-4" />
                 )}
                 CSV
+              </button>
+              <button
+                onClick={handleExportCollabsValidees}
+                disabled={exportingCollabs}
+                title="Collabs du mois (CA = devis OU contrat) + devis générés sur collabs antérieures (rouge) + alertes. Colonnes Documents présents / manquants."
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                {exportingCollabs ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileText className="w-4 h-4" />
+                )}
+                Collabs + alertes
               </button>
             </div>
           </div>

@@ -5,8 +5,7 @@ import {
   getRepartitionParTalent,
   getRepartitionParMarque,
   getRepartitionParSource,
-  getPeriodeMoisEnCours,
-  PeriodeFilter,
+  resolvePeriode,
 } from "@/lib/finance/analytics";
 
 // GET - Répartitions du CA
@@ -26,22 +25,19 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const type = searchParams.get("type"); // "talent" | "marque" | "source"
+    const periodeType = searchParams.get("periodeType") || searchParams.get("periode");
     const dateDebut = searchParams.get("dateDebut");
     const dateFin = searchParams.get("dateFin");
     const limit = parseInt(searchParams.get("limit") || "10");
     const pole = searchParams.get("pole") as "INFLUENCE" | "SALES" | null;
 
-    let periode: PeriodeFilter;
-
-    if (dateDebut && dateFin) {
-      periode = {
-        dateDebut: new Date(dateDebut),
-        dateFin: new Date(dateFin),
-        pole: pole || undefined,
-      };
-    } else {
-      periode = { ...getPeriodeMoisEnCours(), pole: pole || undefined };
-    }
+    // `type` historique = talent|marque|source ; la période passe par periodeType / dates
+    const periode = resolvePeriode({
+      type: periodeType,
+      dateDebut,
+      dateFin,
+      pole,
+    });
 
     let repartition;
 

@@ -3,8 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import {
   getTauxConversion,
-  getPeriodeMoisEnCours,
-  PeriodeFilter,
+  resolvePeriode,
 } from "@/lib/finance/analytics";
 
 // GET - Taux de conversion
@@ -23,22 +22,12 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const type = searchParams.get("type");
     const dateDebut = searchParams.get("dateDebut");
     const dateFin = searchParams.get("dateFin");
     const pole = searchParams.get("pole") as "INFLUENCE" | "SALES" | null;
 
-    let periode: PeriodeFilter;
-
-    if (dateDebut && dateFin) {
-      periode = {
-        dateDebut: new Date(dateDebut),
-        dateFin: new Date(dateFin),
-        pole: pole || undefined,
-      };
-    } else {
-      periode = { ...getPeriodeMoisEnCours(), pole: pole || undefined };
-    }
-
+    const periode = resolvePeriode({ type, dateDebut, dateFin, pole });
     const conversion = await getTauxConversion(periode);
 
     return NextResponse.json({

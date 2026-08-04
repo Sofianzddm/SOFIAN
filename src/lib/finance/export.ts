@@ -3,7 +3,12 @@
  */
 
 import ExcelJS from "exceljs";
-import { FinanceStats, CAParMois, RepartitionItem } from "./analytics";
+import {
+  FinanceStats,
+  CAParMois,
+  RepartitionItem,
+  CollabValideeAvecDevis,
+} from "./analytics";
 
 export async function generateExcelReport(
   stats: FinanceStats,
@@ -207,4 +212,204 @@ function formatMoney(value: number): string {
     currency: "EUR",
     minimumFractionDigits: 2,
   }).format(value);
+}
+
+function formatDateFr(date: Date | null): string {
+  if (!date) return "";
+  return new Intl.DateTimeFormat("fr-FR").format(new Date(date));
+}
+
+/**
+ * Export Excel : collabs créées sur la période (+ écarts)
+ * Colonnes Documents présents / manquants ; rouge = devis du mois sur collab hors période
+ */
+export async function generateCollabsValideesExcel(
+  rows: CollabValideeAvecDevis[],
+  meta: { dateDebut: Date; dateFin: Date; pole?: string }
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Glow Up Platform";
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet("Collabs + alertes");
+
+  const poleLabel =
+    meta.pole === "INFLUENCE"
+      ? "Influence"
+      : meta.pole === "SALES"
+        ? "Sales"
+        : "Tous pôles";
+
+  const caRows = rows.filter((r) => r.compteDansCA);
+  const rougeRows = rows.filter((r) => r.highlightRouge);
+  const alerteRows = rows.filter((r) => r.alerte && !r.highlightRouge);
+
+  sheet.mergeCells("A1:M1");
+  const title = sheet.getCell("A1");
+  title.value = `Collabs ${formatDateFr(meta.dateDebut)} → ${formatDateFr(meta.dateFin)} — ${poleLabel} — CA OK ${caRows.length} · Rouge (devis hors mois collab) ${rougeRows.length} · Alertes ${alerteRows.length}`;
+  title.font = { size: 12, bold: true, color: { argb: "FFFFFFFF" } };
+  title.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF8B1A3A" },
+  };
+  title.alignment = { horizontal: "center", vertical: "middle" };
+  sheet.getRow(1).height = 28;
+
+  const header = sheet.addRow([
+    "AFFAIRE",
+    "DATE",
+    "Nom du talent",
+    "TM",
+    "RÉF",
+    "GLOW UP AGENCY HT",
+    "TALENTS HT",
+    "TAUX",
+    "MARGE ATTENDUE",
+    "DOCUMENTS PRÉSENTS",
+    "DOCUMENTS MANQUANTS",
+    "ALERTE",
+    "RAISON",
+  ]);
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF8B1A3A" },
+  };
+
+  const alerteFill: ExcelJS.Fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFFFF3CD" },
+  };
+  const rougeFill: ExcelJS.Fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFFECACA" },
+  };
+
+  for (const row of rows) {
+    const dataRow = sheet.addRow([
+      row.sourceLigne === "PROSPECTION" && !row.reference
+        ? row.marque
+        : `${row.talent} x ${row.marque}`,
+      row.dateValidation,
+      row.talentPrenom || row.talent,
+      row.createdBy || "",
+      row.reference || "",
+      row.montantBrut,
+      row.montantNet,
+      row.commissionPercent > 0 ? row.commissionPercent / 100 : "",
+      row.commissionEuros > 0 || row.compteDansCA ? row.commissionEuros : "",
+      row.documentsPresent,
+      row.documentsManquants,
+      row.highlightRouge ? "ROUGE" : row.alerte ? "OUI" : "",
+      row.raison || "",
+    ]);
+    dataRow.getCell(2).numFmt = "dd/mm/yyyy";
+
+    if (row.highlightRouge) {
+      for (let col = 1; col <= 13; col++) {
+        dataRow.getCell(col).fill = rougeFill;
+      }
+      dataRow.getCell(12).font = { bold: true, color: { argb: "FFB91C1C" } };
+    } else if (row.alerte) {
+      for (let col = 1; col <= 13; col++) {
+        dataRow.getCell(col).fill = alerteFill;
+      }
+      dataRow.getCell(12).font = { bold: true, color: { argb: "FFB45309" } };
+    }
+  }
+
+  sheet.getColumn(1).width = 42;
+  sheet.getColumn(2).width = 12;
+  sheet.getColumn(3).width = 16;
+  sheet.getColumn(4).width = 18;
+  sheet.getColumn(5).width = 16;
+  sheet.getColumn(6).width = 18;
+  sheet.getColumn(7).width = 14;
+  sheet.getColumn(8).width = 10;
+  sheet.getColumn(9).width = 16;
+  sheet.getColumn(10).width = 18;
+  sheet.getColumn(11).width = 18;
+  sheet.getColumn(12).width = 10;
+  sheet.getColumn(13).width = 55;
+
+  sheet.getColumn(6).numFmt = "#,##0.00";
+  sheet.getColumn(7).numFmt = '#,##0.00 "€"';
+  sheet.getColumn(8).numFmt = "0%";
+  sheet.getColumn(9).numFmt = '#,##0.00 "€"';
+
+  if (rows.length > 0) {
+    sheet.addRow([]);
+    const totalCA = sheet.addRow([
+      `CA comptabilisé (${caRows.length} — collab du mois + devis OU contrat)`,
+      "",
+      "",
+      "",
+      "",
+      caRows.reduce((s, r) => s + r.montantBrut, 0),
+      caRows.reduce((s, r) => s + r.montantNet, 0),
+      "",
+      caRows.reduce((s, r) => s + r.commissionEuros, 0),
+      "",
+      "",
+      "",
+      "",
+    ]);
+    totalCA.font = { bold: true };
+    totalCA.getCell(6).numFmt = "#,##0.00";
+    totalCA.getCell(7).numFmt = '#,##0.00 "€"';
+    totalCA.getCell(9).numFmt = '#,##0.00 "€"';
+
+    if (rougeRows.length > 0) {
+      const totalRouge = sheet.addRow([
+        `Rouge (${rougeRows.length}) — devis généré sur la période, collab créée avant (hors CA mois)`,
+        "",
+        "",
+        "",
+        "",
+        rougeRows.reduce((s, r) => s + r.montantBrut, 0),
+        "",
+        "",
+        "",
+        "",
+        "",
+        "ROUGE",
+        "Voir colonne Raison",
+      ]);
+      totalRouge.font = { bold: true, color: { argb: "FFB91C1C" } };
+      for (let col = 1; col <= 13; col++) {
+        totalRouge.getCell(col).fill = rougeFill;
+      }
+      totalRouge.getCell(6).numFmt = "#,##0.00";
+    }
+
+    if (alerteRows.length > 0) {
+      const totalAlertes = sheet.addRow([
+        `Alertes (${alerteRows.length}) — hors CA`,
+        "",
+        "",
+        "",
+        "",
+        alerteRows.reduce((s, r) => s + r.montantBrut, 0),
+        "",
+        "",
+        "",
+        "",
+        "",
+        "OUI",
+        "Voir colonne Raison",
+      ]);
+      totalAlertes.font = { bold: true, color: { argb: "FFB45309" } };
+      for (let col = 1; col <= 13; col++) {
+        totalAlertes.getCell(col).fill = alerteFill;
+      }
+      totalAlertes.getCell(6).numFmt = "#,##0.00";
+    }
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
 }

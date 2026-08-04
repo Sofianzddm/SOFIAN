@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import {
-  getFinanceStats,
-  getPeriodeMoisEnCours,
-  getPeriodeAnneeEnCours,
-  PeriodeFilter,
-} from "@/lib/finance/analytics";
+import { getFinanceStats, resolvePeriode } from "@/lib/finance/analytics";
 
 // GET - Stats financières globales
 export async function GET(request: NextRequest) {
@@ -24,25 +19,12 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const type = searchParams.get("type") || "mois"; // "mois" | "annee" | "custom"
+    const type = searchParams.get("type") || "mois"; // "mois" | "mois-dernier" | "annee" | "custom"
     const dateDebut = searchParams.get("dateDebut");
     const dateFin = searchParams.get("dateFin");
     const pole = searchParams.get("pole") as "INFLUENCE" | "SALES" | null;
 
-    let periode: PeriodeFilter;
-
-    if (type === "custom" && dateDebut && dateFin) {
-      periode = {
-        dateDebut: new Date(dateDebut),
-        dateFin: new Date(dateFin),
-        pole: pole || undefined,
-      };
-    } else if (type === "annee") {
-      periode = { ...getPeriodeAnneeEnCours(), pole: pole || undefined };
-    } else {
-      periode = { ...getPeriodeMoisEnCours(), pole: pole || undefined };
-    }
-
+    const periode = resolvePeriode({ type, dateDebut, dateFin, pole });
     const stats = await getFinanceStats(periode);
 
     return NextResponse.json({

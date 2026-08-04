@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { endOfDay, startOfDay } from "date-fns";
 import {
   getFinanceStats,
   getCAParMois,
   getRepartitionParTalent,
   getRepartitionParMarque,
   getRepartitionParSource,
-  getPeriodeMoisEnCours,
+  getCollabsValideesAvecDevis,
+  resolvePeriode,
   PeriodeFilter,
 } from "@/lib/finance/analytics";
-import { generateExcelReport, generateCSV } from "@/lib/finance/export";
+import {
+  generateExcelReport,
+  generateCSV,
+  generateCollabsValideesExcel,
+} from "@/lib/finance/export";
 
 // POST - Générer export Excel ou CSV
 export async function POST(request: NextRequest) {
@@ -28,21 +34,41 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { format, dateDebut, dateFin, pole } = body;
+    const { format, dateDebut, dateFin, pole, type, periodeType } = body;
 
     let periode: PeriodeFilter;
 
     if (dateDebut && dateFin) {
       periode = {
-        dateDebut: new Date(dateDebut),
-        dateFin: new Date(dateFin),
+        dateDebut: startOfDay(new Date(dateDebut)),
+        dateFin: endOfDay(new Date(dateFin)),
         pole: pole || undefined,
       };
     } else {
-      periode = { ...getPeriodeMoisEnCours(), pole: pole || undefined };
+      periode = resolvePeriode({ type: periodeType, pole });
     }
 
-    // Récupérer toutes les données avec filtre pôle
+    const poleSuffix = pole ? `-${pole.toLowerCase()}` : "";
+    const dateStr = new Date().toISOString().split("T")[0];
+
+    // Export : collab créée sur la période + devis généré
+    if (type === "collabs-validees") {
+      const rows = await getCollabsValideesAvecDevis(periode);
+      const buffer = await generateCollabsValideesExcel(rows, {
+        dateDebut: periode.dateDebut,
+        dateFin: periode.dateFin,
+        pole,
+      });
+
+      return new NextResponse(buffer as any, {
+        headers: {
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename="collabs-creees-alertes${poleSuffix}-${dateStr}.xlsx"`,
+        },
+      });
+    }
+
     const [stats, evolution, talents, marques, sources] = await Promise.all([
       getFinanceStats(periode),
       getCAParMois(12, pole || undefined),
@@ -50,10 +76,6 @@ export async function POST(request: NextRequest) {
       getRepartitionParMarque(periode, 20),
       getRepartitionParSource(periode),
     ]);
-
-    // Générer nom de fichier avec pôle si filtré
-    const poleSuffix = pole ? `-${pole.toLowerCase()}` : "";
-    const dateStr = new Date().toISOString().split("T")[0];
 
     if (format === "excel") {
       const buffer = await generateExcelReport(stats, evolution, {
