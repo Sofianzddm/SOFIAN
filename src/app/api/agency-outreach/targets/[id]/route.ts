@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
+import { parseParisDateTimeLocalToUtc } from "@/lib/agency-outreach-send";
 
 /**
  * GET    → fiche contact agence + historique complet des touches
  * PATCH  → { action: "stop" | "resume" } : sortir/remettre dans le cycle
  *          { action: "to-contact" } : forcer le retour dans « À contacter »
  *          { action: "pause-relance" | "resume-relance" } : relance auto J+3
+ *          { action: "reschedule-relance", relanceScheduledAt } : changer la date de relance
  *          { action: "draft", subject, bodyHtml } : enregistrer le brouillon
  *          { action: "edit", firstname, lastname, email, fromEmail?, language? }
  * DELETE → suppression (ADMIN uniquement)
@@ -79,6 +81,7 @@ export async function PATCH(
         | "to-contact"
         | "pause-relance"
         | "resume-relance"
+        | "reschedule-relance"
         | "draft"
         | "edit";
       subject?: string;
@@ -88,6 +91,8 @@ export async function PATCH(
       email?: string;
       fromEmail?: string | null;
       language?: string;
+      /** Heure murale Paris (`datetime-local`) ou ISO. */
+      relanceScheduledAt?: string;
     };
 
     const target = await prisma.agencyOutreachTarget.findUnique({ where: { id } });
@@ -269,6 +274,61 @@ export async function PATCH(
             : { relanceCancelledAt: null, relanceCancelledById: null },
       });
       return NextResponse.json({ ok: true });
+    }
+
+    if (body.action === "reschedule-relance") {
+      const touch = await prisma.agencyOutreachTouch.findFirst({
+        where: { targetId: id, sentAt: { not: null } },
+        orderBy: { cycleNumber: "desc" },
+        select: { id: true, relanceSentAt: true, repliedAt: true },
+      });
+      if (!touch) {
+        return NextResponse.json(
+          { error: "Aucun mail de cycle envoyé pour ce contact." },
+          { status: 409 }
+        );
+      }
+      if (touch.relanceSentAt) {
+        return NextResponse.json(
+          { error: "La relance a déjà été envoyée pour ce mail." },
+          { status: 409 }
+        );
+      }
+      if (touch.repliedAt) {
+        return NextResponse.json(
+          { error: "Le contact a répondu : aucune relance n'est prévue." },
+          { status: 409 }
+        );
+      }
+
+      const raw = String(body.relanceScheduledAt || "").trim();
+      if (!raw) {
+        return NextResponse.json(
+          { error: "Indiquez la nouvelle date de relance." },
+          { status: 400 }
+        );
+      }
+      // datetime-local (heure Paris) en priorité ; sinon ISO.
+      const scheduled =
+        parseParisDateTimeLocalToUtc(raw) ||
+        (() => {
+          const d = new Date(raw);
+          return Number.isNaN(d.getTime()) ? null : d;
+        })();
+      if (!scheduled) {
+        return NextResponse.json({ error: "Date de relance invalide." }, { status: 400 });
+      }
+
+      await prisma.agencyOutreachTouch.update({
+        where: { id: touch.id },
+        data: {
+          relanceScheduledAt: scheduled,
+          // Reprogrammer réactive aussi une relance éventuellement en pause.
+          relanceCancelledAt: null,
+          relanceCancelledById: null,
+        },
+      });
+      return NextResponse.json({ ok: true, relanceScheduledAt: scheduled.toISOString() });
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

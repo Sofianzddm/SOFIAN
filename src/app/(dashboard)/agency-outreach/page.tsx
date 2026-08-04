@@ -72,6 +72,7 @@ type TouchSummary = {
   sentAt: string | null;
   relanceSentAt: string | null;
   relanceCancelledAt: string | null;
+  relanceScheduledAt: string | null;
   repliedAt: string | null;
   openCount: number;
   openedAt: string | null;
@@ -301,24 +302,22 @@ function toParisDatetimeLocal(date: Date): string {
 
 /**
  * Statut de la relance J+3 ouvré d'un touch, pour affichage dans la liste :
- *  - "scheduled" : relance auto à venir (date prévue calculée comme le cron)
+ *  - "scheduled" : relance auto à venir (override manuel ou formule J+3)
  *  - "sent"      : relance déjà envoyée
  *  - "cancelled" : relance annulée (pause manuelle)
  *  - null        : pas de relance pertinente (pas d'envoi, ou réponse reçue)
  */
 function relanceInfo(
   touch: TouchSummary | undefined
-): { state: "scheduled" | "sent" | "cancelled"; at: string } | null {
+): { state: "scheduled" | "sent" | "cancelled"; at: string; dueAt: Date | null } | null {
   if (!touch || !touch.sentAt) return null;
   if (touch.repliedAt) return null;
-  if (touch.relanceSentAt) return { state: "sent", at: fmtDateTime(touch.relanceSentAt) };
-  if (touch.relanceCancelledAt) return { state: "cancelled", at: "" };
-  const due = businessDeadlineWithJitter(
-    new Date(touch.sentAt),
-    RELANCE_BUSINESS_DAYS,
-    touch.id
-  );
-  return { state: "scheduled", at: fmtDateTime(due) };
+  if (touch.relanceSentAt) return { state: "sent", at: fmtDateTime(touch.relanceSentAt), dueAt: null };
+  if (touch.relanceCancelledAt) return { state: "cancelled", at: "", dueAt: null };
+  const due = touch.relanceScheduledAt
+    ? new Date(touch.relanceScheduledAt)
+    : businessDeadlineWithJitter(new Date(touch.sentAt), RELANCE_BUSINESS_DAYS, touch.id);
+  return { state: "scheduled", at: fmtDateTime(due), dueAt: due };
 }
 
 type ImportRow = {
@@ -539,6 +538,10 @@ export default function AgencyOutreachPage() {
   });
   // Génération IA du mail (composer).
   const [isGenerating, setIsGenerating] = useState(false);
+  // Édition inline de la date de relance (targetId en cours + valeur datetime-local Paris).
+  const [editingRelanceId, setEditingRelanceId] = useState<string | null>(null);
+  const [editingRelanceAt, setEditingRelanceAt] = useState("");
+  const [savingRelance, setSavingRelance] = useState(false);
 
   const showToast = useCallback((kind: "ok" | "err", msg: string) => {
     setToast({ kind, msg });
@@ -1037,6 +1040,39 @@ export default function AgencyOutreachPage() {
     }
   };
 
+  const startEditRelance = (t: Target, dueAt: Date) => {
+    setEditingRelanceId(t.id);
+    setEditingRelanceAt(toParisDatetimeLocal(dueAt));
+  };
+
+  const onSaveRelanceDate = async (t: Target) => {
+    if (!editingRelanceAt.trim()) {
+      showToast("err", "Indiquez une date de relance.");
+      return;
+    }
+    setSavingRelance(true);
+    try {
+      const res = await fetch(`/api/agency-outreach/targets/${t.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "reschedule-relance",
+          relanceScheduledAt: editingRelanceAt,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Reprogrammation impossible");
+      showToast("ok", "Date de relance mise à jour.");
+      setEditingRelanceId(null);
+      setEditingRelanceAt("");
+      await loadTargets();
+    } catch (e) {
+      showToast("err", e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingRelance(false);
+    }
+  };
+
   const addExistingContact = async (contactId: string) => {
     setAddBusyId(contactId);
     try {
@@ -1347,15 +1383,54 @@ export default function AgencyOutreachPage() {
                               </span>
                             </>
                           )}
-                          {relance?.state === "scheduled" && (
-                            <span
-                              className="inline-flex items-center gap-1 text-amber-700"
-                              title="Relance automatique J+3 ouvré prévue"
-                            >
-                              <MessageSquareReply className="w-3.5 h-3.5" />
-                              Relance {relance.at}
-                            </span>
-                          )}
+                          {relance?.state === "scheduled" &&
+                            (editingRelanceId === t.id ? (
+                              <span className="inline-flex items-center gap-1 text-amber-700">
+                                <MessageSquareReply className="w-3.5 h-3.5 shrink-0" />
+                                <input
+                                  type="datetime-local"
+                                  value={editingRelanceAt}
+                                  onChange={(e) => setEditingRelanceAt(e.target.value)}
+                                  className="rounded border border-amber-300 bg-white px-1.5 py-0.5 text-xs text-amber-900"
+                                  disabled={savingRelance}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => void onSaveRelanceDate(t)}
+                                  disabled={savingRelance}
+                                  className="rounded px-1.5 py-0.5 font-medium hover:bg-amber-100 disabled:opacity-50"
+                                  title="Enregistrer"
+                                >
+                                  {savingRelance ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingRelanceId(null);
+                                    setEditingRelanceAt("");
+                                  }}
+                                  disabled={savingRelance}
+                                  className="rounded px-1.5 py-0.5 hover:bg-amber-100 disabled:opacity-50"
+                                  title="Annuler"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => relance.dueAt && startEditRelance(t, relance.dueAt)}
+                                className="inline-flex items-center gap-1 text-amber-700 hover:underline"
+                                title="Modifier la date de relance"
+                              >
+                                <MessageSquareReply className="w-3.5 h-3.5" />
+                                Relance {relance.at}
+                              </button>
+                            ))}
                           {relance?.state === "sent" && (
                             <span className="inline-flex items-center gap-1 opacity-70" title="Relance envoyée">
                               <MessageSquareReply className="w-3.5 h-3.5" />

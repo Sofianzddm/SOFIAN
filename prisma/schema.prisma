@@ -3680,6 +3680,8 @@ model AgencyOutreachTouch {
   relanceError         String?   @db.Text
   relanceCancelledAt   DateTime?
   relanceCancelledById String?
+  /** Override manuel de l'échéance de relance J+3. Null = formule sentAt + 3j ouvrés + jitter. */
+  relanceScheduledAt   DateTime?
   repliedAt            DateTime?
 
   openedAt     DateTime?

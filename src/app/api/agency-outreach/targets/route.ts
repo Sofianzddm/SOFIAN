@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
             sentAt: true,
             relanceSentAt: true,
             relanceCancelledAt: true,
+            relanceScheduledAt: true,
             repliedAt: true,
             openCount: true,
             openedAt: true,

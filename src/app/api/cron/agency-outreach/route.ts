@@ -130,13 +130,17 @@ export async function GET(request: NextRequest) {
       }
 
       // 2. Relance auto J+3 ouvrés (sautée si réponse ou pause manuelle).
-      if (
+      // Si relanceScheduledAt est renseigné (override manuel), on l'utilise
+      // à la place de la formule sentAt + 3j + jitter, et on ignore la fenêtre
+      // horaire 8h30–18h30 (l'utilisateur a choisi l'heure explicitement).
+      const customDue =
+        Boolean(touch.relanceScheduledAt) &&
+        now.getTime() >= new Date(touch.relanceScheduledAt!).getTime();
+      const defaultDue =
+        !touch.relanceScheduledAt &&
         withinRelanceHours &&
-        !hasReplied &&
-        !touch.relanceSentAt &&
-        !touch.relanceCancelledAt &&
-        relanceDue(touch.sentAt, AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
-      ) {
+        relanceDue(touch.sentAt, AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now);
+      if (!hasReplied && !touch.relanceSentAt && !touch.relanceCancelledAt && (customDue || defaultDue)) {
         const result = await executeAgencyOutreachRelance(touch.id);
         if (result.ok) relances += 1;
         else console.warn(`[cron/agency-outreach] relance ${target.email}: ${result.error}`);
