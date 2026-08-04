@@ -13,6 +13,7 @@ export function NewTalentBadge({ className = "" }: { className?: string }) {
   return (
     <div
       className={`pointer-events-none flex flex-col items-center gap-2.5 select-none ${className}`}
+      style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.55)) drop-shadow(0 0 6px rgba(0,0,0,0.35))" }}
       aria-label="New talent"
     >
       <span className="block h-px w-3 bg-white/90" aria-hidden />
