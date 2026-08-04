@@ -1641,7 +1641,7 @@ export default function FichierProspectionPage() {
                     router.push(
                       `/collaborations/new?talent=${talentId}${
                         marque ? `&marque=${marque}` : ""
-                      }${montant ? `&montantBrut=${montant}` : ""}`
+                      }${montant ? `&montantBrut=${montant}` : ""}&prospectionContactId=${convertModal.contactId}`
                     );
                   }}
                   className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium text-[#1A1110] disabled:opacity-60"
