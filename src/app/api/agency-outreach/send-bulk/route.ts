@@ -25,8 +25,6 @@ import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 
 const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
 
-const MAX_BULK = 25;
-
 type Lang = "fr" | "en";
 
 function normalizeLang(value: unknown): Lang {
@@ -398,12 +396,6 @@ export async function POST(request: NextRequest) {
 
     if (targetIds.length === 0) {
       return NextResponse.json({ error: "Aucun destinataire." }, { status: 400 });
-    }
-    if (targetIds.length > MAX_BULK) {
-      return NextResponse.json(
-        { error: `Maximum ${MAX_BULK} destinataires par envoi.` },
-        { status: 400 }
-      );
     }
     if (!subject || !bodyHtml) {
       return NextResponse.json(
