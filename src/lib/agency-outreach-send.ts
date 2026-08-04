@@ -242,6 +242,8 @@ export async function executeAgencyOutreachSend(
     bodyHtml: string;
     sentById?: string | null;
     force?: boolean;
+    /** Override manuel de la relance J+3 (null/undefined = formule auto). */
+    relanceScheduledAt?: Date | null;
   }
 ): Promise<AgencyOutreachSendResult> {
   const target = await prisma.agencyOutreachTarget.findUnique({
@@ -252,6 +254,12 @@ export async function executeAgencyOutreachSend(
   if (target.status === "STOPPED") {
     return { ok: false, error: "Ce contact est sorti du cycle (stoppé)." };
   }
+
+  // Priorité : override passé à l'appel, sinon celui figé à la programmation.
+  const relanceScheduledAt =
+    input.relanceScheduledAt !== undefined
+      ? input.relanceScheduledAt
+      : target.scheduledRelanceAt;
 
   // Nom + lien LIVE depuis /partners (privilégiés au snapshot à l'envoi).
   const liveCompany = target.partner?.name || target.company;
@@ -342,7 +350,13 @@ export async function executeAgencyOutreachSend(
   await prisma.$transaction([
     prisma.agencyOutreachTouch.update({
       where: { id: touch.id },
-      data: { sentAt: now, messageId, threadId: messageId, sendError: null },
+      data: {
+        sentAt: now,
+        messageId,
+        threadId: messageId,
+        sendError: null,
+        ...(relanceScheduledAt ? { relanceScheduledAt } : {}),
+      },
     }),
     prisma.agencyOutreachTarget.update({
       where: { id: target.id },
@@ -358,6 +372,7 @@ export async function executeAgencyOutreachSend(
         scheduledSubject: null,
         scheduledBodyHtml: null,
         scheduledById: null,
+        scheduledRelanceAt: null,
         autoRescheduleReason: null,
         autoRescheduledAt: null,
       },
@@ -556,6 +571,8 @@ export async function executeAgencyOutreachSchedule(
     scheduledSendAt: Date;
     sentById?: string | null;
     force?: boolean;
+    /** Override de relance à appliquer au touch quand le cron enverra. */
+    relanceScheduledAt?: Date | null;
   }
 ): Promise<AgencyOutreachScheduleResult> {
   const target = await prisma.agencyOutreachTarget.findUnique({
@@ -610,6 +627,8 @@ export async function executeAgencyOutreachSchedule(
       scheduledSubject: subjectTpl,
       scheduledBodyHtml: bodyTpl,
       scheduledById: input.sentById || null,
+      scheduledRelanceAt:
+        input.relanceScheduledAt !== undefined ? input.relanceScheduledAt : null,
       // On repart d'un état propre côté brouillon / auto-reschedule.
       draftSubject: null,
       draftBodyHtml: null,
@@ -668,6 +687,7 @@ export async function processAgencyScheduledSends(
             scheduledSubject: null,
             scheduledBodyHtml: null,
             scheduledById: null,
+            scheduledRelanceAt: null,
           },
         })
         .catch(() => null);
@@ -696,6 +716,7 @@ export async function processAgencyScheduledSends(
           scheduledSubject: null,
           scheduledBodyHtml: null,
           scheduledById: null,
+          scheduledRelanceAt: null,
         },
       })
       .catch(() => null);

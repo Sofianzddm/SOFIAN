@@ -204,6 +204,8 @@ async function sendBulkStreaming(
     mode: "now" | "staggered" | "at";
     /** Mode « at » : heure murale de Paris (valeur d'un input datetime-local). */
     scheduledAt?: string;
+    /** Override date de relance (datetime-local Paris). Vide = auto J+3. */
+    relanceScheduledAt?: string;
     force?: boolean;
   },
   onProgress: (p: { done: number; total: number; label: string }) => void
@@ -354,6 +356,8 @@ export default function AgencyOutreachPage() {
   const [sendMode, setSendMode] = useState<"now" | "staggered" | "at">("now");
   // Heure d'envoi choisie (mode "at"), au format datetime-local, heure de Paris.
   const [scheduledAt, setScheduledAt] = useState<string>("");
+  // Date de relance choisie à l'envoi (datetime-local Paris). Vide = auto J+3.
+  const [relanceAtSend, setRelanceAtSend] = useState<string>("");
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
   const [lastField, setLastField] = useState<"subject" | "body">("body");
   const [bodyTick, setBodyTick] = useState(0);
@@ -662,6 +666,9 @@ export default function AgencyOutreachPage() {
     // écrit en FR pour un contact EN serait considéré « déjà en anglais » et
     // partirait sans traduction.)
     setLanguage("fr");
+    setSendMode("now");
+    setScheduledAt("");
+    setRelanceAtSend("");
     setPreviewMode("edit");
     setLastField("body");
     setProgress(null);
@@ -770,6 +777,7 @@ export default function AgencyOutreachPage() {
           sourceLanguage: language,
           mode: sendMode,
           scheduledAt: sendMode === "at" ? scheduledAt : undefined,
+          relanceScheduledAt: relanceAtSend.trim() || undefined,
           force,
         },
         (p) => setProgress(p)
@@ -1843,7 +1851,7 @@ export default function AgencyOutreachPage() {
                 {sendMode === "at" && (
                   <div className="pt-1">
                     <label className="block text-[11px] font-medium mb-1" style={{ color: LICORICE }}>
-                      Date et heure d'envoi (heure française)
+                      Date et heure d&apos;envoi (heure française)
                     </label>
                     <input
                       type="datetime-local"
@@ -1856,6 +1864,65 @@ export default function AgencyOutreachPage() {
                       Les mails sont légèrement étalés (~1/min) à partir de cette heure.
                     </p>
                   </div>
+                )}
+              </div>
+
+              {/* Date de relance (optionnelle) — appliquée à tous les destinataires */}
+              <div
+                className="rounded-xl border p-3 space-y-2"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-medium" style={{ color: LICORICE }}>
+                    Date de relance
+                  </p>
+                  {relanceAtSend ? (
+                    <button
+                      type="button"
+                      onClick={() => setRelanceAtSend("")}
+                      className="text-[11px] underline opacity-70"
+                      style={{ color: LICORICE }}
+                    >
+                      Auto J+3
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Défaut : demain 10h00 (heure de Paris).
+                        const tomorrow = new Date();
+                        tomorrow.setDate(tomorrow.getDate() + 1);
+                        const paris = toParisDatetimeLocal(tomorrow);
+                        const [d] = paris.split("T");
+                        setRelanceAtSend(`${d}T10:00`);
+                      }}
+                      className="text-[11px] underline opacity-70"
+                      style={{ color: LICORICE }}
+                    >
+                      Choisir une date
+                    </button>
+                  )}
+                </div>
+                {relanceAtSend ? (
+                  <>
+                    <input
+                      type="datetime-local"
+                      value={relanceAtSend}
+                      onChange={(e) => setRelanceAtSend(e.target.value)}
+                      className="w-full rounded-xl border px-3 py-2 text-sm"
+                      style={{
+                        borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`,
+                        color: LICORICE,
+                      }}
+                    />
+                    <p className="text-[11px] opacity-70" style={{ color: LICORICE }}>
+                      Même date pour tous les destinataires de cet envoi (heure française).
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[11px] opacity-70" style={{ color: LICORICE }}>
+                    Relance auto à J+3 ouvrés après l&apos;envoi (comportement par défaut).
+                  </p>
                 )}
               </div>
 

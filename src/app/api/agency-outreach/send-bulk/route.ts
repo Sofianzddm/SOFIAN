@@ -148,10 +148,19 @@ async function runBulkSend(
     sourceLanguage: Lang;
     sentById: string;
     force: boolean;
+    relanceScheduledAt?: Date | null;
   },
   onProgress: (event: ProgressEvent) => void
 ): Promise<BulkResult> {
-  const { targets, subject, bodyHtml, sourceLanguage, sentById, force } = params;
+  const {
+    targets,
+    subject,
+    bodyHtml,
+    sourceLanguage,
+    sentById,
+    force,
+    relanceScheduledAt,
+  } = params;
 
   const neededLangs = new Set<Lang>(targets.map((t) => normalizeLang(t.language)));
   const total = [...neededLangs].filter((l) => l !== sourceLanguage).length + targets.length;
@@ -181,6 +190,7 @@ async function runBulkSend(
       bodyHtml: version.bodyHtml,
       sentById,
       force,
+      relanceScheduledAt,
     });
     if (res.ok && lang !== sourceLanguage) result.translated += 1;
     if (res.ok) {
@@ -228,10 +238,20 @@ async function runBulkSchedule(
      * d'étalement automatique jusqu'à 18h30 (Paris).
      */
     scheduledStart?: Date | null;
+    relanceScheduledAt?: Date | null;
   },
   onProgress: (event: ProgressEvent) => void
 ): Promise<BulkResult> {
-  const { targets, subject, bodyHtml, sourceLanguage, sentById, force, scheduledStart } = params;
+  const {
+    targets,
+    subject,
+    bodyHtml,
+    sourceLanguage,
+    sentById,
+    force,
+    scheduledStart,
+    relanceScheduledAt,
+  } = params;
 
   const neededLangs = new Set<Lang>(targets.map((t) => normalizeLang(t.language)));
   const total = [...neededLangs].filter((l) => l !== sourceLanguage).length + targets.length;
@@ -271,6 +291,7 @@ async function runBulkSchedule(
       scheduledSendAt: when,
       sentById,
       force,
+      relanceScheduledAt,
     });
 
     if (res.ok) {
@@ -328,6 +349,8 @@ export async function POST(request: NextRequest) {
       mode?: string;
       /** Mode « at » : heure murale de Paris (valeur d'un input datetime-local). */
       scheduledAt?: string;
+      /** Override date de relance (datetime-local Paris). Vide = auto J+3. */
+      relanceScheduledAt?: string;
     };
     const targetIds = Array.isArray(body.targetIds)
       ? body.targetIds.filter((id) => typeof id === "string" && id.trim())
@@ -356,6 +379,18 @@ export async function POST(request: NextRequest) {
       if (scheduledStart.getTime() < Date.now() - 60_000) {
         return NextResponse.json(
           { error: "L'heure d'envoi choisie est déjà passée." },
+          { status: 400 }
+        );
+      }
+    }
+
+    const rawRelance = String(body.relanceScheduledAt || "").trim();
+    let relanceScheduledAt: Date | null = null;
+    if (rawRelance) {
+      relanceScheduledAt = parseParisDateTimeLocalToUtc(rawRelance);
+      if (!relanceScheduledAt) {
+        return NextResponse.json(
+          { error: "Date de relance invalide." },
           { status: 400 }
         );
       }
@@ -392,6 +427,7 @@ export async function POST(request: NextRequest) {
       sourceLanguage,
       sentById: session.user.id,
       force,
+      relanceScheduledAt,
     };
     // "now" → envoi immédiat ; "staggered"/"at" → programmation (le cron enverra).
     const runBulk = (onProgress: (event: ProgressEvent) => void) =>

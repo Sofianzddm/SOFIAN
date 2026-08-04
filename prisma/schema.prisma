@@ -3630,6 +3630,8 @@ model AgencyOutreachTarget {
   scheduledSubject  String?   @db.Text
   scheduledBodyHtml String?   @db.Text
   scheduledById     String?
+  /** Override de relance choisi à la programmation ; appliqué au touch à l'envoi réel. */
+  scheduledRelanceAt DateTime?
 
   cycleCount      Int       @default(0)
   lastSentAt      DateTime?
