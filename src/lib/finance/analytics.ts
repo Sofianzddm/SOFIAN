@@ -4,6 +4,7 @@
  */
 
 import prisma from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths, subYears, format } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -755,24 +756,27 @@ export async function getCollabsValideesAvecDevis(
         },
       },
     ],
-  };
+  } satisfies Prisma.CollaborationWhereInput;
 
   const auteurSales = {
     OR: [
       { createdBy: { role: "HEAD_OF_SALES" } },
-      { isPrivate: true, createdBy: { role: { in: ["HEAD_OF_SALES", "ADMIN", "HEAD_OF"] } } },
+      {
+        isPrivate: true,
+        createdBy: { role: { in: ["HEAD_OF_SALES", "ADMIN", "HEAD_OF"] } },
+      },
       { createdById: null, isPrivate: true },
     ],
-  };
+  } satisfies Prisma.CollaborationWhereInput;
 
-  const poleAuteurClause =
+  const poleAuteurClause: Prisma.CollaborationWhereInput =
     pole === "INFLUENCE"
-      ? { AND: [{ source: "INBOUND" as const }, auteurInfluence] }
+      ? { AND: [{ source: "INBOUND" }, auteurInfluence] }
       : pole === "SALES"
         ? auteurSales
         : {
             OR: [
-              { AND: [{ source: "INBOUND" as const }, auteurInfluence] },
+              { AND: [{ source: "INBOUND" }, auteurInfluence] },
               auteurSales,
             ],
           };
@@ -933,7 +937,7 @@ export async function getCollabsValideesAvecDevis(
     ...new Set(
       devisSurPeriode
         .map((d) => d.collaborationId)
-        .filter((id): id is string => Boolean(id) && !coveredCollabIds.has(id))
+        .filter((id): id is string => id != null && !coveredCollabIds.has(id))
     ),
   ];
 
