@@ -1,8 +1,32 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import GoogleProvider from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { getNextAuthSecret } from "@/lib/nextAuthSecret";
+
+async function findActiveUserByEmail(email: string) {
+  return prisma.user.findFirst({
+    where: {
+      email: { equals: email.trim(), mode: "insensitive" },
+      actif: true,
+    },
+  });
+}
+
+function displayNameForUser(user: {
+  prenom: string;
+  nom: string;
+  email: string;
+}) {
+  return (
+    [user.prenom, user.nom].filter((p) => p && p.trim()).join(" ").trim() ||
+    user.email
+  );
+}
+
+const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -24,9 +48,7 @@ export const authOptions: NextAuthOptions = {
 
         let user;
         try {
-          user = await prisma.user.findFirst({
-            where: { email: { equals: email, mode: "insensitive" } },
-          });
+          user = await findActiveUserByEmail(email);
         } catch (err) {
           // Une panne d'accès base ne doit jamais remonter un message vide
           // (sinon NextAuth affiche littéralement "undefined" côté login).
@@ -34,7 +56,7 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Service indisponible, réessayez dans un instant");
         }
 
-        if (!user || !user.actif) {
+        if (!user) {
           throw new Error("Compte inexistant ou désactivé");
         }
 
@@ -58,24 +80,54 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Mot de passe incorrect");
         }
 
-        // Construit le nom affiché sans laisser passer un "undefined"/"null"
-        // littéral lorsque prénom ou nom n'est pas renseigné en base.
-        const displayName =
-          [user.prenom, user.nom].filter((p) => p && p.trim()).join(" ").trim() ||
-          user.email;
-
         return {
           id: user.id,
           email: user.email,
-          name: displayName,
+          name: displayNameForUser(user),
           role: user.role,
         };
       },
     }),
+    ...(googleClientId && googleClientSecret
+      ? [
+          GoogleProvider({
+            clientId: googleClientId,
+            clientSecret: googleClientSecret,
+          }),
+        ]
+      : []),
   ],
   callbacks: {
-    async jwt({ token, user, trigger, session }) {
-      if (user) {
+    async signIn({ user, account }) {
+      // Google : uniquement les comptes déjà créés et actifs en base.
+      // Pas de création automatique (plateforme interne).
+      if (account?.provider === "google") {
+        if (!user.email) return false;
+        try {
+          const dbUser = await findActiveUserByEmail(user.email);
+          return Boolean(dbUser);
+        } catch (err) {
+          console.error("[auth] Erreur Google signIn:", err);
+          return false;
+        }
+      }
+      return true;
+    },
+    async jwt({ token, user, account, trigger, session }) {
+      if (account?.provider === "google" && user?.email) {
+        try {
+          const dbUser = await findActiveUserByEmail(user.email);
+          if (dbUser) {
+            token.id = dbUser.id;
+            token.sub = dbUser.id;
+            (token as any).role = dbUser.role;
+            token.name = displayNameForUser(dbUser);
+            token.email = dbUser.email;
+          }
+        } catch (err) {
+          console.error("[auth] Erreur hydratation JWT Google:", err);
+        }
+      } else if (user) {
         token.id = (user as any).id;
         (token as any).role = (user as any).role;
       }
