@@ -107,6 +107,7 @@ export async function POST(
         modePaiement: devis.modePaiement,
         notes: devis.notes,
         langueDocument: devis.langueDocument,
+        devise: devis.devise || "EUR",
         createdById: user.id,
       },
     });

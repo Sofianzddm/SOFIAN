@@ -34,6 +34,7 @@ export async function GET() {
         pays: true,
         siret: true,
         numeroTVA: true,
+        devise: true,
         contacts: {
           orderBy: { principal: "desc" },
           take: 1,

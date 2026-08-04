@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { generateCollabReference } from "@/lib/generateCollabReference";
 import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
 import { ensureMarqueContact, parseSenderName } from "@/lib/marque-resolver";
+import { getDeviseInfo } from "@/lib/devises";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
         quotes: {
           select: {
             reference: true,
+            object: true,
             createdAt: true,
           },
           orderBy: { createdAt: "desc" },
@@ -131,10 +133,16 @@ export async function GET(request: NextRequest) {
     const payloadWithQuoteReference = payload.map((c) => {
       const latestQuoteDocument = c.documents?.find((d: { type: string }) => d.type === "DEVIS");
       const latestInvoiceDocument = c.documents?.find((d: { type: string }) => d.type === "FACTURE");
+      const campaignTitle =
+        latestQuoteDocument?.titre ??
+        c.quotes?.[0]?.object ??
+        latestInvoiceDocument?.titre ??
+        null;
 
       return {
         ...c,
         quoteReference: c.quotes?.[0]?.reference ?? latestQuoteDocument?.reference ?? null,
+        campaignTitle,
         invoiceReference: latestInvoiceDocument?.reference ?? null,
         invoiceObject: latestInvoiceDocument?.titre ?? null,
         invoiceDate: latestInvoiceDocument?.dateEmission ?? null,
@@ -240,6 +248,9 @@ export async function POST(request: NextRequest) {
       String(data.contactLanguage || "").trim().toLowerCase() === "en" ? "en" : "fr";
 
     // Mettre à jour les infos de facturation de la marque AVANT de créer la collaboration
+    const deviseMarque = billing.devise
+      ? getDeviseInfo(String(billing.devise)).code
+      : undefined;
     await prisma.marque.update({
       where: { id: data.marqueId },
       data: {
@@ -250,6 +261,7 @@ export async function POST(request: NextRequest) {
         pays: String(billing.pays).trim(),
         siret: billing.siret ? String(billing.siret).trim() : null,
         numeroTVA: billing.numeroTVA ? String(billing.numeroTVA).trim() : null,
+        ...(deviseMarque ? { devise: deviseMarque } : {}),
       },
     });
 

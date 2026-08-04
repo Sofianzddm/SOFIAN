@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { DEVISES, formatMontant, type DeviseCode } from "@/lib/devises";
 
 interface LigneForm {
   description: string;
@@ -48,6 +49,7 @@ export default function NouveauDevisLibrePage() {
   const [notes, setNotes] = useState("");
   const [inclureCgv, setInclureCgv] = useState(true);
   const [langueDocument, setLangueDocument] = useState<"fr" | "en">("fr");
+  const [devise, setDevise] = useState<DeviseCode>("EUR");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -80,6 +82,9 @@ export default function NouveauDevisLibrePage() {
         setNotes(doc.notes ?? "");
         setInclureCgv(doc.inclureCgv !== false);
         setLangueDocument(doc.langueDocument === "en" ? "en" : "fr");
+        if (doc.devise && typeof doc.devise === "string") {
+          setDevise(doc.devise.toUpperCase() as DeviseCode);
+        }
         if (Array.isArray(doc.lignes) && doc.lignes.length > 0) {
           setLignes(
             doc.lignes.map((l: any) => ({
@@ -209,6 +214,7 @@ export default function NouveauDevisLibrePage() {
         notes: notes.trim() || undefined,
         inclureCgv,
         langueDocument,
+        devise,
         finaliser,
       };
 
@@ -571,53 +577,62 @@ export default function NouveauDevisLibrePage() {
                 </span>
               </span>
             </label>
-            <div className="mt-4">
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Langue du devis
-              </label>
-              <select
-                value={langueDocument}
-                onChange={(e) => setLangueDocument(e.target.value as "fr" | "en")}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
-              >
-                <option value="fr">Français</option>
-                <option value="en">Anglais (English)</option>
-              </select>
-              <span className="block text-xs text-gray-500 mt-1">
-                Le PDF (libellés + CGV) et les emails seront générés dans cette langue.
-              </span>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Devise
+                </label>
+                <select
+                  value={devise}
+                  onChange={(e) => setDevise(e.target.value as DeviseCode)}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B] bg-white"
+                >
+                  {DEVISES.map((d) => (
+                    <option key={d.code} value={d.code}>
+                      {d.code} — {d.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="block text-xs text-gray-500 mt-1">
+                  Tous les montants et le PDF seront libellés dans cette devise.
+                </span>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Langue du devis
+                </label>
+                <select
+                  value={langueDocument}
+                  onChange={(e) => setLangueDocument(e.target.value as "fr" | "en")}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
+                >
+                  <option value="fr">Français</option>
+                  <option value="en">Anglais (English)</option>
+                </select>
+                <span className="block text-xs text-gray-500 mt-1">
+                  Le PDF (libellés + CGV) et les emails seront générés dans cette langue.
+                </span>
+              </div>
             </div>
           </div>
           <div className="bg-gray-50 rounded-xl border border-gray-100 p-4 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Total HT</span>
               <span className="font-semibold text-[#1A1110]">
-                {totalHT.toLocaleString("fr-FR", {
-                  style: "currency",
-                  currency: "EUR",
-                  minimumFractionDigits: 2,
-                })}
+                {formatMontant(totalHT, devise)}
               </span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Total TVA</span>
               <span className="font-semibold text-[#1A1110]">
-                {totalTVA.toLocaleString("fr-FR", {
-                  style: "currency",
-                  currency: "EUR",
-                  minimumFractionDigits: 2,
-                })}
+                {formatMontant(totalTVA, devise)}
               </span>
             </div>
             <div className="border-t border-gray-200 my-2" />
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Total TTC</span>
               <span className="font-semibold text-[#1A1110]">
-                {totalTTC.toLocaleString("fr-FR", {
-                  style: "currency",
-                  currency: "EUR",
-                  minimumFractionDigits: 2,
-                })}
+                {formatMontant(totalTTC, devise)}
               </span>
             </div>
           </div>

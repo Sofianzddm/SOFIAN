@@ -1866,16 +1866,26 @@ function NouvelleFactureModal({
                 onChange={(e) => {
                   setSelectedCollab(e.target.value);
                   const c = collaborations.find((x) => x.id === e.target.value);
-                  if (c) setTitre(`${c.talent.prenom} x ${c.marque.nom}`);
+                  if (c) {
+                    setTitre(
+                      c.campaignTitle ||
+                        `${c.talent.prenom} x ${c.marque.nom}`
+                    );
+                  }
                 }}
                 className="w-full px-4 py-3 border rounded-xl"
               >
                 <option value="">Sélectionner</option>
-                {collaborations.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.reference} - {c.talent.prenom} x {c.marque.nom}
-                  </option>
-                ))}
+                {collaborations.map((c) => {
+                  const label = c.campaignTitle
+                    ? `${c.reference} — ${c.campaignTitle}`
+                    : `${c.reference} - ${c.talent.prenom} x ${c.marque.nom}`;
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
             )}
           </div>

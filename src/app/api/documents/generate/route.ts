@@ -9,6 +9,7 @@ import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/do
 import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { computeDateEcheance } from "@/lib/documents/echeance";
 import { normalizeLocale } from "@/lib/documents/i18n";
+import { getDeviseInfo } from "@/lib/devises";
 
 interface LigneInput {
   description: string;
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest) {
       numeroTVA: numeroTVAClient,
       inclureCgv = true,
       langueDocument,
+      devise,
     } = body;
 
     const langue = normalizeLocale(langueDocument);
@@ -105,6 +107,7 @@ export async function POST(request: NextRequest) {
 
     const marque = collaboration.marque;
     const talent = collaboration.talent;
+    const deviseCode = getDeviseInfo(devise || marque.devise).code;
 
     // Générer le numéro de document
     const reference = await genererNumeroDocument(type as "DEVIS" | "FACTURE" | "BON_DE_COMMANDE" | "AVOIR");
@@ -185,6 +188,7 @@ export async function POST(request: NextRequest) {
         notes: commentaires || AGENCE_CONFIG.conditionsPaiement,
         inclureCgv: type === "DEVIS" ? inclureCgv !== false : true,
         langueDocument: langue,
+        devise: deviseCode,
         createdById: user.id,
       },
     });

@@ -23,6 +23,7 @@ import {
   Eye,
 } from "lucide-react";
 import { LISTE_PAYS } from "@/lib/pays";
+import { DEVISES, type DeviseCode } from "@/lib/devises";
 
 interface Talent {
   id: string;
@@ -44,6 +45,7 @@ interface CrmClientOption {
   pays: string | null;
   siret: string | null;
   numeroTVA: string | null;
+  devise?: string | null;
   contacts: { prenom: string | null; nom: string; email: string | null }[];
 }
 
@@ -141,6 +143,7 @@ export default function NewCollaborationPage() {
     pays: "France",
     siret: "",
     numeroTVA: "",
+    devise: "EUR" as DeviseCode,
   });
 
   // Qualification obligatoire du contact client : agence ou marque en direct
@@ -198,6 +201,7 @@ export default function NewCollaborationPage() {
       pays: m.pays || prev.pays,
       siret: m.siret || prev.siret,
       numeroTVA: m.numeroTVA || prev.numeroTVA,
+      devise: (m.devise?.toUpperCase() as DeviseCode) || prev.devise || "EUR",
       contactName: contact
         ? [contact.prenom, contact.nom].filter(Boolean).join(" ")
         : prev.contactName,
@@ -415,6 +419,7 @@ export default function NewCollaborationPage() {
             pays: billingData.pays.trim(),
             siret: billingData.siret.trim() || null,
             numeroTVA: billingData.numeroTVA.trim() || null,
+            devise: billingData.devise || "EUR",
           }),
         });
         if (!marqueRes.ok) {
@@ -458,6 +463,7 @@ export default function NewCollaborationPage() {
             pays: billingData.pays.trim(),
             siret: billingData.siret.trim() || null,
             numeroTVA: billingData.numeroTVA.trim() || null,
+            devise: billingData.devise || "EUR",
           },
         }),
       });
@@ -804,6 +810,30 @@ export default function NewCollaborationPage() {
                       placeholder="FR 12 345678900"
                     />
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Devise (devis / factures)
+                  </label>
+                  <select
+                    value={billingData.devise}
+                    onChange={(e) =>
+                      setBillingData((prev) => ({
+                        ...prev,
+                        devise: e.target.value as DeviseCode,
+                      }))
+                    }
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice text-sm bg-white"
+                  >
+                    {DEVISES.map((d) => (
+                      <option key={d.code} value={d.code}>
+                        {d.code} — {d.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Pré-remplie sur les devis et factures générés pour cette collaboration.
+                  </p>
                 </div>
               </div>
             </div>

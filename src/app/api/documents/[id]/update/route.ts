@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTypeTVA, getMentionTVA, MENTIONS_TVA } from "@/lib/documents/config";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
+import { getDeviseInfo } from "@/lib/devises";
 
 export async function PUT(
   request: NextRequest,
@@ -81,10 +82,19 @@ export async function PUT(
       }
     }
 
-    // Ne pas permettre la modification de documents validés/payés
-    // ⚠️ Exception : on autorise désormais la modification des DEVIS même en statut VALIDE
-    // Pour les FACTURES / AVOIRS / BDC, on bloque toujours une fois validés ou payés
-    if (document.type !== "DEVIS" && ["VALIDE", "PAYE"].includes(document.statut)) {
+    // Documents payés : jamais modifiables.
+    // Devis et factures restent éditables (corriger devise, lignes, etc.) tant qu'ils
+    // ne sont pas payés. Avoirs / BDC bloqués une fois validés.
+    if (document.statut === "PAYE") {
+      return NextResponse.json(
+        { error: "Impossible de modifier un document payé" },
+        { status: 400 }
+      );
+    }
+    if (
+      !["DEVIS", "FACTURE"].includes(document.type) &&
+      document.statut === "VALIDE"
+    ) {
       return NextResponse.json(
         { error: "Impossible de modifier un document validé ou payé" },
         { status: 400 }
@@ -103,10 +113,13 @@ export async function PUT(
       referencePaiement,
       inclureCgv,
       langueDocument,
+      devise,
     } = body;
 
     const langueValide =
       langueDocument === "fr" || langueDocument === "en" ? langueDocument : undefined;
+    const deviseCode =
+      devise !== undefined ? getDeviseInfo(devise).code : undefined;
 
     // Déterminer le type de TVA à utiliser
     let typeTVA = document.typeTVA;
@@ -195,6 +208,7 @@ export async function PUT(
           ? { inclureCgv }
           : {}),
         ...(langueValide ? { langueDocument: langueValide } : {}),
+        ...(deviseCode ? { devise: deviseCode } : {}),
         pdfBase64: null, // Invalider le cache PDF pour forcer la régénération avec les nouvelles données
       },
     });

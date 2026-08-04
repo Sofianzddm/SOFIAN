@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeLocale } from "@/lib/documents/i18n";
+import { getDeviseInfo } from "@/lib/devises";
 
 interface LigneInput {
   description: string;
@@ -69,6 +70,7 @@ export async function PATCH(
       finaliser,
       inclureCgv,
       langueDocument,
+      devise,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -82,9 +84,11 @@ export async function PATCH(
       finaliser?: boolean;
       inclureCgv?: boolean;
       langueDocument?: string;
+      devise?: string;
     };
 
     const langue = langueDocument !== undefined ? normalizeLocale(langueDocument) : undefined;
+    const deviseCode = getDeviseInfo(devise ?? existing.devise).code;
 
     if (!clientNom || !lignes || !Array.isArray(lignes) || lignes.length === 0) {
       return NextResponse.json(
@@ -165,6 +169,7 @@ export async function PATCH(
         notes: commentaireTVA,
         ...(typeof inclureCgv === "boolean" ? { inclureCgv } : {}),
         ...(langue ? { langueDocument: langue } : {}),
+        devise: deviseCode,
         pdfBase64: null,
       },
     });

@@ -41,6 +41,7 @@ import {
 import { MentionTextarea, renderCommentWithMentions, type MentionableUser } from "@/components/MentionTextarea";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
 import ContratMarqueBloc from "@/components/collaboration/ContratMarqueBloc";
+import { DEVISES, formatMontant, type DeviseCode } from "@/lib/devises";
 
 interface Livrable {
   id: string;
@@ -57,6 +58,7 @@ interface DocumentInfo {
   statut: string;
   montantHT?: number;
   montantTTC: number;
+  devise?: string | null;
   dateEmission: string | null;
   avoirRef: string | null;
   factureRef: string | null;
@@ -132,6 +134,7 @@ interface CollabDetail {
     pays?: string;
     siret?: string;
     numeroTVA?: string;
+    devise?: string | null;
     email?: string | null;
     contacts?: Array< { id: string; email: string | null; nom: string; prenom: string | null; principal: boolean } >;
   };
@@ -260,6 +263,7 @@ export default function CollabDetailPage() {
   const [notesDevis, setNotesDevis] = useState("");
   const [inclureCgvDevis, setInclureCgvDevis] = useState(true);
   const [langueDevis, setLangueDevis] = useState<"fr" | "en">("fr");
+  const [deviseDevis, setDeviseDevis] = useState<DeviseCode>("EUR");
   const [paysDevis, setPaysDevis] = useState("France");
   const [numeroTVADevis, setNumeroTVADevis] = useState("");
   const [delaiPaiementJours, setDelaiPaiementJours] = useState<number>(30);
@@ -290,6 +294,7 @@ export default function CollabDetailPage() {
     referencePaiement: string;
     inclureCgv: boolean;
     langueDocument: "fr" | "en";
+    devise: DeviseCode;
     lignes: Array<{
       description: string;
       quantite: number;
@@ -306,6 +311,7 @@ export default function CollabDetailPage() {
     referencePaiement: "",
     inclureCgv: true,
     langueDocument: "fr",
+    devise: "EUR",
     lignes: [],
   });
   const [editModalTab, setEditModalTab] = useState<"general" | "lignes" | "facturation">("general");
@@ -513,7 +519,7 @@ export default function CollabDetailPage() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(marqueFormData),
       });
-      if (res.ok) { setShowCompleteMarqueModal(false); setPappersShowResults(false); setPappersSearchQuery(""); await fetchCollab(); await generateDocument(pendingDocType, true, notesDevis || undefined, paysDevis, numeroTVADevis, delaiPaiementJours, inclureCgvDevis, langueDevis); }
+      if (res.ok) { setShowCompleteMarqueModal(false); setPappersShowResults(false); setPappersSearchQuery(""); await fetchCollab(); await generateDocument(pendingDocType, true, notesDevis || undefined, paysDevis, numeroTVADevis, delaiPaiementJours, inclureCgvDevis, langueDevis, deviseDevis); }
       else alert("Erreur lors de la mise à jour de la marque");
     } catch (error) { alert("Erreur lors de la mise à jour"); }
     finally { setSavingMarque(false); setPendingDocType(null); }
@@ -568,6 +574,9 @@ export default function CollabDetailPage() {
     setInclureCgvDevis(true);
     setPaysDevis(collab.marque?.pays || "France");
     setNumeroTVADevis(collab.marque?.numeroTVA || "");
+    setDeviseDevis(
+      (collab.marque?.devise?.toUpperCase() as DeviseCode) || "EUR"
+    );
     setShowNotesModal(true);
   };
 
@@ -579,7 +588,8 @@ export default function CollabDetailPage() {
     numeroTVA?: string,
     delai?: number,
     inclureCgv?: boolean,
-    langueDocument?: "fr" | "en"
+    langueDocument?: "fr" | "en",
+    devise?: string
   ) => {
     if (!collab) return;
     if (!skipCheck && !checkMarqueInfos(type)) { setPendingDocType(type); initMarqueForm(); setShowCompleteMarqueModal(true); return; }
@@ -608,6 +618,7 @@ export default function CollabDetailPage() {
           numeroTVA: numeroTVA?.trim() || undefined,
           delaiPaiementJours: delai,
           langueDocument: langueDocument || "fr",
+          devise: devise || "EUR",
           ...(type === "DEVIS" ? { inclureCgv: inclureCgv !== false } : {}),
         }),
       });
@@ -660,6 +671,9 @@ export default function CollabDetailPage() {
           referencePaiement: docData.referencePaiement || "",
           inclureCgv: docData.inclureCgv !== false,
           langueDocument: docData.langueDocument === "en" ? "en" : "fr",
+          devise: (docData.devise?.toUpperCase() as DeviseCode) ||
+            (collab?.marque?.devise?.toUpperCase() as DeviseCode) ||
+            "EUR",
           lignes: (docData.lignes || []).map((l: any) => ({
             description: l.description,
             quantite: l.quantite,
@@ -815,6 +829,7 @@ export default function CollabDetailPage() {
           referencePaiement: editFormData.referencePaiement,
           lignes: editFormData.lignes,
           langueDocument: editFormData.langueDocument,
+          devise: editFormData.devise,
           ...(editingDoc.type === "DEVIS" ? { inclureCgv: editFormData.inclureCgv } : {}),
         }),
       });
@@ -1537,7 +1552,7 @@ export default function CollabDetailPage() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <span className={`font-semibold ${isAvoir ? "text-orange-600" : "text-glowup-licorice"}`}>
-                            {isAvoir ? "-" : ""}{formatMoney(doc.montantHT ?? doc.montantTTC)}
+                            {isAvoir ? "-" : ""}{formatMontant(doc.montantHT ?? doc.montantTTC, doc.devise)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -2613,21 +2628,42 @@ export default function CollabDetailPage() {
               </div>
 
               {/* Langue du document */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Langue du document
-                </label>
-                <select
-                  value={langueDevis}
-                  onChange={(e) => setLangueDevis(e.target.value as "fr" | "en")}
-                  className="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-glowup-rose/20 focus:border-glowup-rose text-sm bg-white"
-                >
-                  <option value="fr">Français</option>
-                  <option value="en">Anglais (English)</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Le PDF (libellés + CGV) sera généré dans cette langue.
-                </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Devise du document
+                  </label>
+                  <select
+                    value={deviseDevis}
+                    onChange={(e) => setDeviseDevis(e.target.value as DeviseCode)}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-glowup-rose/20 focus:border-glowup-rose text-sm bg-white"
+                  >
+                    {DEVISES.map((d) => (
+                      <option key={d.code} value={d.code}>
+                        {d.code} — {d.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Les montants et le PDF seront libellés dans cette devise.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Langue du document
+                  </label>
+                  <select
+                    value={langueDevis}
+                    onChange={(e) => setLangueDevis(e.target.value as "fr" | "en")}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-glowup-rose/20 focus:border-glowup-rose text-sm bg-white"
+                  >
+                    <option value="fr">Français</option>
+                    <option value="en">Anglais (English)</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Le PDF (libellés + CGV) sera généré dans cette langue.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -2639,6 +2675,7 @@ export default function CollabDetailPage() {
                   setNotesDevis("");
                   setInclureCgvDevis(true);
                   setNumeroTVADevis("");
+                  setDeviseDevis("EUR");
                 }}
                 className="flex-1 px-6 py-3.5 text-gray-600 bg-gray-100 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
               >
@@ -2654,7 +2691,8 @@ export default function CollabDetailPage() {
                   numeroTVADevis,
                   delaiPaiementJours,
                   inclureCgvDevis,
-                  langueDevis
+                  langueDevis,
+                  deviseDevis
                 )
               }
                 disabled={generatingDoc}
@@ -2832,26 +2870,52 @@ export default function CollabDetailPage() {
                     </label>
                   )}
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Langue du document
-                    </label>
-                    <select
-                      value={editFormData.langueDocument}
-                      onChange={(e) =>
-                        setEditFormData((prev) => ({
-                          ...prev,
-                          langueDocument: e.target.value as "fr" | "en",
-                        }))
-                      }
-                      className="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm bg-white"
-                    >
-                      <option value="fr">Français</option>
-                      <option value="en">Anglais (English)</option>
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Le PDF (libellés + CGV) et les emails seront générés dans cette langue.
-                    </p>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Devise du document
+                      </label>
+                      <select
+                        value={editFormData.devise}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({
+                            ...prev,
+                            devise: e.target.value as DeviseCode,
+                          }))
+                        }
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm bg-white"
+                      >
+                        {DEVISES.map((d) => (
+                          <option key={d.code} value={d.code}>
+                            {d.code} — {d.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Les montants et le PDF seront libellés dans cette devise.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Langue du document
+                      </label>
+                      <select
+                        value={editFormData.langueDocument}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({
+                            ...prev,
+                            langueDocument: e.target.value as "fr" | "en",
+                          }))
+                        }
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm bg-white"
+                      >
+                        <option value="fr">Français</option>
+                        <option value="en">Anglais (English)</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Le PDF (libellés + CGV) et les emails seront générés dans cette langue.
+                      </p>
+                    </div>
                   </div>
                 </>
               )}
@@ -2902,7 +2966,7 @@ export default function CollabDetailPage() {
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1.5">
-                              Prix unitaire (€) *
+                              Prix unitaire ({editFormData.devise}) *
                             </label>
                             <input
                               type="number"
@@ -2922,7 +2986,7 @@ export default function CollabDetailPage() {
                               Total HT
                             </label>
                             <div className="w-full px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-sm font-bold text-blue-600">
-                              {formatMoney(ligne.quantite * ligne.prixUnitaire)}
+                              {formatMontant(ligne.quantite * ligne.prixUnitaire, editFormData.devise)}
                             </div>
                           </div>
                         </div>
@@ -2935,7 +2999,7 @@ export default function CollabDetailPage() {
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Total HT</span>
                       <span className="text-2xl font-bold">
-                        {formatMoney(editFormData.lignes.reduce((sum, l) => sum + (l.quantite * l.prixUnitaire), 0))}
+                        {formatMontant(editFormData.lignes.reduce((sum, l) => sum + (l.quantite * l.prixUnitaire), 0), editFormData.devise)}
                       </span>
                     </div>
                   </div>
