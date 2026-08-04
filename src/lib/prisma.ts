@@ -16,14 +16,21 @@ function createPrismaClient() {
 let prisma = globalForPrisma.prisma ?? createPrismaClient();
 
 // En dev, le singleton peut être un PrismaClient généré *avant* `prisma generate` : les delegates
-// récents (ex. dossierProspection, cannesCoiffeurPrestation) restent alors `undefined`.
+// récents restent alors `undefined` jusqu'au redémarrage.
 if (process.env.NODE_ENV !== "production") {
   const p = prisma as unknown as {
     dossierProspection?: unknown;
     cannesCoiffeurPrestation?: unknown;
+    rhEmployee?: unknown;
   };
-  if (typeof p.dossierProspection === "undefined" || typeof p.cannesCoiffeurPrestation === "undefined") {
+  if (
+    typeof p.dossierProspection === "undefined" ||
+    typeof p.cannesCoiffeurPrestation === "undefined" ||
+    typeof p.rhEmployee === "undefined"
+  ) {
+    void globalForPrisma.prisma?.$disconnect().catch(() => undefined);
     prisma = createPrismaClient();
+    globalForPrisma.prisma = prisma;
   }
 }
 

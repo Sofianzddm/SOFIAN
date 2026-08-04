@@ -356,6 +356,8 @@ model User {
 
   depensesCreees Depense[] @relation("DepenseCreatedBy")
 
+  rhEmployee RhEmployee?
+
   @@map("users")
 }
 
@@ -3969,4 +3971,390 @@ model EventPhotoTalent {
   @@index([talentId])
   @@index([photoId])
   @@map("event_photo_talents")
+}
+
+// ============================================
+// PLATEFORME RH (remplacement Lucca)
+// ============================================
+
+enum RhRole {
+  COLLAB
+  MANAGER
+  HR
+}
+
+enum RhHealthCover {
+  ENROLLED
+  WAIVED
+}
+
+enum RhLeaveAccount {
+  CP
+  RECUP
+  RTT
+  SS
+  UNPAID
+}
+
+enum RhRequestType {
+  LEAVE
+  UNPAID_LEAVE
+  REMOTE_EXCEPTION
+  TIMESHEET
+  EXPENSE
+  PAUSE_AMEND
+  ADDRESS_CHANGE
+  CONTACT_CHANGE
+}
+
+enum RhRequestStatus {
+  DRAFT
+  PENDING
+  PAUSED
+  APPROVED
+  REFUSED
+  SIGNED
+  CANCELLED
+}
+
+enum RhTimesheetStatus {
+  DRAFT
+  SUBMITTED
+  PAUSED
+  APPROVED
+  SIGNED
+}
+
+enum RhExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REFUSED
+  PAID
+}
+
+enum RhDocKind {
+  CONTRACT
+  AMENDMENT
+  REMOTE_AGREEMENT
+  COMPANY_AGREEMENT
+  PAYSLIP
+  MUTUELLE
+  INSURANCE
+  OTHER
+}
+
+enum RhDocStatus {
+  SIGNED
+  TO_SIGN
+  ACTIVE
+  TO_REVIEW
+  EXPIRED
+}
+
+model RhEmployee {
+  id        String  @id @default(cuid())
+  userId    String  @unique
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matricule String  @unique
+  jobTitle  String
+  department String
+  managerId String?
+  manager   RhEmployee?  @relation("RhManagerReports", fields: [managerId], references: [id], onDelete: SetNull)
+  reports   RhEmployee[] @relation("RhManagerReports")
+
+  hireDate       DateTime
+  weeklyHours    Float    @default(35)
+  avatarColor    String   @default("#7C8CF8")
+  remoteAgreement Int     @default(0) // 0 | 2 | 3
+  remoteAddressLine1 String?
+  remoteAddressLine2 String?
+  remoteCity         String?
+  remotePostalCode   String?
+  remoteCountry      String? @default("FR")
+  remoteInsuranceExpiresOn DateTime?
+  healthCover    RhHealthCover @default(ENROLLED)
+  grossSalary    Decimal? @db.Decimal(10, 2)
+  variableSalary Decimal? @db.Decimal(10, 2)
+  rhRole         RhRole   @default(COLLAB)
+  actif          Boolean  @default(true)
+
+  leaveBalances      RhLeaveBalance[]
+  requests           RhRequest[]        @relation("RhRequestEmployee")
+  reviewedRequests   RhRequest[]        @relation("RhRequestReviewer")
+  leaveDays          RhLeaveDay[]
+  remoteDeclarations RhRemoteDeclaration[]
+  timesheets         RhTimesheet[]
+  expenseReports     RhExpenseReport[]
+  vehicle            RhVehicle?
+  documents          RhDocument[]
+  contactChanges     RhContactChange[]
+  auditLogs          RhAuditLog[]       @relation("RhAuditActor")
+  auditTargets       RhAuditLog[]       @relation("RhAuditTarget")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([managerId])
+  @@index([rhRole])
+  @@index([actif])
+  @@map("rh_employees")
+}
+
+model RhLeaveBalance {
+  id          String         @id @default(cuid())
+  employeeId  String
+  employee    RhEmployee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  accountCode RhLeaveAccount
+  label       String
+  periodStart DateTime
+  periodEnd   DateTime
+  accrued     Float          @default(0)
+  taken       Float          @default(0)
+  remaining   Float          @default(0)
+  bookable    Float          @default(0)
+  expiresOn   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, accountCode, periodStart])
+  @@index([employeeId])
+  @@map("rh_leave_balances")
+}
+
+model RhRequest {
+  id           String          @id @default(cuid())
+  reference    String          @unique
+  type         RhRequestType
+  status       RhRequestStatus @default(DRAFT)
+  employeeId   String
+  employee     RhEmployee      @relation("RhRequestEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewedById String?
+  reviewedBy   RhEmployee?     @relation("RhRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  title        String
+  comment      String?
+  reviewNote   String?
+  payload      Json            @default("{}")
+  days         Float?
+  dateFrom     DateTime?
+  dateTo       DateTime?
+  reviewedAt   DateTime?
+
+  leaveDays RhLeaveDay[]
+  timesheet RhTimesheet?
+  expenseReport RhExpenseReport?
+  contactChange RhContactChange?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId, status])
+  @@index([type, status])
+  @@index([reviewedById])
+  @@map("rh_requests")
+}
+
+model RhLeaveDay {
+  id          String         @id @default(cuid())
+  employeeId  String
+  employee    RhEmployee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  requestId   String?
+  request     RhRequest?     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  date        DateTime       @db.Date
+  accountCode RhLeaveAccount
+  halfDay     Boolean        @default(false)
+  half        String?        // AM | PM
+  days        Float          @default(1)
+
+  @@unique([employeeId, date, half])
+  @@index([employeeId, date])
+  @@index([accountCode, date])
+  @@index([requestId])
+  @@map("rh_leave_days")
+}
+
+model RhRemoteDeclaration {
+  id              String     @id @default(cuid())
+  employeeId      String
+  employee        RhEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  isoYear         Int
+  isoWeek         Int
+  weekStart       DateTime   @db.Date
+  weekEnd         DateTime   @db.Date
+  declaredDates   DateTime[] @db.Date
+  compensationWeek Int?
+  exceptional     Boolean    @default(false)
+  exceptionRequestId String?
+  note            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, isoYear, isoWeek])
+  @@index([employeeId])
+  @@map("rh_remote_declarations")
+}
+
+model RhTimesheet {
+  id           String            @id @default(cuid())
+  employeeId   String
+  employee     RhEmployee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  requestId    String?           @unique
+  request      RhRequest?        @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  isoYear      Int
+  isoWeek      Int
+  weekStart    DateTime          @db.Date
+  weekEnd      DateTime          @db.Date
+  status       RhTimesheetStatus @default(DRAFT)
+  overtimeNote String?
+  pauseNote    String?
+  pauseReply   String?
+  totalMinutes Int               @default(0)
+  ot25Minutes  Int               @default(0)
+  ot50Minutes  Int               @default(0)
+  signedAt     DateTime?
+  days         RhTimesheetDay[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, isoYear, isoWeek])
+  @@index([employeeId, status])
+  @@map("rh_timesheets")
+}
+
+model RhTimesheetDay {
+  id           String      @id @default(cuid())
+  timesheetId  String
+  timesheet    RhTimesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+  date         DateTime    @db.Date
+  slots        Json        @default("[]") // [{from,to}]
+  breakMinutes Int         @default(60)
+  totalMinutes Int         @default(0)
+  note         String?
+
+  @@unique([timesheetId, date])
+  @@index([timesheetId])
+  @@map("rh_timesheet_days")
+}
+
+model RhExpenseReport {
+  id          String          @id @default(cuid())
+  number      Int             @unique
+  employeeId  String
+  employee    RhEmployee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  requestId   String?         @unique
+  request     RhRequest?      @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  label       String
+  periodMonth Int
+  periodYear  Int
+  status      RhExpenseStatus @default(DRAFT)
+  totalAmount Decimal         @default(0) @db.Decimal(10, 2)
+  lines       RhExpenseLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId, status])
+  @@map("rh_expense_reports")
+}
+
+model RhExpenseLine {
+  id               String          @id @default(cuid())
+  reportId         String
+  report           RhExpenseReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  date             DateTime        @db.Date
+  category         String
+  label            String
+  amount           Decimal         @db.Decimal(10, 2)
+  vatRate          Decimal         @default(0) @db.Decimal(5, 2)
+  vatAmount        Decimal         @default(0) @db.Decimal(10, 2)
+  /// Montant pris en charge (null = égal au montant dépensé)
+  reimbursedAmount Decimal?        @db.Decimal(10, 2)
+  receiptUrl       String?
+  receiptName      String?
+  missingReceipt   Boolean         @default(false)
+  comment          String?
+  isCompanyMeal    Boolean         @default(false)
+  isTravelMeal     Boolean         @default(false)
+  isMileage        Boolean         @default(false)
+  km               Float?
+  fiscalHp         Int?
+  status           String          @default("ok") // ok | missing | review
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reportId])
+  @@map("rh_expense_lines")
+}
+
+model RhVehicle {
+  id               String     @id @default(cuid())
+  employeeId       String     @unique
+  employee         RhEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  label            String?
+  fiscalHorsepower Int        @default(5)
+  yearKm           Float      @default(0)
+  carteGriseExpiresOn DateTime?
+  insuranceExpiresOn  DateTime?
+  licenseExpiresOn    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("rh_vehicles")
+}
+
+model RhDocument {
+  id         String      @id @default(cuid())
+  employeeId String
+  employee   RhEmployee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  kind       RhDocKind
+  title      String
+  status     RhDocStatus @default(TO_REVIEW)
+  url        String?
+  period     String?
+  expiresOn  DateTime?
+  signedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId])
+  @@map("rh_documents")
+}
+
+model RhContactChange {
+  id          String          @id @default(cuid())
+  employeeId  String
+  employee    RhEmployee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  requestId   String?         @unique
+  request     RhRequest?      @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  status      RhRequestStatus @default(PENDING)
+  proposed    Json
+  appliedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId, status])
+  @@map("rh_contact_changes")
+}
+
+model RhAuditLog {
+  id         String      @id @default(cuid())
+  actorId    String?
+  actor      RhEmployee? @relation("RhAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetId   String?
+  target     RhEmployee? @relation("RhAuditTarget", fields: [targetId], references: [id], onDelete: SetNull)
+  action     String
+  detail     Json        @default("{}")
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@map("rh_audit_logs")
 }

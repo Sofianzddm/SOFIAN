@@ -32,6 +32,7 @@ import {
   Camera,
   Sparkles,
   Link2,
+  CalendarDays,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -245,6 +246,12 @@ const menuItems = [
     href: "/comptable",
     icon: Calculator,
     roles: ["ADMIN"], // Espace expert-comptable (ADMIN + COMPTABLE)
+  },
+  {
+    label: "RH Glow Up",
+    href: "/rh/people",
+    icon: CalendarDays,
+    roles: ["ADMIN"], // Soft-launch : ADMIN only (masqué aux salariés)
   },
   {
     label: "Dossiers",

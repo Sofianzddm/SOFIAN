@@ -217,6 +217,14 @@ export async function middleware(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
+  // Soft-launch RH : ADMIN only (masqué aux salariés / TM / etc.)
+  if (
+    (pathname.startsWith("/rh") || pathname.startsWith("/api/rh")) &&
+    effectiveRole !== "ADMIN"
+  ) {
+    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
+  }
+
   if (pathname.startsWith("/juriste") && effectiveRole !== "JURISTE") {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
@@ -310,6 +318,10 @@ export const config = {
     "/comptable",
     "/comptable/:path*",
     "/api/comptable/:path*",
+    // Espace RH (absences / temps / frais) — soft-launch ADMIN only
+    "/rh",
+    "/rh/:path*",
+    "/api/rh/:path*",
     "/strategy",
     "/strategy/:path*",
     "/dossiers",
