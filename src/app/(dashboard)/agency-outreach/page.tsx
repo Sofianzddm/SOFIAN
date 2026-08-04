@@ -43,6 +43,7 @@ import {
   FileText,
   BookmarkPlus,
   Sparkles,
+  CalendarClock,
 } from "lucide-react";
 import {
   normalizeEditorHtmlForEmail,
@@ -1383,54 +1384,53 @@ export default function AgencyOutreachPage() {
                               </span>
                             </>
                           )}
-                          {relance?.state === "scheduled" &&
-                            (editingRelanceId === t.id ? (
-                              <span className="inline-flex items-center gap-1 text-amber-700">
-                                <MessageSquareReply className="w-3.5 h-3.5 shrink-0" />
-                                <input
-                                  type="datetime-local"
-                                  value={editingRelanceAt}
-                                  onChange={(e) => setEditingRelanceAt(e.target.value)}
-                                  className="rounded border border-amber-300 bg-white px-1.5 py-0.5 text-xs text-amber-900"
-                                  disabled={savingRelance}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => void onSaveRelanceDate(t)}
-                                  disabled={savingRelance}
-                                  className="rounded px-1.5 py-0.5 font-medium hover:bg-amber-100 disabled:opacity-50"
-                                  title="Enregistrer"
-                                >
-                                  {savingRelance ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                  )}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingRelanceId(null);
-                                    setEditingRelanceAt("");
-                                  }}
-                                  disabled={savingRelance}
-                                  className="rounded px-1.5 py-0.5 hover:bg-amber-100 disabled:opacity-50"
-                                  title="Annuler"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </span>
-                            ) : (
+                          {relance?.state === "scheduled" && editingRelanceId !== t.id && (
+                            <span
+                              className="inline-flex items-center gap-1 text-amber-700"
+                              title="Relance automatique prévue — utilise le bouton calendrier pour changer la date"
+                            >
+                              <MessageSquareReply className="w-3.5 h-3.5" />
+                              Relance {relance.at}
+                            </span>
+                          )}
+                          {relance?.state === "scheduled" && editingRelanceId === t.id && (
+                            <span className="inline-flex items-center gap-1.5 text-amber-700 flex-wrap">
+                              <CalendarClock className="w-3.5 h-3.5 shrink-0" />
+                              <input
+                                type="datetime-local"
+                                value={editingRelanceAt}
+                                onChange={(e) => setEditingRelanceAt(e.target.value)}
+                                className="rounded border border-amber-300 bg-white px-1.5 py-0.5 text-xs text-amber-900"
+                                disabled={savingRelance}
+                              />
                               <button
                                 type="button"
-                                onClick={() => relance.dueAt && startEditRelance(t, relance.dueAt)}
-                                className="inline-flex items-center gap-1 text-amber-700 hover:underline"
-                                title="Modifier la date de relance"
+                                onClick={() => void onSaveRelanceDate(t)}
+                                disabled={savingRelance}
+                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold border border-amber-400 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
+                                title="Enregistrer la date"
                               >
-                                <MessageSquareReply className="w-3.5 h-3.5" />
-                                Relance {relance.at}
+                                {savingRelance ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                )}
+                                OK
                               </button>
-                            ))}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingRelanceId(null);
+                                  setEditingRelanceAt("");
+                                }}
+                                disabled={savingRelance}
+                                className="rounded-lg px-1.5 py-1 hover:bg-amber-100 disabled:opacity-50"
+                                title="Annuler"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </span>
+                          )}
                           {relance?.state === "sent" && (
                             <span className="inline-flex items-center gap-1 opacity-70" title="Relance envoyée">
                               <MessageSquareReply className="w-3.5 h-3.5" />
@@ -1461,6 +1461,34 @@ export default function AgencyOutreachPage() {
                               <RotateCcw className="w-4 h-4" style={{ color: "#3D8B40" }} />
                             </button>
                           )}
+                          {t.status === "WAITING" &&
+                            touch &&
+                            !touch.relanceSentAt &&
+                            !touch.repliedAt &&
+                            !touch.relanceCancelledAt &&
+                            editingRelanceId !== t.id && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const due =
+                                    relance?.dueAt ||
+                                    (touch.sentAt
+                                      ? businessDeadlineWithJitter(
+                                          new Date(touch.sentAt),
+                                          RELANCE_BUSINESS_DAYS,
+                                          touch.id
+                                        )
+                                      : null);
+                                  if (due) startEditRelance(t, due);
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold border hover:bg-amber-50"
+                                style={{ borderColor: "#F0C674", color: "#8A5A00" }}
+                                title="Changer la date de relance"
+                              >
+                                <CalendarClock className="w-3.5 h-3.5" />
+                                Date relance
+                              </button>
+                            )}
                           {t.status === "WAITING" && touch && !touch.relanceSentAt && !touch.repliedAt && (
                             <button
                               type="button"
