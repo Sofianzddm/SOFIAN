@@ -491,7 +491,9 @@ function TalentCard({
             e.stopPropagation();
             onToggleFavorite();
           }}
-          className={`absolute top-3 left-3 sm:top-4 sm:left-4 w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all shadow-lg touch-manipulation ${
+          className={`absolute w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all shadow-lg touch-manipulation ${
+            showNewBadge ? "top-3 right-3 sm:top-4 sm:right-4" : "top-3 left-3 sm:top-4 sm:left-4"
+          } ${
             isFavorite 
               ? "bg-[#B06F70] text-white scale-110" 
               : "bg-white/90 text-[#220101]/40 hover:text-[#B06F70] hover:scale-110"
@@ -501,12 +503,12 @@ function TalentCard({
         </button>
 
         {showNewBadge && (
-          <div className="absolute top-1 right-1 z-10 drop-shadow-md scale-90 sm:scale-100 origin-top-right">
+          <div className="absolute left-2 sm:left-3 top-[40%] z-10 -translate-y-1/2">
             <NewTalentBadge />
           </div>
         )}
 
-        <div className={`absolute flex gap-1.5 sm:gap-2 ${showNewBadge ? "top-[4.25rem] sm:top-[4.85rem] right-2 sm:right-3" : "top-3 right-3 sm:top-4 sm:right-4"}`}>
+        <div className={`absolute right-3 sm:right-4 flex gap-1.5 sm:gap-2 ${showNewBadge ? "top-14 sm:top-16" : "top-3 sm:top-4"}`}>
           {talent.instagram && talent.stats?.igFollowers && (
             <a
               href={getInstagramProfileUrl(talent.instagram) ?? "#"}
