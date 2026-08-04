@@ -63,6 +63,14 @@ type LinkCandidate = {
   alreadyInCycle: boolean;
 };
 
+type AlreadyOnFicheCandidate = {
+  email: string;
+  prenom: string;
+  nom: string | null;
+  poste: string | null;
+  alreadyInCycle: boolean;
+};
+
 const clean = (v: unknown): string | null => {
   const s = typeof v === "string" ? v.trim() : "";
   return s || null;
@@ -130,6 +138,7 @@ async function buildLinkCandidates(
 ): Promise<{
   linkCandidates: LinkCandidate[];
   enrollCandidates: LinkCandidate[];
+  alreadyOnFiche: AlreadyOnFicheCandidate[];
   toCreate: NormalizedRow[];
   alreadyOnFicheSkipped: number;
 }> {
@@ -217,15 +226,44 @@ async function buildLinkCandidates(
 
   const linkCandidates: LinkCandidate[] = [];
   const enrollCandidates: LinkCandidate[] = [];
+  const alreadyOnFiche: AlreadyOnFicheCandidate[] = [];
   const toCreate: NormalizedRow[] = [];
   let alreadyOnFicheSkipped = 0;
   const seenLink = new Set<string>();
   const seenEnroll = new Set<string>();
   const seenCreateEmail = new Set<string>();
   const seenCreatePerson = new Set<string>();
+  const seenAlreadyOnFiche = new Set<string>();
+  const nameLookupCache = new Map<
+    string,
+    | {
+        email: string;
+        prenom: string;
+        nom: string | null;
+        poste: string | null;
+        linkedinUrl: string | null;
+        language: "fr" | "en";
+        sourceLabel: string;
+        alreadyInCycle: boolean;
+      }
+    | null
+  >();
 
   for (const row of rows) {
     if (row.email && onFicheEmails.has(row.email)) {
+      if (!seenAlreadyOnFiche.has(row.email)) {
+        seenAlreadyOnFiche.add(row.email);
+        const existing = onFiche.find(
+          (c) => (c.email || "").toLowerCase() === row.email
+        );
+        alreadyOnFiche.push({
+          email: row.email,
+          prenom: existing?.prenom || row.prenom || row.nom || "Contact",
+          nom: existing?.nom ?? row.nom,
+          poste: existing?.poste ?? row.poste,
+          alreadyInCycle: inCycle.has(row.email),
+        });
+      }
       if (inCycle.has(row.email)) {
         alreadyOnFicheSkipped += 1;
         continue;
@@ -259,6 +297,117 @@ async function buildLinkCandidates(
         alreadyOnFicheSkipped += 1;
         continue;
       }
+
+      // Import sans email : si la personne existe déjà ailleurs AVEC un email,
+      // on propose le rattachement batch au lieu d'un simple create.
+      if ((row.prenom || row.nom) && !seenLink.has(key)) {
+        let byName = nameLookupCache.get(key);
+        if (byName === undefined) {
+          const prenom = row.prenom || "";
+          const nom = row.nom || "";
+          const nameWhere =
+            prenom && nom
+              ? {
+                  prenom: { equals: prenom, mode: "insensitive" as const },
+                  nom: { equals: nom, mode: "insensitive" as const },
+                }
+              : prenom
+                ? {
+                    prenom: { equals: prenom, mode: "insensitive" as const },
+                  }
+                : {
+                    nom: { equals: nom, mode: "insensitive" as const },
+                  };
+
+          const agencyMatch = await prisma.agencyContact.findFirst({
+            where: {
+              email: { not: null },
+              ...(partnerId ? { partnerId: { not: partnerId } } : {}),
+              ...nameWhere,
+            },
+            select: {
+              email: true,
+              prenom: true,
+              nom: true,
+              poste: true,
+              linkedinUrl: true,
+              language: true,
+              partner: { select: { name: true } },
+            },
+          });
+
+          if (agencyMatch?.email) {
+            const email = agencyMatch.email.toLowerCase();
+            const alreadyInCycle = inCycle.has(email);
+            byName = {
+              email,
+              prenom: clean(agencyMatch.prenom) || row.prenom || row.nom || "Contact",
+              nom: clean(agencyMatch.nom) ?? row.nom,
+              poste: clean(agencyMatch.poste) ?? row.poste,
+              linkedinUrl: clean(agencyMatch.linkedinUrl) ?? row.linkedinUrl,
+              language:
+                agencyMatch.language === "en" || agencyMatch.language === "fr"
+                  ? agencyMatch.language
+                  : row.language,
+              sourceLabel: `Agence « ${agencyMatch.partner.name} »`,
+              alreadyInCycle,
+            };
+          } else {
+            const marqueMatch = await prisma.marqueContact.findFirst({
+              where: {
+                email: { not: null },
+                ...nameWhere,
+              },
+              select: {
+                email: true,
+                prenom: true,
+                nom: true,
+                poste: true,
+                linkedinUrl: true,
+                language: true,
+                marque: { select: { nom: true } },
+              },
+            });
+            if (marqueMatch?.email) {
+              const email = marqueMatch.email.toLowerCase();
+              const alreadyInCycle = inCycle.has(email);
+              byName = {
+                email,
+                prenom: clean(marqueMatch.prenom) || row.prenom || row.nom || "Contact",
+                nom: clean(marqueMatch.nom) ?? row.nom,
+                poste: clean(marqueMatch.poste) ?? row.poste,
+                linkedinUrl: clean(marqueMatch.linkedinUrl) ?? row.linkedinUrl,
+                language:
+                  marqueMatch.language === "en" || marqueMatch.language === "fr"
+                    ? marqueMatch.language
+                    : row.language,
+                sourceLabel: `Marque « ${marqueMatch.marque.nom} »`,
+                alreadyInCycle,
+              };
+            } else {
+              byName = null;
+            }
+          }
+          nameLookupCache.set(key, byName);
+        }
+
+        if (byName && !seenLink.has(byName.email)) {
+          seenLink.add(byName.email);
+          linkCandidates.push({
+            email: byName.email,
+            prenom: byName.prenom,
+            nom: byName.nom,
+            poste: byName.poste,
+            linkedinUrl: byName.linkedinUrl,
+            language: byName.language,
+            sourceLabel: byName.sourceLabel,
+            alreadyOnFiche: false,
+            alreadyInCycle: byName.alreadyInCycle,
+          });
+          continue;
+        }
+      }
+
       seenCreatePerson.add(key);
       toCreate.push(row);
       continue;
@@ -300,7 +449,13 @@ async function buildLinkCandidates(
     toCreate.push(row);
   }
 
-  return { linkCandidates, enrollCandidates, toCreate, alreadyOnFicheSkipped };
+  return {
+    linkCandidates,
+    enrollCandidates,
+    alreadyOnFiche,
+    toCreate,
+    alreadyOnFicheSkipped,
+  };
 }
 
 async function enrollInCycle(opts: {
@@ -406,6 +561,7 @@ export async function POST(request: NextRequest) {
         company: partner?.name ?? partnerName,
         toCreate: classified.toCreate.length,
         alreadyOnFicheSkipped: classified.alreadyOnFicheSkipped,
+        alreadyOnFiche: classified.alreadyOnFiche,
         linkCandidates: classified.linkCandidates,
         enrollCandidates: classified.enrollCandidates,
       });

@@ -42,6 +42,14 @@ type LinkCandidate = {
   alreadyInCycle: boolean;
 };
 
+type AlreadyOnFicheCandidate = {
+  email: string;
+  prenom: string;
+  nom: string | null;
+  poste: string | null;
+  alreadyInCycle: boolean;
+};
+
 export type AgencyImportResult = {
   company: string;
   created: number;
@@ -227,6 +235,7 @@ export function ImportAgencyModal({
   const [step, setStep] = useState<"form" | "review">("form");
   const [linkCandidates, setLinkCandidates] = useState<LinkCandidate[]>([]);
   const [enrollCandidates, setEnrollCandidates] = useState<LinkCandidate[]>([]);
+  const [alreadyOnFiche, setAlreadyOnFiche] = useState<AlreadyOnFicheCandidate[]>([]);
   const [selectedLink, setSelectedLink] = useState<Set<string>>(new Set());
   const [selectedEnroll, setSelectedEnroll] = useState<Set<string>>(new Set());
   const [previewMeta, setPreviewMeta] = useState<{
@@ -240,6 +249,7 @@ export function ImportAgencyModal({
     setStep("form");
     setLinkCandidates([]);
     setEnrollCandidates([]);
+    setAlreadyOnFiche([]);
     setPreviewMeta(null);
     if (!text.trim()) {
       setRows([]);
@@ -325,8 +335,10 @@ export function ImportAgencyModal({
 
       const links = (data.linkCandidates || []) as LinkCandidate[];
       const enrolls = (data.enrollCandidates || []) as LinkCandidate[];
+      const existingOnFiche = (data.alreadyOnFiche || []) as AlreadyOnFicheCandidate[];
       setLinkCandidates(links);
       setEnrollCandidates(enrolls);
+      setAlreadyOnFiche(existingOnFiche);
       setSelectedLink(new Set(links.map((c) => c.email)));
       setSelectedEnroll(new Set(enrolls.map((c) => c.email)));
       setPreviewMeta({
@@ -335,7 +347,7 @@ export function ImportAgencyModal({
         company: data.company || partnerName.trim(),
       });
 
-      if (links.length === 0 && enrolls.length === 0) {
+      if (links.length === 0 && enrolls.length === 0 && existingOnFiche.length === 0) {
         await runCommit([], []);
         return;
       }
@@ -404,7 +416,9 @@ export function ImportAgencyModal({
             style={{ fontFamily: "Spectral, serif", color: LICORICE }}
           >
             <FileSpreadsheet className="w-5 h-5" style={{ color: "#3D8B40" }} />
-            {step === "review" ? "Contacts déjà connus" : "Importer des contacts d'agence"}
+            {step === "review"
+              ? "Contacts déjà présents dans l'app"
+              : "Importer des contacts d'agence"}
             <span
               className="text-xs font-semibold px-2 py-0.5 rounded-full"
               style={{ backgroundColor: LICORICE, color: "white" }}
@@ -655,15 +669,46 @@ export function ImportAgencyModal({
                 .
               </p>
               <p className="text-xs opacity-70" style={{ color: LICORICE }}>
-                Coche ceux à rattacher à la fiche agence (ou à ajouter au cycle) — tout est
-                proposé d&apos;un coup, plus besoin de le faire un par un.
+                On te montre ici tout ce qui existe déjà dans notre app (sur cette fiche
+                ou ailleurs) pour fusionner d&apos;un coup.
+              </p>
+              {alreadyOnFiche.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold" style={{ color: LICORICE }}>
+                    Déjà présents sur cette fiche agence ({alreadyOnFiche.length})
+                  </p>
+                  <div
+                    className="max-h-36 overflow-y-auto space-y-1 rounded-xl border p-2"
+                    style={{ borderColor: "#E8DED0" }}
+                  >
+                    {alreadyOnFiche.map((c) => (
+                      <div
+                        key={c.email}
+                        className="rounded-lg px-2 py-1.5 text-xs"
+                        style={{ color: LICORICE, backgroundColor: "#FAFAF8" }}
+                      >
+                        <span className="font-medium">
+                          {c.prenom} {c.nom || ""}
+                        </span>{" "}
+                        <span className="opacity-60">{c.email}</span>{" "}
+                        <span className="opacity-60">
+                          · {c.alreadyInCycle ? "déjà en cycle" : "présent sur la fiche"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-xs opacity-70" style={{ color: LICORICE }}>
+                Coche ceux à rattacher/activer — tout est proposé d&apos;un coup, plus besoin
+                de le faire un par un.
               </p>
 
               {linkCandidates.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold" style={{ color: LICORICE }}>
-                      Connus ailleurs — rattacher à la fiche
+                      Déjà dans l&apos;app (ailleurs) — rattacher à cette fiche
                     </p>
                     <button
                       type="button"
@@ -721,7 +766,7 @@ export function ImportAgencyModal({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold" style={{ color: LICORICE }}>
-                      Déjà sur la fiche — ajouter au cycle
+                      Déjà sur cette fiche — ajouter au cycle
                     </p>
                     <button
                       type="button"
@@ -794,7 +839,7 @@ export function ImportAgencyModal({
                 style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
               >
                 {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                Confirmer
+                Fusionner tout
                 {selectedLink.size + selectedEnroll.size + (previewMeta?.toCreate || 0) > 0
                   ? ` (${selectedLink.size + selectedEnroll.size + (previewMeta?.toCreate || 0)})`
                   : ""}
