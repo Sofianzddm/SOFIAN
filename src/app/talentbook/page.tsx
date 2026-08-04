@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 import {
   localizeTalentAttribute,
@@ -17,8 +17,13 @@ import {
   SPORTS_OPTIONS,
   MOBILITE_OPTIONS,
 } from "@/lib/talent-attributes";
+import {
+  parseTalentQueryLocal,
+  type TalentSearchFilters,
+} from "@/lib/talent-search-local";
 import { MultiSelectFilter } from "@/components/talentbook/MultiSelectFilter";
 import { isNewTalent, NewTalentBadge } from "@/components/talentbook/NewTalentBadge";
+import TalentSearchBar, { type Criterion } from "@/components/partners/TalentSearchBar";
 
 // Helper pour générer un visitor ID anonyme
 function getVisitorId(): string {
@@ -876,6 +881,7 @@ export default function TalentBookPage() {
   const [translatedPresentations, setTranslatedPresentations] = useState<Record<string, string>>({});
   const [sortBy, setSortBy] = useState<SortOption>("default");
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const aiCriteriaSessionRef = useRef(false);
 
   const t = translations[lang];
 
@@ -1072,6 +1078,103 @@ export default function TalentBookPage() {
     setFilterEnceinte("");
   };
 
+  function applyAiFilters(filters: TalentSearchFilters) {
+    setSelectedNiche(filters.niche || "all");
+    setSelectedNetworks(filters.networks || []);
+    setFilterVille(filters.villes || []);
+    setFilterPeau(filters.peau || []);
+    setFilterCheveux(filters.cheveux || []);
+    setFilterCouleur(filters.couleur || []);
+    setFilterTendancePeau(filters.tendancePeau || []);
+    setFilterTendanceCheveux(filters.tendanceCheveux || []);
+    setFilterAnimaux(filters.animaux || []);
+    setFilterAges(filters.ages || []);
+    setFilterSports(filters.sports || []);
+    setFilterMobilite(filters.mobilite || []);
+    setFilterEnceinte(filters.enceinte ? "oui" : "");
+    setSortBy((filters.sort as SortOption) || "default");
+  }
+
+  async function fetchTalentsFromQuery(query: string) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return;
+
+    const local = parseTalentQueryLocal(trimmedQuery, allVilles, lang);
+    if (local.covered) {
+      applyAiFilters(local.filters);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/talentbook/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: trimmedQuery, availableCities: allVilles, lang }),
+      });
+
+      if (!res.ok) {
+        if (local.hasCriteria) applyAiFilters(local.filters);
+        return;
+      }
+
+      const { filters } = await res.json();
+      applyAiFilters(filters);
+    } catch (error) {
+      console.error("Erreur recherche:", error);
+      if (local.hasCriteria) applyAiFilters(local.filters);
+    }
+  }
+
+  function pushUnique(setter: Dispatch<SetStateAction<string[]>>, value?: string) {
+    if (!value) return;
+    setter((prev) => (prev.includes(value) ? prev : [...prev, value]));
+  }
+
+  function applyCriterionFilter(filter?: string, value?: string) {
+    if (!filter || !value) return;
+    switch (filter) {
+      case "Ville":
+        pushUnique(setFilterVille, value);
+        break;
+      case "Couleur de cheveux":
+        pushUnique(setFilterCouleur, value === "Brun" ? "Brun" : value);
+        break;
+      case "Type de peau":
+        pushUnique(setFilterPeau, value);
+        break;
+      case "Sports":
+        pushUnique(setFilterSports, value);
+        break;
+      case "Âge des enfants":
+        pushUnique(setFilterAges, "Bébé (0-2 ans)");
+        pushUnique(setFilterAges, "Enfant (3-11 ans)");
+        break;
+      case "Animaux":
+        pushUnique(setFilterAnimaux, value);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function applyCriterionMeta(criterion: Criterion) {
+    if (criterion.plat) {
+      const network = criterion.plat.toLowerCase();
+      setSelectedNetworks((prev) => (prev.includes(network) ? prev : [...prev, network]));
+    }
+    if (criterion.cat) {
+      const cat = criterion.cat.toLowerCase();
+      if (cat === "sport") setSelectedNiche("sport");
+      else if (cat === "family") setSelectedNiche("family");
+      else if (cat === "food") setSelectedNiche("food");
+      else if (cat === "lifestyle") setSelectedNiche("lifestyle");
+      else if (cat === "fashion") setSelectedNiche("fashion");
+      else if (cat === "voyage") setSelectedNiche("voyage");
+      else if (cat === "beauty") setSelectedNiche("beauty");
+      else if (cat === "animaux") setSelectedNiche("animaux");
+    }
+  }
+
   const sortLabels: Record<SortOption, string> = {
     default: t.sortDefault,
     "ig-followers": t.sortIgFollowers,
@@ -1189,10 +1292,39 @@ export default function TalentBookPage() {
         </header>
 
         {/* Filtres */}
-        <nav className="sticky top-0 z-30 bg-[#F5EDE0]/95 backdrop-blur-md border-b border-[#220101]/10 py-4">
-          <div className="max-w-6xl mx-auto px-4">
+        <nav className="sticky top-0 z-30 bg-[#F5EDE0]/95 backdrop-blur-md border-b border-[#220101]/10 py-3 sm:py-4">
+          <div className="max-w-6xl mx-auto px-3 sm:px-4">
+            {/* Barre de recherche en langage naturel */}
+            <div className="mb-3 sm:mb-4">
+              <TalentSearchBar
+                typeSpeed={46}
+                accent="#220101"
+                className="w-full"
+                onCriterion={(criterion) => {
+                  if (!aiCriteriaSessionRef.current) {
+                    clearAttrFilters();
+                    setSelectedNiche("all");
+                    setSelectedNetworks([]);
+                    aiCriteriaSessionRef.current = true;
+                  }
+                  applyCriterionFilter(criterion.filter, criterion.value);
+                  applyCriterionMeta(criterion);
+                }}
+                onSearch={async (query) => {
+                  aiCriteriaSessionRef.current = false;
+                  await fetchTalentsFromQuery(query);
+                }}
+                onClear={() => {
+                  aiCriteriaSessionRef.current = false;
+                  clearAttrFilters();
+                  setSelectedNiche("all");
+                  setSelectedNetworks([]);
+                }}
+              />
+            </div>
+
             {/* Filtres réseaux */}
-            <div className="flex justify-center gap-2 md:gap-3 mb-4">
+            <div className="flex flex-wrap justify-center gap-2 md:gap-3 mb-3 sm:mb-4">
               <button
                 onClick={() => toggleNetwork("instagram")}
                 className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-full text-sm transition-all font-switzer ${
