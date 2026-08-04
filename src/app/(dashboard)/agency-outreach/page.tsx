@@ -543,6 +543,10 @@ export default function AgencyOutreachPage() {
   const [editingRelanceId, setEditingRelanceId] = useState<string | null>(null);
   const [editingRelanceAt, setEditingRelanceAt] = useState("");
   const [savingRelance, setSavingRelance] = useState(false);
+  // Reprogrammation groupée de la relance pour la sélection.
+  const [bulkRelanceOpen, setBulkRelanceOpen] = useState(false);
+  const [bulkRelanceAt, setBulkRelanceAt] = useState("");
+  const [savingBulkRelance, setSavingBulkRelance] = useState(false);
 
   const showToast = useCallback((kind: "ok" | "err", msg: string) => {
     setToast({ kind, msg });
@@ -784,6 +788,17 @@ export default function AgencyOutreachPage() {
   const selectedTargets = useMemo(
     () => targets.filter((t) => selected.has(t.id)),
     [targets, selected]
+  );
+
+  /** Contacts sélectionnés dont la relance auto est encore reprogrammable. */
+  const selectedRelanceEditable = useMemo(
+    () =>
+      selectedTargets.filter((t) => {
+        if (t.status !== "WAITING") return false;
+        const touch = t.touches[0];
+        return Boolean(touch?.sentAt) && !touch?.relanceSentAt && !touch?.repliedAt;
+      }),
+    [selectedTargets]
   );
 
   const openComposer = () => {
@@ -1074,6 +1089,65 @@ export default function AgencyOutreachPage() {
     }
   };
 
+  const openBulkRelance = () => {
+    if (selectedRelanceEditable.length === 0) {
+      showToast(
+        "err",
+        "Aucun contact sélectionné avec une relance encore à programmer (En attente, mail envoyé, pas encore relancé)."
+      );
+      return;
+    }
+    // Défaut : demain 10h00 (heure de Paris).
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const paris = toParisDatetimeLocal(tomorrow);
+    const [d] = paris.split("T");
+    setBulkRelanceAt(`${d}T10:00`);
+    setBulkRelanceOpen(true);
+    setEditingRelanceId(null);
+  };
+
+  const onSaveBulkRelanceDate = async () => {
+    if (!bulkRelanceAt.trim()) {
+      showToast("err", "Indiquez une date de relance.");
+      return;
+    }
+    const ids = selectedRelanceEditable.map((t) => t.id);
+    if (ids.length === 0) {
+      showToast("err", "Aucun contact éligible dans la sélection.");
+      return;
+    }
+    setSavingBulkRelance(true);
+    try {
+      const res = await fetch("/api/agency-outreach/reschedule-relance-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetIds: ids,
+          relanceScheduledAt: bulkRelanceAt,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Reprogrammation impossible");
+      const updated = Number(data.updated || 0);
+      const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
+      showToast(
+        "ok",
+        skipped > 0
+          ? `Date de relance mise à jour pour ${updated} contact${updated > 1 ? "s" : ""} (${skipped} ignoré${skipped > 1 ? "s" : ""}).`
+          : `Date de relance mise à jour pour ${updated} contact${updated > 1 ? "s" : ""}.`
+      );
+      setBulkRelanceOpen(false);
+      setBulkRelanceAt("");
+      setSelected(new Set());
+      await loadTargets();
+    } catch (e) {
+      showToast("err", e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingBulkRelance(false);
+    }
+  };
+
   const addExistingContact = async (contactId: string) => {
     setAddBusyId(contactId);
     try {
@@ -1191,6 +1265,59 @@ export default function AgencyOutreachPage() {
               Rédiger ({selectedTargets.length})
             </button>
           )}
+          {selectedRelanceEditable.length > 0 &&
+            activeTab === "WAITING" &&
+            (bulkRelanceOpen ? (
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 bg-amber-50"
+                style={{ borderColor: "#F0C674" }}
+              >
+                <CalendarClock className="w-4 h-4 shrink-0" style={{ color: "#8A5A00" }} />
+                <input
+                  type="datetime-local"
+                  value={bulkRelanceAt}
+                  onChange={(e) => setBulkRelanceAt(e.target.value)}
+                  className="rounded border border-amber-300 bg-white px-2 py-1 text-sm text-amber-900"
+                  disabled={savingBulkRelance}
+                />
+                <button
+                  type="button"
+                  onClick={() => void onSaveBulkRelanceDate()}
+                  disabled={savingBulkRelance}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg disabled:opacity-50"
+                  style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                >
+                  {savingBulkRelance ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  Appliquer ({selectedRelanceEditable.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBulkRelanceOpen(false);
+                    setBulkRelanceAt("");
+                  }}
+                  disabled={savingBulkRelance}
+                  className="p-1.5 rounded-lg hover:bg-amber-100 disabled:opacity-50"
+                  title="Annuler"
+                >
+                  <X className="w-4 h-4" style={{ color: LICORICE }} />
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={openBulkRelance}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border-2"
+                style={{ borderColor: "#F0C674", color: "#8A5A00" }}
+                title="Changer la date de relance pour toute la sélection"
+              >
+                <CalendarClock className="w-4 h-4" />
+                Date relance ({selectedRelanceEditable.length})
+              </button>
+            ))}
           {selectedTargets.length > 0 &&
             (activeTab === "WAITING" ||
               activeTab === "TO_RECONTACT" ||
