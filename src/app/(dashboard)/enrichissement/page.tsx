@@ -22,6 +22,10 @@ import {
 } from "lucide-react";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
 import {
+  ImportAgencyModal,
+  type AgencyImportResult,
+} from "@/components/agency-outreach/ImportAgencyModal";
+import {
   detectEmailPattern,
   suggestEmailsForContact,
   type EmailSuggestion,
@@ -106,6 +110,9 @@ export default function EnrichissementPage() {
   /** Brouillons email par contactId — saisis sur la fiche. */
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [showCartoModal, setShowCartoModal] = useState(false);
+  const [showAgencyImport, setShowAgencyImport] = useState(false);
+  const [agencyPartners, setAgencyPartners] = useState<Array<{ id: string; name: string }>>([]);
+  const [agencyMarket, setAgencyMarket] = useState<"FR" | "BENELUX">("FR");
   const [dragOver, setDragOver] = useState(false);
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
   /** Clé de la personne en cours de suppression (spinner sur le bouton). */
@@ -132,6 +139,31 @@ export default function EnrichissementPage() {
   // CASTING_MANAGER n'a pas l'onglet Agences.
   useEffect(() => {
     if (!isAdmin && tab === "agences") setTab("marques");
+  }, [isAdmin, tab]);
+
+  // Liste des agences pour le modal d'import (onglet Agences, ADMIN).
+  useEffect(() => {
+    if (!isAdmin || tab !== "agences") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/agency-outreach/partners");
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) {
+          setAgencyPartners(
+            ((data.partners || []) as Array<{ id: string; name: string }>).map((p) => ({
+              id: p.id,
+              name: p.name,
+            }))
+          );
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isAdmin, tab]);
 
   const tabContacts = useMemo(
@@ -563,15 +595,52 @@ export default function EnrichissementPage() {
               <div className="text-xs text-gray-400 mt-1">ou clique pour choisir</div>
             </button>
           ) : (
-            <div
-              className="w-full rounded-xl border border-dashed px-5 py-4 text-sm mb-6"
-              style={{ borderColor: "#E5E0DA", backgroundColor: "#FBF8F4", color: INK }}
-            >
-              Les contacts sans email importés depuis{" "}
-              <a href="/agency-outreach" className="underline font-semibold">
-                Prospection Agences
-              </a>{" "}
-              arrivent ici. Saisis les mails puis envoie-les dans le cycle.
+            <div className="mb-6 space-y-3">
+              <button
+                type="button"
+                onClick={() => setShowAgencyImport(true)}
+                className="w-full rounded-xl border-2 border-dashed px-6 py-8 text-center transition"
+                style={{
+                  borderColor: "#E5E0DA",
+                  backgroundColor: "#FBF8F4",
+                }}
+              >
+                <FileSpreadsheet
+                  className="w-7 h-7 mx-auto mb-2"
+                  style={{ color: "#9CA3AF" }}
+                />
+                <div className="text-sm font-semibold" style={{ color: INK }}>
+                  Importer des contacts d&apos;agence
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  Excel / CSV — si un contact existe déjà, proposition de rattachement à la
+                  fiche
+                </div>
+              </button>
+              <div className="flex items-center gap-2 justify-center">
+                <span className="text-xs text-gray-400">Marché import :</span>
+                {(["FR", "BENELUX"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setAgencyMarket(m)}
+                    className="text-[11px] font-bold px-2 py-0.5 rounded"
+                    style={
+                      agencyMarket === m
+                        ? { backgroundColor: INK, color: "#fff" }
+                        : { backgroundColor: CREAM, color: INK }
+                    }
+                  >
+                    {m === "FR" ? "🇫🇷 FR" : "🇧🇪 BE"}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-center text-gray-400">
+                Sans email → file ci-dessous · avec email →{" "}
+                <a href="/agency-outreach" className="underline font-semibold text-gray-500">
+                  Prospection Agences
+                </a>
+              </p>
             </div>
           )}
 
@@ -884,6 +953,30 @@ export default function EnrichissementPage() {
             setShowCartoModal(false);
             setDroppedFile(null);
             setFlash(m);
+          }}
+        />
+      )}
+
+      {showAgencyImport && (
+        <ImportAgencyModal
+          partners={agencyPartners}
+          market={agencyMarket}
+          onClose={() => setShowAgencyImport(false)}
+          onError={(m) => {
+            setShowAgencyImport(false);
+            setFlash(m);
+          }}
+          onImported={(r: AgencyImportResult) => {
+            const parts = [
+              r.linked > 0 ? `${r.linked} rattaché(s) à la fiche` : null,
+              `${r.created} créé(s)`,
+              r.addedToCycle > 0 ? `${r.addedToCycle} au cycle` : null,
+              r.queued > 0 ? `${r.queued} en file` : null,
+              r.skipped > 0 ? `${r.skipped} ignoré(s)` : null,
+            ].filter(Boolean);
+            setFlash(`${r.company} : ${parts.join(", ")}.`);
+            setShowAgencyImport(false);
+            void load({ silent: true });
           }}
         />
       )}
