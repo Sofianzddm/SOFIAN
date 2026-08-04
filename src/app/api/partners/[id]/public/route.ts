@@ -56,6 +56,7 @@ export async function GET(
         niches: true,
         ville: true,
         pays: true,
+        dateArrivee: true,
         typePeau: true,
         typeCheveux: true,
         couleurCheveux: true,
@@ -244,6 +245,7 @@ export async function GET(
       enceinte: talent.enceinte ?? false,
       sports: talent.sports || [],
       mobilite: talent.mobilite || [],
+      dateArrivee: talent.dateArrivee || null,
       stats: talent.stats
         ? {
             igFollowers: talent.stats.igFollowers,

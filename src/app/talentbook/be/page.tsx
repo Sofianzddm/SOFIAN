@@ -18,6 +18,7 @@ import {
   MOBILITE_OPTIONS,
 } from "@/lib/talent-attributes";
 import { MultiSelectFilter } from "@/components/talentbook/MultiSelectFilter";
+import { isNewTalent, NewTalentBadge } from "@/components/talentbook/NewTalentBadge";
 
 // Marché de ce book (créateurs belges uniquement)
 const MARKET = "BE";
@@ -88,6 +89,7 @@ interface Talent {
   enceinte: boolean;
   sports: string[];
   mobilite: string[];
+  dateArrivee: string | null;
   stats: TalentStats | null;
 }
 
@@ -309,6 +311,7 @@ function TalentCard({
   onToggleFavorite: () => void;
 }) {
   const hasPhoto = talent.photo && talent.photo.trim() !== "";
+  const showNewBadge = isNewTalent(talent.dateArrivee);
 
   return (
     <article
@@ -361,7 +364,13 @@ function TalentCard({
           <HeartIcon filled={isFavorite} className="w-5 h-5" />
         </button>
 
-        <div className="absolute top-4 right-4 flex gap-2">
+        {showNewBadge && (
+          <div className="absolute top-3 right-3 z-10 drop-shadow-md">
+            <NewTalentBadge />
+          </div>
+        )}
+
+        <div className={`absolute flex gap-2 ${showNewBadge ? "top-[4.85rem] right-3" : "top-4 right-4"}`}>
           {talent.instagram && talent.stats?.igFollowers && (
             <a
               href={getInstagramProfileUrl(talent.instagram) ?? "#"}

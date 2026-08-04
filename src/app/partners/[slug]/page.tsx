@@ -38,6 +38,7 @@ import {
   type TalentSearchFilters,
 } from "@/lib/talent-search-local";
 import { MultiSelectFilter } from "@/components/talentbook/MultiSelectFilter";
+import { isNewTalent, NewTalentBadge } from "@/components/talentbook/NewTalentBadge";
 import TalentSearchBar, { type Criterion } from "@/components/partners/TalentSearchBar";
 
 // Helper pour générer un visitor ID anonyme (cookie-based pour partenaire)
@@ -162,6 +163,7 @@ interface Talent {
   enceinte: boolean;
   sports: string[];
   mobilite: string[];
+  dateArrivee: string | null;
   stats: TalentStats | null;
   tarifs: TalentTarifs | null;
   /** true si ce talent a des tarifs négociés pour ce partenaire */
@@ -445,6 +447,7 @@ function TalentCard({
   onToggleFavorite: () => void;
 }) {
   const hasPhoto = talent.photo && talent.photo.trim() !== "";
+  const showNewBadge = isNewTalent(talent.dateArrivee);
 
   return (
     <article
@@ -497,7 +500,13 @@ function TalentCard({
           <HeartIcon filled={isFavorite} className="w-5 h-5" />
         </button>
 
-        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 sm:gap-2">
+        {showNewBadge && (
+          <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-10 drop-shadow-md scale-90 sm:scale-100 origin-top-right">
+            <NewTalentBadge />
+          </div>
+        )}
+
+        <div className={`absolute flex gap-1.5 sm:gap-2 ${showNewBadge ? "top-[4.25rem] sm:top-[4.85rem] right-2 sm:right-3" : "top-3 right-3 sm:top-4 sm:right-4"}`}>
           {talent.instagram && talent.stats?.igFollowers && (
             <a
               href={getInstagramProfileUrl(talent.instagram) ?? "#"}

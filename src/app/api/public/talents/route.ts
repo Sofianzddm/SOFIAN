@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
         niches: true,
         ville: true,
         pays: true,
+        dateArrivee: true,
         typePeau: true,
         typeCheveux: true,
         couleurCheveux: true,
