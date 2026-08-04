@@ -259,6 +259,49 @@ export default function EnrichissementPage() {
     });
   };
 
+  const agencyBulkSuggestionCount = useMemo(() => {
+    if (!isAgencyTab || !active || !livePattern) return 0;
+    let count = 0;
+    for (const p of active.people) {
+      if (isValidEmail(drafts[p.key] || "")) continue;
+      const suggestions = suggestEmailsForContact({
+        prenom: p.prenom,
+        nom: p.nom,
+        pattern: livePattern,
+      });
+      if (suggestions.length > 0) count += 1;
+    }
+    return count;
+  }, [isAgencyTab, active, livePattern, drafts]);
+
+  const applyAgencySuggestionsToAll = () => {
+    if (!isAgencyTab || !active || !livePattern) return;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      let changed = 0;
+      for (const p of active.people) {
+        if (isValidEmail(next[p.key] || "")) continue;
+        const suggestions = suggestEmailsForContact({
+          prenom: p.prenom,
+          nom: p.nom,
+          pattern: livePattern,
+        });
+        if (suggestions.length > 0) {
+          next[p.key] = suggestions[0].email;
+          changed += 1;
+        }
+      }
+      if (changed > 0) {
+        setFlash(
+          `${changed} suggestion${changed > 1 ? "s" : ""} appliquée${
+            changed > 1 ? "s" : ""
+          } automatiquement.`
+        );
+      }
+      return next;
+    });
+  };
+
   const filledCount = active
     ? active.people.filter((p) => isValidEmail(drafts[p.key] || "")).length
     : 0;
@@ -785,10 +828,23 @@ export default function EnrichissementPage() {
               </p>
             )}
             {livePattern && (
-              <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                <Sparkles className="w-3 h-3" style={{ color: ROSE }} />
-                Motif d&apos;après tes saisies : {livePattern.kind}@{livePattern.domain}
-              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <p className="text-xs text-gray-500 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" style={{ color: ROSE }} />
+                  Motif d&apos;après tes saisies : {livePattern.kind}@{livePattern.domain}
+                </p>
+                {isAgencyTab && agencyBulkSuggestionCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={applyAgencySuggestionsToAll}
+                    className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md ring-1 ring-black/[0.08]"
+                    style={{ color: INK, backgroundColor: "#FAFAF8" }}
+                  >
+                    <Sparkles className="w-3 h-3" style={{ color: ROSE }} />
+                    Appliquer aux {agencyBulkSuggestionCount} restants
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
