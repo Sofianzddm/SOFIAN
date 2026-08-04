@@ -1053,9 +1053,6 @@ model ProspectionContact {
   derniereFait    String?       @db.Text
   actionUpdatedAt DateTime?
 
-  // Lien 1-1 avec la collab (règles TM : pas de doublon prosp ↔ collab)
-  collaboration Collaboration?
-
   commentaires ProspectionCommentaire[]
   historique   ProspectionHistorique[]
 
@@ -1376,10 +1373,6 @@ model Collaboration {
   // collabs issues d'une négo sont bridgées via la négo).
   outreachBridgedAt DateTime?
   outreachTargetRef String?
-
-  // Lien fort prosp ↔ collab (TM / Head of Influence) — anti-doublon
-  prospectionContactId String?             @unique
-  prospectionContact   ProspectionContact? @relation(fields: [prospectionContactId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

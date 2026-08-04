@@ -5,11 +5,6 @@ import { generateCollabReference } from "@/lib/generateCollabReference";
 import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
 import { ensureMarqueContact, parseSenderName } from "@/lib/marque-resolver";
 import { getDeviseInfo } from "@/lib/devises";
-import { createDevisForCollaboration } from "@/lib/documents/createDevis";
-import {
-  isTmInfluenceRole,
-  linkOrCreateProspectionForTmCollab,
-} from "@/lib/tm-collab-prospection";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -320,45 +315,6 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Règles TM / Head of Influence : devis obligatoire + sync /prospection
-    let devis = null as { id: string; reference: string } | null;
-    if (isTmInfluenceRole(role)) {
-      try {
-        const lignes = collaboration.livrables.map((l) => ({
-          description: l.description || `${l.quantite}x ${l.typeContenu}`,
-          quantite: Number(l.quantite) || 1,
-          prixUnitaire: Number(l.prixUnitaire) || 0,
-        }));
-        const doc = await createDevisForCollaboration({
-          collaborationId: collaboration.id,
-          userId: user.id,
-          lignes,
-          devise: billing.devise ? String(billing.devise) : undefined,
-        });
-        devis = { id: doc.id, reference: doc.reference };
-
-        await linkOrCreateProspectionForTmCollab({
-          collaborationId: collaboration.id,
-          createdById: user.id,
-          talentId: collaboration.talentId,
-          talentPrenom: collaboration.talent.prenom,
-          talentNom: collaboration.talent.nom,
-          marqueNom: collaboration.marque.nom,
-          montantBrut: Number(collaboration.montantBrut),
-          prospectionContactId: data.prospectionContactId || null,
-          devisDate: doc.dateEmission ?? new Date(),
-        });
-      } catch (err) {
-        // Pas de devis = pas de collab : rollback
-        await prisma.collaboration.delete({ where: { id: collaboration.id } });
-        const message =
-          err instanceof Error
-            ? err.message
-            : "Impossible de générer le devis — collaboration non créée.";
-        return NextResponse.json({ message }, { status: 400 });
-      }
-    }
-
     // Log d'activité de délégation (création collab)
     // ⚠️ Pas de log si la collab est privée (pôle Sales) pour ne pas la révéler aux TM
     if (!isPrivate) {
@@ -373,10 +329,7 @@ export async function POST(request: NextRequest) {
       }).catch(console.error);
     }
 
-    return NextResponse.json(
-      { ...collaboration, devis },
-      { status: 201 }
-    );
+    return NextResponse.json(collaboration, { status: 201 });
   } catch (error) {
     console.error("Erreur POST collaboration:", error);
     return NextResponse.json({ message: "Erreur lors de la création" }, { status: 500 });

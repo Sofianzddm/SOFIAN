@@ -111,12 +111,9 @@ export default function NewCollaborationPage() {
   // Détection du rôle
   const user = session?.user as { id: string; role: string; name: string } | undefined;
   const isTM = user?.role === "TM";
-  const isHeadOfInfluence = user?.role === "HEAD_OF_INFLUENCE";
-  const isTmInfluence = isTM || isHeadOfInfluence;
   const isHoS = user?.role === "HEAD_OF_SALES";
   // Rôles qui peuvent créer des collabs privées (pôle Sales, cloisonnées des TM)
   const canSetPrivate = isHoS || user?.role === "ADMIN" || user?.role === "HEAD_OF";
-  const prospectionContactId = searchParams.get("prospectionContactId");
 
   const [formData, setFormData] = useState({
     talentId: searchParams.get("talent") || "",
@@ -446,7 +443,6 @@ export default function NewCollaborationPage() {
           contactKind: contactQualif.contactKind,
           contactAgence: contactQualif.contactAgence.trim() || null,
           contactLanguage: contactQualif.contactLanguage,
-          prospectionContactId: prospectionContactId || null,
           livrables: validLivrables.map((l) => ({
             typeContenu: l.typeContenu,
             quantite: l.quantite,
@@ -502,13 +498,6 @@ export default function NewCollaborationPage() {
             <p className="text-sm text-gray-500">Créer une collaboration talent × marque</p>
           </div>
         </div>
-
-        {isTmInfluence && (
-          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-            <strong>Règle TM :</strong> la création génère automatiquement le devis et une ligne{" "}
-            <em>/prospection</em> GAGNÉ (mois du devis). Sans facturation complète → pas de collab.
-          </div>
-        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Partenaires */}
@@ -1192,7 +1181,7 @@ export default function NewCollaborationPage() {
               className="flex items-center gap-2 px-5 py-2.5 bg-glowup-licorice text-white font-medium rounded-lg hover:bg-glowup-licorice/90 transition-colors disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {isTmInfluence ? "Créer + générer le devis" : "Créer la collaboration"}
+              Créer la collaboration
             </button>
           </div>
         </form>

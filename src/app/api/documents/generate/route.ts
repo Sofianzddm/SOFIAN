@@ -10,7 +10,6 @@ import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { computeDateEcheance } from "@/lib/documents/echeance";
 import { normalizeLocale } from "@/lib/documents/i18n";
 import { getDeviseInfo } from "@/lib/devises";
-import { syncProspectionAfterDevis } from "@/lib/tm-collab-prospection";
 
 interface LigneInput {
   description: string;
@@ -203,21 +202,6 @@ export async function POST(request: NextRequest) {
           userId: user.id,
         },
       });
-    }
-
-    // TM / Head of Influence : 1er devis ⇒ ligne /prospection GAGNÉ (sans doublon)
-    if (type === "DEVIS") {
-      try {
-        await syncProspectionAfterDevis({
-          collaborationId,
-          actorUserId: user.id,
-          actorRole: user.role,
-          devisDate: document.dateEmission ?? new Date(),
-          prospectionContactId: body.prospectionContactId || null,
-        });
-      } catch (syncErr) {
-        console.error("[documents/generate] sync prosp TM:", syncErr);
-      }
     }
 
     return NextResponse.json({
