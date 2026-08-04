@@ -362,7 +362,7 @@ function TalentCard({
         </button>
 
         {showNewBadge && (
-          <div className="absolute top-3 right-3 z-10 drop-shadow-md">
+          <div className="absolute top-1 right-1 z-10 drop-shadow-md">
             <NewTalentBadge />
           </div>
         )}

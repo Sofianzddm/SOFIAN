@@ -38,7 +38,7 @@ export function NewTalentBadge({ className = "" }: { className?: string }) {
   return (
     <div
       className={`pointer-events-none relative select-none ${className}`}
-      style={{ width: 88, height: 66 }}
+      style={{ width: 88, height: 66, transform: "rotate(14deg)" }}
       aria-label="New talent"
     >
       <svg
@@ -57,7 +57,7 @@ export function NewTalentBadge({ className = "" }: { className?: string }) {
       </svg>
       <span
         className="absolute inset-0 flex items-center justify-center px-2 text-center font-switzer font-bold leading-tight tracking-wide text-[#2A1911]"
-        style={{ fontSize: 11 }}
+        style={{ fontSize: 11, transform: "rotate(-2deg)" }}
       >
         New talent
       </span>
