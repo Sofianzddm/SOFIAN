@@ -117,6 +117,8 @@ export default function EnrichissementPage() {
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
   /** Clé de la personne en cours de suppression (spinner sur le bouton). */
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  /** Clé de la fiche (marque/agence) en cours de suppression complète. */
+  const [deletingGroupKey, setDeletingGroupKey] = useState<string | null>(null);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -416,6 +418,41 @@ export default function EnrichissementPage() {
     }
   };
 
+  const deleteGroup = async (b: BrandGroup) => {
+    if (busy || deletingKey || deletingGroupKey) return;
+    const label = b.company || "cette fiche";
+    if (
+      !window.confirm(
+        `Supprimer tous les contacts de ${label} de l'enrichissement ?\nCette action est définitive.`
+      )
+    ) {
+      return;
+    }
+    setDeletingGroupKey(b.key);
+    setFlash(null);
+    try {
+      for (const p of b.people) {
+        for (const ref of p.refs) {
+          const res = await fetch(
+            `/api/outreach/email-lookup/${ref.id}?market=${ref.market}`,
+            { method: "DELETE" }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "Échec de la suppression");
+        }
+      }
+      const idsToDelete = new Set(
+        b.people.flatMap((p) => p.refs.map((ref) => ref.id))
+      );
+      setContacts((prev) => prev.filter((c) => !idsToDelete.has(c.id)));
+      setFlash(`${label} supprimé${isAgencyTab ? "e" : "e"} de l'enrichissement.`);
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setDeletingGroupKey(null);
+    }
+  };
+
   const markReady = async () => {
     if (!active || !allReady || busy) return;
     setBusy(true);
@@ -709,11 +746,12 @@ export default function EnrichissementPage() {
             <ul className="space-y-2">
               {brands.map((b, i) => (
                 <li key={b.key}>
-                  <button
-                    type="button"
-                    onClick={() => openBrand(b)}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-white ring-1 ring-black/[0.06] hover:ring-black/15 text-left transition"
-                  >
+                  <div className="w-full flex items-center gap-2 px-4 py-3.5 rounded-xl bg-white ring-1 ring-black/[0.06] hover:ring-black/15 transition">
+                    <button
+                      type="button"
+                      onClick={() => openBrand(b)}
+                      className="min-w-0 flex-1 flex items-center gap-3 text-left"
+                    >
                     <span
                       className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
                       style={{ backgroundColor: CREAM, color: INK }}
@@ -764,7 +802,23 @@ export default function EnrichissementPage() {
                       </div>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-300" />
-                  </button>
+                    </button>
+                    {isAgencyTab && (
+                      <button
+                        type="button"
+                        onClick={() => void deleteGroup(b)}
+                        disabled={deletingGroupKey === b.key}
+                        className="inline-flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition disabled:opacity-40"
+                        title="Supprimer tous les contacts de cette agence"
+                      >
+                        {deletingGroupKey === b.key ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
