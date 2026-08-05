@@ -3,9 +3,9 @@
 /**
  * Enrichissement — /enrichissement
  *
- * Onglet Marques : drop carto → liste → fiche → mails → Prêt → outreach.
+ * Onglet Marques : drop carto → liste → fiche → mails (ou « pas d'email ») → Prêt → outreach.
  * Onglet Agences (ADMIN) : file des contacts partners sans email → Prêt →
- * agency-outreach.
+ * agency-outreach. Seuls les contacts avec email partent en outreach.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -109,6 +109,8 @@ export default function EnrichissementPage() {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   /** Brouillons email par contactId — saisis sur la fiche. */
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  /** Contacts marqués « pas d'email trouvé » (sortent de la file sans email). */
+  const [notFound, setNotFound] = useState<Record<string, boolean>>({});
   const [showCartoModal, setShowCartoModal] = useState(false);
   const [showAgencyImport, setShowAgencyImport] = useState(false);
   const [agencyPartners, setAgencyPartners] = useState<Array<{ id: string; name: string }>>([]);
@@ -253,6 +255,7 @@ export default function EnrichissementPage() {
 
   const suggestionFor = (p: Person): EmailSuggestion[] => {
     if (!livePattern) return [];
+    if (notFound[p.key]) return [];
     if (isValidEmail(drafts[p.key] || "")) return [];
     return suggestEmailsForContact({
       prenom: p.prenom,
@@ -265,6 +268,7 @@ export default function EnrichissementPage() {
     if (!isAgencyTab || !active || !livePattern) return 0;
     let count = 0;
     for (const p of active.people) {
+      if (notFound[p.key]) continue;
       if (isValidEmail(drafts[p.key] || "")) continue;
       const suggestions = suggestEmailsForContact({
         prenom: p.prenom,
@@ -274,7 +278,7 @@ export default function EnrichissementPage() {
       if (suggestions.length > 0) count += 1;
     }
     return count;
-  }, [isAgencyTab, active, livePattern, drafts]);
+  }, [isAgencyTab, active, livePattern, drafts, notFound]);
 
   const applyAgencySuggestionsToAll = () => {
     if (!isAgencyTab || !active || !livePattern) return;
@@ -282,6 +286,7 @@ export default function EnrichissementPage() {
       const next = { ...prev };
       let changed = 0;
       for (const p of active.people) {
+        if (notFound[p.key]) continue;
         if (isValidEmail(next[p.key] || "")) continue;
         const suggestions = suggestEmailsForContact({
           prenom: p.prenom,
@@ -304,25 +309,36 @@ export default function EnrichissementPage() {
     });
   };
 
-  const filledCount = active
+  const emailCount = active
     ? active.people.filter((p) => isValidEmail(drafts[p.key] || "")).length
     : 0;
+  const resolvedCount = active
+    ? active.people.filter(
+        (p) => isValidEmail(drafts[p.key] || "") || Boolean(notFound[p.key])
+      ).length
+    : 0;
   const allReady = Boolean(
-    active && filledCount === active.people.length && active.people.length > 0
+    active && resolvedCount === active.people.length && active.people.length > 0
   );
 
   const openBrand = (b: BrandGroup) => {
     setFlash(null);
     setActiveKey(b.key);
     const next: Record<string, string> = {};
-    for (const p of b.people) next[p.key] = "";
+    const nextNf: Record<string, boolean> = {};
+    for (const p of b.people) {
+      next[p.key] = "";
+      nextNf[p.key] = false;
+    }
     setDrafts(next);
+    setNotFound(nextNf);
   };
 
   const switchTab = (next: Tab) => {
     setTab(next);
     setActiveKey(null);
     setDrafts({});
+    setNotFound({});
     setFlash(null);
   };
 
@@ -359,6 +375,7 @@ export default function EnrichissementPage() {
       if (totalQueued > 0 && result.company) {
         setActiveKey(norm(result.company));
         setDrafts({});
+        setNotFound({});
       }
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
@@ -406,6 +423,11 @@ export default function EnrichissementPage() {
         prev.filter((c) => !p.refs.some((ref) => ref.id === c.id))
       );
       setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[p.key];
+        return next;
+      });
+      setNotFound((prev) => {
         const next = { ...prev };
         delete next[p.key];
         return next;
@@ -458,19 +480,32 @@ export default function EnrichissementPage() {
     setBusy(true);
     setFlash(null);
     try {
+      type ReadyRow = {
+        id: string;
+        email?: string;
+        notFound?: boolean;
+        bothMarkets?: boolean;
+      };
+
       if (isAgencyTab) {
-        const byPartner = new Map<string, Array<{ id: string; email: string }>>();
+        const byPartner = new Map<string, ReadyRow[]>();
         for (const p of active.people) {
+          const isNf = Boolean(notFound[p.key]);
           const email = (drafts[p.key] || "").trim().toLowerCase();
           for (const ref of p.refs) {
             const list = byPartner.get(ref.marqueId) || [];
-            list.push({ id: ref.id, email });
+            list.push(
+              isNf
+                ? { id: ref.id, notFound: true }
+                : { id: ref.id, email }
+            );
             byPartner.set(ref.marqueId, list);
           }
         }
 
         let totalSaved = 0;
         let totalEnrolled = 0;
+        let totalNotFound = 0;
         for (const [partnerId, contactsPayload] of byPartner) {
           const res = await fetch("/api/outreach/email-lookup/ready", {
             method: "POST",
@@ -485,21 +520,28 @@ export default function EnrichissementPage() {
           if (!res.ok) throw new Error(data.error || "Échec");
           totalSaved += data.saved || 0;
           totalEnrolled += data.enrolled || 0;
+          totalNotFound += data.notFound || 0;
         }
 
         setFlash(
           totalEnrolled > 0
             ? `${active.company} — ${totalEnrolled} contact(s) envoyés dans Prospection Agences 🎉`
-            : `${totalSaved} email(s) enregistrés.`
+            : totalSaved > 0
+              ? `${totalSaved} email(s) enregistrés.`
+              : totalNotFound > 0
+                ? `${totalNotFound} contact(s) marqués sans email.`
+                : "Fiche validée."
         );
         setActiveKey(null);
         setDrafts({});
+        setNotFound({});
         await load({ silent: true });
         return;
       }
 
       const marketsByEmail = new Map<string, Set<"FR" | "BENELUX">>();
       for (const p of active.people) {
+        if (notFound[p.key]) continue;
         const email = (drafts[p.key] || "").trim().toLowerCase();
         if (!email) continue;
         const set = marketsByEmail.get(email) ?? new Set<"FR" | "BENELUX">();
@@ -516,12 +558,13 @@ export default function EnrichissementPage() {
       type Group = {
         market: "FR" | "BENELUX";
         marqueId: string;
-        contacts: Array<{ id: string; email: string; bothMarkets: boolean }>;
+        contacts: ReadyRow[];
       };
       const groups = new Map<string, Group>();
       for (const p of active.people) {
+        const isNf = Boolean(notFound[p.key]);
         const email = (drafts[p.key] || "").trim().toLowerCase();
-        const bothMarkets = isCrossMarket(email);
+        const bothMarkets = !isNf && isCrossMarket(email);
         for (const ref of p.refs) {
           if (ref.market !== "FR" && ref.market !== "BENELUX") continue;
           const k = `${ref.market}:${ref.marqueId}`;
@@ -530,12 +573,17 @@ export default function EnrichissementPage() {
             g = { market: ref.market, marqueId: ref.marqueId, contacts: [] };
             groups.set(k, g);
           }
-          g.contacts.push({ id: ref.id, email, bothMarkets });
+          g.contacts.push(
+            isNf
+              ? { id: ref.id, notFound: true }
+              : { id: ref.id, email, bothMarkets }
+          );
         }
       }
 
       let totalSaved = 0;
       let totalEnrolled = 0;
+      let totalNotFound = 0;
       for (const g of groups.values()) {
         const res = await fetch("/api/outreach/email-lookup/ready", {
           method: "POST",
@@ -550,15 +598,21 @@ export default function EnrichissementPage() {
         if (!res.ok) throw new Error(data.error || "Échec");
         totalSaved += data.saved || 0;
         totalEnrolled += data.enrolled || 0;
+        totalNotFound += data.notFound || 0;
       }
 
       setFlash(
         totalEnrolled > 0
           ? `${active.company} — ${totalEnrolled} contact(s) envoyés dans « À contacter » 🎉`
-          : `${totalSaved} email(s) enregistrés.`
+          : totalSaved > 0
+            ? `${totalSaved} email(s) enregistrés.`
+            : totalNotFound > 0
+              ? `${totalNotFound} contact(s) marqués sans email.`
+              : "Fiche validée."
       );
       setActiveKey(null);
       setDrafts({});
+      setNotFound({});
       await load({ silent: true });
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
@@ -591,8 +645,8 @@ export default function EnrichissementPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1 mb-4">
             {isAgencyTab
-              ? "Ouvre une agence · note tous les mails · Prêt → Prospection Agences"
-              : "Glisse une carto · ouvre une marque · note tous les mails · Prêt"}
+              ? "Ouvre une agence · note les mails (ou « pas d'email ») · Prêt → Prospection Agences"
+              : "Glisse une carto · ouvre une marque · note les mails (ou « pas d'email ») · Prêt"}
           </p>
 
           {isAdmin && (
@@ -833,6 +887,7 @@ export default function EnrichissementPage() {
                 setFlash(null);
                 setActiveKey(null);
                 setDrafts({});
+                setNotFound({});
               }}
               className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
             >
@@ -840,7 +895,10 @@ export default function EnrichissementPage() {
               {isAgencyTab ? "Agences" : "Marques"}
             </button>
             <div className="text-xs text-gray-400">
-              {filledCount} / {active.people.length} emails
+              {resolvedCount} / {active.people.length} traités
+              {emailCount < resolvedCount
+                ? ` · ${emailCount} email${emailCount > 1 ? "s" : ""}`
+                : ""}
             </div>
           </div>
 
@@ -914,7 +972,8 @@ export default function EnrichissementPage() {
           <ul className="space-y-3 mb-6">
             {active.people.map((p) => {
               const value = drafts[p.key] || "";
-              const valid = isValidEmail(value);
+              const isNf = Boolean(notFound[p.key]);
+              const valid = !isNf && isValidEmail(value);
               const suggestions = suggestionFor(p);
               return (
                 <li
@@ -995,15 +1054,16 @@ export default function EnrichissementPage() {
                     </div>
                   </div>
 
-                  {suggestions.length > 0 && (
+                  {!isNf && suggestions.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                       {suggestions.map((s) => (
                         <button
                           key={s.email}
                           type="button"
-                          onClick={() =>
-                            setDrafts((prev) => ({ ...prev, [p.key]: s.email }))
-                          }
+                          onClick={() => {
+                            setNotFound((prev) => ({ ...prev, [p.key]: false }));
+                            setDrafts((prev) => ({ ...prev, [p.key]: s.email }));
+                          }}
                           className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md ring-1 ring-black/[0.08]"
                           style={{ color: INK, backgroundColor: "#FAFAF8" }}
                         >
@@ -1016,18 +1076,43 @@ export default function EnrichissementPage() {
 
                   <input
                     type="email"
-                    value={value}
-                    onChange={(e) =>
-                      setDrafts((prev) => ({ ...prev, [p.key]: e.target.value }))
+                    value={isNf ? "" : value}
+                    disabled={isNf}
+                    onChange={(e) => {
+                      setNotFound((prev) => ({ ...prev, [p.key]: false }));
+                      setDrafts((prev) => ({ ...prev, [p.key]: e.target.value }));
+                    }}
+                    placeholder={
+                      isNf
+                        ? "Pas d'email trouvé"
+                        : isAgencyTab
+                          ? "email@agence.com"
+                          : "email@marque.fr"
                     }
-                    placeholder={isAgencyTab ? "email@agence.com" : "email@marque.fr"}
-                    className="w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2"
+                    className="w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     style={{
-                      borderColor: valid ? GREEN : "#E5E0DA",
-                      backgroundColor: valid ? "#F8FCEF" : "#fff",
+                      borderColor: isNf ? "#D4D0CB" : valid ? GREEN : "#E5E0DA",
+                      backgroundColor: isNf ? "#F5F3F0" : valid ? "#F8FCEF" : "#fff",
                     }}
                     autoComplete="off"
                   />
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={isNf}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setNotFound((prev) => ({ ...prev, [p.key]: checked }));
+                        if (checked) {
+                          setDrafts((prev) => ({ ...prev, [p.key]: "" }));
+                        }
+                      }}
+                      className="rounded border-gray-300"
+                      style={{ accentColor: ROSE }}
+                    />
+                    <span className="text-xs text-gray-600">Pas d&apos;email trouvé</span>
+                  </label>
                 </li>
               );
             })}
@@ -1042,10 +1127,12 @@ export default function EnrichissementPage() {
           >
             {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
             {allReady
-              ? isAgencyTab
-                ? "Prêt — envoyer dans Prospection Agences"
-                : "Prêt — envoyer dans « À contacter »"
-              : `Prêt (${filledCount}/${active.people.length})`}
+              ? emailCount === 0
+                ? "Prêt — valider sans outreach"
+                : isAgencyTab
+                  ? `Prêt — envoyer ${emailCount} dans Prospection Agences`
+                  : `Prêt — envoyer ${emailCount} dans « À contacter »`
+              : `Prêt (${resolvedCount}/${active.people.length})`}
           </button>
         </>
       )}

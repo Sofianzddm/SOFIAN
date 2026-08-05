@@ -75,6 +75,7 @@ export async function tryEnrollAgencyAfterEmailComplete(opts: {
       where: {
         partnerId: opts.partnerId,
         excluded: false,
+        emailLookupStatus: { not: "NOT_FOUND" },
         OR: [{ email: null }, { email: "" }],
       },
     });

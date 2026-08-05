@@ -17,14 +17,58 @@ import {
  * Body: {
  *   market: "FR" | "BENELUX" | "AGENCY",
  *   marqueId: string,  // companyId si BENELUX, partnerId si AGENCY
- *   contacts: [{ id: string, email: string }]
+ *   contacts: [{ id: string, email?: string, notFound?: boolean, bothMarkets?: boolean }]
  * }
+ *
+ * Un contact peut être complété (email) ou marqué introuvable (notFound).
+ * Seuls ceux avec email partent ensuite en outreach.
  */
 
 const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
 
 const isValidEmail = (value: string): boolean =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+async function markNotFound(
+  market: "FR" | "BENELUX" | "AGENCY",
+  contactId: string,
+  parentId: string
+): Promise<"ok" | "not_found"> {
+  if (market === "AGENCY") {
+    const contact = await prisma.agencyContact.findFirst({
+      where: { id: contactId, partnerId: parentId },
+      select: { id: true },
+    });
+    if (!contact) return "not_found";
+    await prisma.agencyContact.update({
+      where: { id: contactId },
+      data: { emailLookupStatus: "NOT_FOUND", emailSuggested: null },
+    });
+    return "ok";
+  }
+  if (market === "BENELUX") {
+    const contact = await prisma.beneluxContact.findFirst({
+      where: { id: contactId, companyId: parentId },
+      select: { id: true },
+    });
+    if (!contact) return "not_found";
+    await prisma.beneluxContact.update({
+      where: { id: contactId },
+      data: { emailLookupStatus: "NOT_FOUND", emailSuggested: null },
+    });
+    return "ok";
+  }
+  const contact = await prisma.marqueContact.findFirst({
+    where: { id: contactId, marqueId: parentId },
+    select: { id: true },
+  });
+  if (!contact) return "not_found";
+  await prisma.marqueContact.update({
+    where: { id: contactId },
+    data: { emailLookupStatus: "NOT_FOUND", emailSuggested: null },
+  });
+  return "ok";
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,7 +84,12 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as {
       market?: string;
       marqueId?: string;
-      contacts?: Array<{ id?: string; email?: string; bothMarkets?: boolean }>;
+      contacts?: Array<{
+        id?: string;
+        email?: string;
+        notFound?: boolean;
+        bothMarkets?: boolean;
+      }>;
     };
 
     const marketRaw = (body.market || "FR").toUpperCase();
@@ -61,14 +110,30 @@ export async function POST(request: NextRequest) {
     const ownPipeline =
       market === "BENELUX" ? "benelux" : market === "AGENCY" ? "agency" : "client";
     const saved: string[] = [];
+    let notFoundCount = 0;
     const crossMarketEmails = new Set<string>();
+    /** Ids avec email valide — seuls candidats à l'enrôlement. */
+    const enrollableIds: string[] = [];
 
     for (const row of rows) {
       const id = String(row.id || "").trim();
+      if (!id) {
+        return NextResponse.json({ error: "Contact invalide." }, { status: 400 });
+      }
+
+      if (row.notFound) {
+        const result = await markNotFound(market, id, marqueId);
+        if (result === "not_found") {
+          return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+        }
+        notFoundCount += 1;
+        continue;
+      }
+
       const email = String(row.email || "")
         .trim()
         .toLowerCase();
-      if (!id || !isValidEmail(email)) {
+      if (!isValidEmail(email)) {
         return NextResponse.json(
           { error: `Email invalide pour un contact (${email || "vide"}).` },
           { status: 400 }
@@ -132,22 +197,33 @@ export async function POST(request: NextRequest) {
         });
       }
       saved.push(email);
+      enrollableIds.push(id);
     }
 
     if (market === "AGENCY") {
-      const enroll = await tryEnrollAgencyAfterEmailComplete({
-        partnerId: marqueId,
-        userId: session.user.id,
-        contactIds: rows.map((r) => String(r.id || "").trim()).filter(Boolean),
-      });
+      // Tous les ids de la fiche (email + NOT_FOUND) : le filtre contactIds
+      // évite de rebloquer sur d'autres contacts hors de cette validation.
+      // tryEnroll n'enrôle que ceux qui ont un email valide.
+      const allIds = rows.map((r) => String(r.id || "").trim()).filter(Boolean);
+      const enroll =
+        enrollableIds.length > 0
+          ? await tryEnrollAgencyAfterEmailComplete({
+              partnerId: marqueId,
+              userId: session.user.id,
+              contactIds: allIds,
+            })
+          : { enrolled: 0, stillQueued: 0 };
       return NextResponse.json({
         ok: true,
         saved: saved.length,
+        notFound: notFoundCount,
         enrolled: enroll.enrolled,
         message:
           enroll.enrolled > 0
             ? `${enroll.enrolled} contact(s) envoyés dans « À contacter » agences.`
-            : `${saved.length} email(s) enregistrés.`,
+            : saved.length > 0
+              ? `${saved.length} email(s) enregistrés.`
+              : `${notFoundCount} contact(s) marqués sans email.`,
       });
     }
 
@@ -168,11 +244,14 @@ export async function POST(request: NextRequest) {
     const message =
       enroll.enrolled > 0
         ? `${enroll.enrolled} contact(s) envoyés dans « À contacter »${suffix}.`
-        : `${saved.length} email(s) enregistrés${suffix}.`;
+        : saved.length > 0
+          ? `${saved.length} email(s) enregistrés${suffix}.`
+          : `${notFoundCount} contact(s) marqués sans email${suffix}.`;
 
     return NextResponse.json({
       ok: true,
       saved: saved.length,
+      notFound: notFoundCount,
       enrolled: enroll.enrolled,
       message,
     });

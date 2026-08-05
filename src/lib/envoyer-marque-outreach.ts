@@ -129,8 +129,8 @@ export async function enrollInfluenceContacts(opts: {
  * Met en file d'enrichissement tous les contacts influence sans email
  * (suggestions de motif si possible). Ne vérifie PAS l'AO — c'est pour
  * /enrichissement après drop d'une carto. L'enrôlement outreach reste
- * bloqué tant que AO + tous les mails ne sont pas OK (via envoyerMarqueEnOutreach
- * / tryEnrollMarqueAfterEmailComplete).
+ * bloqué tant que AO + tous les mails non introuvables ne sont pas OK
+ * (via envoyerMarqueEnOutreach / tryEnrollMarqueAfterEmailComplete).
  */
 export async function queueMarqueEnrichissement(opts: {
   marqueId: string;
@@ -164,7 +164,9 @@ export async function queueMarqueEnrichissement(opts: {
     return { ok: false, error: "Marque introuvable.", statusCode: 404 };
   }
 
-  const withoutEmail = marque.contacts.filter((c) => !c.email?.trim());
+  const withoutEmail = marque.contacts.filter(
+    (c) => !c.email?.trim() && c.emailLookupStatus !== "NOT_FOUND"
+  );
   if (withoutEmail.length === 0) {
     return {
       ok: true,
@@ -247,7 +249,9 @@ export async function queueBeneluxEnrichissement(opts: {
     return { ok: false, error: "Entreprise BENELUX introuvable.", statusCode: 404 };
   }
 
-  const withoutEmail = company.contacts.filter((c) => !c.email?.trim());
+  const withoutEmail = company.contacts.filter(
+    (c) => !c.email?.trim() && c.emailLookupStatus !== "NOT_FOUND"
+  );
   if (withoutEmail.length === 0) {
     return {
       ok: true,
@@ -365,7 +369,9 @@ export async function envoyerMarqueEnOutreach(opts: {
     };
   }
 
-  const withoutEmail = influence.filter((c) => !c.email?.trim());
+  const withoutEmail = influence.filter(
+    (c) => !c.email?.trim() && c.emailLookupStatus !== "NOT_FOUND"
+  );
   const { pattern, fallbackDomain } = await buildPatternForMarque(
     marque.id,
     marque.siteWeb
@@ -393,7 +399,7 @@ export async function envoyerMarqueEnOutreach(opts: {
     return {
       ok: true,
       status: "queued",
-      message: `${withoutEmail.length} contact${withoutEmail.length > 1 ? "s" : ""} sans email → enrichissement. La marque entrera en outreach quand tous les mails seront complétés.`,
+      message: `${withoutEmail.length} contact${withoutEmail.length > 1 ? "s" : ""} sans email → enrichissement. La marque entrera en outreach quand les mails seront complétés (ou marqués introuvables).`,
       enrolled: 0,
       queued: withoutEmail.length,
       missingAo: false,
@@ -451,11 +457,12 @@ export async function tryEnrollMarqueAfterEmailComplete(opts: {
   const hasAo = aoCount > 0 || marque.cartoFiles.length > 0;
   if (!hasAo) return { enrolled: 0, stillQueued: 0 };
 
-  const stillQueued = marque.contacts.filter(
-    (c) => !c.email?.trim() || c.emailLookupStatus === "QUEUED"
+  // Encore des mails manquants (hors introuvables) → on n'enrôle personne.
+  const missingEmail = marque.contacts.filter(
+    (c) =>
+      c.emailLookupStatus === "QUEUED" ||
+      (!c.email?.trim() && c.emailLookupStatus !== "NOT_FOUND")
   ).length;
-  // Encore des mails manquants → on n'enrôle personne.
-  const missingEmail = marque.contacts.filter((c) => !c.email?.trim()).length;
   if (missingEmail > 0) {
     return { enrolled: 0, stillQueued: missingEmail };
   }
@@ -496,7 +503,9 @@ export async function tryEnrollBeneluxAfterEmailComplete(opts: {
   });
   if (!company) return { enrolled: 0, stillQueued: 0 };
 
-  const missingEmail = company.contacts.filter((c) => !c.email?.trim()).length;
+  const missingEmail = company.contacts.filter(
+    (c) => !c.email?.trim() && c.emailLookupStatus !== "NOT_FOUND"
+  ).length;
   if (missingEmail > 0) {
     return { enrolled: 0, stillQueued: missingEmail };
   }
