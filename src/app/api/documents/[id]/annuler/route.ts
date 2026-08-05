@@ -9,9 +9,11 @@ import { getTalentIdsAccessibles } from "@/lib/delegations";
 
 const ROLES_ANNULER_DEVIS = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"] as const;
 
+const ROLES_ANNULER_FACTURE = ["ADMIN", "HEAD_OF_SALES"] as const;
+
 /**
  * POST /api/documents/[id]/annuler
- * Annule un document (devis : mêmes rôles que la génération ; autres types : ADMIN uniquement)
+ * Annule un document (devis : mêmes rôles que la génération ; factures : ADMIN + HEAD_OF_SALES)
  */
 export async function POST(
   request: NextRequest,
@@ -95,6 +97,11 @@ export async function POST(
       } else {
         allowed = true;
       }
+    } else if (
+      document.type === "FACTURE" &&
+      ROLES_ANNULER_FACTURE.includes(user.role as (typeof ROLES_ANNULER_FACTURE)[number])
+    ) {
+      allowed = true;
     }
 
     if (!allowed) {
@@ -102,7 +109,7 @@ export async function POST(
         {
           error: isDevis
             ? "Vous n'avez pas les droits pour annuler ce devis"
-            : "Seul un administrateur peut annuler ce document",
+            : "Vous n'avez pas les droits pour annuler ce document",
         },
         { status: 403 }
       );

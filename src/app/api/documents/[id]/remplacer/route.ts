@@ -27,10 +27,10 @@ export async function POST(
 
     const user = session.user as { id: string; role: string };
 
-    // Seul ADMIN peut remplacer une facture
-    if (user.role !== "ADMIN") {
+    // ADMIN et HEAD_OF_SALES peuvent remplacer une facture
+    if (!["ADMIN", "HEAD_OF_SALES"].includes(user.role)) {
       return NextResponse.json(
-        { error: "Seul un administrateur peut remplacer une facture" },
+        { error: "Vous n'avez pas les droits pour remplacer une facture" },
         { status: 403 }
       );
     }

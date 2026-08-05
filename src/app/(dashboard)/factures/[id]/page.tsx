@@ -454,6 +454,58 @@ export default function FactureDetailPage() {
     }
   }, [id, annulerMotif, fetchDoc, handleAnnulerClose]);
 
+  const handleCreerAvoir = useCallback(async () => {
+    if (!id || !doc || doc.type !== "FACTURE") return;
+    if (!window.confirm("Créer un avoir pour annuler cette facture ?")) return;
+    setMoreOpen(false);
+    setActionLoading("avoir");
+    try {
+      const r = await fetch(`/api/documents/${id}/avoir`, { method: "POST" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(data.error || "Erreur lors de la création de l'avoir");
+        return;
+      }
+      alert(data.message || "Avoir créé");
+      if (data.avoir?.id) {
+        router.push(`/factures/${data.avoir.id}`);
+        return;
+      }
+      await fetchDoc();
+    } finally {
+      setActionLoading(null);
+    }
+  }, [id, doc, fetchDoc, router]);
+
+  const handleRemplacer = useCallback(async () => {
+    if (!id || !doc || doc.type !== "FACTURE") return;
+    if (
+      !window.confirm(
+        "Remplacer cette facture ? Un avoir total sera créé, la facture sera annulée, et une nouvelle facture brouillon sera générée."
+      )
+    ) {
+      return;
+    }
+    setMoreOpen(false);
+    setActionLoading("remplacer");
+    try {
+      const r = await fetch(`/api/documents/${id}/remplacer`, { method: "POST" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(data.error || "Erreur lors du remplacement");
+        return;
+      }
+      alert(data.message || "Facture remplacée");
+      if (data.nouvelleFacture?.id) {
+        router.push(`/factures/${data.nouvelleFacture.id}`);
+        return;
+      }
+      await fetchDoc();
+    } finally {
+      setActionLoading(null);
+    }
+  }, [id, doc, fetchDoc, router]);
+
   const loadReconcileTransactions = useCallback(async () => {
     setReconcileLoading(true);
     setReconcileError(null);
@@ -828,16 +880,42 @@ export default function FactureDetailPage() {
                   <MoreVertical className="w-4 h-4" />
                 </button>
                 {moreOpen && (
-                  <div className="absolute right-0 mt-1 w-52 py-1 bg-white rounded-lg border border-gray-200 shadow-lg z-50">
+                  <div className="absolute right-0 mt-1 w-56 py-1 bg-white rounded-lg border border-gray-200 shadow-lg z-50">
                     <button type="button" className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
                       <Copy className="w-4 h-4" />
                       Dupliquer la facture
                     </button>
-                    <button type="button" className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                      <FileSignature className="w-4 h-4" />
-                      Créer un avoir
-                    </button>
-                    {!isCancelled && doc.statut !== "PAYE" && (
+                    {isFacture && !isCancelled && doc.statut !== "PAYE" && (
+                      <button
+                        type="button"
+                        onClick={handleCreerAvoir}
+                        disabled={actionLoading === "avoir"}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {actionLoading === "avoir" ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <FileSignature className="w-4 h-4" />
+                        )}
+                        Créer un avoir
+                      </button>
+                    )}
+                    {isFacture && !isCancelled && (
+                      <button
+                        type="button"
+                        onClick={handleRemplacer}
+                        disabled={actionLoading === "remplacer"}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {actionLoading === "remplacer" ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                        Remplacer la facture
+                      </button>
+                    )}
+                    {!isCancelled && doc.statut !== "PAYE" && isFacture && (
                       <button
                         type="button"
                         onClick={() => { setMoreOpen(false); handleAnnulerOpen(); }}
