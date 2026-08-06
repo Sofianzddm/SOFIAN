@@ -125,7 +125,7 @@ export default function CollaborationsPage() {
 
   const fetchTms = async () => {
     try {
-      const res = await fetch("/api/users?role=TM");
+      const res = await fetch("/api/users?role=TM,HEAD_OF_SALES,HEAD_OF_INFLUENCE,HEAD_OF");
       if (res.ok) setTms(await res.json());
     } catch (error) {
       console.error("Erreur:", error);

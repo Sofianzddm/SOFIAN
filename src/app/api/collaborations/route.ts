@@ -90,9 +90,17 @@ export async function GET(request: NextRequest) {
         },
         select: { id: true },
       });
-      where.talentId = {
-        in: talentsDuTm.length > 0 ? talentsDuTm.map((t) => t.id) : ["__none__"],
-      };
+      const talentIds = talentsDuTm.map((t) => t.id);
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
+        {
+          OR: [
+            { createdById: tmId },
+            { accountManagerId: tmId },
+            ...(talentIds.length > 0 ? [{ talentId: { in: talentIds } }] : []),
+          ],
+        },
+      ];
     }
 
     const collaborations = await prisma.collaboration.findMany({
