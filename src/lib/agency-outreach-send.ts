@@ -577,7 +577,7 @@ export async function executeAgencyOutreachSchedule(
 ): Promise<AgencyOutreachScheduleResult> {
   const target = await prisma.agencyOutreachTarget.findUnique({
     where: { id: targetId },
-    select: { id: true, status: true, email: true, fromEmail: true },
+    select: { id: true, status: true, email: true, fromEmail: true, nextRecontactAt: true },
   });
   if (!target) return { ok: false, error: "Contact agence introuvable." };
   if (target.status === "STOPPED") {
@@ -620,6 +620,13 @@ export async function executeAgencyOutreachSchedule(
     }
   }
 
+  // Si un recontact était prévu avant l'échéance programmée (ex. campagne
+  // vacances : recontact 6–23 août → envoi fixe le 24), on décale
+  // nextRecontactAt pour éviter la bascule « À recontacter » + notifs avant l'envoi.
+  const bumpRecontact =
+    target.nextRecontactAt &&
+    target.nextRecontactAt.getTime() < input.scheduledSendAt.getTime();
+
   await prisma.agencyOutreachTarget.update({
     where: { id: target.id },
     data: {
@@ -629,6 +636,7 @@ export async function executeAgencyOutreachSchedule(
       scheduledById: input.sentById || null,
       scheduledRelanceAt:
         input.relanceScheduledAt !== undefined ? input.relanceScheduledAt : null,
+      ...(bumpRecontact ? { nextRecontactAt: input.scheduledSendAt } : {}),
       // On repart d'un état propre côté brouillon / auto-reschedule.
       draftSubject: null,
       draftBodyHtml: null,
@@ -743,7 +751,7 @@ export type AgencyOutreachRelanceResult =
 /**
  * Template de relance J+3 pour une agence.
  * Aligné sur le mail d'ouverture (nouveauté recherche intelligente /
- * espace privé + question campagnes rentrée).
+ * espace privé + question campagnes septembre).
  */
 export function buildAgencyRelanceTemplate(
   language: "fr" | "en",
@@ -755,13 +763,11 @@ export function buildAgencyRelanceTemplate(
       `<br /><br />`,
       `Just a quick follow-up on my email from last week 🙂`,
       `<br /><br />`,
-      `Did you get a chance to try the new smart search on your {{agence.nom}} by Glow Up space?`,
+      `We've upgraded your {{agence.nom}} by Glow Up space with a smart search: you can type a brief in plain language (e.g. "beauty creators in Lyon with sensitive skin") and it surfaces the matching profiles right away — no need to dig through filters.`,
       `<br /><br />`,
       `{{agence.lien}}`,
       `<br /><br />`,
-      `With the fall season coming up, if you have any campaigns or castings planned, just let me know — I can send you a casting quickly.`,
-      `<br /><br />`,
-      `Looking forward to hearing from you!`,
+      `Do you have any campaigns planned for September?`,
       `<br /><br />`,
       `Have a lovely day!`,
     ].join("");
@@ -771,13 +777,11 @@ export function buildAgencyRelanceTemplate(
     `<br /><br />`,
     `Petit follow-up sur mon message de la semaine dernière 🙂`,
     `<br /><br />`,
-    `As-tu eu le temps de jeter un œil à la nouvelle recherche intelligente sur ton espace {{agence.nom}} by Glow Up ?`,
+    `On a ajouté une recherche intelligente sur ton espace {{agence.nom}} by Glow Up : tu tapes un brief en langage naturel (ex. « créatrices beauté à Lyon peau sensible ») et ça te sort directement les profils qui matchent, sans passer par tous les filtres.`,
     `<br /><br />`,
     `{{agence.lien}}`,
     `<br /><br />`,
-    `Avec la rentrée qui approche, si tu as des campagnes ou castings en vue, dis-moi : je t'envoie un casting rapidement.`,
-    `<br /><br />`,
-    `J'attends de tes nouvelles !`,
+    `As-tu des campagnes prévues pour septembre ?`,
     `<br /><br />`,
     `Belle journée à toi !`,
   ].join("");

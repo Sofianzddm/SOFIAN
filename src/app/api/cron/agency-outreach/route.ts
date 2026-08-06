@@ -148,7 +148,13 @@ export async function GET(request: NextRequest) {
     }
 
     // 3. Bascule J+45 → À recontacter (même si l'agence a répondu).
-    if (target.nextRecontactAt && target.nextRecontactAt.getTime() <= now.getTime()) {
+    // Skip si un envoi est déjà programmé : le cron d'envoi décalé gère le
+    // cycle ; pas de notif / file « À recontacter » en doublon.
+    if (
+      target.nextRecontactAt &&
+      target.nextRecontactAt.getTime() <= now.getTime() &&
+      !target.scheduledSendAt
+    ) {
       await prisma.agencyOutreachTarget.update({
         where: { id: target.id },
         data: { status: "TO_RECONTACT" },

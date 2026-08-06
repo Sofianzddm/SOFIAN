@@ -44,6 +44,7 @@ import {
   BookmarkPlus,
   Sparkles,
   CalendarClock,
+  CalendarRange,
 } from "lucide-react";
 import {
   normalizeEditorHtmlForEmail,
@@ -59,6 +60,11 @@ import {
 // (Constante dupliquée ici pour éviter d'importer le moteur d'envoi serveur
 // — qui tire prisma/gmail — dans ce composant client.)
 const RELANCE_BUSINESS_DAYS = 3;
+
+/** Campagne vacances août 2026 : recontacts regroupés au 18. */
+const VACATION_RECONTACT_YMD = "2026-08-18";
+
+type WaitingListFilter = "all" | "vacation-to-schedule" | "scheduled";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -108,6 +114,26 @@ type Target = {
   createdAt: string;
   touches: TouchSummary[];
 };
+
+function parisYmd(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/** En attente, relance déjà partie, recontact fixé au 18 août (à programmer). */
+function isVacationToSchedule(t: Target): boolean {
+  if (t.status !== "WAITING") return false;
+  if (t.scheduledSendAt) return false;
+  if (parisYmd(t.nextRecontactAt) !== VACATION_RECONTACT_YMD) return false;
+  return Boolean(t.touches[0]?.relanceSentAt);
+}
 
 type PartnerContact = {
   id: string;
@@ -343,6 +369,8 @@ export default function AgencyOutreachPage() {
   const [market, setMarket] = useState<Market>("FR");
   const [searchTerm, setSearchTerm] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** Sous-filtres de la file En attente (campagne vacances / envois programmés). */
+  const [waitingFilter, setWaitingFilter] = useState<WaitingListFilter>("all");
 
   // Composer
   const [composerOpen, setComposerOpen] = useState(false);
@@ -581,10 +609,27 @@ export default function AgencyOutreachPage() {
     return c;
   }, [targets]);
 
-  const visibleTargets = useMemo(
-    () => targets.filter((t) => t.status === activeTab),
-    [targets, activeTab]
+  const vacationToScheduleCount = useMemo(
+    () => targets.filter(isVacationToSchedule).length,
+    [targets]
   );
+  const scheduledCount = useMemo(
+    () => targets.filter((t) => Boolean(t.scheduledSendAt) && t.status !== "STOPPED").length,
+    [targets]
+  );
+
+  const visibleTargets = useMemo(() => {
+    let list = targets.filter((t) => t.status === activeTab);
+    if (activeTab === "WAITING" && waitingFilter === "vacation-to-schedule") {
+      list = list.filter(isVacationToSchedule);
+    } else if (waitingFilter === "scheduled") {
+      // Visible sur En attente / À recontacter : tout contact avec un envoi programmé.
+      list = targets.filter(
+        (t) => Boolean(t.scheduledSendAt) && (t.status === "WAITING" || t.status === "TO_RECONTACT")
+      );
+    }
+    return list;
+  }, [targets, activeTab, waitingFilter]);
 
   // Regroupement par agence (partnerId).
   const groups = useMemo(() => {
@@ -615,6 +660,10 @@ export default function AgencyOutreachPage() {
     }
     return arr.sort((a, b) => a.company.localeCompare(b.company));
   }, [visibleTargets, searchTerm]);
+
+  const selectAllVisible = () => {
+    setSelected(new Set(visibleTargets.map((t) => t.id)));
+  };
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -1221,7 +1270,12 @@ export default function AgencyOutreachPage() {
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => {
+              setActiveTab(tab.id);
+              if (tab.id !== "WAITING" && waitingFilter === "vacation-to-schedule") {
+                setWaitingFilter("all");
+              }
+            }}
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium border"
             style={{
               backgroundColor: activeTab === tab.id ? TEA_GREEN : "white",
@@ -1233,6 +1287,67 @@ export default function AgencyOutreachPage() {
             <span className="text-xs opacity-70">{counts[tab.id]}</span>
           </button>
         ))}
+      </div>
+
+      {/* Filtres campagne vacances + envois programmés */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab("WAITING");
+            setWaitingFilter("vacation-to-schedule");
+            setSelected(new Set());
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border"
+          style={{
+            backgroundColor: waitingFilter === "vacation-to-schedule" ? "#FEF3C7" : "white",
+            borderColor: waitingFilter === "vacation-to-schedule" ? "#F0C674" : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+            color: "#8A5A00",
+          }}
+          title="En attente, relance déjà envoyée, recontact fixé au 18 août"
+        >
+          <CalendarRange className="w-4 h-4" />
+          À programmer (18 août)
+          <span className="text-xs opacity-80">{vacationToScheduleCount}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setWaitingFilter("scheduled");
+            setSelected(new Set());
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border"
+          style={{
+            backgroundColor: waitingFilter === "scheduled" ? TEA_GREEN : "white",
+            borderColor: waitingFilter === "scheduled" ? TEA_GREEN : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+            color: LICORICE,
+          }}
+          title="Contacts avec un envoi déjà programmé (ex. 24 août)"
+        >
+          <CalendarClock className="w-4 h-4" />
+          Envois programmés
+          <span className="text-xs opacity-70">{scheduledCount}</span>
+        </button>
+        {waitingFilter !== "all" && (
+          <button
+            type="button"
+            onClick={() => setWaitingFilter("all")}
+            className="text-xs underline opacity-70"
+            style={{ color: LICORICE }}
+          >
+            Tout afficher
+          </button>
+        )}
+        {waitingFilter !== "all" && visibleTargets.length > 0 && (
+          <button
+            type="button"
+            onClick={selectAllVisible}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border"
+            style={{ borderColor: OLD_ROSE, color: LICORICE, backgroundColor: "white" }}
+          >
+            Tout sélectionner ({visibleTargets.length})
+          </button>
+        )}
       </div>
 
       {/* Search */}
@@ -1259,7 +1374,11 @@ export default function AgencyOutreachPage() {
         <div className="rounded-xl border p-8 text-center bg-white" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
           <Building2 className="w-8 h-8 mx-auto mb-2 opacity-50" style={{ color: OLD_ROSE }} />
           <p className="text-sm" style={{ color: LICORICE }}>
-            Aucune agence dans cette file.
+            {waitingFilter === "vacation-to-schedule"
+              ? "Aucune agence à programmer (relancées, recontact 18 août)."
+              : waitingFilter === "scheduled"
+                ? "Aucun envoi programmé pour le moment."
+                : "Aucune agence dans cette file."}
           </p>
         </div>
       ) : (
