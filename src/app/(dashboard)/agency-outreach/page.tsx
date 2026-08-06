@@ -127,12 +127,11 @@ function parisYmd(iso: string | null | undefined): string | null {
   }).format(d);
 }
 
-/** En attente, relance déjà partie, recontact fixé au 18 août (à programmer). */
+/** En attente, recontact fixé au 18 août, pas encore programmé (relancés ou attente auto). */
 function isVacationToSchedule(t: Target): boolean {
   if (t.status !== "WAITING") return false;
   if (t.scheduledSendAt) return false;
-  if (parisYmd(t.nextRecontactAt) !== VACATION_RECONTACT_YMD) return false;
-  return Boolean(t.touches[0]?.relanceSentAt);
+  return parisYmd(t.nextRecontactAt) === VACATION_RECONTACT_YMD;
 }
 
 type PartnerContact = {
@@ -1304,7 +1303,7 @@ export default function AgencyOutreachPage() {
             borderColor: waitingFilter === "vacation-to-schedule" ? "#F0C674" : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
             color: "#8A5A00",
           }}
-          title="En attente, relance déjà envoyée, recontact fixé au 18 août"
+          title="En attente, recontact fixé au 18 août, pas encore programmé"
         >
           <CalendarRange className="w-4 h-4" />
           À programmer (18 août)
@@ -1375,7 +1374,7 @@ export default function AgencyOutreachPage() {
           <Building2 className="w-8 h-8 mx-auto mb-2 opacity-50" style={{ color: OLD_ROSE }} />
           <p className="text-sm" style={{ color: LICORICE }}>
             {waitingFilter === "vacation-to-schedule"
-              ? "Aucune agence à programmer (relancées, recontact 18 août)."
+              ? "Aucune agence à programmer (recontact 18 août)."
               : waitingFilter === "scheduled"
                 ? "Aucun envoi programmé pour le moment."
                 : "Aucune agence dans cette file."}
