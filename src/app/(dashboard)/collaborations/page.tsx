@@ -82,14 +82,24 @@ export default function CollaborationsPage() {
   const [search, setSearch] = useState("");
   const [filterStatut, setFilterStatut] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
+  const [filterTm, setFilterTm] = useState("");
+  const [tms, setTms] = useState<{ id: string; prenom: string; nom: string }[]>([]);
   const [exporting, setExporting] = useState(false);
   const [zippingFactures, setZippingFactures] = useState(false);
   const [userRole, setUserRole] = useState("");
 
+  const canFilterByUser =
+    userRole === "ADMIN" || userRole === "HEAD_OF" || userRole === "HEAD_OF_INFLUENCE";
+
   useEffect(() => {
-    fetchCollaborations();
     fetchUserRole();
   }, []);
+
+  useEffect(() => {
+    if (!userRole) return;
+    fetchCollaborations();
+    if (canFilterByUser) fetchTms();
+  }, [userRole, filterTm]);
 
   // Pré-filtre via l'URL (ex. depuis « Factures talent à valider » du dashboard).
   useEffect(() => {
@@ -97,6 +107,8 @@ export default function CollaborationsPage() {
     if (statut && STATUTS.some((s) => s.value === statut)) {
       setFilterStatut(statut);
     }
+    const tmId = searchParams.get("tmId");
+    if (tmId) setFilterTm(tmId);
   }, [searchParams]);
 
   const fetchUserRole = async () => {
@@ -111,9 +123,22 @@ export default function CollaborationsPage() {
     }
   };
 
+  const fetchTms = async () => {
+    try {
+      const res = await fetch("/api/users?role=TM");
+      if (res.ok) setTms(await res.json());
+    } catch (error) {
+      console.error("Erreur:", error);
+    }
+  };
+
   const fetchCollaborations = async () => {
     try {
-      const res = await fetch("/api/collaborations", { cache: "no-store" });
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (filterTm) params.set("tmId", filterTm);
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const res = await fetch(`/api/collaborations${query}`, { cache: "no-store" });
       setCollaborations(await res.json());
     } catch (error) {
       console.error("Erreur:", error);
@@ -406,6 +431,20 @@ export default function CollaborationsPage() {
               </option>
             ))}
           </select>
+          {canFilterByUser && (
+            <select
+              value={filterTm}
+              onChange={(e) => setFilterTm(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice appearance-none bg-white text-sm min-w-[180px]"
+            >
+              <option value="">Tous les utilisateurs</option>
+              {tms.map((tm) => (
+                <option key={tm.id} value={tm.id}>
+                  {tm.prenom} {tm.nom}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             onClick={handleExportExcel}

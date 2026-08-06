@@ -17,9 +17,12 @@ export async function GET(request: NextRequest) {
     const user = session.user as { id: string; role: string };
     const { searchParams } = new URL(request.url);
     const accountManagerId = searchParams.get("accountManagerId");
+    const tmId = searchParams.get("tmId");
     const mineOnly = searchParams.get("mine") === "true";
 
     const where: any = {};
+
+    const rolesCanFilterByUser = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"];
 
     // Si TM → voir uniquement SES collaborations (via ses talents), tous statuts sauf PERDU
     if (user.role === "TM") {
@@ -66,6 +69,30 @@ export async function GET(request: NextRequest) {
     // Filtrer par Account Manager si spécifié (pour ADMIN uniquement)
     if (accountManagerId && user.role === "ADMIN") {
       where.accountManagerId = accountManagerId;
+    }
+
+    // Admin / Head Of : filtrer par utilisateur (TM) = portefeuille talents (manager + délégations)
+    if (tmId && rolesCanFilterByUser.includes(user.role)) {
+      const talentsDuTm = await prisma.talent.findMany({
+        where: {
+          isArchived: false,
+          OR: [
+            { managerId: tmId },
+            {
+              delegations: {
+                some: {
+                  tmRelaiId: tmId,
+                  actif: true,
+                },
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      });
+      where.talentId = {
+        in: talentsDuTm.length > 0 ? talentsDuTm.map((t) => t.id) : ["__none__"],
+      };
     }
 
     const collaborations = await prisma.collaboration.findMany({
