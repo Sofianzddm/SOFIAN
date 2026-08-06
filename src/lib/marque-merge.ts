@@ -44,6 +44,8 @@ export async function mergeMarques(
     await upd("contactMission", "contactMissions");
     await upd("opportuniteMarque", "opportunitesMarque");
     await upd("demandeEntrante", "demandesEntrantes");
+    await upd("marqueCartoFile", "cartoFiles");
+    await upd("marqueContactSousMarque", "sousMarqueLinks");
 
     // Cibles Outreach : FK en ON DELETE CASCADE, il faut impérativement les
     // déplacer avant de supprimer la source. Le nom dénormalisé (company)

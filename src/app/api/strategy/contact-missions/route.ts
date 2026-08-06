@@ -5,6 +5,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { normalizeMissionBrandKey, parseMissionPriority } from "@/lib/contact-missions";
 import {
   linkMarqueFromBrandName,
+  marqueSlug,
   syncMissionClientContactsToMarque,
 } from "@/lib/marque-resolver";
 import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
@@ -19,6 +20,54 @@ const ALLOWED_ROLES = [
 
 function isAllowed(role: string | undefined): boolean {
   return role !== undefined && (ALLOWED_ROLES as readonly string[]).includes(role);
+}
+
+/**
+ * Pour les missions sans `marqueId`, retrouve le nom canonique via slug/alias
+ * (ex. targetBrand « MiuMiu » → fiche « Miu Miu »).
+ */
+async function resolveMarqueNomsBySlug(
+  missions: Array<{ marqueId?: string | null; targetBrand?: string | null; marque?: { nom?: string } | null }>
+): Promise<Map<string, { marqueId: string; marqueNom: string }>> {
+  const out = new Map<string, { marqueId: string; marqueNom: string }>();
+  const slugs = new Set<string>();
+  for (const m of missions) {
+    if (m.marqueId && m.marque?.nom) continue;
+    const slug = marqueSlug(m.targetBrand);
+    if (slug) slugs.add(slug);
+  }
+  if (slugs.size === 0) return out;
+
+  const slugList = Array.from(slugs);
+  const bySlug = await prisma.marque.findMany({
+    where: { slug: { in: slugList } },
+    select: { id: true, nom: true, slug: true },
+  });
+  const resolved = new Map<string, { marqueId: string; marqueNom: string }>();
+  for (const row of bySlug) {
+    if (row.slug) resolved.set(row.slug, { marqueId: row.id, marqueNom: row.nom });
+  }
+
+  const missing = slugList.filter((s) => !resolved.has(s));
+  if (missing.length > 0) {
+    const aliases = await prisma.marqueAlias.findMany({
+      where: { slug: { in: missing } },
+      select: { slug: true, marqueId: true, marque: { select: { nom: true } } },
+    });
+    for (const a of aliases) {
+      if (!resolved.has(a.slug)) {
+        resolved.set(a.slug, { marqueId: a.marqueId, marqueNom: a.marque.nom });
+      }
+    }
+  }
+
+  for (const m of missions) {
+    if (m.marqueId && m.marque?.nom) continue;
+    const slug = marqueSlug(m.targetBrand);
+    const hit = slug ? resolved.get(slug) : undefined;
+    if (hit) out.set(slug, hit);
+  }
+  return out;
 }
 
 const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
@@ -105,48 +154,55 @@ export async function GET(request: NextRequest) {
         include: {
           talent: { select: { id: true, prenom: true, nom: true } },
           campaign: { select: { id: true, title: true, createdById: true, isActive: true } },
+          marque: { select: { id: true, nom: true } },
         },
         take: 200,
       });
+      const resolvedBySlug = await resolveMarqueNomsBySlug(missions);
       return NextResponse.json({
-        missions: missions.map((m: any) => ({
-          id: m.id,
-          campaignId: m.campaignId,
-          campaignTitle: m.campaign?.title ?? null,
-          talentId: m.talentId,
-          talentName: m.talent ? `${m.talent.prenom} ${m.talent.nom}`.trim() : null,
-          creatorName: m.creatorName,
-          targetBrand: m.targetBrand,
-          strategyReason: m.strategyReason,
-          recommendedAngle: m.recommendedAngle,
-          objective: m.objective,
-          dos: m.dos,
-          donts: m.donts,
-          priority: m.priority,
-          status: m.status,
-          stage: m.stage,
-          draftEmailSubject: m.draftEmailSubject ?? null,
-          draftEmailBody: m.draftEmailBody ?? null,
-          draftLanguage: m.draftLanguage ?? null,
-          clientLanguage: m.clientLanguage ?? null,
-          clientContacts: m.clientContacts ?? null,
-          deadlineAt: m.deadlineAt,
-          scheduledSendAt: m.scheduledSendAt ?? null,
-          sentAt: m.sentAt ?? null,
-          sendError: m.sendError ?? null,
-          relanceSentAt: m.relanceSentAt ?? null,
-          relanceError: m.relanceError ?? null,
-          relance2SentAt: m.relance2SentAt ?? null,
-          relance2Error: m.relance2Error ?? null,
-          relanceCancelledAt: m.relanceCancelledAt ?? null,
-          replied: m.replied ?? false,
-          openCount: m.openCount ?? 0,
-          openedAt: m.openedAt ?? null,
-          clickCount: m.clickCount ?? 0,
-          clickedAt: m.clickedAt ?? null,
-          createdAt: m.createdAt,
-          updatedAt: m.updatedAt,
-        })),
+        missions: missions.map((m: any) => {
+          const slugHit = !m.marque?.nom ? resolvedBySlug.get(marqueSlug(m.targetBrand)) : undefined;
+          return {
+            id: m.id,
+            campaignId: m.campaignId,
+            campaignTitle: m.campaign?.title ?? null,
+            talentId: m.talentId,
+            talentName: m.talent ? `${m.talent.prenom} ${m.talent.nom}`.trim() : null,
+            creatorName: m.creatorName,
+            targetBrand: m.targetBrand,
+            marqueId: m.marqueId ?? slugHit?.marqueId ?? null,
+            marqueNom: m.marque?.nom ?? slugHit?.marqueNom ?? null,
+            strategyReason: m.strategyReason,
+            recommendedAngle: m.recommendedAngle,
+            objective: m.objective,
+            dos: m.dos,
+            donts: m.donts,
+            priority: m.priority,
+            status: m.status,
+            stage: m.stage,
+            draftEmailSubject: m.draftEmailSubject ?? null,
+            draftEmailBody: m.draftEmailBody ?? null,
+            draftLanguage: m.draftLanguage ?? null,
+            clientLanguage: m.clientLanguage ?? null,
+            clientContacts: m.clientContacts ?? null,
+            deadlineAt: m.deadlineAt,
+            scheduledSendAt: m.scheduledSendAt ?? null,
+            sentAt: m.sentAt ?? null,
+            sendError: m.sendError ?? null,
+            relanceSentAt: m.relanceSentAt ?? null,
+            relanceError: m.relanceError ?? null,
+            relance2SentAt: m.relance2SentAt ?? null,
+            relance2Error: m.relance2Error ?? null,
+            relanceCancelledAt: m.relanceCancelledAt ?? null,
+            replied: m.replied ?? false,
+            openCount: m.openCount ?? 0,
+            openedAt: m.openedAt ?? null,
+            clickCount: m.clickCount ?? 0,
+            clickedAt: m.clickedAt ?? null,
+            createdAt: m.createdAt,
+            updatedAt: m.updatedAt,
+          };
+        }),
       });
     }
     const brandKeys = brandsParam.split(",").map((v) => normalizeMissionBrandKey(v)).filter(Boolean);
@@ -161,14 +217,17 @@ export async function GET(request: NextRequest) {
       include: {
         talent: { select: { id: true, prenom: true, nom: true } },
         campaign: { select: { id: true, title: true } },
+        marque: { select: { id: true, nom: true } },
       },
       take: 300,
     });
 
+    const resolvedBySlug = await resolveMarqueNomsBySlug(missions);
     const byBrand: Record<string, unknown> = {};
     for (const key of brandKeys) {
       const m = missions.find((mission: any) => mission.targetBrandKey === key);
       if (!m) continue;
+      const slugHit = !m.marque?.nom ? resolvedBySlug.get(marqueSlug(m.targetBrand)) : undefined;
       byBrand[key] = {
         id: m.id,
         campaignId: m.campaignId,
@@ -177,6 +236,8 @@ export async function GET(request: NextRequest) {
         talentName: m.talent ? `${m.talent.prenom} ${m.talent.nom}`.trim() : null,
         creatorName: m.creatorName,
         targetBrand: m.targetBrand,
+        marqueId: m.marqueId ?? slugHit?.marqueId ?? null,
+        marqueNom: m.marque?.nom ?? slugHit?.marqueNom ?? null,
         strategyReason: m.strategyReason,
         recommendedAngle: m.recommendedAngle,
         objective: m.objective,

@@ -236,6 +236,49 @@ export async function findMarqueByName(
   return null;
 }
 
+/**
+ * Toutes les fiches marque qui correspondent à un nom (slug, alias, ou même
+ * libellé normalisé). Sert à agréger les contacts quand des doublons existent
+ * avec un slug divergent (ex. deux « Tezenis », l'une en slug `calzedonia`).
+ */
+export async function findAllMarqueIdsByName(
+  name: string,
+  client: TxClient = prisma
+): Promise<string[]> {
+  const raw = String(name || "").trim();
+  const slug = marqueSlug(raw);
+  if (!slug) return [];
+
+  const ids = new Set<string>();
+
+  const [bySlug, byAlias, byNomExact] = await Promise.all([
+    client.marque.findMany({ where: { slug }, select: { id: true } }),
+    client.marqueAlias.findMany({ where: { slug }, select: { marqueId: true } }),
+    client.marque.findMany({
+      where: { nom: { equals: raw, mode: "insensitive" } },
+      select: { id: true },
+    }),
+  ]);
+  for (const m of bySlug) ids.add(m.id);
+  for (const a of byAlias) ids.add(a.marqueId);
+  for (const m of byNomExact) ids.add(m.id);
+
+  // Filet : fiches dont le nom normalisé = slug mais le champ `slug` diverge.
+  if (raw.length >= 3) {
+    const root = raw.slice(0, Math.min(6, raw.length));
+    const loose = await client.marque.findMany({
+      where: { nom: { contains: root, mode: "insensitive" } },
+      select: { id: true, nom: true },
+      take: 40,
+    });
+    for (const m of loose) {
+      if (marqueSlug(m.nom) === slug) ids.add(m.id);
+    }
+  }
+
+  return Array.from(ids);
+}
+
 export type EnsureMarqueContactInput = {
   marqueId: string;
   email?: string | null;

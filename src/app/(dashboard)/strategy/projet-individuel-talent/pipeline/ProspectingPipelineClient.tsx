@@ -26,6 +26,9 @@ type Mission = {
   talentName?: string | null;
   creatorName: string;
   targetBrand: string;
+  /** Nom canonique de la fiche marque liée (ex. « Miu Miu »), si `marqueId` résolu. */
+  marqueNom?: string | null;
+  marqueId?: string | null;
   strategyReason: string;
   recommendedAngle: string | null;
   objective: string | null;
@@ -96,9 +99,34 @@ type BrandSearchState = {
   searched: boolean;
 };
 
+type PipelineView = "pipeline" | "ready";
+
+type ReadyContact = {
+  id: string;
+  firstname: string;
+  lastname: string;
+  email: string;
+  role: string;
+  principal: boolean;
+  blockedByCooldown: boolean;
+};
+
+type ReadyItem = {
+  mission: Mission;
+  availableContacts: ReadyContact[];
+  alreadyAttachedCount: number;
+};
+
 const REMINDER_BUSINESS_DAYS = 3;
 /** Doit rester aligné sur CASTING_RELANCE2_BUSINESS_DAYS (src/lib/casting-auto-send.ts). */
 const RELANCE2_BUSINESS_DAYS = 10;
+
+/** Affiche le nom fiche marque quand lié, sinon le libellé saisi (ex. MiuMiu → Miu Miu). */
+function brandDisplayName(m: Pick<Mission, "targetBrand" | "marqueNom">): string {
+  const canonical = String(m.marqueNom || "").trim();
+  if (canonical) return canonical;
+  return String(m.targetBrand || "").trim();
+}
 
 /**
  * Date du dernier mail parti vers le client (mail initial ou relance auto).
@@ -232,11 +260,27 @@ export function ProspectingPipelineClient() {
   const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
   const [editingBrandValue, setEditingBrandValue] = useState("");
 
+  const [pipelineView, setPipelineView] = useState<PipelineView>("pipeline");
+  const [readyItems, setReadyItems] = useState<ReadyItem[]>([]);
+  const [readyLoading, setReadyLoading] = useState(false);
+  const [readyCooldownDays, setReadyCooldownDays] = useState(20);
+  /** Contacts cochés par mission (emails). */
+  const [selectedEmailsByMission, setSelectedEmailsByMission] = useState<
+    Record<string, string[]>
+  >({});
+  /** Missions cochées pour planif en masse. */
+  const [bulkSelectedMissionIds, setBulkSelectedMissionIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [bulkScheduling, setBulkScheduling] = useState(false);
+
   const visibleStages = useMemo(() => allowedColumns(role), [role]);
   const isCastingManager = role === "CASTING_MANAGER";
   // Rôles autorisés à corriger le nom de la marque sur une carte.
   const canEditBrand =
     role === "ADMIN" || role === "HEAD_OF" || role === "STRATEGY_PLANNER";
+  const canUseReadyTab =
+    role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_SALES";
 
   async function loadRole() {
     const res = await fetch("/api/auth/me", { credentials: "include" });
@@ -271,6 +315,65 @@ export function ProspectingPipelineClient() {
     setMissions(Array.isArray(data.missions) ? (data.missions as Mission[]) : []);
   }
 
+  function defaultSelectedEmails(contacts: ReadyContact[]): string[] {
+    const principals = contacts.filter((c) => c.principal).map((c) => c.email);
+    if (principals.length > 0) return principals;
+    return contacts.map((c) => c.email);
+  }
+
+  async function loadReadyToSend() {
+    if (!canUseReadyTab) {
+      setReadyItems([]);
+      return;
+    }
+    setReadyLoading(true);
+    try {
+      const isAllTalents = selectedTalentId === ALL_TALENTS || !selectedTalentId;
+      const talentFilter = isAllTalents
+        ? ""
+        : `?talentId=${encodeURIComponent(selectedTalentId)}`;
+      const res = await fetch(`/api/strategy/contact-missions/ready-to-send${talentFilter}`, {
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur contacts dispo");
+      const items: ReadyItem[] = (Array.isArray(data.items) ? data.items : []).map(
+        (row: ReadyItem) => ({
+          mission: row.mission,
+          availableContacts: Array.isArray(row.availableContacts) ? row.availableContacts : [],
+          alreadyAttachedCount: Number(row.alreadyAttachedCount || 0),
+        })
+      );
+      setReadyItems(items);
+      if (typeof data.cooldownDays === "number") setReadyCooldownDays(data.cooldownDays);
+
+      setSelectedEmailsByMission((prev) => {
+        const next: Record<string, string[]> = {};
+        for (const item of items) {
+          const existing = prev[item.mission.id];
+          const validEmails = new Set(item.availableContacts.map((c) => c.email));
+          if (existing && existing.length > 0) {
+            const kept = existing.filter((e) => validEmails.has(e));
+            next[item.mission.id] =
+              kept.length > 0 ? kept : defaultSelectedEmails(item.availableContacts);
+          } else {
+            next[item.mission.id] = defaultSelectedEmails(item.availableContacts);
+          }
+        }
+        return next;
+      });
+      setBulkSelectedMissionIds((prev) => {
+        const validIds = new Set(items.map((i) => i.mission.id));
+        return new Set(Array.from(prev).filter((id) => validIds.has(id)));
+      });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+      setReadyItems([]);
+    } finally {
+      setReadyLoading(false);
+    }
+  }
+
   async function refresh() {
     setLoading(true);
     setError(null);
@@ -295,11 +398,25 @@ export function ProspectingPipelineClient() {
   }, [selectedTalentId, role]);
 
   useEffect(() => {
+    if (!canUseReadyTab) return;
+    // Badge compteur : on charge aussi hors onglet pour afficher N.
+    void loadReadyToSend();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTalentId, role, canUseReadyTab]);
+
+  useEffect(() => {
+    if (pipelineView === "ready" && canUseReadyTab) {
+      void loadReadyToSend();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineView]);
+
+  useEffect(() => {
     const hydrated: ScheduledSend[] = missions
       .filter((m) => m.scheduledSendAt && !m.sentAt && m.stage === "TO_SEND")
       .map((m) => ({
         missionId: m.id,
-        brandLabel: `${m.creatorName} → ${m.targetBrand}`,
+        brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
         scheduledAt: new Date(m.scheduledSendAt!).getTime(),
       }));
     setScheduledSends((prev) => {
@@ -391,7 +508,7 @@ export function ProspectingPipelineClient() {
 
   function startEditBrand(m: Mission) {
     setEditingBrandId(m.id);
-    setEditingBrandValue(m.targetBrand || "");
+    setEditingBrandValue(brandDisplayName(m));
   }
 
   function cancelEditBrand() {
@@ -405,7 +522,7 @@ export function ProspectingPipelineClient() {
       setError("Le nom de la marque ne peut pas être vide.");
       return;
     }
-    if (next === m.targetBrand) {
+    if (next === m.targetBrand || next === String(m.marqueNom || "").trim()) {
       cancelEditBrand();
       return;
     }
@@ -415,7 +532,7 @@ export function ProspectingPipelineClient() {
   }
 
   async function searchClientContacts(m: Mission, brandOverride?: string) {
-    const brand = String(brandOverride ?? m.targetBrand ?? "").trim();
+    const brand = String(brandOverride ?? brandDisplayName(m) ?? "").trim();
     if (brand.length < 2) {
       setError("Nom de la boîte trop court pour rechercher des contacts.");
       return;
@@ -611,7 +728,7 @@ export function ProspectingPipelineClient() {
         // Cas "deja contacte recemment" : on propose d'envoyer quand meme.
         if (!sendRes.ok && sendData?.canForce) {
           const confirmed = window.confirm(
-            `${m.creatorName} → ${m.targetBrand}\n\n${
+            `${m.creatorName} → ${brandDisplayName(m)}\n\n${
               sendData.error || "Ce contact a déjà été contacté récemment."
             }\n\nÊtes-vous sûr de vouloir quand même envoyer le mail ?`
           );
@@ -638,7 +755,7 @@ export function ProspectingPipelineClient() {
             ...prev.filter((s) => s.missionId !== m.id),
             {
               missionId: m.id,
-              brandLabel: `${m.creatorName} → ${m.targetBrand}`,
+              brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
               scheduledAt,
             },
           ]);
@@ -688,7 +805,7 @@ export function ProspectingPipelineClient() {
         // apres confirmation explicite (bypass du cooldown anti-spam).
         if (data?.canForce && !force) {
           const confirmed = window.confirm(
-            `${m.creatorName} → ${m.targetBrand}\n\n${
+            `${m.creatorName} → ${brandDisplayName(m)}\n\n${
               data.error || "Ce contact a déjà été contacté récemment."
             }\n\nÊtes-vous sûr de vouloir quand même envoyer le mail ?`
           );
@@ -707,17 +824,229 @@ export function ProspectingPipelineClient() {
         ...prev.filter((s) => s.missionId !== m.id),
         {
           missionId: m.id,
-          brandLabel: `${m.creatorName} → ${m.targetBrand}`,
+          brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
           scheduledAt,
         },
       ]);
-      setSuccess(`Envoi programmé dans 30s vers ${m.targetBrand} (boîte Leyna).`);
+      setSuccess(`Envoi programmé dans 30s vers ${brandDisplayName(m)} (boîte Leyna).`);
       await loadMissions();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
       setUpdatingId(null);
     }
+  }
+
+  /**
+   * Attache les contacts app sélectionnés à la mission puis planifie l'envoi
+   * (même flow que « Ajouter contact client » sur la carte).
+   * Retourne true si la planification a réussi.
+   */
+  async function attachAndScheduleReadyItem(
+    item: ReadyItem,
+    options: { force?: boolean; silent?: boolean } = {}
+  ): Promise<{ ok: boolean; canForce?: boolean; error?: string }> {
+    const emails = selectedEmailsByMission[item.mission.id] || [];
+    const contacts = item.availableContacts.filter((c) => emails.includes(c.email));
+    if (contacts.length === 0) {
+      return { ok: false, error: "Sélectionne au moins un contact." };
+    }
+
+    const m = item.mission;
+    const currentContacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
+    const byEmail = new Map<
+      string,
+      { firstname?: string; lastname?: string; email?: string; role?: string }
+    >();
+    for (const c of currentContacts) {
+      const email = String(c?.email || "")
+        .trim()
+        .toLowerCase();
+      if (email) byEmail.set(email, c);
+    }
+    for (const c of contacts) {
+      byEmail.set(c.email, {
+        firstname: c.firstname,
+        lastname: c.lastname,
+        email: c.email,
+        role: c.role,
+      });
+    }
+    const nextContacts = Array.from(byEmail.values());
+
+    const patchRes = await fetch("/api/strategy/contact-missions", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        missionId: m.id,
+        clientContacts: nextContacts,
+        clientLanguage: (m.clientLanguage || "FR") as "FR" | "EN",
+      }),
+    });
+    const patchData = await patchRes.json().catch(() => ({}));
+    if (!patchRes.ok) {
+      return { ok: false, error: patchData.error || "Enregistrement contact impossible." };
+    }
+
+    const sendRes = await fetch(`/api/strategy/contact-missions/${m.id}/schedule-send`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: options.force === true }),
+    });
+    const sendData = await sendRes.json().catch(() => ({}));
+    if (!sendRes.ok) {
+      if (sendData?.canForce && !options.force) {
+        return {
+          ok: false,
+          canForce: true,
+          error: sendData.error || "Contact déjà contacté récemment.",
+        };
+      }
+      return { ok: false, error: sendData.error || "Planification impossible." };
+    }
+
+    const scheduledAt = sendData.scheduledSendAt
+      ? new Date(sendData.scheduledSendAt).getTime()
+      : Date.now() + 30000;
+    setScheduledSends((prev) => [
+      ...prev.filter((s) => s.missionId !== m.id),
+      {
+        missionId: m.id,
+        brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
+        scheduledAt,
+      },
+    ]);
+    if (!options.silent) {
+      const n =
+        typeof sendData.reachableContacts === "number"
+          ? sendData.reachableContacts
+          : contacts.length;
+      setSuccess(
+        `${n} contact(s) — envoi programmé dans 30s vers ${brandDisplayName(m)} (boîte Leyna).`
+      );
+    }
+    return { ok: true };
+  }
+
+  async function planifierReadyItem(item: ReadyItem) {
+    setUpdatingId(item.mission.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      let result = await attachAndScheduleReadyItem(item);
+      if (!result.ok && result.canForce) {
+        const confirmed = window.confirm(
+          `${item.mission.creatorName} → ${brandDisplayName(item.mission)}\n\n${
+            result.error || "Ce contact a déjà été contacté récemment."
+          }\n\nÊtes-vous sûr de vouloir quand même envoyer le mail ?`
+        );
+        if (confirmed) {
+          result = await attachAndScheduleReadyItem(item, { force: true });
+        } else {
+          setSuccess("Contacts enregistrés. Envoi non effectué (cooldown).");
+          await Promise.all([loadMissions(), loadReadyToSend()]);
+          return;
+        }
+      }
+      if (!result.ok) {
+        setError(result.error || "Planification impossible.");
+        await loadReadyToSend();
+        return;
+      }
+      await Promise.all([loadMissions(), loadReadyToSend()]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function planifierBulkReady() {
+    const selected = readyItems.filter((item) => bulkSelectedMissionIds.has(item.mission.id));
+    if (selected.length === 0) {
+      setError("Sélectionne au moins une mission.");
+      return;
+    }
+    setBulkScheduling(true);
+    setError(null);
+    setSuccess(null);
+    let okCount = 0;
+    let failCount = 0;
+    const errors: string[] = [];
+
+    try {
+      for (const item of selected) {
+        setUpdatingId(item.mission.id);
+        let result = await attachAndScheduleReadyItem(item, { silent: true });
+        if (!result.ok && result.canForce) {
+          const confirmed = window.confirm(
+            `${item.mission.creatorName} → ${brandDisplayName(item.mission)}\n\n${
+              result.error || "Ce contact a déjà été contacté récemment."
+            }\n\nEnvoyer quand même ? (Annuler = skip cette mission)`
+          );
+          if (confirmed) {
+            result = await attachAndScheduleReadyItem(item, { force: true, silent: true });
+          } else {
+            failCount += 1;
+            errors.push(`${brandDisplayName(item.mission)}: skip cooldown`);
+            continue;
+          }
+        }
+        if (result.ok) {
+          okCount += 1;
+        } else {
+          failCount += 1;
+          errors.push(
+            `${brandDisplayName(item.mission)}: ${result.error || "échec"}`
+          );
+        }
+      }
+
+      if (okCount > 0 && failCount === 0) {
+        setSuccess(`${okCount} envoi(s) programmé(s) dans 30s (boîte Leyna).`);
+      } else if (okCount > 0) {
+        setSuccess(
+          `${okCount} ok, ${failCount} échec(s).${errors.length ? ` ${errors.slice(0, 3).join(" · ")}` : ""}`
+        );
+      } else {
+        setError(errors.slice(0, 5).join(" · ") || "Aucun envoi planifié.");
+      }
+      setBulkSelectedMissionIds(new Set());
+      await Promise.all([loadMissions(), loadReadyToSend()]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setUpdatingId(null);
+      setBulkScheduling(false);
+    }
+  }
+
+  function toggleReadyContact(missionId: string, email: string) {
+    setSelectedEmailsByMission((prev) => {
+      const current = prev[missionId] || [];
+      const next = current.includes(email)
+        ? current.filter((e) => e !== email)
+        : [...current, email];
+      return { ...prev, [missionId]: next };
+    });
+  }
+
+  function toggleBulkMission(missionId: string) {
+    setBulkSelectedMissionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(missionId)) next.delete(missionId);
+      else next.add(missionId);
+      return next;
+    });
+  }
+
+  function toggleBulkAll() {
+    setBulkSelectedMissionIds((prev) => {
+      if (prev.size === readyItems.length) return new Set();
+      return new Set(readyItems.map((i) => i.mission.id));
+    });
   }
 
   async function toggleRelanceCancellation(m: Mission, action: "cancel" | "resume") {
@@ -735,8 +1064,8 @@ export function ProspectingPipelineClient() {
       }
       setSuccess(
         action === "cancel"
-          ? `Relance auto stoppée pour ${m.creatorName} → ${m.targetBrand}.`
-          : `Relance auto réactivée pour ${m.creatorName} → ${m.targetBrand}.`
+          ? `Relance auto stoppée pour ${m.creatorName} → ${brandDisplayName(m)}.`
+          : `Relance auto réactivée pour ${m.creatorName} → ${brandDisplayName(m)}.`
       );
       await loadMissions();
     } catch (e) {
@@ -771,7 +1100,7 @@ export function ProspectingPipelineClient() {
     try {
       const localContacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
       setComposerContact({
-        company: m.targetBrand,
+        company: brandDisplayName(m),
         contacts: localContacts.map((c, index) => ({
           id: `${m.id}-${index}`,
           firstname: String(c?.firstname || "").trim(),
@@ -879,6 +1208,31 @@ export function ProspectingPipelineClient() {
               <Mail className="h-4 w-4" />
               Mails envoyés
             </Link>
+            {canUseReadyTab && (
+              <button
+                type="button"
+                disabled={readyLoading}
+                onClick={() => {
+                  setPipelineView("ready");
+                  setError(null);
+                  void loadReadyToSend();
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 disabled:opacity-50"
+                title="Analyser les missions rédigées qui ont déjà un contact email dans l'app"
+              >
+                {readyLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                Analyser marques dispo
+                {!readyLoading && readyItems.length > 0 ? (
+                  <span className="rounded-full bg-emerald-200 px-1.5 py-0.5 text-xs font-semibold text-emerald-900">
+                    {readyItems.length}
+                  </span>
+                ) : null}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void refresh()}
@@ -912,23 +1266,226 @@ export function ProspectingPipelineClient() {
               </option>
             ))}
           </select>
-          <select
-            value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value as SortOrder)}
-            className="rounded-lg border px-3 py-2 text-sm"
-            style={
-              isCastingManager
-                ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
-                : undefined
-            }
-            title="Trier les cartes de chaque colonne par date de création"
-          >
-            <option value="oldest">Du plus ancien au plus récent</option>
-            <option value="newest">Du plus récent au plus ancien</option>
-          </select>
+          {pipelineView === "pipeline" && (
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+              className="rounded-lg border px-3 py-2 text-sm"
+              style={
+                isCastingManager
+                  ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
+                  : undefined
+              }
+              title="Trier les cartes de chaque colonne par date de création"
+            >
+              <option value="oldest">Du plus ancien au plus récent</option>
+              <option value="newest">Du plus récent au plus ancien</option>
+            </select>
+          )}
         </div>
+
+        {canUseReadyTab && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPipelineView("pipeline")}
+              className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                pipelineView === "pipeline"
+                  ? "border-gray-900 bg-gray-900 text-white"
+                  : "border-gray-300 bg-white text-gray-700"
+              }`}
+            >
+              Pipeline
+            </button>
+            <button
+              type="button"
+              onClick={() => setPipelineView("ready")}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                pipelineView === "ready"
+                  ? "border-gray-900 bg-gray-900 text-white"
+                  : "border-gray-300 bg-white text-gray-700"
+              }`}
+            >
+              Contacts dispo
+              {readyItems.length > 0 && (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+                    pipelineView === "ready"
+                      ? "bg-white/20 text-white"
+                      : "bg-emerald-100 text-emerald-800"
+                  }`}
+                >
+                  {readyItems.length}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </section>
 
+      {error && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {success}
+        </div>
+      )}
+
+      {pipelineView === "ready" && canUseReadyTab ? (
+        <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Marques dispo pour envoyer</h2>
+              <p className="text-sm text-gray-500">
+                Analyse des missions rédigées avec un contact email déjà en fiche marque — coche et
+                planifie l&apos;envoi (30s, boîte Leyna).
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void loadReadyToSend()}
+                disabled={readyLoading || bulkScheduling}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-50"
+              >
+                {readyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Relancer l&apos;analyse
+              </button>
+              <button
+                type="button"
+                onClick={toggleBulkAll}
+                disabled={readyItems.length === 0 || bulkScheduling}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-50"
+              >
+                {bulkSelectedMissionIds.size === readyItems.length && readyItems.length > 0
+                  ? "Tout désélectionner"
+                  : "Tout sélectionner"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void planifierBulkReady()}
+                disabled={bulkSelectedMissionIds.size === 0 || bulkScheduling}
+                className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {bulkScheduling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
+                Planifier la sélection ({bulkSelectedMissionIds.size})
+              </button>
+            </div>
+          </div>
+
+          {readyLoading && readyItems.length === 0 ? (
+            <div className="flex items-center gap-2 py-8 text-sm text-gray-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Chargement…
+            </div>
+          ) : readyItems.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-500">
+              Aucune mission rédigée avec un contact email disponible dans l&apos;app pour ce filtre.
+            </p>
+          ) : (
+            <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">
+              {readyItems.map((item) => {
+                const m = item.mission;
+                const selectedEmails = selectedEmailsByMission[m.id] || [];
+                const hasCooldown = item.availableContacts.some((c) => c.blockedByCooldown);
+                const isBusy = updatingId === m.id || bulkScheduling;
+                return (
+                  <li key={m.id} className="grid gap-3 p-3 sm:grid-cols-[auto_1fr_auto] sm:items-start">
+                    <label className="flex items-start pt-1">
+                      <input
+                        type="checkbox"
+                        checked={bulkSelectedMissionIds.has(m.id)}
+                        onChange={() => toggleBulkMission(m.id)}
+                        disabled={isBusy}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                      />
+                    </label>
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-gray-900">
+                          {m.creatorName || m.talentName || "Talent"} → {brandDisplayName(m)}
+                        </span>
+                        {item.alreadyAttachedCount > 0 && (
+                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                            {item.alreadyAttachedCount} déjà attaché
+                            {item.alreadyAttachedCount > 1 ? "s" : ""}
+                          </span>
+                        )}
+                        {hasCooldown && (
+                          <span
+                            className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800"
+                            title={`Au moins un contact a reçu un mail (autre mission) dans les ${readyCooldownDays} derniers jours`}
+                          >
+                            Cooldown {readyCooldownDays}j
+                          </span>
+                        )}
+                      </div>
+                      {m.draftEmailSubject && (
+                        <p className="truncate text-sm text-gray-500" title={m.draftEmailSubject}>
+                          Sujet : {m.draftEmailSubject}
+                        </p>
+                      )}
+                      <div className="flex flex-col gap-1.5">
+                        {item.availableContacts.map((c) => {
+                          const checked = selectedEmails.includes(c.email);
+                          return (
+                            <label
+                              key={c.id}
+                              className="flex cursor-pointer items-start gap-2 rounded-md border border-transparent px-1 py-0.5 hover:border-gray-200 hover:bg-gray-50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleReadyContact(m.id, c.email)}
+                                disabled={isBusy}
+                                className="mt-1 h-3.5 w-3.5 rounded border-gray-300"
+                              />
+                              <span className="text-sm text-gray-800">
+                                <span className="font-medium">
+                                  {c.firstname}
+                                  {c.lastname ? ` ${c.lastname}` : ""}
+                                </span>
+                                <span className="text-gray-500"> · {c.email}</span>
+                                {c.role ? (
+                                  <span className="text-gray-400"> · {c.role}</span>
+                                ) : null}
+                                {c.principal ? (
+                                  <span className="ml-1 text-xs text-emerald-700">(principal)</span>
+                                ) : null}
+                                {c.blockedByCooldown ? (
+                                  <span className="ml-1 text-xs text-amber-700">(cooldown)</span>
+                                ) : null}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex sm:justify-end">
+                      <button
+                        type="button"
+                        disabled={isBusy || selectedEmails.length === 0}
+                        onClick={() => void planifierReadyItem(item)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 disabled:opacity-50"
+                      >
+                        {updatingId === m.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Clock className="h-3.5 w-3.5" />
+                        )}
+                        Planifier
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      ) : (
       <section className={`grid grid-cols-1 gap-3 ${isCastingManager ? "lg:grid-cols-2" : "lg:grid-cols-3"}`}>
         {visibleStages.map((stage) => (
           <div
@@ -1030,7 +1587,7 @@ export function ProspectingPipelineClient() {
                       style={isCastingManager ? { color: LICORICE } : { color: "#111827" }}
                     >
                       <span>
-                        {m.creatorName} → {m.targetBrand}
+                        {m.creatorName} → {brandDisplayName(m)}
                       </span>
                       {canEditBrand && (
                         <button
@@ -1333,7 +1890,7 @@ export function ProspectingPipelineClient() {
                             {contactSearchByMission[m.id]?.loading ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : null}
-                            Rechercher « {m.targetBrand} »
+                            Rechercher « {brandDisplayName(m)} »
                           </button>
                         </div>
                         <div className="grid gap-1 border-t border-dashed border-gray-300 pt-2">
@@ -1418,7 +1975,7 @@ export function ProspectingPipelineClient() {
                           !contactSearchByMission[m.id]?.loading &&
                           (contactSearchByMission[m.id]?.results.length ?? 0) === 0 && (
                             <p className="text-xs text-gray-500">
-                              Aucun contact trouvé pour « {m.targetBrand} » dans l&apos;app ni
+                              Aucun contact trouvé pour « {brandDisplayName(m)} » dans l&apos;app ni
                               dans HubSpot. Saisis-les manuellement ci-dessous.
                             </p>
                           )}
@@ -1602,15 +2159,14 @@ export function ProspectingPipelineClient() {
           </div>
         ))}
       </section>
+      )}
 
-      {loading && (
+      {loading && pipelineView === "pipeline" && (
         <div className="inline-flex items-center gap-2 text-sm text-gray-500">
           <Loader2 className="h-4 w-4 animate-spin" />
           Chargement...
         </div>
       )}
-      {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
       {scheduledSends.length > 0 && (
         <div className="fixed bottom-4 right-4 z-50 flex w-[360px] flex-col gap-2">

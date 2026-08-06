@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { findMarqueByName } from "@/lib/marque-resolver";
+import { findAllMarqueIdsByName, findMarqueByName } from "@/lib/marque-resolver";
 import {
   loadFuzzyCandidatesCached,
   rankFuzzyCandidates,
@@ -62,8 +62,13 @@ async function searchAppContacts(brand: string): Promise<{
   contacts: SearchedContact[];
   marqueId: string | null;
 }> {
-  const marqueId = await resolveMarqueId(brand);
-  if (!marqueId) {
+  // Toutes les fiches au même nom (doublons inclus), pas seulement le 1er slug.
+  let marqueIds = await findAllMarqueIdsByName(brand);
+  if (marqueIds.length === 0) {
+    const fallback = await resolveMarqueId(brand);
+    if (fallback) marqueIds = [fallback];
+  }
+  if (marqueIds.length === 0) {
     return { contacts: [], marqueId: null };
   }
 
@@ -73,7 +78,7 @@ async function searchAppContacts(brand: string): Promise<{
   // qui n'ont pas leur place dans le pipeline de prospection talent.
   const rows = await prisma.marqueContact.findMany({
     where: {
-      marqueId,
+      marqueId: { in: marqueIds },
       OR: [{ source: { not: "AO" } }, { source: null }],
     },
     select: {
@@ -83,27 +88,26 @@ async function searchAppContacts(brand: string): Promise<{
       email: true,
       poste: true,
       principal: true,
+      marque: { select: { nom: true } },
     },
     orderBy: [{ principal: "desc" }, { nom: "asc" }],
   });
 
-  const marque = await prisma.marque.findUnique({
-    where: { id: marqueId },
-    select: { nom: true },
-  });
+  // Prefère la fiche au slug canonique (ou la 1re) comme marqueId « principal ».
+  const primary =
+    (await findMarqueByName(brand))?.marqueId ?? marqueIds[0] ?? null;
 
-  const contacts: SearchedContact[] = rows
-    .map((c) => ({
-      id: c.id,
-      firstname: (c.prenom || "").trim(),
-      lastname: (c.nom || "").trim(),
-      email: (c.email || "").trim(),
-      role: (c.poste || "").trim(),
-      companyName: marque?.nom || brand,
-      source: "app" as const,
-    }));
+  const contacts: SearchedContact[] = rows.map((c) => ({
+    id: c.id,
+    firstname: (c.prenom || "").trim(),
+    lastname: (c.nom || "").trim(),
+    email: (c.email || "").trim(),
+    role: (c.poste || "").trim(),
+    companyName: c.marque?.nom || brand,
+    source: "app" as const,
+  }));
 
-  return { contacts, marqueId };
+  return { contacts, marqueId: primary };
 }
 
 // Recherche les contacts d'une marque dans HubSpot (par nom de société).

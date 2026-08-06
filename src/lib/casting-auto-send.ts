@@ -142,7 +142,7 @@ export function parseCastingContacts(raw: unknown): CastingContact[] {
  * On regarde toutes les missions deja envoyees ou en cours d'envoi pour
  * tester si un mail a deja ete envoye a cet email.
  */
-async function findEmailsBlockedByCooldown(
+export async function findEmailsBlockedByCooldown(
   emails: string[],
   excludeMissionId: string
 ): Promise<Set<string>> {
@@ -289,7 +289,7 @@ async function loadBrandContactLanguages(mission: {
  * leur envoyer le mail sans rejouer l'envoi sur les destinataires deja
  * contactes.
  */
-function extractAlreadySentEmails(sentMessageIds: unknown): Set<string> {
+export function extractAlreadySentEmails(sentMessageIds: unknown): Set<string> {
   if (!sentMessageIds || typeof sentMessageIds !== "object") return new Set();
   const out = new Set<string>();
   for (const [email, record] of Object.entries(
