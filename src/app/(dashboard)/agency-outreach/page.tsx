@@ -1962,7 +1962,7 @@ export default function AgencyOutreachPage() {
                       À une heure précise
                     </span>
                     <span className="block text-[11px] opacity-70" style={{ color: LICORICE }}>
-                      Tu choisis la date et l'heure (heure FR).
+                      Départ choisi, puis étalés jusqu&apos;à 18h30.
                     </span>
                   </button>
                 </div>
@@ -1970,7 +1970,7 @@ export default function AgencyOutreachPage() {
                 {sendMode === "at" && (
                   <div className="pt-1">
                     <label className="block text-[11px] font-medium mb-1" style={{ color: LICORICE }}>
-                      Date et heure d&apos;envoi (heure française)
+                      Date et heure de début (heure française)
                     </label>
                     <input
                       type="datetime-local"
@@ -1980,7 +1980,9 @@ export default function AgencyOutreachPage() {
                       style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`, color: LICORICE }}
                     />
                     <p className="text-[11px] opacity-70 mt-1" style={{ color: LICORICE }}>
-                      Les mails sont légèrement étalés (~1/min) à partir de cette heure.
+                      {selectedTargets.length > 1
+                        ? `Les ${selectedTargets.length} mails seront répartis entre cette heure et 18h30 (pas tous d'un coup).`
+                        : "Le mail partira à cette heure."}
                     </p>
                   </div>
                 )}

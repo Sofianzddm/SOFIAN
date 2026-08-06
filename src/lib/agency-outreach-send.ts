@@ -523,16 +523,28 @@ export function parseParisDateTimeLocalToUtc(value: string): Date | null {
 }
 
 /**
- * Étale `count` envois à partir de `start` (instant UTC choisi par l'utilisateur),
- * à raison d'environ 1 mail/minute, avec un léger aléa. Garde une délivrabilité
- * naturelle même quand l'heure de départ est fixée manuellement.
+ * Étale `count` envois à partir de `start` (instant UTC choisi), jusqu'à
+ * 18h30 Paris le même jour (20h30 si la fenêtre est trop courte). Répartit
+ * uniformément avec un léger aléa — pour une grosse vague (ex. 200+), les
+ * mails partent donc tout au long de la journée, pas en rafale.
+ *
+ * Si `start` est déjà après 18h30/20h30, repli ~1 mail/minute à partir de start.
  */
 export function computeAgencyStaggeredTimesFrom(count: number, start: Date): Date[] {
   if (count <= 0) return [];
   if (count === 1) return [new Date(start)];
 
-  const PER_MAIL_MS = 60_000;
-  const end = new Date(start.getTime() + (count - 1) * PER_MAIL_MS);
+  const MIN_WINDOW_MS = 10 * 60_000;
+  let end = parisTimeOnDay(start, AGENCY_STAGGER_END_HOUR, AGENCY_STAGGER_END_MINUTE);
+  if (end.getTime() - start.getTime() < MIN_WINDOW_MS) {
+    end = parisTimeOnDay(start, AGENCY_STAGGER_LATE_END_HOUR, AGENCY_STAGGER_LATE_END_MINUTE);
+  }
+
+  // Fenêtre trop courte / déjà passée → ~1 mail/minute à partir de start.
+  if (end.getTime() <= start.getTime()) {
+    end = new Date(start.getTime() + (count - 1) * 60_000);
+  }
+
   const span = Math.max(0, end.getTime() - start.getTime());
   const slot = span / count;
   const times: Date[] = [];
