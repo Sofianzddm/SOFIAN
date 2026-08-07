@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, FileText, Loader2, Upload } from "lucide-react";
+import { canReadContratMarqueReview, canUploadContratMarque } from "@/lib/contratMarqueAccess";
 
 type CurrentUser = {
   id: string;
@@ -14,6 +15,7 @@ type CollaborationContratMarque = {
   id: string;
   marque: { nom: string };
   talent: { prenom: string; nom: string; managerId?: string | null };
+  accountManagerId?: string | null;
   contratMarquePdfUrl?: string | null;
   contratMarqueStatut?: string | null;
   contratMarqueMode?: string | null;
@@ -61,13 +63,20 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const role = currentUser.role;
-  const canManage =
-    role === "ADMIN" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES";
-  const isTmAssigne = collaboration.talent.managerId === currentUser.id;
-  const canUploadContract = canManage || isTmAssigne;
-  const canComment = canManage || isTmAssigne;
-  const canRead = canComment;
+  const collabAccess = {
+    accountManagerId: collaboration.accountManagerId ?? null,
+    talent: { managerId: collaboration.talent.managerId },
+  };
+  const canUploadContract = canUploadContratMarque(
+    currentUser.id,
+    currentUser.role,
+    collabAccess
+  );
+  const canRead = canReadContratMarqueReview(
+    currentUser.id,
+    currentUser.role,
+    collabAccess
+  );
 
   const statut = collaboration.contratMarqueStatut ?? "AUCUN";
 

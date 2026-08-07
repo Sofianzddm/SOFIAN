@@ -107,6 +107,7 @@ interface CollabDetail {
   contratMarqueApprouveAt?: string | null;
   contratMarqueSigneAt?: string | null;
   contratMarqueMode?: string | null;
+  accountManagerId?: string | null;
   talent: {
     id: string;
     prenom: string;
