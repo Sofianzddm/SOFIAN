@@ -1264,7 +1264,7 @@ export default function CollabDetailPage() {
         )}
 
       {/* Section Upload Facture Talent */}
-      {session?.user?.role === "TALENT" && collab.statut === "PUBLIE" && !collab.factureTalentUrl && (
+      {session?.user?.role === "TALENT" && collab.datePublication && !collab.factureTalentUrl && (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-6 mb-8">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">

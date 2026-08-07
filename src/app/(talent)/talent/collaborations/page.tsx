@@ -66,7 +66,7 @@ export default function TalentCollaborationsPage() {
   useEffect(() => {
     if (!uploadParam || collaborations.length === 0) return;
     const target = collaborations.find((c) => c.id === uploadParam);
-    if (target && target.statut === "PUBLIE" && !target.factureTalentUrl) {
+    if (target && !target.factureTalentUrl) {
       setUploadingCollabId(target.id);
     }
   }, [uploadParam, collaborations]);
@@ -122,7 +122,10 @@ export default function TalentCollaborationsPage() {
     const matchSearch =
       collab.marque?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       collab.reference?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchStatus = statusFilter === "all" || collab.statut === statusFilter;
+    const matchStatus =
+      statusFilter === "all" ||
+      statusFilter === "PUBLIE" ||
+      collab.statut === statusFilter;
     return matchSearch && matchStatus;
   });
 
@@ -134,8 +137,10 @@ export default function TalentCollaborationsPage() {
   const getStatusConfig = (statut: string) => {
     const configs: Record<string, { label: string; className: string }> = {
       PUBLIE: { label: "Publié", className: "bg-indigo-500/10 text-indigo-600" },
+      FACTURE_RECUE: { label: "Publié", className: "bg-indigo-500/10 text-indigo-600" },
+      PAYE: { label: "Payé", className: "bg-emerald-500/10 text-emerald-600" },
     };
-    return configs[statut] || { label: statut, className: "bg-slate-100 text-slate-600" };
+    return configs[statut] || { label: "Publié", className: "bg-indigo-500/10 text-indigo-600" };
   };
 
   const formatMoney = (amount: number) =>
@@ -249,7 +254,7 @@ export default function TalentCollaborationsPage() {
         <div className="space-y-3">
           {sortedCollabs.map((collab, idx) => {
             const status = getStatusConfig(collab.statut);
-            const needsInvoice = collab.statut === "PUBLIE" && !collab.factureTalentUrl;
+            const needsInvoice = !collab.factureTalentUrl;
             const isExpanded = expandedCollab === collab.id;
             const currentDate = new Date(collab.datePublication || collab.createdAt);
             const currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;

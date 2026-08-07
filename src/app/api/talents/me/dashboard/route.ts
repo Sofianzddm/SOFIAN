@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getTalentDemoPublishedCollaborations } from "@/lib/talent-demo";
-import { TALENT_PORTAL_DATE_DEBUT } from "@/lib/talent-portal";
+import { talentPortalPublishedWhere } from "@/lib/talent-portal";
 
 /**
  * GET /api/talents/me/dashboard
@@ -60,13 +60,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Aucun profil talent trouvé" }, { status: 404 });
     }
 
-    // Récupérer uniquement les collaborations publiées (focus facture talent)
-    // à partir du lancement du portail (1er juillet 2026)
+    // Collabs publiées depuis le lancement du portail (indépendamment du statut courant)
     const collaborations = await prisma.collaboration.findMany({
       where: {
         talentId: talent.id,
-        statut: "PUBLIE",
-        datePublication: { gte: TALENT_PORTAL_DATE_DEBUT },
+        ...talentPortalPublishedWhere,
       },
       include: {
         marque: {

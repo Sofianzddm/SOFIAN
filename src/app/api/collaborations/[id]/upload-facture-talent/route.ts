@@ -57,8 +57,8 @@ export async function POST(
       );
     }
 
-    // 3. Vérifier que la collaboration est au bon statut
-    if (!["PUBLIE", "FACTURE_RECUE", "PAYE"].includes(collaboration.statut)) {
+    // 3. Une fois publiée (datePublication renseignée), le statut suivant n'importe plus
+    if (!collaboration.datePublication) {
       return NextResponse.json(
         {
           error: "Vous pouvez uploader votre facture uniquement après la publication de la collaboration",

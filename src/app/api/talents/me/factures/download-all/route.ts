@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getTalentDemoPublishedCollaborations } from "@/lib/talent-demo";
-import { TALENT_PORTAL_DATE_DEBUT } from "@/lib/talent-portal";
+import { talentPortalPublishedWhere } from "@/lib/talent-portal";
 import { buildZipFromUrls, zipResponseHeaders, type ZipEntry } from "@/lib/zip-download";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
         where: {
           talentId: talent.id,
           factureTalentUrl: { not: null },
-          datePublication: { gte: TALENT_PORTAL_DATE_DEBUT },
+          ...talentPortalPublishedWhere,
         },
         include: { marque: { select: { nom: true } } },
         orderBy: { factureTalentRecueAt: "desc" },
