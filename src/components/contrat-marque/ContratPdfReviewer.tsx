@@ -81,6 +81,7 @@ type CollabShape = {
   id: string;
   reference: string;
   montantNet: unknown;
+  accountManagerId: string | null;
   contratMarqueStatut?: string | null;
   contratMarquePdfUrl?: string | null;
   contratSubmissionId?: string | null;
