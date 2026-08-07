@@ -33,6 +33,7 @@ interface Collaboration {
   id: string;
   reference: string;
   quoteReference: string | null;
+  campaignTitle?: string | null;
   invoiceReference?: string | null;
   invoiceObject?: string | null;
   invoiceDate?: string | null;
@@ -206,8 +207,10 @@ export default function CollaborationsPage() {
       const columns: { header: string; key: string; width: number; style?: { numFmt?: string } }[] = [
         { header: "Mois", key: "mois", width: 20 },
         { header: "Date collab", key: "dateCollab", width: 15, style: { numFmt: "dd/mm/yyyy" } },
+        { header: "N° collab", key: "numeroCollab", width: 16 },
         { header: "N° devis", key: "numeroDevis", width: 18 },
         { header: "N° facture", key: "numeroFacture", width: 18 },
+        { header: "Titre campagne", key: "titreCampagne", width: 40 },
         { header: "Objet facture", key: "objetFacture", width: 40 },
         { header: "Date facturation", key: "dateFacturation", width: 18, style: { numFmt: "dd/mm/yyyy" } },
         { header: "Nom collab", key: "nomCollab", width: 40 },
@@ -236,8 +239,10 @@ export default function CollaborationsPage() {
         const rowData: Record<string, string | number | Date> = {
           mois: formatMonthLabel(getMonthKey(collab.createdAt)),
           dateCollab: toDateOrNull(collab.createdAt) || "",
+          numeroCollab: collab.reference ?? "",
           numeroDevis: collab.quoteReference ?? "",
           numeroFacture: collab.invoiceReference ?? "",
+          titreCampagne: collab.campaignTitle ?? "",
           objetFacture: collab.invoiceObject ?? "",
           dateFacturation: toDateOrNull(collab.invoiceDate || null) || "",
           nomCollab: `${collab.talent.prenom} ${collab.talent.nom} - ${collab.marque.nom}`,
