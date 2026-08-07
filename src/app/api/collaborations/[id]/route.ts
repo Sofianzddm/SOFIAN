@@ -223,6 +223,25 @@ export async function PATCH(
       }
     }
 
+    // Date collab (createdAt) : ADMIN partout, HEAD_OF_SALES sur ses propres collabs
+    if (data.createdAt !== undefined) {
+      if (userRole !== "ADMIN" && userRole !== "HEAD_OF_SALES") {
+        return NextResponse.json(
+          { error: "Seuls ADMIN et HEAD_OF_SALES peuvent modifier la date de collaboration" },
+          { status: 403 }
+        );
+      }
+      if (
+        userRole === "HEAD_OF_SALES" &&
+        existingCollab.createdById !== session.user.id
+      ) {
+        return NextResponse.json(
+          { error: "Vous ne pouvez modifier la date que sur vos propres collaborations" },
+          { status: 403 }
+        );
+      }
+    }
+
     if (data.statut === "PERDU" && !data.raisonPerdu) {
       return NextResponse.json({ message: "Raison obligatoire" }, { status: 400 });
     }
@@ -250,6 +269,22 @@ export async function PATCH(
     if (data.datePublication !== undefined) updateData.datePublication = new Date(data.datePublication);
     if (data.statut === "PAYE") updateData.paidAt = new Date();
     if (data.marquePayeeAt !== undefined) updateData.marquePayeeAt = data.marquePayeeAt ? new Date(data.marquePayeeAt) : null;
+
+    if (data.createdAt !== undefined) {
+      const raw = typeof data.createdAt === "string" ? data.createdAt.trim() : "";
+      const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+      if (!match) {
+        return NextResponse.json(
+          { error: "Date de collaboration invalide (attendu YYYY-MM-DD)" },
+          { status: 400 }
+        );
+      }
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      // Midi UTC pour éviter un décalage de mois avec le filtre YYYY-MM côté client
+      updateData.createdAt = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    }
 
     const collaboration = await prisma.collaboration.update({
       where: { id: id },

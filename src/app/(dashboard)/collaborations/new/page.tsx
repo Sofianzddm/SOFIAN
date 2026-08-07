@@ -123,6 +123,7 @@ export default function NewCollaborationPage() {
     isLongTerme: false,
     // Par défaut : cochée pour la HoS (vraie séparation Sales/TM), décochée sinon
     isPrivate: false,
+    createdAt: "",
   });
 
   // Activer "Privée" par défaut dès qu'on détecte une HoS
@@ -440,6 +441,7 @@ export default function NewCollaborationPage() {
           ...formData,
           marqueId,
           isPrivate: canSetPrivate ? formData.isPrivate : false,
+          createdAt: isHoS || user?.role === "ADMIN" ? formData.createdAt || undefined : undefined,
           contactKind: contactQualif.contactKind,
           contactAgence: contactQualif.contactAgence.trim() || null,
           contactLanguage: contactQualif.contactLanguage,
@@ -925,6 +927,31 @@ export default function NewCollaborationPage() {
                   Sales / Influence)
                 </p>
               )}
+            </div>
+          )}
+
+          {/* Date collab (backdate) — Head of Sales / Admin */}
+          {(isHoS || user?.role === "ADMIN") && (
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">
+                Date de collaboration
+              </h2>
+              <div className="max-w-xs">
+                <label className="block text-sm text-gray-600 mb-1.5">
+                  Date (optionnel)
+                </label>
+                <input
+                  type="date"
+                  value={formData.createdAt}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, createdAt: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-glowup-licorice focus:outline-none focus:ring-2 focus:ring-glowup-rose/20 focus:border-glowup-rose/40"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Laisse vide pour aujourd&apos;hui. Utile pour une collab oubliée (ex. juin).
+                </p>
+              </div>
             </div>
           )}
 

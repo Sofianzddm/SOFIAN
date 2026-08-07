@@ -333,6 +333,9 @@ export default function CollabDetailPage() {
     livrables: "",
     montant_net_talent: "",
   });
+  const [editingCollabDate, setEditingCollabDate] = useState(false);
+  const [collabDateDraft, setCollabDateDraft] = useState("");
+  const [savingCollabDate, setSavingCollabDate] = useState(false);
 
   useEffect(() => { if (params.id) fetchCollab(); }, [params.id]);
 
@@ -454,6 +457,35 @@ export default function CollabDetailPage() {
       });
       if (res.ok) { setCollab(await res.json()); setShowPerduModal(false); setShowPublieModal(false); }
     } finally { setUpdating(false); }
+  };
+
+  const toDateInputValue = (iso: string) => {
+    const d = new Date(iso);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const saveCollabDate = async () => {
+    if (!collab?.id || !collabDateDraft) return;
+    setSavingCollabDate(true);
+    try {
+      const res = await fetch(`/api/collaborations/${collab.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ createdAt: collabDateDraft }),
+      });
+      if (res.ok) {
+        setCollab(await res.json());
+        setEditingCollabDate(false);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "Impossible de modifier la date");
+      }
+    } finally {
+      setSavingCollabDate(false);
+    }
   };
 
   const handleStatutChange = (newStatut: string) => {
@@ -1061,6 +1093,7 @@ export default function CollabDetailPage() {
   const existingDocs = collab.documents || [];
   const canSeeContratBloc = ["ADMIN", "TM", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const canGenerateContrat = ["ADMIN", "TM"].includes(roleForUi);
+  const canEditCollabDate = roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES";
   const currentUserForContratMarque = {
     id: (session?.user as { id?: string })?.id ?? "",
     nom: (session?.user as { name?: string })?.name ?? "",
@@ -1120,7 +1153,54 @@ export default function CollabDetailPage() {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
               <span className="flex items-center gap-1.5">
                 <Calendar className="w-4 h-4 text-gray-400" />
-                {new Date(collab.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                {editingCollabDate ? (
+                  <span className="inline-flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={collabDateDraft}
+                      onChange={(e) => setCollabDateDraft(e.target.value)}
+                      className="rounded-lg border border-gray-200 px-2 py-1 text-sm text-glowup-licorice"
+                    />
+                    <button
+                      type="button"
+                      onClick={saveCollabDate}
+                      disabled={savingCollabDate || !collabDateDraft}
+                      className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 disabled:opacity-50"
+                    >
+                      {savingCollabDate ? "…" : "OK"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingCollabDate(false)}
+                      disabled={savingCollabDate}
+                      className="text-xs text-gray-400 hover:text-gray-600"
+                    >
+                      Annuler
+                    </button>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-2">
+                    {new Date(collab.createdAt).toLocaleDateString("fr-FR", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                      timeZone: "UTC",
+                    })}
+                    {canEditCollabDate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCollabDateDraft(toDateInputValue(collab.createdAt));
+                          setEditingCollabDate(true);
+                        }}
+                        className="text-xs font-medium text-gray-400 hover:text-glowup-licorice underline underline-offset-2"
+                        title="Modifier la date de collaboration"
+                      >
+                        Modifier
+                      </button>
+                    )}
+                  </span>
+                )}
               </span>
               <span className="w-1 h-1 rounded-full bg-gray-300 hidden sm:inline-block" />
               <span className={`font-medium ${collab.source === "INBOUND" ? "text-blue-600" : "text-amber-600"}`}>

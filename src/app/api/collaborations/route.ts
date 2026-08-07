@@ -322,6 +322,28 @@ export async function POST(request: NextRequest) {
     const reference = await generateCollabReference();
     console.log(`🆕 Création collaboration manuelle: ${reference}`);
 
+    // Date collab optionnelle (backdate) : ADMIN / HEAD_OF_SALES
+    let createdAtOverride: Date | undefined;
+    if (data.createdAt !== undefined && data.createdAt !== null && data.createdAt !== "") {
+      if (role !== "ADMIN" && role !== "HEAD_OF_SALES") {
+        return NextResponse.json(
+          { message: "Seuls ADMIN et HEAD_OF_SALES peuvent fixer la date de collaboration" },
+          { status: 403 }
+        );
+      }
+      const raw = typeof data.createdAt === "string" ? data.createdAt.trim() : "";
+      const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+      if (!match) {
+        return NextResponse.json(
+          { message: "Date de collaboration invalide (attendu YYYY-MM-DD)" },
+          { status: 400 }
+        );
+      }
+      createdAtOverride = new Date(
+        Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0)
+      );
+    }
+
     // Créer la collaboration avec les livrables
     const collaboration = await prisma.collaboration.create({
       data: {
@@ -341,6 +363,7 @@ export async function POST(request: NextRequest) {
         statut: "EN_COURS", // Création manuelle = déjà en cours ; le TM peut mettre "Publié" en 1 clic
         createdById: user.id,
         isPrivate,
+        ...(createdAtOverride ? { createdAt: createdAtOverride } : {}),
         livrables: {
           create: data.livrables.map((l: any) => ({
             typeContenu: l.typeContenu,
