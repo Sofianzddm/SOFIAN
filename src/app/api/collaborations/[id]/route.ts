@@ -6,16 +6,21 @@ import prisma from "@/lib/prisma";
 import { logDelegationActivite } from "@/lib/delegations";
 
 /**
- * Cloisonnement pôle Sales : seuls le créateur, ADMIN et JURISTE (pour les contrats marque)
- * peuvent accéder à une collaboration privée.
+ * Cloisonnement pôle Sales : créateur, AM assigné, ADMIN et JURISTE (contrats marque).
  */
 function canAccessPrivateCollab(
-  collab: { isPrivate: boolean; createdById: string | null; contratMarquePdfUrl?: string | null },
+  collab: {
+    isPrivate: boolean;
+    createdById: string | null;
+    accountManagerId?: string | null;
+    contratMarquePdfUrl?: string | null;
+  },
   user: { id: string; role?: string }
 ): boolean {
   if (!collab.isPrivate) return true;
   if (user.role === "ADMIN") return true;
   if (collab.createdById && collab.createdById === user.id) return true;
+  if (collab.accountManagerId && collab.accountManagerId === user.id) return true;
   // Le juriste accède aux collabs privées seulement pour traiter un contrat marque déjà déposé
   if (user.role === "JURISTE" && collab.contratMarquePdfUrl) return true;
   return false;
@@ -200,7 +205,7 @@ export async function PATCH(
     // Cloisonnement pôle Sales : vérifier l'accès avant toute modification
     const existingCollab = await prisma.collaboration.findUnique({
       where: { id },
-      select: { isPrivate: true, createdById: true },
+      select: { isPrivate: true, createdById: true, accountManagerId: true },
     });
     if (!existingCollab) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
@@ -386,7 +391,7 @@ export async function PUT(
     // Cloisonnement pôle Sales : vérifier l'accès avant toute modification
     const existingCollab = await prisma.collaboration.findUnique({
       where: { id },
-      select: { isPrivate: true, createdById: true, commissionPercent: true },
+      select: { isPrivate: true, createdById: true, accountManagerId: true, commissionPercent: true },
     });
     if (!existingCollab) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
@@ -487,7 +492,7 @@ export async function DELETE(
     // Cloisonnement pôle Sales : la HoS ne peut supprimer que ses propres collabs privées
     const existingCollab = await prisma.collaboration.findUnique({
       where: { id },
-      select: { isPrivate: true, createdById: true },
+      select: { isPrivate: true, createdById: true, accountManagerId: true },
     });
     if (!existingCollab) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });

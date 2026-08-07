@@ -35,6 +35,7 @@ export async function POST(
         contratMarquePdfUrl: true,
         contratMarqueStatut: true,
         contratMarqueMode: true,
+        accountManagerId: true,
         talent: {
           select: {
             managerId: true,

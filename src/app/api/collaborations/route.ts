@@ -49,10 +49,13 @@ export async function GET(request: NextRequest) {
 
     // Cloisonnement strict pôle Sales :
     // - HEAD_OF_SALES : ne voit QUE ses propres collabs (pôle Sales 100% séparé)
+    // - CM (Account Manager) : UNIQUEMENT les collabs qui lui sont assignées
     // - ADMIN : voit tout
     // - Autres : voient les publiques OU celles qu'ils ont créées eux-mêmes
     if (user.role === "HEAD_OF_SALES") {
       where.createdById = user.id;
+    } else if (user.role === "CM") {
+      where.accountManagerId = user.id;
     } else if (user.role !== "ADMIN") {
       where.OR = [
         { isPrivate: false },
@@ -66,8 +69,12 @@ export async function GET(request: NextRequest) {
       delete where.OR;
     }
 
-    // Filtrer par Account Manager si spécifié (pour ADMIN uniquement)
-    if (accountManagerId && user.role === "ADMIN") {
+    // Filtrer par Account Manager si spécifié (ADMIN, ou CM sur son propre id)
+    if (
+      accountManagerId &&
+      (user.role === "ADMIN" ||
+        (user.role === "CM" && accountManagerId === user.id))
+    ) {
       where.accountManagerId = accountManagerId;
     }
 

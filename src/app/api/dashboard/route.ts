@@ -771,12 +771,13 @@ export async function GET(request: NextRequest) {
     // CM - Dashboard Account Manager
     // ============================================
     if (role === "CM") {
+      const amWhere = { accountManagerId: user.id };
       const [
         collabsEnCours,
         collabsPublie,
       ] = await Promise.all([
-        prisma.collaboration.count({ where: { statut: "EN_COURS" } }),
-        prisma.collaboration.count({ where: { statut: "PUBLIE" } }),
+        prisma.collaboration.count({ where: { ...amWhere, statut: "EN_COURS" } }),
+        prisma.collaboration.count({ where: { ...amWhere, statut: "PUBLIE" } }),
       ]);
 
       return NextResponse.json({

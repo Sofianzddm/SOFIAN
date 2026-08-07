@@ -21,6 +21,7 @@ export function canReadContratMarqueReview(
     return true;
   }
   if (role === "TM" && collaboration.talent.managerId === userId) return true;
+  if (role === "CM" && collaboration.accountManagerId === userId) return true;
   return false;
 }
 
@@ -28,12 +29,15 @@ export function canReadContratMarqueReview(
 export function canUploadContratMarque(
   userId: string,
   role: ContratMarqueRole,
-  collaboration: { talent: { managerId?: string | null } }
+  collaboration: Pick<Collaboration, "accountManagerId"> & {
+    talent: { managerId?: string | null };
+  }
 ): boolean {
   if (ROLES_CONTRAT_MARQUE_MANAGE.includes(role as (typeof ROLES_CONTRAT_MARQUE_MANAGE)[number])) {
     return true;
   }
   if (role === "TM" && collaboration.talent.managerId === userId) return true;
+  if (role === "CM" && collaboration.accountManagerId === userId) return true;
   return false;
 }
 
