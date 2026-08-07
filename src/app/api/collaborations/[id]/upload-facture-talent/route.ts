@@ -126,12 +126,14 @@ export async function POST(
       }
     }
 
-    // 10. Mettre à jour la collaboration
+    // 10. Mettre à jour la collaboration (reset validation si re-upload après refus)
     const updated = await prisma.collaboration.update({
       where: { id },
       data: {
         factureTalentUrl: result.secure_url,
         factureTalentRecueAt: new Date(),
+        factureValidee: false,
+        factureValideeAt: null,
         statut: collaboration.statut === "PUBLIE" ? "FACTURE_RECUE" : collaboration.statut,
       },
     });

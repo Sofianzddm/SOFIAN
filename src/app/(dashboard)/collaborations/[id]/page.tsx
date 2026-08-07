@@ -259,6 +259,9 @@ export default function CollabDetailPage() {
   const [selectedDevisSigne, setSelectedDevisSigne] = useState<File | null>(null);
   const [uploadingDevisSigne, setUploadingDevisSigne] = useState(false);
   const [validatingFacture, setValidatingFacture] = useState(false);
+  const [refusingFacture, setRefusingFacture] = useState(false);
+  const [showRefusFactureModal, setShowRefusFactureModal] = useState(false);
+  const [raisonRefusFacture, setRaisonRefusFacture] = useState("");
   const [facturePreviewUrl, setFacturePreviewUrl] = useState<string | null>(null);
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [notesDevis, setNotesDevis] = useState("");
@@ -985,6 +988,38 @@ export default function CollabDetailPage() {
     }
   };
 
+  const refuserFactureTalent = async () => {
+    if (!collab?.id) return;
+    const commentaire = raisonRefusFacture.trim();
+    if (!commentaire) {
+      alert("Un commentaire est obligatoire pour refuser la facture.");
+      return;
+    }
+    setRefusingFacture(true);
+    try {
+      const res = await fetch(`/api/collaborations/${collab.id}/refuser-facture`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raisonRefus: commentaire }),
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setShowRefusFactureModal(false);
+        setRaisonRefusFacture("");
+        await fetchCollab();
+        alert(data.message || "Facture refusée. Le talent a été notifié.");
+      } else {
+        const d = await res.json();
+        alert(d.error || "Erreur lors du refus");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors du refus");
+    } finally {
+      setRefusingFacture(false);
+    }
+  };
+
   const copyReference = () => { if (collab) { navigator.clipboard.writeText(collab.reference); setCopied(true); setTimeout(() => setCopied(false), 2000); } };
   const formatMoney = (amount: number) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 0 }).format(amount);
   const getStatutInfo = (statut: string) => STATUTS.find((s) => s.value === statut) || STATUTS[0];
@@ -1440,15 +1475,29 @@ export default function CollabDetailPage() {
                 Télécharger
               </a>
               {!collab.factureValidee && (
-                <button
-                  type="button"
-                  onClick={validerFactureTalent}
-                  disabled={validatingFacture}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 flex items-center gap-2 transition-colors disabled:opacity-50"
-                >
-                  {validatingFacture ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  Valider la facture
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={validerFactureTalent}
+                    disabled={validatingFacture || refusingFacture}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 flex items-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    {validatingFacture ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    Valider la facture
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRaisonRefusFacture("");
+                      setShowRefusFactureModal(true);
+                    }}
+                    disabled={validatingFacture || refusingFacture}
+                    className="px-4 py-2 bg-white text-red-600 border border-red-200 rounded-lg font-medium hover:bg-red-50 flex items-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    Refuser
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -3367,6 +3416,58 @@ export default function CollabDetailPage() {
               <button onClick={() => setShowPublieModal(false)} className="flex-1 px-6 py-3.5 text-gray-600 bg-gray-100 rounded-xl font-semibold hover:bg-gray-200 transition-colors">Annuler</button>
               <button onClick={confirmPublie} disabled={updating || (!publieIsStory && !lienPublication.trim())} className="flex-1 px-6 py-3.5 bg-violet-600 text-white rounded-xl font-semibold hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
                 {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal refus facture talent */}
+      {showRefusFactureModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-900">Refuser la facture</h3>
+              <button
+                type="button"
+                onClick={() => setShowRefusFactureModal(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
+                aria-label="Fermer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-500 mb-4">
+              La facture sera retirée, un commentaire sera ajouté sur la collab, et un mail sera envoyé au talent.
+            </p>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Commentaire <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={raisonRefusFacture}
+              onChange={(e) => setRaisonRefusFacture(e.target.value)}
+              rows={4}
+              required
+              placeholder="Ex. montant incorrect, mentions manquantes…"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-300"
+            />
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowRefusFactureModal(false)}
+                disabled={refusingFacture}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={refuserFactureTalent}
+                disabled={refusingFacture || !raisonRefusFacture.trim()}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {refusingFacture ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                Refuser & envoyer
               </button>
             </div>
           </div>
