@@ -195,3 +195,26 @@ export function computeEmvTotals(
     lines,
   };
 }
+
+/** Arrondi vendeur (≈ 5 000 € plutôt que 4 965 €) — partagé deck + simulateur TM. */
+export function roundEmv(n: number): number {
+  if (!n || n <= 0) return 0;
+  if (n >= 10_000) return Math.round(n / 500) * 500;
+  if (n >= 1_000) return Math.round(n / 100) * 100;
+  return Math.round(n / 10) * 10;
+}
+
+export function formatEmvMoney(n: number | null | undefined, currency = "EUR"): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(n || 0);
+}
+
+export function formatEmvCompact(n: number | null | undefined): string {
+  const v = Number(n) || 0;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })}M`;
+  if (v >= 1_000) return `${(v / 1_000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })}K`;
+  return v.toLocaleString("fr-FR");
+}

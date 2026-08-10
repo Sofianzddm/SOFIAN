@@ -301,6 +301,9 @@ export const config = {
     "/talents/:path*",
     "/negociations",
     "/negociations/:path*",
+    // Simulateur EMV (outil interne TM)
+    "/simulateur-emv",
+    "/simulateur-emv/:path*",
     // Module Confirmations talent (interne)
     "/confirmations",
     "/confirmations/:path*",

@@ -21,6 +21,7 @@ import {
   type EmvConfig,
   resolveEmvConfig,
   computeEmvTotals,
+  roundEmv,
 } from "@/lib/emv";
 
 export type CastingMember = {
@@ -168,13 +169,6 @@ function money(n: number | null | undefined, currency: string): string {
   }).format(n || 0);
 }
 
-// Arrondit l'EMV à une valeur "ronde" et vendeuse (≈ 5 000 € plutôt que 4 965 €).
-function roundEmv(n: number): number {
-  if (!n || n <= 0) return 0;
-  if (n >= 10_000) return Math.round(n / 500) * 500;
-  if (n >= 1_000) return Math.round(n / 100) * 100;
-  return Math.round(n / 10) * 10;
-}
 
 function Reveal({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   const animate = useContext(AnimateContext);

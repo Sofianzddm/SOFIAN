@@ -33,6 +33,7 @@ import {
   Sparkles,
   Link2,
   CalendarDays,
+  Gauge,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -161,6 +162,12 @@ const menuItems = [
     label: "Négociations",
     href: "/negociations",
     icon: TrendingUp,
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"],
+  },
+  {
+    label: "Simulateur EMV",
+    href: "/simulateur-emv",
+    icon: Gauge,
     roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"],
   },
   {

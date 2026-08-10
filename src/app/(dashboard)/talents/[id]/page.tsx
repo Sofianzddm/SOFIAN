@@ -37,6 +37,7 @@ import {
   X,
   Send,
   RefreshCw,
+  Gauge,
 } from "lucide-react";
 import { formatPercent } from "@/lib/format";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
@@ -774,6 +775,13 @@ export default function TalentDetailPage() {
               title="Ouvrir la Grille Tarifaire publique dans un nouvel onglet"
             >
               <Euro className="w-5 h-5" />
+            </Link>
+            <Link
+              href={`/simulateur-emv?talent=${talent.id}`}
+              className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+              title="Simulateur EMV — comparer tarif et media value"
+            >
+              <Gauge className="w-5 h-5" />
             </Link>
             {canUploadPhoto && (
               <button
