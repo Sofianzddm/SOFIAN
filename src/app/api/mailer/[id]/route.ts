@@ -27,7 +27,7 @@ const UpdateMailInput = z.object({
   bodyHtml: z.string().trim().min(1).optional(),
   stopOnReply: z.boolean().optional(),
   scheduledAt: z.string().datetime().optional().nullable(),
-  followups: z.array(FollowupInput).max(5).optional(),
+  followups: z.array(FollowupInput).max(10).optional(),
 });
 
 export async function GET(

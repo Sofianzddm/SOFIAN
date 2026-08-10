@@ -24,6 +24,7 @@ import {
   BookmarkPlus,
   Search,
   UserPlus,
+  MessageSquarePlus,
 } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
 
@@ -171,6 +172,16 @@ export default function MailerClient() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [composerKey, setComposerKey] = useState(() => newUid());
   const [submitting, setSubmitting] = useState(false);
+
+  // ─── Sélection liste + ajout de relance sur mails déjà envoyés ───
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [addFollowupOpen, setAddFollowupOpen] = useState(false);
+  const [addFuSubject, setAddFuSubject] = useState("");
+  const [addFuBody, setAddFuBody] = useState(DEFAULT_FOLLOWUP_BODY);
+  const [addFuDelay, setAddFuDelay] = useState(3);
+  const [addFuSendNow, setAddFuSendNow] = useState(true);
+  const [addFuEditorKey, setAddFuEditorKey] = useState(() => newUid());
+  const [addingFollowup, setAddingFollowup] = useState(false);
 
   // ─── Recherche de contacts CRM (FR / BENELUX) ───
   const [contactMarket, setContactMarket] = useState<"FR" | "BENELUX">("FR");
@@ -580,8 +591,106 @@ export default function MailerClient() {
       toast.error("Erreur lors de la suppression.");
     } else {
       toast.success("Mail supprimé.");
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
     loadMails();
+  }
+
+  const selectedSentMails = useMemo(
+    () => mails.filter((m) => selectedIds.has(m.id) && m.status === "SENT"),
+    [mails, selectedIds]
+  );
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllSent() {
+    const sent = mails.filter((m) => m.status === "SENT");
+    const allSelected =
+      sent.length > 0 && sent.every((m) => selectedIds.has(m.id));
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(sent.map((m) => m.id)));
+    }
+  }
+
+  function openAddFollowupModal() {
+    if (selectedSentMails.length === 0) {
+      toast.error("Sélectionne au moins un mail déjà envoyé.");
+      return;
+    }
+    setAddFuSubject("");
+    setAddFuBody(DEFAULT_FOLLOWUP_BODY);
+    setAddFuDelay(3);
+    setAddFuSendNow(true);
+    setAddFuEditorKey(newUid());
+    setAddFollowupOpen(true);
+  }
+
+  async function submitAddFollowup() {
+    if (selectedSentMails.length === 0) return;
+    if (!addFuBody.replace(/<[^>]*>/g, "").trim()) {
+      toast.error("Rédige le corps de la relance.");
+      return;
+    }
+    setAddingFollowup(true);
+    try {
+      const res = await fetch("/api/mailer/add-followup", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mailIds: selectedSentMails.map((m) => m.id),
+          subject: addFuSubject.trim() || null,
+          bodyHtml: addFuBody,
+          delayBusinessDays: addFuDelay,
+          sendNow: addFuSendNow,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        ok?: number;
+        failed?: { id: string; email?: string; error: string }[];
+      };
+      if (!res.ok) {
+        toast.error(json.error || "Impossible d'ajouter la relance.");
+        return;
+      }
+      const ok = json.ok || 0;
+      const failed = json.failed || [];
+      if (failed.length === 0) {
+        toast.success(
+          addFuSendNow
+            ? `Relance envoyée à ${ok} destinataire${ok > 1 ? "s" : ""} ✉️`
+            : `Relance programmée pour ${ok} mail${ok > 1 ? "s" : ""} ⏰`
+        );
+      } else {
+        toast.warning(
+          `${ok} OK · ${failed.length} échec(s) : ${failed
+            .slice(0, 3)
+            .map((f) => f.email || f.error)
+            .join(", ")}`
+        );
+      }
+      setAddFollowupOpen(false);
+      setSelectedIds(new Set());
+      loadMails();
+    } catch {
+      toast.error("Erreur réseau.");
+    } finally {
+      setAddingFollowup(false);
+    }
   }
 
   const minDateTime = useMemo(() => {
@@ -998,7 +1107,7 @@ export default function MailerClient() {
               <button
                 type="button"
                 onClick={addFollowup}
-                disabled={followups.length >= 5}
+                disabled={followups.length >= 10}
                 className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-40"
                 style={{ borderColor: OLD_ROSE, color: LICORICE }}
               >
@@ -1145,19 +1254,230 @@ export default function MailerClient() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {mails.map((m) => (
-                <MailRow
-                  key={m.id}
-                  mail={m}
-                  onSendNow={sendNow}
-                  onCancelScheduled={cancelScheduled}
-                  onCancelFollowups={cancelFollowups}
-                  onDelete={remove}
-                />
-              ))}
-            </div>
+            <>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleSelectAllSent}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-medium"
+                  style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                >
+                  {mails.filter((m) => m.status === "SENT").every((m) => selectedIds.has(m.id)) &&
+                  mails.some((m) => m.status === "SENT")
+                    ? "Tout désélectionner"
+                    : "Sélectionner les envoyés"}
+                </button>
+                {selectedSentMails.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={openAddFollowupModal}
+                    className="inline-flex items-center gap-1.5 rounded-xl px-4 py-1.5 text-sm font-semibold"
+                    style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                  >
+                    <MessageSquarePlus className="h-4 w-4" />
+                    Ajouter une relance ({selectedSentMails.length})
+                  </button>
+                )}
+                {selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(new Set())}
+                    className="text-xs text-slate-500 underline"
+                  >
+                    Effacer la sélection
+                  </button>
+                )}
+              </div>
+              <div className="space-y-3">
+                {mails.map((m) => (
+                  <MailRow
+                    key={m.id}
+                    mail={m}
+                    selected={selectedIds.has(m.id)}
+                    onToggleSelect={() => toggleSelect(m.id)}
+                    onSendNow={sendNow}
+                    onCancelScheduled={cancelScheduled}
+                    onCancelFollowups={cancelFollowups}
+                    onDelete={remove}
+                    onAddFollowup={() => {
+                      setSelectedIds(new Set([m.id]));
+                      setAddFuSubject("");
+                      setAddFuBody(DEFAULT_FOLLOWUP_BODY);
+                      setAddFuDelay(3);
+                      setAddFuSendNow(true);
+                      setAddFuEditorKey(newUid());
+                      setAddFollowupOpen(true);
+                    }}
+                  />
+                ))}
+              </div>
+            </>
           )}
+        </div>
+      )}
+
+      {/* Modal : ajouter une relance sur la sélection */}
+      {addFollowupOpen && (
+        <div className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-black/45 p-4">
+          <div
+            className="my-6 w-full max-w-2xl rounded-2xl border bg-white shadow-xl"
+            style={{ borderColor: "#E8DED0" }}
+          >
+            <div
+              className="flex items-start justify-between gap-3 border-b px-5 py-4"
+              style={{
+                borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                backgroundColor: OLD_LACE,
+              }}
+            >
+              <div>
+                <h2
+                  className="text-lg font-semibold"
+                  style={{ fontFamily: "Spectral, serif", color: LICORICE }}
+                >
+                  Nouvelle relance — {selectedSentMails.length} mail
+                  {selectedSentMails.length > 1 ? "s" : ""}
+                </h2>
+                <p className="mt-1 text-xs text-slate-600">
+                  Même si une relance a déjà été envoyée, tu peux en ajouter une autre.
+                  Tu rédiges le contenu, puis tu choisis envoi immédiat ou programmation.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !addingFollowup && setAddFollowupOpen(false)}
+                className="rounded-lg p-1.5 hover:bg-black/5"
+                disabled={addingFollowup}
+              >
+                <X className="h-5 w-5" style={{ color: LICORICE }} />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="flex flex-wrap gap-1.5">
+                {selectedSentMails.slice(0, 12).map((m) => (
+                  <span
+                    key={m.id}
+                    className="inline-flex items-center rounded-full px-2.5 py-1 text-xs"
+                    style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                    title={m.subject}
+                  >
+                    {m.toName || m.toEmail}
+                    {m.followups.some((f) => f.status === "SENT") ? " · déjà relancé" : ""}
+                  </span>
+                ))}
+                {selectedSentMails.length > 12 && (
+                  <span className="text-xs text-slate-500">
+                    +{selectedSentMails.length - 12}
+                  </span>
+                )}
+              </div>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Sujet (optionnel)
+                </span>
+                <input
+                  value={addFuSubject}
+                  onChange={(e) => setAddFuSubject(e.target.value)}
+                  placeholder="Par défaut : Re: sujet initial"
+                  disabled={addingFollowup}
+                  className="w-full rounded-xl border px-3 py-2 text-sm"
+                  style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                />
+              </label>
+
+              <div>
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Message de relance
+                </span>
+                <RichEmailEditor
+                  key={`add-fu-${addFuEditorKey}`}
+                  initialHtml={addFuBody}
+                  onChangeHtml={setAddFuBody}
+                  minHeight={160}
+                  placeholder="Texte de la relance…"
+                />
+                <p className="mt-1.5 text-xs text-slate-400">
+                  Jeton{" "}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]">
+                    {"{{prenom}}"}
+                  </code>{" "}
+                  disponible.
+                </p>
+              </div>
+
+              <div
+                className="rounded-xl border p-3 space-y-3"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 30%, transparent)` }}
+              >
+                <label className="flex items-center gap-2 text-sm" style={{ color: LICORICE }}>
+                  <input
+                    type="radio"
+                    checked={addFuSendNow}
+                    onChange={() => setAddFuSendNow(true)}
+                    disabled={addingFollowup}
+                  />
+                  Envoyer maintenant
+                </label>
+                <label className="flex items-center gap-2 text-sm" style={{ color: LICORICE }}>
+                  <input
+                    type="radio"
+                    checked={!addFuSendNow}
+                    onChange={() => setAddFuSendNow(false)}
+                    disabled={addingFollowup}
+                  />
+                  Programmer dans
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={addFuDelay}
+                    disabled={addingFollowup || addFuSendNow}
+                    onChange={(e) =>
+                      setAddFuDelay(Math.max(1, Number(e.target.value) || 1))
+                    }
+                    className="w-16 rounded-lg border px-2 py-1 text-sm disabled:opacity-50"
+                    style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+                  />
+                  j ouvrés après la dernière étape
+                </label>
+              </div>
+            </div>
+
+            <div
+              className="flex items-center justify-end gap-2 border-t px-5 py-3"
+              style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+            >
+              <button
+                type="button"
+                onClick={() => setAddFollowupOpen(false)}
+                disabled={addingFollowup}
+                className="rounded-xl px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
+                style={{ color: LICORICE }}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitAddFollowup()}
+                disabled={addingFollowup}
+                className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+              >
+                {addingFollowup ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : addFuSendNow ? (
+                  <Send className="h-4 w-4" />
+                ) : (
+                  <Clock className="h-4 w-4" />
+                )}
+                {addFuSendNow
+                  ? `Envoyer à ${selectedSentMails.length}`
+                  : `Programmer pour ${selectedSentMails.length}`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1166,28 +1486,52 @@ export default function MailerClient() {
 
 function MailRow({
   mail,
+  selected,
+  onToggleSelect,
   onSendNow,
   onCancelScheduled,
   onCancelFollowups,
   onDelete,
+  onAddFollowup,
 }: {
   mail: AdminMail;
+  selected: boolean;
+  onToggleSelect: () => void;
   onSendNow: (id: string, force?: boolean) => void;
   onCancelScheduled: (id: string) => void;
   onCancelFollowups: (id: string) => void;
   onDelete: (id: string) => void;
+  onAddFollowup: () => void;
 }) {
   const meta = STATUS_META[mail.status] || STATUS_META.DRAFT;
   const StatusIcon = meta.icon;
   const pendingFollowups = mail.followups.filter((f) => f.status === "PENDING");
+  const canAddFollowup = mail.status === "SENT" && mail.followups.length < 10;
 
   return (
     <div
       className="rounded-2xl border bg-white p-5"
-      style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)` }}
+      style={{
+        borderColor: selected
+          ? TEA_GREEN
+          : `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`,
+        boxShadow: selected ? `0 0 0 1px ${TEA_GREEN}` : undefined,
+      }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 gap-3">
+          {mail.status === "SENT" && (
+            <label className="mt-1 shrink-0 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={onToggleSelect}
+                className="h-4 w-4 rounded"
+                title="Sélectionner pour ajouter une relance"
+              />
+            </label>
+          )}
+          <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span
               className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold"
@@ -1248,6 +1592,7 @@ function MailRow({
               ⏳ {mail.holdReason}
             </p>
           )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1282,6 +1627,17 @@ function MailRow({
               style={{ borderColor: OLD_ROSE, color: LICORICE }}
             >
               <Ban className="h-3.5 w-3.5" /> Annuler
+            </button>
+          )}
+          {canAddFollowup && (
+            <button
+              type="button"
+              onClick={onAddFollowup}
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium"
+              style={{ borderColor: OLD_ROSE, color: LICORICE }}
+              title="Ajouter une relance (même si une a déjà été envoyée)"
+            >
+              <MessageSquarePlus className="h-3.5 w-3.5" /> Relancer
             </button>
           )}
           {mail.status === "SENT" && pendingFollowups.length > 0 && (

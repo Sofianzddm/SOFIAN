@@ -36,7 +36,7 @@ const CreateMailInput = z.object({
   action: z.enum(["draft", "schedule", "send"]).default("draft"),
   scheduledAt: z.string().datetime().optional().nullable(),
   stopOnReply: z.boolean().default(true),
-  followups: z.array(FollowupInput).max(5).default([]),
+  followups: z.array(FollowupInput).max(10).default([]),
 });
 
 export async function GET(request: NextRequest) {

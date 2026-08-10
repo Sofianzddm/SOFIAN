@@ -137,7 +137,7 @@ function formatFrDate(date: Date): string {
  * partir de son `anchor` (date d'envoi initiale), en cumulant les jours ouvrés.
  * Un décalage anti-robot stable est ajouté à chaque échéance.
  */
-async function scheduleFollowups(
+export async function scheduleFollowups(
   mailId: string,
   anchor: Date,
   followups: { id: string; status: string; delayBusinessDays: number }[]
@@ -266,7 +266,7 @@ type FollowupRow = {
 };
 
 /** Envoie une relance en réponse dans le fil du mail initial. */
-async function executeFollowupSend(
+export async function executeFollowupSend(
   mail: MailWithFollowups,
   followup: FollowupRow
 ): Promise<SendResult> {
@@ -407,4 +407,120 @@ export async function processMailFollowups(limit = 50) {
   }
 
   return { processed: mails.length, results };
+}
+
+const MAX_FOLLOWUPS_PER_MAIL = 10;
+
+/**
+ * Ajoute une relance supplémentaire à des mails déjà envoyés — même s'ils
+ * ont déjà une (ou plusieurs) relances SENT. Utile depuis le rédacteur admin
+ * pour relancer une sélection de destinataires avec un contenu libre.
+ *
+ * - `sendNow: true` → envoi immédiat dans le thread
+ * - sinon → programmation à N jours ouvrés après la dernière étape (mail
+ *   initial ou dernière relance envoyée)
+ */
+export async function addFollowupToMails(params: {
+  mailIds: string[];
+  delayBusinessDays: number;
+  subject?: string | null;
+  bodyHtml: string;
+  sendNow?: boolean;
+}): Promise<{
+  ok: number;
+  failed: { id: string; email?: string; error: string }[];
+}> {
+  const bodyHtml = (params.bodyHtml || "").trim();
+  if (!bodyHtml) {
+    return { ok: 0, failed: params.mailIds.map((id) => ({ id, error: "Corps de relance vide." })) };
+  }
+  const delay = Math.max(1, Math.min(60, params.delayBusinessDays || 3));
+  const subject = params.subject?.trim() || null;
+  const failed: { id: string; email?: string; error: string }[] = [];
+  let ok = 0;
+
+  for (const mailId of params.mailIds) {
+    try {
+      const mail = await prisma.adminMail.findUnique({
+        where: { id: mailId },
+        include: { followups: { orderBy: { order: "asc" } } },
+      });
+      if (!mail) {
+        failed.push({ id: mailId, error: "Mail introuvable." });
+        continue;
+      }
+      if (mail.status !== "SENT" || !mail.sentAt) {
+        failed.push({
+          id: mailId,
+          email: mail.toEmail,
+          error: "Le mail initial n'a pas encore été envoyé.",
+        });
+        continue;
+      }
+      if (!mail.threadId) {
+        failed.push({
+          id: mailId,
+          email: mail.toEmail,
+          error: "Thread Gmail introuvable — impossible de relancer.",
+        });
+        continue;
+      }
+      if (mail.followups.length >= MAX_FOLLOWUPS_PER_MAIL) {
+        failed.push({
+          id: mailId,
+          email: mail.toEmail,
+          error: `Limite de ${MAX_FOLLOWUPS_PER_MAIL} relances atteinte.`,
+        });
+        continue;
+      }
+
+      const nextOrder =
+        mail.followups.reduce((max, f) => Math.max(max, f.order), 0) + 1;
+
+      const created = await prisma.adminMailFollowup.create({
+        data: {
+          mailId,
+          order: nextOrder,
+          delayBusinessDays: delay,
+          subject,
+          bodyHtml,
+          status: "PENDING",
+        },
+      });
+
+      if (params.sendNow) {
+        const result = await executeFollowupSend(mail, created);
+        if (!result.ok) {
+          failed.push({
+            id: mailId,
+            email: mail.toEmail,
+            error: result.error || "Échec d'envoi de la relance.",
+          });
+          continue;
+        }
+      } else {
+        // Ancre = dernière relance envoyée, sinon l'envoi initial.
+        const lastSent = [...mail.followups]
+          .filter((f) => f.status === "SENT" && f.sentAt)
+          .sort((a, b) => a.order - b.order)
+          .at(-1);
+        const anchor = lastSent?.sentAt || mail.sentAt;
+        await scheduleFollowups(mailId, anchor, [
+          {
+            id: created.id,
+            status: "PENDING",
+            delayBusinessDays: delay,
+          },
+        ]);
+      }
+      ok += 1;
+    } catch (error) {
+      failed.push({
+        id: mailId,
+        error: error instanceof Error ? error.message : "Erreur inconnue",
+      });
+    }
+  }
+
+  return { ok, failed };
 }
