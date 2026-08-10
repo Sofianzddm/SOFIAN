@@ -469,8 +469,12 @@ type RelancePreview = {
   subject: string;
   body: string;
   recipients: { email: string; firstname: string; lastname: string }[];
+  /** Emails cochés pour l'envoi (sous-ensemble de recipients). */
+  selectedEmails: string[];
   /** Contacts exclus (ont répondu / adresse en bounce) — pas de relance pour eux. */
   skipped: { email: string; firstname: string; lastname: string; reason: "replied" | "bounced" }[];
+  /** 1 = première relance, 2 = relance suivante (après R1). */
+  round: 1 | 2;
 };
 
 export default function PipelineMailsEnvoyesPage() {
@@ -507,17 +511,27 @@ export default function PipelineMailsEnvoyesPage() {
         bodyTemplate: string;
         recipients: { email: string; firstname: string; lastname: string; body: string }[];
         skipped?: { email: string; firstname: string; lastname: string; reason: "replied" | "bounced" }[];
+        round?: 1 | 2;
       };
+      const recipients = draft.recipients.map((r) => ({
+        email: r.email,
+        firstname: r.firstname,
+        lastname: r.lastname,
+      }));
+      const round: 1 | 2 =
+        draft.round === 1 || draft.round === 2
+          ? draft.round
+          : json.round === 2 || mail.relanceSentAt
+            ? 2
+            : 1;
       setRelancePreview({
         mission: mail,
         subject: draft.subject,
         body: draft.bodyTemplate,
-        recipients: draft.recipients.map((r) => ({
-          email: r.email,
-          firstname: r.firstname,
-          lastname: r.lastname,
-        })),
+        recipients,
+        selectedEmails: recipients.map((r) => r.email),
         skipped: Array.isArray(draft.skipped) ? draft.skipped : [],
+        round,
       });
     } catch (e) {
       setFeedback({
@@ -527,6 +541,29 @@ export default function PipelineMailsEnvoyesPage() {
     } finally {
       setPreviewLoadingId(null);
     }
+  }
+
+  function toggleRelanceRecipient(email: string) {
+    setRelancePreview((prev) => {
+      if (!prev) return prev;
+      const has = prev.selectedEmails.includes(email);
+      return {
+        ...prev,
+        selectedEmails: has
+          ? prev.selectedEmails.filter((e) => e !== email)
+          : [...prev.selectedEmails, email],
+      };
+    });
+  }
+
+  function toggleAllRelanceRecipients(selectAll: boolean) {
+    setRelancePreview((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        selectedEmails: selectAll ? prev.recipients.map((r) => r.email) : [],
+      };
+    });
   }
 
   async function sendRelanceNow() {
@@ -541,13 +578,26 @@ export default function PipelineMailsEnvoyesPage() {
       });
       return;
     }
+    if (relancePreview.selectedEmails.length === 0) {
+      setFeedback({
+        kind: "error",
+        message: "Sélectionne au moins un destinataire pour la relance.",
+      });
+      return;
+    }
     const skippedNote =
       relancePreview.skipped.length > 0
         ? `\n(${relancePreview.skipped.length} contact${relancePreview.skipped.length > 1 ? "s" : ""} exclu${relancePreview.skipped.length > 1 ? "s" : ""} : déjà répondu ou adresse en échec)`
         : "";
+    const roundLabel =
+      relancePreview.round === 2
+        ? relancePreview.mission.relance2SentAt
+          ? "une nouvelle relance (R2 déjà envoyée — renvoi)"
+          : "la relance 2"
+        : "la relance";
     if (
       !confirm(
-        `Envoyer la relance maintenant à ${relancePreview.recipients.length} destinataire(s) ?${skippedNote}`
+        `Envoyer ${roundLabel} maintenant à ${relancePreview.selectedEmails.length} destinataire(s) sélectionné(s) ?${skippedNote}`
       )
     )
       return;
@@ -564,6 +614,8 @@ export default function PipelineMailsEnvoyesPage() {
           body: JSON.stringify({
             subject: relancePreview.subject,
             body: relancePreview.body,
+            round: relancePreview.round,
+            includeEmails: relancePreview.selectedEmails,
           }),
         }
       );
@@ -576,24 +628,25 @@ export default function PipelineMailsEnvoyesPage() {
       const okCount = json.outcome?.succeeded ?? 0;
       const attempts = json.outcome?.attempted ?? 0;
       const failures: string[] = json.outcome?.errors ?? [];
+      const sentRound: 1 | 2 = json.round === 2 ? 2 : relancePreview.round;
 
       const nowIso = new Date().toISOString();
+      const patch =
+        sentRound === 2
+          ? { relance2SentAt: nowIso, relanceCancelledAt: null as string | null }
+          : { relanceSentAt: nowIso, relanceCancelledAt: null as string | null };
       setData((prev) =>
         prev
           ? {
               ...prev,
               mails: prev.mails.map((m) =>
-                m.id === relancePreview.mission.id
-                  ? { ...m, relanceSentAt: nowIso, relanceCancelledAt: null }
-                  : m
+                m.id === relancePreview.mission.id ? { ...m, ...patch } : m
               ),
             }
           : prev
       );
       setOpenMail((prev) =>
-        prev && prev.id === relancePreview.mission.id
-          ? { ...prev, relanceSentAt: nowIso, relanceCancelledAt: null }
-          : prev
+        prev && prev.id === relancePreview.mission.id ? { ...prev, ...patch } : prev
       );
       setRelancePreview(null);
 
@@ -609,7 +662,7 @@ export default function PipelineMailsEnvoyesPage() {
       } else {
         setFeedback({
           kind: "success",
-          message: `✓ Relance envoyée à ${okCount}/${attempts} destinataire(s) pour ${relancePreview.mission.targetBrand}.`,
+          message: `✓ Relance${sentRound === 2 ? " 2" : ""} envoyée à ${okCount}/${attempts} destinataire(s) pour ${relancePreview.mission.targetBrand}.`,
         });
       }
     } catch (e) {
@@ -970,50 +1023,56 @@ export default function PipelineMailsEnvoyesPage() {
                         <Mail className="h-3.5 w-3.5" />
                         Voir le mail
                       </button>
-                      {canManageRelance && (!m.relanceSentAt || !m.relance2SentAt) && (
+                      {canManageRelance && (
                         <>
-                          {!m.relanceSentAt && (
-                            <button
-                              type="button"
-                              disabled={previewLoadingId === m.id}
-                              onClick={() => void openRelancePreview(m)}
-                              className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100 disabled:opacity-50"
-                              title="Prévisualiser et envoyer la relance immédiatement"
-                            >
-                              {previewLoadingId === m.id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Send className="h-3.5 w-3.5" />
-                              )}
-                              Relancer maintenant
-                            </button>
-                          )}
-                          {m.relanceCancelledAt ? (
-                            <button
-                              type="button"
-                              disabled={togglingId === m.id}
-                              onClick={() => void toggleRelance(m, "resume")}
-                              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
-                              title="Réactiver les relances automatiques (J+3 puis relance 2 à J+10)"
-                            >
-                              <BellRing className="h-3.5 w-3.5" />
-                              Réactiver auto
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={togglingId === m.id}
-                              onClick={() => void toggleRelance(m, "cancel")}
-                              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-                              title={
-                                m.relanceSentAt
-                                  ? "Stopper la relance 2 automatique (J+10 après la relance J+3)"
-                                  : "Stopper les relances automatiques (J+3 puis relance 2 à J+10)"
-                              }
-                            >
-                              <BellOff className="h-3.5 w-3.5" />
-                              Stopper auto
-                            </button>
+                          <button
+                            type="button"
+                            disabled={previewLoadingId === m.id}
+                            onClick={() => void openRelancePreview(m)}
+                            className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                            title={
+                              m.relance2SentAt
+                                ? "Renvoyer une relance (R1 et R2 déjà envoyées) — tu choisis les destinataires"
+                                : m.relanceSentAt
+                                  ? "Envoyer la relance 2 maintenant — tu choisis les destinataires"
+                                  : "Prévisualiser et envoyer la relance immédiatement — tu choisis les destinataires"
+                            }
+                          >
+                            {previewLoadingId === m.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Send className="h-3.5 w-3.5" />
+                            )}
+                            {m.relanceSentAt ? "Relancer encore" : "Relancer maintenant"}
+                          </button>
+                          {(!m.relanceSentAt || !m.relance2SentAt) && (
+                            m.relanceCancelledAt ? (
+                              <button
+                                type="button"
+                                disabled={togglingId === m.id}
+                                onClick={() => void toggleRelance(m, "resume")}
+                                className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                                title="Réactiver les relances automatiques (J+3 puis relance 2 à J+10)"
+                              >
+                                <BellRing className="h-3.5 w-3.5" />
+                                Réactiver auto
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={togglingId === m.id}
+                                onClick={() => void toggleRelance(m, "cancel")}
+                                className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                                title={
+                                  m.relanceSentAt
+                                    ? "Stopper la relance 2 automatique (J+10 après la relance J+3)"
+                                    : "Stopper les relances automatiques (J+3 puis relance 2 à J+10)"
+                                }
+                              >
+                                <BellOff className="h-3.5 w-3.5" />
+                                Stopper auto
+                              </button>
+                            )
                           )}
                         </>
                       )}
@@ -1123,45 +1182,50 @@ export default function PipelineMailsEnvoyesPage() {
 
               <RelanceTimeline mail={openMail} />
 
-              {canManageRelance && (!openMail.relanceSentAt || !openMail.relance2SentAt) ? (
+              {canManageRelance ? (
                 <div className="flex flex-wrap justify-end gap-2">
-                  {!openMail.relanceSentAt && (
-                    <button
-                      type="button"
-                      disabled={previewLoadingId === openMail.id}
-                      onClick={() => void openRelancePreview(openMail)}
-                      className="inline-flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
-                    >
-                      {previewLoadingId === openMail.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Send className="h-3.5 w-3.5" />
-                      )}
-                      Relancer maintenant
-                    </button>
-                  )}
-                  {openMail.relanceCancelledAt ? (
-                    <button
-                      type="button"
-                      disabled={togglingId === openMail.id}
-                      onClick={() => void toggleRelance(openMail, "resume")}
-                      className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
-                    >
-                      <BellRing className="h-3.5 w-3.5" />
-                      Réactiver les relances auto
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={togglingId === openMail.id}
-                      onClick={() => void toggleRelance(openMail, "cancel")}
-                      className="inline-flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-                    >
-                      <BellOff className="h-3.5 w-3.5" />
-                      {openMail.relanceSentAt
-                        ? "Stopper la relance 2 auto"
-                        : "Stopper les relances auto"}
-                    </button>
+                  <button
+                    type="button"
+                    disabled={previewLoadingId === openMail.id}
+                    onClick={() => void openRelancePreview(openMail)}
+                    className="inline-flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                    title={
+                      openMail.relanceSentAt
+                        ? "Envoyer une autre relance — tu choisis les destinataires"
+                        : "Prévisualiser et envoyer la relance immédiatement"
+                    }
+                  >
+                    {previewLoadingId === openMail.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" />
+                    )}
+                    {openMail.relanceSentAt ? "Relancer encore" : "Relancer maintenant"}
+                  </button>
+                  {(!openMail.relanceSentAt || !openMail.relance2SentAt) && (
+                    openMail.relanceCancelledAt ? (
+                      <button
+                        type="button"
+                        disabled={togglingId === openMail.id}
+                        onClick={() => void toggleRelance(openMail, "resume")}
+                        className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        <BellRing className="h-3.5 w-3.5" />
+                        Réactiver les relances auto
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={togglingId === openMail.id}
+                        onClick={() => void toggleRelance(openMail, "cancel")}
+                        className="inline-flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        <BellOff className="h-3.5 w-3.5" />
+                        {openMail.relanceSentAt
+                          ? "Stopper la relance 2 auto"
+                          : "Stopper les relances auto"}
+                      </button>
+                    )
                   )}
                 </div>
               ) : null}
@@ -1272,13 +1336,20 @@ export default function PipelineMailsEnvoyesPage() {
             <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-4">
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wide text-sky-700">
-                  Relance manuelle — envoi immédiat
+                  {relancePreview.round === 2
+                    ? relancePreview.mission.relance2SentAt
+                      ? "Relance manuelle (renvoi) — envoi immédiat"
+                      : "Relance 2 manuelle — envoi immédiat"
+                    : "Relance manuelle — envoi immédiat"}
                 </p>
                 <h2 className="mt-1 truncate text-lg font-semibold text-slate-900">
                   {relancePreview.mission.targetBrand}
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
                   Réponse au même thread Gmail, depuis leyna@glowupagence.fr
+                  {relancePreview.mission.relanceSentAt
+                    ? ` · R1 déjà envoyée le ${formatDate(relancePreview.mission.relanceSentAt)}`
+                    : ""}
                 </p>
               </div>
               <button
@@ -1294,9 +1365,31 @@ export default function PipelineMailsEnvoyesPage() {
 
             <div className="space-y-3 p-4">
               <div>
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Destinataires ({relancePreview.recipients.length})
-                </p>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Destinataires ({relancePreview.selectedEmails.length}/
+                    {relancePreview.recipients.length} sélectionné
+                    {relancePreview.selectedEmails.length > 1 ? "s" : ""})
+                  </p>
+                  {relancePreview.recipients.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={sendingRelance}
+                      onClick={() =>
+                        toggleAllRelanceRecipients(
+                          relancePreview.selectedEmails.length <
+                            relancePreview.recipients.length
+                        )
+                      }
+                      className="text-[11px] font-medium text-sky-700 hover:underline disabled:opacity-50"
+                    >
+                      {relancePreview.selectedEmails.length <
+                      relancePreview.recipients.length
+                        ? "Tout sélectionner"
+                        : "Tout désélectionner"}
+                    </button>
+                  )}
+                </div>
                 {relancePreview.recipients.length === 0 ? (
                   <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
                     {relancePreview.skipped.length > 0
@@ -1305,12 +1398,26 @@ export default function PipelineMailsEnvoyesPage() {
                   </p>
                 ) : (
                   <ul className="space-y-1 rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700">
-                    {relancePreview.recipients.map((r) => (
-                      <li key={r.email}>
-                        <strong>{r.firstname}</strong>
-                        {r.lastname ? ` ${r.lastname}` : ""} — {r.email}
-                      </li>
-                    ))}
+                    {relancePreview.recipients.map((r) => {
+                      const checked = relancePreview.selectedEmails.includes(r.email);
+                      return (
+                        <li key={r.email}>
+                          <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={sendingRelance}
+                              onChange={() => toggleRelanceRecipient(r.email)}
+                              className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                            />
+                            <span>
+                              <strong>{r.firstname}</strong>
+                              {r.lastname ? ` ${r.lastname}` : ""} — {r.email}
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
                 {relancePreview.skipped.length > 0 && (
@@ -1370,13 +1477,16 @@ export default function PipelineMailsEnvoyesPage() {
 
               <div>
                 <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Aperçu (1er destinataire)
+                  Aperçu (1er destinataire sélectionné)
                 </p>
                 <div
                   className="prose prose-sm max-w-none rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-800"
                   dangerouslySetInnerHTML={{
                     __html: (() => {
-                      const r = relancePreview.recipients[0];
+                      const r =
+                        relancePreview.recipients.find((x) =>
+                          relancePreview.selectedEmails.includes(x.email)
+                        ) || relancePreview.recipients[0];
                       if (!r) return relancePreview.body;
                       return relancePreview.body
                         .replace(/\{\{\s*contact\.firstname\s*\}\}/gi, r.firstname || "—")
@@ -1412,7 +1522,7 @@ export default function PipelineMailsEnvoyesPage() {
                 <button
                   type="button"
                   onClick={() => void sendRelanceNow()}
-                  disabled={sendingRelance || relancePreview.recipients.length === 0}
+                  disabled={sendingRelance || relancePreview.selectedEmails.length === 0}
                   className="inline-flex items-center gap-2 rounded-md bg-sky-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
                 >
                   {sendingRelance ? (
@@ -1420,7 +1530,8 @@ export default function PipelineMailsEnvoyesPage() {
                   ) : (
                     <Send className="h-3.5 w-3.5" />
                   )}
-                  Envoyer la relance maintenant
+                  Envoyer à {relancePreview.selectedEmails.length} destinataire
+                  {relancePreview.selectedEmails.length > 1 ? "s" : ""}
                 </button>
               </div>
             </div>

@@ -8,6 +8,9 @@ import {
 
 // GET  → prévisualisation (sujet + corps + destinataires) sans envoi
 // POST → envoie la relance immédiatement (avec sujet/corps optionnels)
+//
+// Relance manuelle : possible même si une 1ʳᵉ relance a déjà été envoyée
+// (round 2 « valeur ajoutée »). On peut aussi renvoyer après R2 (force).
 
 const ALLOWED_ROLES = [
   "STRATEGY_PLANNER",
@@ -36,6 +39,7 @@ async function loadMission(id: string) {
       sentAt: true,
       replied: true,
       relanceSentAt: true,
+      relance2SentAt: true,
       relanceCancelledAt: true,
       targetBrand: true,
       draftEmailSubject: true,
@@ -45,19 +49,21 @@ async function loadMission(id: string) {
 
 function preflight(mission: {
   sentAt: Date | null;
-  replied: boolean;
-  relanceSentAt: Date | null;
 } | null) {
   if (!mission) return { error: "Mission introuvable.", status: 404 };
   if (!mission.sentAt)
     return { error: "Le mail initial n'a pas encore été envoyé.", status: 409 };
-  // NB : la relance manuelle reste possible même si `mission.replied` est vrai :
-  // la détection se fait PAR CONTACT (buildCastingRelanceDraft +
-  // executeCastingRelance excluent automatiquement les contacts qui ont
-  // répondu). Seuls ceux restés sans réponse recevront la relance.
-  if (mission.relanceSentAt)
-    return { error: "Une relance a déjà été envoyée.", status: 409 };
+  // NB : la relance manuelle reste possible même si une relance a déjà été
+  // envoyée (R1 → R2, ou renvoi manuel après R2). La détection se fait PAR
+  // CONTACT (buildCastingRelanceDraft + executeCastingRelance excluent
+  // automatiquement les contacts qui ont répondu).
   return null;
+}
+
+function resolveRound(mission: {
+  relanceSentAt: Date | null;
+}): 1 | 2 {
+  return mission.relanceSentAt ? 2 : 1;
 }
 
 export async function GET(
@@ -75,8 +81,9 @@ export async function GET(
     const err = preflight(mission);
     if (err) return NextResponse.json({ error: err.error }, { status: err.status });
 
-    const draft = await buildCastingRelanceDraft(id);
-    return NextResponse.json({ draft, mission });
+    const round = resolveRound(mission!);
+    const draft = await buildCastingRelanceDraft(id, { round });
+    return NextResponse.json({ draft, mission, round });
   } catch (error) {
     console.error("GET /api/strategy/contact-missions/[id]/relance-now:", error);
     return NextResponse.json(
@@ -104,11 +111,30 @@ export async function POST(
     const body = (await request.json().catch(() => ({}))) as {
       subject?: string;
       body?: string;
+      round?: 1 | 2;
+      /** Destinataires cochés côté UI ; si omis → tous les contacts éligibles. */
+      includeEmails?: string[];
     };
+
+    const round: 1 | 2 =
+      body.round === 1 || body.round === 2 ? body.round : resolveRound(mission!);
+
+    const includeEmails = Array.isArray(body.includeEmails)
+      ? body.includeEmails.filter((e) => typeof e === "string" && e.trim())
+      : undefined;
+
+    if (includeEmails && includeEmails.length === 0) {
+      return NextResponse.json(
+        { error: "Aucun destinataire sélectionné pour la relance." },
+        { status: 400 }
+      );
+    }
 
     const outcome = await executeCastingRelance(id, {
       subjectOverride: body.subject,
       bodyOverride: body.body,
+      round,
+      includeEmails,
     });
 
     if (outcome.succeeded === 0) {
@@ -127,7 +153,7 @@ export async function POST(
       );
     }
 
-    return NextResponse.json({ ok: true, outcome });
+    return NextResponse.json({ ok: true, outcome, round });
   } catch (error) {
     console.error("POST /api/strategy/contact-missions/[id]/relance-now:", error);
     return NextResponse.json(

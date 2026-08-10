@@ -865,6 +865,8 @@ export type CastingRelanceDraft = {
   /** Contacts exclus de la relance : ont répondu, ou adresse en bounce. */
   skipped: CastingRelanceSkipped[];
   targetBrand: string;
+  /** 1 = relance J+3, 2 = relance « valeur ajoutée » (après R1). */
+  round: 1 | 2;
 };
 
 /**
@@ -874,13 +876,24 @@ export type CastingRelanceDraft = {
  * Les contacts qui ont DÉJÀ RÉPONDU (vérifié thread par thread via Gmail) et
  * les adresses en bounce sont exclus des destinataires et listés dans
  * `skipped` : la relance ne part que vers les contacts restés sans réponse.
+ *
+ * `round` : 1 = template court J+3, 2 = template valeur ajoutée (après R1).
+ * Si omis, déduit de l'état mission (`relanceSentAt` → round 2).
  */
 export async function buildCastingRelanceDraft(
-  missionId: string
+  missionId: string,
+  options: { round?: 1 | 2 } = {}
 ): Promise<CastingRelanceDraft> {
   const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
   const mission = await contactMissionModel.findUnique({ where: { id: missionId } });
   if (!mission) throw new Error("Mission introuvable");
+
+  const round: 1 | 2 =
+    options.round === 1 || options.round === 2
+      ? options.round
+      : mission.relanceSentAt
+        ? 2
+        : 1;
 
   const sentByEmail =
     mission.sentMessageIds && typeof mission.sentMessageIds === "object"
@@ -898,11 +911,19 @@ export async function buildCastingRelanceDraft(
     : `Re: ${subjectSrc || defaultSubjectBase}`;
 
   const targetBrand = String(mission.targetBrand || "").trim();
-  const bodyTemplate = buildDefaultRelanceTemplate(
-    targetBrand,
-    relanceLang,
-    String(mission.creatorName || "")
-  );
+  const bodyTemplate =
+    round === 2
+      ? buildCastingRelance2Template(
+          targetBrand,
+          String(mission.creatorName || ""),
+          relanceLang,
+          mission.sentAt ? new Date(mission.sentAt) : null
+        )
+      : buildDefaultRelanceTemplate(
+          targetBrand,
+          relanceLang,
+          String(mission.creatorName || "")
+        );
 
   const recipients: CastingRelanceRecipient[] = [];
   const skipped: CastingRelanceSkipped[] = [];
@@ -945,7 +966,7 @@ export async function buildCastingRelanceDraft(
     });
   }
 
-  return { subject, bodyTemplate, recipients, skipped, targetBrand };
+  return { subject, bodyTemplate, recipients, skipped, targetBrand, round };
 }
 
 export type CastingRelanceSendOptions = {
@@ -955,7 +976,7 @@ export type CastingRelanceSendOptions = {
    * Numéro de la relance : 1 = relance courte J+3 (défaut), 2 = relance
    * « valeur ajoutée » J+10 ouvrés après la relance 1 (style Outreach,
    * personnalisée talent). La relance 2 écrit dans relance2SentAt /
-   * relance2MessageIds / relance2Error et ne repart jamais deux fois.
+   * relance2MessageIds / relance2Error.
    */
   round?: 1 | 2;
   /**
@@ -964,6 +985,11 @@ export type CastingRelanceSendOptions = {
    * d'un contact ne doit pas bloquer la relance des autres.
    */
   excludeEmails?: string[];
+  /**
+   * Si fourni (non vide), seuls ces emails sont relancés (intersection avec
+   * les destinataires valides). Utile pour la sélection manuelle côté UI.
+   */
+  includeEmails?: string[];
   /**
    * Saute la vérification Gmail « ce contact a-t-il déjà répondu ? » faite
    * par défaut avant CHAQUE relance. À réserver au cron, qui vient de faire
@@ -1100,6 +1126,12 @@ export async function executeCastingRelance(
   const excluded = new Set(
     (options.excludeEmails || []).map((e) => e.trim().toLowerCase()).filter(Boolean)
   );
+  const included =
+    Array.isArray(options.includeEmails) && options.includeEmails.length > 0
+      ? new Set(
+          options.includeEmails.map((e) => e.trim().toLowerCase()).filter(Boolean)
+        )
+      : null;
 
   const relanceMessages: Record<string, string> = {};
   const errors: string[] = [];
@@ -1114,7 +1146,9 @@ export async function executeCastingRelance(
 
   for (const [email, record] of Object.entries(sentByEmail)) {
     if (!record?.threadId || record.error) continue;
-    if (excluded.has(email.trim().toLowerCase())) {
+    const emailKey = email.trim().toLowerCase();
+    if (included && !included.has(emailKey)) continue;
+    if (excluded.has(emailKey)) {
       skippedReplied += 1;
       continue;
     }
