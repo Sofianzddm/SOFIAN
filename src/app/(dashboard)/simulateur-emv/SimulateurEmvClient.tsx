@@ -795,9 +795,7 @@ export default function SimulateurEmvClient() {
               Paramètres CPM
               {!canEditCpm ? <Lock className="h-3.5 w-3.5 text-gray-400" /> : null}
             </h2>
-            <p className="text-xs text-gray-500">
-              Grille Glowup — même base que les propositions Strategy
-            </p>
+            <p className="text-xs text-gray-500">Grille Glowup</p>
           </div>
           {showCpm ? (
             <ChevronUp className="h-4 w-4 text-gray-400" />
@@ -814,9 +812,9 @@ export default function SimulateurEmvClient() {
                 média : <span className="font-medium text-gray-800">vues ÷ 1&nbsp;000 × CPM</span>.
               </p>
               <p className="mt-2">
-                Grille marché France 2026, partagée avec les propositions Strategy
-                (story plus bas, reel / TikTok plus haut, YouTube vidéo au-dessus).
-                Une seule référence pour valoriser un package face à une marque.
+                Grille marché France 2026 (story plus bas, reel / TikTok plus haut,
+                YouTube vidéo au-dessus). Une seule référence pour valoriser un
+                package face à une marque.
               </p>
               {!canEditCpm ? (
                 <p className="mt-2 text-gray-500">
@@ -872,7 +870,7 @@ export default function SimulateurEmvClient() {
               <div className="mt-3 flex flex-wrap items-end gap-3">
                 <div>
                   <label className="block text-[11px] text-gray-500">
-                    Taux abonnés → reach (référence Strategy)
+                    Taux abonnés → reach
                   </label>
                   <input
                     className={`${inputCls} w-28`}
