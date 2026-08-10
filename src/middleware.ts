@@ -186,6 +186,17 @@ export async function middleware(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
+  // Simulateurs EMV / cessions : internes, hors Casting / Community / Account Manager
+  if (
+    (pathname.startsWith("/simulateur-emv") ||
+      pathname.startsWith("/simulateur-cessions")) &&
+    (effectiveRole === "CASTING_MANAGER" ||
+      effectiveRole === "COMMUNITY_MANAGER" ||
+      effectiveRole === "CM")
+  ) {
+    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
+  }
+
   // Compte community manager : uniquement l'espace /community (lecture seule des
   // collabs publiées + liens) + son API + auth. Tout le reste redirige vers /community.
   if (effectiveRole === "COMMUNITY_MANAGER") {
@@ -304,6 +315,9 @@ export const config = {
     // Simulateur EMV (outil interne TM)
     "/simulateur-emv",
     "/simulateur-emv/:path*",
+    // Simulateur cessions de droits (outil interne TM)
+    "/simulateur-cessions",
+    "/simulateur-cessions/:path*",
     // Module Confirmations talent (interne)
     "/confirmations",
     "/confirmations/:path*",

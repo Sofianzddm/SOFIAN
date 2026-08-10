@@ -611,6 +611,8 @@ model TalentTarifs {
   tarifEvent             Decimal?
   tarifShooting          Decimal?
   tarifAmbassadeur       Decimal?
+  /** Tarif UGC personnalisé (remplace le générique format standard) */
+  ugcBaseRate            Decimal?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

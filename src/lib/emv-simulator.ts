@@ -185,10 +185,11 @@ export type TalentEmvSource = {
     igEngagement?: number | null;
     ttFollowers?: number | null;
     ttEngagement?: number | null;
+    ytAbonnes?: number | null;
     storyViews30d?: number | null;
     storyViews7d?: number | null;
   } | null;
-  tarifs?: Partial<Record<TarifKey, number | string | null>> | null;
+  tarifs?: Partial<Record<TarifKey | "ugcBaseRate", number | string | null>> | null;
 };
 
 export function numOrNull(v: unknown): number | null {
