@@ -6,6 +6,10 @@ import {
   domainFromWebsite,
   suggestEmailsForContact,
 } from "@/lib/email-pattern";
+import {
+  dismissBeneluxEnrichissementDuplicates,
+  dismissMarqueEnrichissementDuplicates,
+} from "@/lib/contact-person-key";
 
 /**
  * GET → enrichissement : contacts carto FR + BENELUX (+ Agences si ADMIN)
@@ -54,6 +58,20 @@ export async function GET(request: NextRequest) {
     const enriched: Enriched[] = [];
 
     // —— FR ——
+    // Purge d'abord les doublons QUEUED dont l'homonyme a déjà un email.
+    const frQueuedIds = await prisma.marqueContact.findMany({
+      where: {
+        emailLookupStatus: "QUEUED",
+        outreachExcluded: false,
+        source: { in: ["CARTO", "AO"] },
+      },
+      select: { marqueId: true },
+      distinct: ["marqueId"],
+    });
+    for (const row of frQueuedIds) {
+      await dismissMarqueEnrichissementDuplicates(row.marqueId);
+    }
+
     const frContacts = await prisma.marqueContact.findMany({
       where: {
         emailLookupStatus: "QUEUED",
@@ -135,6 +153,19 @@ export async function GET(request: NextRequest) {
     }
 
     // —— BENELUX ——
+    const beQueuedIds = await prisma.beneluxContact.findMany({
+      where: {
+        emailLookupStatus: "QUEUED",
+        outreachExcluded: false,
+        source: { in: ["CARTO", "AO"] },
+      },
+      select: { companyId: true },
+      distinct: ["companyId"],
+    });
+    for (const row of beQueuedIds) {
+      await dismissBeneluxEnrichissementDuplicates(row.companyId);
+    }
+
     const beContacts = await prisma.beneluxContact.findMany({
       where: {
         emailLookupStatus: "QUEUED",

@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { writeBeneluxContactEmail } from "@/lib/benelux-contact-email";
 import { writeAgencyContactEmail } from "@/lib/agency-contact-email";
+import { writeMarqueContactEmail } from "@/lib/marque-contact-email";
 
 /**
  * PATCH → complète (ou marque introuvable) un email en file d'enrichissement.
@@ -203,10 +204,7 @@ export async function PATCH(
       }
     }
 
-    await prisma.marqueContact.update({
-      where: { id: contactId },
-      data: { email, emailLookupStatus: "FOUND", emailSuggested: null },
-    });
+    await writeMarqueContactEmail(contactId, contact.marqueId, email);
 
     return NextResponse.json({
       ok: true,

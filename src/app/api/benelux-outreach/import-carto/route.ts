@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateBeneluxCompany } from "@/lib/benelux-company";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { queueBeneluxEnrichissement } from "@/lib/envoyer-marque-outreach";
+import { contactPersonKey } from "@/lib/contact-person-key";
 
 /**
  * POST → importe une cartographie de contacts (fichier Claude / Excel collé)
@@ -153,13 +154,13 @@ export async function POST(request: NextRequest) {
       };
       for (const c of existing) {
         const email = (c.email || "").toLowerCase();
-        const nameKey = `${(c.prenom || "").toLowerCase()}|${(c.nom || "").toLowerCase()}`;
+        const nameKey = contactPersonKey(c.prenom, c.nom);
         if (c.source === "AO") {
           if (email) ctx.emailsAo.add(email);
-          ctx.namesAo.add(nameKey);
+          if (nameKey) ctx.namesAo.add(nameKey);
         } else {
           if (email) ctx.emailsCarto.add(email);
-          ctx.namesCarto.add(nameKey);
+          if (nameKey) ctx.namesCarto.add(nameKey);
         }
       }
       companyCache.set(id, ctx);
@@ -199,8 +200,11 @@ export async function POST(request: NextRequest) {
       const emailsSet = contactSource === "AO" ? ctx.emailsAo : ctx.emailsCarto;
       const namesSet = contactSource === "AO" ? ctx.namesAo : ctx.namesCarto;
 
-      const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
-      if ((email && emailsSet.has(email)) || namesSet.has(nameKey)) {
+      const nameKey = contactPersonKey(prenom, nom || prenom);
+      const alreadyKnownEmail =
+        Boolean(email) &&
+        (ctx.emailsCarto.has(email!) || ctx.emailsAo.has(email!));
+      if (alreadyKnownEmail || (email && emailsSet.has(email)) || (nameKey && namesSet.has(nameKey))) {
         skipped += 1;
         continue;
       }

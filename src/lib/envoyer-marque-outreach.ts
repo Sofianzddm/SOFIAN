@@ -19,6 +19,11 @@ import {
   suggestEmailsForContact,
 } from "@/lib/email-pattern";
 import { notifyEnrichissementReady } from "@/lib/emails/notify-enrichissement";
+import {
+  contactPersonKey,
+  dismissBeneluxEnrichissementDuplicates,
+  dismissMarqueEnrichissementDuplicates,
+} from "@/lib/contact-person-key";
 
 export type EnvoyerOutreachResult =
   | {
@@ -138,6 +143,9 @@ export async function queueMarqueEnrichissement(opts: {
   | { ok: true; queued: number; company: string; message: string }
   | { ok: false; error: string; statusCode: number }
 > {
+  // Homonymes déjà emailés sur la fiche → hors file (évite Delqué ×2 etc.).
+  await dismissMarqueEnrichissementDuplicates(opts.marqueId);
+
   const marque = await prisma.marque.findUnique({
     where: { id: opts.marqueId },
     select: {
@@ -164,9 +172,21 @@ export async function queueMarqueEnrichissement(opts: {
     return { ok: false, error: "Marque introuvable.", statusCode: 404 };
   }
 
-  const withoutEmail = marque.contacts.filter(
-    (c) => !c.email?.trim() && c.emailLookupStatus !== "NOT_FOUND"
+  const knownEmailKeys = new Set(
+    marque.contacts
+      .filter((c) => Boolean(c.email?.trim()))
+      .map((c) => contactPersonKey(c.prenom, c.nom))
+      .filter(Boolean)
   );
+
+  const withoutEmail = marque.contacts.filter((c) => {
+    if (c.email?.trim()) return false;
+    if (c.emailLookupStatus === "NOT_FOUND") return false;
+    const key = contactPersonKey(c.prenom, c.nom);
+    // Sécurité : ne pas remettre en file un homonyme déjà emailé.
+    if (key && knownEmailKeys.has(key)) return false;
+    return true;
+  });
   if (withoutEmail.length === 0) {
     return {
       ok: true,
@@ -226,6 +246,8 @@ export async function queueBeneluxEnrichissement(opts: {
   | { ok: true; queued: number; company: string; message: string }
   | { ok: false; error: string; statusCode: number }
 > {
+  await dismissBeneluxEnrichissementDuplicates(opts.companyId);
+
   const company = await prisma.beneluxCompany.findUnique({
     where: { id: opts.companyId },
     select: {
@@ -249,9 +271,20 @@ export async function queueBeneluxEnrichissement(opts: {
     return { ok: false, error: "Entreprise BENELUX introuvable.", statusCode: 404 };
   }
 
-  const withoutEmail = company.contacts.filter(
-    (c) => !c.email?.trim() && c.emailLookupStatus !== "NOT_FOUND"
+  const knownEmailKeys = new Set(
+    company.contacts
+      .filter((c) => Boolean(c.email?.trim()))
+      .map((c) => contactPersonKey(c.prenom, c.nom))
+      .filter(Boolean)
   );
+
+  const withoutEmail = company.contacts.filter((c) => {
+    if (c.email?.trim()) return false;
+    if (c.emailLookupStatus === "NOT_FOUND") return false;
+    const key = contactPersonKey(c.prenom, c.nom);
+    if (key && knownEmailKeys.has(key)) return false;
+    return true;
+  });
   if (withoutEmail.length === 0) {
     return {
       ok: true,

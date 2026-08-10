@@ -5,6 +5,7 @@ import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { aoFileNameFromOriginal, extractWorksheetAsXlsx, parseWorksheetCartoRows } from "@/lib/carto-excel";
 import { queueMarqueEnrichissement } from "@/lib/envoyer-marque-outreach";
+import { contactPersonKey } from "@/lib/contact-person-key";
 
 /**
  * POST → importe une cartographie de contacts (fichier Claude / Excel collé)
@@ -165,13 +166,13 @@ export async function POST(request: NextRequest) {
       };
       for (const c of existing) {
         const email = (c.email || "").toLowerCase();
-        const nameKey = `${(c.prenom || "").toLowerCase()}|${c.nom.toLowerCase()}`;
+        const nameKey = contactPersonKey(c.prenom, c.nom);
         if (c.source === "AO") {
           if (email) ctx.emailsAo.add(email);
-          ctx.namesAo.add(nameKey);
+          if (nameKey) ctx.namesAo.add(nameKey);
         } else {
           if (email) ctx.emailsCarto.add(email);
-          ctx.namesCarto.add(nameKey);
+          if (nameKey) ctx.namesCarto.add(nameKey);
         }
       }
       brandCache.set(id, ctx);
@@ -215,8 +216,12 @@ export async function POST(request: NextRequest) {
       const emailsSet = contactSource === "AO" ? ctx.emailsAo : ctx.emailsCarto;
       const namesSet = contactSource === "AO" ? ctx.namesAo : ctx.namesCarto;
 
-      const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
-      if ((email && emailsSet.has(email)) || namesSet.has(nameKey)) {
+      const nameKey = contactPersonKey(prenom, nom || prenom);
+      // Email déjà connu sur la fiche (toute source) → pas de doublon.
+      const alreadyKnownEmail =
+        Boolean(email) &&
+        (ctx.emailsCarto.has(email!) || ctx.emailsAo.has(email!));
+      if (alreadyKnownEmail || (email && emailsSet.has(email)) || (nameKey && namesSet.has(nameKey))) {
         skipped += 1;
         continue;
       }
@@ -337,9 +342,9 @@ export async function POST(request: NextRequest) {
                   aoExisting.map((c) => (c.email || "").toLowerCase()).filter(Boolean)
                 );
                 const aoNames = new Set(
-                  aoExisting.map(
-                    (c) => `${(c.prenom || "").toLowerCase()}|${c.nom.toLowerCase()}`
-                  )
+                  aoExisting
+                    .map((c) => contactPersonKey(c.prenom, c.nom))
+                    .filter(Boolean)
                 );
 
                 const aoRows = await parseWorksheetCartoRows(data, 1);
@@ -350,8 +355,8 @@ export async function POST(request: NextRequest) {
                   const email = rawEmail && isValidEmail(rawEmail) ? rawEmail : null;
                   if (!nom && !prenom) continue;
 
-                  const nameKey = `${(prenom || "").toLowerCase()}|${(nom || prenom || "").toLowerCase()}`;
-                  if ((email && aoEmails.has(email)) || aoNames.has(nameKey)) {
+                  const nameKey = contactPersonKey(prenom, nom || prenom);
+                  if ((email && aoEmails.has(email)) || (nameKey && aoNames.has(nameKey))) {
                     continue;
                   }
 

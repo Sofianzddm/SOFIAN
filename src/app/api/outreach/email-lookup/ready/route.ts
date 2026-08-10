@@ -11,6 +11,7 @@ import {
   writeAgencyContactEmail,
   tryEnrollAgencyAfterEmailComplete,
 } from "@/lib/agency-contact-email";
+import { writeMarqueContactEmail } from "@/lib/marque-contact-email";
 
 /**
  * POST → valide toute la fiche enrichissement d'un coup (« Prêt »).
@@ -191,10 +192,7 @@ export async function POST(request: NextRequest) {
         }
         const blocked = await guardConflict(contact.source === "AO");
         if (blocked) return blocked;
-        await prisma.marqueContact.update({
-          where: { id },
-          data: { email, emailLookupStatus: "FOUND", emailSuggested: null },
-        });
+        await writeMarqueContactEmail(id, marqueId, email);
       }
       saved.push(email);
       enrollableIds.push(id);
