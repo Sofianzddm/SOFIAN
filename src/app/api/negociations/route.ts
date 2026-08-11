@@ -9,6 +9,7 @@ import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { NewNegociationEmail } from "@/lib/emails/NewNegociationEmail";
 import { findOrCreateMarque, ensureMarqueContact, parseSenderName } from "@/lib/marque-resolver";
+import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
 
 // GET - Liste des négociations (filtrée par rôle)
 export async function GET(request: NextRequest) {
@@ -16,6 +17,21 @@ export async function GET(request: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+    }
+
+    const gate = await assertNomMarqueGateCleared({
+      id: session.user.id as string,
+      role: session.user.role,
+    });
+    if (!gate.ok) {
+      return NextResponse.json(
+        {
+          message: "Noms de marque à compléter",
+          pendingNomMarque: gate.count,
+          redirectTo: "/collaborations/rattrapage-marques",
+        },
+        { status: 403 }
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -144,6 +160,37 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const nomMarqueSaisi = data.nomMarqueSaisi ? String(data.nomMarqueSaisi).trim() : null;
+    const normalizeLabel = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    if (contactKind === "AGENCE") {
+      let brandLabel = nomMarqueSaisi;
+      if (!brandLabel && data.marqueId) {
+        const existingMarque = await prisma.marque.findUnique({
+          where: { id: data.marqueId },
+          select: { nom: true },
+        });
+        brandLabel = existingMarque?.nom?.trim() || null;
+      }
+      if (!brandLabel) {
+        return NextResponse.json(
+          {
+            message:
+              "Nom de la marque obligatoire (c'est ce que le talent voit). Si le contact est une agence, saisissez le nom de la marque.",
+          },
+          { status: 400 }
+        );
+      }
+      if (normalizeLabel(brandLabel) === normalizeLabel(contactAgence)) {
+        return NextResponse.json(
+          {
+            message:
+              "Le nom de la marque doit être différent du nom de l'agence. Le talent voit le nom de la marque, pas celui de l'agence.",
+          },
+          { status: 400 }
+        );
+      }
+    }
     const contactLanguage =
       String(data.contactLanguage || "").trim().toLowerCase() === "en" ? "en" : "fr";
 
@@ -156,7 +203,6 @@ export async function POST(request: NextRequest) {
     });
     const reference = `NEG-${year}-${String(compteur.dernierNumero).padStart(4, "0")}`;
 
-    const nomMarqueSaisi = data.nomMarqueSaisi ? String(data.nomMarqueSaisi).trim() : null;
     let marqueId: string | null = data.marqueId || null;
     if (!marqueId && nomMarqueSaisi) {
       // Le résolveur matche par slug/alias : "Nike", "NIKE", "Nike France"

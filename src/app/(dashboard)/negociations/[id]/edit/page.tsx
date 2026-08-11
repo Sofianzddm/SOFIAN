@@ -277,6 +277,22 @@ export default function EditNegociationPage() {
       alert("Indiquez le nom de l'agence.");
       return;
     }
+    if (!formData.nomMarqueSaisi.trim()) {
+      alert(
+        "Le nom de la marque est obligatoire : c'est ce que le talent verra. Si le contact est une agence, saisissez le nom de la marque, pas l'agence."
+      );
+      return;
+    }
+    if (formData.contactKind === "AGENCE") {
+      const norm = (s: string) =>
+        s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      if (norm(formData.nomMarqueSaisi) === norm(formData.contactAgence)) {
+        alert(
+          "Le nom de la marque doit être différent du nom de l'agence. Le talent voit le nom de la marque, pas celui de l'agence."
+        );
+        return;
+      }
+    }
 
     setSaving(true);
     try {
@@ -440,6 +456,9 @@ export default function EditNegociationPage() {
                 required
                 className={inputClass}
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Obligatoire — c&apos;est le nom affiché au talent. Si le contact est une agence, ne mettez PAS le nom de l&apos;agence.
+              </p>
             </div>
 
             <div>
@@ -531,8 +550,8 @@ export default function EditNegociationPage() {
                     <option key={a.id} value={a.name} />
                   ))}
                 </datalist>
-                <p className="text-xs text-gray-500 mt-1">
-                  Sélectionnez une agence existante dans la liste ; un nouveau nom créera la fiche agence.
+                <p className="text-xs text-amber-700 mt-1">
+                  L&apos;agence n&apos;est pas ce que le talent voit — le « Nom de la marque » ci-dessus reste obligatoire et distinct.
                 </p>
               </div>
             )}

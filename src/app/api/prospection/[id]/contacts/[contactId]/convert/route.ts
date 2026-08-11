@@ -26,6 +26,7 @@ export async function POST(
       notes,
       emailContact: emailContactRaw,
       contactMarque: contactMarqueRaw,
+      nomMarque: nomMarqueRaw,
       contactKind: contactKindRaw,
       contactAgence: contactAgenceRaw,
       contactLanguage: contactLanguageRaw,
@@ -36,6 +37,7 @@ export async function POST(
       notes?: string;
       emailContact?: string;
       contactMarque?: string;
+      nomMarque?: string;
       contactKind?: string;
       contactAgence?: string;
       contactLanguage?: string;
@@ -89,6 +91,36 @@ export async function POST(
         { status: 400 }
       );
     }
+    const normalizeLabel = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    const parts = contact.nomOpportunite.split(/\s+x\s+/i);
+    const talentNom = parts[0]?.trim() || null;
+    const marqueNomFromOpp = parts[1]?.trim() || null;
+    const brandLabel =
+      String(nomMarqueRaw || "").trim() ||
+      marqueNomFromOpp ||
+      contact.nomOpportunite;
+    if (!String(brandLabel || "").trim()) {
+      return NextResponse.json(
+        {
+          error:
+            "Nom de la marque obligatoire (c'est ce que le talent voit). Si le contact est une agence, saisissez le nom de la marque.",
+        },
+        { status: 400 }
+      );
+    }
+    if (
+      contactKind === "AGENCE" &&
+      normalizeLabel(brandLabel) === normalizeLabel(contactAgence)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Le nom de la marque doit être différent du nom de l'agence. Le talent voit le nom de la marque, pas celui de l'agence.",
+        },
+        { status: 400 }
+      );
+    }
     const contactLanguage =
       String(contactLanguageRaw || "").trim().toLowerCase() === "en" ? "en" : "fr";
 
@@ -102,16 +134,11 @@ export async function POST(
       compteur.dernierNumero
     ).padStart(4, "0")}`;
 
-    const parts = contact.nomOpportunite.split(/\s+x\s+/i);
-    const talentNom = parts[0]?.trim() || null;
-    const marqueNom = parts[1]?.trim() || null;
-
     const briefParts: string[] = [];
     if (contact.notes) briefParts.push(`Notes prospection: ${contact.notes}`);
     if (notes) briefParts.push(`Notes conversion: ${notes}`);
     const brief = briefParts.length > 0 ? briefParts.join("\n\n") : null;
 
-    const brandLabel = marqueNom || contact.nomOpportunite;
     let marqueId: string | null = null;
     if (brandLabel?.trim()) {
       const resolved = await findOrCreateMarque({

@@ -2,12 +2,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
+import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
 
 export async function GET(request: NextRequest) {
   try {
     const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const gate = await assertNomMarqueGateCleared({
+      id: session.user.id,
+      role: session.user.role,
+    });
+    if (!gate.ok) {
+      return NextResponse.json(
+        {
+          error: "Noms de marque à compléter",
+          pendingNomMarque: gate.count,
+          redirectTo: "/collaborations/rattrapage-marques",
+        },
+        { status: 403 }
+      );
     }
 
     const user = session.user;

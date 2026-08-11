@@ -124,6 +124,31 @@ export async function middleware(request: NextRequest) {
   const t = token as { role?: string; impersonatedRole?: string };
   const effectiveRole = t.impersonatedRole ?? t.role;
 
+  // Verrou CRM « noms de marque » (TM / HoS) : cookie HttpOnly posé par
+  // /api/collaborations/pending-nom-campagne. Empêche le bypass par URL directe.
+  if (effectiveRole === "TM" || effectiveRole === "HEAD_OF_SALES") {
+    const locked = request.cookies.get("glowup_nm_lock")?.value === "1";
+    if (locked) {
+      const allowed =
+        pathname === "/login" ||
+        pathname.startsWith("/api/auth") ||
+        pathname === "/collaborations/rattrapage-marques" ||
+        pathname === "/api/collaborations/pending-nom-campagne" ||
+        /^\/collaborations\/[^/]+$/.test(pathname) ||
+        /^\/api\/collaborations\/[^/]+$/.test(pathname) ||
+        /^\/api\/collaborations\/[^/]+\/corriger-marque$/.test(pathname);
+      // /collaborations/new bloqué même s'il matche le pattern ci-dessus
+      const isNewCollab = pathname === "/collaborations/new";
+      if (!allowed || isNewCollab) {
+        return withNoIndex(
+          NextResponse.redirect(
+            new URL("/collaborations/rattrapage-marques", request.url)
+          )
+        );
+      }
+    }
+  }
+
   // Compte talent : strictement confiné à son portail /talent/* (+ login + auth).
   // Toute tentative d'accès aux outils internes (négociations, marques, finance…)
   // redirige vers son dashboard. Les APIs du portail (/api/talents/me, /api/notifications,

@@ -154,6 +154,9 @@ export default function NewCollaborationPage() {
     contactAgence: "",
     contactLanguage: "fr" as "fr" | "en",
   });
+  // Nom commercial de la marque (celui affiché au talent). Distinct de la
+  // raison sociale de facturation — surtout critique si le contact est une agence.
+  const [nomMarque, setNomMarque] = useState(searchParams.get("marque") || "");
   // Agences existantes : suggérées dans le champ « Nom de l'agence » pour
   // réutiliser la fiche (pas de doublon) ; un nom inconnu crée l'agence.
   const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
@@ -190,6 +193,7 @@ export default function NewCollaborationPage() {
   const pickCrmClient = (m: CrmClientOption) => {
     setSelectedMarqueId(m.id);
     setSelectedMarqueNom(m.nom);
+    setNomMarque(m.nom);
     setSearchQuery(m.nom);
     setShowSearchResults(false);
     const contact = m.contacts[0];
@@ -261,9 +265,10 @@ export default function NewCollaborationPage() {
 
       const marqueFromQuery = searchParams.get("marque");
       if (marqueFromQuery) {
+        setNomMarque((prev) => prev || marqueFromQuery);
         setBillingData((prev) => ({
           ...prev,
-          raisonSociale: marqueFromQuery,
+          raisonSociale: prev.raisonSociale || marqueFromQuery,
         }));
       }
     } catch (error) {
@@ -297,9 +302,10 @@ export default function NewCollaborationPage() {
 
   const fillFromSearchResult = (e: EntrepriseSearchResult) => {
     const adresseRue = [e.adresse, e.complement].filter(Boolean).join(" – ") || "";
+    const entrepriseNom = e.nom_entreprise || e.denomination || "";
     setBillingData((prev) => ({
       ...prev,
-      raisonSociale: e.nom_entreprise || "",
+      raisonSociale: entrepriseNom,
       adresseRue,
       codePostal: e.code_postal || "",
       ville: e.ville || "",
@@ -307,6 +313,11 @@ export default function NewCollaborationPage() {
       siret: e.siret || "",
       numeroTVA: e.numero_tva_intracommunautaire || "",
     }));
+    // Préremplit le nom marque uniquement s'il est vide (en cas d'agence,
+    // le TM/HoS doit souvent le corriger manuellement).
+    setNomMarque((prev) => prev.trim() || entrepriseNom);
+    setSelectedMarqueId(null);
+    setSelectedMarqueNom("");
     setShowSearchResults(false);
     setSearchResults([]);
     setSearchQuery("");
@@ -401,18 +412,40 @@ export default function NewCollaborationPage() {
       return;
     }
 
+    const nomMarqueTrim = nomMarque.trim();
+    if (!nomMarqueTrim) {
+      alert(
+        "Le nom de la marque est obligatoire : c'est ce que le talent verra. Si le contact est une agence, saisissez le nom de la marque, pas l'agence."
+      );
+      return;
+    }
+    if (contactQualif.contactKind === "AGENCE") {
+      const norm = (s: string) =>
+        s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      if (norm(nomMarqueTrim) === norm(contactQualif.contactAgence)) {
+        alert(
+          "Le nom de la marque doit être différent du nom de l'agence. Le talent voit le nom de la marque, pas celui de l'agence."
+        );
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      // 1. Résoudre la fiche marque : si un client existant a été choisi dans
-      // le dropdown CRM on réutilise sa fiche telle quelle ; sinon
-      // find-or-create côté serveur (dédup par slug/alias).
-      let marqueId = selectedMarqueId;
+      // 1. Résoudre la fiche marque par le NOM COMMERCIAL (vu par le talent),
+      // pas par la raison sociale de facturation (souvent l'agence).
+      // On ne réutilise le client CRM sélectionné que s'il correspond à ce nom.
+      const sameSelected =
+        selectedMarqueId &&
+        selectedMarqueNom &&
+        normalize(selectedMarqueNom) === normalize(nomMarqueTrim);
+      let marqueId = sameSelected ? selectedMarqueId : null;
       if (!marqueId) {
         const marqueRes = await fetch("/api/marques", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            nom: billingData.raisonSociale.trim(),
+            nom: nomMarqueTrim,
             raisonSociale: billingData.raisonSociale.trim(),
             adresseRue: billingData.adresseRue.trim(),
             codePostal: billingData.codePostal.trim(),
@@ -442,6 +475,7 @@ export default function NewCollaborationPage() {
           marqueId,
           isPrivate: canSetPrivate ? formData.isPrivate : false,
           createdAt: isHoS || user?.role === "ADMIN" ? formData.createdAt || undefined : undefined,
+          nomMarque: nomMarqueTrim,
           contactKind: contactQualif.contactKind,
           contactAgence: contactQualif.contactAgence.trim() || null,
           contactLanguage: contactQualif.contactLanguage,
@@ -527,7 +561,38 @@ export default function NewCollaborationPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Client / Marque (recherche par nom ou SIRET) *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Nom de la marque *
+                  </label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={nomMarque}
+                      onChange={(e) => {
+                        setNomMarque(e.target.value);
+                        if (
+                          selectedMarqueId &&
+                          normalize(selectedMarqueNom) !== normalize(e.target.value)
+                        ) {
+                          setSelectedMarqueId(null);
+                          setSelectedMarqueNom("");
+                        }
+                      }}
+                      placeholder="Ex : Nike, L'Oréal…"
+                      required
+                      className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-glowup-licorice bg-white text-sm"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    Obligatoire. Si le contact est une agence, mettez le nom de la marque — pas le nom de l&apos;agence.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Client facturation (recherche par nom ou SIRET)</label>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -714,8 +779,8 @@ export default function NewCollaborationPage() {
                           <option key={a.id} value={a.name} />
                         ))}
                       </datalist>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Sélectionnez une agence existante dans la liste ; un nouveau nom créera la fiche agence.
+                      <p className="text-xs text-amber-700 mt-1">
+                        L&apos;agence n&apos;est pas ce que le talent voit — le champ « Nom de la marque » ci-dessus reste obligatoire et distinct.
                       </p>
                     </div>
                   )}

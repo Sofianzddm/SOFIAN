@@ -79,6 +79,9 @@ export async function GET(
             contacts: { orderBy: { principal: "desc" }, select: { id: true, email: true, nom: true, prenom: true, principal: true } },
           },
         },
+        negociation: {
+          select: { contactKind: true, contactAgence: true },
+        },
         livrables: {
           orderBy: { createdAt: "asc" },
         },

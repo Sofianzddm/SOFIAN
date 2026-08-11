@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
+import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
 
 // GET - Liste des marques
 export async function GET() {
@@ -10,6 +11,21 @@ export async function GET() {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const gate = await assertNomMarqueGateCleared({
+      id: session.user.id as string,
+      role: session.user.role,
+    });
+    if (!gate.ok) {
+      return NextResponse.json(
+        {
+          error: "Noms de marque à compléter",
+          pendingNomMarque: gate.count,
+          redirectTo: "/collaborations/rattrapage-marques",
+        },
+        { status: 403 }
+      );
     }
 
     const marques = await prisma.marque.findMany({

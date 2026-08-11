@@ -1371,6 +1371,10 @@ model Collaboration {
   contactAgence   String? // Nom de l'agence si contactKind = AGENCE
   contactLanguage String  @default("fr") // "fr" | "en"
 
+  // Rattrapage TM/HoS : date à laquelle le nom de marque a été (re)saisi/confirmé.
+  // null = collab bloquante tant que le TM/HoS n'a pas resaisi le nom.
+  nomMarqueVerifieAt DateTime?
+
   // Pont vers le cycle outreach 45j (collabs directes, sans négo liée — les
   // collabs issues d'une négo sont bridgées via la négo).
   outreachBridgedAt DateTime?

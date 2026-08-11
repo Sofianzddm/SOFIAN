@@ -5,6 +5,7 @@ import { generateCollabReference } from "@/lib/generateCollabReference";
 import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
 import { ensureMarqueContact, parseSenderName } from "@/lib/marque-resolver";
 import { getDeviseInfo } from "@/lib/devises";
+import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -12,6 +13,21 @@ export async function GET(request: NextRequest) {
     const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const gate = await assertNomMarqueGateCleared({
+      id: session.user.id,
+      role: session.user.role,
+    });
+    if (!gate.ok) {
+      return NextResponse.json(
+        {
+          error: "Noms de marque à compléter",
+          pendingNomMarque: gate.count,
+          redirectTo: "/collaborations/rattrapage-marques",
+        },
+        { status: 403 }
+      );
     }
 
     const user = session.user as { id: string; role: string };
@@ -206,6 +222,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
+    // Bloquer aussi la création de collab tant que le rattrapage n'est pas fini
+    const gate = await assertNomMarqueGateCleared({
+      id: session.user.id,
+      role: session.user.role,
+    });
+    if (!gate.ok) {
+      return NextResponse.json(
+        {
+          message: "Complète d'abord les noms de marque manquants.",
+          pendingNomMarque: gate.count,
+          redirectTo: "/collaborations/rattrapage-marques",
+        },
+        { status: 403 }
+      );
+    }
+
     const data = await request.json();
 
     if (!data.talentId || !data.marqueId || !data.livrables?.length) {
@@ -286,10 +318,46 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Nom commercial de la marque (affiché au talent) : obligatoire, et
+    // distinct de l'agence quand le contact est une agence — sinon le talent
+    // ne voit que le nom de l'agence.
+    const normalizeLabel = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    const nomMarquePayload = data.nomMarque ? String(data.nomMarque).trim() : "";
+    const marqueRow = await prisma.marque.findUnique({
+      where: { id: data.marqueId },
+      select: { id: true, nom: true },
+    });
+    if (!marqueRow) {
+      return NextResponse.json({ message: "Marque introuvable." }, { status: 400 });
+    }
+    const nomMarqueEffectif = nomMarquePayload || marqueRow.nom?.trim() || "";
+    if (!nomMarqueEffectif) {
+      return NextResponse.json(
+        {
+          message:
+            "Nom de la marque obligatoire (c'est ce que le talent voit). Si le contact est une agence, saisissez le nom de la marque.",
+        },
+        { status: 400 }
+      );
+    }
+    if (contactKind === "AGENCE" && normalizeLabel(nomMarqueEffectif) === normalizeLabel(contactAgence)) {
+      return NextResponse.json(
+        {
+          message:
+            "Le nom de la marque doit être différent du nom de l'agence. Le talent voit le nom de la marque, pas celui de l'agence.",
+        },
+        { status: 400 }
+      );
+    }
+
     const contactLanguage =
       String(data.contactLanguage || "").trim().toLowerCase() === "en" ? "en" : "fr";
 
-    // Mettre à jour les infos de facturation de la marque AVANT de créer la collaboration
+    // Mettre à jour les infos de facturation de la marque AVANT de créer la collaboration.
+    // Le nom commercial (vu par le talent) est déjà posé à la création/résolution
+    // de la fiche ; on ne l'écrase pas ici avec la raison sociale.
     const deviseMarque = billing.devise
       ? getDeviseInfo(String(billing.devise)).code
       : undefined;
@@ -360,6 +428,7 @@ export async function POST(request: NextRequest) {
         contactKind,
         contactAgence: contactAgence || null,
         contactLanguage,
+        nomMarqueVerifieAt: new Date(),
         statut: "EN_COURS", // Création manuelle = déjà en cours ; le TM peut mettre "Publié" en 1 clic
         createdById: user.id,
         isPrivate,

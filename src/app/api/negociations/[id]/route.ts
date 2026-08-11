@@ -133,6 +133,31 @@ export async function PUT(
           { status: 400 }
         );
       }
+      if (contactKind === "AGENCE") {
+        const nomMarqueCheck = data.nomMarqueSaisi
+          ? String(data.nomMarqueSaisi).trim()
+          : "";
+        const normalizeLabel = (s: string) =>
+          s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        if (!nomMarqueCheck) {
+          return NextResponse.json(
+            {
+              error:
+                "Nom de la marque obligatoire (c'est ce que le talent voit). Si le contact est une agence, saisissez le nom de la marque.",
+            },
+            { status: 400 }
+          );
+        }
+        if (normalizeLabel(nomMarqueCheck) === normalizeLabel(contactAgence || "")) {
+          return NextResponse.json(
+            {
+              error:
+                "Le nom de la marque doit être différent du nom de l'agence. Le talent voit le nom de la marque, pas celui de l'agence.",
+            },
+            { status: 400 }
+          );
+        }
+      }
     }
     const contactLanguage: string | undefined =
       data.contactLanguage !== undefined

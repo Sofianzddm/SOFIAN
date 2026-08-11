@@ -25,6 +25,7 @@ import {
   Scale,
   Briefcase,
   Mail,
+  AlertTriangle,
   BadgeDollarSign,
   BarChart3,
   Calculator,
@@ -307,7 +308,13 @@ function daysSince(dateStr: string): number {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
-export function Sidebar() {
+export function Sidebar({
+  crmLocked = false,
+  pendingNomCampagne = 0,
+}: {
+  crmLocked?: boolean;
+  pendingNomCampagne?: number;
+}) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(false);
@@ -474,8 +481,16 @@ export function Sidebar() {
   }
 
   // Filtrer les menus selon le rôle
-  const filteredMenuItems =
-    userRole === "STRATEGY_PLANNER"
+  const filteredMenuItems = crmLocked
+    ? [
+        {
+          label: "Rattrapage marques",
+          href: "/collaborations/rattrapage-marques",
+          icon: AlertTriangle,
+          roles: ["TM", "HEAD_OF_SALES"],
+        } as (typeof menuItems)[number],
+      ]
+    : userRole === "STRATEGY_PLANNER"
       ? [
           {
             label: "Talents",
@@ -625,6 +640,12 @@ export function Sidebar() {
               {!collapsed && (
                 <span className="font-medium text-sm flex items-center gap-2">
                   {item.label}
+                  {item.href === "/collaborations/rattrapage-marques" &&
+                    pendingNomCampagne > 0 && (
+                    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {pendingNomCampagne}
+                    </span>
+                  )}
                   {item.href === "/inbound" && inboundNewCount > 0 && (
                     <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#C08B8B] px-1.5 py-0.5 text-[10px] font-semibold text-white">
                       {inboundNewCount}

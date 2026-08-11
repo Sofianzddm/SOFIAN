@@ -6,6 +6,32 @@ import { useEffect } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { Loader2 } from "lucide-react";
+import {
+  NomCampagneGateProvider,
+  useNomCampagneGate,
+} from "@/components/nom-campagne-gate-provider";
+
+function DashboardShell({ children }: { children: React.ReactNode }) {
+  const { locked, loading: gateLoading, count } = useNomCampagneGate();
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Sidebar crmLocked={locked} pendingNomCampagne={count} />
+
+      <div className="pl-64 transition-all duration-300">
+        <Header />
+        {locked && !gateLoading && (
+          <div className="mx-6 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            CRM verrouillé : {count} nom{count > 1 ? "s" : ""} de marque à
+            confirmer (saisie en double). Tu peux uniquement ouvrir les fiches
+            collab concernées.
+          </div>
+        )}
+        <main className="p-6">{children}</main>
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardLayout({
   children,
@@ -19,11 +45,9 @@ export default function DashboardLayout({
     if (status === "unauthenticated") {
       router.push("/login");
     }
-    // Rediriger les talents vers leur portail
     if (status === "authenticated" && session?.user?.role === "TALENT") {
       router.push("/talent/dashboard");
     }
-    // Rediriger l'expert-comptable vers son espace
     if (status === "authenticated" && session?.user?.role === "COMPTABLE") {
       router.push("/comptable");
     }
@@ -48,20 +72,8 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <Sidebar />
-
-      {/* Main content */}
-      <div className="pl-64 transition-all duration-300">
-        {/* Header */}
-        <Header />
-
-        {/* Page content */}
-        <main className="p-6">
-          {children}
-        </main>
-      </div>
-    </div>
+    <NomCampagneGateProvider>
+      <DashboardShell>{children}</DashboardShell>
+    </NomCampagneGateProvider>
   );
 }

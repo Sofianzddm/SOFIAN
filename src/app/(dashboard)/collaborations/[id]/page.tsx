@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import { useNomCampagneGate } from "@/components/nom-campagne-gate-provider";
+import { normalizeLabel } from "@/lib/nom-campagne-gate-paths";
 import { LISTE_PAYS } from "@/lib/pays";
 import { downloadHref } from "@/lib/download";
 import {
@@ -108,6 +110,10 @@ interface CollabDetail {
   contratMarqueSigneAt?: string | null;
   contratMarqueMode?: string | null;
   accountManagerId?: string | null;
+  contactKind?: string | null;
+  contactAgence?: string | null;
+  nomMarqueVerifieAt?: string | null;
+  negociation?: { contactKind?: string | null; contactAgence?: string | null } | null;
   talent: {
     id: string;
     prenom: string;
@@ -231,7 +237,9 @@ function formatContratDateFr(iso: string | null | undefined): string {
 export default function CollabDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
+  const { locked: crmLocked, refresh: refreshNomCampagneGate } = useNomCampagneGate();
   const [collab, setCollab] = useState<CollabDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -339,8 +347,26 @@ export default function CollabDetailPage() {
   const [editingCollabDate, setEditingCollabDate] = useState(false);
   const [collabDateDraft, setCollabDateDraft] = useState("");
   const [savingCollabDate, setSavingCollabDate] = useState(false);
+  const [editingNomMarque, setEditingNomMarque] = useState(false);
+  const [nomMarqueDraft, setNomMarqueDraft] = useState("");
+  const [nomMarqueConfirm, setNomMarqueConfirm] = useState("");
+  const [savingNomMarque, setSavingNomMarque] = useState(false);
 
   useEffect(() => { if (params.id) fetchCollab(); }, [params.id]);
+
+  // Auto-ouvre la double saisie si le nom de marque n'est pas encore vérifié
+  useEffect(() => {
+    if (!collab) return;
+    const force = searchParams.get("corrigerMarque") === "1";
+    const needsVerify = !collab.nomMarqueVerifieAt;
+    if (force || (crmLocked && needsVerify) || needsVerify) {
+      // Champs vides : elles doivent retaper le nom (pas de préremplissage)
+      setNomMarqueDraft("");
+      setNomMarqueConfirm("");
+      setEditingNomMarque(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab?.id, crmLocked, collab?.nomMarqueVerifieAt]);
 
   useEffect(() => {
     const fetchMe = async () => {
@@ -395,6 +421,54 @@ export default function CollabDetailPage() {
       if (res.ok) setCollab(await res.json());
     } catch (error) { console.error("Erreur:", error); }
     finally { setLoading(false); }
+  };
+
+  const saveNomMarque = async () => {
+    if (!collab) return;
+    const nom = nomMarqueDraft.trim();
+    const confirm = nomMarqueConfirm.trim();
+    if (!nom) {
+      alert("Indiquez le nom de la marque.");
+      return;
+    }
+    if (!confirm) {
+      alert("Confirmez le nom de la marque (2e saisie).");
+      return;
+    }
+    if (normalizeLabel(nom) !== normalizeLabel(confirm)) {
+      alert("Les deux saisies ne correspondent pas.");
+      return;
+    }
+    setSavingNomMarque(true);
+    try {
+      const res = await fetch(`/api/collaborations/${collab.id}/corriger-marque`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nomMarque: nom, nomMarqueConfirm: confirm }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || data.error || "Erreur lors de la correction");
+        return;
+      }
+      const savedNom = String(data?.marque?.nom || "").trim();
+      if (!savedNom) {
+        alert("La correction n'a pas été enregistrée. Réessaie.");
+        return;
+      }
+      setEditingNomMarque(false);
+      await fetchCollab();
+      const gate = await refreshNomCampagneGate();
+      if (gate.locked || searchParams.get("corrigerMarque") === "1") {
+        router.push("/collaborations/rattrapage-marques");
+      } else {
+        router.push("/dashboard");
+      }
+    } catch {
+      alert("Erreur lors de la correction");
+    } finally {
+      setSavingNomMarque(false);
+    }
   };
 
   const openContratPreviewModal = () => {
@@ -1129,6 +1203,12 @@ export default function CollabDetailPage() {
   const canSeeContratBloc = ["ADMIN", "TM", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const canGenerateContrat = ["ADMIN", "TM"].includes(roleForUi);
   const canEditCollabDate = roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES";
+  const canCorrigerMarque = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(roleForUi);
+  const contactAgenceAffiche = (
+    collab.contactAgence ||
+    collab.negociation?.contactAgence ||
+    ""
+  ).trim();
   const currentUserForContratMarque = {
     id: (session?.user as { id?: string })?.id ?? "",
     nom: (session?.user as { name?: string })?.name ?? "",
@@ -1540,6 +1620,7 @@ export default function CollabDetailPage() {
                     <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-glowup-rose transition-colors flex-shrink-0" />
                   </Link>
 
+                  <div className="space-y-2">
                   {isAdmin ? (
                     <Link href={`/marques/${collab.marque.id}`} className="group flex items-center gap-4 p-4 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50/50 transition-all">
                       <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center border border-gray-100">
@@ -1549,7 +1630,11 @@ export default function CollabDetailPage() {
                         <p className="font-semibold text-glowup-licorice group-hover:text-gray-700 transition-colors">
                           {collab.marque.nom}
                         </p>
-                        <p className="text-xs text-gray-500 font-medium">{collab.marque.secteur || "Marque"}</p>
+                        <p className="text-xs text-gray-500 font-medium">
+                          {contactAgenceAffiche
+                            ? `Agence : ${contactAgenceAffiche}`
+                            : collab.marque.secteur || "Marque"}
+                        </p>
                       </div>
                       <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
                     </Link>
@@ -1562,10 +1647,88 @@ export default function CollabDetailPage() {
                         <p className="font-semibold text-glowup-licorice">
                           {collab.marque.nom}
                         </p>
-                        <p className="text-xs text-gray-500 font-medium">{collab.marque.secteur || "Marque"}</p>
+                        <p className="text-xs text-gray-500 font-medium">
+                          {contactAgenceAffiche
+                            ? `Agence : ${contactAgenceAffiche}`
+                            : collab.marque.secteur || "Marque"}
+                        </p>
                       </div>
                     </div>
                   )}
+                  {canCorrigerMarque && (
+                    <div>
+                      {editingNomMarque ? (
+                        <div className="flex flex-col gap-2 p-3 rounded-xl border border-amber-200 bg-amber-50/60">
+                          <p className="text-xs font-medium text-amber-900">
+                            Saisis le nom de la marque <strong>deux fois</strong>
+                            {collab.marque.nom ? (
+                              <>
+                                {" "}
+                                (actuel : <span className="font-semibold">{collab.marque.nom}</span>)
+                              </>
+                            ) : null}
+                          </p>
+                          <input
+                            type="text"
+                            value={nomMarqueDraft}
+                            onChange={(e) => setNomMarqueDraft(e.target.value)}
+                            placeholder="Nom de la marque"
+                            autoComplete="off"
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-glowup-licorice bg-white"
+                            autoFocus
+                          />
+                          <input
+                            type="text"
+                            value={nomMarqueConfirm}
+                            onChange={(e) => setNomMarqueConfirm(e.target.value)}
+                            placeholder="Confirmer le nom de la marque"
+                            autoComplete="off"
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-glowup-licorice bg-white"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={saveNomMarque}
+                              disabled={savingNomMarque}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-glowup-licorice text-white text-xs font-medium hover:bg-glowup-licorice/90 disabled:opacity-50"
+                            >
+                              {savingNomMarque ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                              Valider
+                            </button>
+                            {!crmLocked && !!collab.nomMarqueVerifieAt && (
+                              <button
+                                type="button"
+                                onClick={() => setEditingNomMarque(false)}
+                                disabled={savingNomMarque}
+                                className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-white disabled:opacity-50"
+                              >
+                                Annuler
+                              </button>
+                            )}
+                          </div>
+                          {contactAgenceAffiche && (
+                            <p className="text-[11px] text-amber-800">
+                              Agence liée : {contactAgenceAffiche} — le nom de marque doit être différent.
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNomMarqueDraft("");
+                            setNomMarqueConfirm("");
+                            setEditingNomMarque(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-glowup-licorice transition-colors"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          Corriger le nom de la marque
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  </div>
                 </div>
               </div>
             </div>

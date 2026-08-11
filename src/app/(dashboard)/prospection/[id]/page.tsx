@@ -274,6 +274,7 @@ export default function FichierProspectionPage() {
   const [convertContactName, setConvertContactName] = useState<string>("");
   const [convertKind, setConvertKind] = useState<"" | "MARQUE" | "AGENCE">("");
   const [convertAgence, setConvertAgence] = useState<string>("");
+  const [convertNomMarque, setConvertNomMarque] = useState<string>("");
   const [convertLanguage, setConvertLanguage] = useState<"fr" | "en">("fr");
   const [convertLoading, setConvertLoading] = useState(false);
   const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
@@ -288,6 +289,9 @@ export default function FichierProspectionPage() {
       setConvertEmail(c.email || "");
       setConvertContactName([c.prenom, c.nom].filter(Boolean).join(" "));
     }
+    const oppName = (c?.nomOpportunite || convertModal.nomOpportunite || "").trim();
+    const marqueFromOpp = oppName.split(/\s+x\s+/i)[1]?.trim() || "";
+    setConvertNomMarque(marqueFromOpp);
     setConvertKind("");
     setConvertAgence("");
     setConvertLanguage("fr");
@@ -749,6 +753,27 @@ export default function FichierProspectionPage() {
       setToast({ message: "Indiquez le nom de l'agence.", type: "error" });
       return;
     }
+    const nomMarqueTrim = convertNomMarque.trim();
+    if (!nomMarqueTrim) {
+      setToast({
+        message:
+          "Le nom de la marque est obligatoire : c'est ce que le talent verra. Si le contact est une agence, saisissez le nom de la marque.",
+        type: "error",
+      });
+      return;
+    }
+    if (convertKind === "AGENCE") {
+      const norm = (s: string) =>
+        s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      if (norm(nomMarqueTrim) === norm(convertAgence)) {
+        setToast({
+          message:
+            "Le nom de la marque doit être différent du nom de l'agence. Le talent voit le nom de la marque, pas celui de l'agence.",
+          type: "error",
+        });
+        return;
+      }
+    }
     try {
       setConvertLoading(true);
       await ensureTalentsLoaded();
@@ -763,6 +788,7 @@ export default function FichierProspectionPage() {
             notes: convertNotes.trim() || undefined,
             emailContact: email,
             contactMarque: convertContactName.trim(),
+            nomMarque: nomMarqueTrim,
             contactKind: convertKind,
             contactAgence: convertAgence.trim() || undefined,
             contactLanguage: convertLanguage,
@@ -1497,13 +1523,17 @@ export default function FichierProspectionPage() {
                 </select>
               </div>
               <div>
-                <p className="text-xs text-gray-500 mb-1">Marque</p>
+                <p className="text-xs text-gray-500 mb-1">Nom de la marque *</p>
                 <input
                   type="text"
-                  value={extractMarqueNom(convertModal.nomOpportunite)}
-                  readOnly
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700"
+                  value={convertNomMarque}
+                  onChange={(e) => setConvertNomMarque(e.target.value)}
+                  placeholder="Ex: Nike — pas le nom de l'agence"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C8F285]"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Obligatoire. Si le contact est une agence, mettez le nom de la marque.
+                </p>
               </div>
               <div>
                 <p className="text-xs text-gray-500 mb-1">Montant brut (€)</p>
@@ -1629,9 +1659,7 @@ export default function FichierProspectionPage() {
                   disabled={convertLoading || !convertTalentId}
                   onClick={() => {
                     const talentId = convertTalentId;
-                    const marque = encodeURIComponent(
-                      extractMarqueNom(convertModal.nomOpportunite) || ""
-                    );
+                    const marque = encodeURIComponent(convertNomMarque.trim() || "");
                     const montant = encodeURIComponent(convertMontant || "");
                     setConvertModal({
                       open: false,
