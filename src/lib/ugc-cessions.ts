@@ -9,7 +9,7 @@ import { CESSION_DUREES, roundCession } from "@/lib/cessions";
 
 // ─── Modes simulateur ───────────────────────────────────────────────────────
 
-export type SimDealMode = "influence" | "ugc";
+export type SimDealMode = "influence" | "ugc" | "snapchat";
 
 export const SIM_DEAL_MODES: {
   id: SimDealMode;
@@ -25,6 +25,11 @@ export const SIM_DEAL_MODES: {
     id: "ugc",
     label: "UGC pur",
     hint: "Production + droits — pas de publication talent",
+  },
+  {
+    id: "snapchat",
+    label: "Snapchat",
+    hint: "Cachet publication organique Story / Spotlight HT",
   },
 ];
 

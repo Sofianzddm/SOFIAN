@@ -66,6 +66,7 @@ import {
   SimModeSelector,
   UgcSimulatorPanel,
 } from "./UgcSimulatorPanel";
+import { SnapchatSimulatorPanel } from "./SnapchatSimulatorPanel";
 import { CessionsGuidePanel } from "./CessionsGuidePanel";
 import { CessionsConfidentialNote } from "./CessionsConfidentialNote";
 import type { SimDealMode } from "@/lib/ugc-cessions";
@@ -333,7 +334,9 @@ export default function SimulateurCessionsClient() {
               ? "Onglet explicatif pour comprendre toutes les différences de droits."
               : dealMode === "influence"
                 ? "Cession seule HT (hors cachet organique)."
-                : "Production + droits + options + frais = total UGC HT."}
+                : dealMode === "snapchat"
+                  ? "Cachet de publication organique Snapchat HT (Story / Spotlight)."
+                  : "Production + droits + options + frais = total UGC HT."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -427,7 +430,9 @@ export default function SimulateurCessionsClient() {
                 </Link>
               ) : (
                 <p className="mt-2 text-sm text-white/45">
-                  Ou saisir le cachet manuellement.
+                  {dealMode === "snapchat"
+                    ? "Sélection facultative — tarification sur performances saisies."
+                    : "Ou saisir le cachet manuellement."}
                 </p>
               )}
             </div>
@@ -467,6 +472,7 @@ export default function SimulateurCessionsClient() {
               </div>
             )}
 
+            {dealMode !== "snapchat" && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3 backdrop-blur-sm">
                 <label className="mb-1.5 block text-[10px] font-medium uppercase tracking-[0.14em] text-white/40">
@@ -540,11 +546,20 @@ export default function SimulateurCessionsClient() {
                 />
               </div>
             </div>
+            )}
+
+            {dealMode === "snapchat" && (
+              <p className="rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3 text-xs leading-relaxed text-white/55">
+                Pas d&apos;abonnés Snapchat, pas de coefficient d&apos;audience,
+                pas de stats auto. Saisir uniquement les viewers / vues moyens
+                habituels ci-dessous.
+              </p>
+            )}
           </div>
         </div>
       </section>
 
-      {dealMode !== "ugc" && (
+      {dealMode === "influence" && (
       <>
       {/* Packages */}
       <section className="mb-6 rounded-[1.5rem] border border-gray-200/70 bg-white/90 p-5 shadow-[0_8px_30px_-18px_rgba(34,1,1,0.25)] backdrop-blur">
@@ -1561,7 +1576,19 @@ export default function SimulateurCessionsClient() {
         </div>
       )}
 
-      {dealMode !== "ugc" && base > 0 && result.totalCalculable && (result.cession ?? 0) > 0 && (
+      {dealMode === "snapchat" && (
+        <div className="mb-6">
+          <SnapchatSimulatorPanel
+            talentLabel={
+              selectedTalent
+                ? `${selectedTalent.prenom} ${selectedTalent.nom}`
+                : null
+            }
+          />
+        </div>
+      )}
+
+      {dealMode === "influence" && base > 0 && result.totalCalculable && (result.cession ?? 0) > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-glowup-licorice/20 bg-glowup-licorice/95 px-4 py-3 text-white backdrop-blur-md sm:px-6">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
@@ -1594,7 +1621,7 @@ export default function SimulateurCessionsClient() {
         </div>
       )}
 
-      {dealMode !== "ugc" && base > 0 && !result.totalCalculable && (
+      {dealMode === "influence" && base > 0 && !result.totalCalculable && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-amber-500/40 bg-glowup-licorice/95 px-4 py-3 text-white backdrop-blur-md sm:px-6">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
