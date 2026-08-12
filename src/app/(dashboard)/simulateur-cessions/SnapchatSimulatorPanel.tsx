@@ -133,7 +133,8 @@ export function SnapchatSimulatorPanel({ talentLabel }: Props) {
     vuesMoyennes != null &&
     durationSeconds != null &&
     durationSeconds > 0;
-  const canShow =
+  const hasFormat = includeStory || includeSpotlight;
+  const canShowResult =
     (includeStory && storyReady) || (includeSpotlight && spotlightReady);
 
   const quote = result.quote;
@@ -348,7 +349,7 @@ export function SnapchatSimulatorPanel({ talentLabel }: Props) {
         </section>
       )}
 
-      {canShow && (
+      {hasFormat && (
         <section className="rounded-[1.5rem] border border-gray-200/70 bg-white/90 p-5 shadow-[0_8px_30px_-18px_rgba(34,1,1,0.25)]">
           <h3 className="text-sm font-semibold text-glowup-licorice">
             Droits & options — uplift additif
@@ -356,6 +357,12 @@ export function SnapchatSimulatorPanel({ talentLabel }: Props) {
           <p className="mt-1 text-xs text-gray-500">
             total = base × (1 + somme des uplifts). Aucune composition
             multiplicative. Le CPM n&apos;est pas modifié.
+            {!canShowResult && (
+              <>
+                {" "}
+                Saisir les viewers / vues ci-dessus pour calculer le devis.
+              </>
+            )}
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -502,7 +509,7 @@ export function SnapchatSimulatorPanel({ talentLabel }: Props) {
         </section>
       )}
 
-      {canShow && quote && !configBlocked && (
+      {canShowResult && quote && !configBlocked && (
         <section className="overflow-hidden rounded-[1.75rem] border border-glowup-licorice/10 bg-gradient-to-br from-glowup-licorice via-[#2a1212] to-[#1a0a0a] p-6 text-white shadow-[0_30px_80px_-40px_rgba(34,1,1,0.65)]">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-red-300">
             Confidentiel · Devis Snapchat HT
