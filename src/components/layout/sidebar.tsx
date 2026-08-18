@@ -139,7 +139,16 @@ const menuItems = [
     label: "Talents",
     href: "/talents",
     icon: Users,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM", "CASTING_MANAGER"],
+    roles: [
+      "ADMIN",
+      "HEAD_OF",
+      "HEAD_OF_INFLUENCE",
+      "HEAD_OF_SALES",
+      "TM",
+      "CM",
+      "CASTING_MANAGER",
+      "STRATEGY_PLANNER",
+    ],
   },
   {
     label: "Utilisateurs",
@@ -496,6 +505,12 @@ export function Sidebar({
             label: "Talents",
             href: "/talents",
             icon: Users,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "Cessions (confidentiel)",
+            href: "/simulateur-cessions",
+            icon: Scale,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
