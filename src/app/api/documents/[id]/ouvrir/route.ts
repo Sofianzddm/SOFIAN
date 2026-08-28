@@ -60,7 +60,7 @@ async function fetchDocusealPartialPdf(
 }
 
 function pdfResponse(buf: Buffer, filename: string): NextResponse {
-  return new NextResponse(buf, {
+  return new NextResponse(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${filename}"`,
