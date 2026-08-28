@@ -6,7 +6,11 @@ import { prisma } from "@/lib/prisma";
 
 const DOCUSEAL_API_BASE = "https://api.docuseal.com";
 
-type DocuSealSubmitter = { status?: string; completed_at?: string | null };
+type DocuSealSubmitter = {
+  status?: string;
+  completed_at?: string | null;
+  documents?: Array<{ url?: string }>;
+};
 type DocuSealSubmission = {
   id?: number;
   submitters?: DocuSealSubmitter[];
@@ -86,7 +90,9 @@ export async function GET(
       (data.combined_document_url?.trim() ||
         (Array.isArray(data.documents) && data.documents[0]?.url
           ? data.documents[0].url.trim()
-          : undefined)) ?? undefined;
+          : undefined) ||
+        submitters.find((s) => String(s.status).toLowerCase() === "completed")
+          ?.documents?.[0]?.url?.trim()) ?? undefined;
 
     const now = new Date();
     await prisma.document.update({
@@ -94,11 +100,12 @@ export async function GET(
       data: {
         signaturesCount: completedCount,
         signaturesTotal: total,
+        // URL du PDF DocuSeal dès la 1re signature (la HoI peut l'ouvrir avant le 2e signataire)
+        ...(documentUrl ? { signedDocumentUrl: documentUrl } : {}),
         ...(allCompleted
           ? {
               signatureStatus: "SIGNED",
               signatureSignedAt: now,
-              ...(documentUrl ? { signedDocumentUrl: documentUrl } : {}),
             }
           : {}),
       },

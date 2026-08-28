@@ -110,6 +110,8 @@ interface CollabDetail {
   contratMarqueSigneAt?: string | null;
   contratMarqueMode?: string | null;
   accountManagerId?: string | null;
+  isPrivate?: boolean;
+  accountManager?: { role?: string | null } | null;
   contactKind?: string | null;
   contactAgence?: string | null;
   nomMarqueVerifieAt?: string | null;
@@ -128,7 +130,7 @@ interface CollabDetail {
     pays?: string | null;
     managerId?: string;
     manager?: { prenom: string; nom: string } | null;
-    delegations?: { actif: boolean }[];
+    delegations?: { actif: boolean; tmRelaiId?: string }[];
   };
   marque: { 
     id: string; 
@@ -1193,6 +1195,7 @@ export default function CollabDetailPage() {
     ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) &&
     (collab.isLongTerme || !activeFacture);
   const canUploadSignedDevis = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(roleForUi);
+  const isHeadOfInfluence = ["HEAD_OF", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const activeDevisForManualUpload = (collab.documents || []).find(
     (d) => d.type === "DEVIS" && d.statut !== "ANNULE" && !d.avoirRef
   );
@@ -1884,13 +1887,24 @@ export default function CollabDetailPage() {
                                 )}
                               </button>
                             )}
-                            {doc.type === "DEVIS" && doc.signedDocumentUrl && (
+                            {doc.type === "DEVIS" && !isAnnule && (
+                              (doc.signedDocumentUrl && doc.signatureStatus === "SIGNED") ||
+                              isHeadOfInfluence
+                            ) && (
                               <a
-                                href={doc.signedDocumentUrl}
+                                href={
+                                  isHeadOfInfluence
+                                    ? `/api/documents/${doc.id}/ouvrir`
+                                    : doc.signedDocumentUrl!
+                                }
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
-                                title="Voir signé"
+                                title={
+                                  doc.signatureStatus === "SIGNED"
+                                    ? "Voir signé"
+                                    : "Ouvrir le devis"
+                                }
                               >
                                 <Eye className="w-4 h-4" />
                               </a>
