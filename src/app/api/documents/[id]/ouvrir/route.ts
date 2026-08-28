@@ -1,5 +1,6 @@
-// GET /api/documents/[id]/ouvrir — Ouvre le devis (PDF DocuSeal si dispo, sinon PDF généré).
-// La Head of Influence peut ouvrir même si le 2e signataire n'a pas encore signé.
+// GET /api/documents/[id]/ouvrir — Ouvre le devis dans le navigateur.
+// Head of Influence : PDF du devis même si le 2e signataire n'a pas signé.
+// On ne redirige jamais vers une URL DocuSeal (elles exigent la clé API → "Not authorized").
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -35,6 +36,41 @@ function pickDocumentUrl(data: DocuSealSubmission): string | undefined {
   return fromSubmitter || undefined;
 }
 
+function isDocusealUrl(url: string): boolean {
+  return /docuseal\.(com|cloud)/i.test(url);
+}
+
+function isPdfBuffer(buf: Buffer): boolean {
+  return buf.length >= 4 && buf.subarray(0, 4).toString("utf8") === "%PDF";
+}
+
+async function fetchPdfBuffer(url: string, apiKey?: string): Promise<Buffer | null> {
+  try {
+    const headers: Record<string, string> = {};
+    if (apiKey && isDocusealUrl(url)) {
+      headers["X-Auth-Token"] = apiKey;
+    }
+    const res = await fetch(url, { headers });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!isPdfBuffer(buf)) return null;
+    return buf;
+  } catch {
+    return null;
+  }
+}
+
+function pdfResponse(buf: Buffer, filename: string): NextResponse {
+  return new NextResponse(buf, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `inline; filename="${filename}"`,
+      "Content-Length": buf.length.toString(),
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -56,6 +92,7 @@ export async function GET(
       select: {
         id: true,
         type: true,
+        reference: true,
         signatureStatus: true,
         signatureSubmissionId: true,
         signedDocumentUrl: true,
@@ -78,13 +115,19 @@ export async function GET(
       );
     }
 
-    const pdfFallback = new URL(`/api/documents/${id}/pdf`, request.url);
+    const filename = `${document.reference || "devis"}.pdf`;
+    const generatedPdf = new URL(`/api/documents/${id}/pdf`, request.url);
+    const key = process.env.DOCUSEAL_API_KEY;
+
+    // Tant que le devis n'est pas entièrement signé : PDF Glow Up (pas l'URL DocuSeal).
+    if (!fullySigned) {
+      return NextResponse.redirect(generatedPdf);
+    }
 
     let signedUrl = document.signedDocumentUrl?.trim() || "";
     const submissionId = document.signatureSubmissionId?.trim();
-    const key = process.env.DOCUSEAL_API_KEY;
 
-    if (submissionId && key && (!signedUrl || !fullySigned)) {
+    if (submissionId && key && (!signedUrl || isDocusealUrl(signedUrl))) {
       try {
         const res = await fetch(`${DOCUSEAL_API_BASE}/submissions/${submissionId}`, {
           method: "GET",
@@ -107,10 +150,11 @@ export async function GET(
     }
 
     if (signedUrl) {
-      return NextResponse.redirect(signedUrl);
+      const buf = await fetchPdfBuffer(signedUrl, key);
+      if (buf) return pdfResponse(buf, filename);
     }
 
-    return NextResponse.redirect(pdfFallback);
+    return NextResponse.redirect(generatedPdf);
   } catch (error) {
     console.error("ouvrir devis:", error);
     return NextResponse.json(
