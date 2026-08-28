@@ -33,7 +33,7 @@ const InboundPayloadSchema = z.object({
   bodyExcerpt: z.string().max(5000),
   gmailMessageId: z.string().min(1),
   threadId: z.string().nullable().optional(),
-  receivedAt: z.string().datetime(),
+  receivedAt: z.string().datetime({ offset: true }),
   category: z.enum(["COLLAB_PAID", "COLLAB_GIFTING", "PRESS_KIT", "EVENT_INVITE", "OTHER"]),
   confidence: z.number().min(0).max(1),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),
@@ -74,38 +74,75 @@ export async function POST(req: NextRequest) {
     const data = parsed.data;
 
     const threadId = data.threadId?.trim() || null;
+    const talentEmail = data.talentEmail.trim();
+    const incomingReceivedAt = new Date(data.receivedAt);
 
-    // Dédoublon : on ne bloque JAMAIS sauf si exactement le même mail est
-    // déjà dans Inbound (sinon les "Re: ..." du même thread créeraient des
-    // doublons visibles dans le dashboard).
-    // - Même `gmailMessageId` → c'est le même mail, on renvoie l'id existant.
-    // - Même `threadId` déjà importé dans Inbound → on renvoie l'id existant
-    //   (évite 4× "Re: Lazartigue" pour le même fil).
-    // - L'anti-spam "ne pas relancer le même sender 2x en 20j" est géré à
-    //   l'envoi (POST .../[id]/send), pas à la réception.
+    // Dédoublon STRICT, jamais par senderEmail (un nouveau fil / une nouvelle
+    // collab du même contact doit créer une fiche — 0 mail talent loupé).
+    // - Même `gmailMessageId` → exactement le même mail.
+    // - Même fil Gmail *dans la boîte de ce talent* → on met à jour la fiche
+    //   existante (dernier contenu) sans en créer une 4e, et sans la renvoyer
+    //   dans "Nouvelles" si on a déjà envoyé.
     const existingMessage = await prisma.inboundOpportunity.findUnique({
       where: { gmailMessageId: data.gmailMessageId },
       select: { id: true },
     });
     if (existingMessage) {
-      return NextResponse.json({ ok: true, duplicate: true, id: existingMessage.id });
+      return NextResponse.json({
+        ok: true,
+        duplicate: true,
+        id: existingMessage.id,
+        action: "already_exists",
+      });
     }
 
     if (threadId) {
       const existingThread = await prisma.inboundOpportunity.findFirst({
-        where: { threadId },
+        where: {
+          talentEmail: { equals: talentEmail, mode: "insensitive" },
+          OR: [{ threadId }, { gmailSentMessageId: threadId }],
+        },
         orderBy: { receivedAt: "desc" },
-        select: { id: true },
+        select: { id: true, receivedAt: true },
       });
       if (existingThread) {
-        return NextResponse.json({ ok: true, duplicate: true, id: existingThread.id });
+        if (incomingReceivedAt > existingThread.receivedAt) {
+          const brandName =
+            (data.extractedBrand || "").trim() ||
+            brandNameFromEmailDomain(data.senderEmail) ||
+            brandNameFromEmailDomain(data.senderDomain) ||
+            "";
+          await prisma.inboundOpportunity.update({
+            where: { id: existingThread.id },
+            data: {
+              subject: data.subject.trim(),
+              bodyExcerpt: data.bodyExcerpt.slice(0, 3000),
+              receivedAt: incomingReceivedAt,
+              category: data.category,
+              confidence: data.confidence,
+              priority: data.priority,
+              extractedBrand: brandName || undefined,
+              extractedTopic: data.extractedTopic || undefined,
+              extractedBudget: data.extractedBudget || undefined,
+              extractedDeadline: data.extractedDeadline || undefined,
+              extractedDeliverables: data.extractedDeliverables || undefined,
+              briefSummary: data.briefSummary || undefined,
+            },
+          });
+        }
+        return NextResponse.json({
+          ok: true,
+          duplicate: true,
+          id: existingThread.id,
+          action: "thread_updated",
+        });
       }
     }
 
     const matchedTalent = data.talentId
       ? await prisma.talent.findUnique({ where: { id: data.talentId }, select: { id: true } })
       : await prisma.talent.findFirst({
-          where: { email: data.talentEmail, isArchived: false },
+          where: { email: talentEmail, isArchived: false },
           select: { id: true },
         });
 
@@ -119,17 +156,24 @@ export async function POST(req: NextRequest) {
     const resolvedExtractedBrand = brandName || null;
     let marqueId: string | null = null;
     if (brandName) {
-      const linked = await linkMarqueFromBrandName({
-        brandName,
-        source: "INBOUND",
-        contact: {
-          email: data.senderEmail,
-          nom: sender.nom,
-          prenom: sender.prenom,
-          poste: "Contact inbound",
-        },
-      });
-      marqueId = linked?.marqueId ?? null;
+      try {
+        const linked = await linkMarqueFromBrandName({
+          brandName,
+          source: "INBOUND",
+          contact: {
+            email: data.senderEmail,
+            nom: sender.nom,
+            prenom: sender.prenom,
+            poste: "Contact inbound",
+          },
+        });
+        marqueId = linked?.marqueId ?? null;
+      } catch (err) {
+        console.warn(
+          `[inbound] marque ${brandName}:`,
+          err instanceof Error ? err.message : err
+        );
+      }
     }
 
     let opportunity;
@@ -146,7 +190,7 @@ export async function POST(req: NextRequest) {
           bodyExcerpt: data.bodyExcerpt.slice(0, 3000),
           gmailMessageId: data.gmailMessageId,
           threadId,
-          receivedAt: new Date(data.receivedAt),
+          receivedAt: incomingReceivedAt,
           category: data.category,
           confidence: data.confidence,
           priority: data.priority,

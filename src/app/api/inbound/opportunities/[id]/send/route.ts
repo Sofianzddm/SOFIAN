@@ -82,6 +82,9 @@ export async function POST(
     // thread dans la boîte du *talent* (ex: agathe@…), pas dans celle de
     // Leyna. Gmail rejette alors avec 404/400. Leyna crée un nouveau thread
     // dans sa propre boîte ; la marque reçoit le mail normalement.
+    // On NE réécrit PAS opportunity.threadId : il reste l'id Gmail talent,
+    // pour dédupliquer les "Re:" côté boîte talent. L'id Leyna va dans
+    // gmailSentMessageId (relances / détection de réponse).
     // Tracking ouvertures (pixel) + clics (liens réécrits). Invisible côté
     // destinataire ; on garde le htmlBody original pour l'affichage modale.
     const trackedHtmlBody = injectInboundTracking(htmlBody, id);
@@ -111,7 +114,6 @@ export async function POST(
       SET
         "status" = 'READY',
         "gmailSentMessageId" = ${messageId},
-        "threadId" = ${messageId},
         "sentAt" = NOW(),
         "updatedAt" = NOW()
       WHERE "id" = ${id}
