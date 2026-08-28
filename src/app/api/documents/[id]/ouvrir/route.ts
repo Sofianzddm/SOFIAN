@@ -14,7 +14,7 @@ const ROLES_OUVRIR = [
   "HEAD_OF_SALES",
   "TM",
 ];
-const ROLES_AVANT_FIN_SIGNATURE = ["HEAD_OF", "HEAD_OF_INFLUENCE"];
+const ROLES_AVANT_FIN_SIGNATURE = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"];
 
 function isPdfBuffer(buf: Buffer): boolean {
   return buf.length >= 4 && buf.subarray(0, 4).toString("utf8") === "%PDF";

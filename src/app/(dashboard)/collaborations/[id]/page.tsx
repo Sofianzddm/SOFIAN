@@ -1195,7 +1195,7 @@ export default function CollabDetailPage() {
     ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) &&
     (collab.isLongTerme || !activeFacture);
   const canUploadSignedDevis = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(roleForUi);
-  const isHeadOfInfluence = ["HEAD_OF", "HEAD_OF_INFLUENCE"].includes(roleForUi);
+  const canOuvrirDevisPartiel = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const activeDevisForManualUpload = (collab.documents || []).find(
     (d) => d.type === "DEVIS" && d.statut !== "ANNULE" && !d.avoirRef
   );
@@ -1889,11 +1889,11 @@ export default function CollabDetailPage() {
                             )}
                             {doc.type === "DEVIS" && !isAnnule && (
                               (doc.signedDocumentUrl && doc.signatureStatus === "SIGNED") ||
-                              isHeadOfInfluence
+                              canOuvrirDevisPartiel
                             ) && (
                               <a
                                 href={
-                                  isHeadOfInfluence
+                                  canOuvrirDevisPartiel
                                     ? `/api/documents/${doc.id}/ouvrir`
                                     : doc.signedDocumentUrl!
                                 }
@@ -1903,7 +1903,7 @@ export default function CollabDetailPage() {
                                 title={
                                   doc.signatureStatus === "SIGNED"
                                     ? "Voir signé"
-                                    : "Ouvrir le devis"
+                                    : "Ouvrir le devis (signature en cours)"
                                 }
                               >
                                 <Eye className="w-4 h-4" />
