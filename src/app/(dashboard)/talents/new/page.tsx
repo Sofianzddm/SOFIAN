@@ -112,8 +112,10 @@ export default function NewTalentPage() {
   const talentId = params?.id;
   const isEditMode = Boolean(talentId);
   const user = session?.user as { id?: string; role?: string; name?: string } | undefined;
-  const role = user?.role || "";
+  const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
+  const role = effectiveRole ?? user?.role || "";
   const isTm = role === "TM";
+  const isAdmin = role === "ADMIN";
   const canManageManagers =
     role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const [currentStep, setCurrentStep] = useState(1);
@@ -230,6 +232,21 @@ export default function NewTalentPage() {
     tarifShooting: "",
     tarifAmbassadeur: "",
   });
+
+  useEffect(() => {
+    const fetchMe = async () => {
+      try {
+        const r = await fetch("/api/auth/me");
+        if (r.ok) {
+          const data = await r.json();
+          setEffectiveRole(data.role ?? null);
+        }
+      } catch {
+        setEffectiveRole(null);
+      }
+    };
+    fetchMe();
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -451,6 +468,27 @@ export default function NewTalentPage() {
   };
 
   const handleSubmit = async () => {
+    if (
+      !formData.prenom.trim() ||
+      !formData.nom.trim() ||
+      !formData.email.trim() ||
+      !formData.managerId
+    ) {
+      alert("Prénom, nom, email et talent manager sont obligatoires.");
+      setCurrentStep(1);
+      return;
+    }
+
+    if (!isAdmin && !isEditMode) {
+      const hasInstagram = formData.instagram.trim() !== "";
+      const hasTiktok = formData.tiktok.trim() !== "";
+      if (!hasInstagram && !hasTiktok) {
+        alert("Le talent doit avoir au moins un compte Instagram ou TikTok.");
+        setCurrentStep(3);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const adresse = [formData.adresseRue, formData.adresseComplement].filter(Boolean).join(" – ") || null;
@@ -569,6 +607,16 @@ export default function NewTalentPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Form */}
           <div className="lg:col-span-2 space-y-6">
+            {isAdmin && !isEditMode && (
+              <div className="flex items-start gap-3 p-4 bg-glowup-rose/5 border border-glowup-rose/20 rounded-xl">
+                <AlertCircle className="w-5 h-5 text-glowup-rose shrink-0 mt-0.5" />
+                <p className="text-sm text-gray-700">
+                  En tant qu’administrateur, vous pouvez créer le talent dès
+                  maintenant avec le prénom, le nom, l’email et le talent
+                  manager. Les autres étapes restent optionnelles.
+                </p>
+              </div>
+            )}
             {/* Step 1: Profil */}
             {currentStep === 1 && (
               <div className="space-y-6 animate-fade-in">
@@ -2120,7 +2168,7 @@ export default function NewTalentPage() {
             )}
 
             {/* Navigation buttons */}
-            <div className="flex items-center justify-between pt-4">
+            <div className="flex items-center justify-between pt-4 gap-3 flex-wrap">
               <button
                 type="button"
                 onClick={prevStep}
@@ -2135,30 +2183,48 @@ export default function NewTalentPage() {
                 Précédent
               </button>
 
-              {currentStep < 5 ? (
-                <button
-                  type="button"
-                  onClick={nextStep}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-glowup-rose text-white rounded-xl hover:bg-glowup-rose-dark transition-all shadow-lg shadow-glowup-rose/25"
-                >
-                  Suivant
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={loading}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-glowup-rose text-white rounded-xl hover:bg-glowup-rose-dark transition-all shadow-lg shadow-glowup-rose/25 disabled:opacity-50"
-                >
-                  {loading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Save className="w-4 h-4" />
-                  )}
-                  {isEditMode ? "Enregistrer les modifications" : "Créer le talent"}
-                </button>
-              )}
+              <div className="flex items-center gap-2 ml-auto">
+                {isAdmin && !isEditMode && currentStep < 5 && (
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-white border border-glowup-rose/30 text-glowup-rose rounded-xl hover:bg-glowup-rose/5 transition-all disabled:opacity-50"
+                    title="Créer le talent sans remplir toutes les étapes (admin)"
+                  >
+                    {loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Créer maintenant
+                  </button>
+                )}
+                {currentStep < 5 ? (
+                  <button
+                    type="button"
+                    onClick={nextStep}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-glowup-rose text-white rounded-xl hover:bg-glowup-rose-dark transition-all shadow-lg shadow-glowup-rose/25"
+                  >
+                    Suivant
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-glowup-rose text-white rounded-xl hover:bg-glowup-rose-dark transition-all shadow-lg shadow-glowup-rose/25 disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    {isEditMode ? "Enregistrer les modifications" : "Créer le talent"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -2268,8 +2334,10 @@ export default function NewTalentPage() {
               {/* Tips */}
               <div className="mt-4 p-4 bg-glowup-lace/50 rounded-xl">
                 <p className="text-xs text-gray-600">
-                  💡 <strong>Astuce :</strong> Les champs marqués * sont
-                  obligatoires. Vous pourrez modifier ces informations plus tard.
+                  💡 <strong>Astuce :</strong>{" "}
+                  {isAdmin && !isEditMode
+                    ? "Les champs marqués * (prénom, nom, email, talent manager) suffisent pour créer le talent. Le reste pourra être complété plus tard."
+                    : "Les champs marqués * sont obligatoires. Vous pourrez modifier ces informations plus tard."}
                 </p>
               </div>
             </div>

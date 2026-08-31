@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 
@@ -112,7 +110,7 @@ export async function GET(request: NextRequest) {
 // POST - Créer un talent (ADMIN et HEAD_OF uniquement)
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
     }
@@ -127,8 +125,9 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await request.json();
+    const isAdmin = user.role === "ADMIN";
 
-    // Validation basique
+    // Validation basique (seuls champs vraiment requis en base)
     if (!data.prenom || !data.nom || !data.email || !data.managerId) {
       return NextResponse.json(
         { message: "Champs obligatoires manquants (prénom, nom, email, manager)" },
@@ -136,42 +135,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ADMIN : peut créer un talent incomplet (réseaux, stats, tarifs plus tard).
+    // Les autres rôles conservent la validation complète.
     const hasInstagram = data.instagram && data.instagram.trim() !== "";
     const hasTiktok = data.tiktok && data.tiktok.trim() !== "";
 
-    if (!hasInstagram && !hasTiktok) {
-      return NextResponse.json(
-        { message: "Le talent doit avoir au moins un compte Instagram ou TikTok" },
-        { status: 400 }
-      );
-    }
+    if (!isAdmin) {
+      if (!hasInstagram && !hasTiktok) {
+        return NextResponse.json(
+          { message: "Le talent doit avoir au moins un compte Instagram ou TikTok" },
+          { status: 400 }
+        );
+      }
 
-    if (hasInstagram && (!data.igFollowers || !data.igEngagement)) {
-      return NextResponse.json(
-        { message: "Les statistiques Instagram (followers et engagement) sont obligatoires" },
-        { status: 400 }
-      );
-    }
+      if (hasInstagram && (!data.igFollowers || !data.igEngagement)) {
+        return NextResponse.json(
+          { message: "Les statistiques Instagram (followers et engagement) sont obligatoires" },
+          { status: 400 }
+        );
+      }
 
-    if (hasTiktok && (!data.ttFollowers || !data.ttEngagement)) {
-      return NextResponse.json(
-        { message: "Les statistiques TikTok (followers et engagement) sont obligatoires" },
-        { status: 400 }
-      );
-    }
+      if (hasTiktok && (!data.ttFollowers || !data.ttEngagement)) {
+        return NextResponse.json(
+          { message: "Les statistiques TikTok (followers et engagement) sont obligatoires" },
+          { status: 400 }
+        );
+      }
 
-    if (hasInstagram && (!data.tarifStory || !data.tarifPost || !data.tarifReel)) {
-      return NextResponse.json(
-        { message: "Les tarifs Story, Post et Reel sont obligatoires" },
-        { status: 400 }
-      );
-    }
+      if (hasInstagram && (!data.tarifStory || !data.tarifPost || !data.tarifReel)) {
+        return NextResponse.json(
+          { message: "Les tarifs Story, Post et Reel sont obligatoires" },
+          { status: 400 }
+        );
+      }
 
-    if (hasTiktok && !data.tarifTiktokVideo) {
-      return NextResponse.json(
-        { message: "Le tarif Vidéo TikTok est obligatoire" },
-        { status: 400 }
-      );
+      if (hasTiktok && !data.tarifTiktokVideo) {
+        return NextResponse.json(
+          { message: "Le tarif Vidéo TikTok est obligatoire" },
+          { status: 400 }
+        );
+      }
     }
 
     // Créer le talent avec stats et tarifs dans une transaction

@@ -23,7 +23,9 @@ import {
   Camera,
   CheckCircle2,
   XCircle,
+  UserPlus,
 } from "lucide-react";
+import { AdminQuickCreateTalentModal } from "@/components/talent/AdminQuickCreateTalentModal";
 import {
   TYPE_PEAU_OPTIONS,
   TYPE_CHEVEUX_OPTIONS,
@@ -140,6 +142,7 @@ export default function TalentsPage() {
     return false;
   };
 
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
   const [showBookOrderModal, setShowBookOrderModal] = useState(false);
   const [bookOrderList, setBookOrderList] = useState<Talent[]>([]);
   const [savingBookOrder, setSavingBookOrder] = useState(false);
@@ -433,6 +436,17 @@ export default function TalentsPage() {
             >
               <BookOpen className="w-4 h-4" />
               Ordre du book
+            </button>
+          )}
+          {/* Création rapide — ADMIN uniquement, sans tout remplir */}
+          {role === "ADMIN" && (
+            <button
+              type="button"
+              onClick={() => setShowQuickCreate(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-glowup-rose/30 text-glowup-rose rounded-lg hover:bg-glowup-rose/5 transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              Création rapide
             </button>
           )}
           {/* Bouton Nouveau talent - ADMIN et HEAD_OF uniquement */}
@@ -1152,6 +1166,11 @@ export default function TalentsPage() {
           </table>
         )}
       </div>
+
+      <AdminQuickCreateTalentModal
+        open={showQuickCreate}
+        onClose={() => setShowQuickCreate(false)}
+      />
 
       {/* Modale Bulk Instagram Import — ADMIN */}
       {bulkOpen && (
