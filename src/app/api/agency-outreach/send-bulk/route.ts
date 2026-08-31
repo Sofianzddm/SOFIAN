@@ -405,7 +405,7 @@ export async function POST(request: NextRequest) {
     }
 
     const targets = await prisma.agencyOutreachTarget.findMany({
-      where: { id: { in: targetIds } },
+      where: { id: { in: targetIds }, bouncedAt: null },
       select: { id: true, email: true, language: true },
     });
     if (targets.length === 0) {

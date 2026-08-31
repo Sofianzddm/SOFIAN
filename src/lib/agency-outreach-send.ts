@@ -47,6 +47,55 @@ export function agencyOutreachFromEmail(target: {
   return (target.fromEmail || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
 }
 
+/** Marque un bounce Gmail sans sortir le contact du cycle. */
+export async function markAgencyOutreachBounced(opts: {
+  targetId: string;
+  touchId?: string;
+  createdById: string;
+  firstname: string;
+  lastname: string | null;
+  company: string;
+  email: string;
+}): Promise<void> {
+  const now = new Date();
+  const name = `${opts.firstname} ${opts.lastname || ""}`.trim();
+  await prisma.agencyOutreachTarget.update({
+    where: { id: opts.targetId },
+    data: {
+      bouncedAt: now,
+      scheduledSendAt: null,
+      scheduledSubject: null,
+      scheduledBodyHtml: null,
+      scheduledById: null,
+      scheduledRelanceAt: null,
+      autoRescheduleReason: `Email incorrect : ${opts.email} n'existe pas (bounce Gmail).`,
+      autoRescheduledAt: now,
+    },
+  });
+  if (opts.touchId) {
+    await prisma.agencyOutreachTouch
+      .update({
+        where: { id: opts.touchId },
+        data: {
+          relanceCancelledAt: now,
+          sendError: "Bounce : adresse introuvable",
+        },
+      })
+      .catch(() => null);
+  }
+  await prisma.notification
+    .create({
+      data: {
+        userId: opts.createdById,
+        type: "GENERAL",
+        titre: "Email incorrect (Prospection Agences)",
+        message: `${name} (${opts.company}) : ${opts.email} n'existe pas — marqué email incorrect, pas de relance.`,
+        lien: "/agency-outreach",
+      },
+    })
+    .catch((e) => console.warn("[agency-outreach] notification bounce:", e));
+}
+
 function getBaseUrl(): string {
   const raw =
     process.env.NEXT_PUBLIC_BASE_URL?.trim() ||
@@ -253,6 +302,12 @@ export async function executeAgencyOutreachSend(
   if (!target) return { ok: false, error: "Contact agence introuvable." };
   if (target.status === "STOPPED") {
     return { ok: false, error: "Ce contact est sorti du cycle (stoppé)." };
+  }
+  if (target.bouncedAt) {
+    return {
+      ok: false,
+      error: "Email incorrect (bounce) : corrige l'adresse avant de renvoyer.",
+    };
   }
 
   // Priorité : override passé à l'appel, sinon celui figé à la programmation.
@@ -589,11 +644,17 @@ export async function executeAgencyOutreachSchedule(
 ): Promise<AgencyOutreachScheduleResult> {
   const target = await prisma.agencyOutreachTarget.findUnique({
     where: { id: targetId },
-    select: { id: true, status: true, email: true, fromEmail: true, nextRecontactAt: true },
+    select: { id: true, status: true, email: true, fromEmail: true, nextRecontactAt: true, bouncedAt: true },
   });
   if (!target) return { ok: false, error: "Contact agence introuvable." };
   if (target.status === "STOPPED") {
     return { ok: false, error: "Ce contact est sorti du cycle (stoppé)." };
+  }
+  if (target.bouncedAt) {
+    return {
+      ok: false,
+      error: "Email incorrect (bounce) : corrige l'adresse avant de renvoyer.",
+    };
   }
 
   const subjectTpl = input.subject.trim();
@@ -673,6 +734,7 @@ export async function processAgencyScheduledSends(
   const due = await prisma.agencyOutreachTarget.findMany({
     where: {
       status: { not: "STOPPED" },
+      bouncedAt: null,
       scheduledSendAt: { not: null, lte: now },
     },
     select: {
@@ -820,6 +882,9 @@ export async function executeAgencyOutreachRelance(
   }
 
   const target = touch.target;
+  if (target.bouncedAt) {
+    return { ok: false, error: "Email incorrect (bounce) : pas de relance." };
+  }
   const subjectSrc = touch.subject.trim();
   const relanceSubject =
     options.subjectOverride?.trim() ||

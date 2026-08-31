@@ -29,6 +29,7 @@ interface AgencyContact {
   createdAt: string;
   inProspection: boolean;
   status: "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED" | null;
+  bouncedAt: string | null;
   cycleCount: number;
   lastSentAt: string | null;
   lastRepliedAt: string | null;
@@ -399,7 +400,11 @@ export default function PartnerDetailPage() {
                     <td className="py-3 pr-4 text-gray-600">{c.poste || "—"}</td>
                     <td className="py-3 pr-4 text-gray-600 uppercase">{c.language}</td>
                     <td className="py-3 pr-4">
-                      {c.inProspection && c.status ? (
+                      {c.bouncedAt ? (
+                        <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+                          Email incorrect
+                        </span>
+                      ) : c.inProspection && c.status ? (
                         <span
                           className={`inline-block text-xs px-2 py-0.5 rounded-full ${
                             STATUS_LABELS[c.status]?.className || "bg-gray-100 text-gray-700"

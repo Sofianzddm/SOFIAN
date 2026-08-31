@@ -178,6 +178,7 @@ export async function GET(
               lastSentAt: true,
               lastRepliedAt: true,
               nextRecontactAt: true,
+              bouncedAt: true,
               touches: {
                 take: 1,
                 orderBy: { cycleNumber: "desc" },
@@ -212,6 +213,7 @@ export async function GET(
         createdAt: c.createdAt,
         inProspection: !!target,
         status: target?.status ?? null,
+        bouncedAt: target?.bouncedAt ?? null,
         cycleCount: target?.cycleCount ?? 0,
         lastSentAt: target?.lastSentAt ?? null,
         lastRepliedAt: target?.lastRepliedAt ?? null,

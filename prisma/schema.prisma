@@ -3648,6 +3648,11 @@ model AgencyOutreachTarget {
   stoppedAt       DateTime?
   stoppedById     String?
 
+  // Bounce Gmail (adresse introuvable) : le contact RESTE dans le cycle, marqué
+  // « email incorrect » — pas de relance / pas de nouvel envoi tant que l'adresse
+  // n'est pas corrigée. Null = adresse OK.
+  bouncedAt DateTime?
+
   autoRescheduleReason String?   @db.Text
   autoRescheduledAt    DateTime?
 

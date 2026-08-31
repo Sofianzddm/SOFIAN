@@ -166,6 +166,7 @@ export async function PATCH(
           .catch(() => null);
       }
 
+      const emailChanged = email !== target.email.toLowerCase();
       const updated = await prisma.agencyOutreachTarget.update({
         where: { id },
         data: {
@@ -176,6 +177,9 @@ export async function PATCH(
             ? { language: body.language }
             : {}),
           ...fromEmailUpdate,
+          ...(emailChanged
+            ? { bouncedAt: null, autoRescheduleReason: null, autoRescheduledAt: null }
+            : {}),
         },
       });
       return NextResponse.json({ target: updated });
@@ -225,9 +229,6 @@ export async function PATCH(
     // Remet immédiatement le contact dans « À contacter » (ex. requalifié depuis
     // Outreach Clients en conservant un WAITING / prochain recontact lointain).
     if (body.action === "to-contact") {
-      if (target.status === "TO_CONTACT") {
-        return NextResponse.json({ target });
-      }
       const updated = await prisma.agencyOutreachTarget.update({
         where: { id },
         data: {
@@ -236,6 +237,7 @@ export async function PATCH(
           stoppedAt: null,
           stoppedById: null,
           scheduledSendAt: null,
+          bouncedAt: null,
         },
       });
       return NextResponse.json({ target: updated });

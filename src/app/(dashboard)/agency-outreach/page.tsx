@@ -45,6 +45,9 @@ import {
   Sparkles,
   CalendarClock,
   CalendarRange,
+  CheckSquare,
+  Square,
+  MailWarning,
 } from "lucide-react";
 import {
   normalizeEditorHtmlForEmail,
@@ -74,6 +77,7 @@ const OLD_LACE = "#F5EBE0";
 const ALLOWED = ["ADMIN", "HEAD_OF_SALES"];
 
 type TargetStatus = "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED";
+type ListTab = TargetStatus | "INVALID_EMAIL";
 type Market = "FR" | "BENELUX";
 
 type TouchSummary = {
@@ -111,6 +115,7 @@ type Target = {
   scheduledSendAt: string | null;
   lastRepliedAt: string | null;
   autoRescheduleReason: string | null;
+  bouncedAt: string | null;
   createdAt: string;
   touches: TouchSummary[];
 };
@@ -160,10 +165,11 @@ type AgencyTemplate = {
   bodyHtml: string;
 };
 
-const TABS: { id: TargetStatus; label: string }[] = [
+const TABS: { id: ListTab; label: string }[] = [
   { id: "TO_CONTACT", label: "À contacter" },
   { id: "WAITING", label: "En attente" },
   { id: "TO_RECONTACT", label: "À recontacter" },
+  { id: "INVALID_EMAIL", label: "Email incorrect" },
   { id: "STOPPED", label: "Stoppés" },
 ];
 
@@ -362,7 +368,7 @@ export default function AgencyOutreachPage() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<TargetStatus>("TO_CONTACT");
+  const [activeTab, setActiveTab] = useState<ListTab>("TO_CONTACT");
   // Marché actif : FR (agences françaises) ou BENELUX (agences belges / Benelux).
   // Filtre la liste et sert de valeur par défaut aux ajouts / imports.
   const [market, setMarket] = useState<Market>("FR");
@@ -598,33 +604,45 @@ export default function AgencyOutreachPage() {
   };
 
   const counts = useMemo(() => {
-    const c: Record<TargetStatus, number> = {
+    const c: Record<ListTab, number> = {
       TO_CONTACT: 0,
       WAITING: 0,
       TO_RECONTACT: 0,
+      INVALID_EMAIL: 0,
       STOPPED: 0,
     };
-    for (const t of targets) c[t.status] += 1;
+    for (const t of targets) {
+      if (t.bouncedAt) c.INVALID_EMAIL += 1;
+      else c[t.status] += 1;
+    }
     return c;
   }, [targets]);
 
   const vacationToScheduleCount = useMemo(
-    () => targets.filter(isVacationToSchedule).length,
+    () => targets.filter((t) => !t.bouncedAt && isVacationToSchedule(t)).length,
     [targets]
   );
   const scheduledCount = useMemo(
-    () => targets.filter((t) => Boolean(t.scheduledSendAt) && t.status !== "STOPPED").length,
+    () =>
+      targets.filter(
+        (t) => !t.bouncedAt && Boolean(t.scheduledSendAt) && t.status !== "STOPPED"
+      ).length,
     [targets]
   );
 
   const visibleTargets = useMemo(() => {
-    let list = targets.filter((t) => t.status === activeTab);
+    if (activeTab === "INVALID_EMAIL") {
+      return targets.filter((t) => Boolean(t.bouncedAt));
+    }
+    let list = targets.filter((t) => t.status === activeTab && !t.bouncedAt);
     if (activeTab === "WAITING" && waitingFilter === "vacation-to-schedule") {
       list = list.filter(isVacationToSchedule);
     } else if (waitingFilter === "scheduled") {
-      // Visible sur En attente / À recontacter : tout contact avec un envoi programmé.
       list = targets.filter(
-        (t) => Boolean(t.scheduledSendAt) && (t.status === "WAITING" || t.status === "TO_RECONTACT")
+        (t) =>
+          !t.bouncedAt &&
+          Boolean(t.scheduledSendAt) &&
+          (t.status === "WAITING" || t.status === "TO_RECONTACT")
       );
     }
     return list;
@@ -660,8 +678,21 @@ export default function AgencyOutreachPage() {
     return arr.sort((a, b) => a.company.localeCompare(b.company));
   }, [visibleTargets, searchTerm]);
 
-  const selectAllVisible = () => {
-    setSelected(new Set(visibleTargets.map((t) => t.id)));
+  /** Contacts réellement affichés (file + recherche). */
+  const filteredTargets = useMemo(
+    () => groups.flatMap((g) => g.targets),
+    [groups]
+  );
+
+  const allFilteredSelected =
+    filteredTargets.length > 0 && filteredTargets.every((t) => selected.has(t.id));
+
+  const selectAllFiltered = () => {
+    if (allFilteredSelected) {
+      setSelected(new Set());
+      return;
+    }
+    setSelected(new Set(filteredTargets.map((t) => t.id)));
   };
 
   const toggleSelect = (id: string) => {
@@ -700,10 +731,14 @@ export default function AgencyOutreachPage() {
     [selectedTargets]
   );
 
-  const openComposer = () => {
-    if (selectedTargets.length === 0) {
+  const openComposer = (list?: Target[]) => {
+    const recipients = list ?? selectedTargets;
+    if (recipients.length === 0) {
       showToast("err", "Sélectionne au moins un contact d'agence.");
       return;
+    }
+    if (list) {
+      setSelected(new Set(list.map((t) => t.id)));
     }
     setSubject("");
     setTemplateId("");
@@ -1157,15 +1192,28 @@ export default function AgencyOutreachPage() {
               );
             })}
           </div>
-          {selectedTargets.length > 0 && activeTab !== "STOPPED" && (
+          {activeTab !== "STOPPED" &&
+            activeTab !== "INVALID_EMAIL" &&
+            filteredTargets.length > 0 && (
             <button
               type="button"
-              onClick={openComposer}
+              onClick={() =>
+                openComposer(
+                  selectedTargets.length > 0 ? undefined : filteredTargets
+                )
+              }
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl"
               style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+              title={
+                selectedTargets.length > 0
+                  ? `Rédiger pour les ${selectedTargets.length} contact(s) sélectionné(s)`
+                  : `Sélectionner les ${filteredTargets.length} contacts de cette file et ouvrir le composer`
+              }
             >
               <Send className="w-4 h-4" />
-              Rédiger ({selectedTargets.length})
+              {selectedTargets.length > 0
+                ? `Rédiger (${selectedTargets.length})`
+                : `Rédiger tout (${filteredTargets.length})`}
             </button>
           )}
           {selectedRelanceEditable.length > 0 &&
@@ -1224,7 +1272,8 @@ export default function AgencyOutreachPage() {
           {selectedTargets.length > 0 &&
             (activeTab === "WAITING" ||
               activeTab === "TO_RECONTACT" ||
-              activeTab === "STOPPED") && (
+              activeTab === "STOPPED" ||
+              activeTab === "INVALID_EMAIL") && (
               <button
                 type="button"
                 onClick={() => void onToContactSelected()}
@@ -1337,16 +1386,6 @@ export default function AgencyOutreachPage() {
             Tout afficher
           </button>
         )}
-        {waitingFilter !== "all" && visibleTargets.length > 0 && (
-          <button
-            type="button"
-            onClick={selectAllVisible}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border"
-            style={{ borderColor: OLD_ROSE, color: LICORICE, backgroundColor: "white" }}
-          >
-            Tout sélectionner ({visibleTargets.length})
-          </button>
-        )}
       </div>
 
       {/* Search */}
@@ -1362,6 +1401,40 @@ export default function AgencyOutreachPage() {
         />
       </div>
 
+      {activeTab !== "STOPPED" && filteredTargets.length > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-2 mb-4 px-3 py-2 rounded-xl border bg-white"
+          style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+        >
+          <button
+            type="button"
+            onClick={selectAllFiltered}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium border hover:bg-black/[0.03]"
+            style={{ borderColor: OLD_ROSE, color: LICORICE, backgroundColor: allFilteredSelected ? TEA_GREEN : "white" }}
+            title={allFilteredSelected ? "Tout désélectionner" : "Tout sélectionner dans cette file"}
+          >
+            {allFilteredSelected ? (
+              <CheckSquare className="w-4 h-4" />
+            ) : (
+              <Square className="w-4 h-4" />
+            )}
+            {allFilteredSelected ? "Tout désélectionner" : "Tout sélectionner"}
+            <span className="text-xs opacity-70">
+              ({filteredTargets.length}
+              {searchTerm.trim() ? " filtrés" : ""})
+            </span>
+          </button>
+          {selected.size > 0 && (
+            <span className="text-xs opacity-70" style={{ color: LICORICE }}>
+              {selectedTargets.length} sélectionné{selectedTargets.length > 1 ? "s" : ""}
+              {groups.length > 1
+                ? ` · ${new Set(selectedTargets.map((t) => t.partnerId)).size} agence${new Set(selectedTargets.map((t) => t.partnerId)).size > 1 ? "s" : ""}`
+                : ""}
+            </span>
+          )}
+        </div>
+      )}
+
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
 
       {loading ? (
@@ -1375,8 +1448,10 @@ export default function AgencyOutreachPage() {
           <p className="text-sm" style={{ color: LICORICE }}>
             {waitingFilter === "vacation-to-schedule"
               ? "Aucune agence à programmer (recontact 18 août)."
-              : waitingFilter === "scheduled"
+                : waitingFilter === "scheduled"
                 ? "Aucun envoi programmé pour le moment."
+                : activeTab === "INVALID_EMAIL"
+                  ? "Aucune adresse en bounce pour le moment."
                 : "Aucune agence dans cette file."}
           </p>
         </div>
@@ -1445,6 +1520,12 @@ export default function AgencyOutreachPage() {
                             {t.firstname} {t.lastname || ""}
                             {t.language === "en" && (
                               <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">EN</span>
+                            )}
+                            {t.bouncedAt && (
+                              <span className="ml-2 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+                                <MailWarning className="w-3 h-3" />
+                                Email incorrect
+                              </span>
                             )}
                           </p>
                           <p className="text-xs opacity-70 truncate" style={{ color: LICORICE }}>
@@ -1556,7 +1637,11 @@ export default function AgencyOutreachPage() {
                               type="button"
                               onClick={() => void onToContact(t)}
                               className="p-1.5 rounded-lg hover:bg-black/5"
-                              title="Remettre dans À contacter"
+                              title={
+                                t.bouncedAt
+                                  ? "Remettre dans À contacter (après correction de l'email)"
+                                  : "Remettre dans À contacter"
+                              }
                             >
                               <RotateCcw className="w-4 h-4" style={{ color: "#3D8B40" }} />
                             </button>
@@ -1652,6 +1737,9 @@ export default function AgencyOutreachPage() {
             >
               <h2 className="text-lg font-semibold" style={{ fontFamily: "Spectral, serif", color: LICORICE }}>
                 Rédiger — {selectedTargets.length} contact{selectedTargets.length > 1 ? "s" : ""}
+                {selectedTargets.length > 1
+                  ? ` · ${new Set(selectedTargets.map((t) => t.partnerId)).size} agence${new Set(selectedTargets.map((t) => t.partnerId)).size > 1 ? "s" : ""}`
+                  : ""}
               </h2>
               <button type="button" onClick={() => setComposerOpen(false)} className="p-2 rounded-lg hover:bg-black/5">
                 <X className="w-5 h-5" style={{ color: LICORICE }} />

@@ -6,6 +6,7 @@ import {
   executeAgencyOutreachRelance,
   agencyOutreachFromEmail,
   processAgencyScheduledSends,
+  markAgencyOutreachBounced,
   AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS,
 } from "@/lib/agency-outreach-send";
 
@@ -15,7 +16,8 @@ import {
  *     étalé dans la journée jusqu'à 18h30).
  *  1. Détecte les réponses sur le dernier mail de chaque agence en attente
  *     (info seulement : l'agence RESTE dans le cycle 45 jours). Les bounces
- *     (adresse invalide) retirent automatiquement le contact du cycle.
+ *     (adresse invalide) marquent le contact « email incorrect » sans le
+ *     retirer du cycle (plus de relance tant que l'adresse n'est pas corrigée).
  *  2. Envoie la relance auto J+3 ouvrés dans le thread si pas de réponse.
  *  3. Bascule en « À recontacter » les contacts dont les 45 jours sont écoulés.
  */
@@ -64,10 +66,12 @@ export async function GET(request: NextRequest) {
   for (const target of targets) {
     // Un target peut être en WAITING sans aucun touch (entré via le pont
     // inbound→outreach) : les étapes 1-2 sont sautées, la bascule J+45 reste.
+    if (target.bouncedAt) continue;
+
     const touch = target.touches[0];
 
     if (touch?.sentAt && touch.threadId) {
-      // 1. Détection de réponse (info) et de bounce (retrait du cycle).
+      // 1. Détection de réponse (info) et de bounce (email incorrect, reste au cycle).
       let hasReplied = Boolean(touch.repliedAt);
       let hasBounced = false;
       if (!hasReplied) {
@@ -84,22 +88,15 @@ export async function GET(request: NextRequest) {
 
         if (hasBounced) {
           bounces += 1;
-          await prisma.notification
-            .create({
-              data: {
-                userId: target.createdById,
-                type: "GENERAL",
-                titre: "Email invalide (Prospection Agences)",
-                message: `${target.firstname} ${target.lastname || ""} (${target.company}) : l'adresse ${target.email} n'existe pas — le mail est revenu en erreur, contact retiré du cycle.`,
-                lien: "/agency-outreach",
-              },
-            })
-            .catch((e) => console.warn("[cron/agency-outreach] notification bounce:", e));
-          await prisma.agencyOutreachTarget
-            .delete({ where: { id: target.id } })
-            .catch((e) =>
-              console.warn(`[cron/agency-outreach] suppression bounce ${target.email}:`, e)
-            );
+          await markAgencyOutreachBounced({
+            targetId: target.id,
+            touchId: touch.id,
+            createdById: target.createdById,
+            firstname: target.firstname,
+            lastname: target.lastname,
+            company: target.company,
+            email: target.email,
+          });
           continue;
         }
 
