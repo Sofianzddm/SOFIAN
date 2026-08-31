@@ -49,6 +49,12 @@ const PROJECT_DEFAULTS: Record<
     dateFin: "2026-09-30T23:59:59.999Z",
     senderEmail: "ines@glowupagence.fr",
   },
+  "fashion-week": {
+    nom: "Fashion Week",
+    dateDebut: "2026-09-28T00:00:00.000Z",
+    dateFin: "2026-10-06T23:59:59.999Z",
+    senderEmail: "ines@glowupagence.fr",
+  },
 };
 
 export async function getOrCreateVillaProject(projetSlug: string) {

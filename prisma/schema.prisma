@@ -2886,6 +2886,55 @@ model OpportuniteMarque {
   @@index([marqueId])
 }
 
+/// Base Fashion Week isolée du CRM Marques : Inès pose nom + date de défilé,
+/// un ADMIN (Sofian) note les emails, Inès envoie depuis ines@.
+model FwClient {
+  id         String    @id @default(cuid())
+  nom        String
+  dateDefile DateTime?
+  notes      String?
+  // ATTENTE_EMAILS | PRET | ENVOYE | EN_NEGO | GAGNE | PERDU
+  statut     String    @default("ATTENTE_EMAILS")
+
+  contacts FwContact[]
+
+  lastEmailSentAt   DateTime?
+  lastEmailFrom     String?
+  lastEmailThreadId String?
+  emailSubject      String?
+  emailOpenedAt     DateTime?
+  emailOpenCount    Int       @default(0)
+  emailRepliedAt    DateTime?
+  relanceSentAt     DateTime?
+  relanceError      String?
+  // [{ email, firstName, lastName, threadId, repliedAt }]
+  emailThreads      Json      @default("[]")
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([statut])
+  @@index([dateDefile])
+  @@map("fw_clients")
+}
+
+model FwContact {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    FwClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  email     String
+  firstName String?
+  lastName  String?
+  role      String?
+  addedById String?
+  createdAt DateTime @default(now())
+
+  @@unique([clientId, email])
+  @@index([clientId])
+  @@map("fw_contacts")
+}
+
 model ParticipantVilla {
   id          String          @id @default(cuid())
   projetId    String
@@ -4005,6 +4054,8 @@ enum RhLeaveAccount {
   RTT
   SS
   UNPAID
+  SCHOOL
+  AUTHORIZED
 }
 
 enum RhRequestType {
@@ -4055,6 +4106,13 @@ enum RhDocKind {
   OTHER
 }
 
+enum RhWorkPlace {
+  OFFICE
+  REMOTE
+  TRAVEL
+  SITE
+}
+
 enum RhDocStatus {
   SIGNED
   TO_SIGN
@@ -4095,6 +4153,7 @@ model RhEmployee {
   reviewedRequests   RhRequest[]        @relation("RhRequestReviewer")
   leaveDays          RhLeaveDay[]
   remoteDeclarations RhRemoteDeclaration[]
+  workDays           RhWorkDay[]
   timesheets         RhTimesheet[]
   expenseReports     RhExpenseReport[]
   vehicle            RhVehicle?
@@ -4205,6 +4264,22 @@ model RhRemoteDeclaration {
   @@unique([employeeId, isoYear, isoWeek])
   @@index([employeeId])
   @@map("rh_remote_declarations")
+}
+
+model RhWorkDay {
+  id         String      @id @default(cuid())
+  employeeId String
+  employee   RhEmployee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date       DateTime    @db.Date
+  place      RhWorkPlace
+  half       String      @default("FULL") // FULL | AM | PM
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, date, half])
+  @@index([employeeId, date])
+  @@map("rh_work_days")
 }
 
 model RhTimesheet {

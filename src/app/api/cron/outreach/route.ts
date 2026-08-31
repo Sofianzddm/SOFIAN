@@ -14,6 +14,7 @@ import {
   PROJET_RELANCE_BUSINESS_DAYS,
   PROJET_TRACKING_WINDOW_DAYS,
 } from "@/lib/projet-prospection";
+import { processFwProspectionCron } from "@/lib/fw-prospection";
 import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
 
 /**
@@ -26,6 +27,7 @@ import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
  *  3. Bascule en « À recontacter » les clients dont les 45 jours sont écoulés.
  *  4. Même chose pour la prospection des projets strategy (Ski Trip…) :
  *     détection de réponse + relance auto J+3 ouvrés sur les OpportuniteMarque.
+ *  5. Idem Fashion Week (FwClient) : réponses + relance J+3.
  *
  * Les clients entrent dans le module uniquement à la main ou via l'import
  * d'une carto Excel — le stock HubSpot historique reste géré dans HubSpot.
@@ -302,6 +304,9 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 5. Fashion Week : réponses + relance J+3 sur FwClient
+  const fw = await processFwProspectionCron(now, withinRelanceHours);
+
   return NextResponse.json({
     processed: targets.length,
     scheduled,
@@ -312,5 +317,8 @@ export async function GET(request: NextRequest) {
     projetProcessed: opportunites.length,
     projetReplies,
     projetRelances,
+    fwProcessed: fw.processed,
+    fwReplies: fw.replies,
+    fwRelances: fw.relances,
   });
 }

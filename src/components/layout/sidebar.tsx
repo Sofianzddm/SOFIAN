@@ -106,6 +106,12 @@ const menuItems = [
   // Ski Trip 2027 : visible uniquement dans le menu de la STRATEGY_PLANNER
   // (Ines pilote le projet à 100%). La page reste accessible aux ADMIN par URL.
   {
+    label: "Fashion Week",
+    href: "/strategy/projets/fashion-week",
+    icon: Sparkles,
+    roles: ["ADMIN"],
+  },
+  {
     label: "Pipeline prospection",
     href: "/strategy/projet-individuel-talent/pipeline",
     icon: Briefcase,
@@ -523,6 +529,12 @@ export function Sidebar({
             label: "Ski Trip 2027",
             href: "/strategy/projets/ski-trip",
             icon: Briefcase,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "Fashion Week",
+            href: "/strategy/projets/fashion-week",
+            icon: Sparkles,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
