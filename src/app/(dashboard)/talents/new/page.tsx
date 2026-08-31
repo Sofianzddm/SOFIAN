@@ -113,7 +113,7 @@ export default function NewTalentPage() {
   const isEditMode = Boolean(talentId);
   const user = session?.user as { id?: string; role?: string; name?: string } | undefined;
   const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
-  const role = effectiveRole ?? user?.role || "";
+  const role = effectiveRole ?? user?.role ?? "";
   const isTm = role === "TM";
   const isAdmin = role === "ADMIN";
   const canManageManagers =
