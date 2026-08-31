@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { SignatureRequestEmail } from "@/lib/emails/SignatureRequestEmail";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -38,7 +39,7 @@ export async function POST(
     }
 
     const user = session.user as { id: string; role: string };
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"].includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour envoyer en signature" },
         { status: 403 }
@@ -112,6 +113,9 @@ export async function POST(
 
     if (!document) {
       return NextResponse.json({ error: "Document non trouvé" }, { status: 404 });
+    }
+    if (denyIfUnassignedCm(user, document.collaboration?.accountManagerId)) {
+      return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
     }
 
     if (document.type !== "DEVIS") {

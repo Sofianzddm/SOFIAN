@@ -14,6 +14,12 @@ export async function GET(request: NextRequest) {
     const user = session.user as { id: string; role?: string };
     const isAdmin = user.role === "ADMIN";
     const isHeadOfSales = user.role === "HEAD_OF_SALES";
+    const isCm = user.role === "CM";
+    const salesScopeWhere = isHeadOfSales
+      ? { createdById: user.id }
+      : isCm
+        ? { collaboration: { accountManagerId: user.id } }
+        : {};
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
@@ -25,7 +31,7 @@ export async function GET(request: NextRequest) {
     const facturesMarques = await prisma.document.findMany({
       where: {
         type: "FACTURE",
-        ...(isHeadOfSales ? { createdById: user.id } : {}),
+        ...(salesScopeWhere),
       },
       include: {
         collaboration: {
@@ -42,7 +48,7 @@ export async function GET(request: NextRequest) {
     const documents = await prisma.document.findMany({
       where: {
         type: "FACTURE",
-        ...(isHeadOfSales ? { createdById: user.id } : {}),
+        ...(salesScopeWhere),
       },
       include: {
         collaboration: {
@@ -74,7 +80,7 @@ export async function GET(request: NextRequest) {
     const devisDocuments = await prisma.document.findMany({
       where: {
         type: "DEVIS",
-        ...(isHeadOfSales ? { createdById: user.id } : {}),
+        ...(salesScopeWhere),
       },
       include: {
         collaboration: {
@@ -94,7 +100,7 @@ export async function GET(request: NextRequest) {
     const avoirsDocuments = await prisma.document.findMany({
       where: {
         type: "AVOIR",
-        ...(isHeadOfSales ? { createdById: user.id } : {}),
+        ...(salesScopeWhere),
       },
       include: {
         collaboration: {

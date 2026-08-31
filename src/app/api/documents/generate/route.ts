@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 import { computeDateEcheance } from "@/lib/documents/echeance";
 import { normalizeLocale } from "@/lib/documents/i18n";
 import { getDeviseInfo } from "@/lib/devises";
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
     const user = session.user as { id: string; role: string };
     
     // ADMIN, HEAD_OF, HEAD_OF_SALES, et TM peuvent générer des documents
-    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"];
+    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"];
     if (!rolesAutorises.includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour générer des documents" },
@@ -103,6 +104,9 @@ export async function POST(request: NextRequest) {
           { status: 403 }
         );
       }
+    }
+    if (denyIfUnassignedCm(user, collaboration.accountManagerId)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     const marque = collaboration.marque;

@@ -6,10 +6,11 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { StatutDocument } from "@prisma/client";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 
-const ROLES_ANNULER_DEVIS = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"] as const;
+const ROLES_ANNULER_DEVIS = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"] as const;
 
-const ROLES_ANNULER_FACTURE = ["ADMIN", "HEAD_OF_SALES"] as const;
+const ROLES_ANNULER_FACTURE = ["ADMIN", "HEAD_OF_SALES", "CM"] as const;
 
 /**
  * POST /api/documents/[id]/annuler
@@ -34,7 +35,7 @@ export async function POST(
     const document = await prisma.document.findUnique({
       where: { id },
       include: {
-        collaboration: { select: { id: true, talentId: true } },
+        collaboration: { select: { id: true, talentId: true, accountManagerId: true } },
       },
     });
 
@@ -102,6 +103,13 @@ export async function POST(
       ROLES_ANNULER_FACTURE.includes(user.role as (typeof ROLES_ANNULER_FACTURE)[number])
     ) {
       allowed = true;
+    }
+
+    if (
+      allowed &&
+      denyIfUnassignedCm(user, document.collaboration?.accountManagerId)
+    ) {
+      allowed = false;
     }
 
     if (!allowed) {

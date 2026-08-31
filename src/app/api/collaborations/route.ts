@@ -6,6 +6,7 @@ import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegation
 import { ensureMarqueContact, parseSenderName } from "@/lib/marque-resolver";
 import { getDeviseInfo } from "@/lib/devises";
 import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
+import { accountManagerFieldsForCreator } from "@/lib/account-manager-assign";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -412,6 +413,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const amAssign = await accountManagerFieldsForCreator({
+      id: user.id,
+      email: session.user.email,
+    });
+
     // Créer la collaboration avec les livrables
     const collaboration = await prisma.collaboration.create({
       data: {
@@ -432,6 +438,7 @@ export async function POST(request: NextRequest) {
         statut: "EN_COURS", // Création manuelle = déjà en cours ; le TM peut mettre "Publié" en 1 clic
         createdById: user.id,
         isPrivate,
+        ...(amAssign ?? {}),
         ...(createdAtOverride ? { createdAt: createdAtOverride } : {}),
         livrables: {
           create: data.livrables.map((l: any) => ({

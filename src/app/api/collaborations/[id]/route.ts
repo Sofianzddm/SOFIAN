@@ -58,7 +58,7 @@ export async function GET(
             manager: { select: { prenom: true, nom: true } },
             delegations: {
               where: { actif: true },
-              select: { actif: true },
+              select: { actif: true, tmRelaiId: true },
             },
           },
         },
@@ -81,6 +81,9 @@ export async function GET(
         },
         negociation: {
           select: { contactKind: true, contactAgence: true },
+        },
+        accountManager: {
+          select: { id: true, prenom: true, nom: true, role: true },
         },
         livrables: {
           orderBy: { createdAt: "asc" },
@@ -226,20 +229,15 @@ export async function PATCH(
       }
     }
 
-    // Date collab (createdAt) : ADMIN partout, HEAD_OF_SALES sur ses propres collabs
+    // Date collab (createdAt) : ADMIN partout, HEAD_OF_SALES sur ses collabs, CM assigné
     if (data.createdAt !== undefined) {
-      if (userRole !== "ADMIN" && userRole !== "HEAD_OF_SALES") {
+      const canEditDate =
+        userRole === "ADMIN" ||
+        (userRole === "HEAD_OF_SALES" && existingCollab.createdById === session.user.id) ||
+        (userRole === "CM" && existingCollab.accountManagerId === session.user.id);
+      if (!canEditDate) {
         return NextResponse.json(
-          { error: "Seuls ADMIN et HEAD_OF_SALES peuvent modifier la date de collaboration" },
-          { status: 403 }
-        );
-      }
-      if (
-        userRole === "HEAD_OF_SALES" &&
-        existingCollab.createdById !== session.user.id
-      ) {
-        return NextResponse.json(
-          { error: "Vous ne pouvez modifier la date que sur vos propres collaborations" },
+          { error: "Vous ne pouvez pas modifier la date de cette collaboration" },
           { status: 403 }
         );
       }

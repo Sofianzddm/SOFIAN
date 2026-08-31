@@ -254,7 +254,7 @@ const menuItems = [
     label: "Factures & Devis",
     href: "/factures",
     icon: FileText,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "CM"],
   },
   {
     label: "Finance",

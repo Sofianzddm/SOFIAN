@@ -280,7 +280,7 @@ export default function FactureDetailPage() {
   if (status === "loading") {
     return <div className="p-6 text-sm text-gray-500">Chargement...</div>;
   }
-  if (!role || !["ADMIN", "HEAD_OF_SALES"].includes(role)) {
+  if (!role || !["ADMIN", "HEAD_OF_SALES", "CM"].includes(role)) {
     if (typeof window !== "undefined") {
       router.replace("/dashboard");
     }

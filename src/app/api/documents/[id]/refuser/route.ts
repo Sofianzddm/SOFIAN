@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getDestinatairesNotification } from "@/lib/delegations";
 import { StatutDocument } from "@prisma/client";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 
 /**
  * POST /api/documents/[id]/refuser
@@ -25,7 +26,7 @@ export async function POST(
     const user = session.user as { id: string; role: string };
 
     // Seuls ADMIN et HEAD_OF peuvent refuser des devis
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour refuser des devis" },
         { status: 403 }
@@ -50,6 +51,9 @@ export async function POST(
 
     if (!document) {
       return NextResponse.json({ error: "Document non trouvé" }, { status: 404 });
+    }
+    if (denyIfUnassignedCm(user, document.collaboration?.accountManagerId)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     if (document.type !== "DEVIS") {

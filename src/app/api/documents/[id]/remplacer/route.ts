@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { TypeDocument, StatutDocument } from "@prisma/client";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 
 /**
  * Route POST : Remplacer une facture
@@ -28,7 +29,7 @@ export async function POST(
     const user = session.user as { id: string; role: string };
 
     // ADMIN et HEAD_OF_SALES peuvent remplacer une facture
-    if (!["ADMIN", "HEAD_OF_SALES"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF_SALES", "CM"].includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour remplacer une facture" },
         { status: 403 }
@@ -54,6 +55,9 @@ export async function POST(
 
     if (!facture) {
       return NextResponse.json({ error: "Facture non trouvée" }, { status: 404 });
+    }
+    if (denyIfUnassignedCm(user, facture.collaboration?.accountManagerId)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     if (facture.type !== "FACTURE") {

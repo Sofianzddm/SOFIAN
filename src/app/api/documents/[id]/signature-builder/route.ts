@@ -17,7 +17,7 @@ export async function GET(
     }
 
     const user = session.user as { id: string; role: string; email?: string | null; name?: string | null };
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"].includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour accéder au builder de signature" },
         { status: 403 }

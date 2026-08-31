@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getDestinatairesNotification } from "@/lib/delegations";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 
 /**
  * POST /api/documents/[id]/convertir-facture
@@ -25,7 +26,7 @@ export async function POST(
     const user = session.user as { id: string; role: string };
 
     // Seuls ADMIN et HEAD_OF peuvent convertir des devis
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour convertir des devis" },
         { status: 403 }
@@ -47,6 +48,9 @@ export async function POST(
 
     if (!devis) {
       return NextResponse.json({ error: "Devis non trouvé" }, { status: 404 });
+    }
+    if (denyIfUnassignedCm(user, devis.collaboration?.accountManagerId)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     if (devis.type !== "DEVIS") {

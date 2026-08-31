@@ -12,6 +12,7 @@ import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { getDeviseInfo } from "@/lib/devises";
 import { computeDateEcheance, extractDelaiPaiementJours } from "@/lib/documents/echeance";
 import { normalizeLocale } from "@/lib/documents/i18n";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 
 export async function POST(
   request: NextRequest,
@@ -27,7 +28,7 @@ export async function POST(
     const user = session.user as { id: string; role: string };
 
     // Seuls ADMIN, HEAD_OF, HEAD_OF_INFLUENCE, HEAD_OF_SALES et TM peuvent générer des factures
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"].includes(user.role)) {
       return NextResponse.json(
         { error: "Permissions insuffisantes" },
         { status: 403 }
@@ -92,6 +93,9 @@ export async function POST(
           { status: 403 }
         );
       }
+    }
+    if (denyIfUnassignedCm(user, collab.accountManagerId)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     // Générer la référence facture via la numérotation centralisée (F-YYYY-NNNN)

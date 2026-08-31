@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 
 export async function POST(
   request: NextRequest,
@@ -21,7 +22,7 @@ export async function POST(
     const user = session.user as { id: string; role: string };
 
     // ADMIN, HEAD_OF, HEAD_OF_INFLUENCE, HEAD_OF_SALES et TM peuvent créer des avoirs
-    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"];
+    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"];
     if (!rolesAutorises.includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour créer un avoir" },
@@ -34,7 +35,7 @@ export async function POST(
       where: { id },
       include: {
         collaboration: {
-          select: { talentId: true },
+          select: { talentId: true, accountManagerId: true },
         },
       },
     });
@@ -63,6 +64,10 @@ export async function POST(
           { status: 403 }
         );
       }
+    }
+
+    if (denyIfUnassignedCm(user, facture.collaboration?.accountManagerId)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     if (facture.type !== "FACTURE") {

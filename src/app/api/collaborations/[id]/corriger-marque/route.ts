@@ -78,7 +78,7 @@ export async function POST(
     }
 
     const role = session.user.role || "";
-    const allowed = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"];
+    const allowed = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"];
     if (!allowed.includes(role)) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
     }
@@ -158,6 +158,9 @@ export async function POST(
     }
     // HoS : uniquement ses propres collabs.
     if (role === "HEAD_OF_SALES" && collab.createdById !== session.user.id) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
+    if (role === "CM" && collab.accountManagerId !== session.user.id) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 

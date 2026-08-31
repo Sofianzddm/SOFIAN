@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 import { v2 as cloudinary } from "cloudinary";
 
 cloudinary.config({
@@ -16,6 +17,7 @@ const ALLOWED_ROLES = new Set([
   "HEAD_OF",
   "HEAD_OF_INFLUENCE",
   "HEAD_OF_SALES",
+  "CM",
 ]);
 
 export async function POST(
@@ -35,7 +37,7 @@ export async function POST(
     const { id } = await params;
     const collaboration = await prisma.collaboration.findUnique({
       where: { id },
-      select: { id: true, reference: true },
+      select: { id: true, reference: true, accountManagerId: true },
     });
 
     if (!collaboration) {
@@ -43,6 +45,9 @@ export async function POST(
         { error: "Collaboration non trouvée" },
         { status: 404 }
       );
+    }
+    if (denyIfUnassignedCm(session.user, collaboration.accountManagerId)) {
+      return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
     }
 
     const devis = await prisma.document.findFirst({

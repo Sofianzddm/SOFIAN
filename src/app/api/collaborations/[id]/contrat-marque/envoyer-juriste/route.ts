@@ -6,6 +6,7 @@ import prisma from "@/lib/prisma";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { ContratMarqueJuristeEmail } from "@/lib/emails/ContratMarqueJuristeEmail";
+import { canUploadContratMarque, contratMarqueTalentAccessSelect } from "@/lib/contratMarqueAccess";
 
 export async function POST(
   request: NextRequest,
@@ -16,7 +17,7 @@ export async function POST(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!["ADMIN", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(session.user.role)) {
+    if (!["ADMIN", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(session.user.role)) {
       return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
     }
 
@@ -33,12 +34,22 @@ export async function POST(
     const collab = await prisma.collaboration.findUnique({
       where: { id },
       include: {
-        talent: { select: { prenom: true, nom: true } },
+        talent: {
+          select: {
+            prenom: true,
+            nom: true,
+            ...contratMarqueTalentAccessSelect,
+          },
+        },
         marque: { select: { nom: true } },
+        accountManager: { select: { role: true } },
       },
     });
     if (!collab) {
       return NextResponse.json({ error: "Collaboration non trouvée" }, { status: 404 });
+    }
+    if (!canUploadContratMarque(session.user.id, session.user.role, collab)) {
+      return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
     }
 
     const collaborationLabel = `${collab.talent.prenom} ${collab.talent.nom} x ${collab.marque.nom}`;

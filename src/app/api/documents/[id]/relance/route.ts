@@ -7,9 +7,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendRelanceEmail, type RelanceLevel } from "@/lib/emails/relance-facture";
+import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 import { generateDocumentPDF, documentToPDFData } from "@/lib/documents/generatePDF";
 
-const ROLES_AUTORISES = ["ADMIN", "HEAD_OF_SALES"];
+const ROLES_AUTORISES = ["ADMIN", "HEAD_OF_SALES", "CM"];
 
 function diffDays(from: Date, to: Date): number {
   const ms = to.getTime() - from.getTime();
@@ -66,6 +67,9 @@ export async function POST(
     }
     if (document.type !== "FACTURE") {
       return NextResponse.json({ error: "Seules les factures peuvent faire l'objet d'une relance" }, { status: 400 });
+    }
+    if (denyIfUnassignedCm(user, document.collaboration?.accountManagerId)) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
     if (document.statut === "PAYE") {
       return NextResponse.json({ error: "Cette facture est déjà payée" }, { status: 400 });

@@ -193,7 +193,7 @@ const TYPE_LABELS: Record<string, string> = {
   EVENT: "Event", SHOOTING: "Shooting", AMBASSADEUR: "Ambassadeur",
 };
 
-const ROLES_ANNULER_DEVIS = new Set(["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM"]);
+const ROLES_ANNULER_DEVIS = new Set(["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"]);
 
 function devisALieUneFactureActive(doc: DocumentInfo, docs: DocumentInfo[]): boolean {
   return docs.some(
@@ -335,6 +335,8 @@ export default function CollabDetailPage() {
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
   const [effectiveRole, setEffectiveRole] = useState<string | null>(null);
+  const [effectiveUserId, setEffectiveUserId] = useState<string | null>(null);
+  const [effectiveUserName, setEffectiveUserName] = useState<string | null>(null);
   const [contratSending, setContratSending] = useState(false);
   const [showContratPreviewModal, setShowContratPreviewModal] = useState(false);
   const [contratPreviewForm, setContratPreviewForm] = useState({
@@ -377,6 +379,8 @@ export default function CollabDetailPage() {
         if (r.ok) {
           const data = await r.json();
           setEffectiveRole(data.role ?? null);
+          setEffectiveUserId(data.id ?? null);
+          setEffectiveUserName(data.name ?? null);
         }
       } catch {
         setEffectiveRole(null);
@@ -1194,7 +1198,7 @@ export default function CollabDetailPage() {
   const canGenerateFacture =
     ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) &&
     (collab.isLongTerme || !activeFacture);
-  const canUploadSignedDevis = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(roleForUi);
+  const canUploadSignedDevis = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(roleForUi);
   const canOuvrirDevisPartiel = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const activeDevisForManualUpload = (collab.documents || []).find(
     (d) => d.type === "DEVIS" && d.statut !== "ANNULE" && !d.avoirRef
@@ -1205,16 +1209,16 @@ export default function CollabDetailPage() {
   const existingDocs = collab.documents || [];
   const canSeeContratBloc = ["ADMIN", "TM", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const canGenerateContrat = ["ADMIN", "TM"].includes(roleForUi);
-  const canEditCollabDate = roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES";
-  const canCorrigerMarque = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(roleForUi);
+  const canEditCollabDate = roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES" || roleForUi === "CM";
+  const canCorrigerMarque = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(roleForUi);
   const contactAgenceAffiche = (
     collab.contactAgence ||
     collab.negociation?.contactAgence ||
     ""
   ).trim();
   const currentUserForContratMarque = {
-    id: (session?.user as { id?: string })?.id ?? "",
-    nom: (session?.user as { name?: string })?.name ?? "",
+    id: effectiveUserId || (session?.user as { id?: string })?.id || "",
+    nom: effectiveUserName || (session?.user as { name?: string })?.name || "",
     role: roleForUi,
   };
 
