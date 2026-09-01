@@ -2,6 +2,15 @@ import type { Collaboration, Role } from "@prisma/client";
 
 export type ContratMarqueRole = Role | string;
 
+/** Select Prisma : TM assigné + relais actifs (accès contrat marque). */
+export const contratMarqueTalentAccessSelect = {
+  managerId: true,
+  delegations: {
+    where: { actif: true },
+    select: { tmRelaiId: true },
+  },
+} as const;
+
 /** Rôles pouvant lire / uploader un contrat marque (hors TM assigné). */
 const ROLES_CONTRAT_MARQUE_MANAGE = [
   "ADMIN",
