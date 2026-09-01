@@ -1,4 +1,5 @@
 import { buildMonth, type MonthGrid, CP, RTT, TT, SICK } from "@/components/rh/mock/shared";
+import { frenchHolidaysInMonth } from "@/lib/rh/holidays";
 
 const ACCOUNT_MARK: Record<string, string> = {
   CP: "soft",
@@ -6,6 +7,8 @@ const ACCOUNT_MARK: Record<string, string> = {
   RECUP: "sel",
   SS: "hol",
   UNPAID: "blocked",
+  SCHOOL: "rtt",
+  AUTHORIZED: "soft",
 };
 
 export function marksFromLeaveDays(
@@ -28,6 +31,10 @@ export function marksFromLeaveDays(
     const dt = new Date(r + "T12:00:00");
     if (dt.getFullYear() !== year || dt.getMonth() !== month) continue;
     if (!marks[dt.getDate()]) marks[dt.getDate()] = "tt";
+  }
+  for (const h of frenchHolidaysInMonth(year, month)) {
+    const day = Number(h.date.slice(8, 10));
+    if (!marks[day]) marks[day] = "ferie";
   }
   if (isThisMonth) {
     const day = today.getDate();
@@ -61,9 +68,12 @@ export function buildThreeMonths(
 
 export const LEAVE_LEGEND = [
   { label: "CP", color: CP },
-  { label: "RTT / Récup", color: RTT },
+  { label: "Récup", color: RTT },
   { label: "Télétravail", color: TT },
   { label: "Maladie", color: SICK },
+  { label: "École", color: "#B48CF0" },
+  { label: "Autorisée", color: "#8ED98A" },
+  { label: "Férié", color: "#C4B5FD" },
 ];
 
 export function isoDate(d: Date): string {

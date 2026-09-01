@@ -325,18 +325,15 @@ export async function getMessageRfcId(
   }
 }
 
+/**
+ * True s'il y a une vraie réponse externe dans le thread.
+ * Délègue à checkThreadActivity : nos propres mails (envoi + relances) et les
+ * bounces ne comptent PAS. L'ancienne heuristique `messages.length > 1`
+ * bloquait la R2 dès que la R1 était partie (notre mail comptait comme réponse).
+ */
 export async function checkThreadForReply(email: string, threadId: string): Promise<boolean> {
-  const accessToken = await getValidAccessToken(email);
-  const response = await fetch(`${GMAIL_THREADS_BASE_URL}/${encodeURIComponent(threadId)}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  const json = (await response.json().catch(() => null)) as { messages?: unknown[] } | null;
-  if (!response.ok) return false;
-
-  return Array.isArray(json?.messages) && json.messages.length > 1;
+  const activity = await checkThreadActivity(email, threadId);
+  return activity.replied;
 }
 
 export type ThreadActivity = {
@@ -353,8 +350,7 @@ const BOUNCE_SUBJECT_RE =
 /**
  * Inspecte un thread Gmail et distingue les vraies réponses des bounces
  * (échec de remise) et de nos propres mails (envoi initial + relance dans le
- * même thread). Contrairement à checkThreadForReply, une relance ou un
- * postmaster ne compte pas comme une réponse.
+ * même thread). checkThreadForReply s'appuie sur cette logique.
  */
 export async function checkThreadActivity(
   email: string,

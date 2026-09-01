@@ -20,7 +20,9 @@
     "migrate:cloudinary-to-s3:apply": "tsx scripts/migrate-cloudinary-to-s3.ts --apply",
     "test:rh": "tsx src/components/rh/lib/calculations.test.ts",
     "test:snapchat": "tsx src/lib/snapchat-pricing.test.ts",
-    "seed:rh": "tsx scripts/seed-rh.ts"
+    "seed:rh": "tsx scripts/seed-rh.ts",
+    "import:rh-lucca": "tsx scripts/import-lucca-rh.ts",
+    "backfill:rh-office": "tsx scripts/backfill-rh-office.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { canUploadContratMarque } from "@/lib/contratMarqueAccess";
+import { canUploadContratMarque, contratMarqueTalentAccessSelect } from "@/lib/contratMarqueAccess";
 import { v2 as cloudinary } from "cloudinary";
 
 cloudinary.config({
@@ -35,11 +35,11 @@ export async function POST(
         contratMarquePdfUrl: true,
         contratMarqueStatut: true,
         contratMarqueMode: true,
+        isPrivate: true,
         accountManagerId: true,
+        accountManager: { select: { role: true } },
         talent: {
-          select: {
-            managerId: true,
-          },
+          select: contratMarqueTalentAccessSelect,
         },
       },
     });

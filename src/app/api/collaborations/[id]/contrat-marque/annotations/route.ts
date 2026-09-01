@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { canReadContratMarqueReview } from "@/lib/contratMarqueAccess";
+import { canReadContratMarqueReview, contratMarqueTalentAccessSelect } from "@/lib/contratMarqueAccess";
 
 export async function GET(
   request: NextRequest,
@@ -20,8 +20,10 @@ export async function GET(
       where: { id },
       select: {
         id: true,
+        isPrivate: true,
         accountManagerId: true,
-        talent: { select: { managerId: true } },
+        accountManager: { select: { role: true } },
+        talent: { select: contratMarqueTalentAccessSelect },
       },
     });
     if (!collab) {
@@ -83,9 +85,11 @@ export async function POST(
       where: { id },
       select: {
         id: true,
+        isPrivate: true,
         accountManagerId: true,
+        accountManager: { select: { role: true } },
         contratMarqueVersionActuelle: true,
-        talent: { select: { managerId: true } },
+        talent: { select: contratMarqueTalentAccessSelect },
       },
     });
     if (!collab) {

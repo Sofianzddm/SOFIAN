@@ -1,7 +1,9 @@
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { mealVoucherCount, mileageAllowance } from "@/lib/rh/calculations";
+import { isWorkday } from "@/lib/rh/holidays";
 import { createRhRequest, writeRhAudit } from "@/lib/rh/workflow";
+import { notifyRhRequestCreated, notifyRhDecision } from "@/lib/rh/notify";
 
 export function vehicleDocsValid(vehicle: {
   carteGriseExpiresOn: Date | null;
@@ -27,8 +29,7 @@ export async function computeTrForMonth(params: {
   const to = new Date(params.year, params.month, 0);
   let workedOpenDays = 0;
   for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) workedOpenDays++;
+    if (isWorkday(d)) workedOpenDays++;
   }
 
   const leaveDays = await prisma.rhLeaveDay.findMany({
@@ -222,6 +223,13 @@ export async function submitExpenseReport(params: {
     prefix: "NDF",
   });
 
+  void notifyRhRequestCreated({
+    employeeId: params.employeeId,
+    title: request.title,
+    reference: request.reference,
+    type: "note de frais",
+  });
+
   return prisma.rhExpenseReport.update({
     where: { id: report.id },
     data: { status: "SUBMITTED", requestId: request.id },
@@ -260,4 +268,18 @@ export async function decideExpense(params: {
     action: params.approve ? "expense.approve" : "expense.refuse",
     detail: { reportId: report.id },
   });
+  if (report.requestId) {
+    const req = await prisma.rhRequest.findUnique({
+      where: { id: report.requestId },
+    });
+    if (req) {
+      void notifyRhDecision({
+        employeeId: report.employeeId,
+        title: req.title,
+        reference: req.reference,
+        approved: params.approve,
+        note: params.note,
+      });
+    }
+  }
 }

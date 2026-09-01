@@ -253,14 +253,7 @@ export async function middleware(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
-  // Soft-launch RH : ADMIN only (masqué aux salariés / TM / etc.)
-  if (
-    (pathname.startsWith("/rh") || pathname.startsWith("/api/rh")) &&
-    effectiveRole !== "ADMIN"
-  ) {
-    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
-  }
-
+  // RH : tout utilisateur connecté (l'API exige un profil RH actif)
   if (pathname.startsWith("/juriste") && effectiveRole !== "JURISTE") {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
@@ -363,7 +356,7 @@ export const config = {
     "/comptable",
     "/comptable/:path*",
     "/api/comptable/:path*",
-    // Espace RH (absences / temps / frais) — soft-launch ADMIN only
+    // Espace RH (absences / temps / frais)
     "/rh",
     "/rh/:path*",
     "/api/rh/:path*",

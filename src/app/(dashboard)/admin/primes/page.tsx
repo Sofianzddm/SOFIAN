@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { nanoid } from "nanoid";
 import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
-import { PRIME_TYPE_LABELS, type PrimeLigne } from "@/lib/primes";
+import { PRIME_TYPE_LABELS, PRIME_TYPE_OPTIONS, isRetraitPrimeType, normalizePrimeMontant, type PrimeLigne, type PrimeLigneType } from "@/lib/primes";
 
 type PrimeStatut = "BROUILLON" | "SOUMIS" | "VALIDE" | "REFUSE";
 type PrimeRow = {
@@ -14,6 +15,10 @@ type PrimeRow = {
   primeCA: number;
   statut: PrimeStatut;
   commentaireAdmin: string | null;
+  lignesAdmin?: PrimeLigne[] | null;
+  primeCAAdmin?: number | null;
+  excelUrl?: string | null;
+  excelFileName?: string | null;
   user: { prenom: string; nom: string; email: string };
 };
 
@@ -66,8 +71,15 @@ export default function AdminPrimesPage() {
   const [primes, setPrimes] = useState<PrimeRow[]>([]);
   const [tab, setTab] = useState<"TOUTES" | "SOUMIS" | "VALIDE" | "REFUSE">("TOUTES");
 
-  const [refuseId, setRefuseId] = useState<string | null>(null);
+  const [decisionId, setDecisionId] = useState<string | null>(null);
+  const [decisionMode, setDecisionMode] = useState<"validate" | "refuse" | "edit">("refuse");
   const [commentaire, setCommentaire] = useState("");
+  const [decisionLignes, setDecisionLignes] = useState<PrimeLigne[]>([]);
+  const [decisionPrimeCA, setDecisionPrimeCA] = useState("0");
+  const [decisionFile, setDecisionFile] = useState<File | null>(null);
+  const [decisionSaving, setDecisionSaving] = useState(false);
+  const [removeIndex, setRemoveIndex] = useState<number | null>(null);
+  const [removeReason, setRemoveReason] = useState("");
 
   const now = new Date();
   const [hosMois, setHosMois] = useState(now.getUTCMonth() + 1);
@@ -324,19 +336,136 @@ export default function AdminPrimesPage() {
     return primes.filter((p) => p.statut === tab);
   }, [primes, tab]);
 
-  const decide = async (id: string, action: "validate" | "refuse", commentaireAdmin?: string) => {
+  const decide = async (
+    id: string,
+    action: "validate" | "refuse" | "attach-decision",
+    opts?: {
+      commentaireAdmin?: string;
+      lignesAdmin?: PrimeLigne[];
+      primeCAAdmin?: number;
+      excelUrl?: string | null;
+      excelFileName?: string | null;
+    }
+  ) => {
     const r = await fetch(`/api/primes/${id}`, {
       method: "PATCH",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, commentaireAdmin }),
+      body: JSON.stringify({
+        action,
+        commentaireAdmin: opts?.commentaireAdmin,
+        ...(opts?.lignesAdmin !== undefined
+          ? { lignesAdmin: opts.lignesAdmin, primeCAAdmin: opts.primeCAAdmin ?? 0 }
+          : {}),
+        excelUrl: opts?.excelUrl ?? undefined,
+        excelFileName: opts?.excelFileName ?? undefined,
+      }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
       setError(typeof d.error === "string" ? d.error : "Action impossible.");
-      return;
+      return false;
     }
     await load();
+    return true;
+  };
+
+  const openDecision = (p: PrimeRow, mode: "validate" | "refuse" | "edit") => {
+    setDecisionId(p.id);
+    setDecisionMode(mode);
+    setCommentaire(mode === "refuse" ? "" : p.commentaireAdmin || "");
+    const sourceLignes =
+      Array.isArray(p.lignesAdmin) && p.lignesAdmin.length > 0 ? p.lignesAdmin : p.lignes || [];
+    setDecisionLignes(sourceLignes.map((l) => ({ ...l, id: l.id || nanoid() })));
+    const sourcePrimeCA =
+      p.primeCAAdmin != null && Number.isFinite(Number(p.primeCAAdmin))
+        ? Number(p.primeCAAdmin)
+        : Number(p.primeCA ?? 0);
+    setDecisionPrimeCA(String(sourcePrimeCA));
+    setDecisionFile(null);
+    setRemoveIndex(null);
+    setRemoveReason("");
+  };
+
+  const applyRetraitWithReason = () => {
+    if (removeIndex == null) return;
+    const reason = removeReason.trim();
+    if (!reason) return;
+    setDecisionLignes((prev) =>
+      prev.map((row, idx) => {
+        if (idx !== removeIndex) return row;
+        const was = Number(row.montant || 0);
+        const wasLabel =
+          was !== 0
+            ? ` (annulé : ${new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(was)} €)`
+            : "";
+        return {
+          ...row,
+          type: "RETRAIT_COLLABORATION" as const,
+          description: `${reason}${wasLabel}`,
+          // Ligne annulée : plus de crédit. Pour une déduction $, utiliser « + Retrait collaboration ».
+          montant: 0,
+        };
+      })
+    );
+    setRemoveIndex(null);
+    setRemoveReason("");
+  };
+
+  const confirmDecision = async () => {
+    if (!decisionId) return;
+    if (decisionMode === "refuse" && !commentaire.trim()) return;
+    setDecisionSaving(true);
+    setError(null);
+    try {
+      const lignesAdmin = decisionLignes
+        .map((l) => ({
+          ...l,
+          description: (l.description || "").trim(),
+          talentNom: (l.talentNom || "").trim() || undefined,
+          montant: normalizePrimeMontant(l.type, Number(l.montant || 0)),
+        }))
+        .filter((l) => l.description && l.id);
+
+      const primeCAAdmin = (() => {
+        const n = Number(String(decisionPrimeCA).trim().replace(/\s+/g, "").replace(",", "."));
+        return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+      })();
+
+      const action =
+        decisionMode === "edit" ? "attach-decision" : decisionMode === "validate" ? "validate" : "refuse";
+
+      const ok = await decide(decisionId, action, {
+        commentaireAdmin: decisionMode === "refuse" ? commentaire.trim() : undefined,
+        lignesAdmin,
+        primeCAAdmin,
+      });
+      if (!ok) return;
+
+      if (decisionFile) {
+        const fd = new FormData();
+        fd.append("file", decisionFile);
+        const up = await fetch(`/api/primes/${decisionId}/excel`, {
+          method: "POST",
+          credentials: "include",
+          body: fd,
+        });
+        const upJson = await up.json().catch(() => ({}));
+        if (!up.ok) {
+          throw new Error(
+            typeof upJson.error === "string"
+              ? upJson.error
+              : "Décision enregistrée, mais l’upload Excel a échoué. Tu peux le joindre ensuite."
+          );
+        }
+        await load();
+      }
+      setDecisionId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Action impossible.");
+    } finally {
+      setDecisionSaving(false);
+    }
   };
 
   if (status === "loading" || !effectiveRole) {
@@ -463,11 +592,11 @@ export default function AdminPrimesPage() {
                   <thead><tr className="text-left" style={{ color: OLD_ROSE }}><th className="py-2">Type</th><th className="py-2">Description</th><th className="py-2">Talent</th><th className="py-2 text-right">Montant</th></tr></thead>
                   <tbody>
                     {(p.lignes || []).map((l) => (
-                      <tr key={l.id} className="border-t" style={{ borderColor: "#F2E9DD" }}>
-                        <td className="py-2">{PRIME_TYPE_LABELS[l.type]}</td>
+                      <tr key={l.id} className="border-t" style={{ borderColor: "#F2E9DD", backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : undefined }}>
+                        <td className="py-2">{PRIME_TYPE_LABELS[l.type] || l.type}</td>
                         <td className="py-2">{l.description}</td>
                         <td className="py-2">{l.talentNom || "—"}</td>
-                        <td className="py-2 text-right">{eur(Number(l.montant || 0))}</td>
+                        <td className="py-2 text-right" style={{ color: Number(l.montant) < 0 ? "#B91C1C" : undefined }}>{eur(Number(l.montant || 0))}</td>
                       </tr>
                     ))}
                     <tr className="border-t" style={{ borderColor: "#F2E9DD" }}>
@@ -483,14 +612,105 @@ export default function AdminPrimesPage() {
 
                 {p.commentaireAdmin && <p className="mt-2 text-sm text-red-700">{p.commentaireAdmin}</p>}
 
+                {(Array.isArray(p.lignesAdmin) && p.lignesAdmin.length > 0) || p.primeCAAdmin != null || p.excelUrl ? (
+                  <div className="mt-4 rounded-xl border p-3" style={{ borderColor: TEA_GREEN, backgroundColor: "#F7FBF0" }}>
+                    <p className="text-sm font-semibold mb-2" style={{ color: LICORICE }}>Tableau validé / corrigé (admin)</p>
+                    {Array.isArray(p.lignesAdmin) && p.lignesAdmin.length > 0 ? (
+                      <table className="w-full text-sm mb-2">
+                        <tbody>
+                          {p.lignesAdmin.map((l) => (
+                            <tr key={l.id} className="border-t" style={{ borderColor: "#E5EED6", backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : undefined }}>
+                              <td className="py-1.5">{PRIME_TYPE_LABELS[l.type] || l.type}</td>
+                              <td className="py-1.5">{l.description}</td>
+                              <td className="py-1.5">{l.talentNom || "—"}</td>
+                              <td className="py-1.5 text-right" style={{ color: Number(l.montant) < 0 ? "#B91C1C" : undefined }}>{eur(Number(l.montant || 0))}</td>
+                            </tr>
+                          ))}
+                          <tr className="border-t" style={{ borderColor: "#E5EED6" }}>
+                            <td colSpan={3} className="py-1.5 italic" style={{ color: OLD_ROSE }}>Prime CA</td>
+                            <td className="py-1.5 text-right italic">{eur(Number(p.primeCAAdmin || 0))}</td>
+                          </tr>
+                          <tr className="border-t" style={{ borderColor: "#E5EED6" }}>
+                            <td colSpan={3} className="py-1.5 font-semibold">Total corrigé</td>
+                            <td className="py-1.5 text-right font-semibold">
+                              {eur(
+                                (p.lignesAdmin || []).reduce((s, l) => s + Number(l.montant || 0), 0) +
+                                  Number(p.primeCAAdmin || 0)
+                              )}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    ) : null}
+                    {p.excelUrl ? (
+                      <a
+                        href={p.excelUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex text-sm underline"
+                        style={{ color: LICORICE }}
+                      >
+                        Télécharger Excel{p.excelFileName ? ` (${p.excelFileName})` : ""}
+                      </a>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {p.statut === "SOUMIS" && (
                   <div className="mt-3 flex gap-2">
-                    <button className="px-3 py-1.5 rounded-lg text-sm font-medium" style={{ backgroundColor: TEA_GREEN, color: LICORICE }} onClick={() => { if (window.confirm("Valider cette soumission ?")) void decide(p.id, "validate"); }}>
-                      Valider
+                    <button
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium"
+                      style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                      onClick={() => openDecision(p, "validate")}
+                    >
+                      Valider / corriger
                     </button>
-                    <button className="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-600 text-white" onClick={() => { setRefuseId(p.id); setCommentaire(""); }}>
+                    <button
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-600 text-white"
+                      onClick={() => openDecision(p, "refuse")}
+                    >
                       Refuser
                     </button>
+                  </div>
+                )}
+
+                {(p.statut === "REFUSE" || p.statut === "VALIDE") && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-lg border text-sm"
+                      style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                      onClick={() => openDecision(p, "edit")}
+                    >
+                      Refaire le tableau du mois
+                    </button>
+                    <label className="inline-flex items-center gap-2 text-sm cursor-pointer px-3 py-1.5 rounded-lg border" style={{ borderColor: OLD_ROSE, color: LICORICE }}>
+                      {p.excelUrl ? "Remplacer l’Excel" : "Joindre un Excel"}
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!file) return;
+                          setError(null);
+                          const fd = new FormData();
+                          fd.append("file", file);
+                          const up = await fetch(`/api/primes/${p.id}/excel`, {
+                            method: "POST",
+                            credentials: "include",
+                            body: fd,
+                          });
+                          const upJson = await up.json().catch(() => ({}));
+                          if (!up.ok) {
+                            setError(typeof upJson.error === "string" ? upJson.error : "Upload impossible.");
+                            return;
+                          }
+                          await load();
+                        }}
+                      />
+                    </label>
                   </div>
                 )}
               </div>
@@ -499,27 +719,245 @@ export default function AdminPrimesPage() {
         </div>
       )}
 
-      {refuseId && (
-        <div className="fixed inset-0 z-[120] bg-black/40 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white border p-4" style={{ borderColor: "#EEDFD1" }}>
-            <h3 className="text-lg font-semibold mb-2" style={{ color: LICORICE }}>Motif du refus</h3>
-            <textarea
-              className="w-full border rounded-lg px-3 py-2 min-h-[120px]"
-              value={commentaire}
-              onChange={(e) => setCommentaire(e.target.value)}
-              placeholder="Commentaire obligatoire..."
-            />
-            <div className="mt-3 flex justify-end gap-2">
-              <button className="px-3 py-2 border rounded-lg" onClick={() => setRefuseId(null)}>Annuler</button>
+      {decisionId && (
+        <div className="fixed inset-0 z-[120] bg-black/40 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-3xl rounded-2xl bg-white border p-4 my-6" style={{ borderColor: "#EEDFD1" }}>
+            <h3 className="text-lg font-semibold mb-1" style={{ color: LICORICE }}>
+              {decisionMode === "validate"
+                ? "Valider et fixer le tableau du mois"
+                : decisionMode === "refuse"
+                  ? "Refuser et corriger les primes"
+                  : "Refaire le tableau du mois"}
+            </h3>
+            <p className="text-sm mb-3" style={{ color: OLD_ROSE }}>
+              {decisionMode === "validate"
+                ? "Ajuste si besoin les montants validés — c’est ce que Manon verra comme résultat final."
+                : decisionMode === "refuse"
+                  ? "Ajuste le tableau ci-dessous (ce que Manon verra comme résultat) et joins éventuellement un Excel téléchargeable."
+                  : "Remplace le tableau validé / corrigé visible par Manon pour ce mois."}
+            </p>
+
+            <div className="overflow-x-auto mb-3">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left" style={{ color: OLD_ROSE }}>
+                    <th className="py-2">Type</th>
+                    <th className="py-2">Description</th>
+                    <th className="py-2">Talent</th>
+                    <th className="py-2 text-right">Montant</th>
+                    <th className="py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {decisionLignes.map((l, i) => {
+                    const isRetrait = isRetraitPrimeType(l.type);
+                    return (
+                    <tr key={l.id} className="border-t" style={{ borderColor: "#F2E9DD", backgroundColor: isRetrait ? "#FEF2F2" : undefined }}>
+                      <td className="py-2 pr-2">
+                        <select
+                          className="border rounded px-2 py-1 text-xs w-full"
+                          value={l.type}
+                          onChange={(e) => {
+                            const type = e.target.value as PrimeLigneType;
+                            setDecisionLignes((prev) =>
+                              prev.map((row, idx) =>
+                                idx === i
+                                  ? { ...row, type, montant: normalizePrimeMontant(type, Number(row.montant || 0)) }
+                                  : row
+                              )
+                            );
+                          }}
+                        >
+                          {PRIME_TYPE_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-2 pr-2">
+                        <input
+                          className="border rounded px-2 py-1 w-full"
+                          value={l.description}
+                          placeholder={isRetrait ? "Raison du retrait…" : "Description"}
+                          onChange={(e) => {
+                            const description = e.target.value;
+                            setDecisionLignes((prev) => prev.map((row, idx) => (idx === i ? { ...row, description } : row)));
+                          }}
+                        />
+                      </td>
+                      <td className="py-2 pr-2">
+                        <input
+                          className="border rounded px-2 py-1 w-full"
+                          value={l.talentNom ?? ""}
+                          onChange={(e) => {
+                            const talentNom = e.target.value;
+                            setDecisionLignes((prev) => prev.map((row, idx) => (idx === i ? { ...row, talentNom } : row)));
+                          }}
+                        />
+                      </td>
+                      <td className="py-2 pr-2 text-right">
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="border rounded px-2 py-1 w-28 text-right"
+                          style={{ color: isRetrait || Number(l.montant) < 0 ? "#B91C1C" : undefined }}
+                          value={isRetrait ? -Math.abs(Number(l.montant || 0)) : l.montant}
+                          onChange={(e) => {
+                            const raw = Number(String(e.target.value || "0").replace(",", "."));
+                            const montant = normalizePrimeMontant(l.type, raw);
+                            setDecisionLignes((prev) => prev.map((row, idx) => (idx === i ? { ...row, montant } : row)));
+                          }}
+                        />
+                      </td>
+                      <td className="py-2">
+                        {isRetrait ? (
+                          <button
+                            type="button"
+                            className="text-xs text-red-700"
+                            onClick={() => setDecisionLignes((prev) => prev.filter((_, idx) => idx !== i))}
+                          >
+                            Supprimer
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-xs text-red-700"
+                            onClick={() => {
+                              setRemoveIndex(i);
+                              setRemoveReason("");
+                            }}
+                          >
+                            Retirer
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    );
+                  })}
+                  <tr className="border-t" style={{ borderColor: "#F2E9DD" }}>
+                    <td colSpan={3} className="py-2 italic" style={{ color: OLD_ROSE }}>Prime CA</td>
+                    <td className="py-2 text-right">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="border rounded px-2 py-1 w-28 text-right"
+                        value={decisionPrimeCA}
+                        onChange={(e) => setDecisionPrimeCA(e.target.value)}
+                      />
+                    </td>
+                    <td />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-3">
               <button
-                className="px-3 py-2 rounded-lg bg-red-600 text-white disabled:opacity-50"
-                disabled={!commentaire.trim()}
-                onClick={async () => {
-                  await decide(refuseId, "refuse", commentaire.trim());
-                  setRefuseId(null);
-                }}
+                type="button"
+                className="px-3 py-1.5 rounded-lg border text-sm"
+                style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                onClick={() =>
+                  setDecisionLignes((prev) => [
+                    ...prev,
+                    { id: nanoid(), type: "AUTRE", description: "", talentNom: "", montant: 0 },
+                  ])
+                }
               >
-                Confirmer le refus
+                + Ajouter une ligne
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg border text-sm"
+                style={{ borderColor: "#FECACA", color: "#991B1B", backgroundColor: "#FEF2F2" }}
+                onClick={() =>
+                  setDecisionLignes((prev) => [
+                    ...prev,
+                    {
+                      id: nanoid(),
+                      type: "RETRAIT_COLLABORATION",
+                      description: "",
+                      talentNom: "",
+                      montant: 0,
+                    },
+                  ])
+                }
+              >
+                + Retrait collaboration
+              </button>
+              <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm cursor-pointer" style={{ borderColor: OLD_ROSE, color: LICORICE }}>
+                {decisionFile ? `Excel : ${decisionFile.name}` : "Uploader un Excel"}
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                  className="hidden"
+                  onChange={(e) => setDecisionFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+            </div>
+
+            {removeIndex != null && (
+              <div className="mb-3 rounded-xl border p-3" style={{ borderColor: "#FECACA", backgroundColor: "#FEF2F2" }}>
+                <p className="text-sm font-medium mb-2" style={{ color: "#991B1B" }}>
+                  Raison du retrait (obligatoire)
+                </p>
+                <p className="text-xs mb-2" style={{ color: OLD_ROSE }}>
+                  La ligne est annulée (0 €) avec ta raison. Pour déduire un montant (collab annulée), utilise « + Retrait collaboration ».
+                </p>
+                <textarea
+                  className="w-full border rounded-lg px-3 py-2 min-h-[80px] text-sm"
+                  value={removeReason}
+                  onChange={(e) => setRemoveReason(e.target.value)}
+                  placeholder="Ex. : collaboration annulée par la marque…"
+                  autoFocus
+                />
+                <div className="mt-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 border rounded-lg text-sm"
+                    onClick={() => {
+                      setRemoveIndex(null);
+                      setRemoveReason("");
+                    }}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 rounded-lg text-sm text-white disabled:opacity-50"
+                    style={{ backgroundColor: "#DC2626" }}
+                    disabled={!removeReason.trim()}
+                    onClick={applyRetraitWithReason}
+                  >
+                    Confirmer le retrait
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {decisionMode === "refuse" && (
+              <textarea
+                className="w-full border rounded-lg px-3 py-2 min-h-[100px]"
+                value={commentaire}
+                onChange={(e) => setCommentaire(e.target.value)}
+                placeholder="Motif du refus (obligatoire)…"
+              />
+            )}
+            <div className="mt-3 flex justify-end gap-2">
+              <button className="px-3 py-2 border rounded-lg" disabled={decisionSaving} onClick={() => setDecisionId(null)}>Annuler</button>
+              <button
+                className="px-3 py-2 rounded-lg text-white disabled:opacity-50 inline-flex items-center gap-2"
+                style={{
+                  backgroundColor: decisionMode === "refuse" ? "#DC2626" : LICORICE,
+                  color: decisionMode === "refuse" ? "white" : TEA_GREEN,
+                }}
+                disabled={(decisionMode === "refuse" && !commentaire.trim()) || decisionSaving}
+                onClick={() => void confirmDecision()}
+              >
+                {decisionSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {decisionMode === "validate"
+                  ? "Valider ce tableau"
+                  : decisionMode === "refuse"
+                    ? "Confirmer le refus"
+                    : "Enregistrer le tableau"}
               </button>
             </div>
           </div>

@@ -22,10 +22,19 @@ export async function POST(request: NextRequest) {
       const from = new Date(body.from);
       const to = new Date(body.to);
       const accountCode = body.accountCode as RhLeaveAccount;
-      const { createRhRequest, eachDate, isWeekday, countWeekdays } = await import(
+      const { createRhRequest, eachDate, isWorkday } = await import(
         "@/lib/rh/workflow"
       );
-      const days = countWeekdays(from, to, !!body.halfDay);
+      const weekdayDates =
+        accountCode === "SS"
+          ? eachDate(from, to)
+          : eachDate(from, to).filter((d) => isWorkday(d));
+      const days =
+        body.halfDay && weekdayDates.length === 1
+          ? 0.5
+          : body.halfDay
+            ? Math.max(0.5, weekdayDates.length - 0.5)
+            : weekdayDates.length;
       const request = await createRhRequest({
         type: accountCode === "UNPAID" ? "UNPAID_LEAVE" : "LEAVE",
         status: "APPROVED",
@@ -45,7 +54,6 @@ export async function POST(request: NextRequest) {
           reviewNote: "Force admin",
         },
       });
-      const weekdayDates = eachDate(from, to).filter(isWeekday);
       await prisma.rhLeaveDay.createMany({
         data: weekdayDates.map((date) => ({
           employeeId: target.id,

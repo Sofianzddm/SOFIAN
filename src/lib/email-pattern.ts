@@ -4,6 +4,7 @@
  *
  * Exemples de motifs détectés :
  *  - prenom.nom@domaine.fr          → sophie.martin@joeo.fr
+ *  - prenom.n@domaine.fr            → sophie.m@joeo.fr  (très courant en agence)
  *  - p.nom@domaine.fr                → s.martin@joeo.fr
  *  - prenom@domaine.fr               → sophie@joeo.fr
  *  - prenom_nom@domaine.fr           → sophie_martin@joeo.fr
@@ -12,6 +13,7 @@
 
 export type EmailPatternKind =
   | "prenom.nom"
+  | "prenom.n"
   | "p.nom"
   | "pnom"
   | "prenom"
@@ -62,12 +64,24 @@ function buildLocal(
   const p = emailSlug(prenom);
   const n = emailSlug(nom);
   if (!n && kind !== "prenom") return null;
-  if (!p && (kind === "prenom" || kind === "prenom.nom" || kind === "p.nom" || kind === "pnom" || kind === "prenom_nom" || kind === "prenomnom" || kind === "nom.prenom")) {
+  if (
+    !p &&
+    (kind === "prenom" ||
+      kind === "prenom.nom" ||
+      kind === "prenom.n" ||
+      kind === "p.nom" ||
+      kind === "pnom" ||
+      kind === "prenom_nom" ||
+      kind === "prenomnom" ||
+      kind === "nom.prenom")
+  ) {
     return null;
   }
   switch (kind) {
     case "prenom.nom":
       return p && n ? `${p}.${n}` : null;
+    case "prenom.n":
+      return p && n ? `${p}.${n[0]}` : null;
     case "p.nom":
       return p && n ? `${p[0]}.${n}` : null;
     case "pnom":
@@ -89,6 +103,7 @@ function buildLocal(
 
 const PATTERN_LABELS: Record<EmailPatternKind, string> = {
   "prenom.nom": "prénom.nom@",
+  "prenom.n": "prénom.n@",
   "p.nom": "p.nom@",
   pnom: "pnom@",
   prenom: "prénom@",
@@ -100,6 +115,7 @@ const PATTERN_LABELS: Record<EmailPatternKind, string> = {
 
 const ALL_KINDS: EmailPatternKind[] = [
   "prenom.nom",
+  "prenom.n",
   "p.nom",
   "pnom",
   "prenom",
@@ -251,19 +267,25 @@ export function suggestEmailsForContact(opts: {
 
   if (opts.pattern) {
     push(opts.pattern.kind, opts.pattern.domain, opts.pattern.matches >= 2 ? "high" : "medium");
-    // Alternatives courantes sur le même domaine si le motif principal est p.nom / prenom.nom
+    // Alternatives courantes sur le même domaine
     if (opts.pattern.kind === "p.nom") {
       push("prenom.nom", opts.pattern.domain, "low");
+      push("prenom.n", opts.pattern.domain, "low");
       push("pnom", opts.pattern.domain, "low");
     } else if (opts.pattern.kind === "prenom.nom") {
+      push("prenom.n", opts.pattern.domain, "low");
+      push("p.nom", opts.pattern.domain, "low");
+    } else if (opts.pattern.kind === "prenom.n") {
+      push("prenom.nom", opts.pattern.domain, "low");
       push("p.nom", opts.pattern.domain, "low");
     } else if (opts.pattern.kind === "pnom") {
       push("p.nom", opts.pattern.domain, "low");
       push("prenom.nom", opts.pattern.domain, "low");
     }
   } else if (opts.fallbackDomain) {
-    // Pas encore de motif : on propose les 2 formes les plus fréquentes en France.
+    // Pas encore de motif : formes les plus fréquentes en France / agences.
     push("prenom.nom", opts.fallbackDomain, "low");
+    push("prenom.n", opts.fallbackDomain, "low");
     push("p.nom", opts.fallbackDomain, "low");
   }
 

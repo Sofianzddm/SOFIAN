@@ -5,6 +5,7 @@ import { decideLeaveRequest } from "@/lib/rh/leave";
 import { decideTimesheet } from "@/lib/rh/timesheet";
 import { decideExpense } from "@/lib/rh/expenses";
 import { writeRhAudit } from "@/lib/rh/workflow";
+import { notifyRhDecision } from "@/lib/rh/notify";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -84,6 +85,22 @@ async function decide(
           }
           const weekStart = existing?.weekStart ?? date;
           const weekEnd = existing?.weekEnd ?? date;
+          await prisma.rhWorkDay.upsert({
+            where: {
+              employeeId_date_half: {
+                employeeId: req.employeeId,
+                date,
+                half: "FULL",
+              },
+            },
+            create: {
+              employeeId: req.employeeId,
+              date,
+              place: "REMOTE",
+              half: "FULL",
+            },
+            update: { place: "REMOTE" },
+          });
           await prisma.rhRemoteDeclaration.upsert({
             where: {
               employeeId_isoYear_isoWeek: {
@@ -152,6 +169,13 @@ async function decide(
         targetId: req.employeeId,
         action: approve ? "request.approve" : "request.refuse",
         detail: { requestId: id, type: req.type },
+      });
+      void notifyRhDecision({
+        employeeId: req.employeeId,
+        title: req.title,
+        reference: req.reference,
+        approved: approve,
+        note,
       });
     } else {
       await prisma.rhRequest.update({

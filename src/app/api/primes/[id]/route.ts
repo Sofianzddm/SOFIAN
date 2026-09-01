@@ -8,9 +8,13 @@ import { euro, parsePrimeLignes, totalLignes } from "@/lib/primes";
 
 type PatchBody = {
   lignes?: unknown;
-  action?: "save" | "submit" | "validate" | "refuse";
+  action?: "save" | "submit" | "validate" | "refuse" | "attach-decision";
   commentaireAdmin?: unknown;
   primeCA?: unknown;
+  lignesAdmin?: unknown;
+  primeCAAdmin?: unknown;
+  excelUrl?: unknown;
+  excelFileName?: unknown;
 };
 
 function moisLabel(mois: number): string {
@@ -126,48 +130,82 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { id } = await params;
     const payload = (await request.json().catch(() => null)) as PatchBody | null;
     const primeDelegate = getPrimeDelegate();
+    type PrimeRow = {
+      id: string;
+      userId: string;
+      mois: number;
+      annee: number;
+      lignes: unknown;
+      primeCA: number;
+      statut: string;
+      lignesAdmin?: unknown;
+      primeCAAdmin?: number | null;
+      excelUrl?: string | null;
+      excelFileName?: string | null;
+      user: { id: string; prenom: string; nom: string; email: string };
+    };
     const row = primeDelegate
       ? ((await primeDelegate.findUnique({
           where: { id },
           include: { user: { select: { id: true, prenom: true, nom: true, email: true } } },
-        })) as
-          | {
-              id: string;
-              userId: string;
-              mois: number;
-              annee: number;
-              lignes: unknown;
-              primeCA: number;
-              statut: string;
-              user: { id: string; prenom: string; nom: string; email: string };
-            }
-          | null)
+        })) as PrimeRow | null)
       : (((await prisma.$queryRaw`
           SELECT
             p."id", p."userId", p."mois", p."annee", p."lignes", p."primeCA", p."statut",
             p."commentaireAdmin", p."soumisAt", p."valideAt", p."createdAt", p."updatedAt",
+            p."lignesAdmin", p."primeCAAdmin", p."excelUrl", p."excelFileName",
             json_build_object('id', u."id", 'prenom', u."prenom", 'nom', u."nom", 'email', u."email") AS "user"
           FROM "PrimeSalaire" p
           JOIN "users" u ON u."id" = p."userId"
           WHERE p."id" = ${id}
           LIMIT 1
-        `) as Array<{
-          id: string;
-          userId: string;
-          mois: number;
-          annee: number;
-          lignes: unknown;
-          primeCA: number;
-          statut: string;
-          user: { id: string; prenom: string; nom: string; email: string };
-        }>)[0] ?? null);
+        `) as PrimeRow[])[0] ?? null);
     if (!row) return NextResponse.json({ error: "Prime introuvable." }, { status: 404 });
+
+    const action = payload?.action;
+
+    // Admin peut rattacher tableau corrigé / Excel même après VALIDÉ / REFUSÉ
+    if (role === "ADMIN" && action === "attach-decision") {
+      if (row.statut !== "VALIDE" && row.statut !== "REFUSE" && row.statut !== "SOUMIS") {
+        return NextResponse.json({ error: "Décision non applicable pour ce statut." }, { status: 400 });
+      }
+      const lignesAdmin =
+        payload?.lignesAdmin !== undefined
+          ? parsePrimeLignes(payload.lignesAdmin)
+          : parsePrimeLignes(row.lignesAdmin);
+      const primeCAAdmin =
+        payload?.primeCAAdmin !== undefined
+          ? parsePrimeCAInput(payload.primeCAAdmin, Number(row.primeCAAdmin ?? row.primeCA ?? 0))
+          : row.primeCAAdmin != null
+            ? Number(row.primeCAAdmin)
+            : null;
+      const excelUrl =
+        typeof payload?.excelUrl === "string" && payload.excelUrl.trim()
+          ? payload.excelUrl.trim()
+          : row.excelUrl ?? null;
+      const excelFileName =
+        typeof payload?.excelFileName === "string" && payload.excelFileName.trim()
+          ? payload.excelFileName.trim()
+          : row.excelFileName ?? null;
+      await prisma.$executeRaw`
+        UPDATE "PrimeSalaire"
+        SET "lignesAdmin" = ${JSON.stringify(lignesAdmin)}::jsonb,
+            "primeCAAdmin" = ${primeCAAdmin},
+            "excelUrl" = ${excelUrl},
+            "excelFileName" = ${excelFileName},
+            "updatedAt" = NOW()
+        WHERE "id" = ${row.id}
+      `;
+      const updatedRows = (await prisma.$queryRaw`
+        SELECT * FROM "PrimeSalaire" WHERE "id" = ${row.id} LIMIT 1
+      `) as Array<Record<string, unknown>>;
+      return NextResponse.json({ success: true, prime: updatedRows[0] ?? { id: row.id } });
+    }
 
     if (row.statut === "VALIDE" || row.statut === "REFUSE") {
       return NextResponse.json({ error: "Cette soumission est définitive." }, { status: 400 });
     }
 
-    const action = payload?.action;
     const nextLignes = payload?.lignes !== undefined ? parsePrimeLignes(payload.lignes) : parsePrimeLignes(row.lignes);
     const nextPrimeCA = parsePrimeCAInput(payload?.primeCA, Number(row.primeCA || 0));
 
@@ -261,30 +299,58 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (row.statut !== "SOUMIS") {
         return NextResponse.json({ error: "Seules les primes soumises sont traitables." }, { status: 400 });
       }
+
+      const hasAdminLignes = payload?.lignesAdmin !== undefined;
+      const lignesAdmin = hasAdminLignes ? parsePrimeLignes(payload?.lignesAdmin) : null;
+      const primeCAAdmin = hasAdminLignes
+        ? parsePrimeCAInput(payload?.primeCAAdmin, Number(row.primeCA || 0))
+        : null;
+      const excelUrl =
+        typeof payload?.excelUrl === "string" && payload.excelUrl.trim() ? payload.excelUrl.trim() : null;
+      const excelFileName =
+        typeof payload?.excelFileName === "string" && payload.excelFileName.trim()
+          ? payload.excelFileName.trim()
+          : null;
+
       if (action === "validate") {
-        const updated = primeDelegate
-          ? await primeDelegate.update({
-              where: { id: row.id },
-              data: { statut: "VALIDE", valideAt: new Date(), commentaireAdmin: null },
-            })
-          : await (async () => {
-              await prisma.$executeRaw`
-                UPDATE "PrimeSalaire"
-                SET "statut" = 'VALIDE'::"PrimeStatut", "valideAt" = NOW(), "commentaireAdmin" = NULL, "updatedAt" = NOW()
-                WHERE "id" = ${row.id}
-              `;
-              const rows = (await prisma.$queryRaw`
-                SELECT * FROM "PrimeSalaire" WHERE "id" = ${row.id} LIMIT 1
-              `) as Array<Record<string, unknown>>;
-              return rows[0] ?? { id: row.id };
-            })();
+        if (hasAdminLignes) {
+          await prisma.$executeRaw`
+            UPDATE "PrimeSalaire"
+            SET "statut" = 'VALIDE'::"PrimeStatut",
+                "valideAt" = NOW(),
+                "commentaireAdmin" = NULL,
+                "lignesAdmin" = ${JSON.stringify(lignesAdmin)}::jsonb,
+                "primeCAAdmin" = ${primeCAAdmin},
+                "excelUrl" = COALESCE(${excelUrl}, "excelUrl"),
+                "excelFileName" = COALESCE(${excelFileName}, "excelFileName"),
+                "updatedAt" = NOW()
+            WHERE "id" = ${row.id}
+          `;
+        } else {
+          await prisma.$executeRaw`
+            UPDATE "PrimeSalaire"
+            SET "statut" = 'VALIDE'::"PrimeStatut",
+                "valideAt" = NOW(),
+                "commentaireAdmin" = NULL,
+                "excelUrl" = COALESCE(${excelUrl}, "excelUrl"),
+                "excelFileName" = COALESCE(${excelFileName}, "excelFileName"),
+                "updatedAt" = NOW()
+            WHERE "id" = ${row.id}
+          `;
+        }
+        const rows = (await prisma.$queryRaw`
+          SELECT * FROM "PrimeSalaire" WHERE "id" = ${row.id} LIMIT 1
+        `) as Array<Record<string, unknown>>;
+        const updated = rows[0] ?? { id: row.id };
+        const emailLignes = hasAdminLignes ? lignesAdmin : row.lignes;
+        const emailPrimeCA = hasAdminLignes ? primeCAAdmin : row.primeCA;
         await sendPrimeDecisionEmail({
           statut: "VALIDE",
           user: row.user,
           mois: row.mois,
           annee: row.annee,
-          lignes: row.lignes,
-          primeCA: row.primeCA,
+          lignes: emailLignes,
+          primeCA: emailPrimeCA,
         });
         return NextResponse.json({ success: true, prime: updated });
       }
@@ -294,29 +360,34 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         if (!commentaireAdmin) {
           return NextResponse.json({ error: "Le commentaire admin est obligatoire." }, { status: 400 });
         }
-        const updated = primeDelegate
-          ? await primeDelegate.update({
-              where: { id: row.id },
-              data: { statut: "REFUSE", commentaireAdmin, valideAt: null },
-            })
-          : await (async () => {
-              await prisma.$executeRaw`
-                UPDATE "PrimeSalaire"
-                SET "statut" = 'REFUSE'::"PrimeStatut", "commentaireAdmin" = ${commentaireAdmin}, "valideAt" = NULL, "updatedAt" = NOW()
-                WHERE "id" = ${row.id}
-              `;
-              const rows = (await prisma.$queryRaw`
-                SELECT * FROM "PrimeSalaire" WHERE "id" = ${row.id} LIMIT 1
-              `) as Array<Record<string, unknown>>;
-              return rows[0] ?? { id: row.id };
-            })();
+        // Au refus : on enregistre toujours un tableau admin (corrigé ou copie de la soumission)
+        const decisionLignes = hasAdminLignes ? lignesAdmin! : parsePrimeLignes(row.lignes);
+        const decisionPrimeCA = hasAdminLignes
+          ? primeCAAdmin!
+          : parsePrimeCAInput(row.primeCA, Number(row.primeCA || 0));
+        await prisma.$executeRaw`
+          UPDATE "PrimeSalaire"
+          SET "statut" = 'REFUSE'::"PrimeStatut",
+              "commentaireAdmin" = ${commentaireAdmin},
+              "valideAt" = NULL,
+              "lignesAdmin" = ${JSON.stringify(decisionLignes)}::jsonb,
+              "primeCAAdmin" = ${decisionPrimeCA},
+              "excelUrl" = COALESCE(${excelUrl}, "excelUrl"),
+              "excelFileName" = COALESCE(${excelFileName}, "excelFileName"),
+              "updatedAt" = NOW()
+          WHERE "id" = ${row.id}
+        `;
+        const rows = (await prisma.$queryRaw`
+          SELECT * FROM "PrimeSalaire" WHERE "id" = ${row.id} LIMIT 1
+        `) as Array<Record<string, unknown>>;
+        const updated = rows[0] ?? { id: row.id };
         await sendPrimeDecisionEmail({
           statut: "REFUSE",
           user: row.user,
           mois: row.mois,
           annee: row.annee,
-          lignes: row.lignes,
-          primeCA: row.primeCA,
+          lignes: decisionLignes,
+          primeCA: decisionPrimeCA,
           commentaireAdmin,
         });
         return NextResponse.json({ success: true, prime: updated });

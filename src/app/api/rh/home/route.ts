@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
   const emp = session.employee;
   const balances = await getBalancesForEmployee(emp.id, emp.hireDate);
   const bookable = balances.reduce((s, b) => s + b.bookable, 0);
-  const cp = balances.find((b) => b.accountCode === "CP");
+  const cpBalances = balances.filter((b) => b.accountCode === "CP");
+  const cpRemaining = cpBalances.reduce((s, b) => s + b.remaining, 0);
+  const cpBookable = cpBalances.reduce((s, b) => s + b.bookable, 0);
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -115,14 +117,14 @@ export async function GET(request: NextRequest) {
       {
         id: "cp",
         label: "CONGÉS PAYÉS",
-        value: (cp?.remaining ?? 0).toFixed(2).replace(".", ","),
+        value: cpRemaining.toFixed(2).replace(".", ","),
         unit: "j",
         sub:
-          (cp?.bookable ?? 0) > 0
+          cpBookable > 0
             ? "Posables"
             : `Bloqués jusqu'au ${unlock.toLocaleDateString("fr-FR")}`,
         tone: "#46D6C0",
-        locked: (cp?.bookable ?? 0) === 0,
+        locked: cpBookable === 0,
       },
       {
         id: "hs",

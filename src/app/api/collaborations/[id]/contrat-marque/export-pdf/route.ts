@@ -742,8 +742,16 @@ export async function GET(
     const collaboration = await prisma.collaboration.findUnique({
       where: { id },
       include: {
-        talent: true,
+        talent: {
+          include: {
+            delegations: {
+              where: { actif: true },
+              select: { tmRelaiId: true },
+            },
+          },
+        },
         marque: true,
+        accountManager: { select: { role: true } },
         contratMarqueAnnotations: { orderBy: { createdAt: "asc" } },
         contratMarqueVersions: {
           orderBy: { numero: "asc" },

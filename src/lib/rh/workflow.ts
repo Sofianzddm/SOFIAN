@@ -1,5 +1,8 @@
 import prisma from "@/lib/prisma";
 import type { Prisma, RhRequestStatus, RhRequestType } from "@prisma/client";
+import { isWorkday } from "@/lib/rh/holidays";
+
+export { isWorkday, isWeekday, isFrenchHoliday } from "@/lib/rh/holidays";
 
 export async function nextRhReference(prefix: string): Promise<string> {
   const year = new Date().getFullYear();
@@ -105,13 +108,8 @@ export function eachDate(from: Date, to: Date): Date[] {
   return out;
 }
 
-export function isWeekday(d: Date): boolean {
-  const day = d.getDay();
-  return day !== 0 && day !== 6;
-}
-
 export function countWeekdays(from: Date, to: Date, halfDay: boolean): number {
-  const days = eachDate(from, to).filter(isWeekday);
+  const days = eachDate(from, to).filter((d) => isWorkday(d));
   if (days.length === 0) return 0;
   if (halfDay && days.length === 1) return 0.5;
   return halfDay ? days.length - 0.5 : days.length;

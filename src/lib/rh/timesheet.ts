@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { splitOvertime } from "@/lib/rh/calculations";
 import { createRhRequest, isoWeekInfo, writeRhAudit } from "@/lib/rh/workflow";
+import { notifyRhRequestCreated, notifyRhDecision } from "@/lib/rh/notify";
 
 type Slot = { from: string; to: string };
 
@@ -170,6 +171,13 @@ export async function submitTimesheet(params: {
     prefix: "TS",
   });
 
+  void notifyRhRequestCreated({
+    employeeId: params.employeeId,
+    title: request.title,
+    reference: request.reference,
+    type: "feuille de temps",
+  });
+
   return prisma.rhTimesheet.update({
     where: { id: ts.id },
     data: {
@@ -207,6 +215,7 @@ export async function decideTimesheet(params: {
   }
 
   const approved = params.action === "approve";
+  const wasSubmitted = ts.status === "SUBMITTED" || ts.status === "PAUSED";
   await prisma.rhTimesheet.update({
     where: { id: ts.id },
     data: { status: approved ? "APPROVED" : "DRAFT" },
@@ -222,12 +231,60 @@ export async function decideTimesheet(params: {
       },
     });
   }
+  if (approved && wasSubmitted) {
+    const otDays =
+      Math.round(((ts.ot25Minutes + ts.ot50Minutes) / 60 / 7) * 10000) / 10000;
+    if (otDays > 0) {
+      const yearStart = new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1));
+      const yearEnd = new Date(Date.UTC(new Date().getUTCFullYear(), 11, 31));
+      const bal = await prisma.rhLeaveBalance.findFirst({
+        where: { employeeId: ts.employeeId, accountCode: "RECUP" },
+        orderBy: { periodStart: "desc" },
+      });
+      if (bal) {
+        await prisma.rhLeaveBalance.update({
+          where: { id: bal.id },
+          data: {
+            accrued: bal.accrued + otDays,
+            remaining: bal.remaining + otDays,
+            bookable: bal.bookable + otDays,
+          },
+        });
+      } else {
+        await prisma.rhLeaveBalance.create({
+          data: {
+            employeeId: ts.employeeId,
+            accountCode: "RECUP",
+            label: "Récupération",
+            periodStart: yearStart,
+            periodEnd: yearEnd,
+            accrued: otDays,
+            taken: 0,
+            remaining: otDays,
+            bookable: otDays,
+          },
+        });
+      }
+    }
+  }
   await writeRhAudit({
     actorId: params.reviewerId,
     targetId: ts.employeeId,
     action: `timesheet.${params.action}`,
     detail: { timesheetId: ts.id },
   });
+  if (ts.requestId) {
+    const req = await prisma.rhRequest.findUnique({ where: { id: ts.requestId } });
+    if (req) {
+      void notifyRhDecision({
+        employeeId: ts.employeeId,
+        title: req.title,
+        reference: req.reference,
+        approved,
+        note: params.note,
+      });
+    }
+  }
 }
 
 export async function signTimesheet(params: {

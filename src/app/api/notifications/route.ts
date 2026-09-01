@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { countUnreadNotificationsForRole, filterNotificationsForRole } from "@/lib/contratMarqueNotifications";
 
 // GET - Récupérer toutes les notifications de l'utilisateur connecté
 export async function GET(request: NextRequest) {
@@ -22,19 +23,16 @@ export async function GET(request: NextRequest) {
       whereClause.lu = false;
     }
 
-    const notifications = await prisma.notification.findMany({
+    const role = session.user.role as string;
+
+    const notificationsRaw = await prisma.notification.findMany({
       where: whereClause,
       orderBy: { createdAt: "desc" },
       take: 50, // Limiter à 50 dernières notifications
     });
 
-    // Compter les non-lues
-    const countNonLues = await prisma.notification.count({
-      where: {
-        userId: session.user.id,
-        lu: false,
-      },
-    });
+    const notifications = await filterNotificationsForRole(notificationsRaw, role);
+    const countNonLues = await countUnreadNotificationsForRole(session.user.id, role);
 
     return NextResponse.json({
       notifications,

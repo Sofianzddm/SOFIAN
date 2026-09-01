@@ -145,6 +145,7 @@ export async function GET(request: NextRequest) {
         SELECT
           p."id", p."userId", p."mois", p."annee", p."lignes", p."primeCA", p."statut",
           p."commentaireAdmin", p."soumisAt", p."valideAt", p."createdAt", p."updatedAt",
+          p."lignesAdmin", p."primeCAAdmin", p."excelUrl", p."excelFileName",
           json_build_object('id', u."id", 'prenom', u."prenom", 'nom', u."nom", 'email', u."email") AS "user"
         FROM "PrimeSalaire" p
         JOIN "users" u ON u."id" = p."userId"
@@ -157,6 +158,7 @@ export async function GET(request: NextRequest) {
       SELECT
         p."id", p."userId", p."mois", p."annee", p."lignes", p."primeCA", p."statut",
         p."commentaireAdmin", p."soumisAt", p."valideAt", p."createdAt", p."updatedAt",
+        p."lignesAdmin", p."primeCAAdmin", p."excelUrl", p."excelFileName",
         json_build_object('id', u."id", 'prenom', u."prenom", 'nom', u."nom", 'email', u."email") AS "user"
       FROM "PrimeSalaire" p
       JOIN "users" u ON u."id" = p."userId"

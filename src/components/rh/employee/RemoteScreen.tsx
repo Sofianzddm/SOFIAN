@@ -11,6 +11,7 @@ import {
 } from "@/components/rh/ui/primitives";
 import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
 import { useRhData } from "@/components/rh/RhDataContext";
+import { frenchHolidayLabel } from "@/lib/rh/holidays";
 
 type Week = {
   isoYear: number;
@@ -19,9 +20,19 @@ type Week = {
   weekEnd: string;
   absenceDays: number;
   entitlement: number;
-  declaredDates: string[];
   declared: number;
   verdict: "compliant" | "over" | "none" | "undeclared";
+  places: Record<string, "OFFICE" | "REMOTE" | "TRAVEL" | "SITE">;
+};
+
+const PLACE: Record<
+  string,
+  { label: string; bg: string; fg: string; border: string }
+> = {
+  OFFICE: { label: "BUREAU", bg: EMP_COLORS.inset, fg: EMP_COLORS.text, border: EMP_COLORS.borderControl },
+  REMOTE: { label: "TÉLÉ", bg: "rgba(124,140,248,.18)", fg: "#A5B0FA", border: "#7C8CF8" },
+  TRAVEL: { label: "DÉPL.", bg: "rgba(242,135,78,.16)", fg: "#F2874E", border: "#F2874E" },
+  SITE: { label: "SITE", bg: "rgba(240,194,78,.16)", fg: "#F0C24E", border: "#F0C24E" },
 };
 
 const VERDICT: Record<string, { label: string; bg: string; fg: string }> = {
@@ -63,7 +74,7 @@ export function RemoteScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/rh/remote/weeks");
+      const res = await fetch("/api/rh/office/weeks");
       if (!res.ok) return;
       const data = await res.json();
       setWeeks(data.weeks || []);
@@ -78,24 +89,14 @@ export function RemoteScreen() {
     void load();
   }, [load]);
 
-  async function toggleDay(week: Week, date: string) {
-    const set = new Set(week.declaredDates);
-    if (set.has(date)) set.delete(date);
-    else set.add(date);
-    const declaredDates = [...set].sort();
+  async function cycleDay(date: string) {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch("/api/rh/remote/weeks", {
+      const res = await fetch("/api/rh/office/weeks", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          isoYear: week.isoYear,
-          isoWeek: week.isoWeek,
-          weekStart: week.weekStart,
-          weekEnd: week.weekEnd,
-          declaredDates,
-        }),
+        body: JSON.stringify({ date }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
@@ -144,7 +145,7 @@ export function RemoteScreen() {
       <RhRuleBanner tag="ARTICLE 1.6" tagBg="#7C8CF8" tint="rgba(124,140,248,.06)">
         Avenant <strong style={{ color: EMP_COLORS.text }}>{agreement} j / semaine</strong>.
         0 absence → droit avenant · 1–2 absences → 1 j max · ≥3 → 0.
-        Clique sur un jour pour déclarer / retirer le télétravail.
+        Clique sur un jour pour cycler Bureau → Télétravail → Déplacement → Soleil du Sud.
       </RhRuleBanner>
 
       {msg ? (
@@ -175,28 +176,38 @@ export function RemoteScreen() {
                   />
                   <div className="grid grid-cols-5 gap-2 p-4">
                     {days.map((date) => {
-                      const on = w.declaredDates.includes(date);
+                      const holiday = frenchHolidayLabel(date);
+                      const place = w.places?.[date] || "OFFICE";
+                      const style = holiday
+                        ? {
+                            label: "FÉRIÉ",
+                            bg: "rgba(167,139,250,.18)",
+                            fg: "#C4B5FD",
+                            border: "#A78BFA",
+                          }
+                        : PLACE[place] || PLACE.OFFICE;
                       const d = new Date(date + "T12:00:00");
                       return (
                         <button
                           key={date}
                           type="button"
-                          disabled={busy}
-                          onClick={() => void toggleDay(w, date)}
-                          className="rounded-[10px] p-3 text-center border-0 cursor-pointer"
+                          disabled={busy || !!holiday}
+                          title={holiday || undefined}
+                          onClick={() => void cycleDay(date)}
+                          className="rounded-[10px] p-3 text-center border-0 cursor-pointer disabled:cursor-default"
                           style={{
-                            background: on ? "rgba(124,140,248,.18)" : EMP_COLORS.inset,
-                            border: `1px solid ${on ? "#7C8CF8" : EMP_COLORS.borderControl}`,
+                            background: style.bg,
+                            border: `1px solid ${style.border}`,
                           }}
                         >
                           <div className="rh-mono text-[9px]" style={{ color: EMP_COLORS.dim }}>
                             {d.toLocaleDateString("fr-FR", { weekday: "short" }).toUpperCase()}
                           </div>
-                          <div className="rh-mono text-[16px] font-bold" style={{ color: on ? "#A5B0FA" : EMP_COLORS.text }}>
+                          <div className="rh-mono text-[16px] font-bold" style={{ color: style.fg }}>
                             {d.getDate()}
                           </div>
-                          <div className="rh-mono text-[9px] mt-1" style={{ color: on ? "#A5B0FA" : EMP_COLORS.dim }}>
-                            {on ? "TÉLÉ" : "BUREAU"}
+                          <div className="rh-mono text-[9px] mt-1" style={{ color: style.fg }}>
+                            {style.label}
                           </div>
                         </button>
                       );

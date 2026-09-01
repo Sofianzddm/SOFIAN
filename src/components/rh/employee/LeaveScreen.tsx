@@ -34,6 +34,8 @@ const ACCOUNT_COLOR: Record<string, string> = {
   RECUP: "#F2874E",
   SS: "#F2C24E",
   UNPAID: "#8B95A5",
+  SCHOOL: "#B48CF0",
+  AUTHORIZED: "#8ED98A",
 };
 
 export function LeaveScreen() {
@@ -48,12 +50,13 @@ export function LeaveScreen() {
     teamSize: number;
     belowThreshold: boolean;
   } | null>(null);
-  const [accountCode, setAccountCode] = useState<"RECUP" | "RTT" | "UNPAID" | "CP">(
-    "RTT"
-  );
+  const [accountCode, setAccountCode] = useState<
+    "RECUP" | "UNPAID" | "CP" | "SS" | "SCHOOL" | "AUTHORIZED"
+  >("RECUP");
   const [from, setFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [halfDay, setHalfDay] = useState(false);
+  const [half, setHalf] = useState<"AM" | "PM">("AM");
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -101,7 +104,9 @@ export function LeaveScreen() {
   const unlock = hire
     ? new Date(hire.getFullYear() + 1, hire.getMonth(), hire.getDate())
     : null;
-  const cpBlocked = balances.find((b) => b.accountCode === "CP")?.bookable === 0;
+  const cpBalances = balances.filter((b) => b.accountCode === "CP");
+  const cpBlocked =
+    cpBalances.length > 0 && cpBalances.every((b) => b.bookable === 0);
   const bookableTotal = balances.reduce((s, b) => s + (b.bookable || 0), 0);
   const recup = balances.find((b) => b.accountCode === "RECUP");
 
@@ -117,7 +122,7 @@ export function LeaveScreen() {
           from,
           to,
           halfDay,
-          half: "AM",
+          half: half,
           comment,
         }),
       });
@@ -155,6 +160,8 @@ export function LeaveScreen() {
             {new Date(recup.expiresOn).toLocaleDateString("fr-FR")}
           </span>{" "}
           — reste {recup.bookable.toFixed(1).replace(".", ",")} j
+          {" "}
+          ({(recup.bookable * 7).toFixed(1).replace(".", ",")} h)
         </EmpAlert>
       ) : null}
 
@@ -233,7 +240,7 @@ export function LeaveScreen() {
                 </thead>
                 <tbody>
                   {balances.map((b) => (
-                    <tr key={b.accountCode}>
+                    <tr key={`${b.accountCode}-${b.label}`}>
                       <td className="px-[14px] py-[10px]" style={{ borderBottom: "1px solid #15191F" }}>
                         <div className="flex items-center gap-[9px]">
                           <span
@@ -299,12 +306,14 @@ export function LeaveScreen() {
                     setAccountCode(e.target.value as typeof accountCode)
                   }
                 >
-                  <option value="RTT">RTT</option>
                   <option value="RECUP">Récupération</option>
-                  <option value="UNPAID">Congé sans solde</option>
                   <option value="CP" disabled={!!cpBlocked}>
                     Congés payés{cpBlocked ? " (bloqués)" : ""}
                   </option>
+                  <option value="SS">Maladie</option>
+                  <option value="SCHOOL">École</option>
+                  <option value="AUTHORIZED">Absence autorisée</option>
+                  <option value="UNPAID">Congé sans solde</option>
                 </select>
               </label>
               <label className="flex flex-col gap-1.5">
@@ -324,6 +333,19 @@ export function LeaveScreen() {
                 </div>
                 <RhSwitch on={halfDay} onToggle={() => setHalfDay((v) => !v)} />
               </div>
+              {halfDay ? (
+                <label className="flex flex-col gap-1.5">
+                  <EmpLabel>Matin / après-midi</EmpLabel>
+                  <select
+                    className="rh-input"
+                    value={half}
+                    onChange={(e) => setHalf(e.target.value as "AM" | "PM")}
+                  >
+                    <option value="AM">Matin</option>
+                    <option value="PM">Après-midi</option>
+                  </select>
+                </label>
+              ) : null}
               <label className="flex flex-col gap-1.5">
                 <EmpLabel>Commentaire</EmpLabel>
                 <textarea

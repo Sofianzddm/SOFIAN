@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Send } from "lucide-react";
 import { RhButton, RhCard, RhCardHead } from "@/components/rh/ui/primitives";
 import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
 import { minutesToLabel } from "@/lib/rh/calculations";
+import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
 import { useRhData } from "@/components/rh/RhDataContext";
 
 type Slot = { from: string; to: string };
@@ -97,11 +98,26 @@ export function TimeScreen() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          days: days.map((d) => ({
-            date: d.date,
-            slots: d.slots.length ? d.slots : [{ from: "09:00", to: "12:30" }, { from: "13:30", to: "18:00" }],
-            breakMinutes: d.breakMinutes,
-          })),
+          days: days.map((d) => {
+            const holiday = isFrenchHoliday(d.date);
+            const weekend = (() => {
+              const dow = new Date(d.date + "T12:00:00").getDay();
+              return dow === 0 || dow === 6;
+            })();
+            const empty = holiday || weekend;
+            return {
+              date: d.date,
+              slots: empty
+                ? []
+                : d.slots.length
+                  ? d.slots
+                  : [
+                      { from: "09:00", to: "12:30" },
+                      { from: "13:30", to: "18:00" },
+                    ],
+              breakMinutes: empty ? 0 : d.breakMinutes,
+            };
+          }),
         }),
       });
       const data = await res.json();
@@ -143,8 +159,8 @@ export function TimeScreen() {
     setDays((prev) =>
       prev.map((d) => {
         const dow = new Date(d.date + "T12:00:00").getDay();
-        if (dow === 0 || dow === 6) {
-          return { ...d, slots: [], breakMinutes: 0 };
+        if (dow === 0 || dow === 6 || isFrenchHoliday(d.date)) {
+          return { ...d, slots: [], breakMinutes: 0, totalMinutes: 0 };
         }
         return {
           ...d,
@@ -219,10 +235,26 @@ export function TimeScreen() {
         <>
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(5,minmax(0,1fr))" }}>
             {weekdayDays.map((d) => {
+              const holiday = frenchHolidayLabel(d.date);
               const label = new Date(d.date + "T12:00:00").toLocaleDateString("fr-FR", {
                 weekday: "short",
                 day: "numeric",
               });
+              if (holiday) {
+                return (
+                  <RhCard key={d.date} className="p-3 opacity-80">
+                    <div className="text-[12.5px] font-semibold mb-2" style={{ color: EMP_COLORS.text }}>
+                      {label}
+                    </div>
+                    <div className="rh-mono text-[11px]" style={{ color: "#C4B5FD" }}>
+                      Férié · {holiday}
+                    </div>
+                    <div className="rh-mono text-[10px] mt-2" style={{ color: EMP_COLORS.dim }}>
+                      0 h 00 / 7 h 00
+                    </div>
+                  </RhCard>
+                );
+              }
               const slots = d.slots.length
                 ? d.slots
                 : [{ from: "09:00", to: "12:30" }, { from: "13:30", to: "18:00" }];

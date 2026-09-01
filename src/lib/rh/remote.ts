@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { remoteEntitlement } from "@/lib/rh/calculations";
 import { createRhRequest, isoWeekInfo, writeRhAudit } from "@/lib/rh/workflow";
+import { notifyRhRequestCreated } from "@/lib/rh/notify";
 
 export async function getRemoteWeeksForEmployee(
   employeeId: string,
@@ -140,6 +141,12 @@ export async function requestRemoteException(params: {
       isoWeek: params.isoWeek,
     },
     prefix: "TT",
+  });
+  void notifyRhRequestCreated({
+    employeeId: params.employeeId,
+    title: request.title,
+    reference: request.reference,
+    type: "télétravail exceptionnel",
   });
   return request;
 }

@@ -8,7 +8,7 @@
  * agency-outreach. Seuls les contacts avec email partent en outreach.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   Loader2,
@@ -264,8 +264,8 @@ export default function EnrichissementPage() {
     });
   };
 
-  const agencyBulkSuggestionCount = useMemo(() => {
-    if (!isAgencyTab || !active || !livePattern) return 0;
+  const remainingSuggestionCount = useMemo(() => {
+    if (!active || !livePattern) return 0;
     let count = 0;
     for (const p of active.people) {
       if (notFound[p.key]) continue;
@@ -278,10 +278,10 @@ export default function EnrichissementPage() {
       if (suggestions.length > 0) count += 1;
     }
     return count;
-  }, [isAgencyTab, active, livePattern, drafts, notFound]);
+  }, [active, livePattern, drafts, notFound]);
 
   const applyAgencySuggestionsToAll = () => {
-    if (!isAgencyTab || !active || !livePattern) return;
+    if (!active || !livePattern) return;
     setDrafts((prev) => {
       const next = { ...prev };
       let changed = 0;
@@ -309,6 +309,18 @@ export default function EnrichissementPage() {
     });
   };
 
+  /** Une fois le motif clair (≥ 2 mails), pré-remplir les champs encore vides. */
+  const autoFilledStampRef = useRef("");
+  useEffect(() => {
+    if (!active || !livePattern || livePattern.matches < 2) return;
+    const stamp = `${active.key}:${livePattern.kind}@${livePattern.domain}`;
+    if (autoFilledStampRef.current === stamp) return;
+    autoFilledStampRef.current = stamp;
+    applyAgencySuggestionsToAll();
+    // livePattern.kind / domain : on ne re-remplit pas si l'utilisateur vide un champ.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, livePattern?.kind, livePattern?.domain, livePattern?.matches]);
+
   const emailCount = active
     ? active.people.filter((p) => isValidEmail(drafts[p.key] || "")).length
     : 0;
@@ -322,6 +334,7 @@ export default function EnrichissementPage() {
   );
 
   const openBrand = (b: BrandGroup) => {
+    autoFilledStampRef.current = "";
     setFlash(null);
     setActiveKey(b.key);
     const next: Record<string, string> = {};
@@ -335,6 +348,7 @@ export default function EnrichissementPage() {
   };
 
   const switchTab = (next: Tab) => {
+    autoFilledStampRef.current = "";
     setTab(next);
     setActiveKey(null);
     setDrafts({});
@@ -945,7 +959,7 @@ export default function EnrichissementPage() {
                   <Sparkles className="w-3 h-3" style={{ color: ROSE }} />
                   Motif d&apos;après tes saisies : {livePattern.kind}@{livePattern.domain}
                 </p>
-                {isAgencyTab && agencyBulkSuggestionCount > 0 && (
+                {remainingSuggestionCount > 0 && (
                   <button
                     type="button"
                     onClick={applyAgencySuggestionsToAll}
@@ -953,7 +967,7 @@ export default function EnrichissementPage() {
                     style={{ color: INK, backgroundColor: "#FAFAF8" }}
                   >
                     <Sparkles className="w-3 h-3" style={{ color: ROSE }} />
-                    Appliquer aux {agencyBulkSuggestionCount} restants
+                    Appliquer aux {remainingSuggestionCount} restants
                   </button>
                 )}
               </div>

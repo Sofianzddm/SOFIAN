@@ -289,9 +289,21 @@ const menuItems = [
   },
   {
     label: "RH Glow Up",
-    href: "/rh/people",
+    href: "/rh/espace",
     icon: CalendarDays,
-    roles: ["ADMIN"], // Soft-launch : ADMIN only (masqué aux salariés)
+    roles: [
+      "ADMIN",
+      "HEAD_OF",
+      "HEAD_OF_INFLUENCE",
+      "HEAD_OF_SALES",
+      "TM",
+      "CM",
+      "CASTING_MANAGER",
+      "COMMUNITY_MANAGER",
+      "STRATEGY_PLANNER",
+      "COMPTABLE",
+      "COIFFEUR",
+    ],
   },
   {
     label: "Dossiers",

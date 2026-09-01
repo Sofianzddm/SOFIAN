@@ -169,6 +169,6 @@ export function initials(e: { prenom: string; nom: string }): string {
 }
 
 export function homePathForRole(role: RhRole): string {
-  if (role === "HR") return "/rh/people";
+  if (role === "HR" || role === "MANAGER") return "/rh/people";
   return "/rh/espace";
 }

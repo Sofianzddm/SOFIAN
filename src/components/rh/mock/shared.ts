@@ -56,6 +56,10 @@ export function buildMonth(
       bg = "rgba(242,194,78,.2)";
       fg = HOL;
       fw = "700";
+    } else if (m === "ferie") {
+      bg = "rgba(167,139,250,.18)";
+      fg = "#C4B5FD";
+      fw = "700";
     } else if (m === "soft") {
       bg = "rgba(70,214,192,.16)";
       fg = CP;

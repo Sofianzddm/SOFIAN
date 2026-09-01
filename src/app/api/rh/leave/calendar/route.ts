@@ -31,6 +31,22 @@ export async function GET(request: NextRequest) {
       weekEnd: { gte: from },
     },
   });
+  const workRemote = await prisma.rhWorkDay.findMany({
+    where: {
+      employeeId,
+      date: { gte: from, lte: to },
+      place: "REMOTE",
+    },
+    select: { date: true },
+  });
+  const remoteDates = [
+    ...new Set([
+      ...remote.flatMap((r) =>
+        r.declaredDates.map((d) => d.toISOString().slice(0, 10))
+      ),
+      ...workRemote.map((d) => d.date.toISOString().slice(0, 10)),
+    ]),
+  ];
 
   return NextResponse.json({
     leaveDays: days.map((d) => ({
@@ -40,8 +56,6 @@ export async function GET(request: NextRequest) {
       days: d.days,
       status: d.request?.status ?? "APPROVED",
     })),
-    remoteDates: remote.flatMap((r) =>
-      r.declaredDates.map((d) => d.toISOString().slice(0, 10))
-    ),
+    remoteDates,
   });
 }

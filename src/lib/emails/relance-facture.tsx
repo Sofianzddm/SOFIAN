@@ -18,7 +18,7 @@ const LOGO_URL = "https://app.glowupagence.fr/Logo.png";
 export type RelanceLevel = 1 | 2 | 3;
 export type RelanceLocale = "fr" | "en";
 
-interface RelanceEmailData {
+export interface RelanceEmailData {
   level: RelanceLevel;
   destinataireNom: string | null;
   clientNom: string;
@@ -269,6 +269,17 @@ export function RelanceFactureEmail({ data }: { data: RelanceEmailData }) {
 
 const row = { margin: "4px 0", color: "#1A1110", fontSize: "14px" };
 
+export async function renderRelanceEmailHtml(data: RelanceEmailData): Promise<{
+  subject: string;
+  html: string;
+}> {
+  const locale = normalizeRelanceLocale(data.locale);
+  const tone = (locale === "en" ? TONE_EN : TONE_FR)[data.level];
+  const subject = `${tone.titre} — ${LABELS[locale].factureWord} ${data.reference}`;
+  const html = await render(<RelanceFactureEmail data={data} />);
+  return { subject, html };
+}
+
 export async function sendRelanceEmail(options: {
   to: string;
   cc?: string[];
@@ -281,11 +292,7 @@ export async function sendRelanceEmail(options: {
     throw new Error("RESEND_API_KEY non configurée");
   }
   const resend = new Resend(key);
-
-  const locale = normalizeRelanceLocale(options.data.locale);
-  const tone = (locale === "en" ? TONE_EN : TONE_FR)[options.data.level];
-  const subject = `${tone.titre} — ${LABELS[locale].factureWord} ${options.data.reference}`;
-  const html = await render(<RelanceFactureEmail data={options.data} />);
+  const { subject, html } = await renderRelanceEmailHtml(options.data);
 
   const result = (await resend.emails.send({
     from: `Comptabilité Glow Up <${AGENCE_CONFIG.email}>`,

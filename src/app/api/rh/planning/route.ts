@@ -62,6 +62,12 @@ export async function GET(request: NextRequest) {
       weekEnd: { gte: from },
     },
   });
+  const workDays = await prisma.rhWorkDay.findMany({
+    where: {
+      employeeId: { in: ids },
+      date: { gte: from, lte: to },
+    },
+  });
 
   const byEmp: Record<
     string,
@@ -80,9 +86,27 @@ export async function GET(request: NextRequest) {
     for (const dt of r.declaredDates) {
       const key = dt.toISOString().slice(0, 10);
       if (key >= from.toISOString().slice(0, 10) && key <= to.toISOString().slice(0, 10)) {
-        byEmp[r.employeeId]?.push({ date: key, kind: "TT", halfDay: false });
+        const already = byEmp[r.employeeId]?.some((x) => x.date === key && x.kind === "TT");
+        if (!already) {
+          byEmp[r.employeeId]?.push({ date: key, kind: "TT", halfDay: false });
+        }
       }
     }
+  }
+  for (const w of workDays) {
+    const key = w.date.toISOString().slice(0, 10);
+    const kind =
+      w.place === "REMOTE"
+        ? "TT"
+        : w.place === "TRAVEL"
+          ? "TRAVEL"
+          : w.place === "SITE"
+            ? "SITE"
+            : "OFFICE";
+    const list = byEmp[w.employeeId] ?? [];
+    const idx = list.findIndex((x) => x.date === key && (x.kind === "TT" || x.kind === "OFFICE" || x.kind === "TRAVEL" || x.kind === "SITE"));
+    if (idx >= 0) list[idx] = { date: key, kind, halfDay: w.half === "AM" || w.half === "PM" };
+    else list.push({ date: key, kind, halfDay: w.half === "AM" || w.half === "PM" });
   }
 
   const todayKey = new Date().toISOString().slice(0, 10);

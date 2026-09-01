@@ -89,7 +89,14 @@ type CollabShape = {
   contratMarqueSigneAt?: string | Date | null;
   /** Renseigné quand le PDF officiellement signé a été déposé (upload « version finale signée »). */
   contratMarquePdfOfficielSigneDeposeAt?: string | Date | null;
-  talent: { prenom: string; nom: string; managerId?: string | null };
+  isPrivate?: boolean;
+  accountManager?: { role?: string | null } | null;
+  talent: {
+    prenom: string;
+    nom: string;
+    managerId?: string | null;
+    delegations?: { tmRelaiId?: string; actif?: boolean }[];
+  };
   marque: { nom: string };
 };
 
@@ -394,11 +401,16 @@ export default function ContratPdfReviewer({
   /** Décisions juriste / admin uniquement sur la version courante (ou mode sans versioning). */
   const canActOnCurrentVersion = !isArchivedVersion;
 
-  /** Aligné sur `canUploadContratMarque` côté API upload (TM = manager du talent sur la collab). */
+  /** Aligné sur `canUploadContratMarque` côté API upload (TM assigné ou relai). */
   const canShowUploadButton = canUploadContratMarque(
     currentUser.id,
     currentUser.role,
-    collaboration
+    {
+      isPrivate: collaboration.isPrivate ?? false,
+      accountManagerId: collaboration.accountManagerId,
+      accountManager: collaboration.accountManager ?? null,
+      talent: collaboration.talent,
+    }
   );
   /** Barre avec sélecteur de versions et/ou upload (upload visible aussi sans lignes `ContratMarqueVersion`). */
   const showViewerToolbar = versions.length > 0 || canShowUploadButton;

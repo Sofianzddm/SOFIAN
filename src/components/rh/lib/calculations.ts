@@ -38,6 +38,57 @@ export function splitOvertime(
   return { at25, at50 };
 }
 
+/** 25 CP / an, crédités 2,08 j à chaque mois clos (Lucca). */
+export const CP_DAYS_PER_YEAR = 25;
+export const CP_PER_MONTH = Math.round((CP_DAYS_PER_YEAR / 12) * 100) / 100;
+
+/** Exercice Glow Up : 1er juillet N → 30 juin N+1. */
+export function cpExercise(date: Date): {
+  startYear: number;
+  label: string;
+  start: Date;
+  end: Date;
+} {
+  const y = date.getUTCFullYear();
+  const startYear = date.getUTCMonth() >= 6 ? y : y - 1;
+  return {
+    startYear,
+    label: `Congés payés ${startYear}/${startYear + 1}`,
+    start: new Date(Date.UTC(startYear, 6, 1)),
+    end: new Date(Date.UTC(startYear + 1, 5, 30)),
+  };
+}
+
+/** Mois calendaires entamés depuis `from` (1er juillet → 31 août = 1). */
+export function completedMonthsSince(from: Date, today: Date): number {
+  return Math.max(
+    0,
+    (today.getUTCFullYear() - from.getUTCFullYear()) * 12 +
+      (today.getUTCMonth() - from.getUTCMonth())
+  );
+}
+
+export function nextPeriodCpAccrued(today: Date): number {
+  const current = cpExercise(today);
+  const months = completedMonthsSince(current.start, today);
+  return Math.min(
+    CP_DAYS_PER_YEAR,
+    Math.round(months * CP_PER_MONTH * 100) / 100
+  );
+}
+
+export const LEAVE_LABELS: Record<string, string> = {
+  CP: "Congés payés",
+  RECUP: "Récupération",
+  RTT: "RTT",
+  SS: "Maladie",
+  UNPAID: "Congé sans solde",
+  SCHOOL: "École",
+  AUTHORIZED: "Absence autorisée",
+};
+
+export const BALANCE_ACCOUNTS = new Set(["CP", "RECUP", "RTT"]);
+
 /** Congés payés bookable only after 1 year seniority. */
 export function bookableBalance(
   remaining: number,

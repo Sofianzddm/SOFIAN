@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { useSession } from "next-auth/react";
-import { Loader2, Plus } from "lucide-react";
-import { PRIME_TYPE_LABELS, type PrimeLigne, type PrimeLigneType } from "@/lib/primes";
+import { Download, Loader2, Plus } from "lucide-react";
+import { PRIME_TYPE_LABELS, PRIME_TYPE_OPTIONS, type PrimeLigne, type PrimeLigneType } from "@/lib/primes";
 
 type PrimeStatut = "BROUILLON" | "SOUMIS" | "VALIDE" | "REFUSE";
 type PrimeRow = {
@@ -16,6 +16,10 @@ type PrimeRow = {
   primeCA: number;
   statut: PrimeStatut;
   commentaireAdmin: string | null;
+  lignesAdmin?: PrimeLigne[] | null;
+  primeCAAdmin?: number | null;
+  excelUrl?: string | null;
+  excelFileName?: string | null;
 };
 
 const LICORICE = "#1A1110";
@@ -258,7 +262,7 @@ export default function PrimesPage() {
                     </thead>
                     <tbody>
                       {lignes.map((l, i) => (
-                        <tr key={l.id} className="border-t" style={{ borderColor: "#F2E9DD" }}>
+                        <tr key={l.id} className="border-t" style={{ borderColor: "#F2E9DD", backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : undefined }}>
                           <td className="py-2">
                             {editingId === p.id ? (
                               <select
@@ -270,13 +274,12 @@ export default function PrimesPage() {
                                   return { ...prev, [p.id]: next };
                                 })}
                               >
-                                <option value="RECRUTEMENT_TALENT">Recrutement talent</option>
-                                <option value="PREMIERE_COLLAB">Première collaboration (500 €)</option>
-                                <option value="PREMIERE_SIGNATURE_TALENT">Première signature talent</option>
-                                <option value="AUTRE">Autre</option>
+                                {PRIME_TYPE_OPTIONS.filter((o) => o.value !== "RETRAIT_COLLABORATION").map((opt) => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
                               </select>
                             ) : (
-                              PRIME_TYPE_LABELS[l.type]
+                              PRIME_TYPE_LABELS[l.type] || l.type
                             )}
                           </td>
                           <td className="py-2">
@@ -305,7 +308,7 @@ export default function PrimesPage() {
                               />
                             ) : (l.talentNom || "—")}
                           </td>
-                          <td className="py-2 text-right">
+                          <td className="py-2 text-right" style={{ color: Number(l.montant) < 0 ? "#B91C1C" : undefined }}>
                             {editingId === p.id ? (
                               <input
                                 type="number"
@@ -348,6 +351,64 @@ export default function PrimesPage() {
 
                 {p.statut === "REFUSE" && p.commentaireAdmin && (
                   <p className="text-sm mt-2 text-red-700">{p.commentaireAdmin}</p>
+                )}
+
+                {((Array.isArray(p.lignesAdmin) && p.lignesAdmin.length > 0) || p.primeCAAdmin != null || p.excelUrl) && (
+                  <div className="mt-4 rounded-xl border p-3" style={{ borderColor: TEA_GREEN, backgroundColor: "#F7FBF0" }}>
+                    <p className="text-sm font-semibold mb-1" style={{ color: LICORICE }}>
+                      {p.statut === "VALIDE" ? "Primes validées (résultat final)" : "Tableau corrigé par Sofian"}
+                    </p>
+                    <p className="text-xs mb-3" style={{ color: OLD_ROSE }}>
+                      Voici le résultat final à prendre en compte.
+                    </p>
+                    {Array.isArray(p.lignesAdmin) && p.lignesAdmin.length > 0 ? (
+                      <table className="w-full text-sm mb-2">
+                        <thead>
+                          <tr className="text-left" style={{ color: OLD_ROSE }}>
+                            <th className="py-1.5">Type</th>
+                            <th className="py-1.5">Description</th>
+                            <th className="py-1.5">Talent</th>
+                            <th className="py-1.5 text-right">Montant</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {p.lignesAdmin.map((l) => (
+                            <tr key={l.id} className="border-t" style={{ borderColor: "#E5EED6", backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : undefined }}>
+                              <td className="py-1.5">{PRIME_TYPE_LABELS[l.type] || l.type}</td>
+                              <td className="py-1.5">{l.description}</td>
+                              <td className="py-1.5">{l.talentNom || "—"}</td>
+                              <td className="py-1.5 text-right" style={{ color: Number(l.montant) < 0 ? "#B91C1C" : undefined }}>{eur(Number(l.montant || 0))}</td>
+                            </tr>
+                          ))}
+                          <tr className="border-t" style={{ borderColor: "#E5EED6" }}>
+                            <td colSpan={3} className="py-1.5 italic" style={{ color: OLD_ROSE }}>Prime CA</td>
+                            <td className="py-1.5 text-right italic">{eur(Number(p.primeCAAdmin || 0))}</td>
+                          </tr>
+                          <tr className="border-t" style={{ borderColor: "#E5EED6" }}>
+                            <td colSpan={3} className="py-1.5 font-semibold" style={{ color: LICORICE }}>Total</td>
+                            <td className="py-1.5 text-right font-semibold">
+                              {eur(
+                                (p.lignesAdmin || []).reduce((s, l) => s + Number(l.montant || 0), 0) +
+                                  Number(p.primeCAAdmin || 0)
+                              )}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    ) : null}
+                    {p.excelUrl ? (
+                      <a
+                        href={p.excelUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 mt-1 px-3 py-1.5 rounded-lg text-sm font-medium"
+                        style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                      >
+                        <Download className="w-4 h-4" />
+                        Télécharger l’Excel{p.excelFileName ? ` — ${p.excelFileName}` : ""}
+                      </a>
+                    ) : null}
+                  </div>
                 )}
 
                 {p.statut === "BROUILLON" && (

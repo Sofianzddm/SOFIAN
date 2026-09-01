@@ -2,7 +2,11 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { canAnnotateContratMarque, canReadContratMarqueReview } from "@/lib/contratMarqueAccess";
+import {
+  canAnnotateContratMarque,
+  canReadContratMarqueReview,
+  isTmAssigneOuRelai,
+} from "@/lib/contratMarqueAccess";
 import {
   annotationsForClient,
   commentairesForCurrentVersionOnly,
@@ -26,8 +30,16 @@ export default async function ContratMarqueReviewPage({
   const collaboration = await prisma.collaboration.findUnique({
     where: { id },
     include: {
-      talent: true,
+      talent: {
+        include: {
+          delegations: {
+            where: { actif: true },
+            select: { tmRelaiId: true, actif: true },
+          },
+        },
+      },
       marque: true,
+      accountManager: { select: { role: true } },
       livrables: { orderBy: { createdAt: "asc" } },
       contratMarqueAnnotations: { orderBy: { createdAt: "asc" } },
       contratMarqueCommentaires: { orderBy: { createdAt: "asc" } },
@@ -46,9 +58,9 @@ export default async function ContratMarqueReviewPage({
     redirect(`/collaborations/${id}`);
   }
 
-  const isTm = user.role === "TM" && collaboration.talent.managerId === user.id;
+  const isTm = user.role === "TM" && isTmAssigneOuRelai(user.id, collaboration.talent);
   const readOnly = isTm;
-  const canAnnot = canAnnotateContratMarque(user.role) && !readOnly;
+  const canAnnot = canAnnotateContratMarque(user.role, collaboration) && !readOnly;
 
   const serialized = JSON.parse(JSON.stringify(collaboration)) as typeof collaboration;
   const versions = buildContratMarqueVersionsForClient(collaboration);

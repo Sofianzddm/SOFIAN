@@ -6,6 +6,8 @@ import prisma from "@/lib/prisma";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { ContratMarqueApprouveEmail } from "@/lib/emails/ContratMarqueApprouveEmail";
+import { isSalesCollab } from "@/lib/contratMarqueAccess";
+import { getDestinatairesNotification } from "@/lib/delegations";
 import {
   findJuristesContratMarque,
   isContratMarqueExcludedNotificationEmail,
@@ -252,8 +254,9 @@ export async function POST(
     const collabBefore = await prisma.collaboration.findUnique({
       where: { id },
       include: {
-        talent: { select: { prenom: true, nom: true, managerId: true } },
+        talent: { select: { id: true, prenom: true, nom: true, managerId: true } },
         marque: { select: { nom: true } },
+        accountManager: { select: { role: true } },
       },
     });
     if (!collabBefore) {
@@ -284,13 +287,16 @@ export async function POST(
 
     const label = `${collabBefore.talent.prenom} ${collabBefore.talent.nom} x ${collabBefore.marque.nom}`;
     const reviewPath = `/collaborations/${id}/contrat-marque`;
+    const isHeadOfSalesCollab = isSalesCollab(collabBefore);
+    const destTmIds = isHeadOfSalesCollab
+      ? []
+      : await getDestinatairesNotification(collabBefore.talent.id);
 
     if (statut === "APPROUVE") {
       const juristes = await findJuristesContratMarque();
-      const tmId = collabBefore.talent.managerId;
       const recipientIds = new Map<string, string>();
       juristes.forEach((j) => recipientIds.set(j.id, j.id));
-      if (tmId) recipientIds.set(tmId, tmId);
+      for (const destId of destTmIds) recipientIds.set(destId, destId);
 
       const notifs = [...recipientIds.keys()].map((userId) =>
         prisma.notification.create({
@@ -327,12 +333,12 @@ export async function POST(
           emailsOut.push(e);
         };
         for (const j of juristes) push(j.email);
-        if (tmId) {
-          const tm = await prisma.user.findUnique({
-            where: { id: tmId },
+        if (destTmIds.length > 0) {
+          const tms = await prisma.user.findMany({
+            where: { id: { in: destTmIds } },
             select: { email: true },
           });
-          push(tm?.email);
+          for (const tm of tms) push(tm.email);
         }
         for (const to of emailsOut) {
           try {
@@ -350,39 +356,45 @@ export async function POST(
     }
 
     if (statut === "A_MODIFIER") {
-      const tmId = collabBefore.talent.managerId;
-      if (!tmId) {
-        console.warn("POST contrat-marque/statut A_MODIFIER: pas de TM (managerId) sur le talent");
+      if (isHeadOfSalesCollab) {
+        console.info("POST contrat-marque/statut A_MODIFIER: notif TM ignorée (collab HEAD_OF_SALES)");
+      } else if (destTmIds.length === 0) {
+        console.warn("POST contrat-marque/statut A_MODIFIER: pas de TM / relai sur le talent");
       } else {
-        await prisma.notification.create({
-          data: {
-            userId: tmId,
+        await prisma.notification.createMany({
+          data: destTmIds.map((userId) => ({
+            userId,
             type: "CONTRAT_MARQUE_MODIFICATIONS",
             titre: "⚠️ Modifications demandées sur le contrat marque",
             message: `${label} — Le juriste demande des modifications.`,
             lien: reviewPath,
             collabId: id,
-          },
+          })),
         });
       }
 
       const resendKeyModif = process.env.RESEND_API_KEY?.trim();
-      if (resendKeyModif && tmId) {
-        const tmUser = await prisma.user.findUnique({
-          where: { id: tmId },
+      if (resendKeyModif && destTmIds.length > 0) {
+        const tmUsers = await prisma.user.findMany({
+          where: { id: { in: destTmIds } },
           select: { email: true },
         });
-        const to = tmUser?.email?.trim();
-        if (to && !isContratMarqueExcludedNotificationEmail(to)) {
+        const resendModif = new Resend(resendKeyModif);
+        const reviewUrlModif = `${baseUrl()}${reviewPath}`;
+        const htmlModif = await render(
+          React.createElement(ContratMarqueModificationsDemandeesEmail, {
+            talentMarqueLabel: label,
+            reviewUrl: reviewUrlModif,
+          })
+        );
+        const seenModif = new Set<string>();
+        for (const tmUser of tmUsers) {
+          const to = tmUser.email?.trim();
+          if (!to || isContratMarqueExcludedNotificationEmail(to)) continue;
+          const k = to.toLowerCase();
+          if (seenModif.has(k)) continue;
+          seenModif.add(k);
           try {
-            const resendModif = new Resend(resendKeyModif);
-            const reviewUrlModif = `${baseUrl()}${reviewPath}`;
-            const htmlModif = await render(
-              React.createElement(ContratMarqueModificationsDemandeesEmail, {
-                talentMarqueLabel: label,
-                reviewUrl: reviewUrlModif,
-              })
-            );
             await resendModif.emails.send({
               from: "Glow Up <contrat@glowupagence.fr>",
               to,

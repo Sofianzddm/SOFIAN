@@ -5,7 +5,8 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
-import { canReadContratMarqueReview } from "@/lib/contratMarqueAccess";
+import { canReadContratMarqueReview, contratMarqueTalentAccessSelect, isSalesCollab } from "@/lib/contratMarqueAccess";
+import { getDestinatairesNotification } from "@/lib/delegations";
 import {
   findJuristesContratMarque,
   isContratMarqueExcludedNotificationEmail,
@@ -40,8 +41,17 @@ export async function POST(
         id: true,
         reference: true,
         accountManagerId: true,
+        isPrivate: true,
+        accountManager: { select: { role: true } },
         contratMarqueVersionActuelle: true,
-        talent: { select: { managerId: true, prenom: true, nom: true } },
+        talent: {
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            ...contratMarqueTalentAccessSelect,
+          },
+        },
         marque: { select: { nom: true } },
       },
     });
@@ -91,6 +101,7 @@ export async function POST(
       contenu.length > MESSAGE_PREVIEW_MAX_LEN
         ? contenu.slice(0, MESSAGE_PREVIEW_MAX_LEN) + "…"
         : contenu;
+    const isHeadOfSalesCollab = isSalesCollab(collab);
     // Lien adapté au destinataire : le juriste a son espace dédié.
     const reviewLinkFor = (role: string | null | undefined) =>
       role === "JURISTE" ? `/juriste/${id}` : `/collaborations/${id}/contrat-marque`;
@@ -105,10 +116,13 @@ export async function POST(
     const mentionedEmails = new Set<string>();
 
     if (mentionedIds.size > 0) {
-      const mentionedUsers = await prisma.user.findMany({
+      const mentionedUsersRaw = await prisma.user.findMany({
         where: { id: { in: Array.from(mentionedIds) }, actif: true },
         select: { id: true, email: true, prenom: true, role: true },
       });
+      const mentionedUsers = isHeadOfSalesCollab
+        ? mentionedUsersRaw.filter((u) => u.role !== "TM" && u.role !== "HEAD_OF_INFLUENCE")
+        : mentionedUsersRaw;
 
       try {
         await prisma.$transaction(
@@ -169,16 +183,18 @@ export async function POST(
     if (resendKey) {
       try {
         const juristes = await findJuristesContratMarque();
-        const tmId = collab.talent.managerId;
         const destinataires: { email: string | null; prenom: string | null }[] = juristes
           .filter((j) => j.id !== user.id)
           .map((j) => ({ email: j.email, prenom: j.prenom }));
-        if (tmId && tmId !== user.id) {
-          const tmUser = await prisma.user.findUnique({
-            where: { id: tmId },
+        const destTmIds = isHeadOfSalesCollab
+          ? []
+          : await getDestinatairesNotification(collab.talent.id);
+        if (destTmIds.length > 0) {
+          const tmUsers = await prisma.user.findMany({
+            where: { id: { in: destTmIds.filter((tid) => tid !== user.id) } },
             select: { email: true, prenom: true },
           });
-          if (tmUser) destinataires.push(tmUser);
+          destinataires.push(...tmUsers);
         }
         const reviewUrl = `${baseUrl}/collaborations/${id}/contrat-marque`;
         const resend = new Resend(resendKey);

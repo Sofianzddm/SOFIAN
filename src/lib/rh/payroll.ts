@@ -2,7 +2,14 @@ import ExcelJS from "exceljs";
 import type { RhLeaveAccount } from "@prisma/client";
 import prisma from "@/lib/prisma";
 
-const PAYROLL_ACCOUNTS: RhLeaveAccount[] = ["CP", "RECUP", "SS"];
+const PAYROLL_ACCOUNTS: RhLeaveAccount[] = [
+  "CP",
+  "RECUP",
+  "SS",
+  "SCHOOL",
+  "AUTHORIZED",
+  "UNPAID",
+];
 
 /**
  * Export paie : une ligne par date et collaborateur,

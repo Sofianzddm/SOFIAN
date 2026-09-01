@@ -1,29 +1,142 @@
 import type { RhLeaveAccount } from "@prisma/client";
 import prisma from "@/lib/prisma";
-import { bookableBalance, coverageAfter } from "@/lib/rh/calculations";
+import {
+  bookableBalance,
+  coverageAfter,
+  cpExercise,
+  nextPeriodCpAccrued,
+  LEAVE_LABELS,
+  BALANCE_ACCOUNTS,
+} from "@/lib/rh/calculations";
 import {
   countWeekdays,
   createRhRequest,
   eachDate,
-  isWeekday,
+  isWorkday,
   writeRhAudit,
 } from "@/lib/rh/workflow";
+import { notifyRhRequestCreated, notifyRhDecision } from "@/lib/rh/notify";
 
 const COVERAGE_THRESHOLD = 60;
 
+export async function ensureCpAccrual(
+  employeeId: string,
+  hireDate: Date,
+  today = new Date()
+) {
+  const current = cpExercise(today);
+  const nextStart = new Date(Date.UTC(current.startYear + 1, 6, 1));
+  const next = cpExercise(nextStart);
+  const seniorityBookable =
+    bookableBalance(1, hireDate, today, "CP") > 0 ? undefined : 0;
+
+  // Exercice en cours : +2,08 j / mois clos. Un solde Lucca déjà plus élevé
+  // (25 j crédités d'un coup) n'est jamais baissé.
+  await upsertCpPeriod({
+    employeeId,
+    hireDate,
+    today,
+    label: current.label,
+    start: current.start,
+    end: current.end,
+    targetAccrued: nextPeriodCpAccrued(today),
+    forceBookable: seniorityBookable,
+  });
+  const nextAccrued = nextPeriodCpAccrued(nextStart);
+  if (nextAccrued > 0) {
+    await upsertCpPeriod({
+      employeeId,
+      hireDate,
+      today,
+      label: next.label,
+      start: next.start,
+      end: next.end,
+      targetAccrued: nextAccrued,
+      forceBookable: 0,
+    });
+  }
+}
+
+async function upsertCpPeriod(params: {
+  employeeId: string;
+  hireDate: Date;
+  today: Date;
+  label: string;
+  start: Date;
+  end: Date;
+  targetAccrued: number;
+  forceBookable?: number;
+}) {
+  const existing = await prisma.rhLeaveBalance.findUnique({
+    where: {
+      employeeId_accountCode_periodStart: {
+        employeeId: params.employeeId,
+        accountCode: "CP",
+        periodStart: params.start,
+      },
+    },
+  });
+  if (!existing) {
+    const remaining = params.targetAccrued;
+    const bookable =
+      params.forceBookable ??
+      bookableBalance(remaining, params.hireDate, params.today, "CP");
+    await prisma.rhLeaveBalance.create({
+      data: {
+        employeeId: params.employeeId,
+        accountCode: "CP",
+        label: params.label,
+        periodStart: params.start,
+        periodEnd: params.end,
+        accrued: params.targetAccrued,
+        taken: 0,
+        remaining,
+        bookable,
+      },
+    });
+    return;
+  }
+  if (existing.accrued + 0.001 >= params.targetAccrued) return;
+  const delta = Math.round((params.targetAccrued - existing.accrued) * 100) / 100;
+  const remaining = existing.remaining + delta;
+  await prisma.rhLeaveBalance.update({
+    where: { id: existing.id },
+    data: {
+      accrued: params.targetAccrued,
+      remaining,
+      bookable:
+        params.forceBookable ??
+        bookableBalance(remaining, params.hireDate, params.today, "CP"),
+    },
+  });
+}
+
 export async function getBalancesForEmployee(employeeId: string, hireDate: Date) {
+  await ensureCpAccrual(employeeId, hireDate);
   const balances = await prisma.rhLeaveBalance.findMany({
     where: { employeeId },
-    orderBy: { accountCode: "asc" },
+    orderBy: [{ accountCode: "asc" }, { periodStart: "asc" }],
   });
   const today = new Date();
   return balances.map((b) => {
+    const futurePeriod = b.accountCode === "CP" && b.periodStart > today;
     const bookable =
       b.accountCode === "CP"
-        ? bookableBalance(b.remaining, hireDate, today, "CP")
+        ? futurePeriod
+          ? 0
+          : bookableBalance(b.remaining, hireDate, today, "CP")
         : b.bookable;
     return { ...b, bookable };
   });
+}
+
+function sumBookable(
+  balances: Array<{ accountCode: string; bookable: number }>,
+  accountCode: string
+) {
+  return balances
+    .filter((b) => b.accountCode === accountCode)
+    .reduce((s, b) => s + b.bookable, 0);
 }
 
 export async function computeTeamCoverage(params: {
@@ -71,26 +184,46 @@ export async function createLeaveRequest(params: {
   half?: "AM" | "PM";
   comment?: string;
 }) {
-  const days = countWeekdays(params.from, params.to, !!params.halfDay);
-  if (days <= 0) {
-    throw new Error("Aucune journée ouvrée dans la période");
+  const calendar = params.accountCode === "SS";
+  const pool = eachDate(params.from, params.to).filter(
+    (d) => calendar || isWorkday(d)
+  );
+  const days = countWeekdays(
+    params.from,
+    params.to,
+    !!params.halfDay
+  );
+  const counted = calendar
+    ? params.halfDay && pool.length === 1
+      ? 0.5
+      : params.halfDay
+        ? Math.max(0.5, pool.length - 0.5)
+        : pool.length
+    : days;
+  if (counted <= 0 || pool.length === 0) {
+    throw new Error(
+      "Aucune journée ouvrée dans la période (week-end et jours fériés exclus)"
+    );
   }
 
+  const balances = await getBalancesForEmployee(
+    params.employeeId,
+    params.hireDate
+  );
+
   if (params.accountCode === "CP") {
-    const bookable = bookableBalance(1, params.hireDate, new Date(), "CP");
-    const balances = await getBalancesForEmployee(params.employeeId, params.hireDate);
-    const cp = balances.find((b) => b.accountCode === "CP");
-    if (!cp || cp.bookable < days || bookable === 0) {
+    const seniorityOk = bookableBalance(1, params.hireDate, new Date(), "CP") > 0;
+    if (!seniorityOk) {
       throw new Error(
         "Congés payés non posables avant 1 an d'ancienneté — utilisez un congé sans solde"
       );
     }
-  }
-
-  if (params.accountCode !== "UNPAID") {
-    const balances = await getBalancesForEmployee(params.employeeId, params.hireDate);
-    const bal = balances.find((b) => b.accountCode === params.accountCode);
-    if (!bal || bal.bookable < days) {
+    if (sumBookable(balances, "CP") < counted) {
+      throw new Error("Solde insuffisant pour cette demande");
+    }
+  } else if (BALANCE_ACCOUNTS.has(params.accountCode)) {
+    const available = sumBookable(balances, params.accountCode);
+    if (available < counted) {
       throw new Error("Solde insuffisant pour cette demande");
     }
   }
@@ -102,14 +235,15 @@ export async function createLeaveRequest(params: {
     to: params.to,
   });
 
+  const label = LEAVE_LABELS[params.accountCode] || params.accountCode;
   const type = params.accountCode === "UNPAID" ? "UNPAID_LEAVE" : "LEAVE";
   const request = await createRhRequest({
     type,
     status: "PENDING",
     employeeId: params.employeeId,
-    title: `Absence ${params.accountCode} · ${days} j`,
+    title: `${label} · ${String(counted).replace(".", ",")} j`,
     comment: params.comment,
-    days,
+    days: counted,
     dateFrom: params.from,
     dateTo: params.to,
     payload: {
@@ -120,12 +254,11 @@ export async function createLeaveRequest(params: {
     },
   });
 
-  const weekdayDates = eachDate(params.from, params.to).filter(isWeekday);
   await prisma.rhLeaveDay.createMany({
-    data: weekdayDates.map((date, idx) => {
+    data: pool.map((date, idx) => {
       const isHalf =
         !!params.halfDay &&
-        (weekdayDates.length === 1 || idx === weekdayDates.length - 1);
+        (pool.length === 1 || idx === pool.length - 1);
       return {
         employeeId: params.employeeId,
         requestId: request.id,
@@ -142,7 +275,14 @@ export async function createLeaveRequest(params: {
     actorId: params.employeeId,
     targetId: params.employeeId,
     action: "leave.create",
-    detail: { requestId: request.id, days, accountCode: params.accountCode },
+    detail: { requestId: request.id, days: counted, accountCode: params.accountCode },
+  });
+
+  void notifyRhRequestCreated({
+    employeeId: params.employeeId,
+    title: request.title,
+    reference: request.reference,
+    type: label,
   });
 
   return { request, coverage };
@@ -177,13 +317,17 @@ export async function decideLeaveRequest(params: {
   if (params.approve && request.days && request.type !== "UNPAID_LEAVE") {
     const accountCode = (request.payload as { accountCode?: RhLeaveAccount })
       ?.accountCode;
-    if (accountCode && accountCode !== "UNPAID") {
-      const bal = await prisma.rhLeaveBalance.findFirst({
+    if (accountCode && BALANCE_ACCOUNTS.has(accountCode)) {
+      const bals = await prisma.rhLeaveBalance.findMany({
         where: { employeeId: request.employeeId, accountCode },
-        orderBy: { periodStart: "desc" },
+        orderBy: { periodStart: "asc" },
       });
-      if (bal) {
-        const taken = bal.taken + request.days;
+      let left = request.days;
+      for (const bal of bals) {
+        if (left <= 0) break;
+        const take = Math.min(bal.remaining, left);
+        if (take <= 0) continue;
+        const taken = bal.taken + take;
         const remaining = Math.max(0, bal.accrued - taken);
         await prisma.rhLeaveBalance.update({
           where: { id: bal.id },
@@ -201,6 +345,7 @@ export async function decideLeaveRequest(params: {
                 : remaining,
           },
         });
+        left -= take;
       }
     }
   }
@@ -216,5 +361,24 @@ export async function decideLeaveRequest(params: {
     detail: { requestId: request.id, note: params.note },
   });
 
+  void notifyRhDecision({
+    employeeId: request.employeeId,
+    title: request.title,
+    reference: request.reference,
+    approved: params.approve,
+    note: params.note,
+  });
+
   return updated;
+}
+
+export async function accrueAllActiveEmployees(today = new Date()) {
+  const emps = await prisma.rhEmployee.findMany({
+    where: { actif: true },
+    select: { id: true, hireDate: true },
+  });
+  for (const e of emps) {
+    await ensureCpAccrual(e.id, e.hireDate, today);
+  }
+  return emps.length;
 }

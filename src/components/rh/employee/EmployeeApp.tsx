@@ -24,7 +24,7 @@ import { RhDataProvider, useRhData } from "@/components/rh/RhDataContext";
 const BASE_TABS: RhTab[] = [
   { id: "home", label: "Accueil" },
   { id: "leave", label: "Mes absences" },
-  { id: "remote", label: "Mon télétravail" },
+  { id: "remote", label: "Présence" },
   { id: "time", label: "Mon temps" },
   { id: "expenses", label: "Mes frais" },
   { id: "folder", label: "Mon dossier" },

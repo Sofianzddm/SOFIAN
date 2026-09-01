@@ -19,6 +19,7 @@ import {
 import { RhDataProvider, useRhData } from "@/components/rh/RhDataContext";
 import { CP, LIME, RTT, SICK, TT } from "@/components/rh/mock/shared";
 import { buildThreeMonths, LEAVE_LEGEND } from "@/lib/rh/calendar-ui";
+import { isFrenchHoliday } from "@/lib/rh/holidays";
 
 type PeopleScreen =
   | "home"
@@ -37,7 +38,7 @@ const TABS: { id: PeopleScreen; label: string; count?: number }[] = [
   { id: "home", label: "Aperçu" },
   { id: "absences", label: "Absences" },
   { id: "planning", label: "Planning" },
-  { id: "remote", label: "Télétravail" },
+  { id: "remote", label: "Présence" },
   { id: "time", label: "Feuilles de temps" },
   { id: "expenses", label: "Frais & TR" },
   { id: "team", label: "Effectif" },
@@ -58,7 +59,12 @@ const KIND_COLOR: Record<string, string> = {
   RECUP: RTT,
   SS: SICK,
   UNPAID: "#8B95A5",
+  SCHOOL: "#B48CF0",
+  AUTHORIZED: "#8ED98A",
   TT,
+  OFFICE: "#8B95A5",
+  TRAVEL: "#F2874E",
+  SITE: "#F0C24E",
 };
 
 type PlanningEmp = {
@@ -111,13 +117,14 @@ function PeopleAppInner() {
     employeeId: "",
     from: new Date().toISOString().slice(0, 10),
     to: new Date().toISOString().slice(0, 10),
-    accountCode: "RTT",
+    accountCode: "CP",
   });
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (error === "NO_RH_PROFILE") router.replace("/rh/login");
-  }, [error, router]);
+    if (me?.employee.rhRole === "COLLAB") router.replace("/rh/espace");
+  }, [error, me, router]);
 
   const loadPlanning = useCallback(async () => {
     const from = new Date();
@@ -398,6 +405,8 @@ function PeopleAppInner() {
                       </div>
                       {ganttDays.map((d) => {
                         const ev = r.events.find((e) => e.date === d);
+                        const weekend = new Date(d + "T12:00:00").getDay() % 6 === 0;
+                        const ferie = isFrenchHoliday(d);
                         return (
                           <div
                             key={d}
@@ -405,9 +414,11 @@ function PeopleAppInner() {
                             style={{
                               background: ev
                                 ? KIND_COLOR[ev.kind] || LIME
-                                : new Date(d + "T12:00:00").getDay() % 6 === 0
-                                  ? "#12161C"
-                                  : "transparent",
+                                : ferie
+                                  ? "rgba(167,139,250,.35)"
+                                  : weekend
+                                    ? "#12161C"
+                                    : "transparent",
                               opacity: ev?.halfDay ? 0.55 : 1,
                             }}
                           />
@@ -424,10 +435,13 @@ function PeopleAppInner() {
 
       {screen === "remote" && (
         <div className="rh-screen">
-          <RhPageHero eyebrow="TÉLÉTRAVAIL" title="Déclarations équipe" />
+          <RhPageHero eyebrow="PRÉSENCE" title="Bureau · TT · Déplacement · Site" />
           <RhCard>
             {(planning?.employees || []).map((e) => {
               const tt = e.events.filter((x) => x.kind === "TT").length;
+              const office = e.events.filter((x) => x.kind === "OFFICE").length;
+              const travel = e.events.filter((x) => x.kind === "TRAVEL").length;
+              const site = e.events.filter((x) => x.kind === "SITE").length;
               return (
                 <div key={e.id} className="flex items-center gap-3 px-4 py-[11px]" style={{ borderBottom: "1px solid #15191F" }}>
                   <RhAvatar initials={e.initials} color={e.color} size={26} />
@@ -435,7 +449,10 @@ function PeopleAppInner() {
                     <div className="text-[12.5px] font-medium">{e.name}</div>
                     <div className="rh-mono text-[9px]" style={{ color: "#5F6978" }}>{e.department}</div>
                   </div>
-                  <span className="rh-mono text-[12px]" style={{ color: TT }}>{tt} j TT</span>
+                  <span className="rh-mono text-[11px]" style={{ color: "#8B95A5" }}>{office} bureau</span>
+                  <span className="rh-mono text-[11px]" style={{ color: TT }}>{tt} TT</span>
+                  <span className="rh-mono text-[11px]" style={{ color: "#F2874E" }}>{travel} dépl.</span>
+                  <span className="rh-mono text-[11px]" style={{ color: "#F0C24E" }}>{site} site</span>
                 </div>
               );
             })}
@@ -662,11 +679,13 @@ function PeopleAppInner() {
                   value={forceForm.accountCode}
                   onChange={(e) => setForceForm({ ...forceForm, accountCode: e.target.value })}
                 >
-                  <option value="CP">CP</option>
-                  <option value="RTT">RTT</option>
-                  <option value="RECUP">Récup</option>
-                  <option value="SS">Maladie / SS</option>
+                  <option value="CP">Congés payés</option>
+                  <option value="RECUP">Récupération</option>
+                  <option value="SS">Maladie</option>
+                  <option value="SCHOOL">École</option>
+                  <option value="AUTHORIZED">Absence autorisée</option>
                   <option value="UNPAID">Sans solde</option>
+                  <option value="RTT">RTT</option>
                 </select>
                 <RhButton disabled={busy || !forceForm.employeeId} onClick={() => void forceLeave()}>
                   Enregistrer (tracé)

@@ -378,7 +378,12 @@ async function main() {
       },
     });
     byMatricule.set(e.matricule, emp.id);
-    await upsertBalances(emp.id, new Date(e.hireDate), e);
+    const existingBalances = await prisma.rhLeaveBalance.count({
+      where: { employeeId: emp.id },
+    });
+    if (existingBalances === 0) {
+      await upsertBalances(emp.id, new Date(e.hireDate), e);
+    }
 
     if (e.matricule === "EMP-0042") {
       await prisma.rhDocument.createMany({

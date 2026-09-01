@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { checkThreadForReply, sendGmail } from "@/lib/gmail";
+import { checkThreadActivity, sendGmail } from "@/lib/gmail";
 import { relanceDue, isBusinessDay, isWithinRelanceHours } from "@/lib/business-days";
 
 const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
@@ -133,8 +133,11 @@ export async function runRelances(
     // relance est due, juste avant l'envoi.
     if (!r1Due && !r2Due) continue;
 
-    const hasReply = await checkThreadForReply(LEYNA_FROM_EMAIL, threadId);
-    if (hasReply) {
+    // Vraie réponse externe uniquement (pas nos R1/R2, pas les bounces).
+    // Avant : checkThreadForReply (= messages.length > 1) marquait replied dès
+    // que la R1 était dans le thread → R2 jamais envoyée.
+    const activity = await checkThreadActivity(LEYNA_FROM_EMAIL, threadId);
+    if (activity.replied) {
       replied += 1;
       if (demande.kind === "demande") {
         await prisma.$executeRaw`
@@ -151,6 +154,8 @@ export async function runRelances(
       }
       continue;
     }
+    // Bounce : inutile de relancer, on saute sans marquer replied.
+    if (activity.bounced) continue;
 
     const to =
       demande.kind === "demande"

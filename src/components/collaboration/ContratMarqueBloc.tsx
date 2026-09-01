@@ -13,9 +13,16 @@ type CurrentUser = {
 
 type CollaborationContratMarque = {
   id: string;
+  isPrivate?: boolean;
   marque: { nom: string };
-  talent: { prenom: string; nom: string; managerId?: string | null };
+  talent: {
+    prenom: string;
+    nom: string;
+    managerId?: string | null;
+    delegations?: { tmRelaiId?: string; actif?: boolean }[];
+  };
   accountManagerId?: string | null;
+  accountManager?: { role?: string | null } | null;
   contratMarquePdfUrl?: string | null;
   contratMarqueStatut?: string | null;
   contratMarqueMode?: string | null;
@@ -64,8 +71,13 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const collabAccess = {
+    isPrivate: collaboration.isPrivate ?? false,
     accountManagerId: collaboration.accountManagerId ?? null,
-    talent: { managerId: collaboration.talent.managerId },
+    accountManager: collaboration.accountManager ?? null,
+    talent: {
+      managerId: collaboration.talent.managerId,
+      delegations: collaboration.talent.delegations,
+    },
   };
   const canUploadContract = canUploadContratMarque(
     currentUser.id,

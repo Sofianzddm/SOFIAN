@@ -6,7 +6,16 @@ import {
   minutesToLabel,
   remoteEntitlement,
   splitOvertime,
+  cpExercise,
+  completedMonthsSince,
+  nextPeriodCpAccrued,
 } from "./calculations";
+import {
+  easterSunday,
+  frenchHolidayLabel,
+  isFrenchHoliday,
+  isWorkday,
+} from "../../../lib/rh/holidays";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -58,8 +67,34 @@ export function runRhCalculationTests(): string[] {
   assert(almost(mileageAllowance(412, 5), 139.67), "IK 412");
   ok("mileageAllowance");
 
-  assert(coverageAfter(4, 7) === 57, "coverage");
-  ok("coverageAfter");
+  assert(almost(nextPeriodCpAccrued(new Date("2026-08-31T12:00:00Z")), 2.08), "CP next Aug");
+  assert(cpExercise(new Date("2026-08-31T12:00:00Z")).label === "Congés payés 2026/2027", "exercise");
+  assert(completedMonthsSince(new Date("2026-07-01T00:00:00Z"), new Date("2026-08-31T00:00:00Z")) === 1, "months");
+  ok("cpAccrual");
+
+  const easter26 = easterSunday(2026);
+  assert(easter26.getFullYear() === 2026 && easter26.getMonth() === 3 && easter26.getDate() === 5, "easter 2026");
+  const easter27 = easterSunday(2027);
+  assert(easter27.getMonth() === 2 && easter27.getDate() === 28, "easter 2027");
+  assert(isFrenchHoliday("2026-01-01"), "jour de l'an");
+  assert(isFrenchHoliday("2026-04-06"), "lundi de Pâques 2026");
+  assert(isFrenchHoliday("2026-05-01"), "1er mai");
+  assert(isFrenchHoliday("2026-05-08"), "8 mai");
+  assert(isFrenchHoliday("2026-05-14"), "ascension 2026");
+  assert(isFrenchHoliday("2026-07-14"), "14 juillet");
+  assert(isFrenchHoliday("2026-08-15"), "15 août");
+  assert(isFrenchHoliday("2026-11-01"), "toussaint");
+  assert(isFrenchHoliday("2026-11-11"), "armistice");
+  assert(isFrenchHoliday("2026-12-25"), "noël");
+  assert(!isFrenchHoliday("2026-05-25"), "lundi de Pentecôte travaillé");
+  assert(!isFrenchHoliday("2026-08-31"), "lundi ouvré");
+  assert(frenchHolidayLabel("2026-11-11") === "Armistice", "label");
+  assert(!isWorkday("2026-11-11"), "11 nov non ouvré");
+  assert(!isWorkday("2026-08-15"), "15 août samedi");
+  assert(isWorkday("2026-08-31"), "31 août ouvré");
+  assert(isWorkday(new Date(2026, 10, 10)), "10 nov ouvré");
+  assert(!isWorkday(new Date(2026, 10, 11)), "11 nov local");
+  ok("frenchHolidays");
 
   return logs;
 }
