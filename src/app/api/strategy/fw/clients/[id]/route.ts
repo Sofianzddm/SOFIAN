@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireFwAccess } from "../../_auth";
-import { FW_STATUTS_MANUELS, serializeFwClient } from "@/lib/fw-prospection";
+import { FW_STATUTS_MANUELS, fwClientInclude, serializeFwClient } from "@/lib/fw-prospection";
 import { isFwVille } from "@/lib/fw-villes";
 
 export async function GET(
@@ -17,7 +17,7 @@ export async function GET(
 
     const client = await prisma.fwClient.findUnique({
       where: { id },
-      include: { contacts: { orderBy: { createdAt: "asc" } } },
+      include: fwClientInclude,
     });
     if (!client) {
       return NextResponse.json({ error: "Client introuvable." }, { status: 404 });
@@ -95,7 +95,7 @@ export async function PATCH(
         notes: body.notes === undefined ? undefined : (body.notes || "").trim() || null,
         statut: body.statut?.trim() || undefined,
       },
-      include: { contacts: { orderBy: { createdAt: "asc" } } },
+      include: fwClientInclude,
     });
 
     return NextResponse.json({

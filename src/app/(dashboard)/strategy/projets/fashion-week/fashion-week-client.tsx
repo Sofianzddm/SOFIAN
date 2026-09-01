@@ -6,6 +6,9 @@ import {
   CalendarDays,
   Clock,
   Database,
+  FileSpreadsheet,
+  Download,
+  Linkedin,
   Eye,
   Loader2,
   Mail,
@@ -18,8 +21,17 @@ import {
   Trash2,
 } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
+import { FwImportCartoModal } from "@/components/fw/FwImportCartoModal";
 import { businessDaysAfter } from "@/lib/business-days";
 import { FW_VILLES, fwVilleLabel, type FwVille } from "@/lib/fw-villes";
+
+type FwCartoFile = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+};
 
 type FwContact = {
   id?: string;
@@ -27,6 +39,12 @@ type FwContact = {
   firstName?: string | null;
   lastName?: string | null;
   role?: string | null;
+  perimetre?: string | null;
+  localisation?: string | null;
+  linkedinUrl?: string | null;
+  marquesGerees?: string | null;
+  marche?: string | null;
+  note?: string | null;
 };
 
 type FwClient = {
@@ -46,11 +64,36 @@ type FwClient = {
   emailRepliedAt: string | null;
   relanceSentAt: string | null;
   createdAt: string;
+  cartoFiles?: FwCartoFile[];
 };
 
 type SenderAccount = { id: string; email: string; label: string };
 
-type ContactDraft = { firstName: string; email: string; role: string };
+type ContactDraft = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: string;
+  perimetre: string;
+  marquesGerees: string;
+  marche: string;
+  localisation: string;
+  linkedinUrl: string;
+  note: string;
+};
+
+const emptyDraft = (): ContactDraft => ({
+  firstName: "",
+  lastName: "",
+  email: "",
+  role: "",
+  perimetre: "",
+  marquesGerees: "",
+  marche: "",
+  localisation: "",
+  linkedinUrl: "",
+  note: "",
+});
 
 const COLUMNS = [
   {
@@ -160,9 +203,18 @@ export function FashionWeekClient() {
   const [emailError, setEmailError] = useState<string | null>(null);
 
   const [contactsTarget, setContactsTarget] = useState<FwClient | null>(null);
-  const [contactDrafts, setContactDrafts] = useState<ContactDraft[]>([
-    { firstName: "", email: "", role: "" },
-  ]);
+  const [showCartoModal, setShowCartoModal] = useState(false);
+  const [cartoClient, setCartoClient] = useState<FwClient | null>(null);
+  const [droppedCarto, setDroppedCarto] = useState<File | null>(null);
+  const [cartoDragOver, setCartoDragOver] = useState(false);
+
+  function openCartoImport(client?: FwClient | null, file?: File | null) {
+    setContactsTarget(null);
+    setCartoClient(client || null);
+    setDroppedCarto(file || null);
+    setShowCartoModal(true);
+  }
+  const [contactDrafts, setContactDrafts] = useState<ContactDraft[]>([emptyDraft()]);
   const [contactsSaving, setContactsSaving] = useState(false);
   const [contactsError, setContactsError] = useState<string | null>(null);
 
@@ -299,10 +351,17 @@ export function FashionWeekClient() {
       contacts.length > 0
         ? contacts.map((c) => ({
             firstName: c.firstName || "",
+            lastName: c.lastName || "",
             email: c.email || "",
             role: c.role || "",
+            perimetre: c.perimetre || "",
+            marquesGerees: c.marquesGerees || "",
+            marche: c.marche || "",
+            localisation: c.localisation || "",
+            linkedinUrl: c.linkedinUrl || "",
+            note: c.note || "",
           }))
-        : [{ firstName: "", email: "", role: "" }]
+        : [emptyDraft()]
     );
   }
 
@@ -318,10 +377,17 @@ export function FashionWeekClient() {
           contacts: contactDrafts
             .map((c) => ({
               firstName: c.firstName.trim(),
+              lastName: c.lastName.trim(),
               email: c.email.trim(),
               role: c.role.trim(),
+              perimetre: c.perimetre.trim(),
+              marquesGerees: c.marquesGerees.trim(),
+              marche: c.marche.trim(),
+              localisation: c.localisation.trim(),
+              linkedinUrl: c.linkedinUrl.trim(),
+              note: c.note.trim(),
             }))
-            .filter((c) => c.email),
+            .filter((c) => c.email || c.firstName || c.lastName),
         }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
@@ -474,6 +540,37 @@ export function FashionWeekClient() {
         >
           Prospection
         </button>
+        {isAdmin ? (
+          <button
+            type="button"
+            onClick={() => openCartoImport(null)}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setCartoDragOver(true);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setCartoDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setCartoDragOver(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setCartoDragOver(false);
+              openCartoImport(null, e.dataTransfer.files?.[0] || null);
+            }}
+            className={`ml-auto inline-flex items-center gap-2 rounded-xl border-2 border-dashed px-4 py-2 text-sm font-semibold ${
+              cartoDragOver
+                ? "border-emerald-400 bg-emerald-50 text-emerald-800"
+                : "border-glowup-rose/40 bg-white text-glowup-rose hover:bg-rose-50"
+            }`}
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            Importer un Excel
+          </button>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -514,14 +611,26 @@ export function FashionWeekClient() {
             <div>
               <p className="text-sm font-semibold text-gray-900">Maisons</p>
             </div>
-            <div className="relative md:w-72">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                value={crmSearch}
-                onChange={(e) => setCrmSearch(e.target.value)}
-                placeholder="Chercher une maison, un mail…"
-                className="w-full rounded-xl border border-gray-300 py-2 pl-9 pr-3 text-sm"
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              {isAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => openCartoImport(null)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Importer une carto
+                </button>
+              ) : null}
+              <div className="relative md:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={crmSearch}
+                  onChange={(e) => setCrmSearch(e.target.value)}
+                  placeholder="Chercher une maison, un mail…"
+                  className="w-full rounded-xl border border-gray-300 py-2 pl-9 pr-3 text-sm"
+                />
+              </div>
             </div>
           </div>
           {visibleClients.length === 0 ? (
@@ -571,16 +680,42 @@ export function FashionWeekClient() {
                             {(c.contacts || []).length === 0 ? (
                               <p className="text-[11px] text-gray-400">—</p>
                             ) : (
-                              (c.contacts || []).map((ct) => (
-                                <p key={ct.email} className="text-xs text-gray-700">
-                                  {ct.firstName ? `${ct.firstName} · ` : ""}
-                                  {ct.email}
-                                  {ct.role ? (
-                                    <span className="text-gray-400"> · {ct.role}</span>
+                              (c.contacts || []).map((ct, idx) => (
+                                <div
+                                  key={ct.id || `${ct.email}-${idx}`}
+                                  className="text-xs text-gray-700"
+                                >
+                                  <p className="font-medium">
+                                    {[ct.firstName, ct.lastName].filter(Boolean).join(" ") ||
+                                      "Sans nom"}
+                                    {ct.linkedinUrl ? (
+                                      <a
+                                        href={ct.linkedinUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="ml-1 inline-flex text-[#0A66C2]"
+                                      >
+                                        <Linkedin className="inline h-3 w-3" />
+                                      </a>
+                                    ) : null}
+                                  </p>
+                                  <p className="text-[11px] text-gray-500">
+                                    {[ct.role, ct.perimetre, ct.marquesGerees]
+                                      .filter(Boolean)
+                                      .join(" · ") || null}
+                                  </p>
+                                  <p>
+                                    {ct.email || (
+                                      <span className="text-amber-700">mail à noter</span>
+                                    )}
+                                  </p>
+                                  {ct.note ? (
+                                    <p className="text-[11px] text-gray-400">{ct.note}</p>
                                   ) : null}
-                                </p>
+                                </div>
                               ))
                             )}
+                            <div className="flex flex-wrap gap-x-2 gap-y-1 pt-0.5">
                             <button
                               type="button"
                               onClick={() => openContacts(c)}
@@ -588,6 +723,34 @@ export function FashionWeekClient() {
                             >
                               {c.hasEmails ? "Modifier" : "Ajouter"}
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => openCartoImport(c)}
+                              className="text-[11px] font-medium text-gray-500 hover:text-glowup-rose"
+                            >
+                              Carto
+                            </button>
+                            {(c.contacts || []).length > 0 ? (
+                              <a
+                                href={`/api/strategy/fw/clients/${c.id}/export-carto`}
+                                className="inline-flex items-center gap-0.5 text-[11px] font-medium text-gray-500 hover:text-glowup-rose"
+                              >
+                                <Download className="h-3 w-3" />
+                                Excel
+                              </a>
+                            ) : null}
+                            {(c.cartoFiles || []).map((f) => (
+                              <a
+                                key={f.id}
+                                href={`/api/strategy/fw/clients/${c.id}/carto-files/${f.id}`}
+                                className="inline-flex items-center gap-0.5 text-[11px] font-medium text-emerald-700 hover:underline"
+                                title={f.fileName}
+                              >
+                                <FileSpreadsheet className="h-3 w-3" />
+                                {f.fileName}
+                              </a>
+                            ))}
+                            </div>
                           </div>
                         ) : (
                           <p className="text-xs text-gray-600">
@@ -698,9 +861,9 @@ export function FashionWeekClient() {
 
                         {isAdmin && (c.contacts?.length ?? 0) > 0 ? (
                           <div className="flex flex-wrap gap-1">
-                            {c.contacts!.map((ct) => (
+                            {c.contacts!.map((ct, idx) => (
                               <span
-                                key={ct.email}
+                                key={ct.id || `${ct.email}-${idx}`}
                                 className="rounded-full bg-gray-50 border border-gray-200 px-2 py-0.5 text-[11px] text-gray-600"
                               >
                                 {ct.firstName ? `${ct.firstName} · ` : ""}
@@ -727,6 +890,7 @@ export function FashionWeekClient() {
 
                         <div className="flex flex-wrap gap-2 pt-1">
                           {isAdmin ? (
+                            <>
                             <button
                               type="button"
                               onClick={() => openContacts(c)}
@@ -735,6 +899,15 @@ export function FashionWeekClient() {
                               <Pencil className="h-3 w-3" />
                               {c.hasEmails ? "Contacts" : "Ajouter un contact"}
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => openCartoImport(c)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-dashed border-glowup-rose/40 px-2.5 py-1 text-[11px] font-medium text-glowup-rose hover:bg-rose-50"
+                            >
+                              <FileSpreadsheet className="h-3 w-3" />
+                              Excel
+                            </button>
+                            </>
                           ) : null}
                           {c.statut === "PRET" ? (
                             <button
@@ -759,57 +932,137 @@ export function FashionWeekClient() {
 
       {contactsTarget && (
         <div className="fixed inset-0 z-[60] bg-black/30 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg max-h-[min(92vh,720px)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 space-y-4">
-            <div>
-              <h3 className="text-lg font-semibold">Mails · {contactsTarget.nom}</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Un ou plusieurs contacts. {"{{prenom}}"} est remplacé à l’envoi.
-              </p>
+          <div className="w-full max-w-3xl max-h-[min(92vh,820px)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold">Contacts · {contactsTarget.nom}</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Importe un Excel, ou saisis à la main. {"{{prenom}}"} est remplacé à l’envoi.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => openCartoImport(contactsTarget)}
+                className="inline-flex items-center gap-2 rounded-xl bg-glowup-rose px-3 py-2 text-sm font-medium text-white"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                Importer l’Excel
+              </button>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {contactDrafts.map((row, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2">
-                  <input
-                    className="col-span-3 rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
-                    placeholder="Prénom"
-                    value={row.firstName}
-                    onChange={(e) =>
-                      setContactDrafts((rows) =>
-                        rows.map((r, i) => (i === idx ? { ...r, firstName: e.target.value } : r))
-                      )
-                    }
-                  />
-                  <input
-                    className="col-span-6 rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
-                    placeholder="email@maison.com"
-                    value={row.email}
-                    onChange={(e) =>
-                      setContactDrafts((rows) =>
-                        rows.map((r, i) => (i === idx ? { ...r, email: e.target.value } : r))
-                      )
-                    }
-                  />
-                  <input
-                    className="col-span-3 rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
-                    placeholder="Rôle"
-                    value={row.role}
-                    onChange={(e) =>
-                      setContactDrafts((rows) =>
-                        rows.map((r, i) => (i === idx ? { ...r, role: e.target.value } : r))
-                      )
-                    }
-                  />
+                <div key={idx} className="rounded-xl border border-gray-100 bg-gray-50/60 p-3 space-y-2">
+                  <div className="grid grid-cols-12 gap-2">
+                    <input
+                      className="col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="Prénom"
+                      value={row.firstName}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, firstName: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="Nom"
+                      value={row.lastName}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, lastName: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="col-span-6 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="email@maison.com"
+                      value={row.email}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, email: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="col-span-4 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="Rôle"
+                      value={row.role}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, role: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="col-span-4 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="Équipe / Périmètre"
+                      value={row.perimetre}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, perimetre: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="col-span-4 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="Marque(s) gérée(s)"
+                      value={row.marquesGerees}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, marquesGerees: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="Marché"
+                      value={row.marche}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, marche: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="Localisation"
+                      value={row.localisation}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, localisation: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="col-span-6 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="URL LinkedIn"
+                      value={row.linkedinUrl}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, linkedinUrl: e.target.value } : r))
+                        )
+                      }
+                    />
+                    <input
+                      className="col-span-12 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      placeholder="Note"
+                      value={row.note}
+                      onChange={(e) =>
+                        setContactDrafts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, note: e.target.value } : r))
+                        )
+                      }
+                    />
+                  </div>
                 </div>
               ))}
             </div>
             <button
               type="button"
-              onClick={() =>
-                setContactDrafts((rows) => [...rows, { firstName: "", email: "", role: "" }])
-              }
+              onClick={() => setContactDrafts((rows) => [...rows, emptyDraft()])}
               className="text-sm font-medium text-glowup-rose"
             >
-              + Ajouter un mail
+              + Ajouter un contact
             </button>
             {contactsError ? <p className="text-sm text-red-600">{contactsError}</p> : null}
             <div className="flex justify-end gap-2">
@@ -926,6 +1179,29 @@ export function FashionWeekClient() {
           </div>
         </div>
       )}
+      {showCartoModal && isAdmin ? (
+        <FwImportCartoModal
+          lockedClient={cartoClient ? { id: cartoClient.id, nom: cartoClient.nom } : null}
+          clients={clients.map((c) => ({ id: c.id, nom: c.nom }))}
+          initialFile={droppedCarto}
+          defaultVille={filterVille === "ALL" ? "PARIS" : filterVille}
+          onClose={() => {
+            setShowCartoModal(false);
+            setCartoClient(null);
+            setDroppedCarto(null);
+          }}
+          onImported={() => {
+            setShowCartoModal(false);
+            setCartoClient(null);
+            setDroppedCarto(null);
+            void load();
+          }}
+          onError={(m) => {
+            setShowCartoModal(false);
+            setFormError(m);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireFwAccess } from "../../../_auth";
 import {
-  FW_EMAIL_RE,
+  contactHasFwEmail,
+  fwClientInclude,
   serializeFwClient,
   statutFromContacts,
 } from "@/lib/fw-prospection";
@@ -12,6 +13,17 @@ type ContactInput = {
   firstName?: string;
   lastName?: string;
   role?: string;
+  perimetre?: string;
+  localisation?: string;
+  linkedinUrl?: string;
+  note?: string;
+  marquesGerees?: string;
+  marche?: string;
+};
+
+const clean = (v: unknown): string | null => {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s || null;
 };
 
 export async function PUT(
@@ -41,30 +53,51 @@ export async function PUT(
 
     const seen = new Set<string>();
     const contacts: Array<{
-      email: string;
+      email: string | null;
       firstName: string | null;
       lastName: string | null;
       role: string | null;
+      perimetre: string | null;
+      localisation: string | null;
+      linkedinUrl: string | null;
+      note: string | null;
+      marquesGerees: string | null;
+      marche: string | null;
+      emailLookupStatus: string;
+      emailLookupQueuedAt: Date | null;
       addedById: string;
     }> = [];
     for (const raw of body.contacts) {
-      const email = String(raw?.email || "").trim().toLowerCase();
-      if (!email) continue;
-      if (!FW_EMAIL_RE.test(email)) {
-        return NextResponse.json({ error: `Email invalide : ${email}` }, { status: 400 });
+      const emailRaw = String(raw?.email || "").trim().toLowerCase();
+      const email = contactHasFwEmail(emailRaw) ? emailRaw : "";
+      if (emailRaw && !email) {
+        return NextResponse.json({ error: `Email invalide : ${emailRaw}` }, { status: 400 });
       }
-      if (seen.has(email)) continue;
-      seen.add(email);
+      const firstName = clean(raw?.firstName);
+      const lastName = clean(raw?.lastName);
+      if (!email && !firstName && !lastName) continue;
+      const dedupe = email || `n:${(firstName || "").toLowerCase()}|${(lastName || "").toLowerCase()}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
       contacts.push({
-        email,
-        firstName: String(raw?.firstName || "").trim() || null,
-        lastName: String(raw?.lastName || "").trim() || null,
-        role: String(raw?.role || "").trim() || null,
+        email: email || null,
+        firstName,
+        lastName,
+        role: clean(raw?.role),
+        perimetre: clean(raw?.perimetre),
+        localisation: clean(raw?.localisation),
+        linkedinUrl: clean(raw?.linkedinUrl),
+        note: clean(raw?.note),
+        marquesGerees: clean(raw?.marquesGerees),
+        marche: clean(raw?.marche),
+        emailLookupStatus: email ? "FOUND" : "QUEUED",
+        emailLookupQueuedAt: email ? null : new Date(),
         addedById: auth.userId,
       });
     }
 
-    const nextStatut = statutFromContacts(existing.statut, contacts.length > 0);
+    const hasEmails = contacts.some((c) => contactHasFwEmail(c.email));
+    const nextStatut = statutFromContacts(existing.statut, hasEmails);
 
     const updated = await prisma.$transaction(async (tx) => {
       await tx.fwContact.deleteMany({ where: { clientId: id } });
@@ -76,7 +109,7 @@ export async function PUT(
       return tx.fwClient.update({
         where: { id },
         data: { statut: nextStatut },
-        include: { contacts: { orderBy: { createdAt: "asc" } } },
+        include: fwClientInclude,
       });
     });
 

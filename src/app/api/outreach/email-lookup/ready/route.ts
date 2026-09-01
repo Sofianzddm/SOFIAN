@@ -12,6 +12,7 @@ import {
   tryEnrollAgencyAfterEmailComplete,
 } from "@/lib/agency-contact-email";
 import { writeMarqueContactEmail } from "@/lib/marque-contact-email";
+import { refreshFwClientStatut } from "@/lib/fw-prospection";
 
 /**
  * POST → valide toute la fiche enrichissement d'un coup (« Prêt »).
@@ -31,10 +32,22 @@ const isValidEmail = (value: string): boolean =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 async function markNotFound(
-  market: "FR" | "BENELUX" | "AGENCY",
+  market: "FR" | "BENELUX" | "AGENCY" | "FW",
   contactId: string,
   parentId: string
 ): Promise<"ok" | "not_found"> {
+  if (market === "FW") {
+    const contact = await prisma.fwContact.findFirst({
+      where: { id: contactId, clientId: parentId },
+      select: { id: true },
+    });
+    if (!contact) return "not_found";
+    await prisma.fwContact.update({
+      where: { id: contactId },
+      data: { emailLookupStatus: "NOT_FOUND", email: null },
+    });
+    return "ok";
+  }
   if (market === "AGENCY") {
     const contact = await prisma.agencyContact.findFirst({
       where: { id: contactId, partnerId: parentId },
@@ -95,7 +108,13 @@ export async function POST(request: NextRequest) {
 
     const marketRaw = (body.market || "FR").toUpperCase();
     const market =
-      marketRaw === "BENELUX" ? "BENELUX" : marketRaw === "AGENCY" ? "AGENCY" : "FR";
+      marketRaw === "BENELUX"
+        ? "BENELUX"
+        : marketRaw === "AGENCY"
+          ? "AGENCY"
+          : marketRaw === "FW"
+            ? "FW"
+            : "FR";
     const marqueId = String(body.marqueId || "").trim();
     const rows = Array.isArray(body.contacts) ? body.contacts : [];
 
@@ -104,7 +123,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Onglet Agences : réservé ADMIN.
-    if (market === "AGENCY" && role !== "ADMIN") {
+    if ((market === "AGENCY" || market === "FW") && role !== "ADMIN") {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -160,7 +179,23 @@ export async function POST(request: NextRequest) {
         return null;
       };
 
-      if (market === "AGENCY") {
+      if (market === "FW") {
+        const contact = await prisma.fwContact.findFirst({
+          where: { id, clientId: marqueId },
+          select: { id: true },
+        });
+        if (!contact) {
+          return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+        }
+        await prisma.fwContact.update({
+          where: { id },
+          data: {
+            email,
+            emailLookupStatus: "FOUND",
+            emailLookupQueuedAt: null,
+          },
+        });
+      } else if (market === "AGENCY") {
         const contact = await prisma.agencyContact.findFirst({
           where: { id, partnerId: marqueId },
           select: { id: true },
@@ -196,6 +231,20 @@ export async function POST(request: NextRequest) {
       }
       saved.push(email);
       enrollableIds.push(id);
+    }
+
+    if (market === "FW") {
+      await refreshFwClientStatut(marqueId);
+      return NextResponse.json({
+        ok: true,
+        saved: saved.length,
+        notFound: notFoundCount,
+        enrolled: saved.length,
+        message:
+          saved.length > 0
+            ? `${saved.length} email(s) notés — maison prête dans Fashion Week.`
+            : `${notFoundCount} contact(s) marqués sans email.`,
+      });
     }
 
     if (market === "AGENCY") {

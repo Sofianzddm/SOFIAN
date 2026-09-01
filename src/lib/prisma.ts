@@ -22,11 +22,13 @@ if (process.env.NODE_ENV !== "production") {
     dossierProspection?: unknown;
     cannesCoiffeurPrestation?: unknown;
     rhEmployee?: unknown;
+    fwCartoFile?: unknown;
   };
   if (
     typeof p.dossierProspection === "undefined" ||
     typeof p.cannesCoiffeurPrestation === "undefined" ||
-    typeof p.rhEmployee === "undefined"
+    typeof p.rhEmployee === "undefined" ||
+    typeof p.fwCartoFile === "undefined"
   ) {
     void globalForPrisma.prisma?.$disconnect().catch(() => undefined);
     prisma = createPrismaClient();

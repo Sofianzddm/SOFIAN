@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       emailLookupQueuedAt: Date | string | null;
       marqueId: string;
       company: string;
-      market: "FR" | "BENELUX" | "AGENCY";
+      market: "FR" | "BENELUX" | "AGENCY" | "FW";
       source: "CARTO" | "AO" | null;
       pattern: {
         kind: string;
@@ -308,6 +308,91 @@ export async function GET(request: NextRequest) {
             marqueId: c.partnerId,
             company: c.partner.name,
             market: "AGENCY",
+            source: "CARTO",
+            pattern: pattern
+              ? {
+                  kind: pattern.kind,
+                  domain: pattern.domain,
+                  matches: pattern.matches,
+                  label: `${pattern.kind}@${pattern.domain}`,
+                }
+              : null,
+            suggestions,
+          });
+        }
+      }
+    }
+
+    // —— FASHION WEEK (ADMIN seulement) ——
+    if (isAdmin) {
+      const fwContacts = await prisma.fwContact.findMany({
+        where: {
+          OR: [
+            { emailLookupStatus: "QUEUED" },
+            {
+              AND: [
+                { emailLookupStatus: { not: "NOT_FOUND" } },
+                { OR: [{ email: null }, { email: "" }] },
+              ],
+            },
+          ],
+        },
+        orderBy: [{ emailLookupQueuedAt: "asc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          perimetre: true,
+          localisation: true,
+          linkedinUrl: true,
+          emailLookupQueuedAt: true,
+          clientId: true,
+          client: { select: { nom: true } },
+        },
+      });
+
+      const byClient = new Map<string, typeof fwContacts>();
+      for (const c of fwContacts) {
+        const list = byClient.get(c.clientId) || [];
+        list.push(c);
+        byClient.set(c.clientId, list);
+      }
+
+      for (const [clientId, list] of byClient) {
+        const known = await prisma.fwContact.findMany({
+          where: { clientId, email: { not: "" } },
+          select: { email: true, firstName: true, lastName: true },
+          take: 50,
+        });
+        const pattern = detectEmailPattern(
+          known
+            .filter((k): k is typeof k & { email: string } => Boolean(k.email))
+            .map((k) => ({ email: k.email, prenom: k.firstName, nom: k.lastName || "" }))
+        );
+
+        for (const c of list) {
+          const suggestions = suggestEmailsForContact({
+            prenom: c.firstName,
+            nom: c.lastName || "",
+            pattern,
+            fallbackDomain: pattern?.domain || null,
+          });
+          enriched.push({
+            id: c.id,
+            prenom: c.firstName,
+            nom: c.lastName || "",
+            poste: c.role,
+            perimetre: c.perimetre,
+            localisation: c.localisation,
+            priorite: null,
+            linkedinUrl: c.linkedinUrl,
+            language: "fr",
+            emailSuggested: null,
+            emailLookupQueuedAt: c.emailLookupQueuedAt,
+            marqueId: clientId,
+            company: c.client.nom,
+            market: "FW",
             source: "CARTO",
             pattern: pattern
               ? {

@@ -2898,6 +2898,7 @@ model FwClient {
   statut     String    @default("ATTENTE_EMAILS")
 
   contacts FwContact[]
+  cartoFiles FwCartoFile[]
 
   lastEmailSentAt   DateTime?
   lastEmailFrom     String?
@@ -2922,19 +2923,44 @@ model FwClient {
 }
 
 model FwContact {
-  id        String   @id @default(cuid())
-  clientId  String
-  client    FwClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  email     String
-  firstName String?
-  lastName  String?
-  role      String?
-  addedById String?
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  clientId      String
+  client        FwClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  email         String?
+  firstName     String?
+  lastName      String?
+  role          String?
+  perimetre     String?
+  localisation  String?
+  linkedinUrl   String?
+  marquesGerees String?
+  marche        String?
+  note          String?
+  // QUEUED = file enrichissement FW · FOUND = mail noté · NOT_FOUND = pas d'email
+  emailLookupStatus   String?
+  emailLookupQueuedAt DateTime?
+  addedById     String?
+  createdAt     DateTime @default(now())
 
-  @@unique([clientId, email])
   @@index([clientId])
+  @@index([clientId, email])
+  @@index([emailLookupStatus])
   @@map("fw_contacts")
+}
+
+model FwCartoFile {
+  id       String   @id @default(cuid())
+  clientId String
+  client   FwClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fileName String
+  mimeType String
+  size     Int
+  data     Bytes
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  @@index([clientId])
+  @@map("fw_carto_files")
 }
 
 model ParticipantVilla {

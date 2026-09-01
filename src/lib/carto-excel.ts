@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { parseCartoText } from "@/lib/parse-carto";
 
 export type ParsedCartoRow = {
   prenom?: string;
@@ -11,11 +12,12 @@ export type ParsedCartoRow = {
   email?: string;
 };
 
-function excelCellToText(value: unknown): string {
+function excelValueToText(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return String(value);
+    return String(value).replace(/[\t\r\n]+/g, " ").trim();
   }
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (typeof value === "object") {
     const v = value as {
       text?: string;
@@ -23,12 +25,63 @@ function excelCellToText(value: unknown): string {
       result?: unknown;
       richText?: { text: string }[];
     };
-    if (Array.isArray(v.richText)) return v.richText.map((t) => t.text).join("");
-    if (v.text != null) return String(v.text);
-    if (v.result != null) return String(v.result);
-    if (v.hyperlink != null) return String(v.hyperlink);
+    if (Array.isArray(v.richText)) {
+      return v.richText.map((t) => t.text).join("").replace(/[\t\r\n]+/g, " ").trim();
+    }
+    if (v.text != null && String(v.text).trim()) {
+      return String(v.text).replace(/[\t\r\n]+/g, " ").trim();
+    }
+    if (typeof v.hyperlink === "string") {
+      return v.hyperlink.startsWith("mailto:")
+        ? v.hyperlink.slice(7)
+        : v.hyperlink;
+    }
+    if (v.result != null) return excelValueToText(v.result);
   }
-  return String(value);
+  return "";
+}
+
+/** Texte affiché d’une cellule (libellé d’un lien plutôt que l’URL). */
+export function worksheetCellToText(cell: ExcelJS.Cell): string {
+  const displayed = String(cell.text || "").replace(/[\t\r\n]+/g, " ").trim();
+  if (displayed && !/^https?:\/\//i.test(displayed) && !displayed.startsWith("mailto:")) {
+    return displayed;
+  }
+  const fromValue = excelValueToText(cell.value);
+  return fromValue || displayed;
+}
+
+function sheetBounds(sheet: ExcelJS.Worksheet): { lastRow: number; colCount: number } {
+  let lastRow = Math.max(
+    sheet.lastRow?.number || 0,
+    sheet.rowCount || 0,
+    sheet.actualRowCount || 0
+  );
+  let colCount = Math.max(sheet.columnCount || 0, sheet.actualColumnCount || 0, 12);
+  const dim = sheet.dimensions as { bottom?: number; right?: number } | string | null;
+  if (dim && typeof dim === "object") {
+    lastRow = Math.max(lastRow, dim.bottom || 0);
+    colCount = Math.max(colCount, dim.right || 0);
+  }
+  // ExcelJS rate souvent lastRow sur les tableaux filtrés / formatés.
+  lastRow = Math.min(Math.max(lastRow, 80), 500);
+  colCount = Math.min(Math.max(colCount, 12), 40);
+  return { lastRow, colCount };
+}
+
+/** Toutes les lignes × colonnes, pas seulement le tableau sparse d’ExcelJS. */
+export function worksheetToTsv(sheet: ExcelJS.Worksheet): string {
+  const { lastRow, colCount } = sheetBounds(sheet);
+  const lines: string[] = [];
+  for (let r = 1; r <= lastRow; r++) {
+    const row = sheet.getRow(r);
+    const cells: string[] = [];
+    for (let col = 1; col <= colCount; col++) {
+      cells.push(worksheetCellToText(row.getCell(col)));
+    }
+    lines.push(cells.join("\t"));
+  }
+  return lines.join("\n");
 }
 
 function toArrayBuffer(sourceData: Uint8Array): ArrayBuffer {
@@ -38,80 +91,18 @@ function toArrayBuffer(sourceData: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-function worksheetToTsv(sheet: ExcelJS.Worksheet): string {
-  const lines: string[] = [];
-  sheet.eachRow({ includeEmpty: true }, (row) => {
-    const values = row.values as unknown[];
-    const cells: string[] = [];
-    for (let col = 1; col < Math.max(values.length, 2); col++) {
-      cells.push(excelCellToText(values[col]));
-    }
-    lines.push(cells.join("\t"));
-  });
-  return lines.join("\n");
-}
-
 /** Parse TSV (même logique que l'import carto UI) → lignes contacts. */
 export function parseCartoTsv(text: string): ParsedCartoRow[] {
-  const lines = text.split(/\r?\n/);
-  const splitLine = (line: string): string[] =>
-    line.includes("\t") ? line.split("\t") : line.split(";");
-
-  const norm = (s: string) =>
-    s
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim();
-
-  let headerIdx = -1;
-  let cols: Record<string, number> = {};
-  for (let i = 0; i < lines.length; i++) {
-    const cells = splitLine(lines[i]).map(norm);
-    const prenomIdx = cells.findIndex(
-      (c) => c === "prenom" || c === "firstname" || c === "first name"
-    );
-    const nomIdx = cells.findIndex(
-      (c) => c === "nom" || c === "lastname" || c === "last name"
-    );
-    if (prenomIdx >= 0 && nomIdx >= 0) {
-      headerIdx = i;
-      cols = { prenom: prenomIdx, nom: nomIdx };
-      cells.forEach((c, idx) => {
-        if (c.startsWith("prior")) cols.priorite = idx;
-        else if (c.includes("role") || c === "poste" || c === "titre") cols.poste = idx;
-        else if (c.startsWith("perim")) cols.perimetre = idx;
-        else if (c.startsWith("local")) cols.localisation = idx;
-        else if (c.includes("linkedin")) cols.linkedinUrl = idx;
-        else if (c.includes("mail")) cols.email = idx;
-      });
-      break;
-    }
-  }
-
-  if (headerIdx === -1) return [];
-
-  const cell = (cells: string[], key: string): string =>
-    cols[key] !== undefined ? (cells[cols[key]] || "").trim() : "";
-
-  const rows: ParsedCartoRow[] = [];
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const cells = splitLine(lines[i]);
-    const prenom = cell(cells, "prenom");
-    const nom = cell(cells, "nom");
-    if (!prenom && !nom) continue;
-    rows.push({
-      priorite: cell(cells, "priorite") || undefined,
-      prenom: prenom || undefined,
-      nom: nom || undefined,
-      poste: cell(cells, "poste") || undefined,
-      perimetre: cell(cells, "perimetre") || undefined,
-      localisation: cell(cells, "localisation") || undefined,
-      linkedinUrl: cell(cells, "linkedinUrl") || undefined,
-      email: cell(cells, "email") || undefined,
-    });
-  }
-  return rows;
+  return parseCartoText(text).rows.map((r) => ({
+    priorite: r.priorite || undefined,
+    prenom: r.prenom || undefined,
+    nom: r.nom || undefined,
+    poste: r.poste || undefined,
+    perimetre: r.perimetre || undefined,
+    localisation: r.localisation || undefined,
+    linkedinUrl: r.linkedinUrl || undefined,
+    email: r.email || undefined,
+  }));
 }
 
 /** Parse les contacts d'une feuille du classeur (0 = influence, 1 = AO). */

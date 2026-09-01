@@ -86,6 +86,10 @@ export function injectFwTracking(html: string, clientId: string): string {
   return `${withLinks}${pixel}`;
 }
 
+export function contactHasFwEmail(email: string | null | undefined): boolean {
+  return FW_EMAIL_RE.test(String(email || "").trim());
+}
+
 export function statutFromContacts(
   current: string,
   hasEmails: boolean
@@ -96,25 +100,71 @@ export function statutFromContacts(
   return current;
 }
 
+export async function refreshFwClientStatut(clientId: string) {
+  const client = await prisma.fwClient.findUnique({
+    where: { id: clientId },
+    select: {
+      id: true,
+      statut: true,
+      contacts: { select: { email: true } },
+    },
+  });
+  if (!client) return;
+  const hasEmails = client.contacts.some((c) => contactHasFwEmail(c.email));
+  const next = statutFromContacts(client.statut, hasEmails);
+  if (next !== client.statut) {
+    await prisma.fwClient.update({ where: { id: clientId }, data: { statut: next } });
+  }
+}
+
+export const FW_CARTO_FILE_PUBLIC_SELECT = {
+  id: true,
+  fileName: true,
+  mimeType: true,
+  size: true,
+  createdAt: true,
+} as const;
+
+export const fwClientInclude = {
+  contacts: { orderBy: { createdAt: "asc" as const } },
+  cartoFiles: {
+    select: FW_CARTO_FILE_PUBLIC_SELECT,
+    orderBy: { createdAt: "desc" as const },
+  },
+};
+
+type FwCartoFileLite = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  createdAt: Date | string;
+};
+
 type FwContactLike = {
-  email: string;
+  email: string | null;
   firstName?: string | null;
   lastName?: string | null;
   role?: string | null;
 };
 
 export function serializeFwClient<
-  T extends { statut: string; contacts: FwContactLike[]; emailThreads?: unknown },
+  T extends {
+    statut: string;
+    contacts: FwContactLike[];
+    emailThreads?: unknown;
+    cartoFiles?: FwCartoFileLite[];
+  },
 >(client: T, role: string, includeContacts: boolean) {
   const contactCount = client.contacts.length;
-  const hasEmails = contactCount > 0;
-  const { contacts, emailThreads, ...rest } = client;
+  const hasEmails = client.contacts.some((c) => contactHasFwEmail(c.email));
+  const { contacts, emailThreads, cartoFiles, ...rest } = client;
   const isAdmin = role === "ADMIN";
   const base = {
     ...rest,
     contactCount,
     hasEmails,
-    ...(isAdmin ? { emailThreads } : {}),
+    ...(isAdmin ? { emailThreads, cartoFiles: cartoFiles || [] } : {}),
   };
   if (includeContacts && (isAdmin || client.statut !== "ATTENTE_EMAILS")) {
     return { ...base, contacts };

@@ -11,6 +11,11 @@
 
 import { useEffect, useState } from "react";
 import { FileSpreadsheet, Loader2, Plus, X } from "lucide-react";
+import { parseCartoText, type CartoParsedRow } from "@/lib/parse-carto";
+import { worksheetToTsv } from "@/lib/carto-excel";
+
+export { parseCartoText };
+export type { CartoParsedRow };
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -22,58 +27,6 @@ type MarqueOption = {
   secteur: string | null;
   ville: string | null;
 };
-
-export type CartoParsedRow = {
-  priorite: string;
-  prenom: string;
-  nom: string;
-  poste: string;
-  perimetre: string;
-  localisation: string;
-  linkedinUrl: string;
-  email: string;
-  /** Feuille d'origine : 1 = influence (CARTO), 2 = achats/appel d'offre (AO). */
-  source: "CARTO" | "AO";
-};
-
-/** Valeur de cellule ExcelJS → texte (gère liens, texte riche, formules). */
-function excelCellToText(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value.replace(/[\t\r\n]+/g, " ").trim();
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  if (typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    if (typeof o.hyperlink === "string") {
-      const link = o.hyperlink;
-      // Les emails sont souvent des liens mailto: dans Excel
-      return link.startsWith("mailto:") ? link.slice(7) : link;
-    }
-    if (Array.isArray(o.richText)) {
-      return (o.richText as { text?: string }[])
-        .map((r) => r.text || "")
-        .join("")
-        .replace(/[\t\r\n]+/g, " ")
-        .trim();
-    }
-    if (o.text != null) return excelCellToText(o.text);
-    if (o.result != null) return excelCellToText(o.result);
-  }
-  return "";
-}
-
-function worksheetToTsv(worksheet: import("exceljs").Worksheet): string {
-  const lines: string[] = [];
-  worksheet.eachRow({ includeEmpty: true }, (row) => {
-    const values = row.values as unknown[]; // index 1-based
-    const cells: string[] = [];
-    for (let col = 1; col < Math.max(values.length, 2); col++) {
-      cells.push(excelCellToText(values[col]));
-    }
-    lines.push(cells.join("\t"));
-  });
-  return lines.join("\n");
-}
 
 /**
  * Lit un fichier de carto et renvoie le texte tabulé de ses feuilles.
@@ -106,97 +59,6 @@ export async function cartoFileToSheets(
     );
   }
   return { influence: await file.text(), ao: null };
-}
-
-/**
- * Parse un tableau collé depuis Excel / Google Sheets (TSV) ou un CSV.
- * Détecte la ligne d'en-tête (Priorité, Prénom, Nom, Rôle, Périmètre,
- * Localisation, Statut, URL LinkedIn…) et propose le nom de la marque
- * depuis la ligne de titre (« Bonsoirs — Top Contacts Influence »).
- */
-export function parseCartoText(text: string): {
-  rows: CartoParsedRow[];
-  suggestedCompany: string;
-  error: string | null;
-} {
-  const lines = text.split(/\r?\n/);
-  const splitLine = (line: string): string[] =>
-    line.includes("\t") ? line.split("\t") : line.split(";");
-
-  const norm = (s: string) =>
-    s
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim();
-
-  let headerIdx = -1;
-  let cols: Record<string, number> = {};
-  for (let i = 0; i < lines.length; i++) {
-    const cells = splitLine(lines[i]).map(norm);
-    const prenomIdx = cells.findIndex((c) => c === "prenom" || c === "firstname" || c === "first name");
-    const nomIdx = cells.findIndex((c) => c === "nom" || c === "lastname" || c === "last name");
-    if (prenomIdx >= 0 && nomIdx >= 0) {
-      headerIdx = i;
-      cols = { prenom: prenomIdx, nom: nomIdx };
-      cells.forEach((c, idx) => {
-        if (c.startsWith("prior")) cols.priorite = idx;
-        else if (c.includes("role") || c === "poste" || c === "titre") cols.poste = idx;
-        else if (c.startsWith("perim")) cols.perimetre = idx;
-        else if (c.startsWith("local")) cols.localisation = idx;
-        else if (c.includes("linkedin")) cols.linkedinUrl = idx;
-        else if (c.includes("mail")) cols.email = idx;
-      });
-      break;
-    }
-  }
-
-  if (headerIdx === -1) {
-    return {
-      rows: [],
-      suggestedCompany: "",
-      error:
-        "Impossible de trouver la ligne d'en-tête (colonnes « Prénom » et « Nom »). Colle le tableau avec ses titres de colonnes.",
-    };
-  }
-
-  // Nom de marque suggéré depuis le titre au-dessus du tableau
-  let suggestedCompany = "";
-  for (let i = 0; i < headerIdx; i++) {
-    const first = splitLine(lines[i])[0]?.trim();
-    if (first) {
-      suggestedCompany = first.split(/—|–|-{2,}/)[0].trim();
-      break;
-    }
-  }
-
-  const cell = (cells: string[], key: string): string =>
-    cols[key] !== undefined ? (cells[cols[key]] || "").trim() : "";
-
-  const rows: CartoParsedRow[] = [];
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const cells = splitLine(lines[i]);
-    const prenom = cell(cells, "prenom");
-    const nom = cell(cells, "nom");
-    if (!prenom && !nom) continue;
-    rows.push({
-      priorite: cell(cells, "priorite"),
-      prenom,
-      nom,
-      poste: cell(cells, "poste"),
-      perimetre: cell(cells, "perimetre"),
-      localisation: cell(cells, "localisation"),
-      linkedinUrl: cell(cells, "linkedinUrl"),
-      email: cell(cells, "email"),
-      source: "CARTO",
-    });
-  }
-
-  return {
-    rows,
-    suggestedCompany,
-    error: rows.length === 0 ? "Aucun contact trouvé sous la ligne d'en-tête." : null,
-  };
 }
 
 type Market = "FR" | "BENELUX";

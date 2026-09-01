@@ -21,6 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
+import { FwImportCartoModal } from "@/components/fw/FwImportCartoModal";
 import {
   ImportAgencyModal,
   type AgencyImportResult,
@@ -48,8 +49,8 @@ const norm = (s: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
-type Market = "FR" | "BENELUX" | "AGENCY";
-type Tab = "marques" | "agences";
+type Market = "FR" | "BENELUX" | "AGENCY" | "FW";
+type Tab = "marques" | "agences" | "fw";
 
 type LookupContact = {
   id: string;
@@ -65,8 +66,6 @@ type LookupContact = {
   market: Market;
   source: "CARTO" | "AO" | null;
 };
-
-/** Référence d'une copie d'un contact dans un pipeline donné. */
 type PersonRef = { id: string; market: Market; marqueId: string };
 
 /**
@@ -112,8 +111,10 @@ export default function EnrichissementPage() {
   /** Contacts marqués « pas d'email trouvé » (sortent de la file sans email). */
   const [notFound, setNotFound] = useState<Record<string, boolean>>({});
   const [showCartoModal, setShowCartoModal] = useState(false);
+  const [showFwCartoModal, setShowFwCartoModal] = useState(false);
   const [showAgencyImport, setShowAgencyImport] = useState(false);
   const [agencyPartners, setAgencyPartners] = useState<Array<{ id: string; name: string }>>([]);
+  const [fwClients, setFwClients] = useState<Array<{ id: string; nom: string }>>([]);
   const [agencyMarket, setAgencyMarket] = useState<"FR" | "BENELUX">("FR");
   const [dragOver, setDragOver] = useState(false);
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
@@ -140,9 +141,9 @@ export default function EnrichissementPage() {
     if (status === "authenticated" && allowed) load();
   }, [status, allowed, load]);
 
-  // CASTING_MANAGER n'a pas l'onglet Agences.
+  // CASTING_MANAGER n'a pas les onglets Agences / Fashion Week.
   useEffect(() => {
-    if (!isAdmin && tab === "agences") setTab("marques");
+    if (!isAdmin && (tab === "agences" || tab === "fw")) setTab("marques");
   }, [isAdmin, tab]);
 
   // Liste des agences pour le modal d'import (onglet Agences, ADMIN).
@@ -170,10 +171,38 @@ export default function EnrichissementPage() {
     };
   }, [isAdmin, tab]);
 
+  useEffect(() => {
+    if (!isAdmin || tab !== "fw") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/strategy/fw/clients");
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) {
+          setFwClients(
+            ((data.clients || []) as Array<{ id: string; nom: string }>).map((c) => ({
+              id: c.id,
+              nom: c.nom,
+            }))
+          );
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, tab]);
+
   const tabContacts = useMemo(
     () =>
       contacts.filter((c) =>
-        tab === "agences" ? c.market === "AGENCY" : c.market !== "AGENCY"
+        tab === "agences"
+          ? c.market === "AGENCY"
+          : tab === "fw"
+            ? c.market === "FW"
+            : c.market !== "AGENCY" && c.market !== "FW"
       ),
     [contacts, tab]
   );
@@ -227,13 +256,18 @@ export default function EnrichissementPage() {
     () => contacts.filter((c) => c.market === "AGENCY").length,
     [contacts]
   );
+  const fwCount = useMemo(
+    () => contacts.filter((c) => c.market === "FW").length,
+    [contacts]
+  );
   const marquesCount = useMemo(
-    () => contacts.filter((c) => c.market !== "AGENCY").length,
+    () => contacts.filter((c) => c.market !== "AGENCY" && c.market !== "FW").length,
     [contacts]
   );
 
   const active = brands.find((b) => b.key === activeKey) || null;
   const isAgencyTab = tab === "agences";
+  const isFwTab = tab === "fw";
 
   useEffect(() => {
     if (activeKey && !active) setActiveKey(null);
@@ -501,6 +535,54 @@ export default function EnrichissementPage() {
         bothMarkets?: boolean;
       };
 
+      if (isFwTab) {
+        const byClient = new Map<string, ReadyRow[]>();
+        for (const p of active.people) {
+          const isNf = Boolean(notFound[p.key]);
+          const email = (drafts[p.key] || "").trim().toLowerCase();
+          for (const ref of p.refs) {
+            const list = byClient.get(ref.marqueId) || [];
+            list.push(isNf ? { id: ref.id, notFound: true } : { id: ref.id, email });
+            byClient.set(ref.marqueId, list);
+          }
+        }
+
+        let totalSaved = 0;
+        let totalEnrolled = 0;
+        let totalNotFound = 0;
+        for (const [clientId, contactsPayload] of byClient) {
+          const res = await fetch("/api/outreach/email-lookup/ready", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              market: "FW",
+              marqueId: clientId,
+              contacts: contactsPayload,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "Échec");
+          totalSaved += data.saved || 0;
+          totalEnrolled += data.enrolled || 0;
+          totalNotFound += data.notFound || 0;
+        }
+
+        setFlash(
+          totalEnrolled > 0
+            ? `${active.company} — ${totalEnrolled} mail(s) notés, maison prête dans Fashion Week`
+            : totalSaved > 0
+              ? `${totalSaved} email(s) enregistrés.`
+              : totalNotFound > 0
+                ? `${totalNotFound} contact(s) marqués sans email.`
+                : "Fiche validée."
+        );
+        setActiveKey(null);
+        setDrafts({});
+        setNotFound({});
+        await load({ silent: true });
+        return;
+      }
+
       if (isAgencyTab) {
         const byPartner = new Map<string, ReadyRow[]>();
         for (const p of active.people) {
@@ -660,7 +742,9 @@ export default function EnrichissementPage() {
           <p className="text-sm text-gray-500 mt-1 mb-4">
             {isAgencyTab
               ? "Ouvre une agence · note les mails (ou « pas d'email ») · Prêt → Prospection Agences"
-              : "Glisse une carto · ouvre une marque · note les mails (ou « pas d'email ») · Prêt"}
+              : isFwTab
+                ? "Glisse une carto FW · ouvre une maison · note les mails (ou « pas d'email ») · Prêt → Fashion Week"
+                : "Glisse une carto · ouvre une marque · note les mails (ou « pas d'email ») · Prêt"}
           </p>
 
           {isAdmin && (
@@ -698,10 +782,25 @@ export default function EnrichissementPage() {
                   <span className="ml-1.5 text-xs opacity-60">{agencyCount}</span>
                 ) : null}
               </button>
+              <button
+                type="button"
+                onClick={() => switchTab("fw")}
+                className="flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition"
+                style={
+                  tab === "fw"
+                    ? { backgroundColor: "#fff", color: INK }
+                    : { color: "#6B7280" }
+                }
+              >
+                Fashion Week
+                {fwCount > 0 ? (
+                  <span className="ml-1.5 text-xs opacity-60">{fwCount}</span>
+                ) : null}
+              </button>
             </div>
           )}
 
-          {!isAgencyTab ? (
+          {!isAgencyTab && !isFwTab ? (
             <button
               type="button"
               onClick={() => {
@@ -741,6 +840,49 @@ export default function EnrichissementPage() {
                 Glisse une carto Excel ici
               </div>
               <div className="text-xs text-gray-400 mt-1">ou clique pour choisir</div>
+            </button>
+          ) : isFwTab ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDroppedFile(null);
+                setShowFwCartoModal(true);
+              }}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const file = e.dataTransfer.files?.[0] || null;
+                setDroppedFile(file);
+                setShowFwCartoModal(true);
+              }}
+              className="w-full rounded-xl border-2 border-dashed px-6 py-8 text-center transition mb-6"
+              style={{
+                borderColor: dragOver ? GREEN : "#E5E0DA",
+                backgroundColor: dragOver ? "#F2FAF2" : "#FBF8F4",
+              }}
+            >
+              <FileSpreadsheet
+                className="w-7 h-7 mx-auto mb-2"
+                style={{ color: dragOver ? GREEN : "#9CA3AF" }}
+              />
+              <div className="text-sm font-semibold" style={{ color: INK }}>
+                Glisse une carto Fashion Week ici
+              </div>
+              <div className="text-xs text-gray-400 mt-1">
+                Sans email → file ci-dessous · avec email → prêt à envoyer
+              </div>
             </button>
           ) : (
             <div className="mb-6 space-y-3">
@@ -848,6 +990,14 @@ export default function EnrichissementPage() {
                             🇧🇪 BE
                           </span>
                         )}
+                        {isFwTab && (
+                          <span
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                            style={{ backgroundColor: "#FCE7F3", color: INK }}
+                          >
+                            FW
+                          </span>
+                        )}
                         {isAgencyTab && (
                           <span
                             className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
@@ -871,13 +1021,17 @@ export default function EnrichissementPage() {
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-300" />
                     </button>
-                    {isAgencyTab && (
+                    {(isAgencyTab || isFwTab) && (
                       <button
                         type="button"
                         onClick={() => void deleteGroup(b)}
                         disabled={deletingGroupKey === b.key}
                         className="inline-flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition disabled:opacity-40"
-                        title="Supprimer tous les contacts de cette agence"
+                        title={
+                          isFwTab
+                            ? "Supprimer tous les contacts de cette maison"
+                            : "Supprimer tous les contacts de cette agence"
+                        }
                       >
                         {deletingGroupKey === b.key ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -906,7 +1060,7 @@ export default function EnrichissementPage() {
               className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
             >
               <ArrowLeft className="w-4 h-4" />
-              {isAgencyTab ? "Agences" : "Marques"}
+              {isAgencyTab ? "Agences" : isFwTab ? "Fashion Week" : "Marques"}
             </button>
             <div className="text-xs text-gray-400">
               {resolvedCount} / {active.people.length} traités
@@ -944,6 +1098,14 @@ export default function EnrichissementPage() {
                   style={{ backgroundColor: "#EEF2FF", color: INK }}
                 >
                   Agence
+                </span>
+              )}
+              {isFwTab && (
+                <span
+                  className="text-[11px] font-bold px-2 py-0.5 rounded"
+                  style={{ backgroundColor: "#FCE7F3", color: INK }}
+                >
+                  Fashion Week
                 </span>
               )}
             </h1>
@@ -1001,7 +1163,7 @@ export default function EnrichissementPage() {
                         style={{ color: INK }}
                       >
                         <span>{[p.prenom, p.nom].filter(Boolean).join(" ")}</span>
-                        {!isAgencyTab &&
+                        {!isAgencyTab && !isFwTab &&
                           (p.source === "AO" ? (
                             <span
                               className="text-[10px] font-bold px-1.5 py-0.5 rounded"
@@ -1101,7 +1263,9 @@ export default function EnrichissementPage() {
                         ? "Pas d'email trouvé"
                         : isAgencyTab
                           ? "email@agence.com"
-                          : "email@marque.fr"
+                          : isFwTab
+                            ? "email@maison.com"
+                            : "email@marque.fr"
                     }
                     className="w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     style={{
@@ -1145,7 +1309,9 @@ export default function EnrichissementPage() {
                 ? "Prêt — valider sans outreach"
                 : isAgencyTab
                   ? `Prêt — envoyer ${emailCount} dans Prospection Agences`
-                  : `Prêt — envoyer ${emailCount} dans « À contacter »`
+                  : isFwTab
+                    ? `Prêt — noter ${emailCount} dans Fashion Week`
+                    : `Prêt — envoyer ${emailCount} dans « À contacter »`
               : `Prêt (${resolvedCount}/${active.people.length})`}
           </button>
         </>
@@ -1168,6 +1334,38 @@ export default function EnrichissementPage() {
         />
       )}
 
+      {showFwCartoModal && (
+        <FwImportCartoModal
+          initialFile={droppedFile}
+          clients={fwClients}
+          onClose={() => {
+            setShowFwCartoModal(false);
+            setDroppedFile(null);
+          }}
+          onImported={(r) => {
+            const parts = [
+              `${r.created} importé${r.created > 1 ? "s" : ""}`,
+              r.queued > 0 ? `${r.queued} sans mail` : null,
+              r.withEmail > 0 ? `${r.withEmail} avec mail` : null,
+              r.skipped > 0 ? `${r.skipped} déjà là` : null,
+            ].filter(Boolean);
+            setFlash(`${r.company} : ${parts.join(" · ")}.`);
+            setShowFwCartoModal(false);
+            setDroppedFile(null);
+            void load({ silent: true });
+            if (r.queued > 0 && r.company) {
+              setActiveKey(norm(r.company));
+              setDrafts({});
+              setNotFound({});
+            }
+          }}
+          onError={(m) => {
+            setShowFwCartoModal(false);
+            setDroppedFile(null);
+            setFlash(m);
+          }}
+        />
+      )}
       {showAgencyImport && (
         <ImportAgencyModal
           partners={agencyPartners}

@@ -5,6 +5,7 @@ import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { writeBeneluxContactEmail } from "@/lib/benelux-contact-email";
 import { writeAgencyContactEmail } from "@/lib/agency-contact-email";
 import { writeMarqueContactEmail } from "@/lib/marque-contact-email";
+import { refreshFwClientStatut } from "@/lib/fw-prospection";
 
 /**
  * PATCH → complète (ou marque introuvable) un email en file d'enrichissement.
@@ -16,12 +17,13 @@ const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
 const isValidEmail = (value: string): boolean =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
-type Market = "FR" | "BENELUX" | "AGENCY";
+type Market = "FR" | "BENELUX" | "AGENCY" | "FW";
 
 function parseMarket(raw: string | null | undefined): Market {
   const m = (raw || "FR").toUpperCase();
   if (m === "BENELUX") return "BENELUX";
   if (m === "AGENCY") return "AGENCY";
+  if (m === "FW") return "FW";
   return "FR";
 }
 
@@ -47,8 +49,55 @@ export async function PATCH(
     };
     const market = parseMarket(body.market);
 
-    if (market === "AGENCY" && role !== "ADMIN") {
+    if ((market === "AGENCY" || market === "FW") && role !== "ADMIN") {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+    }
+
+    if (market === "FW") {
+      const contact = await prisma.fwContact.findUnique({
+        where: { id: contactId },
+        select: { id: true, clientId: true, client: { select: { nom: true } } },
+      });
+      if (!contact) {
+        return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+      }
+
+      if (body.notFound) {
+        await prisma.fwContact.update({
+          where: { id: contactId },
+          data: { emailLookupStatus: "NOT_FOUND", email: null },
+        });
+        await refreshFwClientStatut(contact.clientId);
+        return NextResponse.json({
+          ok: true,
+          status: "NOT_FOUND",
+          message: "Marqué introuvable.",
+        });
+      }
+
+      const email = String(body.email || "")
+        .trim()
+        .toLowerCase();
+      if (!isValidEmail(email)) {
+        return NextResponse.json({ error: "Email invalide." }, { status: 400 });
+      }
+
+      await prisma.fwContact.update({
+        where: { id: contactId },
+        data: {
+          email,
+          emailLookupStatus: "FOUND",
+          emailLookupQueuedAt: null,
+        },
+      });
+      await refreshFwClientStatut(contact.clientId);
+
+      return NextResponse.json({
+        ok: true,
+        status: "FOUND",
+        email,
+        message: `Email enregistré — ${contact.client.nom} (Fashion Week).`,
+      });
     }
 
     if (market === "AGENCY") {
@@ -242,8 +291,26 @@ export async function DELETE(
     const { contactId } = await params;
     const market = parseMarket(request.nextUrl.searchParams.get("market"));
 
-    if (market === "AGENCY" && role !== "ADMIN") {
+    if ((market === "AGENCY" || market === "FW") && role !== "ADMIN") {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+    }
+
+    if (market === "FW") {
+      const contact = await prisma.fwContact.findUnique({
+        where: { id: contactId },
+        select: { id: true, clientId: true, firstName: true, lastName: true },
+      });
+      if (!contact) {
+        return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+      }
+      await prisma.fwContact.delete({ where: { id: contactId } });
+      await refreshFwClientStatut(contact.clientId);
+      const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim();
+      return NextResponse.json({
+        ok: true,
+        deleted: true,
+        message: `${name || "Contact"} supprimé.`,
+      });
     }
 
     if (market === "AGENCY") {

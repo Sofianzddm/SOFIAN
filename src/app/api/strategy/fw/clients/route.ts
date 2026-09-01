@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 import { requireFwAccess } from "../_auth";
-import { FW_PROJET_SLUG, serializeFwClient } from "@/lib/fw-prospection";
+import { FW_PROJET_SLUG, fwClientInclude, serializeFwClient } from "@/lib/fw-prospection";
 import { isFwVille } from "@/lib/fw-villes";
 
 export async function GET(request: NextRequest) {
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     await getOrCreateVillaProject(FW_PROJET_SLUG);
 
     const clients = await prisma.fwClient.findMany({
-      include: { contacts: { orderBy: { createdAt: "asc" } } },
+      include: fwClientInclude,
       orderBy: [{ dateDefile: "asc" }, { createdAt: "desc" }],
     });
 
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         notes: (body.notes || "").trim() || null,
         createdById: auth.userId,
       },
-      include: { contacts: true },
+      include: fwClientInclude,
     });
 
     return NextResponse.json({
