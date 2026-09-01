@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
+import { basculerGiftsPourDelegation } from "@/lib/delegations";
 
 function requireAdmin(session: Awaited<ReturnType<typeof getAppSession>>) {
   const role = (session?.user as { role?: string })?.role;
@@ -115,7 +116,7 @@ export async function POST(request: NextRequest) {
       },
       include: {
         talent: {
-          select: { id: true, prenom: true, nom: true, photo: true },
+          select: { id: true, prenom: true, nom: true, photo: true, managerId: true },
         },
         tmOrigine: {
           select: { id: true, prenom: true, nom: true },
@@ -125,6 +126,12 @@ export async function POST(request: NextRequest) {
         },
       },
     });
+
+    try {
+      await basculerGiftsPourDelegation(delegation, "vers_relai");
+    } catch (e) {
+      console.error("Erreur bascule gifts vers relai:", e);
+    }
 
     return NextResponse.json(delegation, { status: 201 });
   } catch (error) {

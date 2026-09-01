@@ -56,10 +56,18 @@ export default function GiftDetailPage() {
   const user = session?.user as { id?: string; role?: string };
   const isAM = user?.role === "CM" || user?.role === "ADMIN";
   const isTM = user?.role === "TM";
+  const isTmSurDemande =
+    !!user?.id &&
+    (demande?.tmId === user.id ||
+      demande?.talent?.managerId === user.id ||
+      (demande?.talent?.delegations ?? []).some(
+        (d: { tmRelaiId?: string; actif?: boolean }) =>
+          d.tmRelaiId === user.id && d.actif !== false
+      ));
   const canCancel =
     demande &&
     demande.statut !== "ANNULE" &&
-    (user?.role === "ADMIN" || (user?.role === "TM" && demande.tmId === user?.id));
+    (user?.role === "ADMIN" || (isTM && isTmSurDemande));
   const isHotelAcceptedOrBeyond = !!demande &&
     demande.typeGift === "HOTEL" &&
     (demande.statut === "ACCEPTE" ||
@@ -395,7 +403,7 @@ export default function GiftDetailPage() {
                 <Package className="w-5 h-5 text-purple-600" />
                 Détails de la demande
               </h2>
-              {(isAM || (isTM && demande.tmId === user?.id)) && demande.statut !== "ANNULE" && (
+              {(isAM || (isTM && isTmSurDemande)) && demande.statut !== "ANNULE" && (
                 <button
                   onClick={() => setEditing(!editing)}
                   className="flex items-center gap-2 px-4 py-2 text-purple-600 hover:bg-purple-50 rounded-xl transition-colors font-semibold"

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getDestinatairesNotification, logDelegationActivite } from "@/lib/delegations";
+import { getDestinatairesNotification, logDelegationActivite, isTmSurGift, talentAccessForGiftSelect } from "@/lib/delegations";
 import type { Role } from "@prisma/client";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
@@ -39,6 +39,7 @@ export async function GET(
             codePostal: true,
             ville: true,
             pays: true,
+            ...talentAccessForGiftSelect,
           },
         },
         tm: {
@@ -95,8 +96,8 @@ export async function GET(
       user.role === "HEAD_OF" ||
       user.role === "HEAD_OF_INFLUENCE" ||
       user.role === "CM" ||
-      demande.tmId === user.id ||
-      demande.accountManagerId === user.id;
+      demande.accountManagerId === user.id ||
+      isTmSurGift(user.id, demande);
 
     if (!hasAccess) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
@@ -126,6 +127,9 @@ export async function PATCH(
 
     const demande = await prisma.demandeGift.findUnique({
       where: { id },
+      include: {
+        talent: { select: talentAccessForGiftSelect },
+      },
     });
 
     if (!demande) {
@@ -141,7 +145,7 @@ export async function PATCH(
     const canEdit =
       user.role === "ADMIN" ||
       user.role === "CM" ||
-      (user.role === "TM" && demande.tmId === user.id);
+      (user.role === "TM" && isTmSurGift(user.id, demande));
 
     if (!canEdit) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
@@ -335,74 +339,73 @@ export async function PATCH(
 
             if (resendKey && fromEmail && shouldEmail) {
               try {
-                const tmUser = await prisma.user.findUnique({
-                  where: { id: demande.tmId },
-                  select: { email: true, prenom: true, nom: true },
+                const destUsers = await prisma.user.findMany({
+                  where: { id: { in: destinataires } },
+                  select: { id: true, email: true, prenom: true, nom: true },
                 });
-                if (tmUser?.email) {
-                  const resend = new Resend(resendKey);
-                  const link = `/gifts/${id}`;
-                  const rawBase =
-                    (process.env.NEXT_PUBLIC_BASE_URL ||
-                      "https://app.glowupagence.fr")?.trim() || "";
-                  const baseUrl = rawBase.replace(/\/$/, "");
-                  const url = `${baseUrl}${link}`;
+                const resend = new Resend(resendKey);
+                const link = `/gifts/${id}`;
+                const rawBase =
+                  (process.env.NEXT_PUBLIC_BASE_URL ||
+                    "https://app.glowupagence.fr")?.trim() || "";
+                const baseUrl = rawBase.replace(/\/$/, "");
+                const url = `${baseUrl}${link}`;
 
+                let statutMessage = messageTM;
+                if (nouveauStatut === "ACCEPTE") {
+                  statutMessage = `🎉 La marque a accepté ta demande ${ref} pour ${talentName}`;
+                } else if (nouveauStatut === "REFUSE") {
+                  statutMessage = `La marque a refusé la demande ${ref} pour ${talentName}`;
+                } else if (nouveauStatut === "ENVOYE") {
+                  statutMessage = `Le gift ${ref} a été envoyé à ${talentName}`;
+                } else if (nouveauStatut === "RECU") {
+                  statutMessage = `✅ ${talentName} a bien reçu le gift ${ref}`;
+                }
+
+                const isHotel = demandeUpdated.typeGift === "HOTEL";
+                let hotelReservationSummary: string | null = null;
+                if (
+                  isHotel &&
+                  (demandeUpdated.numeroReservation ||
+                    demandeUpdated.nomReservation ||
+                    demandeUpdated.adresseHotel)
+                ) {
+                  const parts: string[] = [];
+                  if (demandeUpdated.numeroReservation) {
+                    parts.push(`Réservation n° ${demandeUpdated.numeroReservation}`);
+                  }
+                  if (demandeUpdated.nomReservation) {
+                    parts.push(`au nom de ${demandeUpdated.nomReservation}`);
+                  }
+                  if (demandeUpdated.adresseHotel) {
+                    parts.push(demandeUpdated.adresseHotel);
+                  }
+                  hotelReservationSummary = parts.join(" • ");
+                }
+
+                const trackingNumber =
+                  nouveauStatut === "ENVOYE" && demandeUpdated.numeroSuivi
+                    ? demandeUpdated.numeroSuivi
+                    : null;
+
+                const baseSubjectMap: Record<string, string> = {
+                  ACCEPTE: `🎉 Gift accepté — ${ref}`,
+                  REFUSE: `Gift refusé — ${ref}`,
+                  ENVOYE: `📦 Gift en route — ${ref}`,
+                  RECU: `✅ Gift reçu — ${ref}`,
+                };
+                const baseSubject =
+                  baseSubjectMap[nouveauStatut] || `Mise à jour de ta demande ${ref}`;
+                const urgentPrefix =
+                  demandeUpdated.priorite === "URGENTE" ? "🚨 URGENT — " : "";
+                const subject = `${urgentPrefix}${baseSubject}`;
+
+                for (const tmUser of destUsers) {
+                  if (!tmUser.email) continue;
                   const tmName =
                     tmUser.prenom && tmUser.nom
                       ? `${tmUser.prenom} ${tmUser.nom}`.trim()
                       : "Talent Manager";
-
-                  let statutMessage = messageTM;
-                  // Ajuster légèrement pour l'email si besoin
-                  if (nouveauStatut === "ACCEPTE") {
-                    statutMessage = `🎉 La marque a accepté ta demande ${ref} pour ${talentName}`;
-                  } else if (nouveauStatut === "REFUSE") {
-                    statutMessage = `La marque a refusé la demande ${ref} pour ${talentName}`;
-                  } else if (nouveauStatut === "ENVOYE") {
-                    statutMessage = `Le gift ${ref} a été envoyé à ${talentName}`;
-                  } else if (nouveauStatut === "RECU") {
-                    statutMessage = `✅ ${talentName} a bien reçu le gift ${ref}`;
-                  }
-
-                  const isHotel = demandeUpdated.typeGift === "HOTEL";
-                  let hotelReservationSummary: string | null = null;
-                  if (
-                    isHotel &&
-                    (demandeUpdated.numeroReservation ||
-                      demandeUpdated.nomReservation ||
-                      demandeUpdated.adresseHotel)
-                  ) {
-                    const parts: string[] = [];
-                    if (demandeUpdated.numeroReservation) {
-                      parts.push(`Réservation n° ${demandeUpdated.numeroReservation}`);
-                    }
-                    if (demandeUpdated.nomReservation) {
-                      parts.push(`au nom de ${demandeUpdated.nomReservation}`);
-                    }
-                    if (demandeUpdated.adresseHotel) {
-                      parts.push(demandeUpdated.adresseHotel);
-                    }
-                    hotelReservationSummary = parts.join(" • ");
-                  }
-
-                  const trackingNumber =
-                    nouveauStatut === "ENVOYE" && demandeUpdated.numeroSuivi
-                      ? demandeUpdated.numeroSuivi
-                      : null;
-
-                  const baseSubjectMap: Record<string, string> = {
-                    ACCEPTE: `🎉 Gift accepté — ${ref}`,
-                    REFUSE: `Gift refusé — ${ref}`,
-                    ENVOYE: `📦 Gift en route — ${ref}`,
-                    RECU: `✅ Gift reçu — ${ref}`,
-                  };
-                  const baseSubject =
-                    baseSubjectMap[nouveauStatut] || `Mise à jour de ta demande ${ref}`;
-                  const urgentPrefix =
-                    demandeUpdated.priorite === "URGENTE" ? "🚨 URGENT — " : "";
-                  const subject = `${urgentPrefix}${baseSubject}`;
-
                   const html = await render(
                     React.createElement(GiftStatutEmail, {
                       tmName,
@@ -498,6 +501,9 @@ export async function DELETE(
 
     const demande = await prisma.demandeGift.findUnique({
       where: { id },
+      include: {
+        talent: { select: talentAccessForGiftSelect },
+      },
     });
 
     if (!demande) {
@@ -510,7 +516,7 @@ export async function DELETE(
     // Seul le TM créateur ou un ADMIN peut annuler
     const canDelete =
       user.role === "ADMIN" ||
-      (user.role === "TM" && demande.tmId === user.id);
+      (user.role === "TM" && isTmSurGift(user.id, demande));
 
     if (!canDelete) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });

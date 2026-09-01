@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
+import { basculerGiftsPourDelegation } from "@/lib/delegations";
 
 function requireAdmin(session: Awaited<ReturnType<typeof getAppSession>>) {
   const role = (session?.user as { role?: string })?.role;
@@ -36,7 +37,7 @@ export async function PATCH(
       data: { actif },
       include: {
         talent: {
-          select: { id: true, prenom: true, nom: true, photo: true },
+          select: { id: true, prenom: true, nom: true, photo: true, managerId: true },
         },
         tmOrigine: {
           select: { id: true, prenom: true, nom: true },
@@ -46,6 +47,15 @@ export async function PATCH(
         },
       },
     });
+
+    try {
+      await basculerGiftsPourDelegation(
+        updated,
+        actif ? "vers_relai" : "vers_origine"
+      );
+    } catch (e) {
+      console.error("Erreur bascule gifts délégation:", e);
+    }
 
     return NextResponse.json(updated);
   } catch (error) {
@@ -67,6 +77,21 @@ export async function DELETE(
     if (authError) return authError;
 
     const { id } = await params;
+
+    const delegation = await prisma.delegationTM.findUnique({
+      where: { id },
+      include: {
+        talent: { select: { managerId: true } },
+      },
+    });
+
+    if (delegation) {
+      try {
+        await basculerGiftsPourDelegation(delegation, "vers_origine");
+      } catch (e) {
+        console.error("Erreur bascule gifts avant suppression délégation:", e);
+      }
+    }
 
     await prisma.delegationTM.delete({
       where: { id },

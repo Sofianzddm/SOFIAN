@@ -7,6 +7,7 @@ import { Resend } from "resend";
 import { render } from "@react-email/render";
 import type { Role } from "@prisma/client";
 import { GiftNouvelleDemandeEmail } from "@/emails/GiftNouvelleDemandeEmail";
+import { logDelegationActivite, resolveTmIdPourGift } from "@/lib/delegations";
 
 // GET /api/gifts
 // - Liste des demandes de gifts (mode normal)
@@ -75,9 +76,10 @@ export async function GET(req: NextRequest) {
     let where: any = {};
 
     if (role === "TM") {
-      // TM voit ses demandes + celles des talents qui lui sont délégués
+      // TM principale (tmId ou manager du talent) + relai actif
       where.OR = [
         { tmId: id },
+        { talent: { managerId: id } },
         {
           talent: {
             delegations: {
@@ -281,13 +283,17 @@ export async function POST(req: NextRequest) {
 
     const reference = `GIFT-${year}-${nextNumber.toString().padStart(4, "0")}`;
 
+    const fallbackTmId =
+      user.role === "TM" ? user.id : talent.managerId ?? user.id;
+    const tmId = await resolveTmIdPourGift(talentId, fallbackTmId);
+
     // Créer la demande
     const demande = await prisma.demandeGift.create({
       data: {
         reference,
         talentId,
-        // Si création hors TM, la demande est rattachée au TM responsable du talent.
-        tmId: user.role === "TM" ? user.id : talent.managerId ?? user.id,
+        // Relai actif → TM relai ; sinon TM principale du talent.
+        tmId,
         marqueId: marqueId || null,
         typeGift,
         description,
@@ -320,6 +326,16 @@ export async function POST(req: NextRequest) {
         },
       },
     });
+
+    logDelegationActivite({
+      talentId,
+      auteurId: user.id,
+      type: "GIFT_CREE",
+      entiteType: "GIFT",
+      entiteId: demande.id,
+      entiteRef: demande.reference,
+      detail: "Nouvelle demande de gift créée",
+    }).catch(console.error);
 
     // Créer des notifications pour les AM + ADMIN (CM exclu, hors auteur)
     try {

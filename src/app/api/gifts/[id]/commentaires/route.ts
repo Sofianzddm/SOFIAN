@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getDestinatairesNotification, logDelegationActivite } from "@/lib/delegations";
+import { getDestinatairesNotification, logDelegationActivite, isTmSurGift, talentAccessForGiftSelect } from "@/lib/delegations";
 import type { Role } from "@prisma/client";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
@@ -44,6 +44,7 @@ export async function POST(
             id: true,
             prenom: true,
             nom: true,
+            ...talentAccessForGiftSelect,
           },
         },
       },
@@ -62,8 +63,8 @@ export async function POST(
       user.role === "HEAD_OF" ||
       user.role === "HEAD_OF_INFLUENCE" ||
       user.role === "CM" ||
-      demande.tmId === user.id ||
-      demande.accountManagerId === user.id;
+      demande.accountManagerId === user.id ||
+      isTmSurGift(user.id, demande);
 
     if (!hasAccess) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
