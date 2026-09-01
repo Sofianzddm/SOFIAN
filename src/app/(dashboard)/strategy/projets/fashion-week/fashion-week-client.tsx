@@ -5,17 +5,21 @@ import { useSession } from "next-auth/react";
 import {
   CalendarDays,
   Clock,
+  Database,
   Eye,
   Loader2,
   Mail,
+  MapPin,
   Pencil,
   Plus,
   Reply,
+  Search,
   Send,
   Trash2,
 } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
 import { businessDaysAfter } from "@/lib/business-days";
+import { FW_VILLES, fwVilleLabel, type FwVille } from "@/lib/fw-villes";
 
 type FwContact = {
   id?: string;
@@ -28,6 +32,7 @@ type FwContact = {
 type FwClient = {
   id: string;
   nom: string;
+  ville: string;
   dateDefile: string | null;
   notes: string | null;
   statut: string;
@@ -51,19 +56,25 @@ const COLUMNS = [
   {
     key: "ATTENTE_EMAILS" as const,
     label: "À compléter",
-    hint: "Inès a posé le nom — mails à noter",
   },
   {
     key: "PRET" as const,
     label: "Prêt à envoyer",
-    hint: "Mails notés — Inès envoie",
   },
   {
     key: "ENVOYES" as const,
     label: "Envoyés",
-    hint: "Suivi ouvertures / réponses",
   },
 ];
+
+const STATUT_LABEL: Record<string, string> = {
+  ATTENTE_EMAILS: "À compléter",
+  PRET: "Prêt à envoyer",
+  ENVOYE: "Envoyé",
+  EN_NEGO: "En négo",
+  GAGNE: "Gagné",
+  PERDU: "Perdu",
+};
 
 function formatDefile(iso: string | null) {
   if (!iso) return "Date non renseignée";
@@ -133,8 +144,12 @@ export function FashionWeekClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formNom, setFormNom] = useState("");
+  const [formVille, setFormVille] = useState<FwVille>("PARIS");
   const [formDate, setFormDate] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [filterVille, setFilterVille] = useState<FwVille | "ALL">("ALL");
+  const [tab, setTab] = useState<"crm" | "pipeline">("crm");
+  const [crmSearch, setCrmSearch] = useState("");
 
   const [senderEmail, setSenderEmail] = useState<string | null>("ines@glowupagence.fr");
   const [senderAccounts, setSenderAccounts] = useState<SenderAccount[]>([]);
@@ -194,20 +209,31 @@ export function FashionWeekClient() {
     load();
   }, [load]);
 
+  const visibleClients = useMemo(() => {
+    const byVille =
+      filterVille === "ALL" ? clients : clients.filter((c) => c.ville === filterVille);
+    const q = crmSearch.trim().toLowerCase();
+    if (!q) return byVille;
+    return byVille.filter((c) => {
+      const emails = (c.contacts || []).map((ct) => ct.email).join(" ");
+      return [c.nom, c.notes || "", emails, fwVilleLabel(c.ville)].join(" ").toLowerCase().includes(q);
+    });
+  }, [clients, filterVille, crmSearch]);
+
   const byColumn = useMemo(() => {
-    const attente = clients.filter((c) => c.statut === "ATTENTE_EMAILS");
-    const pret = clients.filter((c) => c.statut === "PRET");
-    const envoyes = clients.filter(
+    const attente = visibleClients.filter((c) => c.statut === "ATTENTE_EMAILS");
+    const pret = visibleClients.filter((c) => c.statut === "PRET");
+    const envoyes = visibleClients.filter(
       (c) => c.statut !== "ATTENTE_EMAILS" && c.statut !== "PRET"
     );
     return { ATTENTE_EMAILS: attente, PRET: pret, ENVOYES: envoyes };
-  }, [clients]);
+  }, [visibleClients]);
 
   async function createClient(e: React.FormEvent) {
     e.preventDefault();
     const nom = formNom.trim();
     if (!nom || !formDate) {
-      setFormError("Nom du client et date du défilé requis.");
+      setFormError("Nom du client, ville et date du défilé requis.");
       return;
     }
     setSaving(true);
@@ -218,6 +244,7 @@ export function FashionWeekClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nom,
+          ville: formVille,
           dateDefile: `${formDate}T12:00:00.000Z`,
         }),
       });
@@ -228,6 +255,7 @@ export function FashionWeekClient() {
       }
       setFormNom("");
       setFormDate("");
+      setFormVille("PARIS");
       await load();
     } catch {
       setFormError("Erreur réseau.");
@@ -243,13 +271,17 @@ export function FashionWeekClient() {
     await load();
   }
 
-  async function patchStatut(id: string, statut: string) {
+  async function patchClient(id: string, data: Record<string, unknown>) {
     await fetch(`/api/strategy/fw/clients/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ statut }),
+      body: JSON.stringify(data),
     });
     await load();
+  }
+
+  async function patchStatut(id: string, statut: string) {
+    await patchClient(id, { statut });
   }
 
   async function openContacts(client: FwClient) {
@@ -309,7 +341,7 @@ export function FashionWeekClient() {
   async function openEmailModal(client: FwClient) {
     setEmailError(null);
     setEmailForm({
-      subject: `Glow Up x ${client.nom} — Fashion Week`,
+      subject: `Glow Up x ${client.nom} — Fashion Week ${fwVilleLabel(client.ville)}`,
       bodyHtml: "",
     });
     const res = await fetch(`/api/strategy/fw/clients/${client.id}?forSend=1`);
@@ -364,13 +396,6 @@ export function FashionWeekClient() {
           Projet Strategy
         </p>
         <h1 className="mt-1 text-2xl font-semibold text-gray-900">Fashion Week</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Inès pose le nom et la date du défilé. Sofian note le(s) mail(s). Inès envoie depuis{" "}
-          <span className="font-medium text-gray-700">
-            {senderLabel(senderAccounts, senderEmail)}
-          </span>
-          .
-        </p>
 
         <form
           onSubmit={createClient}
@@ -386,6 +411,22 @@ export function FashionWeekClient() {
               placeholder="Ex. Chanel, Dior, Jacquemus…"
               className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
             />
+          </div>
+          <div className="md:w-44">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Fashion Week
+            </label>
+            <select
+              value={formVille}
+              onChange={(e) => setFormVille(e.target.value as FwVille)}
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
+            >
+              {FW_VILLES.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="md:w-56">
             <label className="block text-xs font-medium text-gray-500 mb-1">
@@ -410,9 +451,208 @@ export function FashionWeekClient() {
         {formError ? <p className="mt-2 text-sm text-red-600">{formError}</p> : null}
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setTab("crm")}
+          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium ${
+            tab === "crm" ? "bg-glowup-rose text-white shadow-sm" : "bg-white border border-gray-200 text-gray-600"
+          }`}
+        >
+          <Database className="h-4 w-4" />
+          Base CRM
+          <span className={`rounded-full px-1.5 py-0.5 text-[11px] ${tab === "crm" ? "bg-white/20" : "bg-gray-100"}`}>
+            {clients.length}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("pipeline")}
+          className={`rounded-xl px-4 py-2 text-sm font-medium ${
+            tab === "pipeline" ? "bg-glowup-rose text-white shadow-sm" : "bg-white border border-gray-200 text-gray-600"
+          }`}
+        >
+          Prospection
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setFilterVille("ALL")}
+          className={`rounded-full px-3 py-1 text-xs font-medium border ${
+            filterVille === "ALL"
+              ? "bg-glowup-rose text-white border-glowup-rose"
+              : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+          }`}
+        >
+          Toutes
+        </button>
+        {FW_VILLES.map((v) => (
+          <button
+            key={v.id}
+            type="button"
+            onClick={() => setFilterVille(v.id)}
+            className={`rounded-full px-3 py-1 text-xs font-medium border ${
+              filterVille === v.id
+                ? "bg-glowup-rose text-white border-glowup-rose"
+                : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center py-16 text-gray-400">
           <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
+      ) : tab === "crm" ? (
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+          <div className="flex flex-col gap-3 border-b border-gray-100 px-4 py-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Maisons</p>
+            </div>
+            <div className="relative md:w-72">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                value={crmSearch}
+                onChange={(e) => setCrmSearch(e.target.value)}
+                placeholder="Chercher une maison, un mail…"
+                className="w-full rounded-xl border border-gray-300 py-2 pl-9 pr-3 text-sm"
+              />
+            </div>
+          </div>
+          {visibleClients.length === 0 ? (
+            <p className="px-4 py-12 text-center text-sm text-gray-400">
+              Aucune maison dans la base{filterVille !== "ALL" ? ` ${fwVilleLabel(filterVille)}` : ""}.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">Maison</th>
+                    <th className="px-4 py-2 font-medium">Ville</th>
+                    <th className="px-4 py-2 font-medium">Défilé</th>
+                    <th className="px-4 py-2 font-medium">Contacts</th>
+                    <th className="px-4 py-2 font-medium">Notes</th>
+                    <th className="px-4 py-2 font-medium">Statut</th>
+                    <th className="px-4 py-2 font-medium" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {visibleClients.map((c) => (
+                    <tr key={c.id} className="align-top hover:bg-gray-50/60">
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-gray-900">{c.nom}</p>
+                        <EmailTrackingBadges client={c} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs"
+                          value={c.ville}
+                          onChange={(e) => patchClient(c.id, { ville: e.target.value })}
+                        >
+                          {FW_VILLES.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                        {formatDefile(c.dateDefile)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {isAdmin ? (
+                          <div className="space-y-1">
+                            {(c.contacts || []).length === 0 ? (
+                              <p className="text-[11px] text-gray-400">—</p>
+                            ) : (
+                              (c.contacts || []).map((ct) => (
+                                <p key={ct.email} className="text-xs text-gray-700">
+                                  {ct.firstName ? `${ct.firstName} · ` : ""}
+                                  {ct.email}
+                                  {ct.role ? (
+                                    <span className="text-gray-400"> · {ct.role}</span>
+                                  ) : null}
+                                </p>
+                              ))
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => openContacts(c)}
+                              className="text-[11px] font-medium text-glowup-rose"
+                            >
+                              {c.hasEmails ? "Modifier" : "Ajouter"}
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-600">
+                            {c.hasEmails ? `${c.contactCount}` : "—"}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 min-w-[180px]">
+                        <textarea
+                          defaultValue={c.notes || ""}
+                          key={`${c.id}-${c.notes || ""}`}
+                          rows={2}
+                          placeholder="Notes"
+                          className="w-full resize-none rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
+                          onBlur={(e) => {
+                            const next = e.target.value.trim();
+                            if (next === (c.notes || "").trim()) return;
+                            patchClient(c.id, { notes: next || null });
+                          }}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        {c.statut === "ATTENTE_EMAILS" || c.statut === "PRET" ? (
+                          <span className="text-xs text-gray-600">{STATUT_LABEL[c.statut]}</span>
+                        ) : (
+                          <select
+                            className="rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                            value={c.statut}
+                            onChange={(e) => patchStatut(c.id, e.target.value)}
+                          >
+                            <option value="ENVOYE">Envoyé</option>
+                            <option value="EN_NEGO">En négo</option>
+                            <option value="GAGNE">Gagné</option>
+                            <option value="PERDU">Perdu</option>
+                          </select>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          {c.statut === "PRET" ? (
+                            <button
+                              type="button"
+                              onClick={() => openEmailModal(c)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-glowup-rose px-2 py-1 text-[11px] font-medium text-white"
+                            >
+                              <Send className="h-3 w-3" />
+                              Envoyer
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => deleteClient(c.id, c.nom)}
+                            className="rounded-lg p-1 text-gray-300 hover:text-red-500"
+                            title="Retirer de la base FW"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -421,10 +661,7 @@ export function FashionWeekClient() {
             return (
               <div key={col.key} className="rounded-2xl border border-gray-200 bg-gray-50/40 p-3">
                 <div className="mb-3 flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{col.label}</p>
-                    <p className="text-[11px] text-gray-500">{col.hint}</p>
-                  </div>
+                  <p className="text-sm font-semibold text-gray-900">{col.label}</p>
                   <span className="rounded-full bg-white border border-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600">
                     {list.length}
                   </span>
@@ -452,21 +689,12 @@ export function FashionWeekClient() {
                           </button>
                         </div>
                         <p className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+                          <MapPin className="h-3.5 w-3.5" />
+                          {fwVilleLabel(c.ville)}
+                          <span className="text-gray-300">·</span>
                           <CalendarDays className="h-3.5 w-3.5" />
                           {formatDefile(c.dateDefile)}
                         </p>
-
-                        {col.key === "ATTENTE_EMAILS" ? (
-                          <p className="text-[11px] font-medium text-amber-700">
-                            En attente de mails
-                          </p>
-                        ) : (
-                          <p className="text-[11px] font-medium text-emerald-700">
-                            {c.contactCount} mail{c.contactCount > 1 ? "s" : ""}{" "}
-                            {col.key === "PRET" ? "prêt" : "noté"}
-                            {c.contactCount > 1 ? "s" : ""}
-                          </p>
-                        )}
 
                         {isAdmin && (c.contacts?.length ?? 0) > 0 ? (
                           <div className="flex flex-wrap gap-1">
@@ -505,7 +733,7 @@ export function FashionWeekClient() {
                               className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
                             >
                               <Pencil className="h-3 w-3" />
-                              {c.hasEmails ? "Modifier les mails" : "Noter les mails"}
+                              {c.hasEmails ? "Contacts" : "Ajouter un contact"}
                             </button>
                           ) : null}
                           {c.statut === "PRET" ? (
@@ -535,7 +763,7 @@ export function FashionWeekClient() {
             <div>
               <h3 className="text-lg font-semibold">Mails · {contactsTarget.nom}</h3>
               <p className="mt-1 text-sm text-gray-500">
-                Un ou plusieurs contacts. Le prénom sert pour {"{{prenom}}"} dans le mail.
+                Un ou plusieurs contacts. {"{{prenom}}"} est remplacé à l’envoi.
               </p>
             </div>
             <div className="space-y-3">
@@ -613,11 +841,8 @@ export function FashionWeekClient() {
             <div>
               <h3 className="text-lg font-semibold">Mail de prospection · {emailTarget.nom}</h3>
               <p className="mt-1 text-sm text-gray-500">
-                Envoyé depuis{" "}
-                <span className="font-medium text-gray-700">
-                  {senderLabel(senderAccounts, senderEmail)}
-                </span>{" "}
-                — la signature Gmail de la boîte est ajoutée automatiquement.
+                Envoi depuis {senderLabel(senderAccounts, senderEmail)}. Signature Gmail ajoutée
+                automatiquement.
               </p>
             </div>
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">

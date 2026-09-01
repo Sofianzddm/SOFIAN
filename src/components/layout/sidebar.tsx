@@ -37,6 +37,7 @@ import {
   Gauge,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { canAccessFashionWeek } from "@/lib/fw-access";
 
 // Définition des accès par rôle
 const menuItems = [
@@ -105,12 +106,6 @@ const menuItems = [
   },
   // Ski Trip 2027 : visible uniquement dans le menu de la STRATEGY_PLANNER
   // (Ines pilote le projet à 100%). La page reste accessible aux ADMIN par URL.
-  {
-    label: "Fashion Week",
-    href: "/strategy/projets/fashion-week",
-    icon: Sparkles,
-    roles: ["ADMIN"],
-  },
   {
     label: "Pipeline prospection",
     href: "/strategy/projet-individuel-talent/pipeline",
@@ -294,9 +289,21 @@ const menuItems = [
   },
   {
     label: "RH Glow Up",
-    href: "/rh/people",
+    href: "/rh/espace",
     icon: CalendarDays,
-    roles: ["ADMIN"], // Soft-launch : ADMIN only (masqué aux salariés)
+    roles: [
+      "ADMIN",
+      "HEAD_OF",
+      "HEAD_OF_INFLUENCE",
+      "HEAD_OF_SALES",
+      "TM",
+      "CM",
+      "CASTING_MANAGER",
+      "COMMUNITY_MANAGER",
+      "STRATEGY_PLANNER",
+      "COMPTABLE",
+      "COIFFEUR",
+    ],
   },
   {
     label: "Dossiers",
@@ -348,6 +355,15 @@ export function Sidebar({
 
   // Rôle effectif (prise en compte de l'impersonation admin)
   const userRole = effectiveRole ?? (session?.user as { role?: string })?.role ?? "TALENT";
+  const userEmail = (session?.user as { email?: string } | undefined)?.email ?? "";
+  const showFashionWeek = canAccessFashionWeek(userRole, userEmail);
+
+  const fashionWeekItem = {
+    label: "Fashion Week",
+    href: "/strategy/projets/fashion-week",
+    icon: Sparkles,
+    roles: ["STRATEGY_PLANNER", "ADMIN"],
+  } as (typeof menuItems)[number];
 
   // Délégations reçues pour indicateur "Mode Relai"
   useEffect(() => {
@@ -531,12 +547,7 @@ export function Sidebar({
             icon: Briefcase,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
-          {
-            label: "Fashion Week",
-            href: "/strategy/projets/fashion-week",
-            icon: Sparkles,
-            roles: ["STRATEGY_PLANNER", "ADMIN"],
-          } as (typeof menuItems)[number],
+          ...(showFashionWeek ? [fashionWeekItem] : []),
           {
             label: "Coachella 2026",
             href: "/strategy/projets/coachella-2026",
@@ -576,6 +587,11 @@ export function Sidebar({
         ]
       : menuItems
           .filter((item) => item.roles.includes(userRole))
+          .flatMap((item) =>
+            showFashionWeek && item.href === "/cannes-2026"
+              ? [item, fashionWeekItem]
+              : [item]
+          )
           .concat(
             (userRole === "TM" || userRole === "HEAD_OF_INFLUENCE") && hasAbsence
               ? [

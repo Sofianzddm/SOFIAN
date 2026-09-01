@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 import { requireFwAccess } from "../_auth";
 import { FW_PROJET_SLUG, serializeFwClient } from "@/lib/fw-prospection";
+import { isFwVille } from "@/lib/fw-villes";
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,12 +35,18 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json().catch(() => ({}))) as {
       nom?: string;
+      ville?: string;
       dateDefile?: string | null;
       notes?: string | null;
     };
     const nom = (body.nom || "").trim();
     if (!nom) {
       return NextResponse.json({ error: "Le nom du client est requis." }, { status: 400 });
+    }
+
+    const ville = (body.ville || "PARIS").trim().toUpperCase().replace(/ /g, "_");
+    if (!isFwVille(ville)) {
+      return NextResponse.json({ error: "Ville de Fashion Week inconnue." }, { status: 400 });
     }
 
     const dateDefile = body.dateDefile ? new Date(body.dateDefile) : null;
@@ -50,6 +57,7 @@ export async function POST(request: NextRequest) {
     const client = await prisma.fwClient.create({
       data: {
         nom,
+        ville,
         dateDefile,
         notes: (body.notes || "").trim() || null,
         createdById: auth.userId,

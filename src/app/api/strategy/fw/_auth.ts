@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession, type AppSession } from "@/lib/getAppSession";
-import { canAccessStrategy } from "@/app/api/strategy/_utils";
+import { canAccessFashionWeek } from "@/lib/fw-access";
 
 export type FwAuth =
   | { ok: false; error: NextResponse }
@@ -12,7 +12,7 @@ export async function requireFwAccess(request: NextRequest): Promise<FwAuth> {
     return { ok: false, error: NextResponse.json({ error: "Non autorisé" }, { status: 401 }) };
   }
   const role = session.user.role || "";
-  if (!canAccessStrategy(role)) {
+  if (!canAccessFashionWeek(role, session.user.email)) {
     return { ok: false, error: NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 }) };
   }
   return {
