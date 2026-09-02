@@ -114,7 +114,7 @@ export default function EnrichissementPage() {
   const [showFwCartoModal, setShowFwCartoModal] = useState(false);
   const [showAgencyImport, setShowAgencyImport] = useState(false);
   const [agencyPartners, setAgencyPartners] = useState<Array<{ id: string; name: string }>>([]);
-  const [fwClients, setFwClients] = useState<Array<{ id: string; nom: string }>>([]);
+  const [fwClients, setFwClients] = useState<Array<{ id: string; nom: string; language?: string | null }>>([]);
   const [agencyMarket, setAgencyMarket] = useState<"FR" | "BENELUX">("FR");
   const [dragOver, setDragOver] = useState(false);
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
@@ -180,10 +180,13 @@ export default function EnrichissementPage() {
         const data = await res.json().catch(() => ({}));
         if (!cancelled && res.ok) {
           setFwClients(
-            ((data.clients || []) as Array<{ id: string; nom: string }>).map((c) => ({
-              id: c.id,
-              nom: c.nom,
-            }))
+            ((data.clients || []) as Array<{ id: string; nom: string; language?: string | null }>).map(
+              (c) => ({
+                id: c.id,
+                nom: c.nom,
+                language: c.language,
+              })
+            )
           );
         }
       } catch {

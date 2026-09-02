@@ -8,6 +8,7 @@ import {
   refreshFwClientStatut,
   serializeFwClient,
 } from "@/lib/fw-prospection";
+import { parseFwLanguage } from "@/lib/fw-language";
 import { isFwVille } from "@/lib/fw-villes";
 import { getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
       clientId?: string;
       nom?: string;
       ville?: string;
+      language?: string;
       rows?: CartoRow[];
       file?: { name?: string; type?: string; base64?: string };
     };
@@ -70,6 +72,14 @@ export async function POST(request: NextRequest) {
     const rows = Array.isArray(body.rows) ? body.rows.slice(0, MAX_ROWS) : [];
     if (rows.length === 0) {
       return NextResponse.json({ error: "Aucun contact à importer." }, { status: 400 });
+    }
+
+    const language = parseFwLanguage(body.language);
+    if (!language) {
+      return NextResponse.json(
+        { error: "Langue du client requise (français ou anglais)." },
+        { status: 400 }
+      );
     }
 
     let client = body.clientId
@@ -102,11 +112,20 @@ export async function POST(request: NextRequest) {
           data: {
             nom,
             ville,
+            language,
             createdById: auth.userId,
           },
           include: { contacts: true },
         });
       }
+    }
+
+    if (client.language !== language) {
+      client = await prisma.fwClient.update({
+        where: { id: client.id },
+        data: { language },
+        include: { contacts: true },
+      });
     }
 
     const existingKeys = new Set(

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 import { requireFwAccess } from "../_auth";
 import { FW_PROJET_SLUG, fwClientInclude, serializeFwClient } from "@/lib/fw-prospection";
+import { parseFwLanguage } from "@/lib/fw-language";
 import { isFwVille } from "@/lib/fw-villes";
 
 export async function GET(request: NextRequest) {
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as {
       nom?: string;
       ville?: string;
+      language?: string;
       dateDefile?: string | null;
       notes?: string | null;
     };
@@ -49,6 +51,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ville de Fashion Week inconnue." }, { status: 400 });
     }
 
+    const language = parseFwLanguage(body.language);
+    if (body.language !== undefined && !language) {
+      return NextResponse.json(
+        { error: "Langue du client requise (français ou anglais)." },
+        { status: 400 }
+      );
+    }
+
     const dateDefile = body.dateDefile ? new Date(body.dateDefile) : null;
     if (dateDefile && Number.isNaN(dateDefile.getTime())) {
       return NextResponse.json({ error: "Date du défilé invalide." }, { status: 400 });
@@ -58,6 +68,7 @@ export async function POST(request: NextRequest) {
       data: {
         nom,
         ville,
+        language: language || "fr",
         dateDefile,
         notes: (body.notes || "").trim() || null,
         createdById: auth.userId,

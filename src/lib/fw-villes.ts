@@ -1,11 +1,11 @@
 export const FW_VILLES = [
-  { id: "PARIS", label: "Paris" },
-  { id: "NEW_YORK", label: "New York" },
-  { id: "MILAN", label: "Milan" },
-  { id: "LONDRES", label: "Londres" },
-  { id: "COPENHAGUE", label: "Copenhague" },
-  { id: "SHANGHAI", label: "Shanghai" },
-  { id: "TOKYO", label: "Tokyo" },
+  { id: "PARIS", label: "Paris", labelEn: "Paris" },
+  { id: "NEW_YORK", label: "New York", labelEn: "New York" },
+  { id: "MILAN", label: "Milan", labelEn: "Milan" },
+  { id: "LONDRES", label: "Londres", labelEn: "London" },
+  { id: "COPENHAGUE", label: "Copenhague", labelEn: "Copenhagen" },
+  { id: "SHANGHAI", label: "Shanghai", labelEn: "Shanghai" },
+  { id: "TOKYO", label: "Tokyo", labelEn: "Tokyo" },
 ] as const;
 
 export type FwVille = (typeof FW_VILLES)[number]["id"];
@@ -16,7 +16,12 @@ export function isFwVille(value: string): value is FwVille {
   return (FW_VILLE_IDS as string[]).includes(value);
 }
 
-export function fwVilleLabel(id: string | null | undefined): string {
+export function fwVilleLabel(
+  id: string | null | undefined,
+  language: "fr" | "en" = "fr"
+): string {
   if (!id) return "Paris";
-  return FW_VILLES.find((v) => v.id === id)?.label || id;
+  const ville = FW_VILLES.find((v) => v.id === id);
+  if (!ville) return id;
+  return language === "en" ? ville.labelEn : ville.label;
 }

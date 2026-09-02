@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireFwAccess } from "../../_auth";
 import { FW_STATUTS_MANUELS, fwClientInclude, serializeFwClient } from "@/lib/fw-prospection";
+import { parseFwLanguage } from "@/lib/fw-language";
 import { isFwVille } from "@/lib/fw-villes";
 
 export async function GET(
@@ -50,6 +51,7 @@ export async function PATCH(
     const body = (await request.json().catch(() => ({}))) as {
       nom?: string;
       ville?: string;
+      language?: string;
       dateDefile?: string | null;
       notes?: string | null;
       statut?: string;
@@ -62,6 +64,18 @@ export async function PATCH(
         return NextResponse.json({ error: "Ville de Fashion Week inconnue." }, { status: 400 });
       }
       ville = next;
+    }
+
+    let language: string | undefined;
+    if (body.language !== undefined) {
+      const next = parseFwLanguage(body.language);
+      if (!next) {
+        return NextResponse.json(
+          { error: "Langue du client requise (français ou anglais)." },
+          { status: 400 }
+        );
+      }
+      language = next;
     }
 
     if (body.statut !== undefined) {
@@ -91,6 +105,7 @@ export async function PATCH(
       data: {
         nom: body.nom?.trim() || undefined,
         ville,
+        language,
         dateDefile,
         notes: body.notes === undefined ? undefined : (body.notes || "").trim() || null,
         statut: body.statut?.trim() || undefined,

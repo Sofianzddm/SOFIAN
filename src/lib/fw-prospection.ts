@@ -19,6 +19,8 @@ import {
   type ProjetEmailThread,
   type ProjetRelanceResult,
 } from "@/lib/projet-prospection";
+import { fwVilleLabel } from "@/lib/fw-villes";
+import { fwLanguage, type FwLanguage } from "@/lib/fw-language";
 
 export const FW_PROJET_SLUG = "fashion-week";
 export const FW_RELANCE_BUSINESS_DAYS = PROJET_RELANCE_BUSINESS_DAYS;
@@ -172,17 +174,59 @@ export function serializeFwClient<
   return base;
 }
 
-function buildFwRelanceBody(firstName: string, nomClient: string): string {
-  const hello = firstName ? `Bonjour ${firstName},` : "Bonjour,";
-  const brandLine = nomClient
-    ? `concernant notre proposition de collaboration Fashion Week pour <strong>${nomClient}</strong>`
-    : "concernant notre proposition de collaboration Fashion Week";
+function formatFwRelanceDate(date: Date, language: FwLanguage): string {
+  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "fr-FR", {
+    day: "numeric",
+    month: "long",
+  }).format(date);
+}
+
+/**
+ * Relance J+3 : suivi d'une invitation au défilé (pas une collab).
+ * Ville + date si renseignées sur la fiche. Langue du client (FR / EN).
+ */
+function buildFwRelanceBody(input: {
+  firstName: string;
+  nomClient: string;
+  ville?: string | null;
+  dateDefile?: Date | null;
+  language?: string | null;
+}): string {
+  const language = fwLanguage(input.language);
+  const ville = fwVilleLabel(input.ville, language);
+  const maison = input.nomClient.trim();
+
+  if (language === "en") {
+    const hello = input.firstName ? `Hi ${input.firstName},` : "Hi,";
+    const dateBit = input.dateDefile
+      ? `, on ${formatFwRelanceDate(input.dateDefile, "en")}`
+      : "";
+    const showLine = maison
+      ? `the invitation to the <strong>${maison}</strong> show in ${ville}${dateBit}`
+      : `the invitation to the show in ${ville}${dateBit}`;
+    return [
+      `<p>${hello}</p>`,
+      `<p>I'm following up on ${showLine}.</p>`,
+      `<p>The lists are locking in now — would you be able to confirm whether an invitation might be possible on your side?</p>`,
+      `<p>Even a very short reply would help me a lot.</p>`,
+      `<p>Best,<br/><strong>Inès</strong><br/>Glow Up Agence</p>`,
+    ].join("");
+  }
+
+  const hello = input.firstName ? `Bonjour ${input.firstName},` : "Bonjour,";
+  const dateBit = input.dateDefile
+    ? `, le ${formatFwRelanceDate(input.dateDefile, "fr")}`
+    : "";
+  const showLine = maison
+    ? `l'invitation au défilé <strong>${maison}</strong> à ${ville}${dateBit}`
+    : `l'invitation au défilé à ${ville}${dateBit}`;
+
   return [
     `<p>${hello}</p>`,
-    `<p>Je me permets de revenir vers vous ${brandLine}.</p>`,
-    `<p>Avez-vous eu l'occasion d'en prendre connaissance ? Je reste à votre disposition pour échanger ou répondre à vos questions.</p>`,
-    `<p>Au plaisir d'avoir de vos nouvelles,</p>`,
-    `<p>Belle journée,</p>`,
+    `<p>Je me permets de faire remonter ${showLine}.</p>`,
+    `<p>Les listes se figent en ce moment — pourriez-vous me confirmer si une invitation serait possible de votre côté ?</p>`,
+    `<p>Un retour même très court m'aiderait beaucoup.</p>`,
+    `<p>Belle journée,<br/><strong>Inès</strong><br/>Glow Up Agence</p>`,
   ].join("");
 }
 
@@ -224,7 +268,16 @@ export async function executeFwRelance(clientId: string): Promise<ProjetRelanceR
   let sent = 0;
   let lastError: string | null = null;
   for (const thread of pending) {
-    const body = injectFwTracking(buildFwRelanceBody(thread.firstName, client.nom), client.id);
+    const body = injectFwTracking(
+      buildFwRelanceBody({
+        firstName: thread.firstName,
+        nomClient: client.nom,
+        ville: client.ville,
+        dateDefile: client.dateDefile,
+        language: client.language,
+      }),
+      client.id
+    );
     try {
       await sendGmail({
         fromEmail,

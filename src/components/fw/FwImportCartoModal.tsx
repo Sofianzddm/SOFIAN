@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { FileSpreadsheet, Loader2, X } from "lucide-react";
 import { cartoFileToSheets } from "@/components/outreach/ImportCartoModal";
 import { parseCartoText, type CartoParsedRow } from "@/lib/parse-carto";
+import { FwLanguageToggle } from "@/components/fw/FwLanguageToggle";
+import { fwLanguage, type FwLanguage } from "@/lib/fw-language";
 import { FW_VILLES, type FwVille } from "@/lib/fw-villes";
 
 export type FwImportCartoResult = {
@@ -36,8 +38,8 @@ export function FwImportCartoModal({
   onClose: () => void;
   onImported: (result: FwImportCartoResult) => void;
   onError: (message: string) => void;
-  lockedClient?: { id: string; nom: string } | null;
-  clients: Array<{ id: string; nom: string }>;
+  lockedClient?: { id: string; nom: string; language?: string | null } | null;
+  clients: Array<{ id: string; nom: string; language?: string | null }>;
   initialFile?: File | null;
   defaultVille?: FwVille;
 }) {
@@ -51,6 +53,9 @@ export function FwImportCartoModal({
   const [query, setQuery] = useState(lockedClient?.nom || "");
   const [selectedId, setSelectedId] = useState<string | null>(lockedClient?.id || null);
   const [ville, setVille] = useState<FwVille>(defaultVille);
+  const [language, setLanguage] = useState<FwLanguage | null>(
+    lockedClient ? fwLanguage(lockedClient.language) : null
+  );
 
   const applyText = (text: string, sourceFileName?: string) => {
     if (!text.trim()) {
@@ -96,11 +101,22 @@ export function FwImportCartoModal({
     ? clients.find((c) => c.id === selectedId)
     : clients.find((c) => c.nom.trim().toLowerCase() === query.trim().toLowerCase());
 
+  useEffect(() => {
+    if (lockedClient) return;
+    if (matched?.language === "en" || matched?.language === "fr") {
+      setLanguage(matched.language);
+    }
+  }, [matched?.id, matched?.language, lockedClient]);
+
   const submit = async () => {
     if (parsed.length === 0 || saving) return;
     const nom = matched?.nom || query.trim();
     if (!lockedClient && !nom) {
       setParseError("Indique la maison Fashion Week.");
+      return;
+    }
+    if (!language) {
+      setParseError("Choisis la langue du client (français ou anglais).");
       return;
     }
     setSaving(true);
@@ -120,6 +136,7 @@ export function FwImportCartoModal({
           clientId: lockedClient?.id || matched?.id,
           nom: lockedClient ? undefined : nom,
           ville,
+          language,
           rows: parsed,
           file: filePayload,
         }),
@@ -246,6 +263,24 @@ export function FwImportCartoModal({
           </div>
         ) : null}
 
+        <div>
+          <label className="text-xs font-medium text-gray-500">
+            Langue du client <span className="text-red-500">*</span>
+          </label>
+          <div className="mt-1">
+            <FwLanguageToggle value={language} onChange={setLanguage} />
+          </div>
+          {language === null ? (
+            <p className="mt-1 text-[11px] text-amber-700">
+              Obligatoire : les mails et la relance auto partiront dans cette langue.
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-gray-400">
+              Mails et relance auto en {language === "en" ? "anglais" : "français"}.
+            </p>
+          )}
+        </div>
+
         {parseError ? <p className="text-sm text-red-600">{parseError}</p> : null}
 
         {parsed.length > 0 ? (
@@ -300,7 +335,7 @@ export function FwImportCartoModal({
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={saving || parsed.length === 0}
+            disabled={saving || parsed.length === 0 || language === null}
             className="inline-flex items-center gap-2 rounded-lg bg-glowup-rose px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

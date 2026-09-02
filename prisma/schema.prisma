@@ -2892,6 +2892,8 @@ model FwClient {
   id         String    @id @default(cuid())
   nom        String
   ville      String    @default("PARIS")
+  // "fr" | "en" — langue des mails / relance auto
+  language   String    @default("fr")
   dateDefile DateTime?
   notes      String?
   // ATTENTE_EMAILS | PRET | ENVOYE | EN_NEGO | GAGNE | PERDU

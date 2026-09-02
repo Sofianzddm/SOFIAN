@@ -22,7 +22,9 @@ import {
 } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
 import { FwImportCartoModal } from "@/components/fw/FwImportCartoModal";
+import { FwLanguageToggle } from "@/components/fw/FwLanguageToggle";
 import { businessDaysAfter } from "@/lib/business-days";
+import { fwLanguage, fwLanguageLabel, type FwLanguage } from "@/lib/fw-language";
 import { FW_VILLES, fwVilleLabel, type FwVille } from "@/lib/fw-villes";
 
 type FwCartoFile = {
@@ -51,6 +53,7 @@ type FwClient = {
   id: string;
   nom: string;
   ville: string;
+  language?: string | null;
   dateDefile: string | null;
   notes: string | null;
   statut: string;
@@ -188,6 +191,7 @@ export function FashionWeekClient() {
   const [saving, setSaving] = useState(false);
   const [formNom, setFormNom] = useState("");
   const [formVille, setFormVille] = useState<FwVille>("PARIS");
+  const [formLanguage, setFormLanguage] = useState<FwLanguage>("fr");
   const [formDate, setFormDate] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [filterVille, setFilterVille] = useState<FwVille | "ALL">("ALL");
@@ -297,6 +301,7 @@ export function FashionWeekClient() {
         body: JSON.stringify({
           nom,
           ville: formVille,
+          language: formLanguage,
           dateDefile: `${formDate}T12:00:00.000Z`,
         }),
       });
@@ -308,6 +313,7 @@ export function FashionWeekClient() {
       setFormNom("");
       setFormDate("");
       setFormVille("PARIS");
+      setFormLanguage("fr");
       await load();
     } catch {
       setFormError("Erreur réseau.");
@@ -406,8 +412,13 @@ export function FashionWeekClient() {
 
   async function openEmailModal(client: FwClient) {
     setEmailError(null);
+    const lang = fwLanguage(client.language);
+    const ville = fwVilleLabel(client.ville, lang);
     setEmailForm({
-      subject: `Glow Up x ${client.nom} — Fashion Week ${fwVilleLabel(client.ville)}`,
+      subject:
+        lang === "en"
+          ? `Glow Up x ${client.nom} — ${ville} Fashion Week`
+          : `Glow Up x ${client.nom} — Fashion Week ${ville}`,
       bodyHtml: "",
     });
     const res = await fetch(`/api/strategy/fw/clients/${client.id}?forSend=1`);
@@ -493,6 +504,12 @@ export function FashionWeekClient() {
                 </option>
               ))}
             </select>
+          </div>
+          <div className="md:w-48">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Langue client
+            </label>
+            <FwLanguageToggle value={formLanguage} onChange={setFormLanguage} size="sm" />
           </div>
           <div className="md:w-56">
             <label className="block text-xs font-medium text-gray-500 mb-1">
@@ -644,6 +661,7 @@ export function FashionWeekClient() {
                   <tr>
                     <th className="px-4 py-2 font-medium">Maison</th>
                     <th className="px-4 py-2 font-medium">Ville</th>
+                    <th className="px-4 py-2 font-medium">Langue</th>
                     <th className="px-4 py-2 font-medium">Défilé</th>
                     <th className="px-4 py-2 font-medium">Contacts</th>
                     <th className="px-4 py-2 font-medium">Notes</th>
@@ -670,6 +688,14 @@ export function FashionWeekClient() {
                             </option>
                           ))}
                         </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <FwLanguageToggle
+                          value={fwLanguage(c.language)}
+                          onChange={(lang) => patchClient(c.id, { language: lang })}
+                          size="sm"
+                          compact
+                        />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-gray-600">
                         {formatDefile(c.dateDefile)}
@@ -854,6 +880,8 @@ export function FashionWeekClient() {
                         <p className="inline-flex items-center gap-1.5 text-xs text-gray-500">
                           <MapPin className="h-3.5 w-3.5" />
                           {fwVilleLabel(c.ville)}
+                          <span className="text-gray-300">·</span>
+                          {fwLanguage(c.language) === "en" ? "EN" : "FR"}
                           <span className="text-gray-300">·</span>
                           <CalendarDays className="h-3.5 w-3.5" />
                           {formatDefile(c.dateDefile)}
@@ -1095,7 +1123,8 @@ export function FashionWeekClient() {
               <h3 className="text-lg font-semibold">Mail de prospection · {emailTarget.nom}</h3>
               <p className="mt-1 text-sm text-gray-500">
                 Envoi depuis {senderLabel(senderAccounts, senderEmail)}. Signature Gmail ajoutée
-                automatiquement.
+                automatiquement. Langue client :{" "}
+                <strong>{fwLanguageLabel(emailTarget.language)}</strong>.
               </p>
             </div>
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -1134,7 +1163,11 @@ export function FashionWeekClient() {
               <div className="mt-1">
                 <RichEmailEditor
                   onChangeHtml={(html) => setEmailForm((s) => ({ ...s, bodyHtml: html }))}
-                  placeholder="Bonjour {{prenom}}, rédige ton mail de prospection Fashion Week ici..."
+                  placeholder={
+                    fwLanguage(emailTarget.language) === "en"
+                      ? "Hi {{prenom}}, write your Fashion Week outreach email here..."
+                      : "Bonjour {{prenom}}, rédige ton mail de prospection Fashion Week ici..."
+                  }
                   minHeight={260}
                   variables={[
                     {
@@ -1181,8 +1214,12 @@ export function FashionWeekClient() {
       )}
       {showCartoModal && isAdmin ? (
         <FwImportCartoModal
-          lockedClient={cartoClient ? { id: cartoClient.id, nom: cartoClient.nom } : null}
-          clients={clients.map((c) => ({ id: c.id, nom: c.nom }))}
+          lockedClient={
+            cartoClient
+              ? { id: cartoClient.id, nom: cartoClient.nom, language: cartoClient.language }
+              : null
+          }
+          clients={clients.map((c) => ({ id: c.id, nom: c.nom, language: c.language }))}
           initialFile={droppedCarto}
           defaultVille={filterVille === "ALL" ? "PARIS" : filterVille}
           onClose={() => {
