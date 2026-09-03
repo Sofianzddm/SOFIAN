@@ -4,9 +4,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getTypeTVA, getMentionTVA, MENTIONS_TVA } from "@/lib/documents/config";
+import { getMentionTVA, MENTIONS_TVA } from "@/lib/documents/config";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { getDeviseInfo } from "@/lib/devises";
+
+function optionalClientString(
+  body: Record<string, unknown>,
+  key: string
+): string | null | undefined {
+  if (!(key in body)) return undefined;
+  const value = body[key];
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  return trimmed === "" ? null : trimmed;
+}
 
 export async function PUT(
   request: NextRequest,
@@ -116,22 +127,25 @@ export async function PUT(
       devise,
     } = body;
 
+    const clientNom = optionalClientString(body, "clientNom");
+    const clientAdresse = optionalClientString(body, "clientAdresse");
+    const clientCodePostal = optionalClientString(body, "clientCodePostal");
+    const clientVille = optionalClientString(body, "clientVille");
+    const clientPays = optionalClientString(body, "clientPays");
+    const clientSiret = optionalClientString(body, "clientSiret");
+    const clientTva = optionalClientString(body, "clientTva");
+    const clientAttention = optionalClientString(body, "clientAttention");
+
     const langueValide =
       langueDocument === "fr" || langueDocument === "en" ? langueDocument : undefined;
     const deviseCode =
       devise !== undefined ? getDeviseInfo(devise).code : undefined;
 
-    // Déterminer le type de TVA à utiliser
+    // Ne recalculer le régime TVA que s'il est explicitement fourni —
+    // une correction d'adresse ne doit pas altérer le reste du document.
     let typeTVA = document.typeTVA;
     if (customTypeTVA && ["FRANCE", "EU_INTRACOM", "EU_SANS_TVA", "HORS_EU"].includes(customTypeTVA)) {
       typeTVA = customTypeTVA;
-    } else if (!customTypeTVA) {
-      // Recalculer automatiquement si pas de type fourni
-      const marque = document.collaboration?.marque;
-      typeTVA = getTypeTVA(
-        marque?.pays || "France",
-        marque?.numeroTVA || null
-      );
     }
 
     const configTVA = MENTIONS_TVA[typeTVA as keyof typeof MENTIONS_TVA];
@@ -209,6 +223,14 @@ export async function PUT(
           : {}),
         ...(langueValide ? { langueDocument: langueValide } : {}),
         ...(deviseCode ? { devise: deviseCode } : {}),
+        ...(clientNom !== undefined ? { clientNom } : {}),
+        ...(clientAdresse !== undefined ? { clientAdresse } : {}),
+        ...(clientCodePostal !== undefined ? { clientCodePostal } : {}),
+        ...(clientVille !== undefined ? { clientVille } : {}),
+        ...(clientPays !== undefined ? { clientPays } : {}),
+        ...(clientSiret !== undefined ? { clientSiret } : {}),
+        ...(clientTva !== undefined ? { clientTva } : {}),
+        ...(clientAttention !== undefined ? { clientAttention } : {}),
         pdfBase64: null, // Invalider le cache PDF pour forcer la régénération avec les nouvelles données
       },
     });

@@ -45,6 +45,7 @@ import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-l
 import KitPhotosManager from "@/components/talent/KitPhotosManager";
 import ContratsTalentBloc from "@/components/talent/ContratsTalentBloc";
 import { talentSlug } from "@/lib/talent-slug";
+import { isTmAssigneOuRelai } from "@/lib/contratMarqueAccess";
 
 interface TalentDetail {
   id: string;
@@ -79,6 +80,7 @@ interface TalentDetail {
   createdAt: string;
   managerId: string;
   manager?: { id: string; prenom: string; nom: string; email: string } | null;
+  delegations?: { tmRelaiId?: string | null; actif?: boolean }[] | null;
   user?: { id: string; email: string; actif: boolean } | null;
   stats?: {
     igFollowers: number | null;
@@ -208,8 +210,8 @@ export default function TalentDetailPage() {
   const role = user?.role || "";
   const userId = user?.id || "";
 
-  const isMyTalent = talent?.managerId === userId;
-  // TM : édition complète (attributs, bio…) de ses propres talents — aligné sur PUT /api/talents/[id]
+  const isMyTalent = !!talent && isTmAssigneOuRelai(userId, talent);
+  // TM : édition complète (attributs, bio…) de ses talents + relais actif
   const canEditTalent =
     role === "ADMIN" ||
     role === "HEAD_OF" ||

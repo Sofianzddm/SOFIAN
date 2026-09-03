@@ -6,6 +6,7 @@ import { DevisTemplate, DevisData } from "@/lib/documents/templates/DevisTemplat
 import { createElement } from "react";
 import { AGENCE_CONFIG } from "./config";
 import { conditionsPaiementLabel, normalizeLocale, type DocLocale } from "./i18n";
+import { resolveDocumentClient } from "./clientSnapshot";
 
 /**
  * Détermine le nombre de jours de paiement à partir des notes stockées.
@@ -87,14 +88,7 @@ export function documentToPDFData(
     },
     
     client: {
-      // Priorité aux factures libres (clientNom / clientAdresse), sinon fallback sur la marque de la collaboration
-      nom: document.clientNom || marque?.raisonSociale || marque?.nom || "",
-      adresse: document.clientAdresse || marque?.adresseRue || undefined,
-      codePostal: marque?.codePostal || undefined,
-      ville: marque?.ville || undefined,
-      pays: marque?.pays || undefined,
-      tva: marque?.numeroTVA || undefined,
-      siret: marque?.siret || undefined,
+      ...resolveDocumentClient(document, marque),
     },
     
     lignes: lignes.map((l: any) => ({

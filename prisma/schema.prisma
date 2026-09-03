@@ -1590,11 +1590,16 @@ model Document {
 
   lignes Json?
 
-  // Factures libres (non liées à une collaboration)
-  clientNom     String?
-  clientEmail   String?
-  clientAdresse String?
-  clientPays    String?
+  // Factures libres + override coordonnées client (devis/facture collab)
+  clientNom        String?
+  clientEmail      String?
+  clientAdresse    String?
+  clientPays       String?
+  clientCodePostal String?
+  clientVille      String?
+  clientSiret      String?
+  clientTva        String?
+  clientAttention  String?
 
   dateDocument   DateTime  @default(now())
   dateEmission   DateTime  @default(now())

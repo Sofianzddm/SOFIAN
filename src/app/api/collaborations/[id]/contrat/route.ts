@@ -122,6 +122,7 @@ export async function POST(
       include: {
         talent: {
           select: {
+            id: true,
             prenom: true,
             nom: true,
             email: true,

@@ -345,6 +345,7 @@ interface FactureData {
     pays?: string;
     tva?: string;
     siret?: string;
+    attention?: string;
   };
   lignes: LigneFacture[];
   montantHT: number;
@@ -441,6 +442,7 @@ export function FactureTemplate({ data }: { data: FactureData }) {
               }}>
                 {data.client.prenom ? `${data.client.prenom} ${data.client.nom}` : data.client.nom}
                 {"\n"}
+                {data.client.attention ? `${data.client.attention}\n` : ""}
                 {data.client.adresse ? `${data.client.adresse}\n` : ""}
                 {data.client.codePostal && data.client.ville ? `${data.client.codePostal} ${data.client.ville}\n` : ""}
                 {data.client.pays ? `${data.client.pays}\n` : ""}

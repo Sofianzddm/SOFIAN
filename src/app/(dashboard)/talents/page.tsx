@@ -40,6 +40,7 @@ import {
   matchesSelectedValue,
 } from "@/lib/talent-attributes";
 import { MultiSelectFilter } from "@/components/talentbook/MultiSelectFilter";
+import { isTmAssigneOuRelai } from "@/lib/contratMarqueAccess";
 
 // Types
 interface Talent {
@@ -137,7 +138,7 @@ export default function TalentsPage() {
   const canEditThisTalent = (talent: Talent) => {
     if (role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE") return true;
     if (role === "TM" && user?.id) {
-      return talent.managerId === user.id || talent.manager?.id === user.id;
+      return isTmAssigneOuRelai(user.id, talent);
     }
     return false;
   };

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
 
 // GET - Détail d'un talent
 export async function GET(
@@ -27,6 +28,10 @@ export async function GET(
             nom: true,
             email: true,
           },
+        },
+        delegations: {
+          where: { actif: true },
+          select: { tmRelaiId: true, actif: true },
         },
         user: {
           select: {
@@ -109,7 +114,7 @@ export async function PUT(
     const { id } = await params;
     const data = await request.json();
 
-    // Un TM ne peut modifier que ses propres talents.
+    // Un TM ne peut modifier que ses talents (portefeuille + délégations actives).
     if (userRole === "TM") {
       const existing = await prisma.talent.findUnique({
         where: { id },
@@ -118,9 +123,13 @@ export async function PUT(
       if (!existing) {
         return NextResponse.json({ error: "Talent non trouvé" }, { status: 404 });
       }
-      if (existing.managerId !== userId) {
+      if (!userId) {
+        return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+      }
+      const talentIds = await getTalentIdsAccessibles(userId);
+      if (!talentIds.includes(id)) {
         return NextResponse.json(
-          { error: "Vous ne pouvez modifier que vos propres talents" },
+          { error: "Vous ne pouvez modifier que vos propres talents ou ceux dont vous avez le relais" },
           { status: 403 }
         );
       }
@@ -425,6 +434,17 @@ export async function PUT(
         },
       },
     });
+
+    if (userRole === "TM" && userId) {
+      await logDelegationActivite({
+        talentId: id,
+        auteurId: userId,
+        type: "TALENT_MODIFIE",
+        entiteType: "TALENT",
+        entiteId: id,
+        detail: "Modification fiche / statistiques talent",
+      });
+    }
 
     return NextResponse.json(talent);
   } catch (error) {

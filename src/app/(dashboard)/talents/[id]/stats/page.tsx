@@ -17,6 +17,7 @@ import {
   Users,
   Globe,
 } from "lucide-react";
+import { isTmAssigneOuRelai } from "@/lib/contratMarqueAccess";
 
 const numToString = (value: unknown) =>
   value === null || value === undefined ? "" : String(value);
@@ -57,6 +58,7 @@ interface TalentDetail {
   nom: string;
   photo: string | null;
   managerId: string;
+  delegations?: { tmRelaiId?: string | null; actif?: boolean }[] | null;
   instagram: string | null;
   tiktok: string | null;
   youtube: string | null;
@@ -114,7 +116,7 @@ export default function TalentStatsEditPage() {
     role === "ADMIN" ||
     role === "HEAD_OF" ||
     role === "HEAD_OF_INFLUENCE" ||
-    (role === "TM" && talent?.managerId === userId);
+    (role === "TM" && !!talent && isTmAssigneOuRelai(userId, talent));
 
   useEffect(() => {
     if (!talentId) return;

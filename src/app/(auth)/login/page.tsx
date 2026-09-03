@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   GlowUpLogin,
   type GlowUpLoginCredentials,
 } from "@/components/auth/GlowUpLogin";
+import { resolvePostLoginPath, sanitizeInternalCallbackUrl } from "@/lib/auth-redirect";
 
 /**
  * Traduit le code d'erreur NextAuth en message clair. NextAuth peut renvoyer
@@ -38,15 +39,30 @@ function firstNameFromDisplayName(name?: string | null): string {
 
 export default function LoginPage() {
   const router = useRouter();
+  const callbackUrlRef = useRef<string | null>(null);
+  const callbackCapturedRef = useRef(false);
   const [userFirstName, setUserFirstName] = useState("toi");
   const [destination, setDestination] = useState("/dashboard");
   const [initialError, setInitialError] = useState("");
 
+  const captureCallbackUrl = () => {
+    if (callbackCapturedRef.current) return callbackUrlRef.current;
+    if (typeof window === "undefined") return null;
+    const fromQuery = sanitizeInternalCallbackUrl(
+      new URLSearchParams(window.location.search).get("callbackUrl")
+    );
+    callbackUrlRef.current = fromQuery;
+    callbackCapturedRef.current = true;
+    return fromQuery;
+  };
+
   // Nettoie un éventuel ?error=… resté dans l'URL : sinon il pollue le
   // callbackUrl par défaut (window.location.href) et bloque la connexion en
   // boucle, y compris avec les bons identifiants.
+  // On capture callbackUrl AVANT de le retirer de la barre d'adresse.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    captureCallbackUrl();
     const url = new URL(window.location.href);
     const err = url.searchParams.get("error");
     if (err) {
@@ -60,11 +76,13 @@ export default function LoginPage() {
   }, []);
 
   const handleSubmit = async ({ email, password }: GlowUpLoginCredentials) => {
+    const callbackUrl = captureCallbackUrl();
+    const postLogin = resolvePostLoginPath(undefined, callbackUrl);
     const result = await signIn("credentials", {
       email,
       password,
       redirect: false,
-      callbackUrl: "/dashboard",
+      callbackUrl: postLogin,
     });
 
     if (result?.error) {
@@ -76,14 +94,7 @@ export default function LoginPage() {
     const role = session?.user?.role as string | undefined;
 
     setUserFirstName(firstNameFromDisplayName(session?.user?.name));
-
-    if (role === "TALENT") {
-      setDestination("/talent/dashboard");
-    } else if (role === "COMMUNITY_MANAGER") {
-      setDestination("/community");
-    } else {
-      setDestination("/dashboard");
-    }
+    setDestination(resolvePostLoginPath(role, callbackUrl));
   };
 
   const handleEnterApp = () => {
@@ -99,7 +110,9 @@ export default function LoginPage() {
   };
 
   const handleGoogle = () => {
-    void signIn("google", { callbackUrl: "/dashboard" });
+    void signIn("google", {
+      callbackUrl: resolvePostLoginPath(undefined, captureCallbackUrl()),
+    });
   };
 
   return (

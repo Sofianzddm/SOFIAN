@@ -398,6 +398,7 @@ interface DevisData {
     pays?: string;
     tva?: string;
     siret?: string;
+    attention?: string;
   };
   lignes: LigneDevis[];
   montantHT: number;
@@ -500,6 +501,7 @@ export function DevisTemplate({ data }: { data: DevisData }) {
               }}>
                 {data.client.nom}
                 {"\n"}
+                {data.client.attention ? `${data.client.attention}\n` : ""}
                 {data.client.adresse ? `${data.client.adresse}\n` : ""}
                 {data.client.codePostal && data.client.ville ? `${data.client.codePostal} ${data.client.ville}\n` : ""}
                 {data.client.pays ? `${data.client.pays}\n` : ""}

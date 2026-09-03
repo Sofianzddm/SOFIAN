@@ -216,6 +216,16 @@ export async function POST(
         createdById: user.id,
         devise: deviseCode,
         langueDocument: langue,
+        clientNom: billing.raisonSociale,
+        clientAdresse: [billing.adresseRue, billing.adresseComplement]
+          .filter(Boolean)
+          .join("\n") || null,
+        clientCodePostal: billing.codePostal || null,
+        clientVille: billing.ville || null,
+        clientPays: billing.pays || null,
+        clientSiret: billing.siret || null,
+        clientTva: billing.numeroTVA || null,
+        clientAttention: billing.attention || billing.clientAttention || null,
       },
     });
 

@@ -38,6 +38,7 @@ import {
   SPORTS_OPTIONS,
   MOBILITE_OPTIONS,
 } from "@/lib/talent-attributes";
+import { isTmAssigneOuRelai } from "@/lib/contratMarqueAccess";
 
 interface Manager {
   id: string;
@@ -271,9 +272,13 @@ export default function NewTalentPage() {
           if (!talentRes.ok) throw new Error("Talent introuvable");
           const talent = await talentRes.json();
 
-          // TM : uniquement ses propres talents
-          if (isTm && user?.id && talent.managerId !== user.id) {
-            alert("Vous ne pouvez modifier que vos propres talents");
+          // TM : ses talents ou ceux dont elle a le relais actif
+          if (
+            isTm &&
+            user?.id &&
+            !isTmAssigneOuRelai(user.id, talent)
+          ) {
+            alert("Vous ne pouvez modifier que vos propres talents ou ceux dont vous avez le relais");
             router.push("/talents");
             return;
           }

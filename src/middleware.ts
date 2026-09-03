@@ -117,7 +117,10 @@ export async function middleware(request: NextRequest) {
 
   if (!token) {
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("callbackUrl", request.nextUrl.pathname);
+    loginUrl.searchParams.set(
+      "callbackUrl",
+      `${request.nextUrl.pathname}${request.nextUrl.search}`
+    );
     return withNoIndex(NextResponse.redirect(loginUrl));
   }
 

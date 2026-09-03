@@ -309,6 +309,14 @@ export default function CollabDetailPage() {
     inclureCgv: boolean;
     langueDocument: "fr" | "en";
     devise: DeviseCode;
+    clientNom: string;
+    clientAdresse: string;
+    clientCodePostal: string;
+    clientVille: string;
+    clientPays: string;
+    clientSiret: string;
+    clientTva: string;
+    clientAttention: string;
     lignes: Array<{
       description: string;
       quantite: number;
@@ -326,9 +334,17 @@ export default function CollabDetailPage() {
     inclureCgv: true,
     langueDocument: "fr",
     devise: "EUR",
+    clientNom: "",
+    clientAdresse: "",
+    clientCodePostal: "",
+    clientVille: "",
+    clientPays: "",
+    clientSiret: "",
+    clientTva: "",
+    clientAttention: "",
     lignes: [],
   });
-  const [editModalTab, setEditModalTab] = useState<"general" | "lignes" | "facturation">("general");
+  const [editModalTab, setEditModalTab] = useState<"general" | "lignes" | "facturation" | "coordonnees">("general");
   const [savingDoc, setSavingDoc] = useState(false);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentContent, setCommentContent] = useState("");
@@ -774,6 +790,11 @@ export default function CollabDetailPage() {
             ? "HORS_EU"
             : "UE";
 
+        const marque = docData.collaboration?.marque || collab?.marque;
+        const marqueAdresse = [marque?.adresseRue, marque?.adresseComplement]
+          .filter(Boolean)
+          .join("\n");
+
         setEditFormData({
           titre: docData.titre || collab?.talent.prenom + " x " + collab?.marque.nom || "",
           commentaires: docData.notes || "",
@@ -790,6 +811,14 @@ export default function CollabDetailPage() {
           devise: (docData.devise?.toUpperCase() as DeviseCode) ||
             (collab?.marque?.devise?.toUpperCase() as DeviseCode) ||
             "EUR",
+          clientNom: docData.clientNom || marque?.raisonSociale || marque?.nom || "",
+          clientAdresse: docData.clientAdresse || marqueAdresse || "",
+          clientCodePostal: docData.clientCodePostal || marque?.codePostal || "",
+          clientVille: docData.clientVille || marque?.ville || "",
+          clientPays: docData.clientPays || marque?.pays || "",
+          clientSiret: docData.clientSiret || marque?.siret || "",
+          clientTva: docData.clientTva || marque?.numeroTVA || "",
+          clientAttention: docData.clientAttention || "",
           lignes: (docData.lignes || []).map((l: any) => ({
             description: l.description,
             quantite: l.quantite,
@@ -946,6 +975,14 @@ export default function CollabDetailPage() {
           lignes: editFormData.lignes,
           langueDocument: editFormData.langueDocument,
           devise: editFormData.devise,
+          clientNom: editFormData.clientNom,
+          clientAdresse: editFormData.clientAdresse,
+          clientCodePostal: editFormData.clientCodePostal,
+          clientVille: editFormData.clientVille,
+          clientPays: editFormData.clientPays,
+          clientSiret: editFormData.clientSiret,
+          clientTva: editFormData.clientTva,
+          clientAttention: editFormData.clientAttention,
           ...(editingDoc.type === "DEVIS" ? { inclureCgv: editFormData.inclureCgv } : {}),
         }),
       });
@@ -3049,7 +3086,7 @@ export default function CollabDetailPage() {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-2 mb-6 border-b border-gray-200">
+            <div className="flex flex-wrap gap-2 mb-6 border-b border-gray-200">
               <button
                 type="button"
                 onClick={() => setEditModalTab("general")}
@@ -3060,6 +3097,17 @@ export default function CollabDetailPage() {
                 }`}
               >
                 📋 Général
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditModalTab("coordonnees")}
+                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                  editModalTab === "coordonnees"
+                    ? "border-blue-600 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Coordonnées client
               </button>
               <button
                 type="button"
@@ -3226,6 +3274,117 @@ export default function CollabDetailPage() {
                       <p className="text-xs text-gray-500 mt-1">
                         Le PDF (libellés + CGV) et les emails seront générés dans cette langue.
                       </p>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Tab: Coordonnées client */}
+              {editModalTab === "coordonnees" && (
+                <>
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                    <p className="text-sm text-blue-900 font-medium">Uniquement ce document</p>
+                    <p className="text-xs text-blue-700 mt-1 leading-relaxed">
+                      Ces coordonnées s&apos;appliquent à ce devis / cette facture seulement.
+                      La fiche marque n&apos;est pas modifiée, les autres collaborations restent inchangées.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Raison sociale / nom sur le PDF
+                    </label>
+                    <input
+                      type="text"
+                      value={editFormData.clientNom}
+                      onChange={(e) => setEditFormData((prev) => ({ ...prev, clientNom: e.target.value }))}
+                      placeholder="Ex: L'ORÉAL SA"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      À l&apos;attention de
+                    </label>
+                    <input
+                      type="text"
+                      value={editFormData.clientAttention}
+                      onChange={(e) => setEditFormData((prev) => ({ ...prev, clientAttention: e.target.value }))}
+                      placeholder="Ex: À l'attention de WOO pour le compte de L'Oréal"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      Ligne affichée sous le nom sur le PDF (optionnel)
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Adresse
+                    </label>
+                    <textarea
+                      value={editFormData.clientAdresse}
+                      onChange={(e) => setEditFormData((prev) => ({ ...prev, clientAdresse: e.target.value }))}
+                      placeholder="Rue et complément"
+                      rows={2}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm resize-none"
+                    />
+                  </div>
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Code postal
+                      </label>
+                      <input
+                        type="text"
+                        value={editFormData.clientCodePostal}
+                        onChange={(e) => setEditFormData((prev) => ({ ...prev, clientCodePostal: e.target.value }))}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Ville
+                      </label>
+                      <input
+                        type="text"
+                        value={editFormData.clientVille}
+                        onChange={(e) => setEditFormData((prev) => ({ ...prev, clientVille: e.target.value }))}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Pays
+                      </label>
+                      <input
+                        type="text"
+                        value={editFormData.clientPays}
+                        onChange={(e) => setEditFormData((prev) => ({ ...prev, clientPays: e.target.value }))}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        SIRET
+                      </label>
+                      <input
+                        type="text"
+                        value={editFormData.clientSiret}
+                        onChange={(e) => setEditFormData((prev) => ({ ...prev, clientSiret: e.target.value }))}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        N° TVA
+                      </label>
+                      <input
+                        type="text"
+                        value={editFormData.clientTva}
+                        onChange={(e) => setEditFormData((prev) => ({ ...prev, clientTva: e.target.value }))}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm"
+                      />
                     </div>
                   </div>
                 </>
