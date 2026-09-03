@@ -8,7 +8,7 @@
  * agency-outreach. Seuls les contacts avec email partent en outreach.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   Loader2,
@@ -339,24 +339,12 @@ export default function EnrichissementPage() {
         setFlash(
           `${changed} suggestion${changed > 1 ? "s" : ""} appliquée${
             changed > 1 ? "s" : ""
-          } automatiquement.`
+          }.`
         );
       }
       return next;
     });
   };
-
-  /** Une fois le motif clair (≥ 2 mails), pré-remplir les champs encore vides. */
-  const autoFilledStampRef = useRef("");
-  useEffect(() => {
-    if (!active || !livePattern || livePattern.matches < 2) return;
-    const stamp = `${active.key}:${livePattern.kind}@${livePattern.domain}`;
-    if (autoFilledStampRef.current === stamp) return;
-    autoFilledStampRef.current = stamp;
-    applyAgencySuggestionsToAll();
-    // livePattern.kind / domain : on ne re-remplit pas si l'utilisateur vide un champ.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKey, livePattern?.kind, livePattern?.domain, livePattern?.matches]);
 
   const emailCount = active
     ? active.people.filter((p) => isValidEmail(drafts[p.key] || "")).length
@@ -371,7 +359,6 @@ export default function EnrichissementPage() {
   );
 
   const openBrand = (b: BrandGroup) => {
-    autoFilledStampRef.current = "";
     setFlash(null);
     setActiveKey(b.key);
     const next: Record<string, string> = {};
@@ -385,7 +372,6 @@ export default function EnrichissementPage() {
   };
 
   const switchTab = (next: Tab) => {
-    autoFilledStampRef.current = "";
     setTab(next);
     setActiveKey(null);
     setDrafts({});
