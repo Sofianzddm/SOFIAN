@@ -9,6 +9,7 @@ import {
   serializeFwClient,
 } from "@/lib/fw-prospection";
 import { parseFwLanguage } from "@/lib/fw-language";
+import { parseFwKind } from "@/lib/fw-kind";
 import { isFwVille } from "@/lib/fw-villes";
 import { getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 
@@ -65,6 +66,7 @@ export async function POST(request: NextRequest) {
       nom?: string;
       ville?: string;
       language?: string;
+      kind?: string;
       rows?: CartoRow[];
       file?: { name?: string; type?: string; base64?: string };
     };
@@ -81,6 +83,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const kind = parseFwKind(body.kind) || "MAISON";
 
     let client = body.clientId
       ? await prisma.fwClient.findUnique({
@@ -93,12 +96,12 @@ export async function POST(request: NextRequest) {
       const nom = (body.nom || "").trim();
       if (!nom) {
         return NextResponse.json(
-          { error: "Choisis une maison ou indique son nom." },
+          { error: kind === "AGENCE" ? "Choisis une agence ou indique son nom." : "Choisis une maison ou indique son nom." },
           { status: 400 }
         );
       }
       const existing = await prisma.fwClient.findFirst({
-        where: { nom: { equals: nom, mode: "insensitive" } },
+        where: { nom: { equals: nom, mode: "insensitive" }, kind },
         include: { contacts: true },
       });
       if (existing) {
@@ -113,6 +116,7 @@ export async function POST(request: NextRequest) {
             nom,
             ville,
             language,
+            kind,
             createdById: auth.userId,
           },
           include: { contacts: true },

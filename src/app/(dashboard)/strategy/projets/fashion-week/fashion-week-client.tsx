@@ -19,12 +19,14 @@ import {
   Search,
   Send,
   Trash2,
+  Briefcase,
 } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
 import { FwImportCartoModal } from "@/components/fw/FwImportCartoModal";
 import { FwLanguageToggle } from "@/components/fw/FwLanguageToggle";
 import { businessDaysAfter } from "@/lib/business-days";
 import { fwLanguage, fwLanguageLabel, type FwLanguage } from "@/lib/fw-language";
+import { fwKind, type FwKind } from "@/lib/fw-kind";
 import { FW_VILLES, fwVilleLabel, type FwVille } from "@/lib/fw-villes";
 
 type FwCartoFile = {
@@ -54,6 +56,7 @@ type FwClient = {
   nom: string;
   ville: string;
   language?: string | null;
+  kind?: string | null;
   dateDefile: string | null;
   notes: string | null;
   statut: string;
@@ -196,6 +199,7 @@ export function FashionWeekClient() {
   const [formError, setFormError] = useState<string | null>(null);
   const [filterVille, setFilterVille] = useState<FwVille | "ALL">("ALL");
   const [tab, setTab] = useState<"crm" | "pipeline">("crm");
+  const [entityKind, setEntityKind] = useState<FwKind>("MAISON");
   const [crmSearch, setCrmSearch] = useState("");
 
   const [senderEmail, setSenderEmail] = useState<string | null>("ines@glowupagence.fr");
@@ -265,16 +269,21 @@ export function FashionWeekClient() {
     load();
   }, [load]);
 
+  const isAgenceTab = entityKind === "AGENCE";
+  const maisonsCount = clients.filter((c) => fwKind(c.kind) === "MAISON").length;
+  const agencesCount = clients.filter((c) => fwKind(c.kind) === "AGENCE").length;
+
   const visibleClients = useMemo(() => {
+    const byKind = clients.filter((c) => fwKind(c.kind) === entityKind);
     const byVille =
-      filterVille === "ALL" ? clients : clients.filter((c) => c.ville === filterVille);
+      filterVille === "ALL" ? byKind : byKind.filter((c) => c.ville === filterVille);
     const q = crmSearch.trim().toLowerCase();
     if (!q) return byVille;
     return byVille.filter((c) => {
       const emails = (c.contacts || []).map((ct) => ct.email).join(" ");
       return [c.nom, c.notes || "", emails, fwVilleLabel(c.ville)].join(" ").toLowerCase().includes(q);
     });
-  }, [clients, filterVille, crmSearch]);
+  }, [clients, entityKind, filterVille, crmSearch]);
 
   const byColumn = useMemo(() => {
     const attente = visibleClients.filter((c) => c.statut === "ATTENTE_EMAILS");
@@ -288,7 +297,11 @@ export function FashionWeekClient() {
   async function createClient(e: React.FormEvent) {
     e.preventDefault();
     const nom = formNom.trim();
-    if (!nom || !formDate) {
+    if (!nom) {
+      setFormError(isAgenceTab ? "Nom de l’agence requis." : "Nom du client, ville et date du défilé requis.");
+      return;
+    }
+    if (!isAgenceTab && !formDate) {
       setFormError("Nom du client, ville et date du défilé requis.");
       return;
     }
@@ -302,7 +315,8 @@ export function FashionWeekClient() {
           nom,
           ville: formVille,
           language: formLanguage,
-          dateDefile: `${formDate}T12:00:00.000Z`,
+          kind: entityKind,
+          dateDefile: formDate ? `${formDate}T12:00:00.000Z` : null,
         }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
@@ -323,7 +337,11 @@ export function FashionWeekClient() {
   }
 
   async function deleteClient(id: string, nom: string) {
-    const ok = window.confirm(`Retirer ${nom} de la base Fashion Week ?`);
+    const ok = window.confirm(
+      isAgenceTab
+        ? `Retirer l’agence ${nom} de la base Fashion Week ?`
+        : `Retirer ${nom} de la base Fashion Week ?`
+    );
     if (!ok) return;
     await fetch(`/api/strategy/fw/clients/${id}`, { method: "DELETE" });
     await load();
@@ -480,12 +498,12 @@ export function FashionWeekClient() {
         >
           <div className="flex-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">
-              Nom du client
+              {isAgenceTab ? "Nom de l’agence presse" : "Nom du client"}
             </label>
             <input
               value={formNom}
               onChange={(e) => setFormNom(e.target.value)}
-              placeholder="Ex. Chanel, Dior, Jacquemus…"
+              placeholder={isAgenceTab ? "Ex. KCD, PR Consulting…" : "Ex. Chanel, Dior, Jacquemus…"}
               className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
             />
           </div>
@@ -507,10 +525,11 @@ export function FashionWeekClient() {
           </div>
           <div className="md:w-48">
             <label className="block text-xs font-medium text-gray-500 mb-1">
-              Langue client
+              {isAgenceTab ? "Langue" : "Langue client"}
             </label>
             <FwLanguageToggle value={formLanguage} onChange={setFormLanguage} size="sm" />
           </div>
+          {!isAgenceTab ? (
           <div className="md:w-56">
             <label className="block text-xs font-medium text-gray-500 mb-1">
               Date du défilé
@@ -522,6 +541,7 @@ export function FashionWeekClient() {
               className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
             />
           </div>
+          ) : null}
           <button
             type="submit"
             disabled={saving}
@@ -545,7 +565,7 @@ export function FashionWeekClient() {
           <Database className="h-4 w-4" />
           Base CRM
           <span className={`rounded-full px-1.5 py-0.5 text-[11px] ${tab === "crm" ? "bg-white/20" : "bg-gray-100"}`}>
-            {clients.length}
+            {isAgenceTab ? agencesCount : maisonsCount}
           </span>
         </button>
         <button
@@ -593,6 +613,34 @@ export function FashionWeekClient() {
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
+          onClick={() => setEntityKind("MAISON")}
+          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium ${
+            !isAgenceTab ? "bg-gray-900 text-white shadow-sm" : "bg-white border border-gray-200 text-gray-600"
+          }`}
+        >
+          Maisons
+          <span className={`rounded-full px-1.5 py-0.5 text-[11px] ${!isAgenceTab ? "bg-white/20" : "bg-gray-100"}`}>
+            {maisonsCount}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setEntityKind("AGENCE")}
+          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium ${
+            isAgenceTab ? "bg-gray-900 text-white shadow-sm" : "bg-white border border-gray-200 text-gray-600"
+          }`}
+        >
+          <Briefcase className="h-4 w-4" />
+          Agences presse
+          <span className={`rounded-full px-1.5 py-0.5 text-[11px] ${isAgenceTab ? "bg-white/20" : "bg-gray-100"}`}>
+            {agencesCount}
+          </span>
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
           onClick={() => setFilterVille("ALL")}
           className={`rounded-full px-3 py-1 text-xs font-medium border ${
             filterVille === "ALL"
@@ -626,7 +674,9 @@ export function FashionWeekClient() {
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
           <div className="flex flex-col gap-3 border-b border-gray-100 px-4 py-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm font-semibold text-gray-900">Maisons</p>
+              <p className="text-sm font-semibold text-gray-900">
+                {isAgenceTab ? "Agences presse" : "Maisons"}
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {isAdmin ? (
@@ -644,7 +694,7 @@ export function FashionWeekClient() {
                 <input
                   value={crmSearch}
                   onChange={(e) => setCrmSearch(e.target.value)}
-                  placeholder="Chercher une maison, un mail…"
+                  placeholder={isAgenceTab ? "Chercher une agence, un mail…" : "Chercher une maison, un mail…"}
                   className="w-full rounded-xl border border-gray-300 py-2 pl-9 pr-3 text-sm"
                 />
               </div>
@@ -652,17 +702,18 @@ export function FashionWeekClient() {
           </div>
           {visibleClients.length === 0 ? (
             <p className="px-4 py-12 text-center text-sm text-gray-400">
-              Aucune maison dans la base{filterVille !== "ALL" ? ` ${fwVilleLabel(filterVille)}` : ""}.
+              {isAgenceTab ? "Aucune agence dans la base" : "Aucune maison dans la base"}
+              {filterVille !== "ALL" ? ` ${fwVilleLabel(filterVille)}` : ""}.
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-500">
                   <tr>
-                    <th className="px-4 py-2 font-medium">Maison</th>
+                    <th className="px-4 py-2 font-medium">{isAgenceTab ? "Agence" : "Maison"}</th>
                     <th className="px-4 py-2 font-medium">Ville</th>
                     <th className="px-4 py-2 font-medium">Langue</th>
-                    <th className="px-4 py-2 font-medium">Défilé</th>
+                    {isAgenceTab ? null : <th className="px-4 py-2 font-medium">Défilé</th>}
                     <th className="px-4 py-2 font-medium">Contacts</th>
                     <th className="px-4 py-2 font-medium">Notes</th>
                     <th className="px-4 py-2 font-medium">Statut</th>
@@ -697,9 +748,11 @@ export function FashionWeekClient() {
                           compact
                         />
                       </td>
+                      {isAgenceTab ? null : (
                       <td className="whitespace-nowrap px-4 py-3 text-gray-600">
                         {formatDefile(c.dateDefile)}
                       </td>
+                      )}
                       <td className="px-4 py-3">
                         {isAdmin ? (
                           <div className="space-y-1">
@@ -858,7 +911,7 @@ export function FashionWeekClient() {
                 <div className="space-y-3">
                   {list.length === 0 ? (
                     <p className="rounded-xl border border-dashed border-gray-200 bg-white px-3 py-6 text-center text-xs text-gray-400">
-                      Aucun client
+                      Aucun{isAgenceTab ? "e agence" : " client"}
                     </p>
                   ) : (
                     list.map((c) => (
@@ -882,9 +935,18 @@ export function FashionWeekClient() {
                           {fwVilleLabel(c.ville)}
                           <span className="text-gray-300">·</span>
                           {fwLanguage(c.language) === "en" ? "EN" : "FR"}
-                          <span className="text-gray-300">·</span>
-                          <CalendarDays className="h-3.5 w-3.5" />
-                          {formatDefile(c.dateDefile)}
+                          {isAgenceTab ? (
+                            <>
+                              <span className="text-gray-300">·</span>
+                              Agence presse
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-gray-300">·</span>
+                              <CalendarDays className="h-3.5 w-3.5" />
+                              {formatDefile(c.dateDefile)}
+                            </>
+                          )}
                         </p>
 
                         {isAdmin && (c.contacts?.length ?? 0) > 0 ? (
@@ -1219,9 +1281,12 @@ export function FashionWeekClient() {
               ? { id: cartoClient.id, nom: cartoClient.nom, language: cartoClient.language }
               : null
           }
-          clients={clients.map((c) => ({ id: c.id, nom: c.nom, language: c.language }))}
+          clients={clients
+            .filter((c) => fwKind(c.kind) === entityKind)
+            .map((c) => ({ id: c.id, nom: c.nom, language: c.language }))}
           initialFile={droppedCarto}
           defaultVille={filterVille === "ALL" ? "PARIS" : filterVille}
+          defaultKind={entityKind}
           onClose={() => {
             setShowCartoModal(false);
             setCartoClient(null);

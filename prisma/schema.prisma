@@ -2894,6 +2894,8 @@ model FwClient {
   ville      String    @default("PARIS")
   // "fr" | "en" — langue des mails / relance auto
   language   String    @default("fr")
+  // MAISON | AGENCE — agence presse qui gère les Fashion Weeks
+  kind       String    @default("MAISON")
   dateDefile DateTime?
   notes      String?
   // ATTENTE_EMAILS | PRET | ENVOYE | EN_NEGO | GAGNE | PERDU
@@ -2921,6 +2923,7 @@ model FwClient {
   @@index([statut])
   @@index([dateDefile])
   @@index([ville])
+  @@index([kind])
   @@map("fw_clients")
 }
 

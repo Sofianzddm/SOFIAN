@@ -4,6 +4,7 @@ import { getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 import { requireFwAccess } from "../_auth";
 import { FW_PROJET_SLUG, fwClientInclude, serializeFwClient } from "@/lib/fw-prospection";
 import { parseFwLanguage } from "@/lib/fw-language";
+import { parseFwKind } from "@/lib/fw-kind";
 import { isFwVille } from "@/lib/fw-villes";
 
 export async function GET(request: NextRequest) {
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
       nom?: string;
       ville?: string;
       language?: string;
+      kind?: string;
       dateDefile?: string | null;
       notes?: string | null;
     };
@@ -59,6 +61,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const kind = parseFwKind(body.kind);
+    if (body.kind !== undefined && !kind) {
+      return NextResponse.json(
+        { error: "Type invalide (maison ou agence presse)." },
+        { status: 400 }
+      );
+    }
+
     const dateDefile = body.dateDefile ? new Date(body.dateDefile) : null;
     if (dateDefile && Number.isNaN(dateDefile.getTime())) {
       return NextResponse.json({ error: "Date du défilé invalide." }, { status: 400 });
@@ -69,6 +79,7 @@ export async function POST(request: NextRequest) {
         nom,
         ville,
         language: language || "fr",
+        kind: kind || "MAISON",
         dateDefile,
         notes: (body.notes || "").trim() || null,
         createdById: auth.userId,

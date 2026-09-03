@@ -21,6 +21,7 @@ import {
 } from "@/lib/projet-prospection";
 import { fwVilleLabel } from "@/lib/fw-villes";
 import { fwLanguage, type FwLanguage } from "@/lib/fw-language";
+import { isFwAgence } from "@/lib/fw-kind";
 
 export const FW_PROJET_SLUG = "fashion-week";
 export const FW_RELANCE_BUSINESS_DAYS = PROJET_RELANCE_BUSINESS_DAYS;
@@ -191,13 +192,25 @@ function buildFwRelanceBody(input: {
   ville?: string | null;
   dateDefile?: Date | null;
   language?: string | null;
+  kind?: string | null;
 }): string {
   const language = fwLanguage(input.language);
   const ville = fwVilleLabel(input.ville, language);
   const maison = input.nomClient.trim();
+  const agence = isFwAgence(input.kind);
 
   if (language === "en") {
     const hello = input.firstName ? `Hi ${input.firstName},` : "Hi,";
+    if (agence) {
+      const agencyBit = maison ? ` via <strong>${maison}</strong>` : "";
+      return [
+        `<p>${hello}</p>`,
+        `<p>I'm following up on the Fashion Week invitations in ${ville}${agencyBit}.</p>`,
+        `<p>The lists are locking in now — would you be able to confirm whether invitations might be possible on your side?</p>`,
+        `<p>Even a very short reply would help me a lot.</p>`,
+        `<p>Best,<br/><strong>Inès</strong><br/>Glow Up Agence</p>`,
+      ].join("");
+    }
     const dateBit = input.dateDefile
       ? `, on ${formatFwRelanceDate(input.dateDefile, "en")}`
       : "";
@@ -214,6 +227,16 @@ function buildFwRelanceBody(input: {
   }
 
   const hello = input.firstName ? `Bonjour ${input.firstName},` : "Bonjour,";
+  if (agence) {
+    const agencyBit = maison ? ` via <strong>${maison}</strong>` : "";
+    return [
+      `<p>${hello}</p>`,
+      `<p>Je me permets de faire remonter les invitations Fashion Week à ${ville}${agencyBit}.</p>`,
+      `<p>Les listes se figent en ce moment — pourriez-vous me confirmer si des invitations seraient possibles de votre côté ?</p>`,
+      `<p>Un retour même très court m'aiderait beaucoup.</p>`,
+      `<p>Belle journée,<br/><strong>Inès</strong><br/>Glow Up Agence</p>`,
+    ].join("");
+  }
   const dateBit = input.dateDefile
     ? `, le ${formatFwRelanceDate(input.dateDefile, "fr")}`
     : "";
@@ -275,6 +298,7 @@ export async function executeFwRelance(clientId: string): Promise<ProjetRelanceR
         ville: client.ville,
         dateDefile: client.dateDefile,
         language: client.language,
+        kind: client.kind,
       }),
       client.id
     );

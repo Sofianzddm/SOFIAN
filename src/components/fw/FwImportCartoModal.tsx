@@ -6,6 +6,7 @@ import { cartoFileToSheets } from "@/components/outreach/ImportCartoModal";
 import { parseCartoText, type CartoParsedRow } from "@/lib/parse-carto";
 import { FwLanguageToggle } from "@/components/fw/FwLanguageToggle";
 import { fwLanguage, type FwLanguage } from "@/lib/fw-language";
+import { fwKind, type FwKind } from "@/lib/fw-kind";
 import { FW_VILLES, type FwVille } from "@/lib/fw-villes";
 
 export type FwImportCartoResult = {
@@ -34,6 +35,7 @@ export function FwImportCartoModal({
   clients,
   initialFile,
   defaultVille = "PARIS",
+  defaultKind = "MAISON",
 }: {
   onClose: () => void;
   onImported: (result: FwImportCartoResult) => void;
@@ -42,7 +44,10 @@ export function FwImportCartoModal({
   clients: Array<{ id: string; nom: string; language?: string | null }>;
   initialFile?: File | null;
   defaultVille?: FwVille;
+  defaultKind?: FwKind;
 }) {
+  const kind = fwKind(defaultKind);
+  const isAgence = kind === "AGENCE";
   const [parsed, setParsed] = useState<CartoParsedRow[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -112,7 +117,7 @@ export function FwImportCartoModal({
     if (parsed.length === 0 || saving) return;
     const nom = matched?.nom || query.trim();
     if (!lockedClient && !nom) {
-      setParseError("Indique la maison Fashion Week.");
+      setParseError(isAgence ? "Indique l’agence presse." : "Indique la maison Fashion Week.");
       return;
     }
     if (!language) {
@@ -137,6 +142,7 @@ export function FwImportCartoModal({
           nom: lockedClient ? undefined : nom,
           ville,
           language,
+          kind,
           rows: parsed,
           file: filePayload,
         }),
@@ -159,7 +165,9 @@ export function FwImportCartoModal({
             <h3 className="text-lg font-semibold text-gray-900">
               {lockedClient
                 ? `Importer une carto — ${lockedClient.nom}`
-                : "Importer une cartographie Fashion Week"}
+                : isAgence
+                  ? "Importer une cartographie agence presse"
+                  : "Importer une cartographie Fashion Week"}
             </h3>
             <p className="mt-1 text-sm text-gray-500">
               Excel ou tableau collé. Seule la première feuille est lue. Les mails
@@ -222,7 +230,9 @@ export function FwImportCartoModal({
         {!lockedClient ? (
           <div className="grid gap-3 md:grid-cols-[1fr_160px]">
             <div>
-              <label className="text-xs font-medium text-gray-500">Maison</label>
+              <label className="text-xs font-medium text-gray-500">
+                {isAgence ? "Agence presse" : "Maison"}
+              </label>
               <input
                 value={query}
                 onChange={(e) => {
@@ -230,7 +240,7 @@ export function FwImportCartoModal({
                   setQuery(e.target.value);
                 }}
                 list="fw-carto-clients"
-                placeholder="Chanel, Dior…"
+                placeholder={isAgence ? "KCD, PR Consulting…" : "Chanel, Dior…"}
                 className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
               />
               <datalist id="fw-carto-clients">
@@ -241,7 +251,9 @@ export function FwImportCartoModal({
               {matched ? (
                 <p className="mt-1 text-[11px] text-emerald-700">Déjà dans la base FW</p>
               ) : query.trim() ? (
-                <p className="mt-1 text-[11px] text-gray-500">Créera la maison si besoin</p>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  {isAgence ? "Créera l’agence si besoin" : "Créera la maison si besoin"}
+                </p>
               ) : null}
             </div>
             {!matched ? (
