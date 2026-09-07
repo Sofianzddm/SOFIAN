@@ -25,6 +25,7 @@ interface AgencyContact {
   email: string | null;
   poste: string | null;
   language: string;
+  linkedinUrl: string | null;
   principal: boolean;
   excluded: boolean;
   createdAt: string;
@@ -161,16 +162,102 @@ export default function PartnerDetailPage() {
     alert("Lien copié !");
   }
 
-  function exportExcel() {
-    if (!partner?.slug || downloadingExcel) return;
+  /** Régénère l'Excel des contacts (même colonnes que l'import Prospection Agences). */
+  async function exportContactsExcel() {
+    const contacts = (partner?.agencyContacts || []) as AgencyContact[];
+    if (!partner || contacts.length === 0 || downloadingExcel) return;
     setDownloadingExcel(true);
-    const a = document.createElement("a");
-    a.href = `/api/partners/${partner.slug}/export`;
-    a.download = `GlowUp_Talents_${String(partner.name).replace(/[^a-z0-9]/gi, "_")}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.setTimeout(() => setDownloadingExcel(false), 2000);
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const workbook = new ExcelJS.Workbook();
+      const ws = workbook.addWorksheet("Contacts");
+
+      ws.columns = [
+        { width: 16 },
+        { width: 18 },
+        { width: 42 },
+        { width: 32 },
+        { width: 10 },
+        { width: 48 },
+        { width: 18 },
+      ];
+
+      ws.mergeCells("A1:G1");
+      const title = ws.getCell("A1");
+      title.value = `${partner.name} — Contacts agence`;
+      title.font = { bold: true, size: 14 };
+
+      ws.addRow([]);
+      const headerRow = ws.addRow([
+        "Prénom",
+        "Nom",
+        "Poste",
+        "Email",
+        "Langue",
+        "URL LinkedIn",
+        "Statut",
+      ]);
+      headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      headerRow.eachCell((cell) => {
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FF16110F" },
+        };
+        cell.alignment = { vertical: "middle" };
+      });
+
+      for (const c of contacts) {
+        let statut = "Hors prospection";
+        if (c.excluded) statut = "Exclu";
+        else if (c.bouncedAt) statut = "Email incorrect";
+        else if (c.inProspection && c.status) {
+          statut = STATUS_LABELS[c.status]?.label || c.status;
+        }
+
+        const row = ws.addRow([
+          c.prenom || "",
+          c.nom || "",
+          c.poste || "",
+          c.email || "",
+          (c.language || "fr").toUpperCase(),
+          c.linkedinUrl || "",
+          statut,
+        ]);
+        if (c.email) {
+          row.getCell(4).value = {
+            text: c.email,
+            hyperlink: `mailto:${c.email}`,
+          };
+        }
+        if (c.linkedinUrl) {
+          row.getCell(6).value = {
+            text: c.linkedinUrl,
+            hyperlink: c.linkedinUrl,
+          };
+          row.getCell(6).font = {
+            color: { argb: "FF2563A8" },
+            underline: true,
+          };
+        }
+      }
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${String(partner.name).replace(/[^\w\-]+/g, "_")}-contacts.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Export contacts agence:", e);
+      alert("Impossible de générer le fichier Excel.");
+    } finally {
+      setDownloadingExcel(false);
+    }
   }
 
   function formatDate(dateStr: string | null) {
@@ -224,18 +311,6 @@ export default function PartnerDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={exportExcel}
-            disabled={downloadingExcel}
-            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-60"
-          >
-            {downloadingExcel ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FileSpreadsheet className="w-4 h-4" />
-            )}
-            Exporter Excel
-          </button>
           <button
             onClick={copyLink}
             className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
@@ -350,20 +425,38 @@ export default function PartnerDetailPage() {
 
       {/* Fiche client : contacts de l'agence (Prospection Agences) */}
       <div className="bg-white rounded-lg border p-6 mb-8">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Users className="w-5 h-5 text-gray-500" />
-            Contacts de l'agence
+            Contacts de l&apos;agence
             <span className="text-sm font-normal text-gray-400">
               ({(partner.agencyContacts || []).length})
             </span>
           </h2>
-          <Link
-            href="/agency-outreach"
-            className="text-sm text-blue-600 hover:underline"
-          >
-            Gérer la prospection →
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void exportContactsExcel()}
+              disabled={
+                downloadingExcel || (partner.agencyContacts || []).length === 0
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              title="Télécharger les contacts au format Excel (réimportable)"
+            >
+              {downloadingExcel ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="w-4 h-4" />
+              )}
+              Exporter Excel
+            </button>
+            <Link
+              href="/agency-outreach"
+              className="text-sm text-blue-600 hover:underline"
+            >
+              Gérer la prospection →
+            </Link>
+          </div>
         </div>
 
         {(partner.agencyContacts || []).length === 0 ? (
