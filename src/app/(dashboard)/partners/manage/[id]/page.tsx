@@ -15,6 +15,7 @@ import {
   MousePointerClick,
   Reply,
   Crown,
+  FileSpreadsheet,
 } from "lucide-react";
 
 interface AgencyContact {
@@ -82,6 +83,7 @@ export default function PartnerDetailPage() {
   });
   const [savingContact, setSavingContact] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
 
   useEffect(() => {
     if (params.id) {
@@ -159,6 +161,18 @@ export default function PartnerDetailPage() {
     alert("Lien copié !");
   }
 
+  function exportExcel() {
+    if (!partner?.slug || downloadingExcel) return;
+    setDownloadingExcel(true);
+    const a = document.createElement("a");
+    a.href = `/api/partners/${partner.slug}/export`;
+    a.download = `GlowUp_Talents_${String(partner.name).replace(/[^a-z0-9]/gi, "_")}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.setTimeout(() => setDownloadingExcel(false), 2000);
+  }
+
   function formatDate(dateStr: string | null) {
     if (!dateStr) return "Jamais";
     return new Date(dateStr).toLocaleDateString("fr-FR", {
@@ -210,6 +224,18 @@ export default function PartnerDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={exportExcel}
+            disabled={downloadingExcel}
+            className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-60"
+          >
+            {downloadingExcel ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4" />
+            )}
+            Exporter Excel
+          </button>
           <button
             onClick={copyLink}
             className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"

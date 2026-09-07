@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
-import { buildCityGroupMap } from "@/lib/city-grouping";
+import { buildCityGroupMapSync } from "@/lib/city-grouping";
 
 // Route publique: GET /api/partners/[id]/export
 // ATTENTION: le paramètre "id" est en réalité le slug du partenaire.
@@ -37,8 +37,8 @@ export async function GET(
     });
     const overrideMap = new Map(overrides.map((o) => [o.talentId, o]));
 
-    // Métropoles (même logique que le filtre ville du book partenaire)
-    const cityGroups = await buildCityGroupMap(
+    // Métropoles (sync, sans géocodage réseau — fiable en serverless)
+    const cityGroups = buildCityGroupMapSync(
       talentsList.map((t) => ({ ville: t.ville, pays: t.pays }))
     );
 

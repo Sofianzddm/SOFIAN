@@ -178,3 +178,29 @@ export async function buildCityGroupMap(
   );
   return result;
 }
+
+/**
+ * Version synchrone (sans géocodage réseau) pour les exports :
+ * overrides manuels + match exact sur les métropoles, sinon ville brute.
+ * Évite les timeouts serverless / téléchargements navigateur cassés.
+ */
+export function buildCityGroupMapSync(
+  entries: Array<{ ville: string | null; pays?: string | null }>
+): Map<string, string> {
+  const majorByKey = new Map(
+    MAJOR_CITIES.map((c) => [normalizeKey(c.name), c.name] as const)
+  );
+  const result = new Map<string, string>();
+  for (const e of entries) {
+    const v = (e.ville || "").trim();
+    if (!v) continue;
+    const key = normalizeKey(v);
+    const override = CITY_GROUP_OVERRIDES[key];
+    if (override) {
+      result.set(v, override);
+      continue;
+    }
+    result.set(v, majorByKey.get(key) || v);
+  }
+  return result;
+}

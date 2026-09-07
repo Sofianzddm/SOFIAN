@@ -2035,28 +2035,20 @@ export default function PartnerTalentBookPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  async function handleExcelDownload() {
-    if (!partner) return;
+  function handleExcelDownload() {
+    if (!partner || downloadingExcel) return;
     setDownloadingExcel(true);
-    try {
-      const res = await fetch(`/api/partners/${slug}/export`);
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `GlowUp_Talents_${partner.name.replace(/[^a-z0-9]/gi, "_")}.xlsx`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        trackEvent(partner.id, "excel_download");
-      }
-    } catch (error) {
-      console.error("Erreur téléchargement Excel:", error);
-    } finally {
-      setDownloadingExcel(false);
-    }
+    // Lien direct same-origin : le navigateur gère Content-Disposition.
+    // Évite le pattern fetch→blob→a.click() qui échoue souvent après un
+    // long temps d'attente (geste utilisateur expiré, surtout Safari/mobile).
+    const a = document.createElement("a");
+    a.href = `/api/partners/${slug}/export`;
+    a.download = `GlowUp_Talents_${partner.name.replace(/[^a-z0-9]/gi, "_")}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    trackEvent(partner.id, "excel_download");
+    window.setTimeout(() => setDownloadingExcel(false), 2000);
   }
 
   async function handleDownloadSelectionPdf() {
