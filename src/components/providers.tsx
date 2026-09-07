@@ -7,5 +7,10 @@ interface ProvidersProps {
 }
 
 export function Providers({ children }: ProvidersProps) {
-  return <SessionProvider>{children}</SessionProvider>;
+  // refetchInterval : garde la session vivante (déclenche le renouvellement JWT via updateAge)
+  return (
+    <SessionProvider refetchInterval={60 * 60} refetchOnWindowFocus>
+      {children}
+    </SessionProvider>
+  );
 }

@@ -8,24 +8,7 @@ import {
   NOM_MARQUE_LOCK_COOKIE,
 } from "@/lib/nom-campagne-gate";
 import { NOM_CAMPAGNE_GATE_ROLES } from "@/lib/nom-campagne-gate-paths";
-
-/**
- * Cloisonnement pôle Sales : créateur, AM assigné, ADMIN.
- */
-function canAccessPrivateCollab(
-  collab: {
-    isPrivate: boolean;
-    createdById: string | null;
-    accountManagerId?: string | null;
-  },
-  user: { id: string; role?: string }
-): boolean {
-  if (!collab.isPrivate) return true;
-  if (user.role === "ADMIN") return true;
-  if (collab.createdById && collab.createdById === user.id) return true;
-  if (collab.accountManagerId && collab.accountManagerId === user.id) return true;
-  return false;
-}
+import { canAccessPrivateCollab } from "@/lib/collab-private-access";
 
 function withLockCookie(
   res: NextResponse,
@@ -116,6 +99,7 @@ export async function POST(
         isPrivate: true,
         createdById: true,
         accountManagerId: true,
+        createdBy: { select: { email: true } },
         marqueId: true,
         contactKind: true,
         contactAgence: true,
@@ -147,6 +131,7 @@ export async function POST(
       !canAccessPrivateCollab(collab, {
         id: session.user.id,
         role: session.user.role,
+        email: session.user.email,
       })
     ) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });

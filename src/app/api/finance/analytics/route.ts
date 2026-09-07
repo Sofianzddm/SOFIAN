@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     const pole = searchParams.get("pole") as "INFLUENCE" | "SALES" | null;
 
     const periode = resolvePeriode({ type, dateDebut, dateFin, pole });
+    periode.viewerEmail = session.user.email;
     const stats = await getFinanceStats(periode);
 
     return NextResponse.json({

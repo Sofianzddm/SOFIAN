@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { hideSofianPrivateCollabsWhere } from "@/lib/collab-private-access";
 
 export async function GET(
   _request: NextRequest,
@@ -22,7 +23,7 @@ export async function GET(
         aliases: { orderBy: { createdAt: "desc" }, take: 20 },
         _count: {
           select: {
-            collaborations: true,
+            collaborations: { where: hideSofianPrivateCollabsWhere({ email: session.user.email }) },
             negociations: true,
             demandesGift: true,
             inboundOpportunities: true,
@@ -95,7 +96,10 @@ export async function GET(
         },
       }),
       prisma.collaboration.findMany({
-        where: { marqueId: id },
+        where: {
+          marqueId: id,
+          AND: [hideSofianPrivateCollabsWhere({ email: session.user.email })],
+        },
         orderBy: { createdAt: "desc" },
         take: 30,
         select: {

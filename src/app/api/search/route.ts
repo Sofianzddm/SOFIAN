@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { hideSofianPrivateCollabsWhere } from "@/lib/collab-private-access";
 
 export async function GET(request: NextRequest) {
   try {
@@ -85,6 +86,7 @@ export async function GET(request: NextRequest) {
                   { marque: { nom: { contains: query, mode: "insensitive" } } },
                 ],
               },
+              hideSofianPrivateCollabsWhere({ email: session.user.email }),
               userRole === "ADMIN"
                 ? {}
                 : userRole === "CM"

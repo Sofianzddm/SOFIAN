@@ -5,6 +5,7 @@
 
 import prisma from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { hideSofianPrivateCollabsWhere } from "@/lib/collab-private-access";
 import { startOfMonth, endOfMonth, startOfYear, endOfYear, subMonths, subYears, format } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -12,6 +13,8 @@ export interface PeriodeFilter {
   dateDebut: Date;
   dateFin: Date;
   pole?: "INFLUENCE" | "SALES"; // Filtre par pôle
+  /** Sans e-mail Sofian, les collabs privées CEO sont exclues. */
+  viewerEmail?: string | null;
 }
 
 export interface FinanceStats {
@@ -70,7 +73,7 @@ export interface RepartitionItem {
  * Récupérer les stats financières globales pour une période
  */
 export async function getFinanceStats(periode: PeriodeFilter): Promise<FinanceStats> {
-  const { dateDebut, dateFin, pole } = periode;
+  const { dateDebut, dateFin, pole, viewerEmail } = periode;
 
   // Build where clause avec filtre pôle optionnel
   const whereClause: any = {
@@ -81,6 +84,7 @@ export async function getFinanceStats(periode: PeriodeFilter): Promise<FinanceSt
     statut: {
       notIn: ["PERDU"], // Exclure les perdues
     },
+    AND: [hideSofianPrivateCollabsWhere({ email: viewerEmail })],
   };
 
   // Filtre par pôle (source INBOUND = Influence, OUTBOUND = Sales)
@@ -727,7 +731,7 @@ function docsColumns(hasDevis: boolean, hasContrat: boolean): {
 export async function getCollabsValideesAvecDevis(
   periode: PeriodeFilter
 ): Promise<CollabValideeAvecDevis[]> {
-  const { dateDebut, dateFin, pole } = periode;
+  const { dateDebut, dateFin, pole, viewerEmail } = periode;
   const mois = dateDebut.getMonth() + 1;
   const annee = dateDebut.getFullYear();
   const moisLabels = [
@@ -898,6 +902,7 @@ export async function getCollabsValideesAvecDevis(
         poleAuteurClause,
         { statut: { not: "PERDU" } },
         { createdAt: { gte: dateDebut, lte: dateFin } },
+        hideSofianPrivateCollabsWhere({ email: viewerEmail }),
       ],
     },
     select: collabSelect,

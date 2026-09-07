@@ -7,6 +7,7 @@ import { ensureMarqueContact, parseSenderName } from "@/lib/marque-resolver";
 import { getDeviseInfo } from "@/lib/devises";
 import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
 import { accountManagerFieldsForCreator } from "@/lib/account-manager-assign";
+import { hideSofianPrivateCollabsWhere } from "@/lib/collab-private-access";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -31,13 +32,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const user = session.user as { id: string; role: string };
+    const user = session.user as { id: string; role: string; email?: string | null };
     const { searchParams } = new URL(request.url);
     const accountManagerId = searchParams.get("accountManagerId");
     const tmId = searchParams.get("tmId");
     const mineOnly = searchParams.get("mine") === "true";
 
-    const where: any = {};
+    const where: any = {
+      AND: [hideSofianPrivateCollabsWhere({ email: session.user.email })],
+    };
 
     const rolesCanFilterByUser = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"];
 

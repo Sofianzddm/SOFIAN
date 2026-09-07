@@ -43,9 +43,11 @@ export async function POST(request: NextRequest) {
         dateDebut: startOfDay(new Date(dateDebut)),
         dateFin: endOfDay(new Date(dateFin)),
         pole: pole || undefined,
+        viewerEmail: session.user.email,
       };
     } else {
       periode = resolvePeriode({ type: periodeType, pole });
+      periode.viewerEmail = session.user.email;
     }
 
     const poleSuffix = pole ? `-${pole.toLowerCase()}` : "";

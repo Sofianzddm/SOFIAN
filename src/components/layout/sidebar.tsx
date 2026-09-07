@@ -35,9 +35,11 @@ import {
   Link2,
   CalendarDays,
   Gauge,
+  Compass,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { canAccessFashionWeek } from "@/lib/fw-access";
+import { isDecisionCenterEmail } from "@/lib/decision-center/constants";
 
 // Définition des accès par rôle
 const menuItems = [
@@ -357,6 +359,7 @@ export function Sidebar({
   const userRole = effectiveRole ?? (session?.user as { role?: string })?.role ?? "TALENT";
   const userEmail = (session?.user as { email?: string } | undefined)?.email ?? "";
   const showFashionWeek = canAccessFashionWeek(userRole, userEmail);
+  const showDecisionCenter = isDecisionCenterEmail(userEmail);
 
   const fashionWeekItem = {
     label: "Fashion Week",
@@ -611,6 +614,17 @@ export function Sidebar({
               : []
           );
 
+  const decisionCenterItem = {
+    label: "Decision Center",
+    href: "/decision-center",
+    icon: Compass,
+    roles: ["ADMIN", "HEAD_OF_SALES"],
+  } as (typeof menuItems)[number];
+
+  const navItems = showDecisionCenter
+    ? [decisionCenterItem, ...filteredMenuItems]
+    : filteredMenuItems;
+
   return (
     <aside
       className={`fixed left-0 top-0 h-screen bg-white border-r border-gray-200 transition-all duration-300 z-40 flex flex-col ${
@@ -667,7 +681,7 @@ export function Sidebar({
             </p>
           </div>
         )}
-        {filteredMenuItems.map((item) => {
+        {navItems.map((item) => {
           const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
           const Icon = item.icon;
 

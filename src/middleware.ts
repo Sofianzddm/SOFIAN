@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getNextAuthSecret } from "@/lib/nextAuthSecret";
+import {
+  isDecisionCenterEmail,
+  isDecisionCenterEnabled,
+} from "@/lib/decision-center/constants";
 
 const NOINDEX_HEADER = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
@@ -110,10 +114,13 @@ export async function middleware(request: NextRequest) {
     return withNoIndex(NextResponse.next());
   }
 
-  const token = await getToken({
-    req: request,
-    secret: getNextAuthSecret(),
-  });
+  // Essayer les deux noms de cookie (__Secure- / non-secure) : un mismatch
+  // NEXTAUTH_URL / https faisait perdre la session à chaque retour.
+  const secret = getNextAuthSecret();
+  const token =
+    (await getToken({ req: request, secret })) ||
+    (await getToken({ req: request, secret, secureCookie: true })) ||
+    (await getToken({ req: request, secret, secureCookie: false }));
 
   if (!token) {
     const loginUrl = new URL("/login", request.url);
@@ -124,8 +131,27 @@ export async function middleware(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(loginUrl));
   }
 
-  const t = token as { role?: string; impersonatedRole?: string };
+  const t = token as { role?: string; impersonatedRole?: string; email?: string };
   const effectiveRole = t.impersonatedRole ?? t.role;
+
+  if (
+    pathname.startsWith("/decision-center") ||
+    pathname.startsWith("/api/decision-center")
+  ) {
+    if (!isDecisionCenterEnabled() || !isDecisionCenterEmail(t.email)) {
+      if (pathname.startsWith("/api/")) {
+        return withNoIndex(
+          NextResponse.json(
+            { error: "Accès Decision Center refusé" },
+            { status: 403 }
+          )
+        );
+      }
+      return withNoIndex(
+        NextResponse.redirect(new URL("/dashboard", request.url))
+      );
+    }
+  }
 
   // Verrou CRM « noms de marque » (TM / HoS) : cookie HttpOnly posé par
   // /api/collaborations/pending-nom-campagne. Empêche le bypass par URL directe.
@@ -455,5 +481,8 @@ export const config = {
     // Module admin "Photos d'événements"
     "/evenements-photos",
     "/evenements-photos/:path*",
+    "/decision-center",
+    "/decision-center/:path*",
+    "/api/decision-center/:path*",
   ],
 };

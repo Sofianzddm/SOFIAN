@@ -4,27 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { logDelegationActivite } from "@/lib/delegations";
-
-/**
- * Cloisonnement pôle Sales : créateur, AM assigné, ADMIN et JURISTE (contrats marque).
- */
-function canAccessPrivateCollab(
-  collab: {
-    isPrivate: boolean;
-    createdById: string | null;
-    accountManagerId?: string | null;
-    contratMarquePdfUrl?: string | null;
-  },
-  user: { id: string; role?: string }
-): boolean {
-  if (!collab.isPrivate) return true;
-  if (user.role === "ADMIN") return true;
-  if (collab.createdById && collab.createdById === user.id) return true;
-  if (collab.accountManagerId && collab.accountManagerId === user.id) return true;
-  // Le juriste accède aux collabs privées seulement pour traiter un contrat marque déjà déposé
-  if (user.role === "JURISTE" && collab.contratMarquePdfUrl) return true;
-  return false;
-}
+import { canAccessPrivateCollab } from "@/lib/collab-private-access";
 
 // GET - Détail d'une collaboration
 export async function GET(
@@ -81,6 +61,9 @@ export async function GET(
         },
         negociation: {
           select: { contactKind: true, contactAgence: true },
+        },
+        createdBy: {
+          select: { id: true, prenom: true, email: true },
         },
         accountManager: {
           select: { id: true, prenom: true, nom: true, role: true },
@@ -153,7 +136,7 @@ export async function GET(
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
-    const user = session.user as { id: string; role?: string };
+    const user = session.user as { id: string; role?: string; email?: string | null };
     const userRole = user.role;
     if (userRole === "JURISTE") {
       if (!collaboration.contratMarquePdfUrl) {
@@ -211,12 +194,17 @@ export async function PATCH(
     // Cloisonnement pôle Sales : vérifier l'accès avant toute modification
     const existingCollab = await prisma.collaboration.findUnique({
       where: { id },
-      select: { isPrivate: true, createdById: true, accountManagerId: true },
+      select: {
+        isPrivate: true,
+        createdById: true,
+        accountManagerId: true,
+        createdBy: { select: { email: true } },
+      },
     });
     if (!existingCollab) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
-    if (!canAccessPrivateCollab(existingCollab, { id: session.user.id, role: userRole })) {
+    if (!canAccessPrivateCollab(existingCollab, { id: session.user.id, role: userRole, email: session.user.email })) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
@@ -427,12 +415,18 @@ export async function PUT(
     // Cloisonnement pôle Sales : vérifier l'accès avant toute modification
     const existingCollab = await prisma.collaboration.findUnique({
       where: { id },
-      select: { isPrivate: true, createdById: true, accountManagerId: true, commissionPercent: true },
+      select: {
+        isPrivate: true,
+        createdById: true,
+        accountManagerId: true,
+        commissionPercent: true,
+        createdBy: { select: { email: true } },
+      },
     });
     if (!existingCollab) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
-    if (!canAccessPrivateCollab(existingCollab, { id: session.user.id, role: session.user.role })) {
+    if (!canAccessPrivateCollab(existingCollab, { id: session.user.id, role: session.user.role, email: session.user.email })) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
@@ -528,12 +522,17 @@ export async function DELETE(
     // Cloisonnement pôle Sales : la HoS ne peut supprimer que ses propres collabs privées
     const existingCollab = await prisma.collaboration.findUnique({
       where: { id },
-      select: { isPrivate: true, createdById: true, accountManagerId: true },
+      select: {
+        isPrivate: true,
+        createdById: true,
+        accountManagerId: true,
+        createdBy: { select: { email: true } },
+      },
     });
     if (!existingCollab) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
-    if (!canAccessPrivateCollab(existingCollab, { id: session.user.id, role: userRole })) {
+    if (!canAccessPrivateCollab(existingCollab, { id: session.user.id, role: userRole, email: session.user.email })) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 

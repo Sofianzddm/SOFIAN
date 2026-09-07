@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
+import { hideSofianPrivateCollabsWhere } from "@/lib/collab-private-access";
 
 export async function GET(request: NextRequest) {
   try {
@@ -761,6 +762,7 @@ export async function GET(request: NextRequest) {
           where: {
             statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
             createdAt: { gte: startOfMonth },
+            AND: [hideSofianPrivateCollabsWhere({ email: session.user.email })],
           },
         }),
         prisma.collaboration.aggregate({
@@ -768,6 +770,7 @@ export async function GET(request: NextRequest) {
           where: {
             statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
             createdAt: { gte: startOfYear },
+            AND: [hideSofianPrivateCollabsWhere({ email: session.user.email })],
           },
         }),
       ]);

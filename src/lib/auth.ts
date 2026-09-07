@@ -4,6 +4,12 @@ import GoogleProvider from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { getNextAuthSecret } from "@/lib/nextAuthSecret";
+import {
+  SESSION_MAX_AGE_SEC,
+  SESSION_UPDATE_AGE_SEC,
+  sessionTokenCookieName,
+  useSecureAuthCookies,
+} from "@/lib/nextAuthCookies";
 
 async function findActiveUserByEmail(email: string) {
   return prisma.user.findFirst({
@@ -170,7 +176,23 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: "jwt",
-    maxAge: 14 * 24 * 60 * 60, // 14 jours
+    maxAge: SESSION_MAX_AGE_SEC,
+    updateAge: SESSION_UPDATE_AGE_SEC,
+  },
+  // Cookie persisté (Max-Age) : sans ça / avec Secure sur http, le navigateur
+  // jette la session dès que tu quittes.
+  useSecureCookies: useSecureAuthCookies(),
+  cookies: {
+    sessionToken: {
+      name: sessionTokenCookieName(),
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: useSecureAuthCookies(),
+        maxAge: SESSION_MAX_AGE_SEC,
+      },
+    },
   },
   secret: getNextAuthSecret(),
 };
