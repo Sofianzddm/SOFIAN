@@ -40,13 +40,15 @@ export function runDecisionCenterTests(): string[] {
   assert(!isDecisionCenterEmail("ines@glowupagence.fr"), "ines blocked");
   assert(!isDecisionCenterEmail("admin@example.com"), "random blocked");
   assert(isDecisionCenterEmail("s.zeddam@glowupagence.fr"), "sofian allowed");
+  assert(isDecisionCenterEmail("sofian@glowupagence.fr"), "sofian alias allowed");
   assert(isDecisionCenterEmail("maud@glowupagence.fr"), "maud allowed");
   assert(isDecisionCenterEmail("leyna@glowupagence.fr"), "leyna allowed");
   assert(isDecisionCenterEmail("S.Zeddam@GlowUpAgence.fr"), "case insensitive");
-  assert(DECISION_CENTER_ALLOWED_EMAILS.length === 3, "exactly 3 emails");
+  assert(DECISION_CENTER_ALLOWED_EMAILS.length === 4, "exactly 4 emails");
   ok("utilisateur non whitelisté inaccessible");
 
   assert(phase1RoleForEmail("s.zeddam@glowupagence.fr") === "CEO", "sofian CEO");
+  assert(phase1RoleForEmail("sofian@glowupagence.fr") === "CEO", "sofian alias CEO");
   assert(phase1RoleForEmail("maud@glowupagence.fr") === "EXECUTIVE_ASSISTANT", "maud EA");
   assert(phase1RoleForEmail("leyna@glowupagence.fr") === "HEAD_OF_SALES", "leyna HoS");
   ok("Sofian / Maud / Leyna — rôles phase 1");

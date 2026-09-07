@@ -12,6 +12,7 @@ export function isDecisionCenterEnabled(): boolean {
 
 export const DECISION_CENTER_ALLOWED_EMAILS = [
   "s.zeddam@glowupagence.fr",
+  "sofian@glowupagence.fr",
   "maud@glowupagence.fr",
   "leyna@glowupagence.fr",
 ] as const;
@@ -118,6 +119,7 @@ export type DcRequestKind = (typeof DC_REQUEST_KINDS)[number];
 
 export const PHASE1_EMAIL_TO_ROLE: Record<DcPhase1Email, DcRole> = {
   "s.zeddam@glowupagence.fr": "CEO",
+  "sofian@glowupagence.fr": "CEO",
   "maud@glowupagence.fr": "EXECUTIVE_ASSISTANT",
   "leyna@glowupagence.fr": "HEAD_OF_SALES",
 };

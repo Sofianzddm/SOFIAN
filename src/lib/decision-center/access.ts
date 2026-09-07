@@ -151,9 +151,13 @@ export function forbidIfMissing(
 export async function findCeoUserId(): Promise<string | null> {
   const user = await prisma.user.findFirst({
     where: {
-      email: { equals: "s.zeddam@glowupagence.fr", mode: "insensitive" },
+      OR: [
+        { email: { equals: "s.zeddam@glowupagence.fr", mode: "insensitive" } },
+        { email: { equals: "sofian@glowupagence.fr", mode: "insensitive" } },
+      ],
       actif: true,
     },
+    orderBy: { email: "asc" }, // s.zeddam avant sofian
     select: { id: true },
   });
   return user?.id ?? null;

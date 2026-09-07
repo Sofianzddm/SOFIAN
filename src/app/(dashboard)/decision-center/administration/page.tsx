@@ -92,7 +92,7 @@ export default function AdminPage() {
           ))}
           {!members.length && (
             <li className="text-gray-500">
-              s.zeddam@glowupagence.fr · maud@glowupagence.fr · leyna@glowupagence.fr
+              s.zeddam@ / sofian@ · maud@ · leyna@glowupagence.fr
             </li>
           )}
         </ul>
