@@ -161,7 +161,7 @@ const menuItems = [
     label: "Marques",
     href: "/marques",
     icon: Building2,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "STRATEGY_PLANNER"],
   },
   {
     label: "Collaborations",

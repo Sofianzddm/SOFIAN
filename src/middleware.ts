@@ -274,12 +274,14 @@ export async function middleware(request: NextRequest) {
   }
 
   // STRATEGY_PLANNER : accès limité à /strategy/* + /cannes-2026* + /talents*
-  // + simulateur cessions + fiche marque détail en lecture (/marques/{id},
-  // pas new/duplicates/edit) pour ouvrir les marques liées depuis les projets.
+  // + simulateur cessions + annuaire marques (/marques) + fiche détail en lecture
+  // (/marques/{id}, pas new/duplicates/edit) pour ouvrir les marques liées
+  // depuis les projets.
   const isCannes2026Path = pathname === "/cannes-2026" || pathname.startsWith("/cannes-2026/");
   const isTalentsPath = pathname === "/talents" || pathname.startsWith("/talents/");
   const isSimulateurCessionsPath =
     pathname === "/simulateur-cessions" || pathname.startsWith("/simulateur-cessions/");
+  const isMarquesListPath = pathname === "/marques";
   const isMarqueDetailPath =
     /^\/marques\/[^/]+$/.test(pathname) &&
     pathname !== "/marques/new" &&
@@ -290,6 +292,7 @@ export async function middleware(request: NextRequest) {
     !isCannes2026Path &&
     !isTalentsPath &&
     !isSimulateurCessionsPath &&
+    !isMarquesListPath &&
     !isMarqueDetailPath
   ) {
     return withNoIndex(

@@ -9,6 +9,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   Plus,
   Search,
@@ -114,17 +115,26 @@ function BrandLogo({ nom, siteWeb, size = 9 }: { nom: string; siteWeb: string | 
 
 export default function MarquesPage() {
   const router = useRouter();
+  const { data: session, status: sessionStatus } = useSession();
+  // STRATEGY_PLANNER : annuaire en lecture seule (comme les fiches détail).
+  const readOnly = (session?.user?.role || "") === "STRATEGY_PLANNER";
   const [marques, setMarques] = useState<Marque[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterSecteur, setFilterSecteur] = useState("");
   // Annuaire affiché : marques FR (CRM complet) ou prospects BENELUX (annuaire
-  // de prospection, 100 % séparé en base).
+  // de prospection, 100 % séparé en base). Pas de BENELUX pour STRATEGY_PLANNER
+  // (API outreach réservée ADMIN / CASTING_MANAGER).
   const [market, setMarket] = useState<Market>("FR");
   const isBenelux = market === "BENELUX";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (sessionStatus === "loading") return;
+    if (readOnly) {
+      setMarket("FR");
+      return;
+    }
     // Deep-link depuis l'outreach : /marques?market=BENELUX&q=Entreprise
     // (prioritaire sur le dernier marché mémorisé).
     const params = new URLSearchParams(window.location.search);
@@ -137,21 +147,26 @@ export default function MarquesPage() {
     }
     const saved = window.localStorage.getItem("marques.market");
     if (saved === "BENELUX" || saved === "FR") setMarket(saved);
-  }, []);
+  }, [readOnly, sessionStatus]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && !readOnly) {
       window.localStorage.setItem("marques.market", market);
     }
-  }, [market]);
+  }, [market, readOnly]);
 
   useEffect(() => {
+    if (sessionStatus === "loading") return;
+    if (readOnly && market === "BENELUX") {
+      setMarket("FR");
+      return;
+    }
     setLoading(true);
     setFilterSecteur("");
     if (market === "BENELUX") fetchBeneluxCompanies();
     else fetchMarques();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [market]);
+  }, [market, readOnly, sessionStatus]);
 
   const fetchMarques = async () => {
     try {
@@ -266,29 +281,31 @@ export default function MarquesPage() {
           </div>
           <div className="flex items-center gap-2">
             {/* Bascule marché : marques FR ↔ annuaire BENELUX (données séparées) */}
-            <div
-              className="inline-flex rounded-lg overflow-hidden ring-1 ring-black/[0.07] bg-white shrink-0"
-              title="Basculer entre les marques France et l'annuaire BENELUX"
-            >
-              {(["FR", "BENELUX"] as const).map((m) => {
-                const active = market === m;
-                return (
-                  <button
-                    key={m}
-                    onClick={() => setMarket(m)}
-                    className="px-3 py-2 text-[13px] font-semibold transition"
-                    style={
-                      active
-                        ? { backgroundColor: INK, color: "white" }
-                        : { backgroundColor: "white", color: "#9CA3AF" }
-                    }
-                  >
-                    {m === "FR" ? "🇫🇷 France" : "🇧🇪 BENELUX"}
-                  </button>
-                );
-              })}
-            </div>
-            {!isBenelux && (
+            {!readOnly && (
+              <div
+                className="inline-flex rounded-lg overflow-hidden ring-1 ring-black/[0.07] bg-white shrink-0"
+                title="Basculer entre les marques France et l'annuaire BENELUX"
+              >
+                {(["FR", "BENELUX"] as const).map((m) => {
+                  const active = market === m;
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => setMarket(m)}
+                      className="px-3 py-2 text-[13px] font-semibold transition"
+                      style={
+                        active
+                          ? { backgroundColor: INK, color: "white" }
+                          : { backgroundColor: "white", color: "#9CA3AF" }
+                      }
+                    >
+                      {m === "FR" ? "🇫🇷 France" : "🇧🇪 BENELUX"}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {!isBenelux && !readOnly && (
               <Link
                 href="/marques/new"
                 className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-lg text-white transition-opacity hover:opacity-90"
@@ -367,7 +384,7 @@ export default function MarquesPage() {
                 <Plus className="w-3.5 h-3.5" />
                 Prospecter en BENELUX
               </Link>
-            ) : (
+            ) : !readOnly ? (
               <Link
                 href="/marques/new"
                 className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-[13px] font-semibold text-white rounded-lg hover:opacity-90 transition-opacity"
@@ -376,7 +393,7 @@ export default function MarquesPage() {
                 <Plus className="w-3.5 h-3.5" />
                 Ajouter une marque
               </Link>
-            )}
+            ) : null}
           </div>
         ) : (
           <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
@@ -480,7 +497,7 @@ export default function MarquesPage() {
 
                     {/* Actions */}
                     <div className="flex items-center justify-end gap-1">
-                      {!isBenelux && (
+                      {!isBenelux && !readOnly && (
                         <>
                           <Link
                             href={`/marques/${marque.id}/edit`}
