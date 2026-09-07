@@ -530,6 +530,12 @@ export function Sidebar({
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
+            label: "Marques",
+            href: "/marques",
+            icon: Building2,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
             label: "Cessions (confidentiel)",
             href: "/simulateur-cessions",
             icon: Scale,
