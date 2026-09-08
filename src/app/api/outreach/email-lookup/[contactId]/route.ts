@@ -8,8 +8,9 @@ import { writeMarqueContactEmail } from "@/lib/marque-contact-email";
 import { refreshFwClientStatut } from "@/lib/fw-prospection";
 
 /**
- * PATCH → complète (ou marque introuvable) un email en file d'enrichissement.
- * Body: { email?, notFound?, market?: "FR" | "BENELUX" | "AGENCY" }
+ * PATCH → complète (ou marque introuvable) un email en file d'enrichissement,
+ * ou met à jour la langue du contact.
+ * Body: { email?, notFound?, language?: "fr" | "en", market?: "FR" | "BENELUX" | "AGENCY" | "FW" }
  */
 
 const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
@@ -25,6 +26,11 @@ function parseMarket(raw: string | null | undefined): Market {
   if (m === "AGENCY") return "AGENCY";
   if (m === "FW") return "FW";
   return "FR";
+}
+
+function parseLanguage(raw: unknown): "fr" | "en" | null {
+  if (raw === "fr" || raw === "en") return raw;
+  return null;
 }
 
 export async function PATCH(
@@ -45,12 +51,78 @@ export async function PATCH(
     const body = (await request.json().catch(() => ({}))) as {
       email?: string;
       notFound?: boolean;
+      language?: string;
       market?: string;
     };
     const market = parseMarket(body.market);
+    const languageOnly =
+      body.language !== undefined &&
+      body.email === undefined &&
+      body.notFound === undefined;
+    const language = parseLanguage(body.language);
 
     if ((market === "AGENCY" || market === "FW") && role !== "ADMIN") {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+    }
+
+    // Mise à jour langue seule (sans email / notFound).
+    if (languageOnly) {
+      if (!language) {
+        return NextResponse.json(
+          { error: "Langue invalide (fr ou en)." },
+          { status: 400 }
+        );
+      }
+      if (market === "FW") {
+        // Langue FW = maison (FwClient), pas le contact.
+        return NextResponse.json(
+          {
+            error:
+              "Pour Fashion Week, la langue se règle sur la maison (pas sur le contact).",
+          },
+          { status: 400 }
+        );
+      }
+      if (market === "AGENCY") {
+        const contact = await prisma.agencyContact.findUnique({
+          where: { id: contactId },
+          select: { id: true },
+        });
+        if (!contact) {
+          return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+        }
+        await prisma.agencyContact.update({
+          where: { id: contactId },
+          data: { language },
+        });
+        return NextResponse.json({ ok: true, language });
+      }
+      if (market === "BENELUX") {
+        const contact = await prisma.beneluxContact.findUnique({
+          where: { id: contactId },
+          select: { id: true },
+        });
+        if (!contact) {
+          return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+        }
+        await prisma.beneluxContact.update({
+          where: { id: contactId },
+          data: { language },
+        });
+        return NextResponse.json({ ok: true, language });
+      }
+      const contact = await prisma.marqueContact.findUnique({
+        where: { id: contactId },
+        select: { id: true },
+      });
+      if (!contact) {
+        return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+      }
+      await prisma.marqueContact.update({
+        where: { id: contactId },
+        data: { language },
+      });
+      return NextResponse.json({ ok: true, language });
     }
 
     if (market === "FW") {

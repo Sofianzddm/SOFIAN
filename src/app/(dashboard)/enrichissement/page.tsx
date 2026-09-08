@@ -19,6 +19,7 @@ import {
   FileSpreadsheet,
   Sparkles,
   Trash2,
+  Globe,
 } from "lucide-react";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
 import { FwImportCartoModal } from "@/components/fw/FwImportCartoModal";
@@ -52,6 +53,8 @@ const norm = (s: string) =>
 type Market = "FR" | "BENELUX" | "AGENCY" | "FW";
 type Tab = "marques" | "agences" | "fw";
 
+type ContactLang = "fr" | "en";
+
 type LookupContact = {
   id: string;
   prenom: string | null;
@@ -61,6 +64,7 @@ type LookupContact = {
   localisation: string | null;
   priorite: string | null;
   linkedinUrl: string | null;
+  language: string;
   marqueId: string;
   company: string;
   market: Market;
@@ -82,9 +86,13 @@ type Person = {
   localisation: string | null;
   priorite: string | null;
   linkedinUrl: string | null;
+  language: ContactLang;
   source: "CARTO" | "AO" | null;
   refs: PersonRef[];
 };
+
+const toLang = (v: string | null | undefined): ContactLang =>
+  v === "en" ? "en" : "fr";
 
 /** Une marque / agence = fusion des fiches FR et BE portant le même nom. */
 type BrandGroup = {
@@ -122,6 +130,10 @@ export default function EnrichissementPage() {
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   /** Clé de la fiche (marque/agence) en cours de suppression complète. */
   const [deletingGroupKey, setDeletingGroupKey] = useState<string | null>(null);
+  /** Clé personne dont la langue est en cours de sauvegarde. */
+  const [savingLangKey, setSavingLangKey] = useState<string | null>(null);
+  /** Maison FW dont la langue est en cours de sauvegarde. */
+  const [savingFwLang, setSavingFwLang] = useState(false);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -238,6 +250,7 @@ export default function EnrichissementPage() {
           localisation: c.localisation,
           priorite: c.priorite,
           linkedinUrl: c.linkedinUrl,
+          language: toLang(c.language),
           source: c.source,
           refs: [],
         };
@@ -245,6 +258,8 @@ export default function EnrichissementPage() {
       }
       if (!p.linkedinUrl && c.linkedinUrl) p.linkedinUrl = c.linkedinUrl;
       if (!p.poste && c.poste) p.poste = c.poste;
+      // Si un des marchés est EN, on affiche EN (sinon FR).
+      if (toLang(c.language) === "en") p.language = "en";
       p.refs.push({ id: c.id, market, marqueId: c.marqueId });
     }
     return Array.from(map.entries()).map(([key, b]) => ({
@@ -474,6 +489,66 @@ export default function EnrichissementPage() {
       setFlash(e instanceof Error ? e.message : "Erreur");
     } finally {
       setDeletingKey(null);
+    }
+  };
+
+  const updatePersonLanguage = async (p: Person, language: ContactLang) => {
+    if (p.language === language || savingLangKey || busy) return;
+    // FW : langue = maison, pas le contact.
+    if (p.refs.every((r) => r.market === "FW")) return;
+    setSavingLangKey(p.key);
+    setFlash(null);
+    try {
+      for (const ref of p.refs) {
+        if (ref.market === "FW") continue;
+        const res = await fetch(`/api/outreach/email-lookup/${ref.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ market: ref.market, language }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Échec de la mise à jour");
+      }
+      const ids = new Set(p.refs.map((r) => r.id));
+      setContacts((prev) =>
+        prev.map((c) => (ids.has(c.id) ? { ...c, language } : c))
+      );
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingLangKey(null);
+    }
+  };
+
+  const updateFwClientLanguage = async (clientId: string, language: ContactLang) => {
+    if (savingFwLang || busy) return;
+    const fromClients = fwClients.find((c) => c.id === clientId)?.language;
+    const fromContacts = contacts.find(
+      (c) => c.market === "FW" && c.marqueId === clientId
+    )?.language;
+    if (toLang(fromClients ?? fromContacts) === language) return;
+    setSavingFwLang(true);
+    setFlash(null);
+    try {
+      const res = await fetch(`/api/strategy/fw/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Échec de la mise à jour");
+      setFwClients((prev) =>
+        prev.map((c) => (c.id === clientId ? { ...c, language } : c))
+      );
+      setContacts((prev) =>
+        prev.map((c) =>
+          c.market === "FW" && c.marqueId === clientId ? { ...c, language } : c
+        )
+      );
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingFwLang(false);
     }
   };
 
@@ -1104,6 +1179,52 @@ export default function EnrichissementPage() {
                 dans les fiches France et Benelux.
               </p>
             )}
+            {isFwTab &&
+              (() => {
+                const clientId = active.people[0]?.refs[0]?.marqueId;
+                if (!clientId) return null;
+                const fromClients = fwClients.find((c) => c.id === clientId)?.language;
+                const fromContacts = active.people[0]
+                  ? contacts.find((c) =>
+                      active.people[0].refs.some((r) => r.id === c.id)
+                    )?.language
+                  : null;
+                const fwLang = toLang(fromClients ?? fromContacts);
+                return (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Globe className="w-3.5 h-3.5 text-gray-400" />
+                    <span className="text-xs text-gray-500">Langue maison :</span>
+                    <div className="flex gap-1">
+                      {(["fr", "en"] as const).map((lang) => {
+                        const selected = fwLang === lang;
+                        return (
+                          <button
+                            key={lang}
+                            type="button"
+                            disabled={savingFwLang || busy}
+                            onClick={() => void updateFwClientLanguage(clientId, lang)}
+                            className="px-2.5 py-1 rounded-lg border text-xs font-medium transition disabled:opacity-40"
+                            style={
+                              selected
+                                ? { backgroundColor: INK, color: "#fff", borderColor: INK }
+                                : {
+                                    backgroundColor: "#fff",
+                                    color: "#4B5563",
+                                    borderColor: "#E5E0DA",
+                                  }
+                            }
+                          >
+                            {lang === "fr" ? "Français" : "English"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {savingFwLang ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                    ) : null}
+                  </div>
+                );
+              })()}
             {livePattern && (
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <p className="text-xs text-gray-500 flex items-center gap-1">
@@ -1189,6 +1310,44 @@ export default function EnrichissementPage() {
                         {[p.poste, p.perimetre, p.localisation].filter(Boolean).join(" · ") ||
                           "—"}
                       </div>
+                      {!isFwTab && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <Globe className="w-3.5 h-3.5 text-gray-400" />
+                          <span className="text-xs text-gray-500">Langue :</span>
+                          <div className="flex gap-1">
+                            {(["fr", "en"] as const).map((lang) => {
+                              const selected = p.language === lang;
+                              return (
+                                <button
+                                  key={lang}
+                                  type="button"
+                                  disabled={savingLangKey === p.key || busy}
+                                  onClick={() => void updatePersonLanguage(p, lang)}
+                                  className="px-2.5 py-1 rounded-lg border text-xs font-medium transition disabled:opacity-40"
+                                  style={
+                                    selected
+                                      ? {
+                                          backgroundColor: INK,
+                                          color: "#fff",
+                                          borderColor: INK,
+                                        }
+                                      : {
+                                          backgroundColor: "#fff",
+                                          color: "#4B5563",
+                                          borderColor: "#E5E0DA",
+                                        }
+                                  }
+                                >
+                                  {lang === "fr" ? "Français" : "English"}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {savingLangKey === p.key ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                          ) : null}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {p.linkedinUrl ? (

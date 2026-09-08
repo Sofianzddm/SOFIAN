@@ -348,7 +348,7 @@ export async function GET(request: NextRequest) {
           linkedinUrl: true,
           emailLookupQueuedAt: true,
           clientId: true,
-          client: { select: { nom: true } },
+          client: { select: { nom: true, language: true } },
         },
       });
 
@@ -387,7 +387,7 @@ export async function GET(request: NextRequest) {
             localisation: c.localisation,
             priorite: null,
             linkedinUrl: c.linkedinUrl,
-            language: "fr",
+            language: c.client.language === "en" ? "en" : "fr",
             emailSuggested: null,
             emailLookupQueuedAt: c.emailLookupQueuedAt,
             marqueId: clientId,
