@@ -1,12 +1,15 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
+import { encode as encodeJwt, decode as decodeJwt } from "next-auth/jwt";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { getNextAuthSecret } from "@/lib/nextAuthSecret";
 import {
   SESSION_MAX_AGE_SEC,
   SESSION_UPDATE_AGE_SEC,
+  parseRememberMe,
+  sessionMaxAgeForRememberMe,
   sessionTokenCookieName,
   useSecureAuthCookies,
 } from "@/lib/nextAuthCookies";
@@ -41,6 +44,7 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Mot de passe", type: "password" },
+        rememberMe: { label: "Rester connectée", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
@@ -51,6 +55,9 @@ export const authOptions: NextAuthOptions = {
         // compte de la casse, sinon "manon.j@…" (minuscule) ne retrouve pas
         // un compte enregistré "Manon.j@…" en base.
         const email = credentials.email.trim();
+        const rememberMe = parseRememberMe(
+          (credentials as { rememberMe?: unknown }).rememberMe
+        );
 
         let user;
         try {
@@ -91,6 +98,7 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           name: displayNameForUser(user),
           role: user.role,
+          rememberMe,
         };
       },
     }),
@@ -129,6 +137,8 @@ export const authOptions: NextAuthOptions = {
             (token as any).role = dbUser.role;
             token.name = displayNameForUser(dbUser);
             token.email = dbUser.email;
+            // Google = appareil de confiance → durée longue
+            token.rememberMe = true;
           }
         } catch (err) {
           console.error("[auth] Erreur hydratation JWT Google:", err);
@@ -136,6 +146,7 @@ export const authOptions: NextAuthOptions = {
       } else if (user) {
         token.id = (user as any).id;
         (token as any).role = (user as any).role;
+        token.rememberMe = parseRememberMe((user as any).rememberMe);
       }
 
       // Permettre la mise à jour du token via useSession().update()
@@ -178,6 +189,25 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
     maxAge: SESSION_MAX_AGE_SEC,
     updateAge: SESSION_UPDATE_AGE_SEC,
+  },
+  // NextAuth n’a qu’un maxAge global pour le cookie ; la durée réelle
+  // (30 j vs 1 j) est appliquée dans encode selon token.rememberMe.
+  jwt: {
+    maxAge: SESSION_MAX_AGE_SEC,
+    async encode({ token, secret, maxAge, salt }) {
+      const age = sessionMaxAgeForRememberMe(
+        (token as { rememberMe?: boolean } | undefined)?.rememberMe
+      );
+      return encodeJwt({
+        token,
+        secret,
+        maxAge: age ?? maxAge ?? SESSION_MAX_AGE_SEC,
+        salt,
+      });
+    },
+    async decode({ token, secret, salt }) {
+      return decodeJwt({ token, secret, salt });
+    },
   },
   // Cookie persisté (Max-Age) : sans ça / avec Secure sur http, le navigateur
   // jette la session dès que tu quittes.

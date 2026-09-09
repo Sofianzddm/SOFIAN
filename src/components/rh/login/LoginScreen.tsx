@@ -6,6 +6,10 @@ import { signIn, useSession } from "next-auth/react";
 import { Check, Eye, EyeOff } from "lucide-react";
 import { LangSwitch, type RhLang } from "@/components/rh/chrome/shell";
 import { RhButton } from "@/components/rh/ui/primitives";
+import {
+  SESSION_REMEMBER_LABEL,
+  SESSION_SHORT_LABEL,
+} from "@/lib/nextAuthCookies";
 
 type View = "login" | "forgot" | "sent" | "done" | "no_profile";
 
@@ -64,7 +68,7 @@ export function LoginScreen() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, email, password]);
+  }, [view, email, password, stay]);
 
   async function handleLogin() {
     setError(null);
@@ -73,6 +77,7 @@ export function LoginScreen() {
       const result = await signIn("credentials", {
         email: email.trim(),
         password,
+        rememberMe: stay ? "true" : "false",
         redirect: false,
       });
       if (result?.error) {
@@ -390,7 +395,7 @@ export function LoginScreen() {
                   Rester connectée sur cet appareil
                 </span>
                 <span className="rh-mono text-[9px]" style={{ color: "#5F6978" }}>
-                  14 J
+                  {stay ? SESSION_REMEMBER_LABEL : SESSION_SHORT_LABEL}
                 </span>
               </button>
 

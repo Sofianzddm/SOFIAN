@@ -75,12 +75,17 @@ export default function LoginPage() {
     }
   }, []);
 
-  const handleSubmit = async ({ email, password }: GlowUpLoginCredentials) => {
+  const handleSubmit = async ({
+    email,
+    password,
+    rememberMe,
+  }: GlowUpLoginCredentials) => {
     const callbackUrl = captureCallbackUrl();
     const postLogin = resolvePostLoginPath(undefined, callbackUrl);
     const result = await signIn("credentials", {
       email,
       password,
+      rememberMe: rememberMe ? "true" : "false",
       redirect: false,
       callbackUrl: postLogin,
     });

@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  SESSION_REMEMBER_LABEL,
+  SESSION_SHORT_LABEL,
+} from "@/lib/nextAuthCookies";
 
 /**
  * Glow Up — écran de connexion
@@ -124,6 +128,7 @@ const bodyText: CSSProperties = {
 export type GlowUpLoginCredentials = {
   email: string;
   password: string;
+  rememberMe: boolean;
 };
 
 export type GlowUpLoginProps = {
@@ -249,7 +254,7 @@ export function GlowUpLogin({
       setLoading(true);
       setError("");
       try {
-        await onSubmit?.({ email, password });
+        await onSubmit?.({ email, password, rememberMe: stay });
         setView("done");
       } catch (err) {
         setError(
@@ -623,7 +628,7 @@ export function GlowUpLogin({
                     color: "rgba(245,237,224,.46)",
                   }}
                 >
-                  30 J
+                  {stay ? SESSION_REMEMBER_LABEL : SESSION_SHORT_LABEL}
                 </span>
               </button>
 
