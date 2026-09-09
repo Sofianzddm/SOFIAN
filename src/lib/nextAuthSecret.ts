@@ -2,8 +2,9 @@
  * Secret pour signer / vérifier les JWT NextAuth (authOptions, middleware, getToken).
  * Doit être identique partout → une seule fonction, compatible Edge (pas de node:crypto).
  *
- * Ordre : NEXTAUTH_SECRET → AUTH_SECRET → secours (évite [NO_SECRET] si la variable a été oubliée).
- * En prod, définir NEXTAUTH_SECRET sur l’hébergeur reste la bonne pratique (rotation, indépendance).
+ * Ordre : NEXTAUTH_SECRET → AUTH_SECRET → secours stables (Vercel project id).
+ * Ne jamais dériver depuis DATABASE_URL : souvent absent en Edge middleware
+ * → secret différent Node vs Edge → getToken null → redirect /login.
  */
 
 function trim(s: string | undefined): string | undefined {
@@ -26,16 +27,10 @@ export function getNextAuthSecret(): string {
     return DEV_ONLY_SECRET;
   }
 
+  // Uniquement des sources dispo Node + Edge (jamais DATABASE_URL).
   const vercelPid = trim(process.env.VERCEL_PROJECT_ID);
   if (vercelPid) {
     return `glowup-nextauth|vercel|${vercelPid}|v1|min-48-chars-pad`.padEnd(48, "x").slice(0, 64);
-  }
-
-  const db = trim(process.env.DATABASE_URL);
-  if (db) {
-    const fp = `${db.length}|${db.slice(0, 20)}|${db.slice(-12)}`;
-    const base = `glowup-nextauth|db|${fp}|v1`;
-    return base.length >= 32 ? base.slice(0, 80) : base.padEnd(48, "0");
   }
 
   return GLOBAL_FALLBACK_SECRET;

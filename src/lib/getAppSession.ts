@@ -1,9 +1,8 @@
 import type { Session } from "next-auth";
 import { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getNextAuthSecret } from "@/lib/nextAuthSecret";
+import { readSessionToken } from "@/lib/readSessionToken";
 import { prisma } from "@/lib/prisma";
 
 const IMPERSONATE_COOKIE = "impersonate_user_id";
@@ -82,8 +81,6 @@ export async function resolveProspectionActor(session: AppSession): Promise<{
  * 3) Cookie httpOnly d’impersonation admin (fenêtre courte après POST /impersonate).
  */
 export async function getAppSession(request: NextRequest): Promise<AppSession | null> {
-  const secret = getNextAuthSecret();
-
   const debug = process.env.PROSPECTION_DEBUG === "1";
 
   const fromNextAuth = await getServerSession(authOptions);
@@ -94,7 +91,7 @@ export async function getAppSession(request: NextRequest): Promise<AppSession | 
     return await applyImpersonateCookieToSession(fromNextAuth, request);
   }
 
-  const token = await getTokenFromRequestFlexible(request, secret);
+  const token = await getTokenFromRequestFlexible(request);
   if (token) {
     if (debug) {
       console.info("[prospection] getAppSession source=jwt_token");
@@ -198,19 +195,10 @@ async function loadImpersonatedUserOrFallback(
 
 async function getTokenFromRequestFlexible(
   request: NextRequest,
-  secret: string
+  _secret?: string
 ): Promise<Record<string, unknown> | null> {
-  const attempts = [
-    () => getToken({ req: request, secret }),
-    () => getToken({ req: request, secret, secureCookie: true }),
-    () => getToken({ req: request, secret, secureCookie: false }),
-  ];
-
-  for (const run of attempts) {
-    const t = await run();
-    if (t) return t as Record<string, unknown>;
-  }
-  return null;
+  const t = await readSessionToken(request);
+  return t as Record<string, unknown> | null;
 }
 
 async function buildSessionFromJwtPayload(

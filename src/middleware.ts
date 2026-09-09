@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
-import { getNextAuthSecret } from "@/lib/nextAuthSecret";
+import { readSessionToken } from "@/lib/readSessionToken";
 import {
   isDecisionCenterEmail,
   isDecisionCenterEnabled,
@@ -116,11 +115,7 @@ export async function middleware(request: NextRequest) {
 
   // Essayer les deux noms de cookie (__Secure- / non-secure) : un mismatch
   // NEXTAUTH_URL / https faisait perdre la session à chaque retour.
-  const secret = getNextAuthSecret();
-  const token =
-    (await getToken({ req: request, secret })) ||
-    (await getToken({ req: request, secret, secureCookie: true })) ||
-    (await getToken({ req: request, secret, secureCookie: false }));
+  const token = await readSessionToken(request);
 
   if (!token) {
     const loginUrl = new URL("/login", request.url);
