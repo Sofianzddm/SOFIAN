@@ -33,6 +33,7 @@ import {
   buildQuotedOriginal,
 } from "@/lib/email-body-html";
 import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
+import { ensureBrandInSubject } from "@/lib/email-subject";
 
 export const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 export const LEYNA_OWNER_FIRSTNAME = "Leyna";
@@ -457,7 +458,10 @@ export async function buildCastingSendPreview(
       lastname: contact.lastname || "",
       language: contactLang,
       translated: contactLang !== sourceLang,
-      subject: applyCastingTemplateVars(version.subject, vars),
+      subject: ensureBrandInSubject(
+        applyCastingTemplateVars(version.subject, vars),
+        vars.company
+      ),
       bodyHtml: applyCastingTemplateVars(version.body, vars),
       willSend: !isSamplePreview && !isAlreadySent && !isBlocked,
       skipReason: isSamplePreview
@@ -593,11 +597,14 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     // Langue de CE contact, captée depuis la fiche client (sinon fallback).
     const contactLang = contactLangByEmail.get(email) ?? fallbackLang;
     const version = await getVersion(contactLang);
-    const personalizedSubject = applyCastingTemplateVars(version.subject, {
-      firstname: contact.firstname || "",
-      lastname: contact.lastname || "",
-      company: String(mission.targetBrand || ""),
-    });
+    const personalizedSubject = ensureBrandInSubject(
+      applyCastingTemplateVars(version.subject, {
+        firstname: contact.firstname || "",
+        lastname: contact.lastname || "",
+        company: String(mission.targetBrand || ""),
+      }),
+      String(mission.targetBrand || "")
+    );
     const personalizedBody = applyCastingTemplateVars(version.body, {
       firstname: contact.firstname || "",
       lastname: contact.lastname || "",

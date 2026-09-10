@@ -4,6 +4,7 @@ import { xaiResponse } from "@/lib/xai";
 import { getInstagramProfileUrl } from "@/lib/social-links";
 import { upgradeTalentLinksInHtml } from "@/lib/talent-email-links";
 import { plainTextToEmailHtml } from "@/lib/email-body-html";
+import { ensureBrandInSubject } from "@/lib/email-subject";
 
 export const maxDuration = 120;
 
@@ -416,7 +417,7 @@ Critical completeness rule:
 
 Reply ONLY with valid JSON and nothing else:
 {
-  "subject": "short premium subject line",
+  "subject": "short premium subject that ALWAYS includes ${brandNameToken} (mandatory)",
   "body": "full email text with \\n line breaks and allowed Markdown bold"
 }
 `
@@ -504,7 +505,7 @@ Règle critique de complétude :
 
 Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
 {
-  "subject": "titre court et premium",
+  "subject": "titre court et premium qui contient TOUJOURS ${brandNameToken} (obligatoire)",
   "body": "le texte complet du mail avec \\n pour les sauts de ligne et gras Markdown"
 }
 `;
@@ -570,6 +571,8 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
           return { prenom, nom, instagram: t.instagram };
         })
       );
+
+      parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
 
       return NextResponse.json(parsed);
     } catch {
