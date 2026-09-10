@@ -2,7 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, type Editor } from "@tiptap/react";
-import { Bold, Eye, Link as LinkIcon, List, ListOrdered, Loader2, Pencil, Italic, Underline as UnderlineIcon, Languages, MessageCircle } from "lucide-react";
+import {
+  Bold,
+  Eye,
+  Link as LinkIcon,
+  List,
+  ListOrdered,
+  Loader2,
+  Pencil,
+  Italic,
+  Underline as UnderlineIcon,
+  Languages,
+  MessageCircle,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { talentToTiptapNode } from "@/lib/talent-email-links";
 import { plainTextToEmailHtml } from "@/lib/email-body-html";
 
@@ -18,10 +32,6 @@ const VARIABLES_CONTACT_OWNER: { token: string; label: string }[] = [
   { token: "{{ owner.firstname }}", label: "Prenom de la sales" },
 ];
 
-// Boutons mis en avant pour le pipeline talent uniquement (cf prop
-// `showPipelineVariables` ci-dessous). Le clic insere le jeton dans l'objet
-// ou le corps; le jeton est remplace par la valeur du destinataire saisie
-// dans « Ajouter contact client » au moment de l'envoi (cf casting-auto-send).
 const PIPELINE_VARIABLES: { token: string; label: string; hint: string }[] = [
   {
     token: "{{ contact.firstname }}",
@@ -127,11 +137,9 @@ export default function EmailComposer({
   const [customTalentIndex, setCustomTalentIndex] = useState<string>("");
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
-  // Ton du mail : les brouillons sont rédigés en vouvoiement par défaut.
-  // Le bouton « Tutoyer » réécrit tout le mail (objet + corps) via l'IA,
-  // puis devient « Vouvoyer » pour revenir en arrière.
   const [tone, setTone] = useState<"tu" | "vous">("vous");
   const [isRewritingTone, setIsRewritingTone] = useState(false);
+  const [researchOpen, setResearchOpen] = useState(false);
 
   const talentTokensFromSelection = useMemo<
     { token: string; label: string; node?: Record<string, unknown> }[]
@@ -306,259 +314,212 @@ export default function EmailComposer({
     return editor.getHTML().replace(/\n/g, "<br />");
   }, [editor, bodyTick]);
 
-  return (
-    <div className="space-y-4">
-      <h2 className="text-2xl font-semibold" style={{ fontFamily: "Spectral, serif", color: LICORICE }}>
-        {brandName || "Marque"}
-      </h2>
+  const chipBtn =
+    "inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border font-semibold transition-colors hover:shadow-sm shrink-0";
 
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      {/* Recherche marque — une ligne, détail repliable */}
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={onBrandResearch}
+          disabled={isResearching}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-opacity disabled:opacity-60"
+          style={{ borderColor: OLD_ROSE, color: LICORICE }}
+        >
+          {isResearching ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+              Analyse…
+            </>
+          ) : (
+            <>Par recherche</>
+          )}
+        </button>
+        {brandResearch && (
           <button
             type="button"
-            onClick={onBrandResearch}
-            disabled={isResearching}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-xl border transition-opacity disabled:opacity-60"
-            style={{ borderColor: OLD_ROSE, color: LICORICE }}
+            onClick={() => setResearchOpen((v) => !v)}
+            className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg hover:bg-black/5"
+            style={{ color: OLD_ROSE }}
           >
-            {isResearching ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                Analyse en cours…
-              </>
-            ) : (
-              <>Par recherche</>
-            )}
+            Recherche OK
+            {researchOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
-          {brandResearch && (
-            <button
-              type="button"
-              onClick={onBrandResearch}
-              disabled={isResearching}
-              className="text-sm px-2 py-1 rounded-lg hover:bg-black/5 transition-colors disabled:opacity-60"
-              style={{ color: OLD_ROSE }}
-            >
-              🔄 Actualiser
-            </button>
-          )}
-        </div>
+        )}
         {researchTargetLabel && (
-          <p className="text-xs" style={{ color: OLD_ROSE }}>
-            Analyse ciblée sur les sous-marques :{" "}
-            <span className="font-medium" style={{ color: LICORICE }}>
-              {researchTargetLabel}
-            </span>{" "}
-            (pas la maison mère).
-          </p>
+          <span className="text-[11px] truncate" style={{ color: OLD_ROSE }}>
+            Cible : <span style={{ color: LICORICE }}>{researchTargetLabel}</span>
+          </span>
         )}
-        {brandResearch && (
-          <div className="rounded-xl border p-4 space-y-3 text-sm" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, color: LICORICE }}>
-            <p>{brandResearch.recentCampaigns}</p>
-            <p>{brandResearch.newProducts}</p>
-            <p>{brandResearch.brandPositioning}</p>
-            <p>{brandResearch.influenceStrategy}</p>
-          </div>
-        )}
-      </div>
-
-      {previewMode === "edit" && (
-        <div className="space-y-3">
-          <div className="w-full sm:w-44">
-            <label className="block text-xs font-medium mb-1" style={{ color: LICORICE }}>
-              Langue de rédaction
-            </label>
-            <select
-              value={language}
-              onChange={(e) => onLanguageChange(e.target.value === "en" ? "en" : "fr")}
-              className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
-              style={{ borderColor: OLD_ROSE, color: LICORICE }}
-            >
-              <option value="fr">Français</option>
-              <option value="en">English</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: LICORICE }}>
-              Objet de l'email <span className="text-red-500">*</span>
-            </label>
-            <input
-              ref={subjectInputRef}
-              type="text"
-              value={subject}
-              onChange={(e) => onSubjectChange(e.target.value)}
-              onFocus={() => setLastField("subject")}
-              className="w-full rounded-xl border px-3 py-2 text-sm focus:ring-2 focus:ring-offset-0"
-              style={{ borderColor: OLD_ROSE, color: LICORICE }}
-              placeholder="Objet..."
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="text-xs space-y-0.5" style={{ color: OLD_ROSE }}>
-          <p className="font-medium" style={{ color: LICORICE }}>
-            Variables dynamiques
-          </p>
-          <p>
-            Cliquez sur un jeton : insertion dans <strong>{lastField === "subject" ? "l'objet" : "le corps"}</strong>.
-          </p>
-        </div>
-        <div className="inline-flex rounded-xl border p-0.5 shrink-0" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`, backgroundColor: "white" }}>
+        <div className="ml-auto inline-flex rounded-lg border p-0.5 shrink-0" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`, backgroundColor: "white" }}>
           <button
             type="button"
             onClick={() => setPreviewMode("edit")}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium"
             style={{ backgroundColor: previewMode === "edit" ? TEA_GREEN : "transparent", color: LICORICE }}
           >
-            <Pencil className="w-3.5 h-3.5" />
+            <Pencil className="w-3 h-3" />
             Editer
           </button>
           <button
             type="button"
             onClick={() => setPreviewMode("preview")}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium"
             style={{ backgroundColor: previewMode === "preview" ? TEA_GREEN : "transparent", color: LICORICE }}
           >
-            <Eye className="w-3.5 h-3.5" />
+            <Eye className="w-3 h-3" />
             Apercu
           </button>
         </div>
       </div>
+      {brandResearch && researchOpen && (
+        <div
+          className="rounded-lg border px-3 py-2 space-y-1.5 text-xs shrink-0 max-h-28 overflow-y-auto"
+          style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, color: LICORICE }}
+        >
+          <p>{brandResearch.recentCampaigns}</p>
+          <p>{brandResearch.newProducts}</p>
+          <p>{brandResearch.brandPositioning}</p>
+          <p>{brandResearch.influenceStrategy}</p>
+        </div>
+      )}
 
       {previewMode === "edit" && (
-        <div className="space-y-2">
-          {showPipelineVariables && talentInsertMode !== "instagram" && (
-            <div
-              className="rounded-xl border p-2.5"
-              style={{
-                borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
-                backgroundColor: "white",
-              }}
-            >
-              <p
-                className="text-[10px] uppercase tracking-wide mb-1.5"
-                style={{ color: OLD_ROSE }}
-              >
-                Variables — clique pour insérer dans{" "}
-                <strong>{lastField === "subject" ? "l'objet" : "le corps"}</strong>{" "}
-                (remplacé automatiquement à l'envoi avec le contact saisi
-                dans « Ajouter contact client »)
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {PIPELINE_VARIABLES.map((v) => (
-                  <button
-                    key={v.token}
-                    type="button"
-                    onClick={() => insertVariable(v.token)}
-                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border-2 font-semibold transition-colors hover:shadow-sm"
-                    style={{
-                      borderColor: TEA_GREEN,
-                      backgroundColor: `color-mix(in srgb, ${TEA_GREEN} 35%, white)`,
-                      color: LICORICE,
-                    }}
-                    title={`${v.hint} — insère ${v.token}`}
-                  >
-                    <span className="text-[11px]">+</span>
-                    <span className="tracking-wide">{v.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {!showPipelineVariables && talentInsertMode !== "instagram" && (
-            <div className="flex flex-wrap gap-1.5">
-              {contactOwnerVariables.map((v) => (
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <select
+            value={language}
+            onChange={(e) => onLanguageChange(e.target.value === "en" ? "en" : "fr")}
+            className="rounded-lg border px-2 py-1.5 text-xs bg-white shrink-0"
+            style={{ borderColor: OLD_ROSE, color: LICORICE }}
+            title="Langue de rédaction"
+          >
+            <option value="fr">FR</option>
+            <option value="en">EN</option>
+          </select>
+          <input
+            ref={subjectInputRef}
+            type="text"
+            value={subject}
+            onChange={(e) => onSubjectChange(e.target.value)}
+            onFocus={() => setLastField("subject")}
+            className="min-w-0 flex-1 rounded-lg border px-3 py-1.5 text-sm focus:ring-2 focus:ring-offset-0"
+            style={{ borderColor: OLD_ROSE, color: LICORICE }}
+            placeholder="Objet…"
+          />
+        </div>
+      )}
+
+      {previewMode === "edit" && (
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          <span className="text-[10px] uppercase tracking-wide shrink-0" style={{ color: OLD_ROSE }}>
+            Vars ({lastField === "subject" ? "objet" : "corps"})
+          </span>
+          {showPipelineVariables && talentInsertMode !== "instagram"
+            ? PIPELINE_VARIABLES.map((v) => (
                 <button
                   key={v.token}
                   type="button"
                   onClick={() => insertVariable(v.token)}
-                  className="text-xs px-2 py-1.5 rounded-lg border font-mono text-left max-w-full"
-                  style={{ borderColor: OLD_ROSE, backgroundColor: "white", color: LICORICE }}
-                  title={`${v.label} — ${v.token}`}
+                  className={chipBtn}
+                  style={{
+                    borderColor: TEA_GREEN,
+                    backgroundColor: `color-mix(in srgb, ${TEA_GREEN} 35%, white)`,
+                    color: LICORICE,
+                  }}
+                  title={`${v.hint} — ${v.token}`}
                 >
-                  <span className="block truncate">{v.token}</span>
-                  <span className="block text-[10px] font-sans opacity-80 font-normal normal-case">{v.label}</span>
+                  + {v.label}
                 </button>
-              ))}
-            </div>
-          )}
-          <p className="text-[10px] uppercase tracking-wide" style={{ color: OLD_ROSE }}>
-            {talentInsertMode === "instagram"
-              ? "Talents — insère un lien Instagram cliquable (ordre = sélection)"
-              : "Talents (optionnel) — ordre = sélection ; {{talent_N}} pour tout N"}
-          </p>
-          <div className="max-h-40 overflow-y-auto flex flex-wrap gap-1.5 pr-1">
-            {talentTokensFromSelection.length === 0 ? (
-              <p className="text-[11px] font-sans normal-case opacity-80" style={{ color: OLD_ROSE }}>
-                Sélectionnez des talents à gauche pour insérer les jetons correspondants.
-              </p>
-            ) : (
-              talentTokensFromSelection.map((v) => (
+              ))
+            : null}
+          {!showPipelineVariables && talentInsertMode !== "instagram"
+            ? contactOwnerVariables.map((v) => (
                 <button
                   key={v.token}
                   type="button"
-                  onClick={() => {
-                    if (talentInsertMode === "instagram") {
-                      if (v.node && lastField === "body") {
-                        editor
-                          ?.chain()
-                          .focus()
-                          .insertContent([v.node, { type: "text", text: " " }])
-                          .run();
-                        return;
-                      }
-                      insertVariable(v.label);
-                      return;
-                    }
-                    insertVariable(v.token);
-                  }}
-                  className="text-xs px-2 py-1 rounded-lg border text-left max-w-full"
+                  onClick={() => insertVariable(v.token)}
+                  className={`${chipBtn} font-mono max-w-[10rem]`}
                   style={{ borderColor: OLD_ROSE, backgroundColor: "white", color: LICORICE }}
-                  title={v.label}
+                  title={`${v.label} — ${v.token}`}
                 >
-                  <span className="block truncate font-mono">
-                    {talentInsertMode === "instagram" ? v.label : v.token}
-                  </span>
-                  <span className="block text-[10px] font-sans opacity-80 font-normal normal-case truncate">
-                    {talentInsertMode === "instagram" ? "Lien Instagram" : v.label}
-                  </span>
+                  <span className="truncate">{v.token}</span>
                 </button>
               ))
-            )}
-          </div>
-          <div className="flex flex-wrap items-end gap-2 pt-1">
-            <label className="flex flex-col gap-0.5 text-[10px] font-sans normal-case" style={{ color: OLD_ROSE }}>
-              Autre n°
+            : null}
+          <span className="text-[10px] uppercase tracking-wide ml-1 shrink-0" style={{ color: OLD_ROSE }}>
+            Talent
+          </span>
+          {talentTokensFromSelection.length === 0 ? (
+            <span className="text-[11px] opacity-70" style={{ color: OLD_ROSE }}>
+              (sélection à gauche)
+            </span>
+          ) : (
+            talentTokensFromSelection.map((v) => (
+              <button
+                key={v.token}
+                type="button"
+                onClick={() => {
+                  if (talentInsertMode === "instagram") {
+                    if (v.node && lastField === "body") {
+                      editor
+                        ?.chain()
+                        .focus()
+                        .insertContent([v.node, { type: "text", text: " " }])
+                        .run();
+                      return;
+                    }
+                    insertVariable(v.label);
+                    return;
+                  }
+                  insertVariable(v.token);
+                }}
+                className={`${chipBtn} max-w-[9rem]`}
+                style={{ borderColor: OLD_ROSE, backgroundColor: "white", color: LICORICE }}
+                title={v.label}
+              >
+                <span className="truncate font-mono">
+                  {talentInsertMode === "instagram" ? v.label : v.token}
+                </span>
+              </button>
+            ))
+          )}
+          {talentInsertMode !== "instagram" && (
+            <>
               <input
                 type="number"
                 min={1}
                 step={1}
                 value={customTalentIndex}
                 onChange={(e) => setCustomTalentIndex(e.target.value)}
-                placeholder="ex. 12"
-                className="w-20 rounded-lg border px-2 py-1 text-xs font-mono"
+                placeholder="N°"
+                className="w-12 rounded-md border px-1.5 py-1 text-[11px] font-mono"
                 style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                title="Autre n° talent"
               />
-            </label>
-            <button
-              type="button"
-              onClick={() => {
-                const n = Number.parseInt(customTalentIndex.trim(), 10);
-                if (!Number.isFinite(n) || n < 1) return;
-                insertVariable(`{{talent_${n}}}`);
-              }}
-              className="text-xs px-2 py-1.5 rounded-lg border font-medium"
-              style={{ borderColor: OLD_ROSE, backgroundColor: OLD_LACE, color: LICORICE }}
-            >
-              Insérer {'{{talent_N}}'}
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const n = Number.parseInt(customTalentIndex.trim(), 10);
+                  if (!Number.isFinite(n) || n < 1) return;
+                  insertVariable(`{{talent_${n}}}`);
+                }}
+                className={chipBtn}
+                style={{ borderColor: OLD_ROSE, backgroundColor: OLD_LACE, color: LICORICE }}
+              >
+                + talent_N
+              </button>
+            </>
+          )}
         </div>
       )}
 
       {previewMode === "preview" ? (
-        <div className="rounded-xl border p-4 space-y-4 bg-white" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
+        <div
+          className="flex-1 min-h-0 overflow-y-auto rounded-xl border p-4 space-y-3 bg-white"
+          style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+        >
           <div>
             <p className="text-[10px] uppercase mb-1 opacity-70" style={{ color: LICORICE }}>
               Objet
@@ -571,37 +532,78 @@ export default function EmailComposer({
             <p className="text-[10px] uppercase mb-1 opacity-70" style={{ color: LICORICE }}>
               Corps
             </p>
-            <div className="prose prose-sm max-w-none text-sm min-h-[200px] border-t pt-3" style={{ color: LICORICE }} dangerouslySetInnerHTML={{ __html: previewBody || "<p></p>" }} />
+            <div
+              className="prose prose-sm max-w-none text-sm border-t pt-3"
+              style={{ color: LICORICE }}
+              dangerouslySetInnerHTML={{ __html: previewBody || "<p></p>" }}
+            />
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border overflow-hidden bg-white" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
+        <div
+          className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border bg-white"
+          style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+        >
           {editor && (
-            <div className="flex flex-wrap items-center gap-1 px-2 py-1.5 border-b" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`, backgroundColor: OLD_LACE }}>
-              <button type="button" onClick={() => editor.chain().focus().toggleBold().run()} className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("bold") ? "bg-white" : ""}`}>
+            <div
+              className="flex flex-wrap items-center gap-1 px-2 py-1 border-b shrink-0"
+              style={{
+                borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`,
+                backgroundColor: OLD_LACE,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleBold().run()}
+                className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("bold") ? "bg-white" : ""}`}
+              >
                 <Bold className="w-4 h-4" />
               </button>
-              <button type="button" onClick={() => editor.chain().focus().toggleItalic().run()} className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("italic") ? "bg-white" : ""}`}>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleItalic().run()}
+                className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("italic") ? "bg-white" : ""}`}
+              >
                 <Italic className="w-4 h-4" />
               </button>
-              <button type="button" onClick={() => editor.chain().focus().toggleUnderline().run()} className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("underline") ? "bg-white" : ""}`}>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleUnderline().run()}
+                className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("underline") ? "bg-white" : ""}`}
+              >
                 <UnderlineIcon className="w-4 h-4" />
               </button>
-              <button type="button" onClick={() => editor.chain().focus().toggleBulletList().run()} className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("bulletList") ? "bg-white" : ""}`}>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleBulletList().run()}
+                className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("bulletList") ? "bg-white" : ""}`}
+              >
                 <List className="w-4 h-4" />
               </button>
-              <button type="button" onClick={() => editor.chain().focus().toggleOrderedList().run()} className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("orderedList") ? "bg-white" : ""}`}>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("orderedList") ? "bg-white" : ""}`}
+              >
                 <ListOrdered className="w-4 h-4" />
               </button>
-              <button type="button" onClick={setLink} className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("link") ? "bg-white" : ""}`}>
+              <button
+                type="button"
+                onClick={setLink}
+                className={`p-1.5 rounded hover:bg-white/80 ${editor.isActive("link") ? "bg-white" : ""}`}
+              >
                 <LinkIcon className="w-4 h-4" />
               </button>
-              <span className="text-sm px-1 self-center select-none" style={{ color: OLD_ROSE }}>|</span>
+              <span className="text-sm px-1 self-center select-none" style={{ color: OLD_ROSE }}>
+                |
+              </span>
               <button
                 type="button"
                 onClick={onGenerate}
                 disabled={isGenerating}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-50 ${!brandResearch || talentsSelected.length === 0 ? "opacity-60" : ""}`}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-50 ${
+                  !brandResearch || talentsSelected.length === 0 ? "opacity-60" : ""
+                }`}
                 style={{ backgroundColor: OLD_ROSE, color: "white" }}
                 title={
                   !brandResearch
@@ -614,7 +616,7 @@ export default function EmailComposer({
                 {isGenerating ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                    Rédaction en cours…
+                    Rédaction…
                   </>
                 ) : (
                   <>Rédiger</>
@@ -640,7 +642,7 @@ export default function EmailComposer({
                 ) : (
                   <>
                     <Languages className="w-3.5 h-3.5" />
-                    {language === "fr" ? "Traduire en EN" : "Traduire en FR"}
+                    {language === "fr" ? "EN" : "FR"}
                   </>
                 )}
               </button>
@@ -677,19 +679,36 @@ export default function EmailComposer({
             </div>
           )}
           {translateError && (
-            <div className="px-3 py-1.5 text-xs border-b" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`, color: "#991B1B", backgroundColor: "#FEF2F2" }}>
+            <div
+              className="px-3 py-1 text-xs border-b shrink-0"
+              style={{
+                borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`,
+                color: "#991B1B",
+                backgroundColor: "#FEF2F2",
+              }}
+            >
               {translateError}
             </div>
           )}
-          <div className="relative" onClick={() => setLastField("body")}>
-            <EditorContent editor={editor} />
+          <div
+            className="relative flex-1 min-h-0 overflow-y-auto"
+            onClick={() => setLastField("body")}
+          >
+            <EditorContent editor={editor} className="h-full [&_.ProseMirror]:min-h-full" />
           </div>
-          <div className="px-3 py-2 border-t text-xs" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`, color: OLD_ROSE }}>
-            {words} mot{words > 1 ? "s" : ""} • {talentsSelected.length} talent{talentsSelected.length > 1 ? "s" : ""} selectionne{talentsSelected.length > 1 ? "s" : ""}
+          <div
+            className="px-3 py-1.5 border-t text-[11px] shrink-0"
+            style={{
+              borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)`,
+              color: OLD_ROSE,
+            }}
+          >
+            {words} mot{words > 1 ? "s" : ""} • {talentsSelected.length} talent
+            {talentsSelected.length > 1 ? "s" : ""} selectionne
+            {talentsSelected.length > 1 ? "s" : ""}
           </div>
         </div>
       )}
     </div>
   );
 }
-

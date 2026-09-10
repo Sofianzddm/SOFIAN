@@ -364,6 +364,7 @@ export default function CastingComposer({
   const [sendMode, setSendMode] = useState<"now" | "at">("now");
   const [scheduledAt, setScheduledAt] = useState<string>("");
   const [markingSent, setMarkingSent] = useState(false);
+  const [briefOpen, setBriefOpen] = useState(false);
   const [missionStatus, setMissionStatus] = useState<
     "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED" | null
   >(null);
@@ -538,7 +539,7 @@ export default function CastingComposer({
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm max-w-none min-h-[220px] px-3 py-2 text-sm focus:outline-none",
+          "prose prose-sm max-w-none min-h-[140px] h-full px-3 py-2 text-sm focus:outline-none",
         style: `font-family: Switzer, system-ui, sans-serif; color: ${LICORICE}`,
       },
       handleDOMEvents: {
@@ -592,6 +593,7 @@ export default function CastingComposer({
     );
     setPreviewMode("edit");
     setLastField("body");
+    setBriefOpen(false);
     setBrandResearch(null);
     // Client EN (fiche CRM / mission) → anglais d'emblée.
     setEmailLanguage(resolveClientEmailLanguage(contact) || defaultLanguage);
@@ -1182,13 +1184,13 @@ export default function CastingComposer({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center p-4 bg-black/45 overflow-y-auto overscroll-contain"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/45 overflow-hidden"
       role="dialog"
       aria-modal="true"
       aria-labelledby="casting-composer-title"
     >
       <div
-        className="w-full max-w-6xl h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
+        className="w-full max-w-6xl h-[calc(100dvh-1.5rem)] max-h-[calc(100dvh-1.5rem)] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
         style={{ backgroundColor: OLD_LACE }}
       >
         <div
@@ -1373,10 +1375,10 @@ export default function CastingComposer({
             )}
           </div>
 
-          {/* Colonne email */}
+          {/* Colonne email — une page : outils compacts + éditeur qui remplit le reste */}
           <div className="w-full md:w-2/3 flex flex-col min-h-0 overflow-hidden">
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
-              <div className="flex flex-col gap-1.5">
+            <div className="shrink-0 px-5 pt-3 pb-2 space-y-2">
+              <div className="flex flex-wrap gap-1.5">
                 {contact.contacts.length === 0 ? (
                   <p className="text-xs opacity-70" style={{ color: LICORICE }}>
                     Aucun contact avec email sur cette marque.
@@ -1391,7 +1393,7 @@ export default function CastingComposer({
                     return (
                       <label
                         key={c.id}
-                        className={`inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs px-3 py-1.5 rounded-2xl cursor-pointer select-none ${
+                        className={`inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs px-2.5 py-1 rounded-2xl cursor-pointer select-none ${
                           checked ? "" : "opacity-50"
                         }`}
                         style={{
@@ -1425,7 +1427,7 @@ export default function CastingComposer({
                             {c.role}
                           </span>
                         ) : null}
-                        <span className="opacity-80">{c.email || ""}</span>
+                        <span className="opacity-80 truncate max-w-[12rem]">{c.email || ""}</span>
                         {c.linkedinUrl ? (
                           <a
                             href={c.linkedinUrl}
@@ -1439,7 +1441,7 @@ export default function CastingComposer({
                             LinkedIn
                           </a>
                         ) : null}
-                        <span className="opacity-90">— {brandsLabel}</span>
+                        <span className="opacity-90 truncate max-w-[10rem]">— {brandsLabel}</span>
                       </label>
                     );
                   })
@@ -1447,74 +1449,95 @@ export default function CastingComposer({
               </div>
 
               {contact.missionBrief && (
-                <section className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs">
-                  <p className="font-semibold text-amber-900">
-                    Brief strategy - {contact.missionBrief.creatorName}{" -> "}{" "}
-                    {contact.missionBrief.targetBrand}
-                  </p>
-                  <p className="mt-1 text-amber-800">
-                    <strong>Statut mission:</strong>{" "}
-                    {missionStatus ? missionStatusLabel(missionStatus) : missionStatusLabel(contact.missionBrief.status)}
-                  </p>
-                  <p className="mt-1 text-amber-900">{contact.missionBrief.strategyReason}</p>
-                  {contact.missionBrief.recommendedAngle && (
-                    <p className="mt-1 text-amber-800">
-                      <strong>Angle:</strong> {contact.missionBrief.recommendedAngle}
-                    </p>
-                  )}
-                  {(contact.missionBrief.objective || contact.missionBrief.priority) && (
-                    <p className="mt-1 text-amber-800">
-                      <strong>Objectif:</strong> {contact.missionBrief.objective || "—"} ·{" "}
-                      <strong>Priorite:</strong> {contact.missionBrief.priority}
-                    </p>
-                  )}
-                  {contact.missionBrief.dos && (
-                    <p className="mt-1 text-amber-800">
-                      <strong>Do:</strong> {contact.missionBrief.dos}
-                    </p>
-                  )}
-                  {contact.missionBrief.donts && (
-                    <p className="mt-1 text-amber-800">
-                      <strong>Don't:</strong> {contact.missionBrief.donts}
-                    </p>
-                  )}
-                  {contact.missionBrief.clientLanguage && (
-                    <p className="mt-1 text-amber-800">
-                      <strong>Langue client:</strong>{" "}
-                      {contact.missionBrief.clientLanguage === "FR" ? "Français" : "Anglais"}
-                    </p>
-                  )}
-                  {Array.isArray(contact.missionBrief.clientContacts) &&
-                    contact.missionBrief.clientContacts.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-amber-800 font-semibold">Contacts client</p>
-                        {contact.missionBrief.clientContacts.map((c, idx) => (
-                          <p key={`${c.email || "contact"}-${idx}`} className="text-xs text-amber-900">
-                            {`${c.firstname || ""} ${c.lastname || ""}`.trim() || "Contact"} -{" "}
-                            {c.email || "email non renseigné"}
-                            {c.role ? ` (${c.role})` : ""}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  {missionStatus !== "SENT" && (
-                    <div className="mt-2">
-                      <button
-                        type="button"
-                        onClick={markMissionAsSent}
-                        disabled={markingSent}
-                        className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 disabled:opacity-60"
-                      >
-                        {markingSent ? "Mise à jour..." : "Marquer mission envoyée"}
-                      </button>
+                <section className="rounded-lg border border-amber-200 bg-amber-50 text-xs overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setBriefOpen((v) => !v)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-left font-semibold text-amber-900 hover:bg-amber-100/60"
+                  >
+                    <span className="truncate">
+                      Brief — {contact.missionBrief.creatorName}
+                      {" → "}
+                      {contact.missionBrief.targetBrand}
+                    </span>
+                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-amber-700">
+                      {briefOpen ? "Masquer" : "Voir"}
+                    </span>
+                  </button>
+                  {briefOpen && (
+                    <div className="px-3 pb-2.5 space-y-1 max-h-36 overflow-y-auto border-t border-amber-200/80">
+                      <p className="pt-2 text-amber-800">
+                        <strong>Statut:</strong>{" "}
+                        {missionStatus
+                          ? missionStatusLabel(missionStatus)
+                          : missionStatusLabel(contact.missionBrief.status)}
+                      </p>
+                      <p className="text-amber-900">{contact.missionBrief.strategyReason}</p>
+                      {contact.missionBrief.recommendedAngle && (
+                        <p className="text-amber-800">
+                          <strong>Angle:</strong> {contact.missionBrief.recommendedAngle}
+                        </p>
+                      )}
+                      {(contact.missionBrief.objective || contact.missionBrief.priority) && (
+                        <p className="text-amber-800">
+                          <strong>Objectif:</strong> {contact.missionBrief.objective || "—"} ·{" "}
+                          <strong>Priorite:</strong> {contact.missionBrief.priority}
+                        </p>
+                      )}
+                      {contact.missionBrief.dos && (
+                        <p className="text-amber-800">
+                          <strong>Do:</strong> {contact.missionBrief.dos}
+                        </p>
+                      )}
+                      {contact.missionBrief.donts && (
+                        <p className="text-amber-800">
+                          <strong>Don't:</strong> {contact.missionBrief.donts}
+                        </p>
+                      )}
+                      {contact.missionBrief.clientLanguage && (
+                        <p className="text-amber-800">
+                          <strong>Langue:</strong>{" "}
+                          {contact.missionBrief.clientLanguage === "FR" ? "Français" : "Anglais"}
+                        </p>
+                      )}
+                      {Array.isArray(contact.missionBrief.clientContacts) &&
+                        contact.missionBrief.clientContacts.length > 0 && (
+                          <div className="space-y-0.5">
+                            <p className="text-amber-800 font-semibold">Contacts client</p>
+                            {contact.missionBrief.clientContacts.map((c, idx) => (
+                              <p
+                                key={`${c.email || "contact"}-${idx}`}
+                                className="text-xs text-amber-900"
+                              >
+                                {`${c.firstname || ""} ${c.lastname || ""}`.trim() || "Contact"} -{" "}
+                                {c.email || "email non renseigné"}
+                                {c.role ? ` (${c.role})` : ""}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      {missionStatus !== "SENT" && (
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={markMissionAsSent}
+                            disabled={markingSent}
+                            className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 disabled:opacity-60"
+                          >
+                            {markingSent ? "Mise à jour..." : "Marquer mission envoyée"}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </section>
               )}
+            </div>
 
+            <div className="flex-1 min-h-0 px-5 pb-2 overflow-hidden flex flex-col">
               {isHeadOfSalesReadOnly ? (
                 <section
-                  className="rounded-xl border p-4 space-y-3 bg-white"
+                  className="flex-1 min-h-0 overflow-y-auto rounded-xl border p-4 space-y-3 bg-white"
                   style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
                 >
                   <p className="text-xs uppercase tracking-wide" style={{ color: OLD_ROSE }}>
@@ -1533,7 +1556,7 @@ export default function CastingComposer({
                       Corps
                     </p>
                     <div
-                      className="prose prose-sm max-w-none text-sm min-h-[200px] border-t pt-3"
+                      className="prose prose-sm max-w-none text-sm border-t pt-3"
                       style={{ color: LICORICE }}
                       dangerouslySetInnerHTML={{
                         __html:
