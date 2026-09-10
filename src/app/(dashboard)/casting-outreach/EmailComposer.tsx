@@ -324,10 +324,10 @@ export default function EmailComposer({
             {isResearching ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                Analyse automatique en cours
+                Analyse en cours…
               </>
             ) : (
-              <>🔍 Par recherche automatique</>
+              <>Par recherche</>
             )}
           </button>
           {brandResearch && (
@@ -605,19 +605,19 @@ export default function EmailComposer({
                 style={{ backgroundColor: OLD_ROSE, color: "white" }}
                 title={
                   !brandResearch
-                    ? "Lance d'abord l'analyse de la marque (🔍 Par recherche automatique)"
+                    ? "Lance d'abord l'analyse de la marque (Par recherche)"
                     : talentsSelected.length === 0
                       ? "Sélectionne au moins un talent à gauche"
-                      : "Rédige le mail automatiquement avec l'IA"
+                      : "Rédiger le mail"
                 }
               >
                 {isGenerating ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                    Redaction en cours...
+                    Rédaction en cours…
                   </>
                 ) : (
-                  <>✍️ Rediger automatiquement</>
+                  <>Rédiger</>
                 )}
               </button>
               <button

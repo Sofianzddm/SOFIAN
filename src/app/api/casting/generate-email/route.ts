@@ -46,6 +46,25 @@ export interface GenerateEmailBody {
     firstName?: string;
     brandName?: string;
   };
+  /**
+   * Brief projet outreach (parcours /projets-outreach). Absent sur Outreach Clients
+   * → le prompt casting générique reste inchangé.
+   */
+  projectBrief?: {
+    projectTitle?: string | null;
+    projectDescription?: string | null;
+    creatorName?: string | null;
+    targetBrand?: string | null;
+    strategyReason?: string | null;
+    recommendedAngle?: string | null;
+    objective?: string | null;
+    deliverables?: string | null;
+    angles?: string | null;
+    timeline?: string | null;
+    budgetRange?: string | null;
+    dos?: string | null;
+    donts?: string | null;
+  } | null;
 }
 
 function normalizeForIncludes(s: string): string {
@@ -124,6 +143,101 @@ export async function POST(request: NextRequest) {
     const language: "fr" | "en" = body.language === "en" ? "en" : "fr";
     const isBenelux = body.market === "BENELUX";
     const { newProducts, brandPositioning, influenceStrategy } = body.brandResearch;
+
+    const rawProject = body.projectBrief;
+    const hasProjectBrief = Boolean(
+      rawProject &&
+        (String(rawProject.strategyReason || "").trim() ||
+          String(rawProject.objective || "").trim() ||
+          String(rawProject.projectTitle || "").trim() ||
+          String(rawProject.deliverables || "").trim())
+    );
+    const projectBrief = hasProjectBrief && rawProject ? rawProject : null;
+
+    function briefLine(label: string, value: unknown): string {
+      const v = String(value || "").trim();
+      return v ? `- ${label} : ${v}` : "";
+    }
+    const projectBriefBlockFr = projectBrief
+      ? `
+BRIEF PROJET (OBLIGATOIRE — priorité absolue sur le pitch générique casting) :
+Ce mail n'est PAS un outreach casting générique multi-talents. Tu pitches UN projet précis autour du/des talent(s) fourni(s).
+${[
+  briefLine("Titre du projet", projectBrief.projectTitle),
+  briefLine("Description", projectBrief.projectDescription),
+  briefLine("Talent", projectBrief.creatorName),
+  briefLine("Marque ciblée", projectBrief.targetBrand),
+  briefLine("Raison strategy", projectBrief.strategyReason),
+  briefLine("Angle recommandé", projectBrief.recommendedAngle),
+  briefLine("Objectif", projectBrief.objective),
+  briefLine("Livrables", projectBrief.deliverables),
+  briefLine("Angles", projectBrief.angles),
+  briefLine("Timeline", projectBrief.timeline),
+  briefLine("Budget", projectBrief.budgetRange),
+  briefLine("Do's", projectBrief.dos),
+  briefLine("Don'ts", projectBrief.donts),
+]
+  .filter(Boolean)
+  .join("\n")}
+
+Règles projet :
+- Le mail doit vendre CE projet (opportunité / placement / collab) à la marque, pas un roster générique.
+- Appuie-toi sur la raison strategy, l'objectif, les livrables et l'angle pour construire le pitch.
+- Respecte strictement les Don'ts ; mets en avant les Do's si utiles.
+- Les talents listés dans "Talents disponibles" sont le cœur du projet : présente-les dans ce cadre.
+- Tu peux citer 1 élément concret issu de la recherche marque si ça renforce le fit avec le projet.
+- Ne dilue pas le message avec une proposition de roster complet hors projet : le talentbook peut être mentionné en bonus, mais le cœur du mail = le projet.
+
+INTERDITS PROJET (absolus) :
+- Ne JAMAIS écrire « Dans notre agence nous avons plusieurs créateurs qui peuvent correspondre » ni aucune variante du type « plusieurs créateurs / plusieurs talents à vous proposer / une sélection de profils ».
+- Si un seul talent est fourni, parle au SINGULIER de cette créatrice et de SON projet (pas d'une liste casting).
+- Si le brief mentionne des créatrices qui l'accompagnent (ex. Pauline, Lorine, Karla), présente-les comme ACCOMPAGNATRICES du projet, pas comme un casting alternatif.
+- Pour chaque accompagnatrice : prénom + lien Instagram CLIQUABLE propre au format <a href="https://www.instagram.com/HANDLE">@HANDLE</a> (ou le handle fourni dans le brief).
+- INTERDIT de coller une URL Instagram longue avec tokens (?sttn=, ?stkn=, igsh, etc.) : nettoie toujours vers https://www.instagram.com/handle/
+- Formule naturelle du type : « Elle sera accompagnée de Pauline (@…), Lorine (@…) et Karla (@…). »
+- N'invente pas de handles Instagram : utilise uniquement ceux présents dans le brief / objectif.
+`
+      : "";
+    const projectBriefBlockEn = projectBrief
+      ? `
+PROJECT BRIEF (MANDATORY — overrides the generic casting pitch) :
+This email is NOT a generic multi-talent casting outreach. You are pitching ONE specific project around the provided talent(s).
+${[
+  briefLine("Project title", projectBrief.projectTitle),
+  briefLine("Description", projectBrief.projectDescription),
+  briefLine("Talent", projectBrief.creatorName),
+  briefLine("Target brand", projectBrief.targetBrand),
+  briefLine("Strategy reason", projectBrief.strategyReason),
+  briefLine("Recommended angle", projectBrief.recommendedAngle),
+  briefLine("Objective", projectBrief.objective),
+  briefLine("Deliverables", projectBrief.deliverables),
+  briefLine("Angles", projectBrief.angles),
+  briefLine("Timeline", projectBrief.timeline),
+  briefLine("Budget", projectBrief.budgetRange),
+  briefLine("Do's", projectBrief.dos),
+  briefLine("Don'ts", projectBrief.donts),
+]
+  .filter(Boolean)
+  .join("\n")}
+
+Project rules:
+- Sell THIS project (opportunity / placement / collab) to the brand, not a generic roster.
+- Build the pitch from the strategy reason, objective, deliverables and angle.
+- Strictly respect Don'ts; use Do's when helpful.
+- Talents in "Available talents" are the core of the project — present them in that frame.
+- You may cite 1 concrete brand-research detail if it strengthens the project fit.
+- Don't dilute with an off-project roster pitch: talentbook can be a bonus, but the core is the project.
+
+PROJECT PROHIBITIONS (absolute):
+- NEVER write "Looking at the market… we have several creators who could be a fit" nor any "several creators / a selection of profiles" casting transition.
+- If only one talent is provided, write in the SINGULAR about that creator and HER project.
+- If the brief mentions accompanying creators (e.g. Pauline, Lorine, Karla), present them as PROJECT COMPANIONS, not as an alternate casting list.
+- For each companion: first name + clean clickable Instagram link as <a href="https://www.instagram.com/HANDLE">@HANDLE</a>.
+- FORBIDDEN to paste long Instagram URLs with tokens (?sttn=, ?stkn=, igsh, etc.): always clean to https://www.instagram.com/handle/
+- Natural phrasing e.g. "She will be accompanied by Pauline (@…), Lorine (@…) and Karla (@…)."
+- Do not invent Instagram handles: only use those present in the brief / objective.
+`
+      : "";
 
     // Quand plusieurs marques filles sont fournies (ex. « Dove, Axe, Rexona »),
     // on précise à l'IA qu'il s'agit de plusieurs marques d'un même groupe gérées
@@ -227,6 +341,7 @@ Positioning: ${brandPositioning}
 Current influence strategy of the brand (profile types, formats, tone of their collaborations): ${influenceStrategy || "—"}
 Available talents: ${talentsString} (the variable already contains complete HTML links in the form <a><strong>Firstname Lastname</strong></a>; keep them as-is, do NOT remove the bold or the link)
 ${beneluxContextEn}
+${projectBriefBlockEn}
 ${
           useDirectRecipient
             ? `RECIPIENT (use these EXACT values, do NOT use any HubSpot tokens like {{ contact.firstname }} or {{ contact.company }}):
@@ -256,6 +371,16 @@ STRUCTURE (a logical flow, not a rigid template — vary the wording on every em
   1) an offer to quickly send their complete media kits, a moodboard and tailored performance estimates;
   2) a proposal for a short 10-15 minute call next week to introduce our agency and our creators.
 For reference (do NOT reuse as-is): "I would be delighted to quickly send you their complete media kits, a moodboard, and tailored performance estimates. Would you be available for a 10-15 minute call next week to introduce our agency and our creators?"
+
+${
+  projectBrief
+    ? `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
+- FORBIDDEN to use the "several creators who could be a fit" transition (or variants).
+- Present the main talent in the singular + the project.
+- If the brief cites companions, one sentence "She will be accompanied by…" with clean Instagram links (<a href="https://www.instagram.com/handle">@handle</a>), never tokenized Instagram URLs.
+- No multi-profile casting list outside the project.`
+    : ""
+}
 
 Exact closing: "Best regards,"
 
@@ -303,6 +428,7 @@ Positionnement : ${brandPositioning}
 Stratégie d'influence actuelle de la marque (types de profils, formats, tonalité de leurs collaborations) : ${influenceStrategy || "—"}
 Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme <a><strong>Prénom Nom</strong></a> ; conserve-les tels quels, NE retire jamais le gras ni le lien)
 ${beneluxContextFr}
+${projectBriefBlockFr}
 ${
           useDirectRecipient
             ? `DESTINATAIRE (utilise EXACTEMENT ces valeurs, n'utilise AUCUN jeton HubSpot du type {{ contact.firstname }} ou {{ contact.company }}) :
@@ -332,6 +458,16 @@ STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à c
   1) proposer d'envoyer rapidement leurs médias kits complets, un moodboard et des estimations de performance sur mesure ;
   2) proposer un court appel de 10-15 minutes la semaine prochaine pour présenter notre agence et nos talents.
 Pour référence (à NE PAS reprendre tel quel) : « Je serais ravie de vous envoyer rapidement leurs médias kits complets, un moodboard ainsi que des estimations de performance sur mesure. Seriez-vous disponible pour un appel de 10-15 minutes la semaine prochaine pour vous présenter notre agence et nos talents ? »
+
+${
+  projectBrief
+    ? `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
+- INTERDIT d'utiliser la transition « plusieurs créateurs qui peuvent correspondre » (ou variante).
+- Présente le talent principal au singulier + le projet.
+- Si le brief cite des accompagnatrices, une phrase « Elle sera accompagnée de … » avec liens Instagram propres (<a href="https://www.instagram.com/handle">@handle</a>), jamais d'URL Instagram avec tokens.
+- Pas de liste casting multi-profils hors projet.`
+    : ""
+}
 
 Clôture exacte : "Belle journée,"
 

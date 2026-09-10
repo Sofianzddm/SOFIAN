@@ -16,6 +16,7 @@ import {
   Loader2,
   Eye,
   Pencil,
+  Linkedin,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import EmailComposer from "./EmailComposer";
@@ -35,6 +36,9 @@ type CastingRecipient = {
   firstname: string;
   lastname: string;
   email: string;
+  /** Poste / rôle du contact côté marque. */
+  role?: string;
+  linkedinUrl?: string;
   /** Sous-marques couvertes par ce contact (variable {{ contact.marques }}). */
   marques?: string[];
 };
@@ -60,6 +64,13 @@ type CastingCompanyRecipients = {
     clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }> | null;
     deadlineAt?: string | null;
     campaignName?: string | null;
+    /** Champs brief projet (parcours /projets-outreach uniquement). */
+    projectTitle?: string | null;
+    projectDescription?: string | null;
+    deliverables?: string | null;
+    angles?: string | null;
+    timeline?: string | null;
+    budgetRange?: string | null;
   } | null;
 };
 
@@ -216,6 +227,11 @@ export interface CastingComposerProps {
    * heure FR). L'échéance choisie est remontée via `onSaved(..., { scheduledAt })`.
    */
   allowSchedule?: boolean;
+  /**
+   * Si fourni, la colonne gauche ne montre que ce talent et le sélectionne
+   * automatiquement (parcours projet outreach).
+   */
+  lockedTalentId?: string | null;
   onClose: () => void;
   onSaved: (
     status: "en_cours" | "pret" | "reset",
@@ -225,6 +241,15 @@ export interface CastingComposerProps {
       language: "fr" | "en";
       /** Heure d'envoi programmée (datetime-local, heure de Paris) ou null. */
       scheduledAt?: string | null;
+      /** Destinataires cochés au moment de l'enregistrement / envoi. */
+      selectedContacts?: Array<{
+        id: string;
+        firstname: string;
+        lastname: string;
+        email: string;
+        role?: string;
+        linkedinUrl?: string;
+      }>;
     }
   ) => void;
   onError: (message: string) => void;
@@ -240,6 +265,7 @@ export default function CastingComposer({
   readyLabel = "Marquer comme prêt",
   defaultLanguage = "fr",
   allowSchedule = false,
+  lockedTalentId = null,
   onClose,
   onSaved,
   onError,
@@ -292,6 +318,14 @@ export default function CastingComposer({
   const [loadingTalents, setLoadingTalents] = useState(false);
   const [talentsError, setTalentsError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<Set<string>>(new Set());
+  const [recipientPickerOpen, setRecipientPickerOpen] = useState(false);
+  const [pendingSendDraft, setPendingSendDraft] = useState<{
+    subject: string;
+    bodyHtml: string;
+    language: "fr" | "en";
+    scheduledAt: string | null;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [editorEmpty, setEditorEmpty] = useState(true);
   /** Dernier champ focalisé : les variables s’y insèrent au clic */
@@ -530,7 +564,10 @@ export default function CastingComposer({
     const bodyRaw = (contact.initialBodyHtml ?? "").trim();
     const hasHubspotDraft = sub.length > 0 || bodyRaw.length > 0;
 
-    setSelectedIds(new Set());
+    setSelectedIds(lockedTalentId ? new Set([lockedTalentId]) : new Set());
+    setSelectedRecipientIds(
+      new Set((contact.contacts || []).map((c) => c.id).filter(Boolean))
+    );
     setPreviewMode("edit");
     setLastField("body");
     setBrandResearch(null);
@@ -547,7 +584,7 @@ export default function CastingComposer({
     }
     setEditorEmpty(!editor.getText().trim());
     setBodyTick((n) => n + 1);
-  }, [open, contact, editor, defaultLanguage]);
+  }, [open, contact, editor, defaultLanguage, lockedTalentId]);
 
   useEffect(() => {
     if (!open || !contact?.missionBrief) {
@@ -665,9 +702,45 @@ export default function CastingComposer({
         }
         return res.json();
       })
-      .then((data: { talents?: PresskitTalent[] }) => {
-        if (!cancelled) {
-          setTalents(Array.isArray(data.talents) ? data.talents : []);
+      .then(async (data: { talents?: PresskitTalent[] }) => {
+        if (cancelled) return;
+        const all = Array.isArray(data.talents) ? data.talents : [];
+        let filtered = lockedTalentId
+          ? all.filter((t) => t.id === lockedTalentId)
+          : all;
+
+        // Si le talent du projet n'est pas dans le presskit market, on le charge à part.
+        if (lockedTalentId && filtered.length === 0) {
+          try {
+            const one = await fetch(`/api/talents/${lockedTalentId}`, {
+              credentials: "include",
+            });
+            const payload = await one.json().catch(() => ({}));
+            const t = payload?.talent;
+            if (one.ok && t) {
+              filtered = [
+                {
+                  id: String(t.id),
+                  prenom: String(t.prenom || ""),
+                  nom: String(t.nom || ""),
+                  photo: t.photo ?? null,
+                  niches: Array.isArray(t.niches) ? t.niches : [],
+                  instagram: t.instagram ?? null,
+                  igFollowers: Number(t.stats?.igFollowers || t.igFollowers || 0),
+                  igEngagement: Number(t.stats?.igEngagement || t.igEngagement || 0),
+                  ttFollowers: Number(t.stats?.ttFollowers || t.ttFollowers || 0),
+                  ttEngagement: Number(t.stats?.ttEngagement || t.ttEngagement || 0),
+                },
+              ];
+            }
+          } catch {
+            // ignore — message « aucun talent » ci-dessous
+          }
+        }
+
+        setTalents(filtered);
+        if (lockedTalentId) {
+          setSelectedIds(new Set([lockedTalentId]));
         }
       })
       .catch((e: unknown) => {
@@ -681,7 +754,7 @@ export default function CastingComposer({
     return () => {
       cancelled = true;
     };
-  }, [open, market]);
+  }, [open, market, lockedTalentId]);
 
   const selectedTalents = useMemo(
     () => talents.filter((t) => selectedIds.has(t.id)),
@@ -692,13 +765,13 @@ export default function CastingComposer({
     if (!contact) return;
     if (!brandResearch) {
       onError(
-        "Lance d'abord l'analyse de la marque (bouton « 🔍 Par recherche automatique » en haut) : l'IA en a besoin pour rédiger."
+        "Lance d'abord l'analyse de la marque (bouton « Par recherche » en haut)."
       );
       return;
     }
     if (selectedTalents.length === 0) {
       onError(
-        "Sélectionne au moins un talent dans la colonne de gauche : l'IA rédige le mail à partir des talents à pitcher."
+        "Sélectionne au moins un talent dans la colonne de gauche."
       );
       return;
     }
@@ -732,6 +805,30 @@ export default function CastingComposer({
           brandName: researchBrandName || contact.company,
           brandResearch,
           talents: talentsPayload,
+          // Uniquement si missionBrief (projets-outreach / pipeline talent).
+          // Outreach Clients passe missionBrief: null → pas de projectBrief → prompt inchangé.
+          ...(contact.missionBrief
+            ? {
+                projectBrief: {
+                  projectTitle:
+                    contact.missionBrief.projectTitle ||
+                    contact.missionBrief.campaignName ||
+                    null,
+                  projectDescription: contact.missionBrief.projectDescription || null,
+                  creatorName: contact.missionBrief.creatorName,
+                  targetBrand: contact.missionBrief.targetBrand,
+                  strategyReason: contact.missionBrief.strategyReason,
+                  recommendedAngle: contact.missionBrief.recommendedAngle || null,
+                  objective: contact.missionBrief.objective || null,
+                  deliverables: contact.missionBrief.deliverables || null,
+                  angles: contact.missionBrief.angles || null,
+                  timeline: contact.missionBrief.timeline || null,
+                  budgetRange: contact.missionBrief.budgetRange || null,
+                  dos: contact.missionBrief.dos || null,
+                  donts: contact.missionBrief.donts || null,
+                },
+              }
+            : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -747,7 +844,7 @@ export default function CastingComposer({
       editor?.commands.setContent(html);
       setEditorEmpty(!editor?.getText().trim());
       setBodyTick((n) => n + 1);
-      onSuccess("Email généré automatiquement ✨ — à toi de l’ajuster");
+      onSuccess("Brouillon prêt.");
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
@@ -854,17 +951,51 @@ export default function CastingComposer({
     }
     const scheduledValue =
       allowSchedule && status === "pret" && sendMode === "at" ? scheduledAt : null;
-    const contactIds = useHubspot ? contact.contacts.map((c) => c.id).filter(Boolean) : [];
     const bodyHtml = getBodyHtml();
+
+    // Parcours projet / mission : avant envoi, on choisit les contacts fiche marque.
+    if (!useHubspot && status === "pret" && contact.missionBrief) {
+      if (contact.contacts.length === 0) {
+        onError(
+          "Aucun contact avec email sur la fiche marque. Ajoute-les sur la fiche CRM d’abord."
+        );
+        return;
+      }
+      setPendingSendDraft({
+        subject: sub,
+        bodyHtml,
+        language: emailLanguage,
+        scheduledAt: scheduledValue,
+      });
+      setSelectedRecipientIds(new Set(contact.contacts.map((c) => c.id).filter(Boolean)));
+      setRecipientPickerOpen(true);
+      return;
+    }
+
+    const selectedContacts = contact.contacts
+      .filter((c) => selectedRecipientIds.size === 0 || selectedRecipientIds.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        firstname: c.firstname,
+        lastname: c.lastname,
+        email: c.email,
+        role: c.role,
+        linkedinUrl: c.linkedinUrl,
+      }));
+
+    const contactIds = useHubspot
+      ? selectedContacts.map((c) => c.id).filter(Boolean)
+      : [];
     setSaving(true);
     try {
       // Permet la rédaction même sans contacts HubSpot reliés.
-      if (contactIds.length === 0) {
+      if (!useHubspot || contactIds.length === 0) {
         onSaved(status, {
           subject: sub,
           bodyHtml,
           language: emailLanguage,
           scheduledAt: scheduledValue,
+          selectedContacts,
         });
         if (status === "en_cours") {
           onSuccess("Brouillon enregistré (sans contact HubSpot).");
@@ -898,6 +1029,7 @@ export default function CastingComposer({
         bodyHtml,
         language: emailLanguage,
         scheduledAt: scheduledValue,
+        selectedContacts,
       });
       if (status === "en_cours") {
         onSuccess("Brouillon enregistré");
@@ -908,6 +1040,35 @@ export default function CastingComposer({
       }
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur inattendue.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmRecipientPickerSend = () => {
+    if (!contact || !pendingSendDraft) return;
+    const selectedContacts = contact.contacts
+      .filter((c) => selectedRecipientIds.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        firstname: c.firstname,
+        lastname: c.lastname,
+        email: c.email,
+        role: c.role,
+        linkedinUrl: c.linkedinUrl,
+      }));
+    if (selectedContacts.length === 0) {
+      onError("Coche au moins un contact destinataire.");
+      return;
+    }
+    setSaving(true);
+    setRecipientPickerOpen(false);
+    try {
+      onSaved("pret", {
+        ...pendingSendDraft,
+        selectedContacts,
+      });
+      setPendingSendDraft(null);
     } finally {
       setSaving(false);
     }
@@ -1017,7 +1178,7 @@ export default function CastingComposer({
                 className="text-sm font-semibold mb-2"
                 style={{ fontFamily: "Spectral, serif", color: LICORICE }}
               >
-                Sélectionner les talents
+                {lockedTalentId ? "Talent du projet" : "Sélectionner les talents"}
               </h3>
               {talentsError && (
                 <p className="text-xs text-red-600 mb-2">{talentsError}</p>
@@ -1046,14 +1207,20 @@ export default function CastingComposer({
                       role="button"
                       tabIndex={0}
                       aria-pressed={sel}
-                      onClick={() => toggleTalent(t.id)}
+                      onClick={() => {
+                        if (lockedTalentId) return;
+                        toggleTalent(t.id);
+                      }}
                       onKeyDown={(e) => {
+                        if (lockedTalentId) return;
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           toggleTalent(t.id);
                         }
                       }}
-                      className={`w-full text-left rounded-xl border-2 p-3 transition-colors bg-white/80 cursor-pointer ${
+                      className={`w-full text-left rounded-xl border-2 p-3 transition-colors bg-white/80 ${
+                        lockedTalentId ? "cursor-default" : "cursor-pointer"
+                      } ${
                         sel ? "shadow-sm" : "border-transparent hover:border-black/10"
                       }`}
                       style={
@@ -1165,26 +1332,73 @@ export default function CastingComposer({
           <div className="w-full md:w-2/3 flex flex-col">
             <div className="px-5 py-4 pb-24 space-y-4">
               <div className="flex flex-col gap-1.5">
-                {contact.contacts.map((c) => {
-                  const brandsLabel =
-                    (c.marques || []).length > 0
-                      ? `${(c.marques || []).join(", ")} (${contact.company})`
-                      : contact.company;
-                  return (
-                    <span
-                      key={c.id}
-                      className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs px-3 py-1.5 rounded-2xl"
-                      style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
-                      title={c.email}
-                    >
-                      <span style={{ fontWeight: 600 }}>
-                        {`${c.firstname} ${c.lastname}`.trim() || "—"}
-                      </span>
-                      <span className="opacity-80">{c.email || ""}</span>
-                      <span className="opacity-90">— {brandsLabel}</span>
-                    </span>
-                  );
-                })}
+                {contact.contacts.length === 0 ? (
+                  <p className="text-xs opacity-70" style={{ color: LICORICE }}>
+                    Aucun contact avec email sur cette marque.
+                  </p>
+                ) : (
+                  contact.contacts.map((c) => {
+                    const checked = selectedRecipientIds.has(c.id);
+                    const brandsLabel =
+                      (c.marques || []).length > 0
+                        ? `${(c.marques || []).join(", ")} (${contact.company})`
+                        : contact.company;
+                    return (
+                      <label
+                        key={c.id}
+                        className={`inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs px-3 py-1.5 rounded-2xl cursor-pointer select-none ${
+                          checked ? "" : "opacity-50"
+                        }`}
+                        style={{
+                          backgroundColor: checked ? TEA_GREEN : "white",
+                          color: LICORICE,
+                          border: checked
+                            ? "1px solid transparent"
+                            : `1px solid color-mix(in srgb, ${OLD_ROSE} 40%, transparent)`,
+                        }}
+                        title={c.email}
+                      >
+                        <input
+                          type="checkbox"
+                          className="accent-[#1A1110]"
+                          checked={checked}
+                          disabled={isHeadOfSalesReadOnly}
+                          onChange={() => {
+                            setSelectedRecipientIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(c.id)) next.delete(c.id);
+                              else next.add(c.id);
+                              return next;
+                            });
+                          }}
+                        />
+                        <span style={{ fontWeight: 600 }}>
+                          {`${c.firstname} ${c.lastname}`.trim() || "—"}
+                        </span>
+                        {c.role ? (
+                          <span className="opacity-80 rounded-full bg-black/5 px-1.5 py-0.5">
+                            {c.role}
+                          </span>
+                        ) : null}
+                        <span className="opacity-80">{c.email || ""}</span>
+                        {c.linkedinUrl ? (
+                          <a
+                            href={c.linkedinUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-0.5 underline opacity-90"
+                            title="Voir LinkedIn"
+                          >
+                            <Linkedin className="w-3.5 h-3.5" />
+                            LinkedIn
+                          </a>
+                        ) : null}
+                        <span className="opacity-90">— {brandsLabel}</span>
+                      </label>
+                    );
+                  })
+                )}
               </div>
 
               {contact.missionBrief && (
@@ -1922,6 +2136,144 @@ export default function CastingComposer({
                     Impossible d’afficher la fiche pour le moment.
                   </p>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+        {recipientPickerOpen && contact && (
+          <div
+            className="fixed inset-0 z-[230] bg-black/50 flex items-center justify-center p-4"
+            onClick={() => {
+              setRecipientPickerOpen(false);
+              setPendingSendDraft(null);
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choisir les destinataires"
+          >
+            <div
+              className="w-full max-w-lg max-h-[calc(100dvh-4rem)] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0] bg-white"
+              onClick={(e) => e.stopPropagation()}
+              style={{ fontFamily: "Switzer, system-ui, sans-serif" }}
+            >
+              <div
+                className="px-5 py-3 border-b shrink-0"
+                style={{
+                  borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                  backgroundColor: OLD_LACE,
+                }}
+              >
+                <h3 className="text-base font-semibold" style={{ color: LICORICE }}>
+                  À qui envoyer depuis Leyna ?
+                </h3>
+                <p className="text-xs mt-1 opacity-80" style={{ color: LICORICE }}>
+                  Contacts de la fiche {contact.company}. Décoche ceux à exclure.
+                </p>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                {contact.contacts.map((c) => {
+                  const checked = selectedRecipientIds.has(c.id);
+                  return (
+                    <label
+                      key={c.id}
+                      className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 cursor-pointer ${
+                        checked ? "bg-white" : "bg-gray-50 opacity-70"
+                      }`}
+                      style={{
+                        borderColor: checked
+                          ? TEA_GREEN
+                          : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-1 accent-[#1A1110]"
+                        checked={checked}
+                        onChange={() => {
+                          setSelectedRecipientIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(c.id)) next.delete(c.id);
+                            else next.add(c.id);
+                            return next;
+                          });
+                        }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium" style={{ color: LICORICE }}>
+                          {`${c.firstname} ${c.lastname}`.trim() || "Contact"}
+                        </div>
+                        {c.role ? (
+                          <div className="text-xs mt-0.5 opacity-80" style={{ color: LICORICE }}>
+                            {c.role}
+                          </div>
+                        ) : (
+                          <div className="text-xs mt-0.5 opacity-50" style={{ color: LICORICE }}>
+                            Poste non renseigné
+                          </div>
+                        )}
+                        <div className="text-xs mt-0.5 opacity-70 break-all" style={{ color: LICORICE }}>
+                          {c.email}
+                        </div>
+                      </div>
+                      {c.linkedinUrl ? (
+                        <a
+                          href={c.linkedinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] shrink-0 hover:bg-black/5"
+                          style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                        >
+                          <Linkedin className="w-3.5 h-3.5" />
+                          LinkedIn
+                        </a>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+              <div
+                className="flex items-center justify-between gap-2 px-5 py-3 border-t shrink-0"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+              >
+                <button
+                  type="button"
+                  className="text-xs underline opacity-70"
+                  style={{ color: LICORICE }}
+                  onClick={() => {
+                    const all = contact.contacts.every((c) => selectedRecipientIds.has(c.id));
+                    setSelectedRecipientIds(
+                      all
+                        ? new Set()
+                        : new Set(contact.contacts.map((c) => c.id).filter(Boolean))
+                    );
+                  }}
+                >
+                  Tout cocher / décocher
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="px-3 py-2 text-sm rounded-xl hover:bg-black/5"
+                    style={{ color: LICORICE }}
+                    onClick={() => {
+                      setRecipientPickerOpen(false);
+                      setPendingSendDraft(null);
+                    }}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving || selectedRecipientIds.size === 0}
+                    onClick={confirmRecipientPickerSend}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl disabled:opacity-50"
+                    style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                  >
+                    {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Envoyer ({selectedRecipientIds.size})
+                  </button>
+                </div>
               </div>
             </div>
           </div>

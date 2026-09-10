@@ -109,10 +109,10 @@ const menuItems = [
   // Ski Trip 2027 : visible uniquement dans le menu de la STRATEGY_PLANNER
   // (Ines pilote le projet à 100%). La page reste accessible aux ADMIN par URL.
   {
-    label: "Pipeline prospection",
-    href: "/strategy/projet-individuel-talent/pipeline",
+    label: "Projets outreach",
+    href: "/projets-outreach",
     icon: Briefcase,
-    roles: ["CASTING_MANAGER", "HEAD_OF_SALES", "STRATEGY_PLANNER", "ADMIN", "HEAD_OF"],
+    roles: ["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"],
   },
   {
     label: "Inbound 📬",
@@ -576,14 +576,8 @@ export function Sidebar({
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
-            label: "Projet individuel talent",
-            href: "/strategy/projet-individuel-talent",
-            icon: Mail,
-            roles: ["STRATEGY_PLANNER", "ADMIN"],
-          } as (typeof menuItems)[number],
-          {
-            label: "Pipeline prospection",
-            href: "/strategy/projet-individuel-talent/pipeline",
+            label: "Projets outreach",
+            href: "/projets-outreach",
             icon: Briefcase,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],

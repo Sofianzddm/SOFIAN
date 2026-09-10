@@ -254,6 +254,15 @@ enum ContactMissionStage {
   LOST
 }
 
+enum ProspectingCampaignStatus {
+  BRIEF
+  BRANDS
+  DRAFTING
+  SENDING
+  ACTIVE
+  CLOSED
+}
+
 enum InboundCategory {
   COLLAB_PAID
   COLLAB_GIFTING
@@ -341,6 +350,8 @@ model User {
   contactMissionsCreated          ContactMission[]            @relation("ContactMissionCreatedBy")
   contactMissionsRelanceCancelled ContactMission[]            @relation("ContactMissionRelanceCancelledBy")
   prospectingCampaignsCreated     TalentProspectingCampaign[] @relation("TalentProspectingCampaignCreatedBy")
+  prospectingCampaignsOwned       TalentProspectingCampaign[] @relation("TalentProspectingCampaignOwnerTm")
+  prospectingCampaignEvents       ProspectingCampaignEvent[]  @relation("ProspectingCampaignEventActor")
   talentContratsCreated           TalentContrat[]             @relation("TalentContratCreatedBy")
   inboundConverted                InboundOpportunity[]        @relation("InboundConvertedBy")
   inboundArchived                 InboundOpportunity[]        @relation("InboundArchivedBy")
@@ -3127,24 +3138,55 @@ model ContactMission {
 }
 
 model TalentProspectingCampaign {
-  id          String    @id @default(cuid())
+  id          String                     @id @default(cuid())
   title       String
-  description String?   @db.Text
+  description String?                    @db.Text
   talentId    String
-  talent      Talent    @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  talent      Talent                     @relation(fields: [talentId], references: [id], onDelete: Cascade)
   createdById String
-  createdBy   User      @relation("TalentProspectingCampaignCreatedBy", fields: [createdById], references: [id])
-  isActive    Boolean   @default(true)
+  createdBy   User                       @relation("TalentProspectingCampaignCreatedBy", fields: [createdById], references: [id])
+  ownerTmId   String?
+  ownerTm     User?                      @relation("TalentProspectingCampaignOwnerTm", fields: [ownerTmId], references: [id], onDelete: SetNull)
+  status      ProspectingCampaignStatus  @default(BRIEF)
+  objective   String?                    @db.Text
+  deliverables String?                   @db.Text
+  budgetRange String?
+  timeline    String?                    @db.Text
+  dos         String?                    @db.Text
+  donts       String?                    @db.Text
+  angles      String?                    @db.Text
+  assets      Json?
+  senderEmail String?                    @default("leyna@glowupagence.fr")
+  isActive    Boolean                    @default(true)
   startsAt    DateTime?
   endsAt      DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
 
   contactMissions ContactMission[]
+  events          ProspectingCampaignEvent[]
 
   @@index([createdById, isActive, createdAt])
   @@index([talentId, isActive, createdAt])
+  @@index([status, isActive, createdAt])
+  @@index([ownerTmId, isActive, createdAt])
   @@map("talent_prospecting_campaigns")
+}
+
+model ProspectingCampaignEvent {
+  id         String                    @id @default(cuid())
+  campaignId String
+  campaign   TalentProspectingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  type       String
+  message    String?                   @db.Text
+  payload    Json?
+  actorId    String
+  actor      User                      @relation("ProspectingCampaignEventActor", fields: [actorId], references: [id])
+  createdAt  DateTime                  @default(now())
+
+  @@index([campaignId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("prospecting_campaign_events")
 }
 
 model DinnerCandidateEvent {

@@ -6,7 +6,7 @@ import {
   preflightCastingSend,
 } from "@/lib/casting-auto-send";
 
-const ALLOWED_ROLES = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF"] as const;
+const ALLOWED_ROLES = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
 const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
 
 export async function POST(
