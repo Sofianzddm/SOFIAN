@@ -123,6 +123,7 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
         email: string;
         role: string;
         linkedinUrl: string;
+        language: "fr" | "en";
       }>,
       scheduledSendAt: m.scheduledSendAt,
       sentAt: m.sentAt,
@@ -165,6 +166,7 @@ async function attachMarqueContacts<T extends { missions: Array<{ marqueId: stri
       principal: true,
       linkedinUrl: true,
       source: true,
+      language: true,
     },
     orderBy: [{ principal: "desc" }, { nom: "asc" }],
   });
@@ -178,6 +180,7 @@ async function attachMarqueContacts<T extends { missions: Array<{ marqueId: stri
       email: string;
       role: string;
       linkedinUrl: string;
+      language: "fr" | "en";
     }>
   >();
   for (const r of rows) {
@@ -194,6 +197,7 @@ async function attachMarqueContacts<T extends { missions: Array<{ marqueId: stri
       email,
       role: String(r.poste || "").trim(),
       linkedinUrl: String(r.linkedinUrl || "").trim(),
+      language: String(r.language || "").toLowerCase() === "en" ? "en" : "fr",
     });
     byMarque.set(r.marqueId, list);
   }

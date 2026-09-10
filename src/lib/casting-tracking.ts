@@ -12,7 +12,13 @@ function getBaseUrl(): string {
     process.env.NEXT_PUBLIC_BASE_URL?.trim() ||
     process.env.NEXTAUTH_URL?.trim() ||
     "https://app.glowupagence.fr";
-  return raw.replace(/\/$/, "");
+  const cleaned = raw.replace(/\/$/, "");
+  // Jamais de localhost dans les liens de tracking des mails (sinon les
+  // destinataires / l’aperçu « mails envoyés » tombent sur localhost…).
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cleaned)) {
+    return "https://app.glowupagence.fr";
+  }
+  return cleaned || "https://app.glowupagence.fr";
 }
 
 function encodeUrlParam(url: string): string {

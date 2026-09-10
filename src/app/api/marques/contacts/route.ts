@@ -16,6 +16,8 @@ type SearchedContact = {
   role: string;
   companyName: string;
   source: "app" | "hubspot";
+  /** Langue fiche contact CRM : "fr" | "en" */
+  language?: "fr" | "en";
 };
 
 type HubSpotSearchResponse = {
@@ -88,6 +90,7 @@ async function searchAppContacts(brand: string): Promise<{
       email: true,
       poste: true,
       principal: true,
+      language: true,
       marque: { select: { nom: true } },
     },
     orderBy: [{ principal: "desc" }, { nom: "asc" }],
@@ -105,6 +108,7 @@ async function searchAppContacts(brand: string): Promise<{
     role: (c.poste || "").trim(),
     companyName: c.marque?.nom || brand,
     source: "app" as const,
+    language: String(c.language || "").toLowerCase() === "en" ? "en" : "fr",
   }));
 
   return { contacts, marqueId: primary };

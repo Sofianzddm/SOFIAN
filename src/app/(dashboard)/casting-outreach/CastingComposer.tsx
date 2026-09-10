@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import EmailComposer from "./EmailComposer";
-import { talentToTiptapNode } from "@/lib/talent-email-links";
+import { talentToTiptapNode, upgradeTalentLinksInHtml } from "@/lib/talent-email-links";
 import {
   normalizeEditorHtmlForEmail,
   plainTextToEmailHtml,
@@ -38,10 +38,32 @@ type CastingRecipient = {
   email: string;
   /** Poste / rôle du contact côté marque. */
   role?: string;
+  /** Langue fiche CRM : "fr" | "en" */
+  language?: "fr" | "en";
   linkedinUrl?: string;
   /** Sous-marques couvertes par ce contact (variable {{ contact.marques }}). */
   marques?: string[];
 };
+
+/** Langue d'écriture : client EN (mission ou fiche CRM) → anglais systématique. */
+function resolveClientEmailLanguage(
+  contact: CastingCompanyRecipients | null,
+  selectedIds?: Set<string>
+): "fr" | "en" {
+  if (!contact) return "fr";
+  if (contact.missionBrief?.clientLanguage === "EN") return "en";
+  if (contact.missionBrief?.clientLanguage === "FR") return "fr";
+  const pool =
+    selectedIds && selectedIds.size > 0
+      ? contact.contacts.filter((c) => selectedIds.has(c.id))
+      : contact.contacts;
+  const langs = pool
+    .map((c) => String(c.language || "").toLowerCase())
+    .filter((l): l is "fr" | "en" => l === "fr" || l === "en");
+  if (langs.length === 0) return "fr";
+  const enCount = langs.filter((l) => l === "en").length;
+  return enCount >= langs.length / 2 ? "en" : "fr";
+}
 
 type CastingCompanyRecipients = {
   company: string;
@@ -571,7 +593,8 @@ export default function CastingComposer({
     setPreviewMode("edit");
     setLastField("body");
     setBrandResearch(null);
-    setEmailLanguage(defaultLanguage);
+    // Client EN (fiche CRM / mission) → anglais d'emblée.
+    setEmailLanguage(resolveClientEmailLanguage(contact) || defaultLanguage);
     setSendMode("now");
     setScheduledAt("");
 
@@ -795,12 +818,19 @@ export default function CastingComposer({
           ...(typeof eng === "number" ? { engagementRate: eng } : {}),
         };
       });
+      // Client anglais → génération systématiquement en EN.
+      const genLanguage =
+        resolveClientEmailLanguage(contact, selectedRecipientIds) === "en"
+          ? "en"
+          : emailLanguage;
+      if (genLanguage !== emailLanguage) setEmailLanguage(genLanguage);
+
       const res = await fetch("/api/casting/generate-email", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          language: emailLanguage,
+          language: genLanguage,
           market,
           brandName: researchBrandName || contact.company,
           brandResearch,
@@ -838,19 +868,34 @@ export default function CastingComposer({
         );
       }
       const subjectNext = typeof data.subject === "string" ? data.subject : "";
-      const bodyNext = typeof data.body === "string" ? data.body : "";
+      let bodyNext = typeof data.body === "string" ? data.body : "";
+      const asHtml = bodyNext.trim().startsWith("<")
+        ? bodyNext
+        : plainTextToEmailHtml(bodyNext) || "<p></p>";
+      // Nom du talent toujours en lien Instagram cliquable.
+      const linkedHtml = upgradeTalentLinksInHtml(
+        asHtml,
+        selectedTalents.map((t) => ({
+          prenom: t.prenom,
+          nom: t.nom,
+          instagram: t.instagram,
+        }))
+      );
       setSubject(subjectNext);
-      const html = plainTextToEmailHtml(bodyNext) || "<p></p>";
-      editor?.commands.setContent(html);
+      editor?.commands.setContent(normalizeEditorHtmlForEmail(linkedHtml) || linkedHtml);
       setEditorEmpty(!editor?.getText().trim());
       setBodyTick((n) => n + 1);
-      onSuccess("Brouillon prêt.");
+      onSuccess(
+        genLanguage === "en"
+          ? "Brouillon prêt (anglais — langue client)."
+          : "Brouillon prêt."
+      );
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
       setIsGenerating(false);
     }
-  }, [contact, brandResearch, selectedTalents, emailLanguage, market, researchBrandName, editor, onError, onSuccess]);
+  }, [contact, brandResearch, selectedTalents, selectedRecipientIds, emailLanguage, market, researchBrandName, editor, onError, onSuccess]);
 
   const previewSubjectResolved = useMemo(() => {
     if (!contact || !previewRecipient) return "";
@@ -1143,7 +1188,7 @@ export default function CastingComposer({
       aria-labelledby="casting-composer-title"
     >
       <div
-        className="w-full max-w-6xl h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
+        className="w-full max-w-6xl h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
         style={{ backgroundColor: OLD_LACE }}
       >
         <div
@@ -1167,7 +1212,7 @@ export default function CastingComposer({
           </button>
         </div>
 
-        <div className="flex">
+        <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Colonne talents */}
           <div
             className="w-full md:w-1/3 flex flex-col border-r min-h-0 overflow-hidden"
@@ -1329,8 +1374,8 @@ export default function CastingComposer({
           </div>
 
           {/* Colonne email */}
-          <div className="w-full md:w-2/3 flex flex-col">
-            <div className="px-5 py-4 pb-24 space-y-4">
+          <div className="w-full md:w-2/3 flex flex-col min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
               <div className="flex flex-col gap-1.5">
                 {contact.contacts.length === 0 ? (
                   <p className="text-xs opacity-70" style={{ color: LICORICE }}>
@@ -1592,7 +1637,7 @@ export default function CastingComposer({
             )}
 
             <div
-              className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t shrink-0 bg-white/95 sticky bottom-0"
+              className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t shrink-0 bg-white/95"
               style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
             >
               {!isHeadOfSalesReadOnly && brandColumn === "ready" && (

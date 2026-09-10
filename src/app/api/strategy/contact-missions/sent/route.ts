@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       orderBy: [{ sentAt: "desc" }],
       take: 500,
       include: {
-        talent: { select: { id: true, prenom: true, nom: true, photo: true } },
+          talent: { select: { id: true, prenom: true, nom: true, photo: true, instagram: true } },
         campaign: { select: { id: true, title: true } },
       },
     });
@@ -88,6 +88,7 @@ export async function GET(req: NextRequest) {
           talentId: m.talentId,
           talentName,
           talentPhoto: m.talent?.photo ?? null,
+          talentInstagram: m.talent?.instagram ?? null,
           creatorName: m.creatorName,
           targetBrand: m.targetBrand,
           campaignTitle: m.campaign?.title ?? null,

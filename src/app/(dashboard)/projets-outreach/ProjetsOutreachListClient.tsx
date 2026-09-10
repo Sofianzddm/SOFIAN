@@ -1,17 +1,18 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Loader2, Plus, RefreshCw, ArrowRight, FolderKanban } from "lucide-react";
+import { ArrowRight, Loader2, Plus, RefreshCw } from "lucide-react";
 import {
   STATUS_LABEL,
   CAMPAIGN_STATUSES,
   canCreateCampaign,
   type CampaignStatus,
 } from "@/lib/projets-outreach";
+import { KpiCard, PoAvatar, StageStepper, StatusBadge } from "./PoUi";
+import "./po.css";
 
 type CampaignRow = {
   id: string;
@@ -35,16 +36,13 @@ type CampaignRow = {
 
 type TalentOption = { id: string; name: string };
 
-const STATUS_COLORS: Record<CampaignStatus, string> = {
-  BRIEF: "bg-amber-50 text-amber-800 border-amber-200",
-  BRANDS: "bg-violet-50 text-violet-800 border-violet-200",
-  DRAFTING: "bg-sky-50 text-sky-800 border-sky-200",
-  SENDING: "bg-orange-50 text-orange-800 border-orange-200",
-  ACTIVE: "bg-emerald-50 text-emerald-800 border-emerald-200",
-  CLOSED: "bg-gray-100 text-gray-600 border-gray-200",
-};
-
-const PIPELINE: CampaignStatus[] = ["BRIEF", "BRANDS", "DRAFTING", "SENDING", "ACTIVE"];
+const FILTERS: { id: "" | CampaignStatus; label: string }[] = [
+  { id: "", label: "Tous" },
+  ...CAMPAIGN_STATUSES.map((s) => ({
+    id: s,
+    label: s === "SENDING" ? "Envoi" : STATUS_LABEL[s],
+  })),
+];
 
 export function ProjetsOutreachListClient() {
   const router = useRouter();
@@ -58,7 +56,8 @@ export function ProjetsOutreachListClient() {
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | CampaignStatus>("");
+  const [query, setQuery] = useState("");
   const [form, setForm] = useState({
     title: "",
     talentId: "",
@@ -76,8 +75,7 @@ export function ProjetsOutreachListClient() {
     setLoading(true);
     setError(null);
     try {
-      const qs = statusFilter ? `?status=${statusFilter}` : "";
-      const res = await fetch(`/api/projets-outreach${qs}`, { credentials: "include" });
+      const res = await fetch("/api/projets-outreach", { credentials: "include" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Impossible de charger les projets.");
       setCampaigns(Array.isArray(data.campaigns) ? data.campaigns : []);
@@ -86,7 +84,7 @@ export function ProjetsOutreachListClient() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -107,6 +105,32 @@ export function ProjetsOutreachListClient() {
       );
     })();
   }, [canCreate]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return campaigns.filter((c) => {
+      if (statusFilter && c.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
+        c.title.toLowerCase().includes(q) ||
+        c.talentName.toLowerCase().includes(q) ||
+        (c.description || "").toLowerCase().includes(q)
+      );
+    });
+  }, [campaigns, statusFilter, query]);
+
+  const kpis = useMemo(() => {
+    const actifs = campaigns.filter((c) => c.status !== "CLOSED").length;
+    const marques = campaigns.reduce((n, c) => n + (c.missionCount || 0), 0);
+    const contactees = campaigns.reduce((n, c) => n + (c.sentCount || 0), 0);
+    const reponses = campaigns.reduce((n, c) => n + (c.answeredCount || 0), 0);
+    return [
+      { label: "Projets actifs", value: actifs, dot: "#B67C7C", hint: "en pipeline" },
+      { label: "Marques ciblées", value: marques, dot: "#7A5AF8" },
+      { label: "Contactées", value: contactees, dot: "#C45C26", hint: "en attente" },
+      { label: "Réponses", value: reponses, dot: "#2E9E63" },
+    ];
+  }, [campaigns]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -129,278 +153,203 @@ export function ProjetsOutreachListClient() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-[#1A1110]">Projets outreach talent</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Projets structurés : brief → marques → rédaction → envoi Leyna (ex. shoot Ibiza).{" "}
-            <span className="text-gray-500">
-              La prospection individuelle talent ↔ marque reste dans Pipeline Casting.
-            </span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          {canCreate && (
+    <div className="po-root">
+      <div className="po-page">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="po-h1">Projets outreach talent</h1>
+            <p className="po-sub">
+              Parcours projet : brief → marques → rédaction → envoi Leyna.{" "}
+              <span style={{ color: "var(--po-muted)" }}>
+                Indépendant du Pipeline Casting.
+              </span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setShowCreate((v) => !v)}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#1A1110] px-3 py-2 text-sm text-white hover:bg-black"
+              className="po-btn po-btn-icon"
+              onClick={() => void load()}
+              aria-label="Rafraîchir"
             >
-              <Plus className="h-4 w-4" />
-              Nouveau projet
+              <RefreshCw className="h-3.5 w-3.5" />
             </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <FilterChip active={!statusFilter} onClick={() => setStatusFilter("")} label="Tous" />
-        {CAMPAIGN_STATUSES.map((s) => (
-          <FilterChip
-            key={s}
-            active={statusFilter === s}
-            onClick={() => setStatusFilter(s)}
-            label={STATUS_LABEL[s]}
-          />
-        ))}
-      </div>
-
-      {showCreate && canCreate && (
-        <form
-          onSubmit={onCreate}
-          className="space-y-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
-        >
-          <h2 className="text-lg font-medium text-[#1A1110]">Nouveau projet</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block text-gray-600">Talent *</span>
-              <select
-                required
-                value={form.talentId}
-                onChange={(e) => setForm((f) => ({ ...f, talentId: e.target.value }))}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2"
+            {canCreate && (
+              <button
+                type="button"
+                className="po-btn po-btn-primary"
+                onClick={() => setShowCreate((v) => !v)}
               >
-                <option value="">Sélectionner…</option>
-                {talents.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-gray-600">Nom du projet *</span>
-              <input
-                required
-                value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                placeholder="Ex. Placement printemps · Séjour ski · Collab beauté"
-              />
-            </label>
-            <label className="block text-sm md:col-span-2">
-              <span className="mb-1 block text-gray-600">En deux mots</span>
-              <textarea
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                rows={2}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                placeholder="Ce qu’on veut placer / vendre aux marques"
-              />
-            </label>
-            <label className="block text-sm md:col-span-2">
-              <span className="mb-1 block text-gray-600">Objectif</span>
-              <textarea
-                value={form.objective}
-                onChange={(e) => setForm((f) => ({ ...f, objective: e.target.value }))}
-                rows={2}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-gray-600">Livrables</span>
-              <textarea
-                value={form.deliverables}
-                onChange={(e) => setForm((f) => ({ ...f, deliverables: e.target.value }))}
-                rows={2}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-gray-600">Budget</span>
-              <input
-                value={form.budgetRange}
-                onChange={(e) => setForm((f) => ({ ...f, budgetRange: e.target.value }))}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2"
-                placeholder="Ex. 5–8k €"
-              />
-            </label>
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />
+                Nouveau projet
+              </button>
+            )}
           </div>
-          <div className="flex justify-end gap-2">
+        </div>
+
+        <div className="mt-[22px] flex flex-wrap items-center gap-[7px]">
+          {FILTERS.map((f) => (
             <button
+              key={f.id || "all"}
               type="button"
-              onClick={() => setShowCreate(false)}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              className={`po-chip ${statusFilter === f.id ? "po-chip-active" : ""}`}
+              onClick={() => setStatusFilter(f.id)}
             >
-              Annuler
+              {f.label}
             </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#1A1110] px-3 py-2 text-sm text-white disabled:opacity-50"
-            >
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              Créer et ouvrir
-            </button>
-          </div>
-        </form>
-      )}
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+          ))}
+          <input
+            className="po-search ml-auto"
+            placeholder="Filtrer par nom, talent…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
         </div>
-      )}
 
-      {loading ? (
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Chargement…
-        </div>
-      ) : campaigns.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-8 py-14 text-center">
-          <FolderKanban className="mx-auto h-10 w-10 text-gray-300" />
-          <p className="mt-3 text-base font-medium text-[#1A1110]">Aucun projet pour l’instant</p>
-          <p className="mt-1 text-sm text-gray-500">
-            Crée un projet autour d’un talent, puis gère marques, mails et suivi dedans.
-          </p>
-          {canCreate && (
-            <button
-              type="button"
-              onClick={() => setShowCreate(true)}
-              className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[#1A1110] px-4 py-2 text-sm text-white"
-            >
-              <Plus className="h-4 w-4" />
-              Créer un projet
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {campaigns.map((c) => (
-            <Link
-              key={c.id}
-              href={`/projets-outreach/${c.id}`}
-              className="group block rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-[#1A1110]/25 hover:shadow-md"
-            >
-              <div className="flex items-start gap-4">
-                <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-full bg-gray-100">
-                  {c.talentPhoto ? (
-                    <Image src={c.talentPhoto} alt="" fill className="object-cover" sizes="48px" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-sm font-medium text-gray-400">
-                      {c.talentName.slice(0, 1)}
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-base font-semibold text-[#1A1110]">{c.title}</h2>
-                    <span
-                      className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${STATUS_COLORS[c.status]}`}
-                    >
-                      {STATUS_LABEL[c.status]}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-sm text-gray-600">
-                    {c.talentName}
-                    {c.ownerTmName ? ` · TM ${c.ownerTmName}` : ""}
-                    {c.budgetRange ? ` · ${c.budgetRange}` : ""}
-                  </p>
-                  {c.objective || c.description ? (
-                    <p className="mt-1 line-clamp-1 text-xs text-gray-500">
-                      {c.objective || c.description}
-                    </p>
-                  ) : null}
-
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    {PIPELINE.map((step, i) => {
-                      const currentIdx = PIPELINE.indexOf(
-                        c.status === "CLOSED" ? "ACTIVE" : c.status
-                      );
-                      const done = i <= currentIdx;
-                      return (
-                        <div key={step} className="flex items-center gap-1.5">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                              done
-                                ? "bg-[#1A1110] text-white"
-                                : "bg-gray-100 text-gray-400"
-                            }`}
-                          >
-                            {STATUS_LABEL[step]}
-                          </span>
-                          {i < PIPELINE.length - 1 && (
-                            <span className="text-gray-300">›</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
-                    <span>
-                      <strong className="text-[#1A1110]">{c.missionCount}</strong> marques
-                    </span>
-                    <span>
-                      <strong className="text-[#1A1110]">{c.sentCount}</strong> contactées
-                    </span>
-                    <span>
-                      <strong className="text-[#1A1110]">{c.answeredCount}</strong> réponses
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-shrink-0 items-center gap-1 text-sm text-[#C08B8B] group-hover:text-[#1A1110]">
-                  Gérer
-                  <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                </div>
-              </div>
-            </Link>
+        <div className="po-kpi-grid my-5">
+          {kpis.map((k) => (
+            <KpiCard key={k.label} label={k.label} value={k.value} dot={k.dot} hint={k.hint} />
           ))}
         </div>
-      )}
-    </div>
-  );
-}
 
-function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-1 text-xs ${
-        active
-          ? "border-[#1A1110] bg-[#1A1110] text-white"
-          : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-      }`}
-    >
-      {label}
-    </button>
+        {showCreate && canCreate && (
+          <form onSubmit={onCreate} className="po-card po-card-pad mb-5 space-y-4">
+            <div className="text-[13.5px] font-bold">Nouveau projet</div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block">
+                <div className="po-field-label">Talent *</div>
+                <select
+                  required
+                  className="po-select"
+                  value={form.talentId}
+                  onChange={(e) => setForm((f) => ({ ...f, talentId: e.target.value }))}
+                >
+                  <option value="">Sélectionner…</option>
+                  {talents.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <div className="po-field-label">Nom du projet *</div>
+                <input
+                  required
+                  className="po-input"
+                  value={form.title}
+                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="Ex. Shoot Ibiza · Collab beauté"
+                />
+              </label>
+              <label className="block md:col-span-2">
+                <div className="po-field-label">Description</div>
+                <textarea
+                  className="po-textarea"
+                  rows={2}
+                  value={form.description}
+                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                />
+              </label>
+              <label className="block md:col-span-2">
+                <div className="po-field-label">Objectif</div>
+                <textarea
+                  className="po-textarea"
+                  rows={2}
+                  value={form.objective}
+                  onChange={(e) => setForm((f) => ({ ...f, objective: e.target.value }))}
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[var(--po-sep)] pt-4">
+              <button
+                type="button"
+                className="po-btn po-btn-secondary"
+                onClick={() => setShowCreate(false)}
+              >
+                Annuler
+              </button>
+              <button type="submit" disabled={saving} className="po-btn po-btn-primary">
+                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Créer et ouvrir
+              </button>
+            </div>
+          </form>
+        )}
+
+        {error && <div className="po-alert-error mb-4">{error}</div>}
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-[13px] text-[var(--po-muted)]">
+            <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="po-empty">
+            {campaigns.length === 0
+              ? "Aucun projet pour l’instant."
+              : "Aucun projet à ce stade."}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {filtered.map((c) => (
+              <Link
+                key={c.id}
+                href={`/projets-outreach/${c.id}`}
+                className="po-card po-card-pad po-card-interactive block !text-inherit no-underline hover:!text-inherit"
+              >
+                <div className="flex items-start gap-[15px]">
+                  <PoAvatar name={c.talentName} photo={c.talentPhoto} size={42} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-[9px]">
+                      <span className="text-[15px] font-bold tracking-[-0.01em] text-[var(--po-ink)]">
+                        {c.title}
+                      </span>
+                      <StatusBadge status={c.status} />
+                      <span className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--po-accent)]">
+                        Gérer <ArrowRight className="h-3 w-3" strokeWidth={1.8} />
+                      </span>
+                    </div>
+                    <div className="mt-[3px] text-[12.5px] text-[var(--po-tertiary)]">
+                      {c.talentName}
+                      {c.ownerTmName ? ` · TM ${c.ownerTmName}` : ""}
+                    </div>
+                    {(c.description || c.objective) && (
+                      <p
+                        className="mt-2 max-w-[760px] text-[13px] leading-normal text-[var(--po-secondary)]"
+                        style={{
+                          display: "-webkit-box",
+                          WebkitLineClamp: 1,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {c.description || c.objective}
+                      </p>
+                    )}
+                    <div className="mt-3.5 flex flex-wrap items-center gap-[5px]">
+                      <StageStepper status={c.status} compact />
+                      <div className="ml-auto flex gap-3.5 text-[12.5px] text-[var(--po-tertiary)] tabular-nums">
+                        <span>
+                          <b className="font-bold text-[var(--po-ink)]">{c.missionCount}</b>{" "}
+                          marques
+                        </span>
+                        <span>
+                          <b className="font-bold text-[var(--po-ink)]">{c.sentCount}</b>{" "}
+                          contactées
+                        </span>
+                        <span>
+                          <b className="font-bold text-[var(--po-ink)]">{c.answeredCount}</b>{" "}
+                          réponses
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

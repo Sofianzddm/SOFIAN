@@ -320,10 +320,12 @@ export async function middleware(request: NextRequest) {
       NextResponse.redirect(new URL("/strategy/projets/villa-cannes", request.url))
     );
   }
-  // Exception: pipeline prospection accessible à HEAD_OF_SALES / CASTING_MANAGER / HEAD_OF
+  // Exception: pipeline + mails envoyés accessibles à HEAD_OF_SALES / CASTING_MANAGER / HEAD_OF
   const isProspectionPipeline =
     pathname === "/strategy/projet-individuel-talent/pipeline" ||
-    pathname.startsWith("/strategy/projet-individuel-talent/pipeline/");
+    pathname.startsWith("/strategy/projet-individuel-talent/pipeline/") ||
+    pathname === "/strategy/projet-individuel-talent/mails-envoyes" ||
+    pathname.startsWith("/strategy/projet-individuel-talent/mails-envoyes/");
 
   // Autres rôles : bloquer /strategy/* (sauf ADMIN et exception pipeline)
   if (

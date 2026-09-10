@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { xaiResponse } from "@/lib/xai";
 import { getInstagramProfileUrl } from "@/lib/social-links";
+import { upgradeTalentLinksInHtml } from "@/lib/talent-email-links";
+import { plainTextToEmailHtml } from "@/lib/email-body-html";
 
 export const maxDuration = 120;
 
@@ -377,6 +379,7 @@ ${
     ? `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
 - FORBIDDEN to use the "several creators who could be a fit" transition (or variants).
 - Present the main talent in the singular + the project.
+- The main talent's full name MUST always appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a> (keep bold + link, never plain text).
 - If the brief cites companions, one sentence "She will be accompanied by…" with clean Instagram links (<a href="https://www.instagram.com/handle">@handle</a>), never tokenized Instagram URLs.
 - No multi-profile casting list outside the project.`
     : ""
@@ -464,6 +467,7 @@ ${
     ? `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
 - INTERDIT d'utiliser la transition « plusieurs créateurs qui peuvent correspondre » (ou variante).
 - Présente le talent principal au singulier + le projet.
+- Le nom complet du talent principal DOIT toujours apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a> (garder gras + lien, jamais en texte brut).
 - Si le brief cite des accompagnatrices, une phrase « Elle sera accompagnée de … » avec liens Instagram propres (<a href="https://www.instagram.com/handle">@handle</a>), jamais d'URL Instagram avec tokens.
 - Pas de liste casting multi-profils hors projet.`
     : ""
@@ -542,12 +546,30 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
             const stats = statsParts.join(", ");
             const niche = t.niche || "créateur";
             const tail = [stats, niche].filter(Boolean).join(" - ");
-            return `- ${t.name}${tail ? ` (${tail})` : ""}`;
+            const igUrl = getInstagramProfileUrl(t.instagram);
+            const nameHtml = igUrl
+              ? `<a href="${igUrl}"><strong>${t.name}</strong></a>`
+              : `<strong>${t.name}</strong>`;
+            return `- ${nameHtml}${tail ? ` (${tail})` : ""}`;
           })
           .join("\n");
 
         parsed.body = `${parsed.body.trim()}\n\nAutres profils à considérer :\n${missingBlock}`;
       }
+
+      // Garantit lien Instagram sur chaque nom de talent (solo inclus).
+      const asHtml = parsed.body.trim().startsWith("<")
+        ? parsed.body
+        : plainTextToEmailHtml(parsed.body) || parsed.body;
+      parsed.body = upgradeTalentLinksInHtml(
+        asHtml,
+        body.talents.map((t) => {
+          const parts = String(t.name || "").trim().split(/\s+/);
+          const prenom = parts[0] || "";
+          const nom = parts.slice(1).join(" ") || "";
+          return { prenom, nom, instagram: t.instagram };
+        })
+      );
 
       return NextResponse.json(parsed);
     } catch {

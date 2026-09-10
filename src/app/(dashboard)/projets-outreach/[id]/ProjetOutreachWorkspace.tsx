@@ -8,10 +8,8 @@ import {
   Loader2,
   RefreshCw,
   Search,
-  Trash2,
   Send,
   Check,
-  Mail,
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import {
@@ -23,6 +21,16 @@ import {
   canTransitionTo,
   type CampaignStatus,
 } from "@/lib/projets-outreach";
+import "../po.css";
+import {
+  KpiCard,
+  PoAvatar,
+  StageStepper,
+  StatusBadge,
+  PriorityBadge,
+  StageDotBadge,
+  initialOf,
+} from "../PoUi";
 
 type TabId = "brief" | "marques" | "redaction" | "envois" | "suivi";
 
@@ -41,6 +49,7 @@ type Mission = {
   stage: string;
   draftEmailSubject: string | null;
   draftEmailBody: string | null;
+  clientLanguage?: "FR" | "EN" | null;
   clientContacts: Array<{
     firstname?: string;
     lastname?: string;
@@ -54,6 +63,7 @@ type Mission = {
     email: string;
     role: string;
     linkedinUrl?: string;
+    language?: "fr" | "en";
   }>;
   scheduledSendAt: string | null;
   sentAt: string | null;
@@ -77,6 +87,7 @@ function effectiveMissionContacts(m: Mission) {
     email: c.email,
     role: c.role,
     linkedinUrl: c.linkedinUrl || "",
+    language: (c.language === "en" ? "en" : "fr") as "fr" | "en",
   }));
   if (crm.length > 0) return crm;
 
@@ -87,11 +98,23 @@ function effectiveMissionContacts(m: Mission) {
           id: `manual-${index}-${String(c.email).trim()}`,
           firstname: String(c.firstname || "").trim(),
           lastname: String(c.lastname || "").trim(),
-          email: String(c.email || "").trim(),
+          email: String(c.email).trim(),
           role: String(c.role || "").trim(),
           linkedinUrl: "",
+          language: "fr" as const,
         }))
     : [];
+}
+
+function deriveClientLanguage(
+  contacts: Array<{ language?: "fr" | "en" }>,
+  missionLang?: string | null
+): "FR" | "EN" | null {
+  const fromMission = String(missionLang || "").toUpperCase();
+  if (fromMission === "EN" || fromMission === "FR") return fromMission;
+  if (contacts.length === 0) return null;
+  const en = contacts.filter((c) => c.language === "en").length;
+  return en >= contacts.length / 2 ? "EN" : "FR";
 }
 
 type Campaign = {
@@ -157,6 +180,16 @@ const STAGE_LABEL: Record<string, string> = {
   LOST: "Perdu",
 };
 
+const EMPTY = (
+  <span style={{ color: "#C9C9CF" }}>—</span>
+);
+
+function activityDotColor(type: string, index: number) {
+  if (String(type).toUpperCase().includes("CREATED")) return "#2E9E63";
+  if (index < 2) return "#B67C7C";
+  return "#C9C9CF";
+}
+
 export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) {
   const { data: session } = useSession();
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
@@ -220,176 +253,190 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
 
   if (loading && !campaign) {
     return (
-      <div className="flex items-center gap-2 p-8 text-sm text-gray-500">
-        <Loader2 className="h-4 w-4 animate-spin" /> Chargement du projet…
+      <div className="po-root" style={{ padding: "40px", color: "var(--po-muted)" }}>
+        <div className="inline-flex items-center gap-2 text-[13px]">
+          <Loader2 className="h-4 w-4 animate-spin" /> Chargement du projet…
+        </div>
       </div>
     );
   }
 
   if (!campaign) {
     return (
-      <div className="space-y-4 p-8">
-        <p className="text-sm text-red-600">{error || "Projet introuvable."}</p>
-        <Link href="/projets-outreach" className="text-sm text-[#C08B8B] hover:underline">
-          ← Retour
+      <div className="po-root" style={{ padding: "40px" }}>
+        <p className="po-alert-error" style={{ marginBottom: 16 }}>
+          {error || "Projet introuvable."}
+        </p>
+        <Link
+          href="/projets-outreach"
+          className="inline-flex items-center gap-1"
+          style={{ fontSize: 12.5, color: "#6E6E77" }}
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Tous les projets
         </Link>
       </div>
     );
   }
 
+  const sender = campaign.senderEmail || "leyna@glowupagence.fr";
+  const tmLabel = campaign.ownerTmName || "HORS TM";
+
   return (
-    <div className="mx-auto max-w-6xl space-y-5 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Link
-            href="/projets-outreach"
-            className="mb-2 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-[#1A1110]"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" /> Tous les projets
-          </Link>
-          <h1 className="text-2xl font-semibold text-[#1A1110]">{campaign.title}</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Gestion du projet · {campaign.talent.name}
-            {campaign.talent.instagram ? ` · @${campaign.talent.instagram.replace(/^@/, "")}` : ""}
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            {(["BRIEF", "BRANDS", "DRAFTING", "SENDING", "ACTIVE"] as CampaignStatus[]).map(
-              (step, i, arr) => {
-                const currentIdx = arr.indexOf(
-                  campaign.status === "CLOSED" ? "ACTIVE" : campaign.status
-                );
-                const done = currentIdx >= i;
-                const current = campaign.status === step;
-                return (
-                  <div key={step} className="flex items-center gap-1.5">
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                        current
-                          ? "bg-[#1A1110] text-white"
-                          : done
-                            ? "bg-[#C08B8B]/25 text-[#1A1110]"
-                            : "bg-gray-100 text-gray-400"
-                      }`}
-                    >
-                      {STATUS_LABEL[step]}
-                    </span>
-                    {i < arr.length - 1 && <span className="text-gray-300">›</span>}
-                  </div>
-                );
-              }
-            )}
-            {campaign.status === "CLOSED" && (
-              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] text-gray-600">
-                Clos
-              </span>
-            )}
+    <div className="po-root">
+      <div style={{ borderBottom: "1px solid #EEEEF0", padding: "20px 40px 0" }}>
+        <Link
+          href="/projets-outreach"
+          className="inline-flex items-center gap-1"
+          style={{ fontSize: 12.5, color: "#6E6E77", marginBottom: 14 }}
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Tous les projets
+        </Link>
+
+        <div
+          className="flex flex-wrap items-start justify-between gap-4"
+          style={{ marginBottom: 16 }}
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <PoAvatar
+              name={campaign.talent.name}
+              photo={campaign.talent.photo}
+              size={40}
+            />
+            <div className="min-w-0">
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 18,
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
+                  color: "var(--po-ink)",
+                }}
+              >
+                {campaign.title}
+              </h1>
+              <p
+                style={{
+                  margin: "4px 0 0",
+                  fontSize: 12.5,
+                  color: "var(--po-tertiary)",
+                  lineHeight: 1.45,
+                }}
+              >
+                Gestion du projet · <strong style={{ color: "var(--po-ink)", fontWeight: 600 }}>{campaign.talent.name}</strong>
+                {" · "}envoi {sender}
+                {" · "}créé par {campaign.createdByName}
+                {" · "}TM {tmLabel}
+              </p>
+            </div>
           </div>
-          <p className="mt-2 text-xs text-gray-500">
-            {campaign.missions.length} marque(s) · envoi {campaign.senderEmail || "leyna@glowupagence.fr"}
-            {" · "}créé par {campaign.createdByName}
-            {campaign.ownerTmName ? ` · TM ${campaign.ownerTmName}` : ""}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          {canAdvance && nextStatus && (
+
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={saving}
-              onClick={() => void transition(nextStatus)}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#1A1110] px-3 py-2 text-sm text-white disabled:opacity-50"
+              onClick={() => void load()}
+              className="po-btn po-btn-icon"
+              aria-label="Actualiser"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              {CTA_LABEL[campaign.status] || "Avancer"}
+              <RefreshCw className="h-4 w-4" />
             </button>
-          )}
-          {campaign.status !== "CLOSED" &&
-            (canEditBrief(role) || canSend(role)) && (
+            {canAdvance && nextStatus && (
               <button
                 type="button"
                 disabled={saving}
-                onClick={() => void transition("CLOSED")}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600"
+                onClick={() => void transition(nextStatus)}
+                className="po-btn po-btn-primary"
               >
-                Clôturer
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+                {CTA_LABEL[campaign.status] || "Avancer"}
               </button>
             )}
+            {campaign.status !== "CLOSED" &&
+              (canEditBrief(role) || canSend(role)) && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void transition("CLOSED")}
+                  className="po-btn po-btn-secondary"
+                >
+                  Clôturer
+                </button>
+              )}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 4 }}>
+          <StageStepper status={campaign.status} />
+        </div>
+
+        <div className="po-tabs" style={{ borderBottom: "1px solid #EEEEF0" }}>
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`po-tab${tab === t.id ? " po-tab-active" : ""}`}
+            >
+              {t.label}
+              {t.id === "marques" ? (
+                <span className="po-tab-badge">{campaign.missions.length}</span>
+              ) : null}
+            </button>
+          ))}
         </div>
       </div>
 
-      {(error || success) && (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            error
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-emerald-200 bg-emerald-50 text-emerald-800"
-          }`}
-        >
-          {error || success}
-        </div>
-      )}
-
-      <div className="flex gap-1 overflow-x-auto border-b border-gray-200">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`whitespace-nowrap border-b-2 px-4 py-2.5 text-sm ${
-              tab === t.id
-                ? "border-[#1A1110] font-medium text-[#1A1110]"
-                : "border-transparent text-gray-500 hover:text-[#1A1110]"
-            }`}
+      <div style={{ padding: "24px 40px", maxWidth: 1160, margin: "0 auto" }}>
+        {(error || success) && (
+          <div
+            className={error ? "po-alert-error" : "po-alert-ok"}
+            style={{ marginBottom: 16 }}
           >
-            {t.label}
-            {t.id === "marques" ? ` (${campaign.missions.length})` : ""}
-          </button>
-        ))}
-      </div>
+            {error || success}
+          </div>
+        )}
 
-      {tab === "brief" && (
-        <BriefTab
-          campaign={campaign}
-          canEdit={canEditBrief(role)}
-          onSaved={load}
-          setError={setError}
-          setSuccess={setSuccess}
-        />
-      )}
-      {tab === "marques" && (
-        <MarquesTab
-          campaign={campaign}
-          canManage={canManageBrands(role)}
-          onChanged={load}
-          setError={setError}
-          setSuccess={setSuccess}
-        />
-      )}
-      {tab === "redaction" && (
-        <RedactionTab
-          campaign={campaign}
-          canEdit={canDraft(role)}
-          onChanged={load}
-          setError={setError}
-          setSuccess={setSuccess}
-        />
-      )}
-      {tab === "envois" && (
-        <EnvoisTab
-          campaign={campaign}
-          canSendMails={canSend(role) || canDraft(role)}
-          onChanged={load}
-          setError={setError}
-          setSuccess={setSuccess}
-        />
-      )}
-      {tab === "suivi" && <SuiviTab campaign={campaign} />}
+        {tab === "brief" && (
+          <BriefTab
+            campaign={campaign}
+            canEdit={canEditBrief(role)}
+            onSaved={load}
+            setError={setError}
+            setSuccess={setSuccess}
+          />
+        )}
+        {tab === "marques" && (
+          <MarquesTab
+            campaign={campaign}
+            canManage={canManageBrands(role)}
+            onChanged={load}
+            setError={setError}
+            setSuccess={setSuccess}
+          />
+        )}
+        {tab === "redaction" && (
+          <RedactionTab
+            campaign={campaign}
+            canEdit={canDraft(role)}
+            onChanged={load}
+            setError={setError}
+            setSuccess={setSuccess}
+          />
+        )}
+        {tab === "envois" && (
+          <EnvoisTab
+            campaign={campaign}
+            canSendMails={canSend(role) || canDraft(role)}
+            onChanged={load}
+            setError={setError}
+            setSuccess={setSuccess}
+          />
+        )}
+        {tab === "suivi" && <SuiviTab campaign={campaign} />}
+      </div>
     </div>
   );
 }
@@ -407,21 +454,8 @@ function BriefTab({
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
 }) {
-  const [form, setForm] = useState({
-    title: campaign.title,
-    description: campaign.description || "",
-    objective: campaign.objective || "",
-    deliverables: campaign.deliverables || "",
-    budgetRange: campaign.budgetRange || "",
-    timeline: campaign.timeline || "",
-    angles: campaign.angles || "",
-    dos: campaign.dos || "",
-    donts: campaign.donts || "",
-  });
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setForm({
+  const blankForm = useCallback(
+    () => ({
       title: campaign.title,
       description: campaign.description || "",
       objective: campaign.objective || "",
@@ -431,8 +465,16 @@ function BriefTab({
       angles: campaign.angles || "",
       dos: campaign.dos || "",
       donts: campaign.donts || "",
-    });
-  }, [campaign]);
+    }),
+    [campaign]
+  );
+
+  const [form, setForm] = useState(blankForm);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setForm(blankForm());
+  }, [blankForm]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -458,95 +500,118 @@ function BriefTab({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
-      <form onSubmit={onSubmit} className="space-y-4 rounded-xl border border-gray-200 bg-white p-5">
-        <Field label="Titre" disabled={!canEdit}>
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <form
+        onSubmit={onSubmit}
+        className="po-card"
+        style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}
+      >
+        <Field label="Titre">
           <input
             disabled={!canEdit}
             value={form.title}
             onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+            className="po-input"
           />
         </Field>
-        <Field label="Description" disabled={!canEdit}>
+        <Field label="Description">
           <textarea
             disabled={!canEdit}
-            rows={2}
+            rows={3}
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+            className="po-textarea"
           />
         </Field>
-        <Field label="Objectif" disabled={!canEdit}>
+        <Field label="Objectif">
           <textarea
             disabled={!canEdit}
             rows={3}
             value={form.objective}
             onChange={(e) => setForm((f) => ({ ...f, objective: e.target.value }))}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+            className="po-textarea"
           />
         </Field>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Livrables" disabled={!canEdit}>
+        <div className="grid gap-3.5 md:grid-cols-2">
+          <Field label="Livrables">
             <textarea
               disabled={!canEdit}
-              rows={3}
+              rows={2}
               value={form.deliverables}
               onChange={(e) => setForm((f) => ({ ...f, deliverables: e.target.value }))}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+              className="po-textarea"
+              placeholder="Stories, posts, réels…"
             />
           </Field>
-          <Field label="Angles" disabled={!canEdit}>
+          <Field label="Angles">
             <textarea
               disabled={!canEdit}
-              rows={3}
+              rows={2}
               value={form.angles}
               onChange={(e) => setForm((f) => ({ ...f, angles: e.target.value }))}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+              className="po-textarea"
+              placeholder="Solaire, lifestyle, plage…"
             />
           </Field>
-          <Field label="Budget" disabled={!canEdit}>
+          <Field label="Budget">
             <input
               disabled={!canEdit}
               value={form.budgetRange}
               onChange={(e) => setForm((f) => ({ ...f, budgetRange: e.target.value }))}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+              className="po-input"
+              placeholder="€"
             />
           </Field>
-          <Field label="Timeline" disabled={!canEdit}>
+          <Field label="Timeline">
             <input
               disabled={!canEdit}
               value={form.timeline}
               onChange={(e) => setForm((f) => ({ ...f, timeline: e.target.value }))}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+              className="po-input"
+              placeholder="16–19 sept."
             />
           </Field>
-          <Field label="Do's" disabled={!canEdit}>
+          <Field label="Do's">
             <textarea
               disabled={!canEdit}
               rows={2}
               value={form.dos}
               onChange={(e) => setForm((f) => ({ ...f, dos: e.target.value }))}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+              className="po-textarea"
+              placeholder="À faire"
             />
           </Field>
-          <Field label="Don'ts" disabled={!canEdit}>
+          <Field label="Don'ts">
             <textarea
               disabled={!canEdit}
               rows={2}
               value={form.donts}
               onChange={(e) => setForm((f) => ({ ...f, donts: e.target.value }))}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+              className="po-textarea"
+              placeholder="À éviter"
             />
           </Field>
         </div>
+
         {canEdit && (
-          <div className="flex justify-end">
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 10,
+              paddingTop: 16,
+              marginTop: 4,
+              borderTop: "1px solid #F4F4F5",
+            }}
+          >
             <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#1A1110] px-3 py-2 text-sm text-white disabled:opacity-50"
+              type="button"
+              className="po-btn po-btn-secondary"
+              onClick={() => setForm(blankForm())}
             >
+              Annuler
+            </button>
+            <button type="submit" disabled={saving} className="po-btn po-btn-primary">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               Enregistrer le brief
             </button>
@@ -554,21 +619,79 @@ function BriefTab({
         )}
       </form>
 
-      <aside className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
-        <h3 className="text-sm font-medium text-[#1A1110]">Activité</h3>
-        <ul className="space-y-3">
-          {campaign.events.length === 0 && (
-            <li className="text-xs text-gray-500">Aucune activité.</li>
-          )}
-          {campaign.events.map((e) => (
-            <li key={e.id} className="border-b border-gray-50 pb-2 text-xs last:border-0">
-              <div className="text-gray-800">{e.message || e.type}</div>
-              <div className="mt-0.5 text-gray-400">
-                {e.actorName} · {new Date(e.createdAt).toLocaleString("fr-FR")}
-              </div>
-            </li>
-          ))}
-        </ul>
+      <aside className="po-card" style={{ padding: 20 }}>
+        <div className="flex items-baseline justify-between gap-2" style={{ marginBottom: 14 }}>
+          <h3
+            style={{
+              margin: 0,
+              fontSize: 13.5,
+              fontWeight: 700,
+              color: "var(--po-ink)",
+            }}
+          >
+            Activité
+          </h3>
+          <span style={{ fontSize: 11.5, color: "var(--po-muted)", fontWeight: 500 }}>
+            Aujourd&apos;hui
+          </span>
+        </div>
+        {campaign.events.length === 0 ? (
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--po-muted)" }}>
+            Aucune activité.
+          </p>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {campaign.events.map((e, i) => {
+              const color = activityDotColor(e.type, i);
+              return (
+                <li
+                  key={e.id}
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    paddingBottom: i < campaign.events.length - 1 ? 14 : 0,
+                    marginBottom: i < campaign.events.length - 1 ? 14 : 0,
+                    borderBottom:
+                      i < campaign.events.length - 1 ? "1px solid var(--po-sep-soft)" : "none",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      marginTop: 4,
+                      borderRadius: 99,
+                      background: color,
+                      boxShadow: `0 0 0 4px color-mix(in oklab, ${color} 22%, transparent)`,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div className="min-w-0">
+                    <div
+                      style={{
+                        fontSize: 12.5,
+                        color: "var(--po-ink)",
+                        fontWeight: 500,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {e.message || e.type}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 3,
+                        fontSize: 11.5,
+                        color: "var(--po-muted)",
+                      }}
+                    >
+                      {e.actorName} · {new Date(e.createdAt).toLocaleString("fr-FR")}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </aside>
     </div>
   );
@@ -700,180 +823,283 @@ function MarquesTab({
     }
   }
 
+  const tableCols = "1.1fr 2.2fr .8fr .7fr 36px";
+
   return (
-    <div className="space-y-5">
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {canManage && (
-        <form
-          onSubmit={addBrand}
-          className="space-y-4 rounded-xl border border-gray-200 bg-white p-5"
-        >
-          <h3 className="text-sm font-medium text-[#1A1110]">Ajouter une marque</h3>
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-            <input
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setSelected(null);
+        <form onSubmit={addBrand} className="po-card" style={{ padding: 22 }}>
+          <div style={{ marginBottom: 16 }}>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 14,
+                fontWeight: 700,
+                color: "var(--po-ink)",
               }}
-              placeholder="Rechercher dans le CRM Marques…"
-              className="w-full rounded-lg border border-gray-200 py-2 pl-9 pr-3 text-sm"
-            />
-            {(hits.length > 0 || searching) && !selected && (
-              <div className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                {searching && (
-                  <div className="px-3 py-2 text-xs text-gray-500">Recherche…</div>
-                )}
-                {hits.map((h) => (
-                  <button
-                    key={h.id}
-                    type="button"
-                    onClick={() => {
-                      setSelected(h);
-                      setQuery(h.nom);
-                      setHits([]);
-                    }}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50"
-                  >
-                    <span>{h.nom}</span>
-                    <span className="text-xs text-gray-400">{h.contactCount} contact(s)</span>
-                  </button>
-                ))}
+            >
+              Ajouter une marque
+            </h3>
+            <p
+              style={{
+                margin: "4px 0 0",
+                fontSize: 12.5,
+                color: "var(--po-tertiary)",
+              }}
+            >
+              Recherche CRM ou saisie libre
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div style={{ gridColumn: "1 / -1", position: "relative" }}>
+              <Search
+                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+                style={{ color: "var(--po-muted)" }}
+              />
+              <input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setSelected(null);
+                }}
+                placeholder="Rechercher dans le CRM Marques…"
+                className="po-input"
+                style={{ paddingLeft: 36 }}
+              />
+              {(hits.length > 0 || searching) && !selected && (
+                <div
+                  className="po-card"
+                  style={{
+                    position: "absolute",
+                    zIndex: 10,
+                    marginTop: 4,
+                    maxHeight: 224,
+                    width: "100%",
+                    overflow: "auto",
+                    padding: 4,
+                  }}
+                >
+                  {searching && (
+                    <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--po-muted)" }}>
+                      Recherche…
+                    </div>
+                  )}
+                  {hits.map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      onClick={() => {
+                        setSelected(h);
+                        setQuery(h.nom);
+                        setHits([]);
+                      }}
+                      className="flex w-full items-center justify-between text-left"
+                      style={{
+                        padding: "8px 12px",
+                        border: "none",
+                        background: "transparent",
+                        borderRadius: 8,
+                        font: "inherit",
+                        fontSize: 13,
+                        cursor: "pointer",
+                        color: "var(--po-ink)",
+                      }}
+                    >
+                      <span>{h.nom}</span>
+                      <span style={{ fontSize: 11.5, color: "var(--po-muted)" }}>
+                        {h.contactCount} contact(s)
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {!selected ? (
+              <Field label="Ou saisir un nom libre">
+                <input
+                  value={manualBrand}
+                  onChange={(e) => setManualBrand(e.target.value)}
+                  className="po-input"
+                  placeholder="Nouvelle marque"
+                />
+              </Field>
+            ) : (
+              <div
+                style={{
+                  gridColumn: "1 / 2",
+                  alignSelf: "end",
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: "var(--po-accent-8)",
+                  fontSize: 13,
+                }}
+              >
+                Sélection : <strong>{selected.nom}</strong>
               </div>
             )}
-          </div>
-          {!selected && (
-            <Field label="Ou saisir un nom libre">
-              <input
-                value={manualBrand}
-                onChange={(e) => setManualBrand(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                placeholder="Nouvelle marque"
-              />
-            </Field>
-          )}
-          {selected && (
-            <div className="rounded-lg bg-[#F5EBE0]/60 px-3 py-2 text-sm">
-              Sélection : <strong>{selected.nom}</strong>
-            </div>
-          )}
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Raison strategy">
-              <textarea
-                rows={2}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                placeholder="Optionnel"
-              />
-            </Field>
-            <Field label="Angle recommandé">
-              <textarea
-                rows={2}
-                value={angle}
-                onChange={(e) => setAngle(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              />
-            </Field>
+
             <Field label="Priorité">
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                className="po-select"
               >
-                <option value="LOW">Basse</option>
                 <option value="MEDIUM">Moyenne</option>
                 <option value="HIGH">Haute</option>
+                <option value="LOW">Basse</option>
                 <option value="URGENT">Urgente</option>
               </select>
             </Field>
+
             <Field label="Email contact (optionnel)">
               <input
                 type="email"
                 value={contactEmail}
                 onChange={(e) => setContactEmail(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                className="po-input"
+                placeholder="Email contact (optionnel)"
               />
             </Field>
-            <Field label="Prénom contact">
-              <input
-                value={contactFirst}
-                onChange={(e) => setContactFirst(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+
+            <Field label="Raison strategy">
+              <textarea
+                rows={2}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                className="po-textarea"
+                placeholder="Raison strategy"
               />
             </Field>
-            <Field label="Nom contact">
-              <input
-                value={contactLast}
-                onChange={(e) => setContactLast(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+
+            <Field label="Angle recommandé">
+              <textarea
+                rows={2}
+                value={angle}
+                onChange={(e) => setAngle(e.target.value)}
+                className="po-textarea"
+                placeholder="Angle recommandé"
               />
             </Field>
-          </div>
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#1A1110] px-3 py-2 text-sm text-white disabled:opacity-50"
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                justifyContent: "flex-end",
+              }}
             >
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              Ajouter
-            </button>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Prénom contact">
+                  <input
+                    value={contactFirst}
+                    onChange={(e) => setContactFirst(e.target.value)}
+                    className="po-input"
+                  />
+                </Field>
+                <Field label="Nom contact">
+                  <input
+                    value={contactLast}
+                    onChange={(e) => setContactLast(e.target.value)}
+                    className="po-input"
+                  />
+                </Field>
+              </div>
+              <button
+                type="submit"
+                disabled={saving}
+                className="po-btn po-btn-primary"
+                style={{ alignSelf: "flex-end" }}
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Ajouter
+              </button>
+            </div>
           </div>
         </form>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase text-gray-500">
-            <tr>
-              <th className="px-4 py-3">Marque</th>
-              <th className="px-4 py-3">Raison</th>
-              <th className="px-4 py-3">Stage</th>
-              <th className="px-4 py-3">Priorité</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {campaign.missions.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                  Aucune marque pour l&apos;instant.
-                </td>
-              </tr>
-            ) : (
-              campaign.missions.map((m) => (
-                <tr key={m.id} className="border-b border-gray-50">
-                  <td className="px-4 py-3 font-medium">
-                    {m.marqueNom || m.targetBrand}
+      <div className="po-card" style={{ overflow: "hidden" }}>
+        <div className="po-table-head" style={{ gridTemplateColumns: tableCols }}>
+          <span>Marque</span>
+          <span>Raison</span>
+          <span>Stage</span>
+          <span>Priorité</span>
+          <span />
+        </div>
+        {campaign.missions.length === 0 ? (
+          <div className="po-empty" style={{ border: "none", borderRadius: 0 }}>
+            Aucune marque pour l&apos;instant.
+          </div>
+        ) : (
+          campaign.missions.map((m) => {
+            const name = m.marqueNom || m.targetBrand;
+            return (
+              <div
+                key={m.id}
+                className="po-table-row"
+                style={{ gridTemplateColumns: tableCols }}
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <PoAvatar name={name} size={26} />
+                  <div className="min-w-0">
+                    <div style={{ fontWeight: 600, color: "var(--po-ink)" }}>{name}</div>
                     {m.marqueId && (
                       <Link
                         href={`/marques/${m.marqueId}`}
-                        className="ml-2 text-xs text-[#C08B8B] hover:underline"
+                        style={{ fontSize: 11.5 }}
                       >
                         fiche
                       </Link>
                     )}
-                  </td>
-                  <td className="max-w-xs truncate px-4 py-3 text-gray-600">{m.strategyReason}</td>
-                  <td className="px-4 py-3">{STAGE_LABEL[m.stage] || m.stage}</td>
-                  <td className="px-4 py-3">{m.priority}</td>
-                  <td className="px-4 py-3 text-right">
-                    {canManage && !m.sentAt && (
-                      <button
-                        type="button"
-                        onClick={() => void removeMission(m.id)}
-                        className="text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                  </div>
+                </div>
+                <div
+                  className="truncate"
+                  style={{ color: "var(--po-secondary)" }}
+                  title={m.strategyReason}
+                >
+                  {m.strategyReason || EMPTY}
+                </div>
+                <div>
+                  <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+                </div>
+                <div>
+                  <PriorityBadge priority={m.priority} />
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  {canManage && !m.sentAt && (
+                    <button
+                      type="button"
+                      onClick={() => void removeMission(m.id)}
+                      aria-label="Retirer"
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: "var(--po-muted)",
+                        cursor: "pointer",
+                        fontSize: 16,
+                        lineHeight: 1,
+                        padding: 4,
+                        borderRadius: 6,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = "#E5484D";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = "var(--po-muted)";
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
@@ -967,6 +1193,7 @@ function RedactionTab({
             lastname?: string;
             email?: string;
             role?: string;
+            language?: string;
           }>)
             .map((c) => ({
               id: String(c.id || "").trim(),
@@ -975,6 +1202,9 @@ function RedactionTab({
               email: String(c.email || "").trim(),
               role: String(c.role || "").trim(),
               linkedinUrl: "",
+              language: (String(c.language || "").toLowerCase() === "en"
+                ? "en"
+                : "fr") as "fr" | "en",
             }))
             .filter((c) => c.id && c.email.includes("@"));
           if (live.length > 0) localContacts = live;
@@ -1004,6 +1234,7 @@ function RedactionTab({
         email: c.email,
         role: c.role,
         linkedinUrl: c.linkedinUrl,
+        language: c.language,
       })),
       initialSubject: String(m.draftEmailSubject || "").trim(),
       initialBodyHtml: String(m.draftEmailBody || "").trim(),
@@ -1018,7 +1249,7 @@ function RedactionTab({
         donts: m.donts || campaign.donts,
         priority,
         status,
-        clientLanguage: null,
+        clientLanguage: deriveClientLanguage(localContacts, m.clientLanguage),
         clientContacts: localContacts,
         projectTitle: campaign.title,
         projectDescription: campaign.description,
@@ -1157,47 +1388,76 @@ function RedactionTab({
 
   if (draftable.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500">
+      <div className="po-empty">
         Aucune marque à rédiger. Inès doit d&apos;abord ajouter des marques.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))",
+          gap: 14,
+        }}
+      >
         {draftable.map((m) => {
           const contactCount = effectiveMissionContacts(m).length;
+          const name = m.marqueNom || m.targetBrand;
           return (
             <div
               key={m.id}
-              className="flex flex-col rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
+              className="po-card"
+              style={{
+                padding: 18,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+              }}
             >
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium text-[#1A1110]">
-                    {m.marqueNom || m.targetBrand}
-                  </div>
-                  <div className="mt-0.5 text-xs text-gray-500">
-                    {STAGE_LABEL[m.stage] || m.stage}
-                    {" · "}
-                    {contactCount} contact(s)
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <PoAvatar name={name} size={30} />
+                  <div className="min-w-0" style={{ fontWeight: 600, color: "var(--po-ink)" }}>
+                    {name}
                   </div>
                 </div>
-                <Mail className="h-4 w-4 text-[#C08B8B]" />
+                <PriorityBadge priority={m.priority} />
               </div>
-              <p className="mt-2 line-clamp-2 text-xs text-gray-600">{m.strategyReason}</p>
+              <div style={{ fontSize: 12, color: "var(--po-tertiary)" }}>
+                {STAGE_LABEL[m.stage] || m.stage}
+                {" · "}
+                {contactCount} contact(s)
+              </div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 12.5,
+                  color: "var(--po-secondary)",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  lineHeight: 1.45,
+                  minHeight: "2.9em",
+                }}
+              >
+                {m.strategyReason || " "}
+              </p>
               {canEdit ? (
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() => void openComposer(m)}
-                  className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-[#1A1110] px-3 py-2 text-sm text-white disabled:opacity-50"
+                  className="po-btn po-btn-primary po-btn-cta-accent"
+                  style={{ marginTop: "auto", width: "100%" }}
                 >
                   {m.draftEmailSubject ? "Ouvrir le composer" : "Rédiger le mail"}
                 </button>
               ) : (
-                <p className="mt-4 text-xs text-amber-700">
+                <p style={{ margin: "8px 0 0", fontSize: 12, color: "#956A15" }}>
                   Rédaction réservée au Casting (Manon).
                 </p>
               )}
@@ -1286,59 +1546,84 @@ function EnvoisTab({
     }
   }
 
+  if (queue.length === 0) {
+    return (
+      <div className="po-empty" style={{ padding: 56 }}>
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 12,
+            background: "var(--po-accent-14)",
+            color: "var(--po-accent)",
+            display: "grid",
+            placeItems: "center",
+            margin: "0 auto 14px",
+          }}
+        >
+          <Send className="h-5 w-5" />
+        </div>
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 700,
+            color: "var(--po-ink)",
+            marginBottom: 6,
+          }}
+        >
+          Rien en file d&apos;envoi
+        </div>
+        <div style={{ fontSize: 13, color: "var(--po-muted)", maxWidth: 360, margin: "0 auto" }}>
+          Les mails rédigés et validés apparaîtront ici avant leur départ.
+        </div>
+      </div>
+    );
+  }
+
+  const cols = "1.2fr 1.6fr 1.4fr .9fr auto";
+
   return (
-    <div className="space-y-4">
-      {queue.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500">
-          Rien en file d&apos;envoi.
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase text-gray-500">
-              <tr>
-                <th className="px-4 py-3">Marque</th>
-                <th className="px-4 py-3">Objet</th>
-                <th className="px-4 py-3">Contacts</th>
-                <th className="px-4 py-3">Stage</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {queue.map((m) => {
-                const contacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
-                return (
-                  <tr key={m.id} className="border-b border-gray-50">
-                    <td className="px-4 py-3 font-medium">{m.marqueNom || m.targetBrand}</td>
-                    <td className="max-w-xs truncate px-4 py-3">{m.draftEmailSubject || "—"}</td>
-                    <td className="px-4 py-3 text-xs text-gray-600">
-                      {contacts.map((c) => c.email).filter(Boolean).join(", ") || "—"}
-                    </td>
-                    <td className="px-4 py-3">{STAGE_LABEL[m.stage] || m.stage}</td>
-                    <td className="px-4 py-3 text-right">
-                      {canSendMails && (
-                        <button
-                          type="button"
-                          disabled={busyId === m.id}
-                          onClick={() => void scheduleAndSend(m.id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#1A1110] px-3 py-1.5 text-xs text-white disabled:opacity-50"
-                        >
-                          {busyId === m.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Send className="h-3.5 w-3.5" />
-                          )}
-                          Envoyer
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <div className="po-card" style={{ overflow: "hidden" }}>
+      <div className="po-table-head" style={{ gridTemplateColumns: cols }}>
+        <span>Marque</span>
+        <span>Objet</span>
+        <span>Contacts</span>
+        <span>Stage</span>
+        <span />
+      </div>
+      {queue.map((m) => {
+        const contacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
+        return (
+          <div key={m.id} className="po-table-row" style={{ gridTemplateColumns: cols }}>
+            <div style={{ fontWeight: 600 }}>{m.marqueNom || m.targetBrand}</div>
+            <div className="truncate">{m.draftEmailSubject || EMPTY}</div>
+            <div className="truncate" style={{ fontSize: 12, color: "var(--po-secondary)" }}>
+              {contacts.map((c) => c.email).filter(Boolean).join(", ") || EMPTY}
+            </div>
+            <div>
+              <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+            </div>
+            <div style={{ textAlign: "right" }}>
+              {canSendMails && (
+                <button
+                  type="button"
+                  disabled={busyId === m.id}
+                  onClick={() => void scheduleAndSend(m.id)}
+                  className="po-btn po-btn-primary"
+                  style={{ padding: "7px 12px", fontSize: 12 }}
+                >
+                  {busyId === m.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5" />
+                  )}
+                  Envoyer
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1354,64 +1639,72 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
       m.stage === "LOST"
   );
 
+  const opens = campaign.missions.reduce((n, m) => n + (m.openCount || 0), 0);
+  const replies = campaign.missions.filter(
+    (m) =>
+      m.replied ||
+      m.stage === "RESPONSE_RECEIVED" ||
+      m.stage === "IN_NEGOTIATION" ||
+      m.stage === "WON"
+  ).length;
+
+  const cols = "1.4fr 1fr .8fr .6fr .6fr .8fr .8fr";
+
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-4">
-        <StatCard label="Marques" value={campaign.missions.length} />
-        <StatCard label="Contactées" value={contacted.length} />
-        <StatCard
-          label="Ouvertures"
-          value={campaign.missions.reduce((n, m) => n + (m.openCount || 0), 0)}
-        />
-        <StatCard
-          label="Réponses"
-          value={campaign.missions.filter((m) => m.replied || m.stage === "RESPONSE_RECEIVED" || m.stage === "IN_NEGOTIATION" || m.stage === "WON").length}
-        />
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="po-kpi-grid">
+        <KpiCard label="Marques" value={campaign.missions.length} dot="#B67C7C" />
+        <KpiCard label="Contactées" value={contacted.length} dot="#C45C26" />
+        <KpiCard label="Ouvertures" value={opens} dot="#2F6FED" />
+        <KpiCard label="Réponses" value={replies} dot="#2E9E63" />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase text-gray-500">
-            <tr>
-              <th className="px-4 py-3">Marque</th>
-              <th className="px-4 py-3">Stage</th>
-              <th className="px-4 py-3">Envoyé</th>
-              <th className="px-4 py-3">Opens</th>
-              <th className="px-4 py-3">Clics</th>
-              <th className="px-4 py-3">Relances</th>
-              <th className="px-4 py-3">Erreur</th>
-            </tr>
-          </thead>
-          <tbody>
-            {campaign.missions.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                  Pas encore de suivi.
-                </td>
-              </tr>
-            ) : (
-              campaign.missions.map((m) => (
-                <tr key={m.id} className="border-b border-gray-50">
-                  <td className="px-4 py-3 font-medium">{m.marqueNom || m.targetBrand}</td>
-                  <td className="px-4 py-3">{STAGE_LABEL[m.stage] || m.stage}</td>
-                  <td className="px-4 py-3 text-xs">
-                    {m.sentAt ? new Date(m.sentAt).toLocaleString("fr-FR") : "—"}
-                  </td>
-                  <td className="px-4 py-3">{m.openCount}</td>
-                  <td className="px-4 py-3">{m.clickCount}</td>
-                  <td className="px-4 py-3 text-xs">
-                    {[m.relanceSentAt && "J+3", m.relance2SentAt && "J+10"]
-                      .filter(Boolean)
-                      .join(" · ") || "—"}
-                  </td>
-                  <td className="max-w-[160px] truncate px-4 py-3 text-xs text-red-600">
-                    {m.sendError || ""}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div className="po-card" style={{ overflow: "hidden" }}>
+        <div className="po-table-head" style={{ gridTemplateColumns: cols }}>
+          <span>Marque</span>
+          <span>Stage</span>
+          <span>Envoyé</span>
+          <span>Opens</span>
+          <span>Clics</span>
+          <span>Relances</span>
+          <span>Erreur</span>
+        </div>
+        {campaign.missions.length === 0 ? (
+          <div className="po-empty" style={{ border: "none", borderRadius: 0 }}>
+            Pas encore de suivi.
+          </div>
+        ) : (
+          campaign.missions.map((m) => {
+            const relances = [m.relanceSentAt && "J+3", m.relance2SentAt && "J+10"]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <div
+                key={m.id}
+                className="po-table-row"
+                style={{ gridTemplateColumns: cols }}
+              >
+                <div style={{ fontWeight: 600 }}>{m.marqueNom || m.targetBrand}</div>
+                <div>
+                  <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  {m.sentAt ? new Date(m.sentAt).toLocaleString("fr-FR") : EMPTY}
+                </div>
+                <div>{m.openCount}</div>
+                <div>{m.clickCount}</div>
+                <div style={{ fontSize: 12 }}>{relances || EMPTY}</div>
+                <div
+                  className="truncate"
+                  style={{ fontSize: 12, color: m.sendError ? "var(--po-danger)" : undefined }}
+                  title={m.sendError || undefined}
+                >
+                  {m.sendError || EMPTY}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
@@ -1420,25 +1713,14 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
 function Field({
   label,
   children,
-  disabled,
 }: {
   label: string;
   children: React.ReactNode;
-  disabled?: boolean;
 }) {
   return (
-    <label className={`block text-sm ${disabled ? "opacity-80" : ""}`}>
-      <span className="mb-1 block text-gray-600">{label}</span>
+    <label style={{ display: "block", minWidth: 0 }}>
+      <div className="po-field-label">{label}</div>
       {children}
     </label>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-[#1A1110]">{value}</div>
-    </div>
   );
 }

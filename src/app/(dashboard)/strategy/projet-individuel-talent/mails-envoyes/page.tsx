@@ -21,6 +21,21 @@ import {
   Send,
 } from "lucide-react";
 import { businessDeadlineWithJitter } from "@/lib/business-days";
+import { getInstagramProfileUrl } from "@/lib/social-links";
+
+function decodeTrackUrlParam(encoded: string): string | null {
+  try {
+    const b64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+    const binary = atob(b64 + pad);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    const url = new TextDecoder().decode(bytes);
+    if (!/^https?:\/\//i.test(url)) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
 
 const RELANCE_BUSINESS_DAYS = 3;
 // Relance 2 « valeur ajoutée » : J+10 ouvrés après la relance J+3.
@@ -33,6 +48,7 @@ type SentMission = {
   talentId: string | null;
   talentName: string;
   talentPhoto: string | null;
+  talentInstagram: string | null;
   creatorName: string;
   targetBrand: string;
   campaignTitle: string | null;
@@ -814,8 +830,30 @@ export default function PipelineMailsEnvoyesPage() {
 
   const sanitizedBody = useMemo(() => {
     if (!openMail) return "";
-    const body = openMail.body || "";
-    return body.replace(/<script[\s\S]*?<\/script>/gi, "");
+    let body = openMail.body || "";
+    body = body.replace(/<script[\s\S]*?<\/script>/gi, "");
+    // Si un envoi local a injecté du tracking localhost, on rétablit le vrai lien
+    // (Instagram du talent, etc.) pour que le clic dans l’aperçu marche.
+    body = body.replace(
+      /href=(["'])(https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/api\/email\/track\/casting\/click\?[^"']+)\1/gi,
+      (full, quote: string, trackUrl: string) => {
+        try {
+          const u = new URL(trackUrl);
+          const encoded = u.searchParams.get("u") || "";
+          const target = encoded ? decodeTrackUrlParam(encoded) : null;
+          if (target) return `href=${quote}${target}${quote}`;
+        } catch {
+          /* keep */
+        }
+        return full;
+      }
+    );
+    // Liens du corps : toujours nouvel onglet
+    body = body.replace(/<a\b([^>]*)>/gi, (full, attrs: string) => {
+      if (/\btarget\s*=/i.test(attrs)) return full;
+      return `<a${attrs} target="_blank" rel="noopener noreferrer">`;
+    });
+    return body;
   }, [openMail]);
 
   if (status === "loading") {
@@ -963,14 +1001,26 @@ export default function PipelineMailsEnvoyesPage() {
                       </div>
                       <div>
                         <div className="font-medium text-slate-800">{m.talentName}</div>
-                        {m.talentId ? (
-                          <Link
-                            href={`/talents/${m.talentId}`}
-                            className="text-xs text-slate-500 underline hover:text-slate-700"
-                          >
-                            Fiche talent
-                          </Link>
-                        ) : null}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {m.talentId ? (
+                            <Link
+                              href={`/talents/${m.talentId}`}
+                              className="text-xs text-slate-500 underline hover:text-slate-700"
+                            >
+                              Fiche talent
+                            </Link>
+                          ) : null}
+                          {getInstagramProfileUrl(m.talentInstagram) ? (
+                            <a
+                              href={getInstagramProfileUrl(m.talentInstagram)!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-[#C08B8B] underline hover:text-[#9A6161]"
+                            >
+                              Instagram
+                            </a>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   </td>
