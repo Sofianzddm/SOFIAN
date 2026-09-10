@@ -36,11 +36,18 @@ import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+/** Marge avant le hard kill Vercel (300 s) pour renvoyer un JSON partiel. */
+const CRON_BUDGET_MS = 270_000;
+
 export async function GET(request: NextRequest) {
   const auth = request.headers.get("authorization") || "";
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
+
+  const startedAt = Date.now();
+  const timeLeft = () => CRON_BUDGET_MS - (Date.now() - startedAt);
+  const budgetExceeded = () => timeLeft() < 5_000;
 
   const now = new Date();
 
@@ -74,9 +81,17 @@ export async function GET(request: NextRequest) {
   let relances = 0;
   let recontacts = 0;
   let bounces = 0;
+  let truncated = false;
   const recontactByCreator = new Map<string, number>();
 
   for (const target of targets) {
+    if (budgetExceeded()) {
+      truncated = true;
+      console.warn(
+        `[cron/outreach] budget temps atteint après ${Date.now() - startedAt}ms — suite au prochain passage`
+      );
+      break;
+    }
     // Un target peut être en WAITING sans aucun touch : mis en attente via le
     // pont inbound→outreach ou une replanification (déjà contacté hors app).
     // Les étapes 1-2 (réponse/bounce/relance) ne concernent que les targets
@@ -198,20 +213,28 @@ export async function GET(request: NextRequest) {
   // 4. Prospection des projets strategy (Ski Trip…) : réponses + relance J+3
   let projetReplies = 0;
   let projetRelances = 0;
+  let projetProcessed = 0;
 
   const windowStart = new Date(
     now.getTime() - PROJET_TRACKING_WINDOW_DAYS * 24 * 60 * 60 * 1000
   );
-  const opportunites = await prisma.opportuniteMarque.findMany({
-    where: {
-      lastEmailSentAt: { not: null, gte: windowStart },
-      lastEmailThreadId: { not: null },
-    },
-    include: { projet: { select: { nom: true, slug: true } } },
-  });
+  const opportunites = budgetExceeded()
+    ? []
+    : await prisma.opportuniteMarque.findMany({
+        where: {
+          lastEmailSentAt: { not: null, gte: windowStart },
+          lastEmailThreadId: { not: null },
+        },
+        include: { projet: { select: { nom: true, slug: true } } },
+      });
 
   for (const opp of opportunites) {
+    if (budgetExceeded()) {
+      truncated = true;
+      break;
+    }
     if (!opp.lastEmailSentAt || !opp.lastEmailThreadId) continue;
+    projetProcessed += 1;
     const fromEmail =
       (opp.lastEmailFrom || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
 
@@ -305,7 +328,9 @@ export async function GET(request: NextRequest) {
   }
 
   // 5. Fashion Week : réponses + relance J+3 sur FwClient
-  const fw = await processFwProspectionCron(now, withinRelanceHours);
+  const fw = budgetExceeded()
+    ? { processed: 0, replies: 0, relances: 0, skipped: "budget" as const }
+    : await processFwProspectionCron(now, withinRelanceHours);
 
   return NextResponse.json({
     processed: targets.length,
@@ -314,11 +339,13 @@ export async function GET(request: NextRequest) {
     relances,
     recontacts,
     bounces,
-    projetProcessed: opportunites.length,
+    projetProcessed,
     projetReplies,
     projetRelances,
     fwProcessed: fw.processed,
     fwReplies: fw.replies,
     fwRelances: fw.relances,
+    truncated: truncated || undefined,
+    durationMs: Date.now() - startedAt,
   });
 }

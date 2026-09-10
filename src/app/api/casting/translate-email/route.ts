@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const ALLOWED_ROLES = [
   "CASTING_MANAGER",

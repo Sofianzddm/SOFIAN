@@ -111,7 +111,10 @@ Reply with ONLY a valid JSON object, nothing else:
 
   let text: string;
   try {
-    text = await xaiResponse(prompt);
+    text = await xaiResponse(prompt, {
+      model: "grok-4.20-0309-non-reasoning",
+      timeoutMs: 50_000,
+    });
   } catch (e: unknown) {
     console.error("x.ai rewrite-email-tone:", e);
     throw new RewriteEmailToneError(

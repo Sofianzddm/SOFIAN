@@ -160,7 +160,12 @@ Reply with ONLY a valid JSON object, nothing else:
 
   let text: string;
   try {
-    text = await xaiResponse(prompt);
+    // Traduction = tâche simple : modèle non-reasoning + timeout sous la
+    // limite Vercel (sinon Runtime Timeout 504 avant notre AbortController).
+    text = await xaiResponse(prompt, {
+      model: "grok-4.20-0309-non-reasoning",
+      timeoutMs: 50_000,
+    });
   } catch (e: unknown) {
     console.error("x.ai translate-email:", e);
     throw new TranslateEmailError(

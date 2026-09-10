@@ -5,7 +5,7 @@ import {
   RewriteEmailToneError,
 } from "@/lib/rewrite-email-tone";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const ALLOWED_ROLES = [
   "CASTING_MANAGER",
