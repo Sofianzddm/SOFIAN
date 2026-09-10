@@ -5,10 +5,9 @@ import prisma from "@/lib/prisma";
 
 /**
  * GET /api/marques/search?q=star — recherche de marques par nom dans la base
- * interne. On priorise les marques dont le nom (ou un alias) COMMENCE par la
- * saisie (« star » → « Starbucks »), puis on complète avec celles qui la
- * CONTIENNENT. Sert à retrouver rapidement une fiche marque existante sans
- * connaître son orthographe exacte.
+ * interne. Sans `q` (ou q < 2), renvoie le catalogue CRM (jusqu'à 2000) pour
+ * permettre de parcourir / ajouter rapidement. Avec `q`, on priorise les
+ * noms qui COMMENCENT par la saisie, puis ceux qui la CONTIENNENT.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -22,20 +21,17 @@ export async function GET(request: NextRequest) {
     }
 
     const q = (request.nextUrl.searchParams.get("q") || "").trim();
-    if (q.length < 2) {
-      return NextResponse.json(
-        { error: "Saisis au moins 2 caractères." },
-        { status: 400 }
-      );
-    }
+    const listAll = q.length < 2;
 
     const rows = await prisma.marque.findMany({
-      where: {
-        OR: [
-          { nom: { contains: q, mode: "insensitive" } },
-          { aliases: { some: { label: { contains: q, mode: "insensitive" } } } },
-        ],
-      },
+      where: listAll
+        ? undefined
+        : {
+            OR: [
+              { nom: { contains: q, mode: "insensitive" } },
+              { aliases: { some: { label: { contains: q, mode: "insensitive" } } } },
+            ],
+          },
       select: {
         id: true,
         nom: true,
@@ -43,11 +39,21 @@ export async function GET(request: NextRequest) {
         _count: { select: { contacts: true } },
       },
       orderBy: { nom: "asc" },
-      take: 50,
+      take: listAll ? 2000 : 50,
     });
 
+    if (listAll) {
+      return NextResponse.json({
+        marques: rows.map((r) => ({
+          id: r.id,
+          nom: r.nom,
+          ville: r.ville || "",
+          contactCount: r._count.contacts,
+        })),
+      });
+    }
+
     const lower = q.toLowerCase();
-    // Priorité aux noms qui commencent par la saisie, puis tri alphabétique.
     const marques = rows
       .map((r) => ({
         id: r.id,

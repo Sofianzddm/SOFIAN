@@ -729,100 +729,135 @@ function MarquesTab({
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
 }) {
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<MarqueHit[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState<MarqueHit | null>(null);
+  const [crm, setCrm] = useState<MarqueHit[]>([]);
+  const [crmLoading, setCrmLoading] = useState(false);
+  const [filter, setFilter] = useState("");
   const [manualBrand, setManualBrand] = useState("");
   const [reason, setReason] = useState("");
   const [angle, setAngle] = useState("");
   const [priority, setPriority] = useState("MEDIUM");
-  const [contactEmail, setContactEmail] = useState("");
-  const [contactFirst, setContactFirst] = useState("");
-  const [contactLast, setContactLast] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const alreadyIds = useMemo(
+    () => new Set(campaign.missions.map((m) => m.marqueId).filter(Boolean) as string[]),
+    [campaign.missions]
+  );
+  const alreadyNames = useMemo(
+    () =>
+      new Set(
+        campaign.missions.map((m) =>
+          (m.marqueNom || m.targetBrand || "").trim().toLowerCase()
+        )
+      ),
+    [campaign.missions]
+  );
 
   useEffect(() => {
-    if (query.trim().length < 2) {
-      setHits([]);
-      return;
-    }
-    const t = setTimeout(async () => {
-      setSearching(true);
+    let cancelled = false;
+    (async () => {
+      setCrmLoading(true);
       try {
-        const res = await fetch(`/api/marques/search?q=${encodeURIComponent(query.trim())}`, {
-          credentials: "include",
-        });
+        const res = await fetch("/api/marques/search", { credentials: "include" });
         const data = await res.json().catch(() => ({}));
-        setHits(Array.isArray(data.marques) ? data.marques : []);
+        if (!cancelled) {
+          setCrm(Array.isArray(data.marques) ? data.marques : []);
+        }
+      } catch {
+        if (!cancelled) setCrm([]);
       } finally {
-        setSearching(false);
+        if (!cancelled) setCrmLoading(false);
       }
-    }, 250);
-    return () => clearTimeout(t);
-  }, [query]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  async function addBrand(e: FormEvent) {
-    e.preventDefault();
-    if (!canManage) return;
-    const targetBrand = selected?.nom || manualBrand.trim();
-    if (!targetBrand) {
-      setError("Le nom de la marque est requis.");
+  const filteredCrm = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return crm;
+    return crm.filter(
+      (m) =>
+        m.nom.toLowerCase().includes(q) ||
+        (m.ville || "").toLowerCase().includes(q)
+    );
+  }, [crm, filter]);
+
+  async function postBrand(item: {
+    targetBrand: string;
+    marqueId?: string | null;
+  }) {
+    const res = await fetch(`/api/projets-outreach/${campaign.id}/brands`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: [
+          {
+            targetBrand: item.targetBrand,
+            marqueId: item.marqueId ?? null,
+            strategyReason: reason.trim(),
+            recommendedAngle: angle.trim() || null,
+            priority,
+            clientContacts: null,
+          },
+        ],
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Ajout impossible.");
+    return data;
+  }
+
+  async function addFromCrm(hit: MarqueHit) {
+    if (!canManage || savingId) return;
+    if (alreadyIds.has(hit.id) || alreadyNames.has(hit.nom.trim().toLowerCase())) {
+      setError(`${hit.nom} est déjà dans le projet.`);
       return;
     }
-    setSaving(true);
+    setSavingId(hit.id);
     setError(null);
     try {
-      const clientContacts =
-        contactEmail.trim().length > 0
-          ? [
-              {
-                email: contactEmail.trim(),
-                firstname: contactFirst.trim() || undefined,
-                lastname: contactLast.trim() || undefined,
-              },
-            ]
-          : null;
-      const res = await fetch(`/api/projets-outreach/${campaign.id}/brands`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: [
-            {
-              targetBrand,
-              marqueId: selected?.id ?? null,
-              strategyReason: reason.trim(),
-              recommendedAngle: angle.trim() || null,
-              priority,
-              clientContacts,
-            },
-          ],
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Ajout impossible.");
-      setSuccess(`${targetBrand} ajoutée.`);
-      setSelected(null);
-      setManualBrand("");
-      setQuery("");
-      setReason("");
-      setAngle("");
-      setContactEmail("");
-      setContactFirst("");
-      setContactLast("");
+      await postBrand({ targetBrand: hit.nom, marqueId: hit.id });
+      setSuccess(`${hit.nom} ajoutée.`);
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
-      setSaving(false);
+      setSavingId(null);
+    }
+  }
+
+  async function addManual(e: FormEvent) {
+    e.preventDefault();
+    if (!canManage || savingId) return;
+    const targetBrand = manualBrand.trim();
+    if (!targetBrand) {
+      setError("Le nom de la marque est requis.");
+      return;
+    }
+    if (alreadyNames.has(targetBrand.toLowerCase())) {
+      setError(`${targetBrand} est déjà dans le projet.`);
+      return;
+    }
+    setSavingId("__manual__");
+    setError(null);
+    try {
+      await postBrand({ targetBrand, marqueId: null });
+      setSuccess(`${targetBrand} ajoutée.`);
+      setManualBrand("");
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setSavingId(null);
     }
   }
 
   async function removeMission(missionId: string) {
-    if (!canManage) return;
+    if (!canManage || savingId) return;
     if (!confirm("Retirer cette marque du projet ?")) return;
-    setSaving(true);
+    setSavingId(missionId);
     setError(null);
     try {
       const res = await fetch(`/api/projets-outreach/${campaign.id}/brands`, {
@@ -838,105 +873,172 @@ function MarquesTab({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
-      setSaving(false);
+      setSavingId(null);
     }
   }
 
   const tableCols = "1.1fr 2.2fr .8fr .7fr 36px";
+  const busy = Boolean(savingId);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {canManage && (
-        <form onSubmit={addBrand} className="po-card" style={{ padding: 22 }}>
-          <div style={{ marginBottom: 16 }}>
-            <h3
-              style={{
-                margin: 0,
-                fontSize: 14,
-                fontWeight: 700,
-                color: "var(--po-ink)",
-              }}
-            >
-              Ajouter une marque
-            </h3>
-            <p
-              style={{
-                margin: "4px 0 0",
-                fontSize: 12.5,
-                color: "var(--po-tertiary)",
-              }}
-            >
-              Recherche CRM ou saisie libre
-            </p>
+        <div className="po-card" style={{ padding: 18 }}>
+          <div
+            className="flex flex-wrap items-start justify-between gap-3"
+            style={{ marginBottom: 12 }}
+          >
+            <div>
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "var(--po-ink)",
+                }}
+              >
+                CRM Marques
+              </h3>
+              <p
+                style={{
+                  margin: "4px 0 0",
+                  fontSize: 12.5,
+                  color: "var(--po-tertiary)",
+                }}
+              >
+                Parcours le CRM et clique Ajouter autant de fois que besoin
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label="Priorité">
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  className="po-select"
+                  style={{ minWidth: 120 }}
+                >
+                  <option value="MEDIUM">Moyenne</option>
+                  <option value="HIGH">Haute</option>
+                  <option value="LOW">Basse</option>
+                  <option value="URGENT">Urgente</option>
+                </select>
+              </Field>
+            </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <div style={{ gridColumn: "1 / -1", position: "relative" }}>
-              <Search
-                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
-                style={{ color: "var(--po-muted)" }}
-              />
+          <div className="grid gap-2 md:grid-cols-2" style={{ marginBottom: 12 }}>
+            <Field label="Raison strategy (appliquée aux prochains ajouts)">
               <input
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setSelected(null);
-                }}
-                placeholder="Rechercher dans le CRM Marques…"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
                 className="po-input"
-                style={{ paddingLeft: 36 }}
+                placeholder="Optionnel — réutilisée à chaque Ajouter"
               />
-              {(hits.length > 0 || searching) && !selected && (
-                <div
-                  className="po-card"
-                  style={{
-                    position: "absolute",
-                    zIndex: 10,
-                    marginTop: 4,
-                    maxHeight: 224,
-                    width: "100%",
-                    overflow: "auto",
-                    padding: 4,
-                  }}
-                >
-                  {searching && (
-                    <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--po-muted)" }}>
-                      Recherche…
-                    </div>
-                  )}
-                  {hits.map((h) => (
-                    <button
-                      key={h.id}
-                      type="button"
-                      onClick={() => {
-                        setSelected(h);
-                        setQuery(h.nom);
-                        setHits([]);
-                      }}
-                      className="flex w-full items-center justify-between text-left"
-                      style={{
-                        padding: "8px 12px",
-                        border: "none",
-                        background: "transparent",
-                        borderRadius: 8,
-                        font: "inherit",
-                        fontSize: 13,
-                        cursor: "pointer",
-                        color: "var(--po-ink)",
-                      }}
-                    >
-                      <span>{h.nom}</span>
-                      <span style={{ fontSize: 11.5, color: "var(--po-muted)" }}>
-                        {h.contactCount} contact(s)
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            </Field>
+            <Field label="Angle recommandé (optionnel)">
+              <input
+                value={angle}
+                onChange={(e) => setAngle(e.target.value)}
+                className="po-input"
+                placeholder="Optionnel"
+              />
+            </Field>
+          </div>
 
-            {!selected ? (
-              <Field label="Ou saisir un nom libre">
+          <div style={{ position: "relative", marginBottom: 10 }}>
+            <Search
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+              style={{ color: "var(--po-muted)" }}
+            />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filtrer le CRM…"
+              className="po-input"
+              style={{ paddingLeft: 36 }}
+            />
+          </div>
+
+          <div
+            className="po-card"
+            style={{
+              maxHeight: 360,
+              overflow: "auto",
+              borderRadius: 12,
+              background: "var(--po-surface)",
+            }}
+          >
+            {crmLoading ? (
+              <div
+                className="flex items-center gap-2"
+                style={{ padding: 16, fontSize: 13, color: "var(--po-muted)" }}
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Chargement du CRM…
+              </div>
+            ) : filteredCrm.length === 0 ? (
+              <div className="po-empty" style={{ border: "none", padding: 24 }}>
+                {crm.length === 0
+                  ? "Aucune marque dans le CRM."
+                  : "Aucun résultat pour ce filtre."}
+              </div>
+            ) : (
+              filteredCrm.map((h) => {
+                const already =
+                  alreadyIds.has(h.id) || alreadyNames.has(h.nom.trim().toLowerCase());
+                const rowBusy = savingId === h.id;
+                return (
+                  <div
+                    key={h.id}
+                    className="flex items-center gap-3"
+                    style={{
+                      padding: "10px 14px",
+                      borderBottom: "1px solid var(--po-sep-soft)",
+                      background: already ? "transparent" : "var(--po-white)",
+                    }}
+                  >
+                    <PoAvatar name={h.nom} size={28} />
+                    <div className="min-w-0 flex-1">
+                      <div style={{ fontWeight: 600, color: "var(--po-ink)" }}>{h.nom}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--po-muted)" }}>
+                        {h.contactCount} contact{h.contactCount === 1 ? "" : "s"}
+                        {h.ville ? ` · ${h.ville}` : ""}
+                      </div>
+                    </div>
+                    {already ? (
+                      <span
+                        className="po-badge po-badge-stage"
+                        style={{ fontSize: 11 }}
+                      >
+                        Déjà ajoutée
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void addFromCrm(h)}
+                        className="po-btn po-btn-primary"
+                        style={{ padding: "6px 12px", fontSize: 12.5 }}
+                      >
+                        {rowBusy ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        Ajouter
+                      </button>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <form
+            onSubmit={addManual}
+            className="flex flex-wrap items-end gap-2"
+            style={{ marginTop: 12 }}
+          >
+            <div className="min-w-0 flex-1" style={{ minWidth: 180 }}>
+              <Field label="Pas dans le CRM ? Saisie libre">
                 <input
                   value={manualBrand}
                   onChange={(e) => setManualBrand(e.target.value)}
@@ -944,103 +1046,30 @@ function MarquesTab({
                   placeholder="Nouvelle marque"
                 />
               </Field>
-            ) : (
-              <div
-                style={{
-                  gridColumn: "1 / 2",
-                  alignSelf: "end",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  background: "var(--po-accent-8)",
-                  fontSize: 13,
-                }}
-              >
-                Sélection : <strong>{selected.nom}</strong>
-              </div>
-            )}
-
-            <Field label="Priorité">
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="po-select"
-              >
-                <option value="MEDIUM">Moyenne</option>
-                <option value="HIGH">Haute</option>
-                <option value="LOW">Basse</option>
-                <option value="URGENT">Urgente</option>
-              </select>
-            </Field>
-
-            <Field label="Email contact (optionnel)">
-              <input
-                type="email"
-                value={contactEmail}
-                onChange={(e) => setContactEmail(e.target.value)}
-                className="po-input"
-                placeholder="Email contact (optionnel)"
-              />
-            </Field>
-
-            <Field label="Raison strategy">
-              <textarea
-                rows={2}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                className="po-textarea"
-                placeholder="Raison strategy"
-              />
-            </Field>
-
-            <Field label="Angle recommandé">
-              <textarea
-                rows={2}
-                value={angle}
-                onChange={(e) => setAngle(e.target.value)}
-                className="po-textarea"
-                placeholder="Angle recommandé"
-              />
-            </Field>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-                justifyContent: "flex-end",
-              }}
-            >
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Prénom contact">
-                  <input
-                    value={contactFirst}
-                    onChange={(e) => setContactFirst(e.target.value)}
-                    className="po-input"
-                  />
-                </Field>
-                <Field label="Nom contact">
-                  <input
-                    value={contactLast}
-                    onChange={(e) => setContactLast(e.target.value)}
-                    className="po-input"
-                  />
-                </Field>
-              </div>
-              <button
-                type="submit"
-                disabled={saving}
-                className="po-btn po-btn-primary"
-                style={{ alignSelf: "flex-end" }}
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Ajouter
-              </button>
             </div>
-          </div>
-        </form>
+            <button
+              type="submit"
+              disabled={busy || !manualBrand.trim()}
+              className="po-btn po-btn-secondary"
+            >
+              {savingId === "__manual__" && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+              Ajouter libre
+            </button>
+          </form>
+        </div>
       )}
 
       <div className="po-card" style={{ overflow: "hidden" }}>
+        <div
+          className="flex items-center justify-between"
+          style={{ padding: "12px 22px", borderBottom: "1px solid var(--po-sep)" }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--po-ink)" }}>
+            Dans ce projet ({campaign.missions.length})
+          </span>
+        </div>
         <div className="po-table-head" style={{ gridTemplateColumns: tableCols }}>
           <span>Marque</span>
           <span>Raison</span>
@@ -1050,7 +1079,7 @@ function MarquesTab({
         </div>
         {campaign.missions.length === 0 ? (
           <div className="po-empty" style={{ border: "none", borderRadius: 0 }}>
-            Aucune marque pour l&apos;instant.
+            Aucune marque pour l&apos;instant — ajoute-les depuis le CRM ci-dessus.
           </div>
         ) : (
           campaign.missions.map((m) => {
@@ -1066,10 +1095,7 @@ function MarquesTab({
                   <div className="min-w-0">
                     <div style={{ fontWeight: 600, color: "var(--po-ink)" }}>{name}</div>
                     {m.marqueId && (
-                      <Link
-                        href={`/marques/${m.marqueId}`}
-                        style={{ fontSize: 11.5 }}
-                      >
+                      <Link href={`/marques/${m.marqueId}`} style={{ fontSize: 11.5 }}>
                         fiche
                       </Link>
                     )}
@@ -1295,30 +1321,6 @@ function RedactionTab({
     if (!res.ok) throw new Error(data.error || "Sauvegarde impossible.");
   }
 
-  async function sendFromLeyna(missionId: string) {
-    const scheduleRes = await fetch(
-      `/api/strategy/contact-missions/${missionId}/schedule-send`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      }
-    );
-    const scheduleData = await scheduleRes.json().catch(() => ({}));
-    if (!scheduleRes.ok) {
-      throw new Error(scheduleData.error || "Planification impossible.");
-    }
-
-    const sendRes = await fetch(`/api/strategy/contact-missions/${missionId}/send-now`, {
-      method: "POST",
-      credentials: "include",
-    });
-    const sendData = await sendRes.json().catch(() => ({}));
-    if (!sendRes.ok) throw new Error(sendData.error || "Envoi impossible.");
-    return sendData as { succeeded?: number };
-  }
-
   async function handleComposerSaved(
     status: "pret" | "en_cours" | "reset",
     draft?: {
@@ -1334,12 +1336,16 @@ function RedactionTab({
         role?: string;
         linkedinUrl?: string;
       }>;
+    },
+    ctx?: {
+      setProgress: (progress: { label: string; percent: number } | null) => void;
     }
   ) {
     const missionId = composerContact?.missionBrief?.id;
     if (!missionId || !canEdit) return;
     setBusy(true);
     setError(null);
+    const setProgress = ctx?.setProgress;
     try {
       const draftLanguage: "fr" | "en" = draft?.language === "en" ? "en" : "fr";
       const selected = Array.isArray(draft?.selectedContacts)
@@ -1347,6 +1353,7 @@ function RedactionTab({
         : [];
 
       if (status === "en_cours") {
+        setProgress?.({ label: "Enregistrement du brouillon…", percent: 55 });
         await patchMission(missionId, {
           stage: "TO_DRAFT",
           status: "EMAIL_DRAFTED",
@@ -1364,6 +1371,7 @@ function RedactionTab({
               }
             : {}),
         });
+        setProgress?.({ label: "Brouillon enregistré", percent: 100 });
         setSuccess("Brouillon enregistré.");
         setComposerOpen(false);
         await onChanged();
@@ -1377,6 +1385,10 @@ function RedactionTab({
           );
         }
 
+        setProgress?.({
+          label: `Sauvegarde du mail (${selected.length} destinataire${selected.length > 1 ? "s" : ""})…`,
+          percent: 20,
+        });
         await patchMission(missionId, {
           stage: "DRAFTED_FOR_VALIDATION",
           status: "EMAIL_DRAFTED",
@@ -1391,7 +1403,42 @@ function RedactionTab({
           })),
         });
 
-        const sendData = await sendFromLeyna(missionId);
+        setProgress?.({ label: "Planification de l'envoi Leyna…", percent: 45 });
+        const scheduleRes = await fetch(
+          `/api/strategy/contact-missions/${missionId}/schedule-send`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          }
+        );
+        const scheduleData = await scheduleRes.json().catch(() => ({}));
+        if (!scheduleRes.ok) {
+          throw new Error(scheduleData.error || "Planification impossible.");
+        }
+
+        setProgress?.({
+          label: `Envoi en cours via Leyna (${selected.length} contact${selected.length > 1 ? "s" : ""})…`,
+          percent: 72,
+        });
+        const sendRes = await fetch(
+          `/api/strategy/contact-missions/${missionId}/send-now`,
+          {
+            method: "POST",
+            credentials: "include",
+          }
+        );
+        const sendData = (await sendRes.json().catch(() => ({}))) as {
+          error?: string;
+          succeeded?: number;
+        };
+        if (!sendRes.ok) throw new Error(sendData.error || "Envoi impossible.");
+
+        setProgress?.({
+          label: `Envoyé (${sendData.succeeded ?? 0}/${selected.length})`,
+          percent: 100,
+        });
         setSuccess(
           `Envoyé depuis Leyna (${sendData.succeeded ?? 0} destinataire(s)).`
         );
@@ -1399,7 +1446,9 @@ function RedactionTab({
         await onChanged();
       }
     } catch (err) {
+      setProgress?.(null);
       setError(err instanceof Error ? err.message : "Erreur");
+      throw err;
     } finally {
       setBusy(false);
     }
@@ -1493,9 +1542,7 @@ function RedactionTab({
           setComposerOpen(false);
           setComposerContact(null);
         }}
-        onSaved={(status, draft) => {
-          void handleComposerSaved(status, draft);
-        }}
+        onSaved={(status, draft, ctx) => handleComposerSaved(status, draft, ctx)}
         onError={(msg) => setError(msg)}
         onSuccess={(msg) => setSuccess(msg)}
       />

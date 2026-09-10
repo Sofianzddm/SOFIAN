@@ -272,8 +272,11 @@ export interface CastingComposerProps {
         role?: string;
         linkedinUrl?: string;
       }>;
+    },
+    ctx?: {
+      setProgress: (progress: { label: string; percent: number } | null) => void;
     }
-  ) => void;
+  ) => void | Promise<void>;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
 }
@@ -349,6 +352,10 @@ export default function CastingComposer({
     scheduledAt: string | null;
   } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sendProgress, setSendProgress] = useState<{
+    label: string;
+    percent: number;
+  } | null>(null);
   const [editorEmpty, setEditorEmpty] = useState(true);
   /** Dernier champ focalisé : les variables s’y insèrent au clic */
   const [lastField, setLastField] = useState<"subject" | "body">("body");
@@ -599,6 +606,8 @@ export default function CastingComposer({
     setEmailLanguage(resolveClientEmailLanguage(contact) || defaultLanguage);
     setSendMode("now");
     setScheduledAt("");
+    setSendProgress(null);
+    setSaving(false);
 
     if (hasHubspotDraft) {
       setSubject(sub);
@@ -979,6 +988,49 @@ export default function CastingComposer({
 
   const getBodyHtml = () => normalizeEditorHtmlForEmail(editor?.getHTML() ?? "");
 
+  const runSaved = async (
+    status: "en_cours" | "pret" | "reset",
+    draft?: {
+      subject: string;
+      bodyHtml: string;
+      language: "fr" | "en";
+      scheduledAt?: string | null;
+      selectedContacts?: Array<{
+        id: string;
+        firstname: string;
+        lastname: string;
+        email: string;
+        role?: string;
+        linkedinUrl?: string;
+      }>;
+    }
+  ) => {
+    if (status === "pret") {
+      const n = draft?.selectedContacts?.length ?? 0;
+      setSendProgress({
+        label: n > 0 ? `Préparation de l'envoi (${n} destinataire${n > 1 ? "s" : ""})…` : "Préparation de l'envoi…",
+        percent: 8,
+      });
+    } else if (status === "en_cours") {
+      setSendProgress({ label: "Enregistrement du brouillon…", percent: 40 });
+    } else {
+      setSendProgress({ label: "Mise à jour…", percent: 40 });
+    }
+    try {
+      await Promise.resolve(
+        onSaved(status, draft, {
+          setProgress: (p) => setSendProgress(p),
+        })
+      );
+      if (status === "pret") {
+        setSendProgress({ label: "Envoi terminé", percent: 100 });
+      }
+    } finally {
+      // Laisse voir le 100% un instant si le parent n'a pas encore fermé.
+      window.setTimeout(() => setSendProgress(null), 400);
+    }
+  };
+
   useEffect(() => {
     if (!editor) return;
     editor.setEditable(!isHeadOfSalesReadOnly);
@@ -1037,7 +1089,7 @@ export default function CastingComposer({
     try {
       // Permet la rédaction même sans contacts HubSpot reliés.
       if (!useHubspot || contactIds.length === 0) {
-        onSaved(status, {
+        await runSaved(status, {
           subject: sub,
           bodyHtml,
           language: emailLanguage,
@@ -1071,7 +1123,7 @@ export default function CastingComposer({
           typeof data.error === "string" ? data.error : "Enregistrement impossible."
         );
       }
-      onSaved(status, {
+      await runSaved(status, {
         subject: sub,
         bodyHtml,
         language: emailLanguage,
@@ -1086,13 +1138,14 @@ export default function CastingComposer({
         onClose();
       }
     } catch (e: unknown) {
+      setSendProgress(null);
       onError(e instanceof Error ? e.message : "Erreur inattendue.");
     } finally {
       setSaving(false);
     }
   };
 
-  const confirmRecipientPickerSend = () => {
+  const confirmRecipientPickerSend = async () => {
     if (!contact || !pendingSendDraft) return;
     const selectedContacts = contact.contacts
       .filter((c) => selectedRecipientIds.has(c.id))
@@ -1111,11 +1164,14 @@ export default function CastingComposer({
     setSaving(true);
     setRecipientPickerOpen(false);
     try {
-      onSaved("pret", {
+      await runSaved("pret", {
         ...pendingSendDraft,
         selectedContacts,
       });
       setPendingSendDraft(null);
+    } catch (e: unknown) {
+      setSendProgress(null);
+      onError(e instanceof Error ? e.message : "Erreur inattendue.");
     } finally {
       setSaving(false);
     }
@@ -1184,13 +1240,13 @@ export default function CastingComposer({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/45 overflow-hidden"
+      className="fixed inset-0 z-[100] flex items-start justify-center p-3 sm:p-4 bg-black/45 overflow-y-auto overscroll-contain"
       role="dialog"
       aria-modal="true"
       aria-labelledby="casting-composer-title"
     >
       <div
-        className="w-full max-w-6xl h-[calc(100dvh-1.5rem)] max-h-[calc(100dvh-1.5rem)] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
+        className="w-full max-w-6xl my-auto h-[calc(100dvh-1.5rem)] max-h-[calc(100dvh-1.5rem)] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
         style={{ backgroundColor: OLD_LACE }}
       >
         <div
@@ -1375,9 +1431,10 @@ export default function CastingComposer({
             )}
           </div>
 
-          {/* Colonne email — une page : outils compacts + éditeur qui remplit le reste */}
+          {/* Colonne email — destinataires + éditeur scrollables, actions collées en bas */}
           <div className="w-full md:w-2/3 flex flex-col min-h-0 overflow-hidden">
-            <div className="shrink-0 px-5 pt-3 pb-2 space-y-2">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-3 pb-2 flex flex-col gap-2">
+              <div className="shrink-0 space-y-2">
               <div className="flex flex-wrap gap-1.5">
                 {contact.contacts.length === 0 ? (
                   <p className="text-xs opacity-70" style={{ color: LICORICE }}>
@@ -1532,12 +1589,12 @@ export default function CastingComposer({
                   )}
                 </section>
               )}
-            </div>
+              </div>
 
-            <div className="flex-1 min-h-0 px-5 pb-2 overflow-hidden flex flex-col">
+              <div className="flex h-full min-h-[240px] flex-1 flex-col">
               {isHeadOfSalesReadOnly ? (
                 <section
-                  className="flex-1 min-h-0 overflow-y-auto rounded-xl border p-4 space-y-3 bg-white"
+                  className="min-h-[240px] overflow-y-auto rounded-xl border p-4 space-y-3 bg-white"
                   style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
                 >
                   <p className="text-xs uppercase tracking-wide" style={{ color: OLD_ROSE }}>
@@ -1588,6 +1645,7 @@ export default function CastingComposer({
                   }
                 />
               )}
+              </div>
             </div>
 
             {allowSchedule && !isHeadOfSalesReadOnly && (
@@ -1656,6 +1714,34 @@ export default function CastingComposer({
                     </p>
                   </div>
                 )}
+              </div>
+            )}
+
+            {(sendProgress || saving) && (
+              <div
+                className="px-5 pt-3 pb-1 border-t shrink-0"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+              >
+                <div className="flex items-center justify-between gap-3 mb-1.5">
+                  <p className="text-xs font-medium truncate" style={{ color: LICORICE }}>
+                    {sendProgress?.label || "Traitement en cours…"}
+                  </p>
+                  <span className="text-[11px] tabular-nums shrink-0" style={{ color: OLD_ROSE }}>
+                    {Math.round(sendProgress?.percent ?? 0)}%
+                  </span>
+                </div>
+                <div
+                  className="h-2 w-full overflow-hidden rounded-full"
+                  style={{ backgroundColor: `color-mix(in srgb, ${OLD_ROSE} 18%, white)` }}
+                >
+                  <div
+                    className="h-full rounded-full transition-[width] duration-500 ease-out"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, sendProgress?.percent ?? 12))}%`,
+                      backgroundColor: TEA_GREEN,
+                    }}
+                  />
+                </div>
               </div>
             )}
 
