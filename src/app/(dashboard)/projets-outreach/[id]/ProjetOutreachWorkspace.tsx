@@ -1396,71 +1396,67 @@ function RedactionTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))",
-          gap: 14,
-        }}
-      >
+      <div className="po-card" style={{ overflow: "hidden" }}>
+        <div
+          className="po-table-head"
+          style={{
+            gridTemplateColumns: "minmax(140px,1.2fr) minmax(0,2fr) 120px 100px 140px",
+          }}
+        >
+          <span>Marque</span>
+          <span>Raison</span>
+          <span>Statut</span>
+          <span>Priorité</span>
+          <span />
+        </div>
         {draftable.map((m) => {
           const contactCount = effectiveMissionContacts(m).length;
           const name = m.marqueNom || m.targetBrand;
           return (
             <div
               key={m.id}
-              className="po-card"
+              className="po-table-row"
               style={{
-                padding: 18,
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
+                gridTemplateColumns: "minmax(140px,1.2fr) minmax(0,2fr) 120px 100px 140px",
               }}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <PoAvatar name={name} size={30} />
-                  <div className="min-w-0" style={{ fontWeight: 600, color: "var(--po-ink)" }}>
-                    {name}
-                  </div>
-                </div>
-                <PriorityBadge priority={m.priority} />
+              <div className="flex min-w-0 items-center gap-2.5">
+                <PoAvatar name={name} size={26} />
+                <span style={{ fontWeight: 600, color: "var(--po-ink)" }} className="truncate">
+                  {name}
+                </span>
+              </div>
+              <div
+                className="truncate"
+                style={{ color: "var(--po-tertiary)", fontSize: 12.5 }}
+                title={m.strategyReason || undefined}
+              >
+                {m.strategyReason || "—"}
               </div>
               <div style={{ fontSize: 12, color: "var(--po-tertiary)" }}>
-                {STAGE_LABEL[m.stage] || m.stage}
-                {" · "}
-                {contactCount} contact(s)
+                <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+                <div style={{ marginTop: 4, fontSize: 11, color: "var(--po-muted)" }}>
+                  {contactCount} contact(s)
+                </div>
               </div>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 12.5,
-                  color: "var(--po-secondary)",
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                  lineHeight: 1.45,
-                  minHeight: "2.9em",
-                }}
-              >
-                {m.strategyReason || " "}
-              </p>
-              {canEdit ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void openComposer(m)}
-                  className="po-btn po-btn-primary po-btn-cta-accent"
-                  style={{ marginTop: "auto", width: "100%" }}
-                >
-                  {m.draftEmailSubject ? "Ouvrir le composer" : "Rédiger le mail"}
-                </button>
-              ) : (
-                <p style={{ margin: "8px 0 0", fontSize: 12, color: "#956A15" }}>
-                  Rédaction réservée au Casting (Manon).
-                </p>
-              )}
+              <div>
+                <PriorityBadge priority={m.priority} />
+              </div>
+              <div className="flex justify-end">
+                {canEdit ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void openComposer(m)}
+                    className="po-btn po-btn-primary po-btn-cta-accent"
+                    style={{ padding: "7px 12px", fontSize: 12 }}
+                  >
+                    {m.draftEmailSubject ? "Ouvrir" : "Rédiger"}
+                  </button>
+                ) : (
+                  <span style={{ fontSize: 11, color: "#956A15" }}>Casting</span>
+                )}
+              </div>
             </div>
           );
         })}
