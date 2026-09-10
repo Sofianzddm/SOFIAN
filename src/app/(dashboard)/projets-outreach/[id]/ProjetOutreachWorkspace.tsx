@@ -67,9 +67,28 @@ type Mission = {
   }>;
   scheduledSendAt: string | null;
   sentAt: string | null;
+  sentMessageIds?: Record<
+    string,
+    {
+      messageId?: string;
+      threadId?: string;
+      error?: string;
+      openCount?: number;
+      openedAt?: string;
+      lastOpenAt?: string;
+      clickCount?: number;
+      clickedAt?: string;
+      lastClickAt?: string;
+      lastClickUrl?: string;
+    }
+  > | null;
   replied: boolean;
   openedAt: string | null;
+  lastOpenAt?: string | null;
   openCount: number;
+  clickedAt?: string | null;
+  lastClickAt?: string | null;
+  lastClickUrl?: string | null;
   clickCount: number;
   relanceSentAt: string | null;
   relance2SentAt: string | null;
@@ -1625,6 +1644,8 @@ function EnvoisTab({
 }
 
 function SuiviTab({ campaign }: { campaign: Campaign }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   const contacted = campaign.missions.filter(
     (m) =>
       m.sentAt ||
@@ -1674,29 +1695,163 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
             const relances = [m.relanceSentAt && "J+3", m.relance2SentAt && "J+10"]
               .filter(Boolean)
               .join(" · ");
+            const recipients = Object.entries(m.sentMessageIds || {})
+              .filter(([, rec]) => Boolean(rec?.messageId) && !rec?.error)
+              .map(([email, rec]) => ({ email, ...rec }))
+              .sort((a, b) => a.email.localeCompare(b.email, "fr"));
+            const hasPerEmailDetail = recipients.some(
+              (r) => (r.openCount || 0) > 0 || (r.clickCount || 0) > 0
+            );
+            const canExpand =
+              recipients.length > 0 || m.openCount > 0 || m.clickCount > 0 || Boolean(m.lastClickUrl);
+            const isOpen = expandedId === m.id;
+
             return (
-              <div
-                key={m.id}
-                className="po-table-row"
-                style={{ gridTemplateColumns: cols }}
-              >
-                <div style={{ fontWeight: 600 }}>{m.marqueNom || m.targetBrand}</div>
-                <div>
-                  <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
-                </div>
-                <div style={{ fontSize: 12 }}>
-                  {m.sentAt ? new Date(m.sentAt).toLocaleString("fr-FR") : EMPTY}
-                </div>
-                <div>{m.openCount}</div>
-                <div>{m.clickCount}</div>
-                <div style={{ fontSize: 12 }}>{relances || EMPTY}</div>
-                <div
-                  className="truncate"
-                  style={{ fontSize: 12, color: m.sendError ? "var(--po-danger)" : undefined }}
-                  title={m.sendError || undefined}
+              <div key={m.id}>
+                <button
+                  type="button"
+                  className="po-table-row"
+                  style={{
+                    gridTemplateColumns: cols,
+                    width: "100%",
+                    textAlign: "left",
+                    cursor: canExpand ? "pointer" : "default",
+                    background: isOpen ? "var(--po-surface)" : "transparent",
+                    border: "none",
+                    font: "inherit",
+                    color: "inherit",
+                  }}
+                  onClick={() => {
+                    if (!canExpand) return;
+                    setExpandedId((prev) => (prev === m.id ? null : m.id));
+                  }}
+                  disabled={!canExpand}
                 >
-                  {m.sendError || EMPTY}
-                </div>
+                  <div style={{ fontWeight: 600 }}>{m.marqueNom || m.targetBrand}</div>
+                  <div>
+                    <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+                  </div>
+                  <div style={{ fontSize: 12 }}>
+                    {m.sentAt ? new Date(m.sentAt).toLocaleString("fr-FR") : EMPTY}
+                  </div>
+                  <div>{m.openCount}</div>
+                  <div style={{ fontWeight: m.clickCount > 0 ? 600 : undefined }}>
+                    {m.clickCount}
+                    {canExpand ? (
+                      <span style={{ marginLeft: 6, fontSize: 11, color: "var(--po-muted)" }}>
+                        {isOpen ? "▲" : "▼"}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div style={{ fontSize: 12 }}>{relances || EMPTY}</div>
+                  <div
+                    className="truncate"
+                    style={{ fontSize: 12, color: m.sendError ? "var(--po-danger)" : undefined }}
+                    title={m.sendError || undefined}
+                  >
+                    {m.sendError || EMPTY}
+                  </div>
+                </button>
+                {isOpen && (
+                  <div
+                    style={{
+                      padding: "10px 16px 14px",
+                      borderBottom: "1px solid var(--po-sep)",
+                      background: "var(--po-surface)",
+                      fontSize: 12.5,
+                    }}
+                  >
+                    {recipients.length === 0 ? (
+                      <p style={{ margin: 0, color: "var(--po-tertiary)" }}>
+                        Aucun destinataire enregistré sur cet envoi.
+                      </p>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                            color: "var(--po-muted)",
+                          }}
+                        >
+                          Destinataires
+                          {!hasPerEmailDetail && (m.openCount > 0 || m.clickCount > 0)
+                            ? " · détail par mail dispo après les prochains envois"
+                            : ""}
+                        </div>
+                        {recipients.map((r) => {
+                          const opened = (r.openCount || 0) > 0;
+                          const clicked = (r.clickCount || 0) > 0;
+                          return (
+                            <div
+                              key={r.email}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "minmax(0, 1.4fr) auto auto minmax(0, 1.6fr)",
+                                gap: 10,
+                                alignItems: "center",
+                              }}
+                            >
+                              <span
+                                className="truncate"
+                                style={{ fontWeight: 500, color: "var(--po-ink)" }}
+                                title={r.email}
+                              >
+                                {r.email}
+                              </span>
+                              <span
+                                style={{
+                                  color: opened ? "#2F6FED" : "var(--po-muted)",
+                                  fontWeight: opened ? 600 : 400,
+                                }}
+                              >
+                                {opened ? `Ouvert ${r.openCount}×` : "Pas d’ouverture"}
+                              </span>
+                              <span
+                                style={{
+                                  color: clicked ? "#C45C26" : "var(--po-muted)",
+                                  fontWeight: clicked ? 600 : 400,
+                                }}
+                              >
+                                {clicked ? `Clic ${r.clickCount}×` : "Pas de clic"}
+                              </span>
+                              <span className="truncate" style={{ color: "var(--po-tertiary)" }}>
+                                {r.lastClickUrl ? (
+                                  <a
+                                    href={r.lastClickUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ color: "var(--po-accent)", textDecoration: "underline" }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {r.lastClickUrl}
+                                  </a>
+                                ) : (
+                                  EMPTY
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {!hasPerEmailDetail && m.lastClickUrl ? (
+                      <p style={{ margin: "10px 0 0", color: "var(--po-tertiary)" }}>
+                        Dernier lien cliqué (marque) :{" "}
+                        <a
+                          href={m.lastClickUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: "var(--po-accent)", textDecoration: "underline" }}
+                        >
+                          {m.lastClickUrl}
+                        </a>
+                      </p>
+                    ) : null}
+                  </div>
+                )}
               </div>
             );
           })

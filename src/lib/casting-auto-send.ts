@@ -63,6 +63,13 @@ type SentMessageRecord = {
   messageId?: string;
   threadId?: string;
   error?: string;
+  openCount?: number;
+  openedAt?: string;
+  lastOpenAt?: string;
+  clickCount?: number;
+  clickedAt?: string;
+  lastClickAt?: string;
+  lastClickUrl?: string;
 };
 
 type SendOutcome = {
@@ -596,7 +603,7 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       lastname: contact.lastname || "",
       company: String(mission.targetBrand || ""),
     });
-    const trackedBody = injectCastingTracking(personalizedBody, missionId);
+    const trackedBody = injectCastingTracking(personalizedBody, missionId, email);
     try {
       const messageId = await sendGmail({
         fromEmail: LEYNA_FROM_EMAIL,
@@ -1189,7 +1196,7 @@ export async function executeCastingRelance(
     const ver = await getRelanceVersion(contactLang);
     const bodyWithVars = applyCastingTemplateVars(ver.bodyTemplate, vars);
     const body = normalizeEditorHtmlForEmail(bodyWithVars);
-    const trackedBody = injectCastingTracking(body, missionId);
+    const trackedBody = injectCastingTracking(body, missionId, email);
 
     // Citation du mail d'origine + In-Reply-To : la relance devient une vraie
     // réponse, threadée côté destinataire (le contenu initial reste visible

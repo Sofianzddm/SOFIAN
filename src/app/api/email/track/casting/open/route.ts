@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isLikelyBotPrefetch } from "@/lib/email-tracking";
+import { recordCastingOpen } from "@/lib/casting-engagement";
 
 const TRANSPARENT_GIF = Buffer.from(
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
 
     const current = await contactMissionModel.findUnique({
       where: { id },
-      select: { sentAt: true, openCount: true },
+      select: { sentAt: true },
     });
     if (!current) return buildImageResponse();
 
@@ -46,14 +47,8 @@ export async function GET(request: NextRequest) {
       if (elapsed < PREFETCH_THRESHOLD_MS) return buildImageResponse();
     }
 
-    await contactMissionModel.update({
-      where: { id },
-      data: {
-        openCount: { increment: 1 },
-        lastOpenAt: new Date(),
-        ...(current.openCount === 0 ? { openedAt: new Date() } : {}),
-      },
-    });
+    const email = request.nextUrl.searchParams.get("e")?.trim() || "";
+    await recordCastingOpen(id, email || null);
   } catch (error) {
     console.warn("[track/casting/open] non-blocking error:", error);
   }

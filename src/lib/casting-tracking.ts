@@ -5,6 +5,9 @@
  * Variante du tracking inbound (cf. lib/email-tracking.ts) mais pointe vers
  * un autre endpoint car les compteurs sont stockes sur contact_missions
  * et non sur inbound_opportunities.
+ *
+ * Si `recipientEmail` est fourni, il est encode dans le pixel / les liens
+ * (`&e=`) pour ventiler ouvertures et clics par destinataire.
  */
 
 function getBaseUrl(): string {
@@ -41,8 +44,17 @@ export function decodeCastingUrlParam(encoded: string): string | null {
   }
 }
 
-function rewriteLinks(html: string, missionId: string): string {
+function emailQueryParam(recipientEmail?: string | null): string {
+  const email = String(recipientEmail || "")
+    .trim()
+    .toLowerCase();
+  if (!email || !email.includes("@")) return "";
+  return `&e=${encodeURIComponent(email)}`;
+}
+
+function rewriteLinks(html: string, missionId: string, recipientEmail?: string | null): string {
   const baseUrl = getBaseUrl();
+  const eParam = emailQueryParam(recipientEmail);
   return html.replace(
     /<a\s+([^>]*?)href=(["'])(https?:\/\/[^"']+)\2([^>]*)>/gi,
     (match, before: string, quote: string, url: string, after: string) => {
@@ -50,22 +62,27 @@ function rewriteLinks(html: string, missionId: string): string {
       const encoded = encodeUrlParam(url);
       const newUrl = `${baseUrl}/api/email/track/casting/click?id=${encodeURIComponent(
         missionId
-      )}&u=${encoded}`;
+      )}&u=${encoded}${eParam}`;
       return `<a ${before}href=${quote}${newUrl}${quote}${after}>`;
     }
   );
 }
 
-function buildPixelTag(missionId: string): string {
+function buildPixelTag(missionId: string, recipientEmail?: string | null): string {
   const baseUrl = getBaseUrl();
-  const src = `${baseUrl}/api/email/track/casting/open?id=${encodeURIComponent(missionId)}`;
+  const eParam = emailQueryParam(recipientEmail);
+  const src = `${baseUrl}/api/email/track/casting/open?id=${encodeURIComponent(missionId)}${eParam}`;
   return `<img src="${src}" alt="" width="1" height="1" border="0" style="display:block;width:1px;height:1px;border:0;outline:none;opacity:0;visibility:hidden;overflow:hidden;mso-hide:all" />`;
 }
 
-export function injectCastingTracking(html: string, missionId: string): string {
+export function injectCastingTracking(
+  html: string,
+  missionId: string,
+  recipientEmail?: string | null
+): string {
   if (!missionId) return html;
-  const withLinks = rewriteLinks(html, missionId);
-  const pixel = buildPixelTag(missionId);
+  const withLinks = rewriteLinks(html, missionId, recipientEmail);
+  const pixel = buildPixelTag(missionId, recipientEmail);
   if (/<\/body>/i.test(withLinks)) {
     return withLinks.replace(/<\/body>/i, `${pixel}</body>`);
   }
