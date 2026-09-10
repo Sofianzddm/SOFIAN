@@ -1191,7 +1191,7 @@ export function ProspectingPipelineClient() {
               Pipeline Casting
             </h1>
             <p className="text-sm" style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}>
-              Kanban des missions / cartes prospection. Indépendant des Projets outreach talent.
+              Prospection individuelle : match talent ↔ marque. Les projets structurés (ex. Ibiza) sont dans Projets outreach talent.
             </p>
           </div>
           <div className="flex items-center gap-2">

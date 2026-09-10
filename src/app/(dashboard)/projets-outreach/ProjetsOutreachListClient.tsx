@@ -134,9 +134,9 @@ export function ProjetsOutreachListClient() {
         <div>
           <h1 className="text-2xl font-semibold text-[#1A1110]">Projets outreach talent</h1>
           <p className="mt-1 text-sm text-gray-600">
-            Parcours projet : brief → marques → rédaction → envoi Leyna.{" "}
+            Projets structurés : brief → marques → rédaction → envoi Leyna (ex. shoot Ibiza).{" "}
             <span className="text-gray-500">
-              Indépendant du Pipeline Casting (kanban missions).
+              La prospection individuelle talent ↔ marque reste dans Pipeline Casting.
             </span>
           </p>
         </div>

@@ -141,12 +141,29 @@ export async function GET(request: NextRequest) {
       const mineOnly = mineParam === "1" || mineParam === "true";
 
       const where: Record<string, unknown> = {};
-      if (campaignId) where.campaignId = campaignId;
+      if (campaignId) {
+        // Vue projet explicite : uniquement les missions de cette campagne.
+        where.campaignId = campaignId;
+      } else {
+        // Pipeline Casting = prospection individuelle.
+        // Exclure les missions des « Projets outreach talent » (event CREATED).
+        const pipelineScope = {
+          OR: [
+            { campaignId: null },
+            { campaign: { events: { none: { type: "CREATED" } } } },
+          ],
+        };
+        if (mineOnly && session.user.role === "STRATEGY_PLANNER") {
+          where.AND = [
+            pipelineScope,
+            { campaign: { createdById: session.user.id } },
+          ];
+        } else {
+          Object.assign(where, pipelineScope);
+        }
+      }
       if (talentId) where.talentId = talentId;
       if (isValidStage(stageParam)) where.stage = stageParam;
-      if (mineOnly && session.user.role === "STRATEGY_PLANNER") {
-        where.campaign = { createdById: session.user.id };
-      }
 
       const missions = await contactMissionModel.findMany({
         where,

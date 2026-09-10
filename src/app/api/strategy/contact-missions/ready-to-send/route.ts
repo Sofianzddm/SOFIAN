@@ -84,6 +84,11 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = {
       stage: "DRAFTED_FOR_VALIDATION",
+      // Pipeline Casting uniquement — pas les Projets outreach talent.
+      OR: [
+        { campaignId: null },
+        { campaign: { events: { none: { type: "CREATED" } } } },
+      ],
     };
     if (talentId) where.talentId = talentId;
 
