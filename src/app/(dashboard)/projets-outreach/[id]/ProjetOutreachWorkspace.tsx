@@ -947,8 +947,43 @@ function RedactionTab({
   const [composerContact, setComposerContact] = useState<ComposerContact | null>(null);
   const [busy, setBusy] = useState(false);
 
-  function openComposer(m: Mission) {
-    const localContacts = effectiveMissionContacts(m);
+  async function openComposer(m: Mission) {
+    let localContacts = effectiveMissionContacts(m);
+
+    // Recharge live depuis le CRM (évite le bug Prisma NOT source=AO qui
+    // excluait aussi source null → 0 contacts type Nuxe).
+    const brand = (m.marqueNom || m.targetBrand || "").trim();
+    if (brand.length >= 2) {
+      try {
+        const res = await fetch(
+          `/api/marques/contacts?brand=${encodeURIComponent(brand)}`,
+          { credentials: "include" }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(data.contacts)) {
+          const live = (data.contacts as Array<{
+            id?: string;
+            firstname?: string;
+            lastname?: string;
+            email?: string;
+            role?: string;
+          }>)
+            .map((c) => ({
+              id: String(c.id || "").trim(),
+              firstname: String(c.firstname || "").trim(),
+              lastname: String(c.lastname || "").trim(),
+              email: String(c.email || "").trim(),
+              role: String(c.role || "").trim(),
+              linkedinUrl: "",
+            }))
+            .filter((c) => c.id && c.email.includes("@"));
+          if (live.length > 0) localContacts = live;
+        }
+      } catch {
+        // garde le snapshot campagne
+      }
+    }
+
     const priority = (["LOW", "MEDIUM", "HIGH", "URGENT"].includes(m.priority)
       ? m.priority
       : "MEDIUM") as ComposerContact["missionBrief"]["priority"];
@@ -1156,7 +1191,7 @@ function RedactionTab({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => openComposer(m)}
+                  onClick={() => void openComposer(m)}
                   className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-[#1A1110] px-3 py-2 text-sm text-white disabled:opacity-50"
                 >
                   {m.draftEmailSubject ? "Ouvrir le composer" : "Rédiger le mail"}

@@ -529,7 +529,7 @@ export async function PATCH(request: NextRequest) {
             type: "GENERAL",
             titre: "Nouveau mail à valider",
             message: `Une carte ${mission.creatorName} × ${mission.targetBrand} est prête pour validation.`,
-            lien: "/projets-outreach",
+            lien: "/strategy/projet-individuel-talent/pipeline",
             actorId: session.user.id,
           })),
         });
@@ -549,7 +549,7 @@ export async function PATCH(request: NextRequest) {
             type: "GENERAL",
             titre: "Ajouter les contacts marque",
             message: `La carte ${mission.creatorName} × ${mission.targetBrand} est rédigée. Merci d'ajouter le ou les contacts HubSpot.`,
-            lien: "/projets-outreach",
+            lien: "/strategy/projet-individuel-talent/pipeline",
             actorId: session.user.id,
           },
         });

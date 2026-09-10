@@ -1188,10 +1188,10 @@ export function ProspectingPipelineClient() {
                   : { color: "#111827" }
               }
             >
-              Pipeline prospection talent
+              Pipeline Casting
             </h1>
             <p className="text-sm" style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}>
-              Choisis un talent pour voir toutes les marques contactées.
+              Kanban des missions / cartes prospection. Indépendant des Projets outreach talent.
             </p>
           </div>
           <div className="flex items-center gap-2">

@@ -20,7 +20,10 @@ export async function GET(
       where: { id: id },
       include: {
         contacts: {
-          where: isAdmin ? undefined : { NOT: { source: "AO" } },
+          // NOT source=AO excluait aussi source null (bug Nuxe = 0 contacts).
+          where: isAdmin
+            ? undefined
+            : { OR: [{ source: { not: "AO" } }, { source: null }] },
           orderBy: [{ principal: "desc" }, { priorite: "asc" }, { createdAt: "asc" }],
           include: {
             outreachTargets: {

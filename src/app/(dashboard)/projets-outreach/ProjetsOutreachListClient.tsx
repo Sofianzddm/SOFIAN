@@ -132,9 +132,12 @@ export function ProjetsOutreachListClient() {
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-[#1A1110]">Projets outreach</h1>
+          <h1 className="text-2xl font-semibold text-[#1A1110]">Projets outreach talent</h1>
           <p className="mt-1 text-sm text-gray-600">
-            Tous tes projets. Ouvre-en un pour gérer brief, marques, mails et suivi.
+            Parcours projet : brief → marques → rédaction → envoi Leyna.{" "}
+            <span className="text-gray-500">
+              Indépendant du Pipeline Casting (kanban missions).
+            </span>
           </p>
         </div>
         <div className="flex items-center gap-2">

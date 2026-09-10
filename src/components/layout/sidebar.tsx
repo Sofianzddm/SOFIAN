@@ -35,6 +35,7 @@ import {
   Link2,
   CalendarDays,
   Gauge,
+  Layers,
   Compass,
 } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -106,12 +107,19 @@ const menuItems = [
     icon: Briefcase,
     roles: ["ADMIN", "STRATEGY_PLANNER", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "COIFFEUR"],
   },
-  // Ski Trip 2027 : visible uniquement dans le menu de la STRATEGY_PLANNER
-  // (Ines pilote le projet à 100%). La page reste accessible aux ADMIN par URL.
+  // Deux produits distincts — ne pas mélanger :
+  // 1) Pipeline Casting = kanban missions / cartes prospection (existant)
+  // 2) Projets outreach talent = brief projet → marques → rédaction → Leyna (nouveau)
   {
-    label: "Projets outreach",
+    label: "Pipeline Casting",
+    href: "/strategy/projet-individuel-talent/pipeline",
+    icon: Layers,
+    roles: ["CASTING_MANAGER", "HEAD_OF_SALES", "STRATEGY_PLANNER", "ADMIN", "HEAD_OF"],
+  },
+  {
+    label: "Projets outreach talent",
     href: "/projets-outreach",
-    icon: Briefcase,
+    icon: Compass,
     roles: ["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"],
   },
   {
@@ -576,9 +584,21 @@ export function Sidebar({
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
-            label: "Projets outreach",
+            label: "Pipeline Casting",
+            href: "/strategy/projet-individuel-talent/pipeline",
+            icon: Layers,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "Missions Casting (création)",
+            href: "/strategy/projet-individuel-talent",
+            icon: Mail,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "Projets outreach talent",
             href: "/projets-outreach",
-            icon: Briefcase,
+            icon: Compass,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
