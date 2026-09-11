@@ -67,6 +67,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
+    if (nextStatus === "DRAFTING" || nextStatus === "SENDING") {
+      const awaiting = await prisma.contactMission.count({
+        where: { campaignId, awaitingContactsCompletion: true },
+      });
+      if (awaiting > 0) {
+        return NextResponse.json(
+          {
+            error: `${awaiting} marque(s) en attente de contacts. Complète-les puis clique « Contacts prêts » avant de continuer.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const updated = await prisma.talentProspectingCampaign.update({
       where: { id: campaignId },
       data: {

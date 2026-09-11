@@ -90,6 +90,8 @@ type Mission = {
   lastClickAt?: string | null;
   lastClickUrl?: string | null;
   clickCount: number;
+  awaitingContactsCompletion?: boolean;
+  contactsCompletionRequestedAt?: string | null;
   relanceSentAt: string | null;
   relance2SentAt: string | null;
   sendError: string | null;
@@ -240,10 +242,16 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
   }, [load]);
 
   const nextStatus = campaign ? NEXT_STATUS[campaign.status] : undefined;
+  const awaitingContactsCount =
+    campaign?.missions.filter((m) => m.awaitingContactsCompletion).length || 0;
   const canAdvance =
     campaign &&
     nextStatus &&
-    canTransitionTo(role, campaign.status, nextStatus);
+    canTransitionTo(role, campaign.status, nextStatus) &&
+    !(
+      awaitingContactsCount > 0 &&
+      (nextStatus === "DRAFTING" || nextStatus === "SENDING")
+    );
 
   async function transition(to: CampaignStatus) {
     setSaving(true);
@@ -415,6 +423,24 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
             style={{ marginBottom: 16 }}
           >
             {error || success}
+          </div>
+        )}
+
+        {awaitingContactsCount > 0 && (
+          <div
+            style={{
+              marginBottom: 16,
+              border: "1px solid #F5D9A8",
+              background: "#FBF1DC",
+              color: "#956A15",
+              borderRadius: 12,
+              padding: "12px 14px",
+              fontSize: 13,
+            }}
+          >
+            <strong>{awaitingContactsCount} marque(s) en attente de contacts</strong>
+            {" — "}la rédaction est bloquée tant qu’un admin n’a pas cliqué
+            « Contacts prêts » après avoir complété la fiche CRM.
           </div>
         )}
 
@@ -737,6 +763,7 @@ function MarquesTab({
   const [angle, setAngle] = useState("");
   const [priority, setPriority] = useState("MEDIUM");
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [requestingId, setRequestingId] = useState<string | null>(null);
 
   const alreadyIds = useMemo(
     () => new Set(campaign.missions.map((m) => m.marqueId).filter(Boolean) as string[]),
@@ -828,6 +855,82 @@ function MarquesTab({
     }
   }
 
+  async function completeFromCrm(hit: MarqueHit) {
+    if (!canManage || savingId || requestingId) return;
+
+    const note = window.prompt(
+      `Que faut-il compléter sur « ${hit.nom} » ? (${hit.contactCount} contact${hit.contactCount > 1 ? "s" : ""} CRM)`,
+      hit.contactCount === 0
+        ? "Aucun contact — merci d’ajouter les bons interlocuteurs sur la fiche existante."
+        : "Peu de contacts — merci d’enrichir la fiche existante (pas de doublon)."
+    );
+    if (note === null) return;
+
+    setSavingId(hit.id);
+    setRequestingId(hit.id);
+    setError(null);
+    try {
+      let mission =
+        campaign.missions.find((m) => m.marqueId === hit.id) ||
+        campaign.missions.find(
+          (m) =>
+            (m.marqueNom || m.targetBrand || "").trim().toLowerCase() ===
+            hit.nom.trim().toLowerCase()
+        ) ||
+        null;
+
+      if (!mission) {
+        const data = await postBrand({ targetBrand: hit.nom, marqueId: hit.id });
+        const created = Array.isArray(data.missions) ? data.missions[0] : null;
+        const missionId = String(created?.id || "").trim();
+        if (!missionId) {
+          throw new Error("Marque ajoutée, mais mission introuvable pour la demande.");
+        }
+        mission = {
+          id: missionId,
+          marqueId: hit.id,
+          marqueNom: hit.nom,
+          targetBrand: hit.nom,
+        } as Mission;
+      }
+
+      if (!mission.marqueId) {
+        throw new Error("Cette marque n’est pas liée à une fiche CRM.");
+      }
+
+      const res = await fetch(
+        `/api/projets-outreach/${campaign.id}/request-marque-completion`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            marqueId: mission.marqueId,
+            missionId: mission.id,
+            note: note.trim() || undefined,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Demande impossible."
+        );
+      }
+      setSuccess(
+        typeof data.message === "string"
+          ? data.message
+          : `${hit.nom} mise en attente — admins notifiés.`
+      );
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setSavingId(null);
+      setRequestingId(null);
+    }
+  }
+
   async function addManual(e: FormEvent) {
     e.preventDefault();
     if (!canManage || savingId) return;
@@ -877,7 +980,87 @@ function MarquesTab({
     }
   }
 
-  const tableCols = "1.1fr 2.2fr .8fr .7fr 36px";
+  const tableCols = "1.1fr 1.6fr .7fr .55fr 1.15fr 36px";
+
+  async function requestCompletion(m: Mission) {
+    if (!m.marqueId) {
+      setError("Cette marque n’est pas liée à une fiche CRM — lie-la d’abord depuis le CRM.");
+      return;
+    }
+    const contactCount = effectiveMissionContacts(m).length;
+    const note = window.prompt(
+      `Que faut-il compléter sur « ${m.marqueNom || m.targetBrand} » ? (${contactCount} contact emailé${contactCount > 1 ? "s" : ""})`,
+      contactCount === 0
+        ? "Aucun contact — merci d’ajouter les bons interlocuteurs sur la fiche existante."
+        : "Un seul contact — merci d’ajouter d’autres interlocuteurs pertinents sur la fiche existante."
+    );
+    if (note === null) return;
+
+    setRequestingId(m.id);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/projets-outreach/${campaign.id}/request-marque-completion`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            marqueId: m.marqueId,
+            missionId: m.id,
+            note: note.trim() || undefined,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Demande impossible."
+        );
+      }
+      setSuccess(
+        typeof data.message === "string"
+          ? data.message
+          : "Demande envoyée pour compléter la fiche."
+      );
+      await onChanged();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setRequestingId(null);
+    }
+  }
+
+  async function resolveCompletion(m: Mission) {
+    setRequestingId(m.id);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/projets-outreach/${campaign.id}/resolve-marque-completion`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ missionId: m.id }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Déblocage impossible."
+        );
+      }
+      setSuccess(
+        typeof data.message === "string" ? data.message : "Rédaction débloquée."
+      );
+      await onChanged();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setRequestingId(null);
+    }
+  }
+
   const busy = Boolean(savingId);
 
   return (
@@ -986,7 +1169,16 @@ function MarquesTab({
               filteredCrm.map((h) => {
                 const already =
                   alreadyIds.has(h.id) || alreadyNames.has(h.nom.trim().toLowerCase());
-                const rowBusy = savingId === h.id;
+                const existingMission =
+                  campaign.missions.find((m) => m.marqueId === h.id) ||
+                  campaign.missions.find(
+                    (m) =>
+                      (m.marqueNom || m.targetBrand || "").trim().toLowerCase() ===
+                      h.nom.trim().toLowerCase()
+                  );
+                const awaiting = Boolean(existingMission?.awaitingContactsCompletion);
+                const rowBusy = savingId === h.id || requestingId === h.id;
+                const showCompleter = !awaiting;
                 return (
                   <div
                     key={h.id}
@@ -1000,32 +1192,70 @@ function MarquesTab({
                     <PoAvatar name={h.nom} size={28} />
                     <div className="min-w-0 flex-1">
                       <div style={{ fontWeight: 600, color: "var(--po-ink)" }}>{h.nom}</div>
-                      <div style={{ fontSize: 11.5, color: "var(--po-muted)" }}>
+                      <div
+                        style={{
+                          fontSize: 11.5,
+                          color:
+                            h.contactCount <= 1 ? "var(--po-prio-med-fg)" : "var(--po-muted)",
+                          fontWeight: h.contactCount <= 1 ? 600 : 400,
+                        }}
+                      >
                         {h.contactCount} contact{h.contactCount === 1 ? "" : "s"}
                         {h.ville ? ` · ${h.ville}` : ""}
+                        {awaiting ? " · en attente" : ""}
                       </div>
                     </div>
-                    {already ? (
-                      <span
-                        className="po-badge po-badge-stage"
-                        style={{ fontSize: 11 }}
-                      >
-                        Déjà ajoutée
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void addFromCrm(h)}
-                        className="po-btn po-btn-primary"
-                        style={{ padding: "6px 12px", fontSize: 12.5 }}
-                      >
-                        {rowBusy ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : null}
-                        Ajouter
-                      </button>
-                    )}
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                      {already ? (
+                        <span
+                          className="po-badge po-badge-stage"
+                          style={{ fontSize: 11 }}
+                        >
+                          Déjà ajoutée
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy || rowBusy}
+                          onClick={() => void addFromCrm(h)}
+                          className="po-btn po-btn-primary"
+                          style={{ padding: "6px 12px", fontSize: 12.5 }}
+                        >
+                          {rowBusy && savingId === h.id && !requestingId ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          Ajouter
+                        </button>
+                      )}
+                      {awaiting && existingMission ? (
+                        <button
+                          type="button"
+                          disabled={rowBusy}
+                          onClick={() => void resolveCompletion(existingMission)}
+                          className="po-btn po-btn-primary"
+                          style={{ padding: "6px 12px", fontSize: 12.5 }}
+                        >
+                          {rowBusy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          Contacts prêts
+                        </button>
+                      ) : showCompleter ? (
+                        <button
+                          type="button"
+                          disabled={busy || rowBusy}
+                          onClick={() => void completeFromCrm(h)}
+                          className="po-btn po-btn-secondary"
+                          style={{ padding: "6px 12px", fontSize: 12.5 }}
+                          title="Ajoute au projet si besoin, notifie les admins et bloque la rédaction"
+                        >
+                          {rowBusy && requestingId === h.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          Compléter
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 );
               })
@@ -1075,6 +1305,7 @@ function MarquesTab({
           <span>Raison</span>
           <span>Stage</span>
           <span>Priorité</span>
+          <span>Contacts</span>
           <span />
         </div>
         {campaign.missions.length === 0 ? (
@@ -1084,11 +1315,17 @@ function MarquesTab({
         ) : (
           campaign.missions.map((m) => {
             const name = m.marqueNom || m.targetBrand;
+            const contactCount = effectiveMissionContacts(m).length;
+            const awaiting = Boolean(m.awaitingContactsCompletion);
+            const needsCompletion = Boolean(m.marqueId) && !awaiting;
             return (
               <div
                 key={m.id}
                 className="po-table-row"
-                style={{ gridTemplateColumns: tableCols }}
+                style={{
+                  gridTemplateColumns: tableCols,
+                  background: awaiting ? "var(--po-prio-med-bg)" : undefined,
+                }}
               >
                 <div className="flex min-w-0 items-center gap-2.5">
                   <PoAvatar name={name} size={26} />
@@ -1109,10 +1346,68 @@ function MarquesTab({
                   {m.strategyReason || EMPTY}
                 </div>
                 <div>
-                  <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+                  {awaiting ? (
+                    <StageDotBadge label="En attente contacts" />
+                  ) : (
+                    <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+                  )}
                 </div>
                 <div>
                   <PriorityBadge priority={m.priority} />
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  <div
+                    style={{
+                      color: awaiting ? "var(--po-prio-med-fg)" : "var(--po-tertiary)",
+                      fontWeight: awaiting ? 600 : 400,
+                    }}
+                  >
+                    {contactCount} emailé{contactCount > 1 ? "s" : ""}
+                  </div>
+                  {awaiting ? (
+                    <button
+                      type="button"
+                      disabled={requestingId === m.id}
+                      onClick={() => void resolveCompletion(m)}
+                      className="po-btn po-btn-primary"
+                      style={{
+                        marginTop: 6,
+                        padding: "4px 8px",
+                        fontSize: 11,
+                      }}
+                      title="Après avoir complété la fiche CRM, débloque la rédaction"
+                    >
+                      {requestingId === m.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        "Contacts prêts"
+                      )}
+                    </button>
+                  ) : needsCompletion ? (
+                    <button
+                      type="button"
+                      disabled={requestingId === m.id}
+                      onClick={() => void requestCompletion(m)}
+                      className="po-btn po-btn-secondary"
+                      style={{
+                        marginTop: 6,
+                        padding: "4px 8px",
+                        fontSize: 11,
+                      }}
+                      title="Notifie tous les admins et bloque la rédaction"
+                    >
+                      {requestingId === m.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        "Compléter"
+                      )}
+                    </button>
+                  ) : null}
+                  {!m.marqueId && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: "var(--po-muted)" }}>
+                      Pas de fiche CRM
+                    </div>
+                  )}
                 </div>
                 <div style={{ textAlign: "right" }}>
                   {canManage && !m.sentAt && (
@@ -1217,8 +1512,94 @@ function RedactionTab({
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerContact, setComposerContact] = useState<ComposerContact | null>(null);
   const [busy, setBusy] = useState(false);
+  const [requestingId, setRequestingId] = useState<string | null>(null);
+
+  async function requestCompletion(m: Mission) {
+    if (!m.marqueId) {
+      setError("Cette marque n’est pas liée à une fiche CRM — lie-la d’abord depuis le CRM.");
+      return;
+    }
+    const contactCount = effectiveMissionContacts(m).length;
+    const note = window.prompt(
+      `Que faut-il compléter sur « ${m.marqueNom || m.targetBrand} » ?`,
+      contactCount === 0
+        ? "Aucun contact — merci d’ajouter les bons interlocuteurs sur la fiche existante."
+        : "Un seul contact — merci d’ajouter d’autres interlocuteurs pertinents sur la fiche existante."
+    );
+    if (note === null) return;
+
+    setRequestingId(m.id);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/projets-outreach/${campaign.id}/request-marque-completion`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            marqueId: m.marqueId,
+            missionId: m.id,
+            note: note.trim() || undefined,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Demande impossible."
+        );
+      }
+      setSuccess(
+        typeof data.message === "string"
+          ? data.message
+          : "Demande envoyée pour compléter la fiche."
+      );
+      await onChanged();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setRequestingId(null);
+    }
+  }
+
+  async function resolveCompletion(m: Mission) {
+    setRequestingId(m.id);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/projets-outreach/${campaign.id}/resolve-marque-completion`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ missionId: m.id }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Déblocage impossible."
+        );
+      }
+      setSuccess(
+        typeof data.message === "string" ? data.message : "Rédaction débloquée."
+      );
+      await onChanged();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setRequestingId(null);
+    }
+  }
 
   async function openComposer(m: Mission) {
+    if (m.awaitingContactsCompletion) {
+      setError(
+        `« ${m.marqueNom || m.targetBrand} » est en attente de contacts. Impossible de rédiger tant que ce n’est pas débloqué.`
+      );
+      return;
+    }
     let localContacts = effectiveMissionContacts(m);
 
     // Recharge live depuis le CRM (évite le bug Prisma NOT source=AO qui
@@ -1468,7 +1849,7 @@ function RedactionTab({
         <div
           className="po-table-head"
           style={{
-            gridTemplateColumns: "minmax(140px,1.2fr) minmax(0,2fr) 120px 100px 140px",
+            gridTemplateColumns: "minmax(140px,1.2fr) minmax(0,2fr) 120px 100px 180px",
           }}
         >
           <span>Marque</span>
@@ -1480,12 +1861,15 @@ function RedactionTab({
         {draftable.map((m) => {
           const contactCount = effectiveMissionContacts(m).length;
           const name = m.marqueNom || m.targetBrand;
+          const awaiting = Boolean(m.awaitingContactsCompletion);
+          const needsCompletion = Boolean(m.marqueId) && !awaiting;
           return (
             <div
               key={m.id}
               className="po-table-row"
               style={{
-                gridTemplateColumns: "minmax(140px,1.2fr) minmax(0,2fr) 120px 100px 140px",
+                gridTemplateColumns: "minmax(140px,1.2fr) minmax(0,2fr) 120px 100px 180px",
+                background: awaiting ? "var(--po-prio-med-bg)" : undefined,
               }}
             >
               <div className="flex min-w-0 items-center gap-2.5">
@@ -1502,24 +1886,82 @@ function RedactionTab({
                 {m.strategyReason || "—"}
               </div>
               <div style={{ fontSize: 12, color: "var(--po-tertiary)" }}>
-                <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
-                <div style={{ marginTop: 4, fontSize: 11, color: "var(--po-muted)" }}>
+                {awaiting ? (
+                  <StageDotBadge label="En attente contacts" />
+                ) : (
+                  <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+                )}
+                <div
+                  style={{
+                    marginTop: 4,
+                    fontSize: 11,
+                    color: awaiting ? "var(--po-prio-med-fg)" : "var(--po-muted)",
+                    fontWeight: awaiting ? 600 : 400,
+                  }}
+                >
                   {contactCount} contact(s)
                 </div>
               </div>
               <div>
                 <PriorityBadge priority={m.priority} />
               </div>
-              <div className="flex justify-end">
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {awaiting ? (
+                  <button
+                    type="button"
+                    disabled={busy || requestingId === m.id}
+                    onClick={() => void resolveCompletion(m)}
+                    className="po-btn po-btn-primary"
+                    style={{ padding: "7px 10px", fontSize: 12 }}
+                    title="Après complétion CRM, débloque la rédaction"
+                  >
+                    {requestingId === m.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      "Contacts prêts"
+                    )}
+                  </button>
+                ) : null}
+                {needsCompletion && (
+                  <button
+                    type="button"
+                    disabled={busy || requestingId === m.id}
+                    onClick={() => void requestCompletion(m)}
+                    className="po-btn po-btn-secondary"
+                    style={{ padding: "7px 10px", fontSize: 12 }}
+                    title="Notifie tous les admins et bloque la rédaction"
+                  >
+                    {requestingId === m.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      "Compléter"
+                    )}
+                  </button>
+                )}
                 {canEdit ? (
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || awaiting}
                     onClick={() => void openComposer(m)}
                     className="po-btn po-btn-primary po-btn-cta-accent"
-                    style={{ padding: "7px 12px", fontSize: 12 }}
+                    style={{
+                      padding: "7px 12px",
+                      fontSize: 12,
+                      opacity: awaiting ? 0.45 : 1,
+                    }}
+                    title={
+                      awaiting
+                        ? "Bloqué — contacts en attente"
+                        : m.draftEmailSubject
+                          ? "Ouvrir le composer"
+                          : "Rédiger le mail"
+                    }
                   >
-                    {m.draftEmailSubject ? "Ouvrir" : "Rédiger"}
+                    {awaiting
+                      ? "Bloqué"
+                      : m.draftEmailSubject
+                        ? "Ouvrir"
+                        : "Rédiger"}
                   </button>
                 ) : (
                   <span style={{ fontSize: 11, color: "#956A15" }}>Casting</span>
@@ -1571,8 +2013,10 @@ function EnvoisTab({
   );
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  async function scheduleAndSend(missionId: string) {
+  async function scheduleAndSend(missionId: string, force = false) {
     if (!canSendMails) return;
+    const mission = queue.find((m) => m.id === missionId);
+    const brandLabel = mission?.marqueNom || mission?.targetBrand || "cette marque";
     setBusyId(missionId);
     setError(null);
     try {
@@ -1582,11 +2026,24 @@ function EnvoisTab({
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ force }),
         }
       );
       const scheduleData = await scheduleRes.json().catch(() => ({}));
       if (!scheduleRes.ok) {
+        if (scheduleData?.canForce && !force) {
+          const confirmed = window.confirm(
+            `${brandLabel}\n\n${
+              scheduleData.error ||
+              "Ces contacts ont déjà reçu un mail récemment (cooldown 20 j)."
+            }\n\nEnvoyer quand même ?`
+          );
+          if (confirmed) {
+            setBusyId(null);
+            await scheduleAndSend(missionId, true);
+          }
+          return;
+        }
         throw new Error(scheduleData.error || "Planification impossible.");
       }
 
@@ -1598,7 +2055,9 @@ function EnvoisTab({
       if (!sendRes.ok) throw new Error(sendData.error || "Envoi impossible.");
 
       setSuccess(
-        `Envoyé depuis Leyna (${sendData.succeeded ?? 0} destinataire(s)).`
+        force
+          ? `Envoyé (forcé) depuis Leyna (${sendData.succeeded ?? 0} destinataire(s)).`
+          : `Envoyé depuis Leyna (${sendData.succeeded ?? 0} destinataire(s)).`
       );
       await onChanged();
     } catch (err) {
@@ -1667,20 +2126,37 @@ function EnvoisTab({
             </div>
             <div style={{ textAlign: "right" }}>
               {canSendMails && (
-                <button
-                  type="button"
-                  disabled={busyId === m.id}
-                  onClick={() => void scheduleAndSend(m.id)}
-                  className="po-btn po-btn-primary"
-                  style={{ padding: "7px 12px", fontSize: 12 }}
-                >
-                  {busyId === m.id ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Send className="h-3.5 w-3.5" />
-                  )}
-                  Envoyer
-                </button>
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  <button
+                    type="button"
+                    disabled={busyId === m.id}
+                    onClick={() => void scheduleAndSend(m.id, false)}
+                    className="po-btn po-btn-primary"
+                    style={{ padding: "7px 12px", fontSize: 12 }}
+                  >
+                    {busyId === m.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" />
+                    )}
+                    Envoyer
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === m.id}
+                    onClick={() => {
+                      const ok = window.confirm(
+                        `${m.marqueNom || m.targetBrand}\n\nForcer l’envoi ignore le cooldown 20 jours (contacts déjà contactés récemment).\n\nConfirmer ?`
+                      );
+                      if (ok) void scheduleAndSend(m.id, true);
+                    }}
+                    className="po-btn po-btn-secondary"
+                    style={{ padding: "7px 12px", fontSize: 12 }}
+                    title="Ignore le cooldown anti-spam de 20 jours"
+                  >
+                    Forcer l’envoi
+                  </button>
+                </div>
               )}
             </div>
           </div>

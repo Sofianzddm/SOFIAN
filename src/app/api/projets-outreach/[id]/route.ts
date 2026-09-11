@@ -136,6 +136,8 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       lastClickAt: m.lastClickAt,
       lastClickUrl: m.lastClickUrl,
       clickCount: m.clickCount,
+      awaitingContactsCompletion: m.awaitingContactsCompletion,
+      contactsCompletionRequestedAt: m.contactsCompletionRequestedAt,
       relanceSentAt: m.relanceSentAt,
       relance2SentAt: m.relance2SentAt,
       sendError: m.sendError,

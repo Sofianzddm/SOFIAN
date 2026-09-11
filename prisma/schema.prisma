@@ -3105,6 +3105,8 @@ model ContactMission {
   sentAt               DateTime?
   sentMessageIds       Json?
   sendError            String?                    @db.Text
+  awaitingContactsCompletion Boolean              @default(false)
+  contactsCompletionRequestedAt DateTime?
   relanceSentAt        DateTime?
   relanceMessageIds    Json?
   relanceError         String?                    @db.Text
