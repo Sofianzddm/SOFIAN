@@ -110,11 +110,19 @@ function effectiveMissionContacts(m: Mission) {
     linkedinUrl: c.linkedinUrl || "",
     language: (c.language === "en" ? "en" : "fr") as "fr" | "en",
   }));
-  if (crm.length > 0) return crm;
+  const fromCrm = crm.filter(
+    (c) => c.email && !c.email.toLowerCase().endsWith("@glowupagence.fr")
+  );
+  if (fromCrm.length > 0) return fromCrm;
 
   return Array.isArray(m.clientContacts)
     ? m.clientContacts
-        .filter((c) => String(c?.email || "").trim())
+        .filter((c) => {
+          const email = String(c?.email || "").trim();
+          return (
+            email.includes("@") && !email.toLowerCase().endsWith("@glowupagence.fr")
+          );
+        })
         .map((c, index) => ({
           id: `manual-${index}-${String(c.email).trim()}`,
           firstname: String(c.firstname || "").trim(),

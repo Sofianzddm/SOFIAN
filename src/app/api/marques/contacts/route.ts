@@ -7,6 +7,10 @@ import {
   loadFuzzyCandidatesCached,
   rankFuzzyCandidates,
 } from "@/lib/marque-fuzzy-search";
+import {
+  isForbiddenCastingRecipient,
+  loadCastingRecipientBlocklist,
+} from "@/lib/casting-recipient-guard";
 
 type SearchedContact = {
   id: string;
@@ -100,16 +104,25 @@ async function searchAppContacts(brand: string): Promise<{
   const primary =
     (await findMarqueByName(brand))?.marqueId ?? marqueIds[0] ?? null;
 
-  const contacts: SearchedContact[] = rows.map((c) => ({
-    id: c.id,
-    firstname: (c.prenom || "").trim(),
-    lastname: (c.nom || "").trim(),
-    email: (c.email || "").trim(),
-    role: (c.poste || "").trim(),
-    companyName: c.marque?.nom || brand,
-    source: "app" as const,
-    language: String(c.language || "").toLowerCase() === "en" ? "en" : "fr",
-  }));
+  const blocklist = await loadCastingRecipientBlocklist();
+  const contacts: SearchedContact[] = rows
+    .map((c) => ({
+      id: c.id,
+      firstname: (c.prenom || "").trim(),
+      lastname: (c.nom || "").trim(),
+      email: (c.email || "").trim(),
+      role: (c.poste || "").trim(),
+      companyName: c.marque?.nom || brand,
+      source: "app" as const,
+      language: (String(c.language || "").toLowerCase() === "en" ? "en" : "fr") as "fr" | "en",
+    }))
+    .filter(
+      (c) =>
+        !isForbiddenCastingRecipient(
+          { email: c.email, firstname: c.firstname, lastname: c.lastname },
+          blocklist
+        )
+    );
 
   return { contacts, marqueId: primary };
 }
@@ -204,11 +217,20 @@ export async function GET(request: NextRequest) {
       searchHubspotContacts(brand),
     ]);
 
+    const blocklist = await loadCastingRecipientBlocklist();
     // Fusion : contacts de l'app d'abord, puis HubSpot ; dédoublonnage par email.
     // Les contacts sans email (à compléter) sont conservés, dédoublonnés par id.
     const byKey = new Map<string, SearchedContact>();
     for (const c of [...app.contacts, ...hubspot]) {
       const email = c.email.trim().toLowerCase();
+      if (
+        isForbiddenCastingRecipient(
+          { email, firstname: c.firstname, lastname: c.lastname },
+          blocklist
+        )
+      ) {
+        continue;
+      }
       const key = email || `id:${c.id}`;
       if (byKey.has(key)) continue;
       byKey.set(key, c);

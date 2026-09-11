@@ -7,6 +7,10 @@ import {
   canSend,
   isProjetsOutreachRole,
 } from "@/lib/projets-outreach";
+import {
+  isForbiddenCastingRecipient,
+  loadCastingRecipientBlocklist,
+} from "@/lib/casting-recipient-guard";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -178,6 +182,7 @@ async function attachMarqueContacts<T extends { missions: Array<{ marqueId: stri
     orderBy: [{ principal: "desc" }, { nom: "asc" }],
   });
 
+  const blocklist = await loadCastingRecipientBlocklist();
   const byMarque = new Map<
     string,
     Array<{
@@ -196,11 +201,21 @@ async function attachMarqueContacts<T extends { missions: Array<{ marqueId: stri
     if (String(r.source || "").trim().toUpperCase() === "AO") continue;
     const email = String(r.email || r.emailSuggested || "").trim();
     if (!email || !email.includes("@")) continue;
+    const firstname = String(r.prenom || "").trim();
+    const lastname = String(r.nom || "").trim();
+    if (
+      isForbiddenCastingRecipient(
+        { email, firstname, lastname },
+        blocklist
+      )
+    ) {
+      continue;
+    }
     const list = byMarque.get(r.marqueId) || [];
     list.push({
       id: r.id,
-      firstname: String(r.prenom || "").trim(),
-      lastname: String(r.nom || "").trim(),
+      firstname,
+      lastname,
       email,
       role: String(r.poste || "").trim(),
       linkedinUrl: String(r.linkedinUrl || "").trim(),

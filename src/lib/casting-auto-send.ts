@@ -34,6 +34,13 @@ import {
 } from "@/lib/email-body-html";
 import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 import { ensureBrandInSubject } from "@/lib/email-subject";
+import {
+  isForbiddenCastingRecipient,
+  isInternalGlowUpEmail,
+  loadCastingRecipientBlocklist,
+} from "@/lib/casting-recipient-guard";
+
+export { isInternalGlowUpEmail } from "@/lib/casting-recipient-guard";
 
 export const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 export const LEYNA_OWNER_FIRSTNAME = "Leyna";
@@ -140,7 +147,20 @@ export function parseCastingContacts(raw: unknown): CastingContact[] {
       email: String(c?.email || "").trim().toLowerCase(),
       role: String(c?.role || "").trim(),
     }))
-    .filter((c) => c.firstname && c.email && isValidEmail(c.email));
+    .filter(
+      (c) =>
+        c.firstname &&
+        c.email &&
+        isValidEmail(c.email) &&
+        !isInternalGlowUpEmail(c.email)
+    );
+}
+
+async function filterAllowedCastingContacts(
+  contacts: CastingContact[]
+): Promise<CastingContact[]> {
+  const blocklist = await loadCastingRecipientBlocklist();
+  return contacts.filter((c) => !isForbiddenCastingRecipient(c, blocklist));
 }
 
 /**
@@ -210,11 +230,14 @@ export async function preflightCastingSend(
   if (!subject || !body) {
     return { ok: false, error: "Le brouillon est incomplet (sujet et corps requis)." };
   }
-  const contacts = parseCastingContacts(mission.clientContacts);
+  const contacts = await filterAllowedCastingContacts(
+    parseCastingContacts(mission.clientContacts)
+  );
   if (contacts.length === 0) {
     return {
       ok: false,
-      error: "Aucun contact client valide (prenom + email obligatoires).",
+      error:
+        "Aucun contact client valide (prenom + email obligatoires). Les adresses Glow Up / talents sont exclues.",
     };
   }
   const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
@@ -421,7 +444,9 @@ export async function buildCastingSendPreview(
     }
   };
 
-  const allContacts = parseCastingContacts(mission.clientContacts);
+  const allContacts = await filterAllowedCastingContacts(
+    parseCastingContacts(mission.clientContacts)
+  );
   // Pas encore de contact sur la carte : on montre quand même l'aperçu avec
   // un contact fictif (les variables sont remplacées par Prénom / Nom) pour
   // voir le rendu final sans attendre l'ajout des contacts.
@@ -562,7 +587,9 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     }
   };
 
-  const allContacts = parseCastingContacts(mission.clientContacts);
+  const allContacts = await filterAllowedCastingContacts(
+    parseCastingContacts(mission.clientContacts)
+  );
   const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
   const newContacts = allContacts.filter(
     (c) => !alreadySent.has((c.email || "").toLowerCase())
