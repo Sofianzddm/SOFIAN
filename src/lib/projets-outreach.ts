@@ -18,6 +18,13 @@ export const CAMPAIGN_STATUSES = [
 
 export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
 
+export const CAMPAIGN_MODES = ["SOLO", "MULTI"] as const;
+export type CampaignMode = (typeof CAMPAIGN_MODES)[number];
+
+export function isValidCampaignMode(v: string): v is CampaignMode {
+  return (CAMPAIGN_MODES as readonly string[]).includes(v);
+}
+
 export const STATUS_LABEL: Record<CampaignStatus, string> = {
   BRIEF: "Brief",
   BRANDS: "Marques",

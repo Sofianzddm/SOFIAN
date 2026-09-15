@@ -36,18 +36,38 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const campaignId = String(id || "").trim();
     const campaign = await prisma.talentProspectingCampaign.findUnique({
       where: { id: campaignId },
-      include: { talent: { select: { prenom: true, nom: true } } },
+      include: {
+        talent: { select: { prenom: true, nom: true } },
+        campaignTalents: {
+          orderBy: { sortOrder: "asc" },
+          include: {
+            talent: { select: { id: true, prenom: true, nom: true } },
+          },
+        },
+      },
     });
     if (!campaign) return NextResponse.json({ error: "Projet introuvable." }, { status: 404 });
 
-    const body = (await request.json()) as { items?: BrandItem[] };
+    const body = (await request.json()) as {
+      items?: Array<BrandItem & { selectedTalentIds?: string[] }>;
+    };
     const items = Array.isArray(body.items) ? body.items : [];
     if (items.length === 0) {
       return NextResponse.json({ error: "Aucune marque fournie." }, { status: 400 });
     }
 
+    const allTalentIds =
+      campaign.campaignTalents.length > 0
+        ? campaign.campaignTalents.map((ct) => ct.talent.id)
+        : [campaign.talentId];
     const creatorName =
-      `${campaign.talent?.prenom ?? ""} ${campaign.talent?.nom ?? ""}`.trim() || "Talent";
+      campaign.mode === "MULTI" && campaign.campaignTalents.length > 1
+        ? campaign.campaignTalents
+            .map((ct) => `${ct.talent.prenom} ${ct.talent.nom}`.trim())
+            .filter(Boolean)
+            .join(", ")
+        : `${campaign.talent?.prenom ?? ""} ${campaign.talent?.nom ?? ""}`.trim() ||
+          "Talent";
 
     const created = [];
     for (const item of items) {
@@ -73,6 +93,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const strategyReason = String(item.strategyReason || "").trim();
       if (!targetBrand) continue;
 
+      const rawSelected = Array.isArray(item.selectedTalentIds)
+        ? item.selectedTalentIds.map((id) => String(id || "").trim()).filter(Boolean)
+        : [];
+      const selectedTalentIds =
+        campaign.mode === "MULTI"
+          ? (rawSelected.length > 0
+              ? rawSelected.filter((id) => allTalentIds.includes(id))
+              : allTalentIds)
+          : [];
+
       const mission = await prisma.contactMission.create({
         data: {
           campaignId,
@@ -89,6 +119,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           priority: parseMissionPriority(item.priority),
           stage: "TO_DRAFT",
           condensationStatus: campaign.waveId ? "IN_WAVE" : "NONE",
+          selectedTalentIds,
           clientContacts: item.clientContacts ?? undefined,
           createdById: session.user.id,
         },

@@ -111,6 +111,8 @@ type CastingCompanyRecipients = {
       dos?: string | null;
       donts?: string | null;
     }> | null;
+    /** Projet commun MULTI (même opportunité, N talents). */
+    sharedProject?: boolean;
   } | null;
 };
 
@@ -347,16 +349,20 @@ export default function CastingComposer({
         .map((b) => [String(b.talentId), b] as const)
     );
     const ordered: typeof condensationBriefs = [];
-    const used = new Set<string>();
+    const usedTalent = new Set<string>();
     for (const tid of effectiveLockedTalentIds) {
       const hit = byTalent.get(tid);
       if (hit) {
         ordered.push(hit);
-        used.add(hit.missionId);
+        usedTalent.add(tid);
       }
     }
     for (const b of condensationBriefs) {
-      if (!used.has(b.missionId)) ordered.push(b);
+      const tid = String(b.talentId || "");
+      if (tid && usedTalent.has(tid)) continue;
+      if (!tid && ordered.includes(b)) continue;
+      ordered.push(b);
+      if (tid) usedTalent.add(tid);
     }
     return ordered;
   }, [condensationBriefs, effectiveLockedTalentIds]);
@@ -943,6 +949,7 @@ export default function CastingComposer({
           ...(contact.missionBrief
             ? isCondensation && orderedCondensationBriefs.length >= 2
               ? {
+                  sharedProject: Boolean(contact.missionBrief.sharedProject),
                   projectBriefs: orderedCondensationBriefs.map((b) => ({
                     projectTitle: b.projectTitle || null,
                     projectDescription: b.projectDescription || null,

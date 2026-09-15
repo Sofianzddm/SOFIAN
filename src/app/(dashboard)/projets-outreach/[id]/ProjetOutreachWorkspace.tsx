@@ -10,6 +10,7 @@ import {
   Search,
   Send,
   Check,
+  ExternalLink,
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import {
@@ -34,7 +35,7 @@ import {
   initialOf,
 } from "../PoUi";
 
-type TabId = "brief" | "marques" | "redaction" | "envois" | "suivi";
+type TabId = "brief" | "marques" | "redaction" | "envois" | "suivi" | "a-completer";
 
 type Mission = {
   id: string;
@@ -94,6 +95,7 @@ type Mission = {
   clickCount: number;
   awaitingContactsCompletion?: boolean;
   contactsCompletionRequestedAt?: string | null;
+  selectedTalentIds?: string[];
   condensationGroupId?: string | null;
   condensationRole?: "PRIMARY" | "MEMBER" | null;
   condensationStatus?: string | null;
@@ -159,6 +161,7 @@ type Campaign = {
   title: string;
   description: string | null;
   status: CampaignStatus;
+  mode?: "SOLO" | "MULTI";
   isActive: boolean;
   senderEmail: string | null;
   objective: string | null;
@@ -169,6 +172,19 @@ type Campaign = {
   donts: string | null;
   angles: string | null;
   talent: { id: string; name: string; photo: string | null; instagram: string | null };
+  talents?: Array<{
+    id: string;
+    name: string;
+    prenom?: string;
+    nom?: string;
+    photo: string | null;
+    instagram?: string | null;
+    niches?: string[];
+    igFollowers?: number;
+    ttFollowers?: number;
+    note?: string | null;
+  }>;
+  talentCount?: number;
   ownerTmName: string | null;
   createdByName: string;
   waveId?: string | null;
@@ -238,6 +254,7 @@ function activityDotColor(type: string, index: number) {
 export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) {
   const { data: session } = useSession();
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
+  const isAdmin = role === "ADMIN";
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [tab, setTab] = useState<TabId>("brief");
@@ -379,11 +396,21 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           style={{ marginBottom: 16 }}
         >
           <div className="flex min-w-0 items-start gap-3">
-            <PoAvatar
-              name={campaign.talent.name}
-              photo={campaign.talent.photo}
-              size={40}
-            />
+            {campaign.mode === "MULTI" && (campaign.talents?.length || 0) > 1 ? (
+              <div className="flex -space-x-2">
+                {(campaign.talents || []).slice(0, 4).map((t) => (
+                  <div key={t.id} style={{ marginLeft: -4 }}>
+                    <PoAvatar name={t.name} photo={t.photo} size={36} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <PoAvatar
+                name={campaign.talent.name}
+                photo={campaign.talent.photo}
+                size={40}
+              />
+            )}
             <div className="min-w-0">
               <h1
                 style={{
@@ -392,9 +419,26 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
                   fontWeight: 700,
                   letterSpacing: "-0.02em",
                   color: "var(--po-ink)",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 8,
                 }}
               >
                 {campaign.title}
+                {campaign.mode === "MULTI" ? (
+                  <span
+                    className="po-badge"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: "#EEEAFB",
+                      color: "#5B3F9E",
+                    }}
+                  >
+                    Multi · {campaign.talents?.length || campaign.talentCount || 0}
+                  </span>
+                ) : null}
               </h1>
               <p
                 style={{
@@ -404,7 +448,12 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
                   lineHeight: 1.45,
                 }}
               >
-                Gestion du projet · <strong style={{ color: "var(--po-ink)", fontWeight: 600 }}>{campaign.talent.name}</strong>
+                Gestion du projet ·{" "}
+                <strong style={{ color: "var(--po-ink)", fontWeight: 600 }}>
+                  {campaign.mode === "MULTI" && (campaign.talents?.length || 0) > 1
+                    ? (campaign.talents || []).map((t) => t.name).join(", ")
+                    : campaign.talent.name}
+                </strong>
                 {" · "}envoi {sender}
                 {" · "}créé par {campaign.createdByName}
                 {" · "}TM {tmLabel}
@@ -468,6 +517,24 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
               ) : null}
             </button>
           ))}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setTab("a-completer")}
+              className={`po-tab${tab === "a-completer" ? " po-tab-active" : ""}`}
+              title="Admin · marques en attente de contacts"
+              style={
+                tab === "a-completer"
+                  ? undefined
+                  : { borderStyle: "dashed", opacity: 0.85 }
+              }
+            >
+              À compléter
+              {awaitingContactsCount > 0 ? (
+                <span className="po-tab-badge">{awaitingContactsCount}</span>
+              ) : null}
+            </button>
+          )}
         </div>
       </div>
 
@@ -538,6 +605,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           <MarquesTab
             campaign={campaign}
             canManage={canManageBrands(role)}
+            isAdmin={isAdmin}
             onChanged={load}
             setError={setError}
             setSuccess={setSuccess}
@@ -548,6 +616,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
             campaign={campaign}
             canEdit={canDraft(role)}
             role={role}
+            isAdmin={isAdmin}
             onChanged={load}
             setError={setError}
             setSuccess={setSuccess}
@@ -564,6 +633,14 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           />
         )}
         {tab === "suivi" && <SuiviTab campaign={campaign} />}
+        {tab === "a-completer" && isAdmin && (
+          <ACompleterTab
+            campaign={campaign}
+            onChanged={load}
+            setError={setError}
+            setSuccess={setSuccess}
+          />
+        )}
       </div>
     </div>
   );
@@ -825,15 +902,157 @@ function BriefTab({
   );
 }
 
+function ACompleterTab({
+  campaign,
+  onChanged,
+  setError,
+  setSuccess,
+}: {
+  campaign: Campaign;
+  onChanged: () => Promise<void>;
+  setError: (v: string | null) => void;
+  setSuccess: (v: string | null) => void;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const awaiting = useMemo(
+    () => campaign.missions.filter((m) => m.awaitingContactsCompletion),
+    [campaign.missions]
+  );
+
+  async function resolveCompletion(m: Mission) {
+    setBusyId(m.id);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/projets-outreach/${campaign.id}/resolve-marque-completion`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ missionId: m.id }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Déblocage impossible.");
+      setSuccess(data.message || `${m.marqueNom || m.targetBrand} débloquée.`);
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const cols = "1.4fr 1fr .7fr auto";
+
+  if (awaiting.length === 0) {
+    return (
+      <div className="po-empty">
+        Aucune marque en attente de contacts sur ce projet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p style={{ fontSize: 13, color: "var(--po-secondary)", margin: 0 }}>
+        Complète la fiche CRM, puis clique « Contacts prêts » pour débloquer la
+        rédaction.
+      </p>
+      <div className="po-card" style={{ overflow: "hidden" }}>
+        <div className="po-table-head" style={{ gridTemplateColumns: cols }}>
+          <div>Marque</div>
+          <div>Contacts</div>
+          <div>Priorité</div>
+          <div />
+        </div>
+        {awaiting.map((m) => {
+          const name = m.marqueNom || m.targetBrand;
+          const contactCount = effectiveMissionContacts(m).length;
+          return (
+            <div
+              key={m.id}
+              className="po-table-row"
+              style={{
+                gridTemplateColumns: cols,
+                background: "var(--po-prio-med-bg)",
+                alignItems: "center",
+              }}
+            >
+              <div className="min-w-0">
+                <div style={{ fontWeight: 600, color: "var(--po-ink)" }}>{name}</div>
+                {m.strategyReason ? (
+                  <div
+                    className="truncate"
+                    style={{ fontSize: 12, color: "var(--po-tertiary)" }}
+                    title={m.strategyReason}
+                  >
+                    {m.strategyReason}
+                  </div>
+                ) : null}
+              </div>
+              <div style={{ fontSize: 12.5, fontWeight: 600 }}>
+                {contactCount} emailé{contactCount > 1 ? "s" : ""}
+              </div>
+              <div>
+                <PriorityBadge priority={m.priority} />
+              </div>
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {m.marqueId ? (
+                  <Link
+                    href={`/marques/${m.marqueId}`}
+                    className="po-btn po-btn-primary"
+                    style={{
+                      padding: "7px 10px",
+                      fontSize: 12,
+                      textDecoration: "none",
+                    }}
+                    title="Ouvrir la fiche marque"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" strokeWidth={2} />
+                    À compléter
+                  </Link>
+                ) : (
+                  <span style={{ fontSize: 12, color: "var(--po-muted)" }}>
+                    Pas de fiche
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="po-btn"
+                  style={{ padding: "7px 10px", fontSize: 12 }}
+                  disabled={busyId === m.id}
+                  onClick={() => void resolveCompletion(m)}
+                >
+                  {busyId === m.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <>
+                      <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                      Contacts prêts
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MarquesTab({
   campaign,
   canManage,
+  isAdmin,
   onChanged,
   setError,
   setSuccess,
 }: {
   campaign: Campaign;
   canManage: boolean;
+  isAdmin: boolean;
   onChanged: () => Promise<void>;
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
@@ -847,6 +1066,15 @@ function MarquesTab({
   const [priority, setPriority] = useState("MEDIUM");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [requestingId, setRequestingId] = useState<string | null>(null);
+  const campaignTalents = campaign.talents || [];
+  const isMulti = campaign.mode === "MULTI" && campaignTalents.length >= 2;
+  const [brandTalentIds, setBrandTalentIds] = useState<string[]>(() =>
+    campaignTalents.map((t) => t.id)
+  );
+
+  useEffect(() => {
+    setBrandTalentIds(campaignTalents.map((t) => t.id));
+  }, [campaign.id, campaign.mode, campaignTalents.map((t) => t.id).join(",")]);
 
   const alreadyIds = useMemo(
     () => new Set(campaign.missions.map((m) => m.marqueId).filter(Boolean) as string[]),
@@ -897,6 +1125,9 @@ function MarquesTab({
     targetBrand: string;
     marqueId?: string | null;
   }) {
+    if (isMulti && brandTalentIds.length < 1) {
+      throw new Error("Sélectionne au moins 1 talent pour cette marque.");
+    }
     const res = await fetch(`/api/projets-outreach/${campaign.id}/brands`, {
       method: "POST",
       credentials: "include",
@@ -910,6 +1141,7 @@ function MarquesTab({
             recommendedAngle: angle.trim() || null,
             priority,
             clientContacts: null,
+            ...(isMulti ? { selectedTalentIds: brandTalentIds } : {}),
           },
         ],
       }),
@@ -1218,6 +1450,48 @@ function MarquesTab({
             </Field>
           </div>
 
+          {isMulti ? (
+            <div style={{ marginBottom: 12 }}>
+              <div
+                className="po-field-label"
+                style={{ marginBottom: 6 }}
+              >
+                Talents pour les prochaines marques ({brandTalentIds.length}/
+                {campaignTalents.length})
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {campaignTalents.map((t) => {
+                  const checked = brandTalentIds.includes(t.id);
+                  return (
+                    <label
+                      key={t.id}
+                      className="po-chip"
+                      style={{
+                        cursor: "pointer",
+                        opacity: checked ? 1 : 0.55,
+                        borderStyle: checked ? "solid" : "dashed",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setBrandTalentIds((prev) =>
+                            checked
+                              ? prev.filter((id) => id !== t.id)
+                              : [...prev, t.id]
+                          );
+                        }}
+                        style={{ marginRight: 6 }}
+                      />
+                      {t.name}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <div style={{ position: "relative", marginBottom: 10 }}>
             <Search
               className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
@@ -1317,7 +1591,7 @@ function MarquesTab({
                           Ajouter
                         </button>
                       )}
-                      {awaiting && existingMission ? (
+                      {awaiting && existingMission && isAdmin ? (
                         <button
                           type="button"
                           disabled={rowBusy}
@@ -1419,8 +1693,18 @@ function MarquesTab({
               >
                 <div className="flex min-w-0 items-center gap-2.5">
                   <PoAvatar name={name} size={26} />
-                  <div className="min-w-0">
+                    <div className="min-w-0">
                     <div style={{ fontWeight: 600, color: "var(--po-ink)" }}>{name}</div>
+                    {isMulti &&
+                    Array.isArray(m.selectedTalentIds) &&
+                    m.selectedTalentIds.length > 0 ? (
+                      <div style={{ fontSize: 11, color: "#5B3F9E", fontWeight: 600 }}>
+                        {(campaign.talents || [])
+                          .filter((t) => m.selectedTalentIds!.includes(t.id))
+                          .map((t) => t.name)
+                          .join(", ") || `${m.selectedTalentIds.length} talent(s)`}
+                      </div>
+                    ) : null}
                     {m.condensationStatus === "CONDENSED" ||
                     m.condensationRole === "PRIMARY" ||
                     m.condensationRole === "MEMBER" ? (
@@ -1464,24 +1748,52 @@ function MarquesTab({
                     {contactCount} emailé{contactCount > 1 ? "s" : ""}
                   </div>
                   {awaiting ? (
-                    <button
-                      type="button"
-                      disabled={requestingId === m.id}
-                      onClick={() => void resolveCompletion(m)}
-                      className="po-btn po-btn-primary"
-                      style={{
-                        marginTop: 6,
-                        padding: "4px 8px",
-                        fontSize: 11,
-                      }}
-                      title="Après avoir complété la fiche CRM, débloque la rédaction"
-                    >
-                      {requestingId === m.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        "Contacts prêts"
-                      )}
-                    </button>
+                    isAdmin ? (
+                      <div style={{ marginTop: 6 }} className="flex flex-wrap gap-1.5">
+                        {m.marqueId ? (
+                          <Link
+                            href={`/marques/${m.marqueId}`}
+                            className="po-btn po-btn-primary"
+                            style={{
+                              padding: "4px 8px",
+                              fontSize: 11,
+                              textDecoration: "none",
+                            }}
+                            title="Ouvrir la fiche marque"
+                          >
+                            À compléter
+                          </Link>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={requestingId === m.id}
+                          onClick={() => void resolveCompletion(m)}
+                          className="po-btn"
+                          style={{
+                            padding: "4px 8px",
+                            fontSize: 11,
+                          }}
+                          title="Après avoir complété la fiche CRM, débloque la rédaction"
+                        >
+                          {requestingId === m.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            "Contacts prêts"
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          marginTop: 4,
+                          fontSize: 11,
+                          color: "var(--po-prio-med-fg)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        En attente admin
+                      </div>
+                    )
                   ) : needsCompletion ? (
                     <button
                       type="button"
@@ -1548,6 +1860,7 @@ function RedactionTab({
   campaign,
   canEdit,
   role,
+  isAdmin,
   onChanged,
   setError,
   setSuccess,
@@ -1555,6 +1868,7 @@ function RedactionTab({
   campaign: Campaign;
   canEdit: boolean;
   role: string;
+  isAdmin: boolean;
   onChanged: () => Promise<void>;
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
@@ -1632,6 +1946,8 @@ function RedactionTab({
         dos?: string | null;
         donts?: string | null;
       }> | null;
+      /** Projet commun MULTI (Calendrier…) vs condensation cross-projets. */
+      sharedProject?: boolean;
     };
   };
 
@@ -1781,7 +2097,36 @@ function RedactionTab({
     }
 
     let condensationBriefs: ComposerContact["missionBrief"]["condensationBriefs"] = null;
-    if (m.condensationGroupId || m.condensationStatus === "CONDENSED") {
+    let sharedProject = false;
+
+    if (campaign.mode === "MULTI" && (campaign.talents?.length || 0) >= 2) {
+      const all = campaign.talents || [];
+      const selected =
+        Array.isArray(m.selectedTalentIds) && m.selectedTalentIds.length > 0
+          ? all.filter((t) => m.selectedTalentIds!.includes(t.id))
+          : all;
+      const forMail = selected.length >= 1 ? selected : all;
+      if (forMail.length >= 2) {
+        sharedProject = true;
+        condensationBriefs = forMail.map((t) => ({
+          missionId: m.id,
+          talentId: t.id,
+          projectTitle: campaign.title,
+          projectDescription: campaign.description,
+          creatorName: t.name,
+          targetBrand: m.targetBrand,
+          strategyReason: m.strategyReason,
+          recommendedAngle: m.recommendedAngle,
+          objective: m.objective || campaign.objective,
+          deliverables: campaign.deliverables,
+          angles: campaign.angles,
+          timeline: campaign.timeline,
+          budgetRange: campaign.budgetRange,
+          dos: m.dos || campaign.dos,
+          donts: m.donts || campaign.donts,
+        }));
+      }
+    } else if (m.condensationGroupId || m.condensationStatus === "CONDENSED") {
       try {
         const res = await fetch(
           `/api/projets-outreach/condensation-briefs?missionId=${encodeURIComponent(m.id)}`,
@@ -1807,6 +2152,11 @@ function RedactionTab({
         : "READY_FOR_CASTING"
     ) as ComposerContact["missionBrief"]["status"];
 
+    const creatorLabel =
+      sharedProject && condensationBriefs && condensationBriefs.length >= 2
+        ? condensationBriefs.map((b) => b.creatorName).filter(Boolean).join(", ")
+        : campaign.talent.name;
+
     setComposerContact({
       company: m.marqueNom || m.targetBrand,
       contacts: localContacts.map((c) => ({
@@ -1822,7 +2172,7 @@ function RedactionTab({
       initialBodyHtml: String(m.draftEmailBody || "").trim(),
       missionBrief: {
         id: m.id,
-        creatorName: campaign.talent.name,
+        creatorName: creatorLabel || campaign.talent.name,
         targetBrand: m.targetBrand,
         strategyReason: m.strategyReason,
         recommendedAngle: m.recommendedAngle,
@@ -1840,6 +2190,7 @@ function RedactionTab({
         timeline: campaign.timeline,
         budgetRange: campaign.budgetRange,
         condensationBriefs,
+        sharedProject,
       },
     });
     setComposerOpen(true);
@@ -2071,15 +2422,17 @@ function RedactionTab({
               composerContact.missionBrief.condensationBriefs.length >= 2
                 ? (() => {
                     const briefs = composerContact.missionBrief.condensationBriefs;
-                    const currentId = campaign.talent.id;
-                    const peerIds = briefs
+                    const fromBriefs = briefs
                       .map((b) => String(b.talentId || "").trim())
                       .filter(Boolean);
-                    const ordered = [
-                      currentId,
-                      ...peerIds.filter((id) => id !== currentId),
-                    ];
-                    return Array.from(new Set(ordered));
+                    if (fromBriefs.length >= 2) {
+                      return Array.from(new Set(fromBriefs));
+                    }
+                    const currentId = campaign.talent.id;
+                    const peerIds = fromBriefs;
+                    return Array.from(
+                      new Set([currentId, ...peerIds.filter((id) => id !== currentId)])
+                    );
                   })()
                 : null
             }
@@ -2173,21 +2526,37 @@ function RedactionTab({
                 <PriorityBadge priority={m.priority} />
               </div>
               <div className="flex flex-wrap justify-end gap-1.5">
-                {awaiting ? (
-                  <button
-                    type="button"
-                    disabled={busy || requestingId === m.id}
-                    onClick={() => void resolveCompletion(m)}
-                    className="po-btn po-btn-primary"
-                    style={{ padding: "7px 10px", fontSize: 12 }}
-                    title="Après complétion CRM, débloque la rédaction"
-                  >
-                    {requestingId === m.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      "Contacts prêts"
-                    )}
-                  </button>
+                {awaiting && isAdmin ? (
+                  <>
+                    {m.marqueId ? (
+                      <Link
+                        href={`/marques/${m.marqueId}`}
+                        className="po-btn po-btn-primary"
+                        style={{
+                          padding: "7px 10px",
+                          fontSize: 12,
+                          textDecoration: "none",
+                        }}
+                        title="Ouvrir la fiche marque"
+                      >
+                        À compléter
+                      </Link>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={busy || requestingId === m.id}
+                      onClick={() => void resolveCompletion(m)}
+                      className="po-btn"
+                      style={{ padding: "7px 10px", fontSize: 12 }}
+                      title="Après complétion CRM, débloque la rédaction"
+                    >
+                      {requestingId === m.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        "Contacts prêts"
+                      )}
+                    </button>
+                  </>
                 ) : null}
                 {needsCompletion && (
                   <button

@@ -263,6 +263,12 @@ enum ProspectingCampaignStatus {
   CLOSED
 }
 
+/// Solo = 1 talent ; MULTI = projet commun (ex. Calendrier de Noël).
+enum ProspectingCampaignMode {
+  SOLO
+  MULTI
+}
+
 /// Vague de collecte Projets Outreach : Casting bloquée tant que non validée.
 enum OutreachWaveStatus {
   COLLECTING
@@ -527,6 +533,7 @@ model Talent {
   partnerTarifOverrides PartnerTarifOverride[]
   contactMissions       ContactMission[]
   prospectingCampaigns  TalentProspectingCampaign[]
+  campaignMemberships   TalentProspectingCampaignTalent[] @relation("CampaignTalentMembership")
   inboundOpportunities  InboundOpportunity[]
   quotes                Quote[]
   prospectionContacts   ProspectionContact[]
@@ -3138,6 +3145,8 @@ model ContactMission {
   sendError            String?                    @db.Text
   awaitingContactsCompletion Boolean              @default(false)
   contactsCompletionRequestedAt DateTime?
+  /// Talents à pitcher pour cette marque (projet MULTI). Vide = tous les talents du projet.
+  selectedTalentIds    String[]                   @default([])
   condensationGroupId  String?
   condensationRole     CondensationRole?
   condensationStatus   CondensationStatus         @default(NONE)
@@ -3183,6 +3192,8 @@ model TalentProspectingCampaign {
   description String?                    @db.Text
   talentId    String
   talent      Talent                     @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  /// SOLO = 1 talent ; MULTI = projet commun multi-talents.
+  mode        ProspectingCampaignMode    @default(SOLO)
   createdById String
   createdBy   User                       @relation("TalentProspectingCampaignCreatedBy", fields: [createdById], references: [id])
   ownerTmId   String?
@@ -3207,13 +3218,32 @@ model TalentProspectingCampaign {
 
   contactMissions ContactMission[]
   events          ProspectingCampaignEvent[]
+  campaignTalents TalentProspectingCampaignTalent[]
 
   @@index([createdById, isActive, createdAt])
   @@index([talentId, isActive, createdAt])
   @@index([status, isActive, createdAt])
   @@index([ownerTmId, isActive, createdAt])
   @@index([waveId])
+  @@index([mode, isActive, createdAt])
   @@map("talent_prospecting_campaigns")
+}
+
+/// Talents rattachés à un projet outreach (1 pour SOLO, N pour MULTI).
+model TalentProspectingCampaignTalent {
+  id         String                    @id @default(cuid())
+  campaignId String
+  campaign   TalentProspectingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  talentId   String
+  talent     Talent                    @relation("CampaignTalentMembership", fields: [talentId], references: [id], onDelete: Cascade)
+  sortOrder  Int                       @default(0)
+  note       String?                   @db.Text
+  createdAt  DateTime                  @default(now())
+
+  @@unique([campaignId, talentId])
+  @@index([talentId])
+  @@index([campaignId, sortOrder])
+  @@map("talent_prospecting_campaign_talents")
 }
 
 /// Vague de collecte : Strategy remplit les projets, Casting bloquée jusqu'à validation.

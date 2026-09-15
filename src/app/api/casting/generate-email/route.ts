@@ -108,6 +108,11 @@ export interface GenerateEmailBody {
     dos?: string | null;
     donts?: string | null;
   }> | null;
+  /**
+   * true = un seul projet commun (MULTI) avec N talents.
+   * false/absent = condensation cross-projets (N projets distincts).
+   */
+  sharedProject?: boolean;
 }
 
 function normalizeForIncludes(s: string): string {
@@ -209,14 +214,24 @@ export async function POST(request: NextRequest) {
     );
     const projectBrief = hasProjectBrief && rawProject ? rawProject : null;
     const isCondensation = condensationBriefs.length >= 2;
+    const isSharedMulti =
+      isCondensation && Boolean((body as GenerateEmailBody).sharedProject);
     /** Mail projets-outreach (solo ou condensation) : jamais talentbook / roster casting. */
     const isProjectMail = Boolean(projectBrief) || isCondensation;
+    const sharedTitle =
+      String(condensationBriefs[0]?.projectTitle || "").trim() || "ce projet";
     const projectCountLabelFr =
       condensationBriefs.length === 2
         ? "deux projets"
         : condensationBriefs.length === 3
           ? "trois projets"
           : `${condensationBriefs.length} projets`;
+    const talentCountLabelFr =
+      condensationBriefs.length === 2
+        ? "deux talents"
+        : condensationBriefs.length === 3
+          ? "trois talents"
+          : `${condensationBriefs.length} talents`;
 
     function briefLine(label: string, value: unknown): string {
       const v = String(value || "").trim();
@@ -284,7 +299,29 @@ export async function POST(request: NextRequest) {
     }
 
     const condensationBlockFr = isCondensation
-      ? `
+      ? isSharedMulti
+        ? `
+BRIEF PROJET COMMUN MULTI-TALENTS (OBLIGATOIRE) :
+Tu rédiges UN SEUL mail à UNE marque pour UN projet partagé : « ${sharedTitle} ».
+Ce n'est PAS un roster casting, ni ${projectCountLabelFr} distincts : c'est UNE opportunité avec ${talentCountLabelFr}.
+
+${condensationBriefs.map((p, i) => formatOneBriefFr(p, i)).join("\n\n")}
+
+Règles projet commun :
+- Après l'accroche marque, enchaîne avec une transition du type : « Nous avons actuellement un projet (${sharedTitle}) pour lequel ${talentCountLabelFr} pourraient coller » (reformule naturellement).
+- Puis présente CHAQUE talent séparément (section nette) : qui, pourquoi le fit avec ce projet / la marque — 3 à 5 phrases max par talent.
+- Reste concret et sobre : explique bien, SANS en faire trop.
+- Termine par une CTA unique (intérêt pour un, plusieurs, ou un court call).
+- Cite TOUS les talents fournis.
+- Une seule marque destinataire.
+
+INTERDITS :
+- Ne pas présenter ça comme des projets séparés / indépendants.
+- Pas de transition roster casting générique.
+- INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook.
+- INTERDIT absolu : « paid », « payé », « rémunéré », « collaboration paid ». Parle d’une collaboration / d’un projet.
+`
+        : `
 BRIEF CONDENSATION MULTI-PROJETS (OBLIGATOIRE) :
 Tu rédiges UN SEUL mail à UNE marque, qui présente CLAIREMENT ${projectCountLabelFr} distincts (chacun avec son talent).
 Ce n'est PAS un roster casting générique : chaque projet a son brief ci-dessous — tu dois les utiliser TOUS.
@@ -309,7 +346,29 @@ INTERDITS :
       : "";
 
     const condensationBlockEn = isCondensation
-      ? `
+      ? isSharedMulti
+        ? `
+SHARED MULTI-TALENT PROJECT BRIEF (MANDATORY) :
+You write ONE email to ONE brand for ONE shared project: "${sharedTitle}".
+This is NOT a casting roster, and NOT ${condensationBriefs.length} separate projects: it is ONE opportunity with ${condensationBriefs.length} talents.
+
+${condensationBriefs.map((p, i) => formatOneBriefEn(p, i)).join("\n\n")}
+
+Shared project rules:
+- After the brand hook, transition like: "We currently have a project (${sharedTitle}) where ${condensationBriefs.length} of our talents could be a strong fit" (rephrase naturally).
+- Then present EACH talent separately (clear section): who, why they fit this project / brand — 3 to 5 sentences max per talent.
+- Be concrete and measured — no overdoing it.
+- End with a single CTA.
+- Mention ALL provided talents.
+- One recipient brand only.
+
+PROHIBITIONS:
+- Do not frame this as separate independent projects.
+- No generic casting roster transition.
+- Absolute ban: talentbook / roster / catalog links.
+- Absolute ban: "paid", "paid collab". Speak of a collaboration / project.
+`
+        : `
 MULTI-PROJECT CONDENSATION BRIEF (MANDATORY) :
 You write ONE email to ONE brand that CLEARLY presents ${condensationBriefs.length} distinct projects (each with its talent).
 This is NOT a generic casting roster: each project has its brief below — you MUST use ALL of them.
@@ -545,7 +604,10 @@ STRUCTURE (a logical flow, not a rigid template — vary the wording on every em
 ${
   isProjectMail
     ? isCondensation
-      ? `- Transition: after the brand hook, state that you currently have ${condensationBriefs.length} projects where your talents could fit, then present each project — do NOT use the casting "several creators who could be a fit" roster transition.
+      ? isSharedMulti
+        ? `- Transition: after the brand hook, state that you currently have one shared project ("${sharedTitle}") where ${condensationBriefs.length} talents could fit, then present each talent — do NOT use the casting roster transition.
+- Present each talent in their own short section (not interchangeable casting bullets).`
+        : `- Transition: after the brand hook, state that you currently have ${condensationBriefs.length} projects where your talents could fit, then present each project — do NOT use the casting "several creators who could be a fit" roster transition.
 - Present each talent inside their project section (not a casting bullet list of interchangeable profiles).`
       : `- Transition: go straight to THIS project and its talent(s) — do NOT use the casting "several creators who could be a fit" roster transition.
 - Present the talent(s) for this project (Instagram links), not a casting bullet roster.`
@@ -569,7 +631,14 @@ For reference (do NOT reuse as-is): "I would be delighted to quickly send you th
 
 ${
   isCondensation
-    ? `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
+    ? isSharedMulti
+      ? `OVERRIDE STRUCTURE PROJET COMMUN (prioritaire) :
+- FORBIDDEN casting roster transition.
+- After brand hook: one shared project ("${sharedTitle}") with ${condensationBriefs.length} talents who could fit — then each talent separately, measured.
+- Each talent name as Instagram HTML link.
+- FORBIDDEN: talentbook / roster / catalog; FORBIDDEN "paid".
+- CTA: discuss the project / short call.`
+      : `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
 - FORBIDDEN to use the casting transition "several creators who could be a fit" / roster selection.
 - After the brand hook, state clearly that you currently have ${condensationBriefs.length} projects where your talents could fit, then explain EACH project separately (talent + fit + useful deliverables/angle), measured — not too long.
 - Each talent's full name MUST appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a>.
@@ -656,7 +725,10 @@ STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à c
 ${
   isProjectMail
     ? isCondensation
-      ? `- Transition : après l'accroche marque, dis que vous avez actuellement ${projectCountLabelFr} pour lesquels vos talents pourraient coller, puis présente chaque projet — INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre ».
+      ? isSharedMulti
+        ? `- Transition : après l'accroche marque, dis que vous avez actuellement un projet (« ${sharedTitle} ») pour lequel ${talentCountLabelFr} pourraient coller, puis présente chaque talent — INTERDIT transition casting roster.
+- Présente chaque talent dans sa propre section courte (pas une liste casting interchangeable).`
+        : `- Transition : après l'accroche marque, dis que vous avez actuellement ${projectCountLabelFr} pour lesquels vos talents pourraient coller, puis présente chaque projet — INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre ».
 - Présente chaque talent dans la section de SON projet (pas une liste casting de profils interchangeables).`
       : `- Transition : enchaîne directement sur CE projet et son/ses talent(s) — INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre ».
 - Présente le(s) talent(s) de ce projet (liens Instagram), pas un roster casting à puces.`
@@ -680,7 +752,14 @@ Pour référence (à NE PAS reprendre tel quel) : « Je serais ravie de vous env
 
 ${
   isCondensation
-    ? `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
+    ? isSharedMulti
+      ? `OVERRIDE STRUCTURE PROJET COMMUN (prioritaire) :
+- INTERDIT transition casting roster.
+- Après accroche : UN projet partagé (« ${sharedTitle} ») avec ${talentCountLabelFr} qui pourraient coller — puis chaque talent à part, mesuré.
+- Nom de chaque talent en lien Instagram HTML.
+- INTERDIT talentbook / roster / catalogue ; INTERDIT « paid ».
+- CTA : échanger sur le projet / court call.`
+      : `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
 - INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre » / sélection roster.
 - Après l'accroche marque, dis clairement que vous avez actuellement ${projectCountLabelFr} pour lesquels vos talents pourraient coller, puis explique CHAQUE projet séparément (talent + fit + livrables/angle utiles), de façon mesurée — sans en faire trop.
 - Chaque nom de talent DOIT apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a>.

@@ -28,6 +28,24 @@ async function loadCampaign(id: string) {
           instagram: true,
         },
       },
+      campaignTalents: {
+        orderBy: { sortOrder: "asc" },
+        include: {
+          talent: {
+            select: {
+              id: true,
+              prenom: true,
+              nom: true,
+              photo: true,
+              instagram: true,
+              niches: true,
+              stats: {
+                select: { igFollowers: true, ttFollowers: true },
+              },
+            },
+          },
+        },
+      },
       createdBy: { select: { id: true, prenom: true, nom: true, role: true } },
       ownerTm: { select: { id: true, prenom: true, nom: true } },
       wave: {
@@ -69,11 +87,43 @@ function canViewCampaign(
 }
 
 function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign>>>) {
+  const talents =
+    c.campaignTalents.length > 0
+      ? c.campaignTalents.map((ct) => ({
+          id: ct.talent.id,
+          name: `${ct.talent.prenom} ${ct.talent.nom}`.trim(),
+          prenom: ct.talent.prenom,
+          nom: ct.talent.nom,
+          photo: ct.talent.photo,
+          instagram: ct.talent.instagram,
+          niches: ct.talent.niches || [],
+          igFollowers: ct.talent.stats?.igFollowers ?? 0,
+          ttFollowers: ct.talent.stats?.ttFollowers ?? 0,
+          note: ct.note,
+          sortOrder: ct.sortOrder,
+        }))
+      : [
+          {
+            id: c.talent.id,
+            name: `${c.talent.prenom} ${c.talent.nom}`.trim(),
+            prenom: c.talent.prenom,
+            nom: c.talent.nom,
+            photo: c.talent.photo,
+            instagram: c.talent.instagram,
+            niches: [] as string[],
+            igFollowers: 0,
+            ttFollowers: 0,
+            note: null as string | null,
+            sortOrder: 0,
+          },
+        ];
+
   return {
     id: c.id,
     title: c.title,
     description: c.description,
     status: c.status,
+    mode: c.mode,
     isActive: c.isActive,
     senderEmail: c.senderEmail,
     objective: c.objective,
@@ -98,6 +148,8 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       instagram: c.talent.instagram,
       managerId: c.talent.managerId,
     },
+    talents,
+    talentCount: talents.length,
     ownerTmId: c.ownerTmId,
     ownerTmName: c.ownerTm ? `${c.ownerTm.prenom} ${c.ownerTm.nom}`.trim() : null,
     waveId: c.waveId,
@@ -139,6 +191,7 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       draftLanguage: m.draftLanguage,
       clientLanguage: m.clientLanguage,
       clientContacts: m.clientContacts,
+      selectedTalentIds: Array.isArray(m.selectedTalentIds) ? m.selectedTalentIds : [],
       marqueContacts: [] as Array<{
         id: string;
         firstname: string;
