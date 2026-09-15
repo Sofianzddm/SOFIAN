@@ -3,10 +3,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { parseWorksheetCartoRows } from "@/lib/carto-excel";
+import { canAccessFullMarqueCrm } from "@/lib/marque-crm-access";
 
 /**
  * POST → parse la feuille 2 (AO) des classeurs carto d'origine et crée les
- * contacts source=AO manquants. Réservé ADMIN.
+ * contacts source=AO manquants. Réservé ADMIN + HEAD_OF_SALES.
  */
 export async function POST(
   _request: NextRequest,
@@ -17,7 +18,7 @@ export async function POST(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if ((session.user.role || "") !== "ADMIN") {
+    if (!canAccessFullMarqueCrm(session.user.role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 

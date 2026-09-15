@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import {
+  canAccessFullMarqueCrm,
+  canWriteMarqueCrm,
+} from "@/lib/marque-crm-access";
 
 // GET - Détail d'une marque
 export async function GET(
@@ -15,13 +19,13 @@ export async function GET(
     }
 
     const { id } = await params;
-    const isAdmin = (session.user.role || "") === "ADMIN";
+    const canFullCrm = canAccessFullMarqueCrm(session.user.role);
     const marque = await prisma.marque.findUnique({
       where: { id: id },
       include: {
         contacts: {
           // NOT source=AO excluait aussi source null (bug Nuxe = 0 contacts).
-          where: isAdmin
+          where: canFullCrm
             ? undefined
             : { OR: [{ source: { not: "AO" } }, { source: null }] },
           orderBy: [{ principal: "desc" }, { priorite: "asc" }, { createdAt: "asc" }],
@@ -42,8 +46,8 @@ export async function GET(
           },
         },
         cartoFiles: {
-          // Feuilles AO réservées aux admins
-          where: isAdmin ? undefined : { kind: "CARTO" },
+          // Feuilles AO réservées au CRM complet (ADMIN + HEAD_OF_SALES)
+          where: canFullCrm ? undefined : { kind: "CARTO" },
           select: { id: true, fileName: true, size: true, createdAt: true, kind: true },
           orderBy: { createdAt: "desc" },
         },
@@ -256,6 +260,17 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!canWriteMarqueCrm(session.user.role)) {
+      return NextResponse.json(
+        { error: "Permissions insuffisantes" },
+        { status: 403 }
+      );
+    }
+
     const { id } = await params;
     // Vérifier si la marque a des collaborations
     const marque = await prisma.marque.findUnique({

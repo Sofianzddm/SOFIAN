@@ -210,7 +210,12 @@ export default function MarquesPage() {
     e.stopPropagation();
     if (!confirm(`Supprimer la marque "${nom}" ?`)) return;
     try {
-      await fetch(`/api/marques/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/marques/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || data.error || "Erreur lors de la suppression");
+        return;
+      }
       setMarques((prev) => prev.filter((m) => m.id !== id));
     } catch {
       alert("Erreur lors de la suppression");

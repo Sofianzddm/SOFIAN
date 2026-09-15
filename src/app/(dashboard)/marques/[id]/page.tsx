@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import { MarqueCrmTab } from "./MarqueCrmTab";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
+import { canAccessFullMarqueCrm } from "@/lib/marque-crm-access";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -460,7 +461,8 @@ export default function MarqueDetailPage() {
   // Lancer un contact dans le cycle Outreach est réservé aux rôles qui y ont
   // accès côté API (ADMIN / CASTING_MANAGER).
   const canOutreach = ["ADMIN", "CASTING_MANAGER"].includes(session?.user?.role || "");
-  const isAdmin = (session?.user?.role || "") === "ADMIN";
+  // CRM complet (onglet Achats-AO, fichiers AO, sync) : ADMIN + HEAD_OF_SALES (Leyna)
+  const canFullCrm = canAccessFullMarqueCrm(session?.user?.role);
   const [marque, setMarque] = useState<MarqueDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"activite" | "contacts" | "carto" | "ao" | "collabs">("activite");
@@ -548,7 +550,7 @@ export default function MarqueDetailPage() {
 
   // Imports AO antérieurs : fichier stocké sans contacts → sync à l'ouverture de l'onglet
   useEffect(() => {
-    if (!isAdmin || activeTab !== "ao" || !marque || aoSyncing || aoSyncTriedRef.current) return;
+    if (!canFullCrm || activeTab !== "ao" || !marque || aoSyncing || aoSyncTriedRef.current) return;
     const files = (marque.cartoFiles || []).filter((f) => f.kind === "AO");
     const contactsAo = marque.contacts.filter((c) => c.source === "AO");
     if (files.length === 0 || contactsAo.length > 0) return;
@@ -572,7 +574,7 @@ export default function MarqueDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [isAdmin, activeTab, marque, aoSyncing, fetchMarque]);
+  }, [canFullCrm, activeTab, marque, aoSyncing, fetchMarque]);
 
   // Charge la liste des marques (pour le sélecteur de rattachement) à la demande.
   const loadAllMarques = useCallback(async () => {
@@ -814,7 +816,12 @@ export default function MarqueDetailPage() {
   const handleDelete = async () => {
     if (!confirm("Supprimer cette marque ?")) return;
     try {
-      await fetch(`/api/marques/${params.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/marques/${params.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || data.error || "Erreur lors de la suppression");
+        return;
+      }
       router.push("/marques");
     } catch {
       alert("Erreur lors de la suppression");
@@ -1300,7 +1307,7 @@ export default function MarqueDetailPage() {
     ...(cartoContacts.length > 0 || cartoFiles.length > 0
       ? [{ id: "carto" as const, label: "Cartographie", icon: FileSpreadsheet, badge: (cartoContacts.length || null) as number | null }]
       : []),
-    ...(isAdmin
+    ...(canFullCrm
       ? [{ id: "ao" as const, label: "Achats - AO", icon: Briefcase, badge: (aoContacts.length || aoFiles.length || null) as number | null }]
       : []),
     { id: "collabs" as const, label: "Collaborations", icon: Handshake, badge: marque._count.collaborations || null },
@@ -2575,7 +2582,7 @@ export default function MarqueDetailPage() {
               </div>
             )}
 
-            {activeTab === "ao" && isAdmin && (
+            {activeTab === "ao" && canFullCrm && (
               <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
                 <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 border-b border-gray-100">
                   <div className="text-[13px] text-gray-500">

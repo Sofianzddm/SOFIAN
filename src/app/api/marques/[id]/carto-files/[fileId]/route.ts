@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { canAccessFullMarqueCrm } from "@/lib/marque-crm-access";
 
 /** GET → télécharge le fichier de cartographie original tel qu'importé. */
 export async function GET(
@@ -22,8 +23,8 @@ export async function GET(
       return NextResponse.json({ error: "Fichier introuvable" }, { status: 404 });
     }
 
-    // Feuille AO : réservée aux admins
-    if (file.kind === "AO" && (session.user.role || "") !== "ADMIN") {
+    // Feuille AO : réservée au CRM complet (ADMIN + HEAD_OF_SALES)
+    if (file.kind === "AO" && !canAccessFullMarqueCrm(session.user.role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -41,7 +42,7 @@ export async function GET(
   }
 }
 
-/** DELETE → retire un fichier de carto / AO de la fiche (Admin). */
+/** DELETE → retire un fichier de carto / AO de la fiche (CRM complet). */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; fileId: string }> }
@@ -51,7 +52,7 @@ export async function DELETE(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if ((session.user.role || "") !== "ADMIN") {
+    if (!canAccessFullMarqueCrm(session.user.role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
