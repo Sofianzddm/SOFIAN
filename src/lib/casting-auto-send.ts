@@ -690,6 +690,24 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     },
   });
 
+  if (outcome.succeeded > 0) {
+    try {
+      const { mirrorCondensationSend } = await import("@/lib/brand-condensation");
+      const sentAt =
+        (stageUpdate as { sentAt?: Date }).sentAt ||
+        mission.sentAt ||
+        new Date();
+      await mirrorCondensationSend({
+        primaryMissionId: missionId,
+        sentAt,
+        sentMessageIds: mergedMessages,
+        status: "SENT",
+      });
+    } catch (mirrorErr) {
+      console.error("mirrorCondensationSend:", mirrorErr);
+    }
+  }
+
   return outcome;
 }
 
@@ -705,16 +723,19 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
 export function buildDefaultRelanceTemplate(
   targetBrand: string,
   language: "fr" | "en" = "fr",
-  creatorName?: string
+  creatorName?: string,
+  projectTitle?: string | null
 ): string {
   const brand = (targetBrand || "").trim();
   const talent = (creatorName || "").trim().replace(/\s+/g, " ");
+  const project = (projectTitle || "").trim();
 
   if (language === "en") {
     const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
+    const projectPart = project ? ` for the project <strong>${project}</strong>` : "";
     const proposalLine = talent
-      ? `my message about a collaboration between <strong>${talent}</strong> and ${brandPart}`
-      : `my collaboration proposal for ${brandPart}`;
+      ? `my message about a collaboration between <strong>${talent}</strong> and ${brandPart}${projectPart}`
+      : `my collaboration proposal for ${brandPart}${projectPart}`;
 
     return [
       `<p>Hi {{contact.firstname}},</p>`,
@@ -726,9 +747,10 @@ export function buildDefaultRelanceTemplate(
   }
 
   const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
+  const projectPart = project ? ` dans le cadre du projet <strong>${project}</strong>` : "";
   const proposalLine = talent
-    ? `mon message concernant une collaboration entre <strong>${talent}</strong> et ${brandPart}`
-    : `ma proposition de collaboration pour ${brandPart}`;
+    ? `mon message concernant une collaboration entre <strong>${talent}</strong> et ${brandPart}${projectPart}`
+    : `ma proposition de collaboration pour ${brandPart}${projectPart}`;
 
   return [
     `<p>Bonjour {{contact.firstname}},</p>`,
@@ -736,6 +758,179 @@ export function buildDefaultRelanceTemplate(
     `<p>Je me permets de faire remonter ${proposalLine} — je serais ravie d'avoir votre premier retour, même en une ligne.</p>`,
     `<p>Est-ce un sujet qui pourrait vous intéresser de votre côté ?</p>`,
     `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+  ].join("");
+}
+
+function formatTalentListHtml(names: string[]): string {
+  const cleaned = names.map((n) => n.trim()).filter(Boolean);
+  if (cleaned.length === 0) return "nos talents";
+  if (cleaned.length === 1) return `<strong>${cleaned[0]}</strong>`;
+  if (cleaned.length === 2) {
+    return `<strong>${cleaned[0]}</strong> et <strong>${cleaned[1]}</strong>`;
+  }
+  const head = cleaned
+    .slice(0, -1)
+    .map((n) => `<strong>${n}</strong>`)
+    .join(", ");
+  return `${head} et <strong>${cleaned[cleaned.length - 1]}</strong>`;
+}
+
+function formatProjectsListHtml(
+  projects: Array<{ creatorName: string; projectTitle: string | null }>,
+  language: "fr" | "en"
+): string {
+  const items = projects
+    .map((p) => {
+      const name = (p.creatorName || "").trim();
+      const title = (p.projectTitle || "").trim();
+      if (!name && !title) return "";
+      if (name && title) {
+        return language === "en"
+          ? `<strong>${name}</strong> — project <strong>${title}</strong>`
+          : `<strong>${name}</strong> — projet <strong>${title}</strong>`;
+      }
+      if (title) {
+        return language === "en"
+          ? `project <strong>${title}</strong>`
+          : `projet <strong>${title}</strong>`;
+      }
+      return `<strong>${name}</strong>`;
+    })
+    .filter(Boolean);
+  if (items.length === 0) return "";
+  return items.map((i) => `→ ${i}`).join("<br />");
+}
+
+export type CondensationRelanceProject = {
+  creatorName: string;
+  projectTitle?: string | null;
+};
+
+/** Relance J+3 pour un mail condensé (plusieurs projets / talents). */
+export function buildCondensationRelanceTemplate(
+  targetBrand: string,
+  creatorNames: string[],
+  language: "fr" | "en" = "fr",
+  projects?: CondensationRelanceProject[] | null
+): string {
+  const brand = (targetBrand || "").trim();
+  const talentsHtml = formatTalentListHtml(creatorNames);
+  const projectsHtml = formatProjectsListHtml(
+    (projects && projects.length > 0
+      ? projects
+      : creatorNames.map((n) => ({ creatorName: n, projectTitle: null }))
+    ).map((p) => ({
+      creatorName: p.creatorName,
+      projectTitle: p.projectTitle ?? null,
+    })),
+    language
+  );
+
+  if (language === "en") {
+    const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
+    return [
+      `<p>Hi {{contact.firstname}},</p>`,
+      `<p>I hope you're doing well 😊</p>`,
+      `<p>I just wanted to bring back our joint proposal for ${brandPart}, with ${talentsHtml} — I'd love a first reaction, even in one line.</p>`,
+      projectsHtml
+        ? `<p>Projects concerned:<br />${projectsHtml}</p>`
+        : "",
+      `<p>Would any of these projects be of interest on your side?</p>`,
+      `<p>Best regards,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+    ]
+      .filter(Boolean)
+      .join("");
+  }
+
+  const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
+  return [
+    `<p>Bonjour {{contact.firstname}},</p>`,
+    `<p>J'espère que vous allez bien 😊</p>`,
+    `<p>Je me permets de faire remonter notre proposition commune pour ${brandPart}, avec ${talentsHtml} — je serais ravie d'avoir votre premier retour, même en une ligne.</p>`,
+    projectsHtml
+      ? `<p>Projets concernés :<br />${projectsHtml}</p>`
+      : "",
+    `<p>L'un de ces projets pourrait-il vous intéresser de votre côté ?</p>`,
+    `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+  ]
+    .filter(Boolean)
+    .join("");
+}
+
+/** Relance 2 (valeur ajoutée) pour un mail condensé multi-projets. */
+export function buildCondensationRelance2Template(
+  targetBrand: string,
+  creatorNames: string[],
+  language: "fr" | "en" = "fr",
+  firstSentAt?: Date | null,
+  projects?: CondensationRelanceProject[] | null
+): string {
+  const brand = (targetBrand || "").trim();
+  const talentsHtml = formatTalentListHtml(creatorNames);
+  const n = Math.max(creatorNames.filter(Boolean).length, 2);
+  const projectsHtml = formatProjectsListHtml(
+    (projects && projects.length > 0
+      ? projects
+      : creatorNames.map((n) => ({ creatorName: n, projectTitle: null }))
+    ).map((p) => ({
+      creatorName: p.creatorName,
+      projectTitle: p.projectTitle ?? null,
+    })),
+    language
+  );
+
+  if (language === "en") {
+    const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
+    const intro = firstSentAt
+      ? `I wanted to circle back one last time on my message from ${formatRelanceDate(firstSentAt, "en")}, in which I presented ${talentsHtml} and their projects for a collaboration with ${brandPart}.`
+      : `I wanted to circle back one last time on my previous message presenting ${talentsHtml} and their projects for a collaboration with ${brandPart}.`;
+
+    return [
+      `Hi {{contact.firstname}},`,
+      `<br /><br />`,
+      `I hope you're doing well 😊`,
+      `<br /><br />`,
+      intro,
+      projectsHtml ? `<br /><br />Projects concerned:<br />${projectsHtml}` : "",
+      `<br /><br />`,
+      `To help you decide, I can send you right away:`,
+      `<br />`,
+      `→ the ${n} creators' full media kits<br />`,
+      `→ audience &amp; engagement stats for each<br />`,
+      `→ a few content ideas tailored to ${brandPart}`,
+      `<br /><br />`,
+      `Would you have 10-15 minutes for a quick call this week or next? I'm very flexible on timing.`,
+      `<br /><br />`,
+      `And if this isn't the right moment or the right contact, just let me know — happy to follow up later.`,
+      `<br /><br />`,
+      `Have a great day,<br /><strong>Leyna</strong><br />Glow Up Agence`,
+    ].join("");
+  }
+
+  const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
+  const intro = firstSentAt
+    ? `Je me permets de revenir vers vous une dernière fois suite à mon message du ${formatRelanceDate(firstSentAt, "fr")}, dans lequel je vous présentais ${talentsHtml} et leurs projets pour une collaboration avec ${brandPart}.`
+    : `Je me permets de revenir vers vous une dernière fois suite à mon précédent message, dans lequel je vous présentais ${talentsHtml} et leurs projets pour une collaboration avec ${brandPart}.`;
+
+  return [
+    `Bonjour {{contact.firstname}},`,
+    `<br /><br />`,
+    `J'espère que vous allez bien 😊`,
+    `<br /><br />`,
+    intro,
+    projectsHtml ? `<br /><br />Projets concernés :<br />${projectsHtml}` : "",
+    `<br /><br />`,
+    `Pour vous aider à vous projeter, je peux vous envoyer immédiatement :`,
+    `<br />`,
+    `→ les media kits complets des ${n} profils<br />`,
+    `→ leurs statistiques d'audience &amp; d'engagement<br />`,
+    `→ quelques idées de contenus pensées pour ${brandPart}`,
+    `<br /><br />`,
+    `Auriez-vous 10-15 minutes pour un rapide call cette semaine ou la semaine prochaine ? Je reste très flexible sur les créneaux.`,
+    `<br /><br />`,
+    `Et si ce n'est pas le bon moment ou que je ne m'adresse pas à la bonne personne, dites-le-moi simplement — je reviendrai vers vous plus tard.`,
+    `<br /><br />`,
+    `Belle journée à vous,<br /><strong>Leyna</strong><br />Glow Up Agence`,
   ].join("");
 }
 
@@ -823,17 +1018,20 @@ export function buildCastingRelance2Template(
   targetBrand: string,
   creatorName: string,
   language: "fr" | "en" = "fr",
-  firstSentAt?: Date | null
+  firstSentAt?: Date | null,
+  projectTitle?: string | null
 ): string {
   const brand = (targetBrand || "").trim();
   const talent = (creatorName || "").trim().replace(/\s+/g, " ");
+  const project = (projectTitle || "").trim();
 
   if (language === "en") {
     const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
     const talentPart = talent ? `<strong>${talent}</strong>` : `our creator`;
+    const projectPart = project ? ` (project <strong>${project}</strong>)` : "";
     const intro = firstSentAt
-      ? `I wanted to circle back one last time on my message from ${formatRelanceDate(firstSentAt, "en")}, in which I suggested a collaboration between ${talentPart} and ${brandPart}.`
-      : `I wanted to circle back one last time on my previous message about a collaboration between ${talentPart} and ${brandPart}.`;
+      ? `I wanted to circle back one last time on my message from ${formatRelanceDate(firstSentAt, "en")}, in which I suggested a collaboration between ${talentPart} and ${brandPart}${projectPart}.`
+      : `I wanted to circle back one last time on my previous message about a collaboration between ${talentPart} and ${brandPart}${projectPart}.`;
 
     return [
       `Hi {{contact.firstname}},`,
@@ -858,9 +1056,10 @@ export function buildCastingRelance2Template(
 
   const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
   const talentPart = talent ? `<strong>${talent}</strong>` : `notre talent`;
+  const projectPart = project ? ` (projet <strong>${project}</strong>)` : "";
   const intro = firstSentAt
-    ? `Je me permets de revenir vers vous une dernière fois suite à mon message du ${formatRelanceDate(firstSentAt, "fr")}, dans lequel je vous proposais une collaboration entre ${talentPart} et ${brandPart}.`
-    : `Je me permets de revenir vers vous une dernière fois suite à mon précédent message, dans lequel je vous proposais une collaboration entre ${talentPart} et ${brandPart}.`;
+    ? `Je me permets de revenir vers vous une dernière fois suite à mon message du ${formatRelanceDate(firstSentAt, "fr")}, dans lequel je vous proposais une collaboration entre ${talentPart} et ${brandPart}${projectPart}.`
+    : `Je me permets de revenir vers vous une dernière fois suite à mon précédent message, dans lequel je vous proposais une collaboration entre ${talentPart} et ${brandPart}${projectPart}.`;
 
   return [
     `Bonjour {{contact.firstname}},`,
@@ -926,7 +1125,10 @@ export async function buildCastingRelanceDraft(
   options: { round?: 1 | 2 } = {}
 ): Promise<CastingRelanceDraft> {
   const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
-  const mission = await contactMissionModel.findUnique({ where: { id: missionId } });
+  const mission = await contactMissionModel.findUnique({
+    where: { id: missionId },
+    include: { campaign: { select: { title: true } } },
+  });
   if (!mission) throw new Error("Mission introuvable");
 
   const round: 1 | 2 =
@@ -952,19 +1154,48 @@ export async function buildCastingRelanceDraft(
     : `Re: ${subjectSrc || defaultSubjectBase}`;
 
   const targetBrand = String(mission.targetBrand || "").trim();
+  const projectTitle =
+    (mission.campaign?.title && String(mission.campaign.title).trim()) || null;
+  const condensationCtx = await (async () => {
+    try {
+      const { getCondensationRelanceContext } = await import("@/lib/brand-condensation");
+      return await getCondensationRelanceContext(missionId);
+    } catch {
+      return null;
+    }
+  })();
+  const condensationNames = condensationCtx?.creators ?? null;
+  const condensationProjects = condensationCtx?.projects ?? null;
   const bodyTemplate =
-    round === 2
-      ? buildCastingRelance2Template(
-          targetBrand,
-          String(mission.creatorName || ""),
-          relanceLang,
-          mission.sentAt ? new Date(mission.sentAt) : null
-        )
-      : buildDefaultRelanceTemplate(
-          targetBrand,
-          relanceLang,
-          String(mission.creatorName || "")
-        );
+    condensationNames && condensationNames.length >= 2
+      ? round === 2
+        ? buildCondensationRelance2Template(
+            targetBrand,
+            condensationNames,
+            relanceLang,
+            mission.sentAt ? new Date(mission.sentAt) : null,
+            condensationProjects
+          )
+        : buildCondensationRelanceTemplate(
+            targetBrand,
+            condensationNames,
+            relanceLang,
+            condensationProjects
+          )
+      : round === 2
+        ? buildCastingRelance2Template(
+            targetBrand,
+            String(mission.creatorName || ""),
+            relanceLang,
+            mission.sentAt ? new Date(mission.sentAt) : null,
+            projectTitle
+          )
+        : buildDefaultRelanceTemplate(
+            targetBrand,
+            relanceLang,
+            String(mission.creatorName || ""),
+            projectTitle
+          );
 
   const recipients: CastingRelanceRecipient[] = [];
   const skipped: CastingRelanceSkipped[] = [];
@@ -1062,7 +1293,10 @@ export async function executeCastingRelance(
   errors: string[];
 }> {
   const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
-  const mission = await contactMissionModel.findUnique({ where: { id: missionId } });
+  const mission = await contactMissionModel.findUnique({
+    where: { id: missionId },
+    include: { campaign: { select: { title: true } } },
+  });
   if (!mission) throw new Error("Mission introuvable");
 
   const round: 1 | 2 = options.round === 2 ? 2 : 1;
@@ -1111,6 +1345,20 @@ export async function executeCastingRelance(
       (options.bodyOverride && options.bodyOverride.trim())
   );
 
+  let condensationNames: string[] | null = null;
+  let condensationProjects: CondensationRelanceProject[] | null = null;
+  try {
+    const { getCondensationRelanceContext } = await import("@/lib/brand-condensation");
+    const ctx = await getCondensationRelanceContext(missionId);
+    condensationNames = ctx?.creators ?? null;
+    condensationProjects = ctx?.projects ?? null;
+  } catch {
+    condensationNames = null;
+    condensationProjects = null;
+  }
+  const projectTitle =
+    (mission.campaign?.title && String(mission.campaign.title).trim()) || null;
+
   type RelanceVersion = {
     subject: string;
     bodyTemplate: string;
@@ -1136,8 +1384,15 @@ export async function executeCastingRelance(
         if (!(e instanceof TranslateEmailError)) throw e;
       }
     }
+    const isCondensed = Boolean(condensationNames && condensationNames.length >= 2);
     const defaultSubjectBase =
-      lang === "en" ? "Our collaboration proposal" : "Notre proposition de collaboration";
+      lang === "en"
+        ? isCondensed
+          ? "Our joint collaboration proposal"
+          : "Our collaboration proposal"
+        : isCondensed
+          ? "Notre proposition commune"
+          : "Notre proposition de collaboration";
     const subject =
       (options.subjectOverride && options.subjectOverride.trim()) ||
       (subjectSrc.toLowerCase().startsWith("re:")
@@ -1145,14 +1400,35 @@ export async function executeCastingRelance(
         : `Re: ${subjectSrc || defaultSubjectBase}`);
     const bodyTemplate =
       (options.bodyOverride && options.bodyOverride.trim()) ||
-      (round === 2
-        ? buildCastingRelance2Template(
-            targetBrand,
-            String(mission.creatorName || ""),
-            lang,
-            mission.sentAt ? new Date(mission.sentAt) : null
-          )
-        : buildDefaultRelanceTemplate(targetBrand, lang, String(mission.creatorName || "")));
+      (isCondensed
+        ? round === 2
+          ? buildCondensationRelance2Template(
+              targetBrand,
+              condensationNames!,
+              lang,
+              mission.sentAt ? new Date(mission.sentAt) : null,
+              condensationProjects
+            )
+          : buildCondensationRelanceTemplate(
+              targetBrand,
+              condensationNames!,
+              lang,
+              condensationProjects
+            )
+        : round === 2
+          ? buildCastingRelance2Template(
+              targetBrand,
+              String(mission.creatorName || ""),
+              lang,
+              mission.sentAt ? new Date(mission.sentAt) : null,
+              projectTitle
+            )
+          : buildDefaultRelanceTemplate(
+              targetBrand,
+              lang,
+              String(mission.creatorName || ""),
+              projectTitle
+            ));
     const sentDateLabel = mission.sentAt
       ? formatRelanceDate(new Date(mission.sentAt), lang)
       : "";
@@ -1310,8 +1586,34 @@ export async function executeCastingRelance(
             }
           : {}),
       },
-      select: { id: true, relanceSentAt: true, relance2SentAt: true, status: true },
+      select: {
+        id: true,
+        relanceSentAt: true,
+        relance2SentAt: true,
+        status: true,
+        relanceMessageIds: true,
+        relance2MessageIds: true,
+        sentAt: true,
+        sentMessageIds: true,
+      },
     });
+    if (succeeded > 0) {
+      try {
+        const { mirrorCondensationSend } = await import("@/lib/brand-condensation");
+        await mirrorCondensationSend({
+          primaryMissionId: missionId,
+          sentAt: updated.sentAt || new Date(),
+          sentMessageIds: updated.sentMessageIds,
+          status: "RELANCED",
+          relanceSentAt: updated.relanceSentAt,
+          relanceMessageIds: updated.relanceMessageIds,
+          relance2SentAt: updated.relance2SentAt,
+          relance2MessageIds: updated.relance2MessageIds,
+        });
+      } catch (mirrorErr) {
+        console.error("mirrorCondensationSend (relance):", mirrorErr);
+      }
+    }
     console.info(
       `[executeCastingRelance] ${missionId} round=${round} attempted=${attempted} succeeded=${succeeded} failed=${failed} skippedReplied=${skippedReplied} skippedBounced=${skippedBounced} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} relance2SentAt=${updated.relance2SentAt?.toISOString() ?? "null"} status=${updated.status}`
     );

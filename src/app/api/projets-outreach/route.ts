@@ -185,6 +185,9 @@ export async function POST(request: NextRequest) {
 
     const ownerTmId = String(body.ownerTmId || "").trim() || talent.managerId || null;
 
+    const { getOrCreateCollectingWave } = await import("@/lib/brand-condensation");
+    const wave = await getOrCreateCollectingWave({ actorId: session.user.id });
+
     const campaign = await prisma.talentProspectingCampaign.create({
       data: {
         title,
@@ -192,6 +195,7 @@ export async function POST(request: NextRequest) {
         talentId,
         createdById: session.user.id,
         ownerTmId,
+        waveId: wave.id,
         status: "BRIEF",
         objective: String(body.objective || "").trim() || null,
         deliverables: String(body.deliverables || "").trim() || null,

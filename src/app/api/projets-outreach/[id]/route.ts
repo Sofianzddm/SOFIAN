@@ -30,6 +30,15 @@ async function loadCampaign(id: string) {
       },
       createdBy: { select: { id: true, prenom: true, nom: true, role: true } },
       ownerTm: { select: { id: true, prenom: true, nom: true } },
+      wave: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          completedAt: true,
+          validatedAt: true,
+        },
+      },
       events: {
         orderBy: { createdAt: "desc" },
         take: 50,
@@ -91,6 +100,16 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
     },
     ownerTmId: c.ownerTmId,
     ownerTmName: c.ownerTm ? `${c.ownerTm.prenom} ${c.ownerTm.nom}`.trim() : null,
+    waveId: c.waveId,
+    wave: c.wave
+      ? {
+          id: c.wave.id,
+          title: c.wave.title,
+          status: c.wave.status,
+          completedAt: c.wave.completedAt,
+          validatedAt: c.wave.validatedAt,
+        }
+      : null,
     createdById: c.createdById,
     createdByName: `${c.createdBy.prenom} ${c.createdBy.nom}`.trim(),
     createdByRole: c.createdBy.role,
@@ -142,6 +161,11 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       clickCount: m.clickCount,
       awaitingContactsCompletion: m.awaitingContactsCompletion,
       contactsCompletionRequestedAt: m.contactsCompletionRequestedAt,
+      condensationGroupId: m.condensationGroupId,
+      condensationRole: m.condensationRole,
+      condensationStatus: m.condensationStatus,
+      condensationPeerNames: [] as string[],
+      waveClusterId: m.waveClusterId,
       relanceSentAt: m.relanceSentAt,
       relance2SentAt: m.relance2SentAt,
       sendError: m.sendError,
@@ -230,6 +254,55 @@ async function attachMarqueContacts<T extends { missions: Array<{ marqueId: stri
   return campaign;
 }
 
+async function attachCondensationPeers<
+  T extends {
+    missions: Array<{
+      id: string;
+      condensationGroupId: string | null;
+      condensationPeerNames: string[];
+    }>;
+  }
+>(campaign: T): Promise<T> {
+  const groupIds = Array.from(
+    new Set(
+      campaign.missions
+        .map((m) => m.condensationGroupId)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+  if (groupIds.length === 0) return campaign;
+
+  const peers = await prisma.contactMission.findMany({
+    where: { condensationGroupId: { in: groupIds } },
+    select: {
+      id: true,
+      condensationGroupId: true,
+      creatorName: true,
+      campaign: { select: { talent: { select: { prenom: true, nom: true } } } },
+    },
+  });
+
+  const byGroup = new Map<string, Array<{ id: string; name: string }>>();
+  for (const p of peers) {
+    if (!p.condensationGroupId) continue;
+    const name = p.campaign?.talent
+      ? `${p.campaign.talent.prenom} ${p.campaign.talent.nom}`.trim()
+      : p.creatorName;
+    const list = byGroup.get(p.condensationGroupId) || [];
+    list.push({ id: p.id, name });
+    byGroup.set(p.condensationGroupId, list);
+  }
+
+  for (const m of campaign.missions) {
+    if (!m.condensationGroupId) continue;
+    m.condensationPeerNames = (byGroup.get(m.condensationGroupId) || [])
+      .filter((p) => p.id !== m.id)
+      .map((p) => p.name)
+      .filter(Boolean);
+  }
+  return campaign;
+}
+
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const session = await getAppSession(request);
@@ -243,8 +316,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
+    const serialized = await attachMarqueContacts(serializeCampaign(campaign));
     return NextResponse.json({
-      campaign: await attachMarqueContacts(serializeCampaign(campaign)),
+      campaign: await attachCondensationPeers(serialized),
     });
   } catch (error) {
     console.error("GET /api/projets-outreach/[id]:", error);

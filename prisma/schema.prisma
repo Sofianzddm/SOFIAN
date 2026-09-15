@@ -263,6 +263,34 @@ enum ProspectingCampaignStatus {
   CLOSED
 }
 
+/// Vague de collecte Projets Outreach : Casting bloquée tant que non validée.
+enum OutreachWaveStatus {
+  COLLECTING
+  REVIEWING_CONDENSATIONS
+  OPEN_FOR_DRAFTING
+  CLOSED
+}
+
+enum OutreachWaveClusterDecision {
+  PENDING
+  CONDENSE
+  SOLO
+}
+
+enum CondensationRole {
+  PRIMARY
+  MEMBER
+}
+
+enum CondensationStatus {
+  NONE
+  IN_WAVE
+  PROPOSED
+  CONDENSED
+  SOLO
+  EXCLUDED
+}
+
 enum InboundCategory {
   COLLAB_PAID
   COLLAB_GIFTING
@@ -352,6 +380,9 @@ model User {
   prospectingCampaignsCreated     TalentProspectingCampaign[] @relation("TalentProspectingCampaignCreatedBy")
   prospectingCampaignsOwned       TalentProspectingCampaign[] @relation("TalentProspectingCampaignOwnerTm")
   prospectingCampaignEvents       ProspectingCampaignEvent[]  @relation("ProspectingCampaignEventActor")
+  outreachWavesCreated            OutreachWave[]              @relation("OutreachWaveCreatedBy")
+  outreachWavesCompleted          OutreachWave[]              @relation("OutreachWaveCompletedBy")
+  outreachWavesValidated          OutreachWave[]              @relation("OutreachWaveValidatedBy")
   talentContratsCreated           TalentContrat[]             @relation("TalentContratCreatedBy")
   inboundConverted                InboundOpportunity[]        @relation("InboundConvertedBy")
   inboundArchived                 InboundOpportunity[]        @relation("InboundArchivedBy")
@@ -3107,6 +3138,11 @@ model ContactMission {
   sendError            String?                    @db.Text
   awaitingContactsCompletion Boolean              @default(false)
   contactsCompletionRequestedAt DateTime?
+  condensationGroupId  String?
+  condensationRole     CondensationRole?
+  condensationStatus   CondensationStatus         @default(NONE)
+  waveClusterId        String?
+  waveCluster          OutreachWaveBrandCluster?  @relation(fields: [waveClusterId], references: [id], onDelete: SetNull)
   relanceSentAt        DateTime?
   relanceMessageIds    Json?
   relanceError         String?                    @db.Text
@@ -3136,6 +3172,8 @@ model ContactMission {
   @@index([scheduledSendAt])
   @@index([sentAt, replied, relanceSentAt])
   @@index([relanceCancelledAt])
+  @@index([condensationGroupId])
+  @@index([waveClusterId])
   @@map("contact_missions")
 }
 
@@ -3149,6 +3187,8 @@ model TalentProspectingCampaign {
   createdBy   User                       @relation("TalentProspectingCampaignCreatedBy", fields: [createdById], references: [id])
   ownerTmId   String?
   ownerTm     User?                      @relation("TalentProspectingCampaignOwnerTm", fields: [ownerTmId], references: [id], onDelete: SetNull)
+  waveId      String?
+  wave        OutreachWave?              @relation(fields: [waveId], references: [id], onDelete: SetNull)
   status      ProspectingCampaignStatus  @default(BRIEF)
   objective   String?                    @db.Text
   deliverables String?                   @db.Text
@@ -3172,7 +3212,54 @@ model TalentProspectingCampaign {
   @@index([talentId, isActive, createdAt])
   @@index([status, isActive, createdAt])
   @@index([ownerTmId, isActive, createdAt])
+  @@index([waveId])
   @@map("talent_prospecting_campaigns")
+}
+
+/// Vague de collecte : Strategy remplit les projets, Casting bloquée jusqu'à validation.
+model OutreachWave {
+  id          String             @id @default(cuid())
+  title       String
+  status      OutreachWaveStatus @default(COLLECTING)
+  createdById String
+  createdBy   User               @relation("OutreachWaveCreatedBy", fields: [createdById], references: [id])
+  completedAt DateTime?
+  completedById String?
+  completedBy User?              @relation("OutreachWaveCompletedBy", fields: [completedById], references: [id])
+  validatedAt DateTime?
+  validatedById String?
+  validatedBy User?              @relation("OutreachWaveValidatedBy", fields: [validatedById], references: [id])
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  campaigns TalentProspectingCampaign[]
+  clusters  OutreachWaveBrandCluster[]
+
+  @@index([status, createdAt])
+  @@index([createdById, createdAt])
+  @@map("outreach_waves")
+}
+
+/// Proposition de condensation marque × N missions d'une vague.
+model OutreachWaveBrandCluster {
+  id               String                       @id @default(cuid())
+  waveId           String
+  wave             OutreachWave                 @relation(fields: [waveId], references: [id], onDelete: Cascade)
+  marqueId         String?
+  targetBrandKey   String
+  targetBrand      String
+  decision         OutreachWaveClusterDecision  @default(PENDING)
+  primaryMissionId String?
+  condensationGroupId String?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  missions ContactMission[]
+
+  @@index([waveId, decision])
+  @@index([targetBrandKey])
+  @@index([marqueId])
+  @@map("outreach_wave_brand_clusters")
 }
 
 model ProspectingCampaignEvent {

@@ -60,6 +60,11 @@ export function canDraft(role: string | undefined | null): boolean {
   return role === "CASTING_MANAGER" || role === "ADMIN";
 }
 
+/** Admin peut rédiger/envoyer même si la vague Strategy n’est pas encore validée. */
+export function bypassesWaveCastingGate(role: string | undefined | null): boolean {
+  return role === "ADMIN";
+}
+
 export function canSend(role: string | undefined | null): boolean {
   return role === "HEAD_OF_SALES" || role === "ADMIN";
 }

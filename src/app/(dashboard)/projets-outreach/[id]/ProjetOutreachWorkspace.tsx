@@ -19,6 +19,7 @@ import {
   canDraft,
   canSend,
   canTransitionTo,
+  bypassesWaveCastingGate,
   type CampaignStatus,
 } from "@/lib/projets-outreach";
 import "../po.css";
@@ -92,6 +93,11 @@ type Mission = {
   clickCount: number;
   awaitingContactsCompletion?: boolean;
   contactsCompletionRequestedAt?: string | null;
+  condensationGroupId?: string | null;
+  condensationRole?: "PRIMARY" | "MEMBER" | null;
+  condensationStatus?: string | null;
+  condensationPeerNames?: string[];
+  waveClusterId?: string | null;
   relanceSentAt: string | null;
   relance2SentAt: string | null;
   sendError: string | null;
@@ -163,6 +169,14 @@ type Campaign = {
   talent: { id: string; name: string; photo: string | null; instagram: string | null };
   ownerTmName: string | null;
   createdByName: string;
+  waveId?: string | null;
+  wave?: {
+    id: string;
+    title: string;
+    status: "COLLECTING" | "REVIEWING_CONDENSATIONS" | "OPEN_FOR_DRAFTING" | "CLOSED";
+    completedAt?: string | null;
+    validatedAt?: string | null;
+  } | null;
   events: Array<{
     id: string;
     type: string;
@@ -258,6 +272,13 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
     canTransitionTo(role, campaign.status, nextStatus) &&
     !(
       awaitingContactsCount > 0 &&
+      (nextStatus === "DRAFTING" || nextStatus === "SENDING")
+    ) &&
+    !(
+      !bypassesWaveCastingGate(role) &&
+      campaign.wave &&
+      (campaign.wave.status === "COLLECTING" ||
+        campaign.wave.status === "REVIEWING_CONDENSATIONS") &&
       (nextStatus === "DRAFTING" || nextStatus === "SENDING")
     );
 
@@ -452,6 +473,32 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           </div>
         )}
 
+        {campaign.wave &&
+          !bypassesWaveCastingGate(role) &&
+          (campaign.wave.status === "COLLECTING" ||
+            campaign.wave.status === "REVIEWING_CONDENSATIONS") && (
+            <div
+              style={{
+                marginBottom: 16,
+                border: "1px solid #D4C4F7",
+                background: "#F4F0FC",
+                color: "#5B3F9E",
+                borderRadius: 12,
+                padding: "12px 14px",
+                fontSize: 13,
+              }}
+            >
+              <strong>Casting bloquée</strong>
+              {" — "}vague « {campaign.wave.title} » :{" "}
+              {campaign.wave.status === "COLLECTING"
+                ? "Strategy remplit encore les projets. Casting ne peut rien rédiger tant que la vague n’est pas « Terminée » puis validée."
+                : "Strategy doit valider les condensations marques avant d’ouvrir la rédaction."}{" "}
+              <Link href="/projets-outreach" className="underline font-medium">
+                Voir la vague
+              </Link>
+            </div>
+          )}
+
         {tab === "brief" && (
           <BriefTab
             campaign={campaign}
@@ -474,6 +521,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           <RedactionTab
             campaign={campaign}
             canEdit={canDraft(role)}
+            role={role}
             onChanged={load}
             setError={setError}
             setSuccess={setSuccess}
@@ -483,6 +531,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           <EnvoisTab
             campaign={campaign}
             canSendMails={canSend(role) || canDraft(role)}
+            role={role}
             onChanged={load}
             setError={setError}
             setSuccess={setSuccess}
@@ -841,6 +890,9 @@ function MarquesTab({
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Ajout impossible.");
+    if (typeof data.waveNotice === "string" && data.waveNotice.trim()) {
+      setSuccess(data.waveNotice);
+    }
     return data;
   }
 
@@ -853,8 +905,10 @@ function MarquesTab({
     setSavingId(hit.id);
     setError(null);
     try {
-      await postBrand({ targetBrand: hit.nom, marqueId: hit.id });
-      setSuccess(`${hit.nom} ajoutée.`);
+      const data = await postBrand({ targetBrand: hit.nom, marqueId: hit.id });
+      if (!(typeof data?.waveNotice === "string" && data.waveNotice.trim())) {
+        setSuccess(`${hit.nom} ajoutée.`);
+      }
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -954,8 +1008,10 @@ function MarquesTab({
     setSavingId("__manual__");
     setError(null);
     try {
-      await postBrand({ targetBrand, marqueId: null });
-      setSuccess(`${targetBrand} ajoutée.`);
+      const data = await postBrand({ targetBrand, marqueId: null });
+      if (!(typeof data?.waveNotice === "string" && data.waveNotice.trim())) {
+        setSuccess(`${targetBrand} ajoutée.`);
+      }
       setManualBrand("");
       await onChanged();
     } catch (err) {
@@ -1339,6 +1395,15 @@ function MarquesTab({
                   <PoAvatar name={name} size={26} />
                   <div className="min-w-0">
                     <div style={{ fontWeight: 600, color: "var(--po-ink)" }}>{name}</div>
+                    {m.condensationStatus === "CONDENSED" ||
+                    m.condensationRole === "PRIMARY" ||
+                    m.condensationRole === "MEMBER" ? (
+                      <div style={{ fontSize: 11, color: "#5B3F9E", fontWeight: 600 }}>
+                        {m.condensationPeerNames && m.condensationPeerNames.length > 0
+                          ? `Condensée avec ${m.condensationPeerNames.join(", ")} · 1 mail`
+                          : "Condensée · 1 mail pour le groupe"}
+                      </div>
+                    ) : null}
                     {m.marqueId && (
                       <Link href={`/marques/${m.marqueId}`} style={{ fontSize: 11.5 }}>
                         fiche
@@ -1456,27 +1521,37 @@ function MarquesTab({
 function RedactionTab({
   campaign,
   canEdit,
+  role,
   onChanged,
   setError,
   setSuccess,
 }: {
   campaign: Campaign;
   canEdit: boolean;
+  role: string;
   onChanged: () => Promise<void>;
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
 }) {
   const draftable = useMemo(
     () =>
-      campaign.missions.filter(
-        (m) =>
+      campaign.missions.filter((m) => {
+        // Après envoi condensé (miroir), la carte disparaît des deux côtés.
+        if (m.sentAt || m.stage === "SENT") return false;
+        return (
           m.stage === "TO_DRAFT" ||
           m.stage === "DRAFTED_FOR_VALIDATION" ||
           m.stage === "STRATEGY_DEFINED" ||
           m.stage === "TO_SEND"
-      ),
+        );
+      }),
     [campaign.missions]
   );
+
+  const waveBlocksCasting =
+    !bypassesWaveCastingGate(role) &&
+    (campaign.wave?.status === "COLLECTING" ||
+      campaign.wave?.status === "REVIEWING_CONDENSATIONS");
 
   type ComposerContact = {
     company: string;
@@ -1514,6 +1589,23 @@ function RedactionTab({
       angles?: string | null;
       timeline?: string | null;
       budgetRange?: string | null;
+      condensationBriefs?: Array<{
+        missionId: string;
+        talentId?: string | null;
+        projectTitle?: string | null;
+        projectDescription?: string | null;
+        creatorName?: string | null;
+        targetBrand?: string | null;
+        strategyReason?: string | null;
+        recommendedAngle?: string | null;
+        objective?: string | null;
+        deliverables?: string | null;
+        angles?: string | null;
+        timeline?: string | null;
+        budgetRange?: string | null;
+        dos?: string | null;
+        donts?: string | null;
+      }> | null;
     };
   };
 
@@ -1602,6 +1694,20 @@ function RedactionTab({
   }
 
   async function openComposer(m: Mission) {
+    if (waveBlocksCasting) {
+      setError(
+        campaign.wave?.status === "COLLECTING"
+          ? "Casting bloquée : Strategy n’a pas encore terminé la vague de collecte."
+          : "Casting bloquée : Strategy doit valider les condensations de la vague."
+      );
+      return;
+    }
+    if (m.sentAt || m.stage === "SENT") {
+      setError(
+        `« ${m.marqueNom || m.targetBrand} » a déjà été contactée (condensation).`
+      );
+      return;
+    }
     if (m.awaitingContactsCompletion) {
       setError(
         `« ${m.marqueNom || m.targetBrand} » est en attente de contacts. Impossible de rédiger tant que ce n’est pas débloqué.`
@@ -1648,6 +1754,22 @@ function RedactionTab({
       }
     }
 
+    let condensationBriefs: ComposerContact["missionBrief"]["condensationBriefs"] = null;
+    if (m.condensationGroupId || m.condensationStatus === "CONDENSED") {
+      try {
+        const res = await fetch(
+          `/api/projets-outreach/condensation-briefs?missionId=${encodeURIComponent(m.id)}`,
+          { credentials: "include" }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(data.condensationBriefs)) {
+          condensationBriefs = data.condensationBriefs;
+        }
+      } catch {
+        // mono-brief fallback
+      }
+    }
+
     const priority = (["LOW", "MEDIUM", "HIGH", "URGENT"].includes(m.priority)
       ? m.priority
       : "MEDIUM") as ComposerContact["missionBrief"]["priority"];
@@ -1691,6 +1813,7 @@ function RedactionTab({
         angles: campaign.angles,
         timeline: campaign.timeline,
         budgetRange: campaign.budgetRange,
+        condensationBriefs,
       },
     });
     setComposerOpen(true);
@@ -1851,6 +1974,35 @@ function RedactionTab({
     );
   }
 
+  if (waveBlocksCasting) {
+    return (
+      <div
+        className="po-card"
+        style={{
+          padding: 28,
+          border: "1px solid #D4C4F7",
+          background: "#F4F0FC",
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#5B3F9E" }}>
+          En pause — Strategy n&apos;a pas encore validé
+        </div>
+        {campaign.wave?.status === "COLLECTING" ? (
+          <p style={{ marginTop: 10, fontSize: 13, color: "#5B3F9E", lineHeight: 1.5 }}>
+            {`La vague « ${campaign.wave.title} » n’est pas encore terminée côté Strategy. Dès qu’elle valide, tu pourras rédiger.`}
+          </p>
+        ) : null}
+        <Link
+          href="/projets-outreach"
+          className="po-btn po-btn-primary"
+          style={{ marginTop: 16, display: "inline-flex" }}
+        >
+          Voir la vague
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="po-card" style={{ overflow: "hidden" }}>
@@ -1885,6 +2037,24 @@ function RedactionTab({
                 <span style={{ fontWeight: 600, color: "var(--po-ink)" }} className="truncate">
                   {name}
                 </span>
+                {m.condensationStatus === "CONDENSED" ||
+                m.condensationRole === "PRIMARY" ||
+                m.condensationRole === "MEMBER" ? (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "#5B3F9E",
+                      background: "#EEEAFB",
+                      borderRadius: 999,
+                      padding: "2px 7px",
+                    }}
+                  >
+                    {m.condensationPeerNames && m.condensationPeerNames.length > 0
+                      ? `Avec ${m.condensationPeerNames.join(", ")}`
+                      : "Condensée · 1 mail"}
+                  </span>
+                ) : null}
               </div>
               <div
                 className="truncate"
@@ -1986,7 +2156,30 @@ function RedactionTab({
         brandColumn="todo"
         useHubspot={false}
         allowSchedule={false}
-        lockedTalentId={campaign.talent.id}
+        lockedTalentId={
+          composerContact?.missionBrief?.condensationBriefs &&
+          composerContact.missionBrief.condensationBriefs.length >= 2
+            ? null
+            : campaign.talent.id
+        }
+        lockedTalentIds={
+          composerContact?.missionBrief?.condensationBriefs &&
+          composerContact.missionBrief.condensationBriefs.length >= 2
+            ? (() => {
+                const briefs = composerContact.missionBrief.condensationBriefs;
+                const currentId = campaign.talent.id;
+                const peerIds = briefs
+                  .map((b) => String(b.talentId || "").trim())
+                  .filter(Boolean);
+                // Talent du projet ouvert en 1er → talent_1 = projet courant
+                const ordered = [
+                  currentId,
+                  ...peerIds.filter((id) => id !== currentId),
+                ];
+                return Array.from(new Set(ordered));
+              })()
+            : null
+        }
         readyLabel="Envoyer depuis Leyna"
         onClose={() => {
           setComposerOpen(false);
@@ -2003,26 +2196,40 @@ function RedactionTab({
 function EnvoisTab({
   campaign,
   canSendMails,
+  role,
   onChanged,
   setError,
   setSuccess,
 }: {
   campaign: Campaign;
   canSendMails: boolean;
+  role: string;
   onChanged: () => Promise<void>;
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
 }) {
   const queue = campaign.missions.filter(
     (m) =>
-      m.stage === "DRAFTED_FOR_VALIDATION" ||
-      m.stage === "TO_SEND" ||
-      (m.scheduledSendAt && !m.sentAt)
+      !m.sentAt &&
+      m.stage !== "SENT" &&
+      (m.stage === "DRAFTED_FOR_VALIDATION" ||
+        m.stage === "TO_SEND" ||
+        (m.scheduledSendAt && !m.sentAt))
   );
   const [busyId, setBusyId] = useState<string | null>(null);
+  const waveBlocks =
+    !bypassesWaveCastingGate(role) &&
+    (campaign.wave?.status === "COLLECTING" ||
+      campaign.wave?.status === "REVIEWING_CONDENSATIONS");
 
   async function scheduleAndSend(missionId: string, force = false) {
     if (!canSendMails) return;
+    if (waveBlocks) {
+      setError(
+        "Envoi bloqué : la vague Strategy n’est pas encore validée (Casting fermé)."
+      );
+      return;
+    }
     const mission = queue.find((m) => m.id === missionId);
     const brandLabel = mission?.marqueNom || mission?.targetBrand || "cette marque";
     setBusyId(missionId);
@@ -2073,6 +2280,26 @@ function EnvoisTab({
     } finally {
       setBusyId(null);
     }
+  }
+
+  if (waveBlocks) {
+    return (
+      <div
+        className="po-card"
+        style={{
+          padding: 28,
+          border: "1px solid #D4C4F7",
+          background: "#F4F0FC",
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#5B3F9E" }}>
+          Envois bloqués — vague Strategy non validée
+        </div>
+        <p style={{ marginTop: 10, fontSize: 13, color: "#5B3F9E", lineHeight: 1.5 }}>
+          Aucun envoi tant que Strategy n’a pas terminé la collecte et validé les condensations.
+        </p>
+      </div>
+    );
   }
 
   if (queue.length === 0) {

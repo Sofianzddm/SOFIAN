@@ -5,6 +5,7 @@ import {
   canTransitionTo,
   isProjetsOutreachRole,
   isValidCampaignStatus,
+  bypassesWaveCastingGate,
   STATUS_LABEL,
   type CampaignStatus,
 } from "@/lib/projets-outreach";
@@ -68,6 +69,29 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     if (nextStatus === "DRAFTING" || nextStatus === "SENDING") {
+      const campaignWithWave = await prisma.talentProspectingCampaign.findUnique({
+        where: { id: campaignId },
+        select: { wave: { select: { id: true, status: true, title: true } } },
+      });
+      const wave = campaignWithWave?.wave;
+      if (
+        wave &&
+        (wave.status === "COLLECTING" || wave.status === "REVIEWING_CONDENSATIONS") &&
+        !bypassesWaveCastingGate(session.user.role)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              wave.status === "COLLECTING"
+                ? `Casting bloquée : termine d'abord la vague « ${wave.title} » (bouton Terminé) puis valide les condensations.`
+                : `Casting bloquée : valide d'abord les condensations de la vague « ${wave.title} ».`,
+            code: "WAVE_BLOCKS_DRAFTING",
+            waveId: wave.id,
+          },
+          { status: 400 }
+        );
+      }
+
       const awaiting = await prisma.contactMission.count({
         where: { campaignId, awaitingContactsCompletion: true },
       });

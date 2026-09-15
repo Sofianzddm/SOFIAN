@@ -68,6 +68,25 @@ export interface GenerateEmailBody {
     dos?: string | null;
     donts?: string | null;
   } | null;
+  /**
+   * Condensation multi-projets : N briefs (Alice + Bob…) pour UN mail à UNE marque.
+   * Prioritaire sur projectBrief si length >= 2.
+   */
+  projectBriefs?: Array<{
+    projectTitle?: string | null;
+    projectDescription?: string | null;
+    creatorName?: string | null;
+    targetBrand?: string | null;
+    strategyReason?: string | null;
+    recommendedAngle?: string | null;
+    objective?: string | null;
+    deliverables?: string | null;
+    angles?: string | null;
+    timeline?: string | null;
+    budgetRange?: string | null;
+    dos?: string | null;
+    donts?: string | null;
+  }> | null;
 }
 
 function normalizeForIncludes(s: string): string {
@@ -148,6 +167,16 @@ export async function POST(request: NextRequest) {
     const { newProducts, brandPositioning, influenceStrategy } = body.brandResearch;
 
     const rawProject = body.projectBrief;
+    const rawProjects = Array.isArray(body.projectBriefs) ? body.projectBriefs : [];
+    const condensationBriefs = rawProjects.filter(
+      (p) =>
+        p &&
+        (String(p.strategyReason || "").trim() ||
+          String(p.objective || "").trim() ||
+          String(p.projectTitle || "").trim() ||
+          String(p.deliverables || "").trim() ||
+          String(p.creatorName || "").trim())
+    );
     const hasProjectBrief = Boolean(
       rawProject &&
         (String(rawProject.strategyReason || "").trim() ||
@@ -156,12 +185,100 @@ export async function POST(request: NextRequest) {
           String(rawProject.deliverables || "").trim())
     );
     const projectBrief = hasProjectBrief && rawProject ? rawProject : null;
+    const isCondensation = condensationBriefs.length >= 2;
 
     function briefLine(label: string, value: unknown): string {
       const v = String(value || "").trim();
       return v ? `- ${label} : ${v}` : "";
     }
-    const projectBriefBlockFr = projectBrief
+
+    function formatOneBriefFr(p: (typeof condensationBriefs)[number], index: number): string {
+      return [
+        `PROJET ${index + 1} — ${String(p.creatorName || "").trim() || "Talent"}`,
+        briefLine("Titre du projet", p.projectTitle),
+        briefLine("Description", p.projectDescription),
+        briefLine("Talent", p.creatorName),
+        briefLine("Marque ciblée", p.targetBrand),
+        briefLine("Raison strategy", p.strategyReason),
+        briefLine("Angle recommandé", p.recommendedAngle),
+        briefLine("Objectif", p.objective),
+        briefLine("Livrables", p.deliverables),
+        briefLine("Angles", p.angles),
+        briefLine("Timeline", p.timeline),
+        briefLine("Budget", p.budgetRange),
+        briefLine("Do's", p.dos),
+        briefLine("Don'ts", p.donts),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    function formatOneBriefEn(p: (typeof condensationBriefs)[number], index: number): string {
+      return [
+        `PROJECT ${index + 1} — ${String(p.creatorName || "").trim() || "Talent"}`,
+        briefLine("Project title", p.projectTitle),
+        briefLine("Description", p.projectDescription),
+        briefLine("Talent", p.creatorName),
+        briefLine("Target brand", p.targetBrand),
+        briefLine("Strategy reason", p.strategyReason),
+        briefLine("Recommended angle", p.recommendedAngle),
+        briefLine("Objective", p.objective),
+        briefLine("Deliverables", p.deliverables),
+        briefLine("Angles", p.angles),
+        briefLine("Timeline", p.timeline),
+        briefLine("Budget", p.budgetRange),
+        briefLine("Do's", p.dos),
+        briefLine("Don'ts", p.donts),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    const condensationBlockFr = isCondensation
+      ? `
+BRIEF CONDENSATION MULTI-PROJETS (OBLIGATOIRE) :
+Tu rédiges UN SEUL mail à UNE marque, qui présente CLAIREMENT ${condensationBriefs.length} projets / talents distincts.
+Ce n'est PAS un roster casting générique : chaque projet a son brief ci-dessous — tu dois les utiliser TOUS.
+
+${condensationBriefs.map((p, i) => formatOneBriefFr(p, i)).join("\n\n")}
+
+Règles condensation :
+- Structure le mail avec une courte intro agence, puis une section claire par projet/talent (titres ou séparations nettes).
+- Pour chaque projet : pitch basé sur SA raison strategy, objectif, livrables, angles, dos/donts.
+- Termine par une CTA unique (ex. intérêt pour l'un, plusieurs, ou un call).
+- Les talents listés dans "Talents disponibles" correspondent à ces projets — cite-les tous.
+- Une seule marque destinataire : ne propose pas d'autres marques.
+
+INTERDITS :
+- Ne pas écrire un mail mono-talent qui ignore les autres projets.
+- Ne pas fusionner les briefs en un pitch flou sans distinguer qui est qui.
+- Pas de transition « plusieurs créateurs du roster » hors des projets listés.
+`
+      : "";
+
+    const condensationBlockEn = isCondensation
+      ? `
+MULTI-PROJECT CONDENSATION BRIEF (MANDATORY) :
+You write ONE email to ONE brand that CLEARLY presents ${condensationBriefs.length} distinct projects / talents.
+This is NOT a generic casting roster: each project has its brief below — you MUST use ALL of them.
+
+${condensationBriefs.map((p, i) => formatOneBriefEn(p, i)).join("\n\n")}
+
+Condensation rules:
+- Structure with a short agency intro, then a clear section per project/talent.
+- For each project: pitch from ITS strategy reason, objective, deliverables, angles, dos/donts.
+- End with a single CTA (interest in one, several, or a call).
+- Talents in "Available talents" map to these projects — mention them all.
+- One recipient brand only.
+
+PROHIBITIONS:
+- Do not write a single-talent email that ignores the other projects.
+- Do not blur briefs into one vague pitch without saying who is who.
+- No generic "several creators from our roster" outside the listed projects.
+`
+      : "";
+
+    const projectBriefBlockFr = !isCondensation && projectBrief
       ? `
 BRIEF PROJET (OBLIGATOIRE — priorité absolue sur le pitch générique casting) :
 Ce mail n'est PAS un outreach casting générique multi-talents. Tu pitches UN projet précis autour du/des talent(s) fourni(s).
@@ -201,7 +318,7 @@ INTERDITS PROJET (absolus) :
 - N'invente pas de handles Instagram : utilise uniquement ceux présents dans le brief / objectif.
 `
       : "";
-    const projectBriefBlockEn = projectBrief
+    const projectBriefBlockEn = !isCondensation && projectBrief
       ? `
 PROJECT BRIEF (MANDATORY — overrides the generic casting pitch) :
 This email is NOT a generic multi-talent casting outreach. You are pitching ONE specific project around the provided talent(s).
@@ -241,6 +358,9 @@ PROJECT PROHIBITIONS (absolute):
 - Do not invent Instagram handles: only use those present in the brief / objective.
 `
       : "";
+
+    const projectOrCondensationFr = condensationBlockFr || projectBriefBlockFr;
+    const projectOrCondensationEn = condensationBlockEn || projectBriefBlockEn;
 
     // Quand plusieurs marques filles sont fournies (ex. « Dove, Axe, Rexona »),
     // on précise à l'IA qu'il s'agit de plusieurs marques d'un même groupe gérées
@@ -344,7 +464,7 @@ Positioning: ${brandPositioning}
 Current influence strategy of the brand (profile types, formats, tone of their collaborations): ${influenceStrategy || "—"}
 Available talents: ${talentsString} (the variable already contains complete HTML links in the form <a><strong>Firstname Lastname</strong></a>; keep them as-is, do NOT remove the bold or the link)
 ${beneluxContextEn}
-${projectBriefBlockEn}
+${projectOrCondensationEn}
 ${
           useDirectRecipient
             ? `RECIPIENT (use these EXACT values, do NOT use any HubSpot tokens like {{ contact.firstname }} or {{ contact.company }}):
@@ -432,7 +552,7 @@ Positionnement : ${brandPositioning}
 Stratégie d'influence actuelle de la marque (types de profils, formats, tonalité de leurs collaborations) : ${influenceStrategy || "—"}
 Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme <a><strong>Prénom Nom</strong></a> ; conserve-les tels quels, NE retire jamais le gras ni le lien)
 ${beneluxContextFr}
-${projectBriefBlockFr}
+${projectOrCondensationFr}
 ${
           useDirectRecipient
             ? `DESTINATAIRE (utilise EXACTEMENT ces valeurs, n'utilise AUCUN jeton HubSpot du type {{ contact.firstname }} ou {{ contact.company }}) :

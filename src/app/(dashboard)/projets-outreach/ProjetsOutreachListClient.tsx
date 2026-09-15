@@ -12,6 +12,7 @@ import {
   type CampaignStatus,
 } from "@/lib/projets-outreach";
 import { KpiCard, PoAvatar, StageStepper, StatusBadge } from "./PoUi";
+import { OutreachWavePanel } from "./OutreachWavePanel";
 import "./po.css";
 
 type CampaignRow = {
@@ -205,6 +206,8 @@ export function ProjetsOutreachListClient() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+
+        <OutreachWavePanel role={role} />
 
         <div className="po-kpi-grid my-5">
           {kpis.map((k) => (

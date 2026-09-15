@@ -29,6 +29,19 @@ export async function POST(
       return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
     }
 
+    const { getMissionCastingGate } = await import("@/lib/brand-condensation");
+    const gate = await getMissionCastingGate(id, { role });
+    if (gate.blocked) {
+      return NextResponse.json(
+        {
+          error: gate.message,
+          code: gate.code,
+          waveId: gate.waveId,
+        },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
     const force = body?.force === true;
 

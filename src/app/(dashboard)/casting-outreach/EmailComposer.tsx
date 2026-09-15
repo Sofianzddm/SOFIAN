@@ -318,7 +318,7 @@ export default function EmailComposer({
     "inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border font-semibold transition-colors hover:shadow-sm shrink-0";
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
+    <div className="flex flex-col gap-2">
       {/* Recherche marque — une ligne, détail repliable */}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
         <button
@@ -517,7 +517,7 @@ export default function EmailComposer({
 
       {previewMode === "preview" ? (
         <div
-          className="flex-1 min-h-0 overflow-y-auto rounded-xl border p-4 space-y-3 bg-white"
+          className="max-h-[28rem] overflow-y-auto rounded-xl border bg-white p-4 space-y-3"
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
         >
           <div>
@@ -541,7 +541,7 @@ export default function EmailComposer({
         </div>
       ) : (
         <div
-          className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border bg-white"
+          className="flex flex-col overflow-hidden rounded-xl border bg-white"
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
         >
           {editor && (
@@ -607,10 +607,12 @@ export default function EmailComposer({
                 style={{ backgroundColor: OLD_ROSE, color: "white" }}
                 title={
                   !brandResearch
-                    ? "Lance d'abord l'analyse de la marque (Par recherche)"
+                    ? "D’abord « Par recherche » pour analyser la marque"
                     : talentsSelected.length === 0
                       ? "Sélectionne au moins un talent à gauche"
-                      : "Rédiger le mail"
+                      : talentsSelected.length > 1
+                        ? `Rédiger le mail condensé (${talentsSelected.length} talents)`
+                        : "Rédiger le mail"
                 }
               >
                 {isGenerating ? (
@@ -691,10 +693,10 @@ export default function EmailComposer({
             </div>
           )}
           <div
-            className="relative flex-1 min-h-0 overflow-y-auto"
+            className="relative max-h-72 min-h-[10rem] overflow-y-auto"
             onClick={() => setLastField("body")}
           >
-            <EditorContent editor={editor} className="h-full [&_.ProseMirror]:min-h-full" />
+            <EditorContent editor={editor} className="[&_.ProseMirror]:min-h-[10rem]" />
           </div>
           <div
             className="px-3 py-1.5 border-t text-[11px] shrink-0"

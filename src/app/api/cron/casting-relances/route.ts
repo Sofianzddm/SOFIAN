@@ -167,6 +167,8 @@ export async function GET(request: NextRequest) {
       // L'utilisateur peut stopper manuellement la relance auto depuis le pipeline
       // ou la page "Mails envoyés". Si `relanceCancelledAt` est defini, on saute.
       relanceCancelledAt: null,
+      // Condensation : seules les cartes PRIMARY (ou non condensées) relancent.
+      OR: [{ condensationRole: null }, { condensationRole: "PRIMARY" }],
     },
     select: { id: true, sentMessageIds: true, sentAt: true },
     take: 100,
@@ -191,6 +193,7 @@ export async function GET(request: NextRequest) {
       relanceSentAt: { lte: sqlCutoff2, not: null },
       relance2SentAt: null,
       relanceCancelledAt: null,
+      OR: [{ condensationRole: null }, { condensationRole: "PRIMARY" }],
     },
     select: { id: true, sentMessageIds: true, relanceSentAt: true },
     take: 100,

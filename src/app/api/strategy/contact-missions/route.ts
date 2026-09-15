@@ -477,6 +477,38 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
     }
 
+    // Vague Strategy en cours → Casting ne peut ni rédiger ni avancer l'envoi.
+    const castingMutation =
+      draftProvided ||
+      (stageProvided &&
+        (nextStage === "TO_DRAFT" ||
+          nextStage === "DRAFTED_FOR_VALIDATION" ||
+          nextStage === "TO_SEND" ||
+          nextStage === "SENT")) ||
+      (statusProvided &&
+        (nextStatus === "EMAIL_DRAFTED" ||
+          nextStatus === "APPROVED_BY_SALES" ||
+          nextStatus === "SENT" ||
+          nextStatus === "RELANCED"));
+    if (castingMutation) {
+      const { getMissionCastingGate, promoteCondensationSender } = await import(
+        "@/lib/brand-condensation"
+      );
+      const gate = await getMissionCastingGate(missionId, {
+        role: session.user.role,
+      });
+      if (gate.blocked) {
+        return NextResponse.json(
+          { error: gate.message, code: gate.code, waveId: gate.waveId },
+          { status: 400 }
+        );
+      }
+      // Rédaction depuis Alix (MEMBER) → elle devient PRIMARY du groupe.
+      if (draftProvided) {
+        await promoteCondensationSender(missionId);
+      }
+    }
+
     if (
       stageProvided &&
       (nextStage === "TO_SEND" || nextStage === "SENT") &&

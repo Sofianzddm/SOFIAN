@@ -11,6 +11,8 @@
  * run et renvoie directement les items du dataset (1 appel HTTP).
  */
 
+import { normalizeInstagramHandle } from "@/lib/social-links";
+
 const APIFY_ENDPOINT =
   "https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items";
 
@@ -47,7 +49,7 @@ export async function fetchInstagramPhotos(
     );
   }
 
-  const cleanHandle = handle.replace(/^@/, "").trim();
+  const cleanHandle = normalizeInstagramHandle(handle);
   if (!cleanHandle) {
     throw new Error("Handle Instagram vide");
   }

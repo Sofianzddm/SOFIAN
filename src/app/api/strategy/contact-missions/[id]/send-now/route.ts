@@ -33,6 +33,16 @@ export async function POST(
     if (!mission) {
       return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
     }
+
+    const { getMissionCastingGate } = await import("@/lib/brand-condensation");
+    const gate = await getMissionCastingGate(id, { role });
+    if (gate.blocked) {
+      return NextResponse.json(
+        { error: gate.message, code: gate.code, waveId: gate.waveId },
+        { status: 400 }
+      );
+    }
+
     if (!mission.scheduledSendAt) {
       return NextResponse.json(
         { error: "Aucun envoi planifie (annulation deja effectuee ?)." },

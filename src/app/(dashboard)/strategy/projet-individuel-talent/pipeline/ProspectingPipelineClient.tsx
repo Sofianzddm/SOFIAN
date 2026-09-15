@@ -1098,6 +1098,25 @@ export function ProspectingPipelineClient() {
   async function openComposer(m: Mission) {
     setUpdatingId(m.id);
     try {
+      // Si mission rattachée à une vague Strategy non validée → bloquer Casting.
+      try {
+        const gateRes = await fetch(
+          `/api/projets-outreach/condensation-briefs?missionId=${encodeURIComponent(m.id)}`,
+          { credentials: "include" }
+        );
+        const gateData = await gateRes.json().catch(() => ({}));
+        if (gateRes.ok && gateData?.gate?.blocked) {
+          setError(
+            typeof gateData.gate.message === "string"
+              ? gateData.gate.message
+              : "Rédaction bloquée : vague Strategy non validée."
+          );
+          return;
+        }
+      } catch {
+        // si l'API gate échoue, on laisse le backend PATCH/schedule bloquer
+      }
+
       const localContacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
       setComposerContact({
         company: brandDisplayName(m),

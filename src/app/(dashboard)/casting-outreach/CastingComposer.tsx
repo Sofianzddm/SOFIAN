@@ -93,6 +93,24 @@ type CastingCompanyRecipients = {
     angles?: string | null;
     timeline?: string | null;
     budgetRange?: string | null;
+    /** Condensation : briefs des N projets du groupe (PRIMARY). */
+    condensationBriefs?: Array<{
+      missionId: string;
+      talentId?: string | null;
+      projectTitle?: string | null;
+      projectDescription?: string | null;
+      creatorName?: string | null;
+      targetBrand?: string | null;
+      strategyReason?: string | null;
+      recommendedAngle?: string | null;
+      objective?: string | null;
+      deliverables?: string | null;
+      angles?: string | null;
+      timeline?: string | null;
+      budgetRange?: string | null;
+      dos?: string | null;
+      donts?: string | null;
+    }> | null;
   } | null;
 };
 
@@ -254,6 +272,8 @@ export interface CastingComposerProps {
    * automatiquement (parcours projet outreach).
    */
   lockedTalentId?: string | null;
+  /** Condensation : plusieurs talents verrouillés pour Grok. */
+  lockedTalentIds?: string[] | null;
   onClose: () => void;
   onSaved: (
     status: "en_cours" | "pret" | "reset",
@@ -291,11 +311,50 @@ export default function CastingComposer({
   defaultLanguage = "fr",
   allowSchedule = false,
   lockedTalentId = null,
+  lockedTalentIds = null,
   onClose,
   onSaved,
   onError,
   onSuccess,
 }: CastingComposerProps) {
+  const effectiveLockedTalentIds = useMemo(() => {
+    if (Array.isArray(lockedTalentIds) && lockedTalentIds.length > 0) {
+      return lockedTalentIds.filter(Boolean);
+    }
+    if (lockedTalentId) return [lockedTalentId];
+    return [] as string[];
+  }, [lockedTalentId, lockedTalentIds]);
+  const isTalentLocked = effectiveLockedTalentIds.length > 0;
+
+  const condensationBriefs = contact?.missionBrief?.condensationBriefs ?? null;
+  const isCondensation = Boolean(
+    condensationBriefs && condensationBriefs.length >= 2
+  );
+
+  /** Briefs dans le même ordre que les talents verrouillés (talent_1 = projet 1). */
+  const orderedCondensationBriefs = useMemo(() => {
+    if (!condensationBriefs || condensationBriefs.length < 2) return [];
+    if (effectiveLockedTalentIds.length === 0) return condensationBriefs;
+    const byTalent = new Map(
+      condensationBriefs
+        .filter((b) => b.talentId)
+        .map((b) => [String(b.talentId), b] as const)
+    );
+    const ordered: typeof condensationBriefs = [];
+    const used = new Set<string>();
+    for (const tid of effectiveLockedTalentIds) {
+      const hit = byTalent.get(tid);
+      if (hit) {
+        ordered.push(hit);
+        used.add(hit.missionId);
+      }
+    }
+    for (const b of condensationBriefs) {
+      if (!used.has(b.missionId)) ordered.push(b);
+    }
+    return ordered;
+  }, [condensationBriefs, effectiveLockedTalentIds]);
+
   const { data: session } = useSession();
   const isHeadOfSalesReadOnly = session?.user?.role === "HEAD_OF_SALES";
   const ownerFirstName = useMemo(
@@ -546,7 +605,7 @@ export default function CastingComposer({
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm max-w-none min-h-[140px] h-full px-3 py-2 text-sm focus:outline-none",
+          "prose prose-sm max-w-none min-h-[8rem] px-3 py-2 text-sm focus:outline-none",
         style: `font-family: Switzer, system-ui, sans-serif; color: ${LICORICE}`,
       },
       handleDOMEvents: {
@@ -594,13 +653,22 @@ export default function CastingComposer({
     const bodyRaw = (contact.initialBodyHtml ?? "").trim();
     const hasHubspotDraft = sub.length > 0 || bodyRaw.length > 0;
 
-    setSelectedIds(lockedTalentId ? new Set([lockedTalentId]) : new Set());
+    setSelectedIds(
+      effectiveLockedTalentIds.length > 0
+        ? new Set(effectiveLockedTalentIds)
+        : new Set()
+    );
     setSelectedRecipientIds(
       new Set((contact.contacts || []).map((c) => c.id).filter(Boolean))
     );
     setPreviewMode("edit");
     setLastField("body");
-    setBriefOpen(false);
+    setBriefOpen(
+      Boolean(
+        contact.missionBrief?.condensationBriefs &&
+          contact.missionBrief.condensationBriefs.length >= 2
+      )
+    );
     setBrandResearch(null);
     // Client EN (fiche CRM / mission) → anglais d'emblée.
     setEmailLanguage(resolveClientEmailLanguage(contact) || defaultLanguage);
@@ -618,7 +686,7 @@ export default function CastingComposer({
     }
     setEditorEmpty(!editor.getText().trim());
     setBodyTick((n) => n + 1);
-  }, [open, contact, editor, defaultLanguage, lockedTalentId]);
+  }, [open, contact, editor, defaultLanguage, effectiveLockedTalentIds]);
 
   useEffect(() => {
     if (!open || !contact?.missionBrief) {
@@ -739,42 +807,55 @@ export default function CastingComposer({
       .then(async (data: { talents?: PresskitTalent[] }) => {
         if (cancelled) return;
         const all = Array.isArray(data.talents) ? data.talents : [];
-        let filtered = lockedTalentId
-          ? all.filter((t) => t.id === lockedTalentId)
-          : all;
+        let filtered =
+          effectiveLockedTalentIds.length > 0
+            ? all.filter((t) => effectiveLockedTalentIds.includes(t.id))
+            : all;
 
-        // Si le talent du projet n'est pas dans le presskit market, on le charge à part.
-        if (lockedTalentId && filtered.length === 0) {
-          try {
-            const one = await fetch(`/api/talents/${lockedTalentId}`, {
-              credentials: "include",
-            });
-            const payload = await one.json().catch(() => ({}));
-            const t = payload?.talent;
-            if (one.ok && t) {
-              filtered = [
-                {
-                  id: String(t.id),
-                  prenom: String(t.prenom || ""),
-                  nom: String(t.nom || ""),
-                  photo: t.photo ?? null,
-                  niches: Array.isArray(t.niches) ? t.niches : [],
-                  instagram: t.instagram ?? null,
-                  igFollowers: Number(t.stats?.igFollowers || t.igFollowers || 0),
-                  igEngagement: Number(t.stats?.igEngagement || t.igEngagement || 0),
-                  ttFollowers: Number(t.stats?.ttFollowers || t.ttFollowers || 0),
-                  ttEngagement: Number(t.stats?.ttEngagement || t.ttEngagement || 0),
-                },
-              ];
+        // Si des talents du projet ne sont pas dans le presskit market, on les charge à part.
+        if (effectiveLockedTalentIds.length > 0) {
+          const missing = effectiveLockedTalentIds.filter(
+            (id) => !filtered.some((t) => t.id === id)
+          );
+          for (const tid of missing) {
+            try {
+              const one = await fetch(`/api/talents/${tid}`, {
+                credentials: "include",
+              });
+              const payload = await one.json().catch(() => ({}));
+              const t = payload?.talent;
+              if (one.ok && t) {
+                filtered = [
+                  ...filtered,
+                  {
+                    id: String(t.id),
+                    prenom: String(t.prenom || ""),
+                    nom: String(t.nom || ""),
+                    photo: t.photo ?? null,
+                    niches: Array.isArray(t.niches) ? t.niches : [],
+                    instagram: t.instagram ?? null,
+                    igFollowers: Number(t.stats?.igFollowers || t.igFollowers || 0),
+                    igEngagement: Number(t.stats?.igEngagement || t.igEngagement || 0),
+                    ttFollowers: Number(t.stats?.ttFollowers || t.ttFollowers || 0),
+                    ttEngagement: Number(t.stats?.ttEngagement || t.ttEngagement || 0),
+                  },
+                ];
+              }
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore — message « aucun talent » ci-dessous
           }
         }
 
-        setTalents(filtered);
-        if (lockedTalentId) {
-          setSelectedIds(new Set([lockedTalentId]));
+        setTalents(
+          effectiveLockedTalentIds.length > 0
+            ? effectiveLockedTalentIds
+                .map((id) => filtered.find((t) => t.id === id))
+                .filter((t): t is PresskitTalent => Boolean(t))
+            : filtered
+        );
+        if (effectiveLockedTalentIds.length > 0) {
+          setSelectedIds(new Set(effectiveLockedTalentIds));
         }
       })
       .catch((e: unknown) => {
@@ -788,12 +869,17 @@ export default function CastingComposer({
     return () => {
       cancelled = true;
     };
-  }, [open, market, lockedTalentId]);
+  }, [open, market, effectiveLockedTalentIds]);
 
-  const selectedTalents = useMemo(
-    () => talents.filter((t) => selectedIds.has(t.id)),
-    [talents, selectedIds]
-  );
+  const selectedTalents = useMemo(() => {
+    const selected = talents.filter((t) => selectedIds.has(t.id));
+    if (effectiveLockedTalentIds.length > 1) {
+      return effectiveLockedTalentIds
+        .map((id) => selected.find((t) => t.id === id))
+        .filter((t): t is PresskitTalent => Boolean(t));
+    }
+    return selected;
+  }, [talents, selectedIds, effectiveLockedTalentIds]);
 
   const runGenerateEmail = useCallback(async () => {
     if (!contact) return;
@@ -849,26 +935,44 @@ export default function CastingComposer({
           // Uniquement si missionBrief (projets-outreach / pipeline talent).
           // Outreach Clients passe missionBrief: null → pas de projectBrief → prompt inchangé.
           ...(contact.missionBrief
-            ? {
-                projectBrief: {
-                  projectTitle:
-                    contact.missionBrief.projectTitle ||
-                    contact.missionBrief.campaignName ||
-                    null,
-                  projectDescription: contact.missionBrief.projectDescription || null,
-                  creatorName: contact.missionBrief.creatorName,
-                  targetBrand: contact.missionBrief.targetBrand,
-                  strategyReason: contact.missionBrief.strategyReason,
-                  recommendedAngle: contact.missionBrief.recommendedAngle || null,
-                  objective: contact.missionBrief.objective || null,
-                  deliverables: contact.missionBrief.deliverables || null,
-                  angles: contact.missionBrief.angles || null,
-                  timeline: contact.missionBrief.timeline || null,
-                  budgetRange: contact.missionBrief.budgetRange || null,
-                  dos: contact.missionBrief.dos || null,
-                  donts: contact.missionBrief.donts || null,
-                },
-              }
+            ? isCondensation && orderedCondensationBriefs.length >= 2
+              ? {
+                  projectBriefs: orderedCondensationBriefs.map((b) => ({
+                    projectTitle: b.projectTitle || null,
+                    projectDescription: b.projectDescription || null,
+                    creatorName: b.creatorName || null,
+                    targetBrand: b.targetBrand || contact.missionBrief?.targetBrand || null,
+                    strategyReason: b.strategyReason || null,
+                    recommendedAngle: b.recommendedAngle || null,
+                    objective: b.objective || null,
+                    deliverables: b.deliverables || null,
+                    angles: b.angles || null,
+                    timeline: b.timeline || null,
+                    budgetRange: b.budgetRange || null,
+                    dos: b.dos || null,
+                    donts: b.donts || null,
+                  })),
+                }
+              : {
+                  projectBrief: {
+                    projectTitle:
+                      contact.missionBrief.projectTitle ||
+                      contact.missionBrief.campaignName ||
+                      null,
+                    projectDescription: contact.missionBrief.projectDescription || null,
+                    creatorName: contact.missionBrief.creatorName,
+                    targetBrand: contact.missionBrief.targetBrand,
+                    strategyReason: contact.missionBrief.strategyReason,
+                    recommendedAngle: contact.missionBrief.recommendedAngle || null,
+                    objective: contact.missionBrief.objective || null,
+                    deliverables: contact.missionBrief.deliverables || null,
+                    angles: contact.missionBrief.angles || null,
+                    timeline: contact.missionBrief.timeline || null,
+                    budgetRange: contact.missionBrief.budgetRange || null,
+                    dos: contact.missionBrief.dos || null,
+                    donts: contact.missionBrief.donts || null,
+                  },
+                }
             : {}),
         }),
       });
@@ -906,7 +1010,20 @@ export default function CastingComposer({
     } finally {
       setIsGenerating(false);
     }
-  }, [contact, brandResearch, selectedTalents, selectedRecipientIds, emailLanguage, market, researchBrandName, editor, onError, onSuccess]);
+  }, [
+    contact,
+    brandResearch,
+    selectedTalents,
+    selectedRecipientIds,
+    emailLanguage,
+    market,
+    researchBrandName,
+    editor,
+    onError,
+    onSuccess,
+    isCondensation,
+    orderedCondensationBriefs,
+  ]);
 
   const previewSubjectResolved = useMemo(() => {
     if (!contact || !previewRecipient) return "";
@@ -1240,17 +1357,21 @@ export default function CastingComposer({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center p-3 sm:p-4 bg-black/45 overflow-y-auto overscroll-contain"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="casting-composer-title"
     >
       <div
-        className="w-full max-w-6xl my-auto h-[calc(100dvh-1.5rem)] max-h-[calc(100dvh-1.5rem)] overflow-hidden flex flex-col rounded-2xl shadow-xl border border-[#E8DED0]"
-        style={{ backgroundColor: OLD_LACE }}
+        className="flex w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-[#E8DED0] shadow-xl"
+        style={{
+          backgroundColor: OLD_LACE,
+          height: "min(920px, calc(100dvh - 1.5rem))",
+          maxHeight: "calc(100dvh - 1.5rem)",
+        }}
       >
         <div
-          className="flex items-center justify-between px-5 py-3 border-b shrink-0"
+          className="flex shrink-0 items-center justify-between border-b px-5 py-3"
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
         >
           <h2
@@ -1263,17 +1384,17 @@ export default function CastingComposer({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-black/5 transition-colors"
+            className="rounded-lg p-2 transition-colors hover:bg-black/5"
             aria-label="Fermer"
           >
-            <X className="w-5 h-5" style={{ color: LICORICE }} />
+            <X className="h-5 w-5" style={{ color: LICORICE }} />
           </button>
         </div>
 
-        <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           {/* Colonne talents */}
           <div
-            className="w-full md:w-1/3 flex flex-col border-r min-h-0 overflow-hidden"
+            className="flex w-[min(280px,38%)] shrink-0 flex-col overflow-hidden border-r"
             style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
           >
             <div className="px-4 py-3 shrink-0">
@@ -1281,7 +1402,11 @@ export default function CastingComposer({
                 className="text-sm font-semibold mb-2"
                 style={{ fontFamily: "Spectral, serif", color: LICORICE }}
               >
-                {lockedTalentId ? "Talent du projet" : "Sélectionner les talents"}
+                {isTalentLocked
+                  ? effectiveLockedTalentIds.length > 1
+                    ? "Talents de la condensation"
+                    : "Talent du projet"
+                  : "Sélectionner les talents"}
               </h3>
               {talentsError && (
                 <p className="text-xs text-red-600 mb-2">{talentsError}</p>
@@ -1311,18 +1436,18 @@ export default function CastingComposer({
                       tabIndex={0}
                       aria-pressed={sel}
                       onClick={() => {
-                        if (lockedTalentId) return;
+                        if (isTalentLocked) return;
                         toggleTalent(t.id);
                       }}
                       onKeyDown={(e) => {
-                        if (lockedTalentId) return;
+                        if (isTalentLocked) return;
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           toggleTalent(t.id);
                         }
                       }}
-                      className={`w-full text-left rounded-xl border-2 p-3 transition-colors bg-white/80 ${
-                        lockedTalentId ? "cursor-default" : "cursor-pointer"
+                      className={`w-full text-left rounded-xl border-2 p-2.5 transition-colors bg-white/80 ${
+                        isTalentLocked ? "cursor-default" : "cursor-pointer"
                       } ${
                         sel ? "shadow-sm" : "border-transparent hover:border-black/10"
                       }`}
@@ -1332,78 +1457,78 @@ export default function CastingComposer({
                           : { borderColor: "transparent" }
                       }
                     >
-                      <div className="flex gap-3">
-                        <div className="shrink-0">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openTalentDetail(t.id);
-                            }}
-                            onKeyDown={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg bg-white/90 border border-slate-200 hover:bg-white"
-                            style={{ color: LICORICE }}
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            Détail
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              insertTalentLink(t);
-                            }}
-                            onKeyDown={(e) => e.stopPropagation()}
-                            className="mt-1 inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg bg-white/90 border border-slate-200 hover:bg-white"
-                            style={{ color: LICORICE }}
-                            title="Insérer dans le mail"
-                          >
-                            ↳ Insérer
-                          </button>
-                        </div>
-                        <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-gray-200 shrink-0">
+                      <div className="flex gap-2.5">
+                        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-gray-200">
                           {t.photo ? (
                             <Image
                               src={t.photo}
                               alt=""
                               fill
                               className="object-cover"
-                              sizes="56px"
+                              sizes="48px"
                             />
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
+                            <div className="flex h-full w-full items-center justify-center text-xs text-gray-500">
                               —
                             </div>
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
                           <p
-                            className="font-semibold text-sm truncate"
+                            className="truncate text-sm font-semibold"
                             style={{ color: LICORICE }}
                           >
                             {t.prenom} {t.nom}
                           </p>
-                          <div className="flex flex-wrap gap-1 mt-1">
+                          <div className="mt-1 flex flex-wrap gap-1">
                             {(t.niches || []).slice(0, 2).map((n, i) => (
                               <span
                                 key={n}
-                                className="text-[10px] px-1.5 py-0.5 rounded-full text-white"
+                                className="rounded-full px-1.5 py-0.5 text-[10px] text-white"
                                 style={{ backgroundColor: nicheColor(i) }}
                               >
                                 {n}
                               </span>
                             ))}
                           </div>
-                          <p className="text-xs mt-1 opacity-80" style={{ color: LICORICE }}>
+                          <p className="mt-1 text-xs opacity-80" style={{ color: LICORICE }}>
                             {primaryTalentStat(t)}
                           </p>
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openTalentDetail(t.id);
+                              }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white/90 px-2 py-0.5 text-[11px] hover:bg-white"
+                              style={{ color: LICORICE }}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              Détail
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                insertTalentLink(t);
+                              }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white/90 px-2 py-0.5 text-[11px] hover:bg-white"
+                              style={{ color: LICORICE }}
+                              title="Insérer dans le mail"
+                            >
+                              ↳ Insérer
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
                   );
                 })}
             </div>
-            {selectedTalents.length > 0 && (
+            {selectedTalents.length > 0 && !isTalentLocked && (
               <div className="px-4 py-3 border-t shrink-0 bg-white/50">
                 <p className="text-xs font-medium mb-2" style={{ color: LICORICE }}>
                   Talents choisis
@@ -1431,10 +1556,9 @@ export default function CastingComposer({
             )}
           </div>
 
-          {/* Colonne email — destinataires + éditeur scrollables, actions collées en bas */}
-          <div className="w-full md:w-2/3 flex flex-col min-h-0 overflow-hidden">
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-3 pb-2 flex flex-col gap-2">
-              <div className="shrink-0 space-y-2">
+          {/* Colonne email : zone unique scrollable + footer fixe */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3">
               <div className="flex flex-wrap gap-1.5">
                 {contact.contacts.length === 0 ? (
                   <p className="text-xs opacity-70" style={{ color: LICORICE }}>
@@ -1513,61 +1637,148 @@ export default function CastingComposer({
                     className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-left font-semibold text-amber-900 hover:bg-amber-100/60"
                   >
                     <span className="truncate">
-                      Brief — {contact.missionBrief.creatorName}
-                      {" → "}
-                      {contact.missionBrief.targetBrand}
+                      {isCondensation
+                        ? `Condensation — ${orderedCondensationBriefs.length} projets → ${contact.missionBrief.targetBrand}`
+                        : `Brief — ${contact.missionBrief.creatorName} → ${contact.missionBrief.targetBrand}`}
                     </span>
                     <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-amber-700">
                       {briefOpen ? "Masquer" : "Voir"}
                     </span>
                   </button>
                   {briefOpen && (
-                    <div className="px-3 pb-2.5 space-y-1 max-h-36 overflow-y-auto border-t border-amber-200/80">
-                      <p className="pt-2 text-amber-800">
-                        <strong>Statut:</strong>{" "}
+                    <div className="max-h-52 space-y-2 overflow-y-auto border-t border-amber-200/80 px-3 pb-3 pt-1">
+                      <p className="text-amber-800">
+                        <strong>Statut :</strong>{" "}
                         {missionStatus
                           ? missionStatusLabel(missionStatus)
                           : missionStatusLabel(contact.missionBrief.status)}
+                        {isCondensation ? (
+                          <span className="text-amber-700"> · 1 mail pour le groupe</span>
+                        ) : null}
                       </p>
-                      <p className="text-amber-900">{contact.missionBrief.strategyReason}</p>
-                      {contact.missionBrief.recommendedAngle && (
-                        <p className="text-amber-800">
-                          <strong>Angle:</strong> {contact.missionBrief.recommendedAngle}
-                        </p>
-                      )}
-                      {(contact.missionBrief.objective || contact.missionBrief.priority) && (
-                        <p className="text-amber-800">
-                          <strong>Objectif:</strong> {contact.missionBrief.objective || "—"} ·{" "}
-                          <strong>Priorite:</strong> {contact.missionBrief.priority}
-                        </p>
-                      )}
-                      {contact.missionBrief.dos && (
-                        <p className="text-amber-800">
-                          <strong>Do:</strong> {contact.missionBrief.dos}
-                        </p>
-                      )}
-                      {contact.missionBrief.donts && (
-                        <p className="text-amber-800">
-                          <strong>Don't:</strong> {contact.missionBrief.donts}
-                        </p>
+                      {isCondensation ? (
+                        <div className="space-y-2">
+                          {orderedCondensationBriefs.map((b, idx) => {
+                            const title =
+                              (b.projectTitle || "").trim() || `Projet ${idx + 1}`;
+                            const talent = (b.creatorName || "").trim() || "Talent";
+                            const reason = (b.strategyReason || "").trim();
+                            const objective = (b.objective || "").trim();
+                            const description = (b.projectDescription || "").trim();
+                            return (
+                              <div
+                                key={b.missionId || `brief-${idx}`}
+                                className="rounded-lg border border-amber-200 bg-white p-2.5 space-y-1"
+                              >
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">
+                                  Projet {idx + 1} · talent_{idx + 1}
+                                </p>
+                                <p className="font-semibold text-amber-950">{talent}</p>
+                                <p className="text-amber-900 leading-snug">{title}</p>
+                                {description ? (
+                                  <p className="text-amber-800/90 leading-snug line-clamp-3">
+                                    {description}
+                                  </p>
+                                ) : null}
+                                {reason ? (
+                                  <p className="text-amber-900 leading-snug">
+                                    <strong>Raison :</strong> {reason}
+                                  </p>
+                                ) : null}
+                                {objective ? (
+                                  <p className="text-amber-800">
+                                    <strong>Objectif :</strong> {objective}
+                                  </p>
+                                ) : null}
+                                {b.deliverables ? (
+                                  <p className="text-amber-800">
+                                    <strong>Livrables :</strong> {b.deliverables}
+                                  </p>
+                                ) : null}
+                                {b.recommendedAngle ? (
+                                  <p className="text-amber-800">
+                                    <strong>Angle :</strong> {b.recommendedAngle}
+                                  </p>
+                                ) : null}
+                                {b.dos ? (
+                                  <p className="text-amber-800">
+                                    <strong>Do :</strong> {b.dos}
+                                  </p>
+                                ) : null}
+                                {b.donts ? (
+                                  <p className="text-amber-800">
+                                    <strong>Don&apos;t :</strong> {b.donts}
+                                  </p>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <>
+                          {contact.missionBrief.projectTitle ? (
+                            <p className="font-semibold text-amber-950">
+                              {contact.missionBrief.projectTitle}
+                            </p>
+                          ) : null}
+                          {contact.missionBrief.projectDescription ? (
+                            <p className="text-amber-800 leading-snug line-clamp-3">
+                              {contact.missionBrief.projectDescription}
+                            </p>
+                          ) : null}
+                          <p className="text-amber-900">
+                            {contact.missionBrief.strategyReason}
+                          </p>
+                          {contact.missionBrief.recommendedAngle && (
+                            <p className="text-amber-800">
+                              <strong>Angle :</strong>{" "}
+                              {contact.missionBrief.recommendedAngle}
+                            </p>
+                          )}
+                          {(contact.missionBrief.objective ||
+                            contact.missionBrief.priority) && (
+                            <p className="text-amber-800">
+                              <strong>Objectif :</strong>{" "}
+                              {contact.missionBrief.objective || "—"} ·{" "}
+                              <strong>Priorité :</strong>{" "}
+                              {contact.missionBrief.priority}
+                            </p>
+                          )}
+                          {contact.missionBrief.dos && (
+                            <p className="text-amber-800">
+                              <strong>Do :</strong> {contact.missionBrief.dos}
+                            </p>
+                          )}
+                          {contact.missionBrief.donts && (
+                            <p className="text-amber-800">
+                              <strong>Don&apos;t :</strong>{" "}
+                              {contact.missionBrief.donts}
+                            </p>
+                          )}
+                        </>
                       )}
                       {contact.missionBrief.clientLanguage && (
                         <p className="text-amber-800">
-                          <strong>Langue:</strong>{" "}
-                          {contact.missionBrief.clientLanguage === "FR" ? "Français" : "Anglais"}
+                          <strong>Langue :</strong>{" "}
+                          {contact.missionBrief.clientLanguage === "FR"
+                            ? "Français"
+                            : "Anglais"}
                         </p>
                       )}
                       {Array.isArray(contact.missionBrief.clientContacts) &&
                         contact.missionBrief.clientContacts.length > 0 && (
                           <div className="space-y-0.5">
-                            <p className="text-amber-800 font-semibold">Contacts client</p>
+                            <p className="text-amber-800 font-semibold">
+                              Contacts client
+                            </p>
                             {contact.missionBrief.clientContacts.map((c, idx) => (
                               <p
                                 key={`${c.email || "contact"}-${idx}`}
                                 className="text-xs text-amber-900"
                               >
-                                {`${c.firstname || ""} ${c.lastname || ""}`.trim() || "Contact"} -{" "}
-                                {c.email || "email non renseigné"}
+                                {`${c.firstname || ""} ${c.lastname || ""}`.trim() ||
+                                  "Contact"}{" "}
+                                - {c.email || "email non renseigné"}
                                 {c.role ? ` (${c.role})` : ""}
                               </p>
                             ))}
@@ -1581,7 +1792,9 @@ export default function CastingComposer({
                             disabled={markingSent}
                             className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 disabled:opacity-60"
                           >
-                            {markingSent ? "Mise à jour..." : "Marquer mission envoyée"}
+                            {markingSent
+                              ? "Mise à jour..."
+                              : "Marquer mission envoyée"}
                           </button>
                         </div>
                       )}
@@ -1589,12 +1802,10 @@ export default function CastingComposer({
                   )}
                 </section>
               )}
-              </div>
 
-              <div className="flex h-full min-h-[240px] flex-1 flex-col">
               {isHeadOfSalesReadOnly ? (
                 <section
-                  className="min-h-[240px] overflow-y-auto rounded-xl border p-4 space-y-3 bg-white"
+                  className="space-y-3 rounded-xl border bg-white p-4"
                   style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
                 >
                   <p className="text-xs uppercase tracking-wide" style={{ color: OLD_ROSE }}>
@@ -1613,7 +1824,7 @@ export default function CastingComposer({
                       Corps
                     </p>
                     <div
-                      className="prose prose-sm max-w-none text-sm border-t pt-3"
+                      className="prose prose-sm max-w-none border-t pt-3 text-sm"
                       style={{ color: LICORICE }}
                       dangerouslySetInnerHTML={{
                         __html:
@@ -1645,9 +1856,9 @@ export default function CastingComposer({
                   }
                 />
               )}
-              </div>
             </div>
 
+            <div className="shrink-0">
             {allowSchedule && !isHeadOfSalesReadOnly && (
               <div
                 className="px-5 py-3 border-t shrink-0 bg-white/70"
@@ -1807,7 +2018,10 @@ export default function CastingComposer({
                 </>
               )}
             </div>
+            </div>
           </div>
+        </div>
+
         {sendPreviewOpen && (
           <div
             className="fixed inset-0 z-[220] bg-black/50 flex items-center justify-center p-4"
@@ -2432,7 +2646,6 @@ export default function CastingComposer({
             </div>
           </div>
         )}
-        </div>
       </div>
     </div>
   );

@@ -88,6 +88,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           donts: String(item.donts || "").trim() || campaign.donts || null,
           priority: parseMissionPriority(item.priority),
           stage: "TO_DRAFT",
+          condensationStatus: campaign.waveId ? "IN_WAVE" : "NONE",
           clientContacts: item.clientContacts ?? undefined,
           createdById: session.user.id,
         },
@@ -123,7 +124,41 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
 
-    return NextResponse.json({ created: created.length, missions: created }, { status: 201 });
+    let waveNotice: string | null = null;
+    if (campaign.waveId && created.length > 0) {
+      const { refreezeWaveIfNewSharedBrand } = await import("@/lib/brand-condensation");
+      const marqueNoms = await prisma.marque.findMany({
+        where: {
+          id: {
+            in: created.map((m) => m.marqueId).filter((id): id is string => Boolean(id)),
+          },
+        },
+        select: { id: true, nom: true },
+      });
+      const nomById = new Map(marqueNoms.map((m) => [m.id, m.nom]));
+      const result = await refreezeWaveIfNewSharedBrand({
+        waveId: campaign.waveId,
+        newMissions: created.map((m) => ({
+          id: m.id,
+          talentId: m.talentId,
+          creatorName: m.creatorName,
+          targetBrand: m.targetBrand,
+          targetBrandKey: m.targetBrandKey,
+          marqueId: m.marqueId,
+          marqueNom: m.marqueId ? nomById.get(m.marqueId) ?? null : null,
+        })),
+      });
+      waveNotice = result.message;
+    }
+
+    return NextResponse.json(
+      {
+        created: created.length,
+        missions: created,
+        ...(waveNotice ? { waveNotice, castingRefrozen: true } : {}),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("POST /api/projets-outreach/[id]/brands:", error);
     return NextResponse.json({ error: "Erreur lors de l'ajout des marques" }, { status: 500 });

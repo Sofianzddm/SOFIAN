@@ -37,6 +37,18 @@ type ComposerPayload = {
     priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
     status: "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED";
     deadlineAt?: string | null;
+    condensationBriefs?: Array<{
+      missionId: string;
+      talentId?: string | null;
+      projectTitle?: string | null;
+      creatorName?: string | null;
+      targetBrand?: string | null;
+      strategyReason?: string | null;
+      recommendedAngle?: string | null;
+      objective?: string | null;
+      dos?: string | null;
+      donts?: string | null;
+    }> | null;
   } | null;
 };
 
@@ -159,6 +171,30 @@ export function CastingMissionsClient() {
     setOpeningComposerId(mission.id);
     setError(null);
     try {
+      let condensationBriefs: NonNullable<
+        NonNullable<ComposerPayload["missionBrief"]>["condensationBriefs"]
+      > | null = null;
+      try {
+        const gateRes = await fetch(
+          `/api/projets-outreach/condensation-briefs?missionId=${encodeURIComponent(mission.id)}`,
+          { credentials: "include" }
+        );
+        const gateData = await gateRes.json().catch(() => ({}));
+        if (gateRes.ok && gateData?.gate?.blocked) {
+          setError(
+            typeof gateData.gate.message === "string"
+              ? gateData.gate.message
+              : "Rédaction bloquée : vague Strategy non validée."
+          );
+          return;
+        }
+        if (Array.isArray(gateData?.condensationBriefs)) {
+          condensationBriefs = gateData.condensationBriefs;
+        }
+      } catch {
+        // backend PATCH bloquera si besoin
+      }
+
       const res = await fetch(
         `/api/hubspot/casting/brand-contacts?brand=${encodeURIComponent(mission.targetBrand)}`,
         { credentials: "include" }
@@ -193,6 +229,7 @@ export function CastingMissionsClient() {
           priority: mission.priority,
           status: mission.status,
           deadlineAt: mission.deadlineAt,
+          condensationBriefs,
         },
       };
 
@@ -337,6 +374,18 @@ export function CastingMissionsClient() {
         open={composerOpen}
         contact={composerContact}
         brandColumn={composerColumn}
+        lockedTalentIds={
+          composerContact?.missionBrief?.condensationBriefs &&
+          composerContact.missionBrief.condensationBriefs.length >= 2
+            ? Array.from(
+                new Set(
+                  composerContact.missionBrief.condensationBriefs
+                    .map((b) => String(b.talentId || "").trim())
+                    .filter(Boolean)
+                )
+              )
+            : null
+        }
         onClose={() => {
           setComposerOpen(false);
           setComposerContact(null);
