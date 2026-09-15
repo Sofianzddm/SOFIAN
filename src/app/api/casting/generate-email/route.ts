@@ -192,6 +192,24 @@ export async function POST(request: NextRequest) {
       return v ? `- ${label} : ${v}` : "";
     }
 
+    /** Objectif CRM type « Paid » ne doit jamais être recopié tel quel dans le mail. */
+    function sanitizeObjectiveForPrompt(value: unknown): string {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      const lower = raw.toLowerCase();
+      if (
+        /^(paid|pay[ée]|rémun[ée]r[ée]|remunere|cash|sponsoris[ée])$/i.test(lower) ||
+        lower === "collab paid" ||
+        lower === "collaboration paid"
+      ) {
+        return "collaboration (ne pas écrire « paid » / « payé » dans le mail — parle d’une collaboration / d’un projet)";
+      }
+      return raw
+        .replace(/\bpaid\b/gi, "collaboration")
+        .replace(/\bpayée?\b/gi, "collaboration")
+        .replace(/\brémunérée?\b/gi, "collaboration");
+    }
+
     function formatOneBriefFr(p: (typeof condensationBriefs)[number], index: number): string {
       return [
         `PROJET ${index + 1} — ${String(p.creatorName || "").trim() || "Talent"}`,
@@ -201,7 +219,7 @@ export async function POST(request: NextRequest) {
         briefLine("Marque ciblée", p.targetBrand),
         briefLine("Raison strategy", p.strategyReason),
         briefLine("Angle recommandé", p.recommendedAngle),
-        briefLine("Objectif", p.objective),
+        briefLine("Objectif", sanitizeObjectiveForPrompt(p.objective)),
         briefLine("Livrables", p.deliverables),
         briefLine("Angles", p.angles),
         briefLine("Timeline", p.timeline),
@@ -222,7 +240,7 @@ export async function POST(request: NextRequest) {
         briefLine("Target brand", p.targetBrand),
         briefLine("Strategy reason", p.strategyReason),
         briefLine("Recommended angle", p.recommendedAngle),
-        briefLine("Objective", p.objective),
+        briefLine("Objective", sanitizeObjectiveForPrompt(p.objective)),
         briefLine("Deliverables", p.deliverables),
         briefLine("Angles", p.angles),
         briefLine("Timeline", p.timeline),
@@ -253,6 +271,8 @@ INTERDITS :
 - Ne pas écrire un mail mono-talent qui ignore les autres projets.
 - Ne pas fusionner les briefs en un pitch flou sans distinguer qui est qui.
 - Pas de transition « plusieurs créateurs du roster » hors des projets listés.
+- INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook, « découvrir nos autres talents ».
+- INTERDIT absolu : les mots « paid », « payé », « rémunéré », « collaboration paid », « collab paid ». Parle d’une collaboration / d’un projet, sans qualifier le modèle économique.
 `
       : "";
 
@@ -275,6 +295,8 @@ PROHIBITIONS:
 - Do not write a single-talent email that ignores the other projects.
 - Do not blur briefs into one vague pitch without saying who is who.
 - No generic "several creators from our roster" outside the listed projects.
+- Absolute ban: talentbook, roster, catalog, talent book link, app.glowupagence.fr/talentbook, "discover our other talents".
+- Absolute ban: the words "paid", "paid collab", "paid collaboration". Speak of a collaboration / project without naming the commercial model.
 `
       : "";
 
@@ -289,7 +311,7 @@ ${[
   briefLine("Marque ciblée", projectBrief.targetBrand),
   briefLine("Raison strategy", projectBrief.strategyReason),
   briefLine("Angle recommandé", projectBrief.recommendedAngle),
-  briefLine("Objectif", projectBrief.objective),
+  briefLine("Objectif", sanitizeObjectiveForPrompt(projectBrief.objective)),
   briefLine("Livrables", projectBrief.deliverables),
   briefLine("Angles", projectBrief.angles),
   briefLine("Timeline", projectBrief.timeline),
@@ -306,7 +328,7 @@ Règles projet :
 - Respecte strictement les Don'ts ; mets en avant les Do's si utiles.
 - Les talents listés dans "Talents disponibles" sont le cœur du projet : présente-les dans ce cadre.
 - Tu peux citer 1 élément concret issu de la recherche marque si ça renforce le fit avec le projet.
-- Ne dilue pas le message avec une proposition de roster complet hors projet : le talentbook peut être mentionné en bonus, mais le cœur du mail = le projet.
+- Ne dilue pas le message avec une proposition de roster / talentbook hors projet : AUCUNE mention du book, du catalogue, du roster complet, ni de lien talentbook.
 
 INTERDITS PROJET (absolus) :
 - Ne JAMAIS écrire « Dans notre agence nous avons plusieurs créateurs qui peuvent correspondre » ni aucune variante du type « plusieurs créateurs / plusieurs talents à vous proposer / une sélection de profils ».
@@ -316,6 +338,8 @@ INTERDITS PROJET (absolus) :
 - INTERDIT de coller une URL Instagram longue avec tokens (?sttn=, ?stkn=, igsh, etc.) : nettoie toujours vers https://www.instagram.com/handle/
 - Formule naturelle du type : « Elle sera accompagnée de Pauline (@…), Lorine (@…) et Karla (@…). »
 - N'invente pas de handles Instagram : utilise uniquement ceux présents dans le brief / objectif.
+- INTERDIT : talentbook, book de talents, roster, catalogue talents, lien https://app.glowupagence.fr/talentbook, « voir nos autres profils ».
+- INTERDIT : « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Même si l'objectif du brief dit Paid, écris seulement « collaboration » / « projet » / « opportunité » — jamais le modèle économique.
 `
       : "";
     const projectBriefBlockEn = !isCondensation && projectBrief
@@ -329,7 +353,7 @@ ${[
   briefLine("Target brand", projectBrief.targetBrand),
   briefLine("Strategy reason", projectBrief.strategyReason),
   briefLine("Recommended angle", projectBrief.recommendedAngle),
-  briefLine("Objective", projectBrief.objective),
+  briefLine("Objective", sanitizeObjectiveForPrompt(projectBrief.objective)),
   briefLine("Deliverables", projectBrief.deliverables),
   briefLine("Angles", projectBrief.angles),
   briefLine("Timeline", projectBrief.timeline),
@@ -346,7 +370,7 @@ Project rules:
 - Strictly respect Don'ts; use Do's when helpful.
 - Talents in "Available talents" are the core of the project — present them in that frame.
 - You may cite 1 concrete brand-research detail if it strengthens the project fit.
-- Don't dilute with an off-project roster pitch: talentbook can be a bonus, but the core is the project.
+- Don't dilute with an off-project roster / talentbook pitch: NEVER mention the talent book, catalog, full roster, or any talentbook link.
 
 PROJECT PROHIBITIONS (absolute):
 - NEVER write "Looking at the market… we have several creators who could be a fit" nor any "several creators / a selection of profiles" casting transition.
@@ -356,6 +380,8 @@ PROJECT PROHIBITIONS (absolute):
 - FORBIDDEN to paste long Instagram URLs with tokens (?sttn=, ?stkn=, igsh, etc.): always clean to https://www.instagram.com/handle/
 - Natural phrasing e.g. "She will be accompanied by Pauline (@…), Lorine (@…) and Karla (@…)."
 - Do not invent Instagram handles: only use those present in the brief / objective.
+- FORBIDDEN: talentbook, talent book, roster catalog, https://app.glowupagence.fr/talentbook, "see our other profiles".
+- FORBIDDEN: "paid", "paid collab", "paid collaboration". Even if the brief objective says Paid, write only "collaboration" / "project" / "opportunity" — never the commercial model.
 `
       : "";
 
@@ -496,13 +522,15 @@ STRUCTURE (a logical flow, not a rigid template — vary the wording on every em
 For reference (do NOT reuse as-is): "I would be delighted to quickly send you their complete media kits, a moodboard, and tailored performance estimates. Would you be available for a 10-15 minute call next week to introduce our agency and our creators?"
 
 ${
-  projectBrief
+  projectBrief || isCondensation
     ? `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
 - FORBIDDEN to use the "several creators who could be a fit" transition (or variants).
-- Present the main talent in the singular + the project.
-- The main talent's full name MUST always appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a> (keep bold + link, never plain text).
-- If the brief cites companions, one sentence "She will be accompanied by…" with clean Instagram links (<a href="https://www.instagram.com/handle">@handle</a>), never tokenized Instagram URLs.
-- No multi-profile casting list outside the project.`
+- Present the talent(s) + the project(s) only — no casting roster.
+- Each talent's full name MUST appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a>.
+- If the brief cites companions, one sentence "She will be accompanied by…" with clean Instagram links.
+- FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook).
+- FORBIDDEN: the words "paid", "paid collab", "paid collaboration". Say "collaboration" / "project" only.
+- CTA: propose discussing the project / a short call — never media kits for a full roster.`
     : ""
 }
 
@@ -584,13 +612,15 @@ STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à c
 Pour référence (à NE PAS reprendre tel quel) : « Je serais ravie de vous envoyer rapidement leurs médias kits complets, un moodboard ainsi que des estimations de performance sur mesure. Seriez-vous disponible pour un appel de 10-15 minutes la semaine prochaine pour vous présenter notre agence et nos talents ? »
 
 ${
-  projectBrief
+  projectBrief || isCondensation
     ? `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
 - INTERDIT d'utiliser la transition « plusieurs créateurs qui peuvent correspondre » (ou variante).
-- Présente le talent principal au singulier + le projet.
-- Le nom complet du talent principal DOIT toujours apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a> (garder gras + lien, jamais en texte brut).
-- Si le brief cite des accompagnatrices, une phrase « Elle sera accompagnée de … » avec liens Instagram propres (<a href="https://www.instagram.com/handle">@handle</a>), jamais d'URL Instagram avec tokens.
-- Pas de liste casting multi-profils hors projet.`
+- Présente le(s) talent(s) + le(s) projet(s) uniquement — pas de roster casting.
+- Chaque nom de talent DOIT apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a>.
+- Si le brief cite des accompagnatrices, une phrase « Elle sera accompagnée de … » avec liens Instagram propres.
+- INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook).
+- INTERDIT : les mots « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Dis seulement « collaboration » / « projet ».
+- CTA : proposer d’échanger sur le projet / un court call — jamais les médias kits d’un roster complet.`
     : ""
 }
 
