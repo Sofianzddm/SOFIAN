@@ -14,6 +14,27 @@ function isAllowed(role: string | undefined): boolean {
   return role !== undefined && (ALLOWED_ROLES as readonly string[]).includes(role);
 }
 
+/** Retire liens / phrases talentbook d'un body HTML (filet projets-outreach). */
+function stripTalentbookFromHtml(html: string): string {
+  let out = html;
+  // Liens <a href="...talentbook...">...</a>
+  out = out.replace(
+    /<a\b[^>]*href=["'][^"']*talentbook[^"']*["'][^>]*>[\s\S]*?<\/a>/gi,
+    ""
+  );
+  // URL nue
+  out = out.replace(/https?:\/\/[^\s<"']*talentbook[^\s<"']*/gi, "");
+  // Phrases courantes autour du book / roster
+  out = out.replace(
+    /[^.<\n]*(?:talent\s*book|talentbook|book\s+de\s+talents|roster\s+complet|catalogue\s+(?:de\s+)?talents|découvrir\s+nos\s+autres\s+talents|voir\s+nos\s+autres\s+profils)[^.>\n]*[.!]?\s*/gi,
+    ""
+  );
+  // Nettoyage espaces / br orphelins
+  out = out.replace(/(?:<br\s*\/?>\s*){3,}/gi, "<br><br>");
+  out = out.replace(/\n{3,}/g, "\n\n");
+  return out.trim();
+}
+
 export interface TalentPayload {
   name: string;
   niche: string;
@@ -182,10 +203,20 @@ export async function POST(request: NextRequest) {
         (String(rawProject.strategyReason || "").trim() ||
           String(rawProject.objective || "").trim() ||
           String(rawProject.projectTitle || "").trim() ||
-          String(rawProject.deliverables || "").trim())
+          String(rawProject.deliverables || "").trim() ||
+          String(rawProject.creatorName || "").trim() ||
+          String(rawProject.projectDescription || "").trim())
     );
     const projectBrief = hasProjectBrief && rawProject ? rawProject : null;
     const isCondensation = condensationBriefs.length >= 2;
+    /** Mail projets-outreach (solo ou condensation) : jamais talentbook / roster casting. */
+    const isProjectMail = Boolean(projectBrief) || isCondensation;
+    const projectCountLabelFr =
+      condensationBriefs.length === 2
+        ? "deux projets"
+        : condensationBriefs.length === 3
+          ? "trois projets"
+          : `${condensationBriefs.length} projets`;
 
     function briefLine(label: string, value: unknown): string {
       const v = String(value || "").trim();
@@ -255,22 +286,23 @@ export async function POST(request: NextRequest) {
     const condensationBlockFr = isCondensation
       ? `
 BRIEF CONDENSATION MULTI-PROJETS (OBLIGATOIRE) :
-Tu rédiges UN SEUL mail à UNE marque, qui présente CLAIREMENT ${condensationBriefs.length} projets / talents distincts.
+Tu rédiges UN SEUL mail à UNE marque, qui présente CLAIREMENT ${projectCountLabelFr} distincts (chacun avec son talent).
 Ce n'est PAS un roster casting générique : chaque projet a son brief ci-dessous — tu dois les utiliser TOUS.
 
 ${condensationBriefs.map((p, i) => formatOneBriefFr(p, i)).join("\n\n")}
 
-Règles condensation :
-- Structure le mail avec une courte intro agence, puis une section claire par projet/talent (titres ou séparations nettes).
-- Pour chaque projet : pitch basé sur SA raison strategy, objectif, livrables, angles, dos/donts.
-- Termine par une CTA unique (ex. intérêt pour l'un, plusieurs, ou un call).
+Règles condensation (structure attendue) :
+- Après l'accroche marque, enchaîne avec une transition claire du type : « Nous avons actuellement ${projectCountLabelFr} pour lesquels nos talents pourraient coller » (reformule naturellement, même idée).
+- Puis explique CHAQUE projet séparément (section nette par talent/projet) : qui est le talent (lien Instagram), en quoi le projet colle à la marque, livrables / angle utiles — 3 à 5 phrases max par projet.
+- Reste concret et sobre : explique bien, SANS en faire trop (pas de catalogue, pas d'empilement d'arguments, pas de média kits d'agence).
+- Termine par une CTA unique (intérêt pour l'un, plusieurs, ou un court call).
 - Les talents listés dans "Talents disponibles" correspondent à ces projets — cite-les tous.
 - Une seule marque destinataire : ne propose pas d'autres marques.
 
 INTERDITS :
 - Ne pas écrire un mail mono-talent qui ignore les autres projets.
 - Ne pas fusionner les briefs en un pitch flou sans distinguer qui est qui.
-- Pas de transition « plusieurs créateurs du roster » hors des projets listés.
+- Pas de transition « plusieurs créateurs du roster » / sélection casting hors des projets listés.
 - INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook, « découvrir nos autres talents ».
 - INTERDIT absolu : les mots « paid », « payé », « rémunéré », « collaboration paid », « collab paid ». Parle d’une collaboration / d’un projet, sans qualifier le modèle économique.
 `
@@ -279,22 +311,23 @@ INTERDITS :
     const condensationBlockEn = isCondensation
       ? `
 MULTI-PROJECT CONDENSATION BRIEF (MANDATORY) :
-You write ONE email to ONE brand that CLEARLY presents ${condensationBriefs.length} distinct projects / talents.
+You write ONE email to ONE brand that CLEARLY presents ${condensationBriefs.length} distinct projects (each with its talent).
 This is NOT a generic casting roster: each project has its brief below — you MUST use ALL of them.
 
 ${condensationBriefs.map((p, i) => formatOneBriefEn(p, i)).join("\n\n")}
 
-Condensation rules:
-- Structure with a short agency intro, then a clear section per project/talent.
-- For each project: pitch from ITS strategy reason, objective, deliverables, angles, dos/donts.
-- End with a single CTA (interest in one, several, or a call).
+Condensation rules (expected structure):
+- After the brand hook, transition with something like: "We currently have ${condensationBriefs.length} projects where our talents could be a strong fit" (rephrase naturally, same idea).
+- Then explain EACH project separately (clear section per talent/project): who the talent is (Instagram link), why the project fits the brand, useful deliverables/angle — 3 to 5 sentences max per project.
+- Be concrete and measured: explain well WITHOUT overdoing it (no catalog, no stacked arguments, no agency media-kit dump).
+- End with a single CTA (interest in one, several, or a short call).
 - Talents in "Available talents" map to these projects — mention them all.
 - One recipient brand only.
 
 PROHIBITIONS:
 - Do not write a single-talent email that ignores the other projects.
 - Do not blur briefs into one vague pitch without saying who is who.
-- No generic "several creators from our roster" outside the listed projects.
+- No generic "several creators from our roster" / casting selection outside the listed projects.
 - Absolute ban: talentbook, roster, catalog, talent book link, app.glowupagence.fr/talentbook, "discover our other talents".
 - Absolute ban: the words "paid", "paid collab", "paid collaboration". Speak of a collaboration / project without naming the commercial model.
 `
@@ -509,21 +542,42 @@ STRUCTURE (a logical flow, not a rigid template — vary the wording on every em
   FORBIDDEN: re-describing features already contained in the product's name ("X with its peptides and sun protection" when "Peptides" and "SPF" are already in X). If an info is in the name, do not repeat it.
   Cite the product to SAY something useful (it's performing well, it fits the kind of content our creators make…), not to prove you know the product. Avoid hollow observations like "is still well promoted" (promoted where? by whom?). A single sentence that flows into what comes next.
 - Explain why you're thinking of them, simply and concretely (1-2 sentences). No jargon, no "synergy" or "brand DNA".
-- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "at our agency we have several creators who could be a fit:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, at our agency we have several creators who could be a fit:". Keep it measured and natural, 1-2 sentences max.
+${
+  isProjectMail
+    ? isCondensation
+      ? `- Transition: after the brand hook, state that you currently have ${condensationBriefs.length} projects where your talents could fit, then present each project — do NOT use the casting "several creators who could be a fit" roster transition.
+- Present each talent inside their project section (not a casting bullet list of interchangeable profiles).`
+      : `- Transition: go straight to THIS project and its talent(s) — do NOT use the casting "several creators who could be a fit" roster transition.
+- Present the talent(s) for this project (Instagram links), not a casting bullet roster.`
+    : `- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "at our agency we have several creators who could be a fit:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, at our agency we have several creators who could be a fit:". Keep it measured and natural, 1-2 sentences max.
 - List the talents in a clear, airy bullet format:
   Firstname Lastname (TikTok followers count - Instagram followers count - Category) -> short reason (10-15 words max), concrete and relevant, not a marketing line
   You MUST include the creator's TikTok followers count as provided in "Available talents" (never omit it when provided), in addition to the Instagram followers count.
-- A short sentence after the list that simply states what these profiles can bring — without stacking qualities. Keep it factual and vary the wording every time (avoid a canned "awareness + credibility + lived-in content" line).
+- A short sentence after the list that simply states what these profiles can bring — without stacking qualities. Keep it factual and vary the wording every time (avoid a canned "awareness + credibility + lived-in content" line).`
+}
 - Propose the collaboration in a professional, composed way (e.g. "We would be glad to explore a collaboration with you." or "If this is of interest, we would be happy to discuss it.").
-- MUST add one sentence that includes a CLICKABLE link to our full roster, in this exact HTML format: <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
+${
+  isProjectMail
+    ? `- FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook). Do NOT pitch a full agency roster.
+- End with a short CTA to discuss the project(s) or a brief call — never media kits for a full roster.`
+    : `- MUST add one sentence that includes a CLICKABLE link to our full roster, in this exact HTML format: <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
 - The email MUST end, right before the closing, with two sentences that convey these two ideas (rephrase them naturally, vary the wording every time, do NOT copy them verbatim):
   1) an offer to quickly send their complete media kits, a moodboard and tailored performance estimates;
   2) a proposal for a short 10-15 minute call next week to introduce our agency and our creators.
-For reference (do NOT reuse as-is): "I would be delighted to quickly send you their complete media kits, a moodboard, and tailored performance estimates. Would you be available for a 10-15 minute call next week to introduce our agency and our creators?"
+For reference (do NOT reuse as-is): "I would be delighted to quickly send you their complete media kits, a moodboard, and tailored performance estimates. Would you be available for a 10-15 minute call next week to introduce our agency and our creators?"`
+}
 
 ${
-  projectBrief || isCondensation
+  isCondensation
     ? `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
+- FORBIDDEN to use the casting transition "several creators who could be a fit" / roster selection.
+- After the brand hook, state clearly that you currently have ${condensationBriefs.length} projects where your talents could fit, then explain EACH project separately (talent + fit + useful deliverables/angle), measured — not too long.
+- Each talent's full name MUST appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a>.
+- FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook).
+- FORBIDDEN: the words "paid", "paid collab", "paid collaboration". Say "collaboration" / "project" only.
+- CTA: discuss interest in one or several projects / a short call — never media kits for a full roster.`
+    : projectBrief
+      ? `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
 - FORBIDDEN to use the "several creators who could be a fit" transition (or variants).
 - Present the talent(s) + the project(s) only — no casting roster.
 - Each talent's full name MUST appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a>.
@@ -531,7 +585,7 @@ ${
 - FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook).
 - FORBIDDEN: the words "paid", "paid collab", "paid collaboration". Say "collaboration" / "project" only.
 - CTA: propose discussing the project / a short call — never media kits for a full roster.`
-    : ""
+      : ""
 }
 
 Exact closing: "Best regards,"
@@ -599,21 +653,42 @@ STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à c
   INTERDIT : re-décrire des caractéristiques déjà contenues dans le nom du produit ("X avec ses peptides et sa protection solaire" alors que "Peptides" et "SPF" sont déjà dans X). Si une info est dans le nom, ne la répète pas.
   Cite le produit pour DIRE quelque chose d'utile (il marche bien, il colle au type de contenu de nos créatrices…), pas pour prouver que tu connais le produit. Évite les constats creux du type "reste bien mis en avant" (mis en avant où ? par qui ?). Une seule phrase qui enchaîne vers la suite.
 - Expliquer pourquoi vous pensez à eux, simplement et concrètement (1-2 phrases). Pas de jargon, pas de "synergie" ni "ADN de marque".
-- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reste sobre et naturel, 1 à 2 phrases max.
+${
+  isProjectMail
+    ? isCondensation
+      ? `- Transition : après l'accroche marque, dis que vous avez actuellement ${projectCountLabelFr} pour lesquels vos talents pourraient coller, puis présente chaque projet — INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre ».
+- Présente chaque talent dans la section de SON projet (pas une liste casting de profils interchangeables).`
+      : `- Transition : enchaîne directement sur CE projet et son/ses talent(s) — INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre ».
+- Présente le(s) talent(s) de ce projet (liens Instagram), pas un roster casting à puces.`
+    : `- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reste sobre et naturel, 1 à 2 phrases max.
 - Lister les talents en format clair et aéré avec des tirets :
   Prénom Nom (nombre d’abonnés TikTok – nombre d’abonnés Instagram – Catégorie) → raison courte (10-15 mots max), concrète et pertinente, pas une formule marketing
   Tu DOIS reprendre le nombre d’abonnés TikTok du créateur tel qu’indiqué dans "Talents disponibles" (ne jamais l’omettre quand il est fourni), en plus du nombre d’abonnés Instagram.
-- Une courte phrase après la liste qui dit, simplement, ce que ces profils peuvent apporter — sans empiler les qualités. Reste factuel et varie la formulation à chaque mail (évite la phrase toute faite type "notoriété + crédibilité + contenu vécu").
+- Une courte phrase après la liste qui dit, simplement, ce que ces profils peuvent apporter — sans empiler les qualités. Reste factuel et varie la formulation à chaque mail (évite la phrase toute faite type "notoriété + crédibilité + contenu vécu").`
+}
 - Proposer la collaboration de façon professionnelle et posée (ex. "Nous serions ravis d'envisager une collaboration avec vous." ou "Si cela vous intéresse, nous serions heureux d'en échanger.").
-- Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
+${
+  isProjectMail
+    ? `- INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook). Ne propose PAS le roster complet de l'agence.
+- Terminer par une CTA courte pour échanger sur le(s) projet(s) ou un court call — jamais les médias kits d'un roster complet.`
+    : `- Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
 - Terminer OBLIGATOIREMENT le mail, juste avant la clôture, par deux phrases qui portent ces deux idées (reformule-les naturellement, varie la tournure à chaque mail, ne les recopie PAS à l'identique) :
   1) proposer d'envoyer rapidement leurs médias kits complets, un moodboard et des estimations de performance sur mesure ;
   2) proposer un court appel de 10-15 minutes la semaine prochaine pour présenter notre agence et nos talents.
-Pour référence (à NE PAS reprendre tel quel) : « Je serais ravie de vous envoyer rapidement leurs médias kits complets, un moodboard ainsi que des estimations de performance sur mesure. Seriez-vous disponible pour un appel de 10-15 minutes la semaine prochaine pour vous présenter notre agence et nos talents ? »
+Pour référence (à NE PAS reprendre tel quel) : « Je serais ravie de vous envoyer rapidement leurs médias kits complets, un moodboard ainsi que des estimations de performance sur mesure. Seriez-vous disponible pour un appel de 10-15 minutes la semaine prochaine pour vous présenter notre agence et nos talents ? »`
+}
 
 ${
-  projectBrief || isCondensation
+  isCondensation
     ? `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
+- INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre » / sélection roster.
+- Après l'accroche marque, dis clairement que vous avez actuellement ${projectCountLabelFr} pour lesquels vos talents pourraient coller, puis explique CHAQUE projet séparément (talent + fit + livrables/angle utiles), de façon mesurée — sans en faire trop.
+- Chaque nom de talent DOIT apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a>.
+- INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook).
+- INTERDIT : les mots « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Dis seulement « collaboration » / « projet ».
+- CTA : intérêt pour un ou plusieurs projets / un court call — jamais les médias kits d'un roster complet.`
+    : projectBrief
+      ? `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
 - INTERDIT d'utiliser la transition « plusieurs créateurs qui peuvent correspondre » (ou variante).
 - Présente le(s) talent(s) + le(s) projet(s) uniquement — pas de roster casting.
 - Chaque nom de talent DOIT apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a>.
@@ -621,7 +696,7 @@ ${
 - INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook).
 - INTERDIT : les mots « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Dis seulement « collaboration » / « projet ».
 - CTA : proposer d’échanger sur le projet / un court call — jamais les médias kits d’un roster complet.`
-    : ""
+      : ""
 }
 
 Clôture exacte : "Belle journée,"
@@ -721,6 +796,10 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
           return { prenom, nom, instagram: t.instagram };
         })
       );
+
+      if (isProjectMail) {
+        parsed.body = stripTalentbookFromHtml(parsed.body);
+      }
 
       parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
 

@@ -394,3 +394,144 @@ export async function checkThreadActivity(
 
   return { replied, bounced };
 }
+
+type GmailPayloadPart = {
+  mimeType?: string;
+  body?: { data?: string; size?: number };
+  parts?: GmailPayloadPart[];
+  headers?: { name?: string; value?: string }[];
+};
+
+function decodeGmailBase64(data: string): string {
+  try {
+    const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
+    return Buffer.from(normalized, "base64").toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function collectGmailBody(payload: GmailPayloadPart | undefined): string {
+  if (!payload) return "";
+  const mime = (payload.mimeType || "").toLowerCase();
+  if (mime === "text/plain" && payload.body?.data) {
+    return decodeGmailBase64(payload.body.data);
+  }
+  if (Array.isArray(payload.parts)) {
+    let plain = "";
+    let html = "";
+    for (const part of payload.parts) {
+      const nested = collectGmailBody(part);
+      const partMime = (part.mimeType || "").toLowerCase();
+      if (partMime === "text/plain" && nested) plain = nested;
+      else if (partMime === "text/html" && nested) html = nested;
+      else if (!plain && nested) plain = nested;
+    }
+    if (plain) return plain;
+    if (html) {
+      return html
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/p>/gi, "\n\n")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+  }
+  if (payload.body?.data) return decodeGmailBase64(payload.body.data);
+  return "";
+}
+
+function stripQuotedReply(text: string): string {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const cutPatterns = [
+    /^le .+ a écrit\s*:/i,
+    /^on .+ wrote\s*:/i,
+    /^from:\s+/i,
+    /^-{2,}\s*original message\s*-{2,}/i,
+    /^_{5,}/,
+  ];
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (line.trim().startsWith(">")) break;
+    if (cutPatterns.some((re) => re.test(line.trim()))) break;
+    kept.push(line);
+  }
+  return kept.join("\n").trim();
+}
+
+export type ThreadClientReply = {
+  id: string;
+  from: string;
+  date: string | null;
+  subject: string;
+  body: string;
+  snippet: string;
+};
+
+/**
+ * Lit le thread Gmail et renvoie les messages externes (réponses client),
+ * hors nos envois et hors bounces — pour affichage métier (Suivi).
+ */
+export async function fetchThreadClientReplies(
+  email: string,
+  threadId: string
+): Promise<ThreadClientReply[]> {
+  const accessToken = await getValidAccessToken(email);
+  const url = `${GMAIL_THREADS_BASE_URL}/${encodeURIComponent(threadId)}?format=full`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const json = (await response.json().catch(() => null)) as {
+    messages?: {
+      id?: string;
+      snippet?: string;
+      internalDate?: string;
+      payload?: GmailPayloadPart;
+    }[];
+  } | null;
+
+  if (!response.ok || !Array.isArray(json?.messages)) return [];
+
+  const ownEmail = email.trim().toLowerCase();
+  const replies: ThreadClientReply[] = [];
+
+  for (const message of json.messages) {
+    const headers = message?.payload?.headers || [];
+    const header = (name: string) =>
+      headers.find((h) => (h.name || "").toLowerCase() === name)?.value || "";
+    const fromRaw = header("from");
+    const from = fromRaw.toLowerCase();
+    const subject = header("subject") || "";
+    const dateHeader = header("date") || null;
+
+    if (!from || from.includes(ownEmail)) continue;
+    if (BOUNCE_FROM_RE.test(from) || BOUNCE_SUBJECT_RE.test(subject)) continue;
+
+    const rawBody = collectGmailBody(message.payload);
+    const body = stripQuotedReply(rawBody) || (message.snippet || "").trim();
+    if (!body) continue;
+
+    replies.push({
+      id: String(message.id || `${from}-${message.internalDate || ""}`),
+      from: fromRaw || from,
+      date: dateHeader
+        ? new Date(dateHeader).toISOString()
+        : message.internalDate
+          ? new Date(Number(message.internalDate)).toISOString()
+          : null,
+      subject,
+      body: body.slice(0, 8000),
+      snippet: (message.snippet || body.slice(0, 180)).trim(),
+    });
+  }
+
+  return replies;
+}

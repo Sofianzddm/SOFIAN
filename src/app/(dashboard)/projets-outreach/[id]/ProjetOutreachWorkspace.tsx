@@ -22,6 +22,7 @@ import {
   bypassesWaveCastingGate,
   type CampaignStatus,
 } from "@/lib/projets-outreach";
+import { businessDaysAfter } from "@/lib/business-days";
 import "../po.css";
 import {
   KpiCard,
@@ -2450,8 +2451,121 @@ function EnvoisTab({
   );
 }
 
+/** Aligné sur CASTING_RELANCE_* (casting-auto-send) — jours ouvrés. */
+const SUIVI_RELANCE1_BUSINESS_DAYS = 3;
+const SUIVI_RELANCE2_BUSINESS_DAYS = 10;
+
+function formatSuiviDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatSuiviDay(iso: string | Date | null | undefined): string {
+  if (!iso) return "—";
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** Prochaine relance auto prévue (J+3 ou J+10), ou null si plus rien à venir. */
+function nextRelancePlan(m: Mission, campaignClosed: boolean): {
+  round: 1 | 2;
+  at: Date;
+} | null {
+  if (campaignClosed || m.relanceCancelledAt || !m.sentAt) return null;
+  if (!m.relanceSentAt) {
+    return {
+      round: 1,
+      at: businessDaysAfter(new Date(m.sentAt), SUIVI_RELANCE1_BUSINESS_DAYS),
+    };
+  }
+  if (!m.relance2SentAt) {
+    return {
+      round: 2,
+      at: businessDaysAfter(new Date(m.relanceSentAt), SUIVI_RELANCE2_BUSINESS_DAYS),
+    };
+  }
+  return null;
+}
+
+function gmailThreadUrl(threadId: string): string {
+  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(
+    "leyna@glowupagence.fr"
+  )}#all/${encodeURIComponent(threadId)}`;
+}
+
 function SuiviTab({ campaign }: { campaign: Campaign }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [threadByMission, setThreadByMission] = useState<
+    Record<
+      string,
+      {
+        loading: boolean;
+        error: string | null;
+        replies: Array<{
+          id: string;
+          from: string;
+          date: string | null;
+          subject: string;
+          body: string;
+          snippet: string;
+        }>;
+      }
+    >
+  >({});
+  const campaignClosed = campaign.status === "CLOSED" || !campaign.isActive;
+
+  async function loadThreadReplies(missionId: string) {
+    setThreadByMission((prev) => ({
+      ...prev,
+      [missionId]: {
+        loading: true,
+        error: null,
+        replies: prev[missionId]?.replies || [],
+      },
+    }));
+    try {
+      const res = await fetch(
+        `/api/projets-outreach/missions/${encodeURIComponent(missionId)}/thread`,
+        { credentials: "include" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Lecture du fil impossible."
+        );
+      }
+      setThreadByMission((prev) => ({
+        ...prev,
+        [missionId]: {
+          loading: false,
+          error: null,
+          replies: Array.isArray(data.replies) ? data.replies : [],
+        },
+      }));
+    } catch (e) {
+      setThreadByMission((prev) => ({
+        ...prev,
+        [missionId]: {
+          loading: false,
+          error: e instanceof Error ? e.message : "Erreur réseau.",
+          replies: [],
+        },
+      }));
+    }
+  }
 
   const contacted = campaign.missions.filter(
     (m) =>
@@ -2471,8 +2585,11 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
       m.stage === "IN_NEGOTIATION" ||
       m.stage === "WON"
   ).length;
+  const relanced = campaign.missions.filter(
+    (m) => Boolean(m.relanceSentAt || m.relance2SentAt)
+  ).length;
 
-  const cols = "1.4fr 1fr .8fr .6fr .6fr .8fr .8fr";
+  const cols = "1.3fr .9fr .85fr .55fr .55fr 1.35fr .75fr";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -2481,6 +2598,7 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
         <KpiCard label="Contactées" value={contacted.length} dot="#C45C26" />
         <KpiCard label="Ouvertures" value={opens} dot="#2F6FED" />
         <KpiCard label="Réponses" value={replies} dot="#2E9E63" />
+        <KpiCard label="Relancées" value={relanced} dot="#5B3F9E" />
       </div>
 
       <div className="po-card" style={{ overflow: "hidden" }}>
@@ -2499,19 +2617,48 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
           </div>
         ) : (
           campaign.missions.map((m) => {
-            const relances = [m.relanceSentAt && "J+3", m.relance2SentAt && "J+10"]
-              .filter(Boolean)
-              .join(" · ");
+            const next = nextRelancePlan(m, campaignClosed);
             const recipients = Object.entries(m.sentMessageIds || {})
               .filter(([, rec]) => Boolean(rec?.messageId) && !rec?.error)
               .map(([email, rec]) => ({ email, ...rec }))
               .sort((a, b) => a.email.localeCompare(b.email, "fr"));
+            const threadId =
+              recipients.find((r) => r.threadId)?.threadId ||
+              recipients.find((r) => r.messageId)?.messageId ||
+              null;
             const hasPerEmailDetail = recipients.some(
               (r) => (r.openCount || 0) > 0 || (r.clickCount || 0) > 0
             );
             const canExpand =
-              recipients.length > 0 || m.openCount > 0 || m.clickCount > 0 || Boolean(m.lastClickUrl);
+              recipients.length > 0 ||
+              m.openCount > 0 ||
+              m.clickCount > 0 ||
+              Boolean(m.lastClickUrl) ||
+              Boolean(m.sentAt) ||
+              Boolean(m.relanceSentAt);
             const isOpen = expandedId === m.id;
+
+            const relanceLines: string[] = [];
+            if (m.relanceSentAt) {
+              relanceLines.push(`J+3 envoyée · ${formatSuiviDay(m.relanceSentAt)}`);
+            }
+            if (m.relance2SentAt) {
+              relanceLines.push(`J+10 envoyée · ${formatSuiviDay(m.relance2SentAt)}`);
+            }
+            if (m.relanceCancelledAt && (!m.relanceSentAt || !m.relance2SentAt)) {
+              relanceLines.push(`Stoppée · ${formatSuiviDay(m.relanceCancelledAt)}`);
+            } else if (next) {
+              const overdue = next.at.getTime() <= Date.now();
+              relanceLines.push(
+                overdue
+                  ? `J+${next.round === 1 ? 3 : 10} imminente`
+                  : `J+${next.round === 1 ? 3 : 10} prévue · ${formatSuiviDay(next.at)}`
+              );
+            } else if (!m.sentAt) {
+              relanceLines.push("—");
+            } else if (!m.relanceSentAt && !m.relance2SentAt && !relanceLines.length) {
+              relanceLines.push("—");
+            }
 
             return (
               <div key={m.id}>
@@ -2530,7 +2677,13 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
                   }}
                   onClick={() => {
                     if (!canExpand) return;
-                    setExpandedId((prev) => (prev === m.id ? null : m.id));
+                    setExpandedId((prev) => {
+                      const next = prev === m.id ? null : m.id;
+                      if (next === m.id && !threadByMission[m.id]) {
+                        void loadThreadReplies(m.id);
+                      }
+                      return next;
+                    });
                   }}
                   disabled={!canExpand}
                 >
@@ -2539,7 +2692,7 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
                     <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
                   </div>
                   <div style={{ fontSize: 12 }}>
-                    {m.sentAt ? new Date(m.sentAt).toLocaleString("fr-FR") : EMPTY}
+                    {m.sentAt ? formatSuiviDate(m.sentAt) : EMPTY}
                   </div>
                   <div>{m.openCount}</div>
                   <div style={{ fontWeight: m.clickCount > 0 ? 600 : undefined }}>
@@ -2550,7 +2703,11 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
                       </span>
                     ) : null}
                   </div>
-                  <div style={{ fontSize: 12 }}>{relances || EMPTY}</div>
+                  <div style={{ fontSize: 11.5, lineHeight: 1.35, color: "var(--po-ink)" }}>
+                    {relanceLines.map((line) => (
+                      <div key={line}>{line}</div>
+                    ))}
+                  </div>
                   <div
                     className="truncate"
                     style={{ fontSize: 12, color: m.sendError ? "var(--po-danger)" : undefined }}
@@ -2568,12 +2725,8 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
                       fontSize: 12.5,
                     }}
                   >
-                    {recipients.length === 0 ? (
-                      <p style={{ margin: 0, color: "var(--po-tertiary)" }}>
-                        Aucun destinataire enregistré sur cet envoi.
-                      </p>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div>
                         <div
                           style={{
                             fontSize: 11,
@@ -2581,82 +2734,295 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
                             letterSpacing: "0.04em",
                             textTransform: "uppercase",
                             color: "var(--po-muted)",
+                            marginBottom: 6,
                           }}
                         >
-                          Destinataires
-                          {!hasPerEmailDetail && (m.openCount > 0 || m.clickCount > 0)
-                            ? " · détail par mail dispo après les prochains envois"
-                            : ""}
+                          Fil d&apos;envoi
                         </div>
-                        {recipients.map((r) => {
-                          const opened = (r.openCount || 0) > 0;
-                          const clicked = (r.clickCount || 0) > 0;
-                          return (
+                        <ol
+                          style={{
+                            margin: 0,
+                            paddingLeft: 18,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 4,
+                            color: "var(--po-ink)",
+                          }}
+                        >
+                          <li>
+                            Mail initial{" "}
+                            <strong>
+                              {m.sentAt ? `envoyé · ${formatSuiviDate(m.sentAt)}` : "pas encore parti"}
+                            </strong>
+                          </li>
+                          <li>
+                            Relance J+3{" "}
+                            <strong>
+                              {m.relanceSentAt
+                                ? `envoyée · ${formatSuiviDate(m.relanceSentAt)}`
+                                : next?.round === 1
+                                  ? `prévue · ${formatSuiviDay(next.at)}`
+                                  : m.relanceCancelledAt
+                                    ? "stoppée"
+                                    : "—"}
+                            </strong>
+                          </li>
+                          <li>
+                            Relance J+10{" "}
+                            <strong>
+                              {m.relance2SentAt
+                                ? `envoyée · ${formatSuiviDate(m.relance2SentAt)}`
+                                : next?.round === 2
+                                  ? `prévue · ${formatSuiviDay(next.at)}`
+                                  : m.relanceCancelledAt && m.relanceSentAt
+                                    ? "stoppée"
+                                    : m.relanceSentAt
+                                      ? "en attente"
+                                      : "—"}
+                            </strong>
+                          </li>
+                          {m.replied ||
+                          m.stage === "RESPONSE_RECEIVED" ||
+                          m.stage === "IN_NEGOTIATION" ||
+                          m.stage === "WON" ? (
+                            <li>
+                              Réponse client <strong>détectée</strong>
+                            </li>
+                          ) : null}
+                        </ol>
+                        {threadId ? (
+                          <a
+                            href={gmailThreadUrl(threadId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              display: "inline-flex",
+                              marginTop: 8,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: "var(--po-accent)",
+                              textDecoration: "underline",
+                            }}
+                          >
+                            Ouvrir le fil dans Gmail (Leyna)
+                          </a>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 8,
+                            marginBottom: 6,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              letterSpacing: "0.04em",
+                              textTransform: "uppercase",
+                              color: "var(--po-muted)",
+                            }}
+                          >
+                            Ce que la cliente a dit
+                          </div>
+                          <button
+                            type="button"
+                            className="po-btn po-btn-secondary"
+                            style={{ padding: "4px 8px", fontSize: 11 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void loadThreadReplies(m.id);
+                            }}
+                          >
+                            {threadByMission[m.id]?.loading ? "Lecture…" : "Rafraîchir"}
+                          </button>
+                        </div>
+                        {threadByMission[m.id]?.loading ? (
+                          <p
+                            style={{
+                              margin: 0,
+                              color: "var(--po-muted)",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Lecture du fil Gmail…
+                          </p>
+                        ) : null}
+                        {threadByMission[m.id]?.error ? (
+                          <p style={{ margin: 0, color: "var(--po-danger)" }}>
+                            {threadByMission[m.id].error}
+                          </p>
+                        ) : null}
+                        {!threadByMission[m.id]?.loading &&
+                        !threadByMission[m.id]?.error &&
+                        (threadByMission[m.id]?.replies?.length || 0) === 0 ? (
+                          <p style={{ margin: 0, color: "var(--po-tertiary)" }}>
+                            Pas encore de réponse client détectée dans Gmail.
+                          </p>
+                        ) : null}
+                        {(threadByMission[m.id]?.replies || []).map((reply) => (
+                          <div
+                            key={reply.id}
+                            style={{
+                              marginTop: 8,
+                              padding: "10px 12px",
+                              borderRadius: 10,
+                              border: "1px solid var(--po-sep)",
+                              background: "#fff",
+                            }}
+                          >
                             <div
-                              key={r.email}
                               style={{
-                                display: "grid",
-                                gridTemplateColumns: "minmax(0, 1.4fr) auto auto minmax(0, 1.6fr)",
-                                gap: 10,
-                                alignItems: "center",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 8,
+                                marginBottom: 6,
+                                fontSize: 11.5,
+                                color: "var(--po-tertiary)",
                               }}
                             >
-                              <span
-                                className="truncate"
-                                style={{ fontWeight: 500, color: "var(--po-ink)" }}
-                                title={r.email}
-                              >
-                                {r.email}
-                              </span>
-                              <span
+                              <strong style={{ color: "var(--po-ink)" }}>{reply.from}</strong>
+                              <span>{reply.date ? formatSuiviDate(reply.date) : "—"}</span>
+                            </div>
+                            <pre
+                              style={{
+                                margin: 0,
+                                whiteSpace: "pre-wrap",
+                                fontFamily: "inherit",
+                                fontSize: 13,
+                                lineHeight: 1.45,
+                                color: "var(--po-ink)",
+                              }}
+                            >
+                              {reply.body}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
+
+                      {recipients.length === 0 ? (
+                        <p style={{ margin: 0, color: "var(--po-tertiary)" }}>
+                          Aucun destinataire enregistré sur cet envoi.
+                        </p>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              letterSpacing: "0.04em",
+                              textTransform: "uppercase",
+                              color: "var(--po-muted)",
+                            }}
+                          >
+                            Destinataires
+                            {!hasPerEmailDetail && (m.openCount > 0 || m.clickCount > 0)
+                              ? " · détail par mail dispo après les prochains envois"
+                              : ""}
+                          </div>
+                          {recipients.map((r) => {
+                            const opened = (r.openCount || 0) > 0;
+                            const clicked = (r.clickCount || 0) > 0;
+                            const tid = r.threadId || r.messageId;
+                            return (
+                              <div
+                                key={r.email}
                                 style={{
-                                  color: opened ? "#2F6FED" : "var(--po-muted)",
-                                  fontWeight: opened ? 600 : 400,
+                                  display: "grid",
+                                  gridTemplateColumns:
+                                    "minmax(0, 1.3fr) auto auto auto minmax(0, 1.4fr)",
+                                  gap: 10,
+                                  alignItems: "center",
                                 }}
                               >
-                                {opened ? `Ouvert ${r.openCount}×` : "Pas d’ouverture"}
-                              </span>
-                              <span
-                                style={{
-                                  color: clicked ? "#C45C26" : "var(--po-muted)",
-                                  fontWeight: clicked ? 600 : 400,
-                                }}
-                              >
-                                {clicked ? `Clic ${r.clickCount}×` : "Pas de clic"}
-                              </span>
-                              <span className="truncate" style={{ color: "var(--po-tertiary)" }}>
-                                {r.lastClickUrl ? (
+                                <span
+                                  className="truncate"
+                                  style={{ fontWeight: 500, color: "var(--po-ink)" }}
+                                  title={r.email}
+                                >
+                                  {r.email}
+                                </span>
+                                <span
+                                  style={{
+                                    color: opened ? "#2F6FED" : "var(--po-muted)",
+                                    fontWeight: opened ? 600 : 400,
+                                  }}
+                                >
+                                  {opened ? `Ouvert ${r.openCount}×` : "Pas d’ouverture"}
+                                </span>
+                                <span
+                                  style={{
+                                    color: clicked ? "#C45C26" : "var(--po-muted)",
+                                    fontWeight: clicked ? 600 : 400,
+                                  }}
+                                >
+                                  {clicked ? `Clic ${r.clickCount}×` : "Pas de clic"}
+                                </span>
+                                {tid ? (
                                   <a
-                                    href={r.lastClickUrl}
+                                    href={gmailThreadUrl(tid)}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    style={{ color: "var(--po-accent)", textDecoration: "underline" }}
                                     onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: "var(--po-accent)",
+                                      textDecoration: "underline",
+                                      whiteSpace: "nowrap",
+                                    }}
                                   >
-                                    {r.lastClickUrl}
+                                    Fil Gmail
                                   </a>
                                 ) : (
-                                  EMPTY
+                                  <span style={{ color: "var(--po-muted)" }}>—</span>
                                 )}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {!hasPerEmailDetail && m.lastClickUrl ? (
-                      <p style={{ margin: "10px 0 0", color: "var(--po-tertiary)" }}>
-                        Dernier lien cliqué (marque) :{" "}
-                        <a
-                          href={m.lastClickUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: "var(--po-accent)", textDecoration: "underline" }}
-                        >
-                          {m.lastClickUrl}
-                        </a>
-                      </p>
-                    ) : null}
+                                <span className="truncate" style={{ color: "var(--po-tertiary)" }}>
+                                  {r.lastClickUrl ? (
+                                    <a
+                                      href={r.lastClickUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        color: "var(--po-accent)",
+                                        textDecoration: "underline",
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {r.lastClickUrl}
+                                    </a>
+                                  ) : (
+                                    EMPTY
+                                  )}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {!hasPerEmailDetail && m.lastClickUrl ? (
+                        <p style={{ margin: 0, color: "var(--po-tertiary)" }}>
+                          Dernier lien cliqué (marque) :{" "}
+                          <a
+                            href={m.lastClickUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: "var(--po-accent)", textDecoration: "underline" }}
+                          >
+                            {m.lastClickUrl}
+                          </a>
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
                 )}
               </div>
