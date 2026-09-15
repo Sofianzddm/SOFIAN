@@ -100,6 +100,7 @@ type Mission = {
   waveClusterId?: string | null;
   relanceSentAt: string | null;
   relance2SentAt: string | null;
+  relanceCancelledAt?: string | null;
   sendError: string | null;
   createdAt: string;
 };
@@ -283,6 +284,22 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
     );
 
   async function transition(to: CampaignStatus) {
+    if (to === "CLOSED") {
+      const pendingRelances = campaign
+        ? campaign.missions.filter(
+            (m) =>
+              m.sentAt &&
+              !m.relanceCancelledAt &&
+              (!m.relanceSentAt || !m.relance2SentAt)
+          ).length
+        : 0;
+      const ok = window.confirm(
+        pendingRelances > 0
+          ? `Clôturer ce projet ?\n\nAttention : ${pendingRelances} marque(s) encore éligible(s) aux relances auto (J+3 / J+10) — elles seront définitivement stoppées.\nAucune nouvelle relance ne partira.`
+          : `Clôturer ce projet ?\n\nLes relances automatiques (J+3 et J+10) seront bloquées pour toutes les marques de ce projet.`
+      );
+      if (!ok) return;
+    }
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -295,7 +312,15 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Transition impossible.");
-      setSuccess(`Étape : ${STATUS_LABEL[to]}`);
+      const cancelled =
+        typeof data.cancelledRelances === "number" ? data.cancelledRelances : 0;
+      setSuccess(
+        to === "CLOSED"
+          ? cancelled > 0
+            ? `Projet clôturé · ${cancelled} relance(s) auto stoppée(s)`
+            : "Projet clôturé · relances auto bloquées"
+          : `Étape : ${STATUS_LABEL[to]}`
+      );
       await load();
       if (to === "BRANDS") setTab("marques");
       if (to === "DRAFTING") setTab("redaction");
@@ -2005,6 +2030,69 @@ function RedactionTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {composerOpen ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => {
+              setComposerOpen(false);
+              setComposerContact(null);
+            }}
+            className="po-btn po-btn-secondary"
+            style={{
+              alignSelf: "flex-start",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 10px",
+              fontSize: 12,
+              marginBottom: 4,
+            }}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Retour à la liste
+          </button>
+          <CastingComposer
+            open={composerOpen}
+            contact={composerContact}
+            variant="inline"
+            brandColumn="todo"
+            useHubspot={false}
+            allowSchedule={false}
+            lockedTalentId={
+              composerContact?.missionBrief?.condensationBriefs &&
+              composerContact.missionBrief.condensationBriefs.length >= 2
+                ? null
+                : campaign.talent.id
+            }
+            lockedTalentIds={
+              composerContact?.missionBrief?.condensationBriefs &&
+              composerContact.missionBrief.condensationBriefs.length >= 2
+                ? (() => {
+                    const briefs = composerContact.missionBrief.condensationBriefs;
+                    const currentId = campaign.talent.id;
+                    const peerIds = briefs
+                      .map((b) => String(b.talentId || "").trim())
+                      .filter(Boolean);
+                    const ordered = [
+                      currentId,
+                      ...peerIds.filter((id) => id !== currentId),
+                    ];
+                    return Array.from(new Set(ordered));
+                  })()
+                : null
+            }
+            readyLabel="Envoyer depuis Leyna"
+            onClose={() => {
+              setComposerOpen(false);
+              setComposerContact(null);
+            }}
+            onSaved={(status, draft, ctx) => handleComposerSaved(status, draft, ctx)}
+            onError={(msg) => setError(msg)}
+            onSuccess={(msg) => setSuccess(msg)}
+          />
+        </div>
+      ) : (
       <div className="po-card" style={{ overflow: "hidden" }}>
         <div
           className="po-table-head"
@@ -2149,46 +2237,7 @@ function RedactionTab({
           );
         })}
       </div>
-
-      <CastingComposer
-        open={composerOpen}
-        contact={composerContact}
-        brandColumn="todo"
-        useHubspot={false}
-        allowSchedule={false}
-        lockedTalentId={
-          composerContact?.missionBrief?.condensationBriefs &&
-          composerContact.missionBrief.condensationBriefs.length >= 2
-            ? null
-            : campaign.talent.id
-        }
-        lockedTalentIds={
-          composerContact?.missionBrief?.condensationBriefs &&
-          composerContact.missionBrief.condensationBriefs.length >= 2
-            ? (() => {
-                const briefs = composerContact.missionBrief.condensationBriefs;
-                const currentId = campaign.talent.id;
-                const peerIds = briefs
-                  .map((b) => String(b.talentId || "").trim())
-                  .filter(Boolean);
-                // Talent du projet ouvert en 1er → talent_1 = projet courant
-                const ordered = [
-                  currentId,
-                  ...peerIds.filter((id) => id !== currentId),
-                ];
-                return Array.from(new Set(ordered));
-              })()
-            : null
-        }
-        readyLabel="Envoyer depuis Leyna"
-        onClose={() => {
-          setComposerOpen(false);
-          setComposerContact(null);
-        }}
-        onSaved={(status, draft, ctx) => handleComposerSaved(status, draft, ctx)}
-        onError={(msg) => setError(msg)}
-        onSuccess={(msg) => setSuccess(msg)}
-      />
+      )}
     </div>
   );
 }

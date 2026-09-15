@@ -43,16 +43,26 @@ async function loadMission(id: string) {
       relanceCancelledAt: true,
       targetBrand: true,
       draftEmailSubject: true,
+      campaign: {
+        select: { id: true, status: true, isActive: true, title: true },
+      },
     },
   });
 }
 
 function preflight(mission: {
   sentAt: Date | null;
+  campaign?: { status: string; isActive: boolean; title: string } | null;
 } | null) {
   if (!mission) return { error: "Mission introuvable.", status: 404 };
   if (!mission.sentAt)
     return { error: "Le mail initial n'a pas encore été envoyé.", status: 409 };
+  if (mission.campaign?.status === "CLOSED" || mission.campaign?.isActive === false) {
+    return {
+      error: `Projet « ${mission.campaign?.title || "clos"} » clôturé : les relances sont bloquées.`,
+      status: 409,
+    };
+  }
   // NB : la relance manuelle reste possible même si une relance a déjà été
   // envoyée (R1 → R2, ou renvoi manuel après R2). La détection se fait PAR
   // CONTACT (buildCastingRelanceDraft + executeCastingRelance excluent

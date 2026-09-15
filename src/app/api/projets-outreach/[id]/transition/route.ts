@@ -116,6 +116,25 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
 
+    let cancelledRelances = 0;
+    if (nextStatus === "CLOSED") {
+      // Stoppe les relances auto (J+3 / J+10) sur toutes les missions encore
+      // éligibles : le cron et les relances manuelles respectent relanceCancelledAt.
+      const cancelResult = await prisma.contactMission.updateMany({
+        where: {
+          campaignId,
+          sentAt: { not: null },
+          relanceCancelledAt: null,
+          OR: [{ relanceSentAt: null }, { relance2SentAt: null }],
+        },
+        data: {
+          relanceCancelledAt: new Date(),
+          relanceCancelledById: session.user.id,
+        },
+      });
+      cancelledRelances = cancelResult.count;
+    }
+
     const note = String(body.note || "").trim();
     await prisma.prospectingCampaignEvent.create({
       data: {
@@ -124,12 +143,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
         type: EVENT_BY_STATUS[nextStatus],
         message:
           note ||
-          `Statut : ${STATUS_LABEL[from]} → ${STATUS_LABEL[nextStatus]}`,
-        payload: { from, to: nextStatus },
+          (nextStatus === "CLOSED" && cancelledRelances > 0
+            ? `Statut : ${STATUS_LABEL[from]} → ${STATUS_LABEL[nextStatus]} · ${cancelledRelances} relance(s) auto annulée(s)`
+            : `Statut : ${STATUS_LABEL[from]} → ${STATUS_LABEL[nextStatus]}`),
+        payload: {
+          from,
+          to: nextStatus,
+          ...(nextStatus === "CLOSED" ? { cancelledRelances } : {}),
+        },
       },
     });
 
-    return NextResponse.json({ campaign: updated });
+    return NextResponse.json({
+      campaign: updated,
+      ...(nextStatus === "CLOSED" ? { cancelledRelances } : {}),
+    });
   } catch (error) {
     console.error("POST /api/projets-outreach/[id]/transition:", error);
     return NextResponse.json({ error: "Erreur lors de la transition" }, { status: 500 });

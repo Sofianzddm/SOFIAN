@@ -168,6 +168,7 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       waveClusterId: m.waveClusterId,
       relanceSentAt: m.relanceSentAt,
       relance2SentAt: m.relance2SentAt,
+      relanceCancelledAt: m.relanceCancelledAt,
       sendError: m.sendError,
       createdAt: m.createdAt,
     })),

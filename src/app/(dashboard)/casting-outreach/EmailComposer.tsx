@@ -103,6 +103,11 @@ export interface EmailComposerProps {
    * pas sur la maison mère.
    */
   researchTargetLabel?: string | null;
+  /**
+   * Remplit la hauteur parent (composer inline projets-outreach) :
+   * la zone corps du mail s’étire pour afficher un maximum de texte.
+   */
+  fillHeight?: boolean;
 }
 
 export default function EmailComposer({
@@ -122,6 +127,7 @@ export default function EmailComposer({
   showPipelineVariables = false,
   showMarquesVariable = false,
   researchTargetLabel = null,
+  fillHeight = false,
 }: EmailComposerProps) {
   const contactOwnerVariables = showMarquesVariable
     ? [
@@ -318,7 +324,7 @@ export default function EmailComposer({
     "inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border font-semibold transition-colors hover:shadow-sm shrink-0";
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className={`flex flex-col gap-2 ${fillHeight ? "h-full min-h-0" : ""}`}>
       {/* Recherche marque — une ligne, détail repliable */}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
         <button
@@ -517,7 +523,7 @@ export default function EmailComposer({
 
       {previewMode === "preview" ? (
         <div
-          className="max-h-[28rem] overflow-y-auto rounded-xl border bg-white p-4 space-y-3"
+          className={`${fillHeight ? "min-h-0 flex-1" : "max-h-[28rem]"} overflow-y-auto rounded-xl border bg-white p-4 space-y-3`}
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
         >
           <div>
@@ -541,7 +547,7 @@ export default function EmailComposer({
         </div>
       ) : (
         <div
-          className="flex flex-col overflow-hidden rounded-xl border bg-white"
+          className={`flex flex-col overflow-hidden rounded-xl border bg-white ${fillHeight ? "min-h-0 flex-1" : ""}`}
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
         >
           {editor && (
@@ -693,12 +699,20 @@ export default function EmailComposer({
             </div>
           )}
           <div
-            className="relative max-h-40 min-h-[7rem] overflow-y-auto"
+            className={`relative overflow-y-auto ${
+              fillHeight
+                ? "min-h-0 flex-1"
+                : "max-h-40 min-h-[7rem]"
+            }`}
             onClick={() => setLastField("body")}
           >
             <EditorContent
               editor={editor}
-              className="[&_.ProseMirror]:min-h-[7rem] [&_.ProseMirror]:max-w-none"
+              className={
+                fillHeight
+                  ? "[&_.ProseMirror]:min-h-[14rem] [&_.ProseMirror]:max-w-none"
+                  : "[&_.ProseMirror]:min-h-[7rem] [&_.ProseMirror]:max-w-none"
+              }
             />
           </div>
           <div

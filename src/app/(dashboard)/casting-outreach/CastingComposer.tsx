@@ -274,6 +274,11 @@ export interface CastingComposerProps {
   lockedTalentId?: string | null;
   /** Condensation : plusieurs talents verrouillés pour Grok. */
   lockedTalentIds?: string[] | null;
+  /**
+   * `modal` (défaut) : overlay plein écran.
+   * `inline` : panneau intégré dans la page (projets outreach / Rédaction).
+   */
+  variant?: "modal" | "inline";
   onClose: () => void;
   onSaved: (
     status: "en_cours" | "pret" | "reset",
@@ -312,6 +317,7 @@ export default function CastingComposer({
   allowSchedule = false,
   lockedTalentId = null,
   lockedTalentIds = null,
+  variant = "modal",
   onClose,
   onSaved,
   onError,
@@ -1355,28 +1361,45 @@ export default function CastingComposer({
       ? `${coveredBrandsAll.join(", ")} (${contact.company})`
       : contact.company || "Marque";
 
+  const isInline = variant === "inline";
+
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-3 sm:p-4"
+      className={
+        isInline
+          ? "relative w-full"
+          : "fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-3 sm:p-4"
+      }
       role="dialog"
-      aria-modal="true"
+      aria-modal={!isInline}
       aria-labelledby="casting-composer-title"
     >
       <div
-        className="flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#E8DED0] shadow-xl"
+        className={
+          isInline
+            ? "flex w-full flex-col overflow-hidden rounded-2xl border border-[#E8DED0] shadow-sm"
+            : "flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#E8DED0] shadow-xl"
+        }
         style={{
           backgroundColor: OLD_LACE,
-          height: "min(820px, calc(100dvh - 1.5rem))",
-          maxHeight: "calc(100dvh - 1.5rem)",
+          ...(isInline
+            ? {
+                height: "calc(100dvh - 5.5rem)",
+                maxHeight: "calc(100dvh - 5.5rem)",
+              }
+            : {
+                height: "min(820px, calc(100dvh - 1.5rem))",
+                maxHeight: "calc(100dvh - 1.5rem)",
+              }),
         }}
       >
         <div
-          className="flex shrink-0 items-center justify-between border-b px-5 py-3"
+          className={`flex shrink-0 items-center justify-between border-b ${isInline ? "px-4 py-2" : "px-5 py-3"}`}
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
         >
           <h2
             id="casting-composer-title"
-            className="text-lg font-semibold"
+            className={`font-semibold ${isInline ? "text-base" : "text-lg"}`}
             style={{ fontFamily: "Spectral, serif", color: LICORICE }}
           >
             Rédiger l’email — {brandTitle}
@@ -1566,7 +1589,18 @@ export default function CastingComposer({
             className="flex min-h-0 flex-col overflow-hidden"
             style={{ flex: "1 1 0%", minWidth: 0 }}
           >
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3">
+            <div
+              className={
+                isInline
+                  ? "max-h-[34%] shrink-0 space-y-2 overflow-y-auto overscroll-contain border-b px-4 py-2"
+                  : "min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3"
+              }
+              style={
+                isInline
+                  ? { borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)` }
+                  : undefined
+              }
+            >
               <div className="flex flex-wrap gap-1.5">
                 {contact.contacts.length === 0 ? (
                   <p className="text-xs opacity-70" style={{ color: LICORICE }}>
@@ -1810,10 +1844,16 @@ export default function CastingComposer({
                   )}
                 </section>
               )}
+            </div>
 
+            <div
+              className={`min-h-0 flex-1 px-4 py-2 ${
+                isInline ? "overflow-hidden" : "overflow-y-auto"
+              }`}
+            >
               {isHeadOfSalesReadOnly ? (
                 <section
-                  className="space-y-3 rounded-xl border bg-white p-4"
+                  className="h-full space-y-3 overflow-y-auto rounded-xl border bg-white p-4"
                   style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
                 >
                   <p className="text-xs uppercase tracking-wide" style={{ color: OLD_ROSE }}>
@@ -1855,6 +1895,7 @@ export default function CastingComposer({
                   isGenerating={isGenerating}
                   onGenerate={runGenerateEmail}
                   editor={editor}
+                  fillHeight={isInline}
                   showPipelineVariables={Boolean(contact?.missionBrief)}
                   showMarquesVariable={Boolean(
                     contact?.contacts?.some((c) => (c.marques || []).length > 0)

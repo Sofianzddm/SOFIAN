@@ -1295,9 +1295,19 @@ export async function executeCastingRelance(
   const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
   const mission = await contactMissionModel.findUnique({
     where: { id: missionId },
-    include: { campaign: { select: { title: true } } },
+    include: {
+      campaign: { select: { title: true, status: true, isActive: true } },
+    },
   });
   if (!mission) throw new Error("Mission introuvable");
+  if (mission.campaign?.status === "CLOSED" || mission.campaign?.isActive === false) {
+    throw new Error(
+      `Projet « ${mission.campaign?.title || "clos"} » clôturé : les relances sont bloquées.`
+    );
+  }
+  if (mission.relanceCancelledAt) {
+    throw new Error("Relances annulées pour cette mission.");
+  }
 
   const round: 1 | 2 = options.round === 2 ? 2 : 1;
 
