@@ -693,10 +693,13 @@ export default function EmailComposer({
             </div>
           )}
           <div
-            className="relative max-h-72 min-h-[10rem] overflow-y-auto"
+            className="relative max-h-40 min-h-[7rem] overflow-y-auto"
             onClick={() => setLastField("body")}
           >
-            <EditorContent editor={editor} className="[&_.ProseMirror]:min-h-[10rem]" />
+            <EditorContent
+              editor={editor}
+              className="[&_.ProseMirror]:min-h-[7rem] [&_.ProseMirror]:max-w-none"
+            />
           </div>
           <div
             className="px-3 py-1.5 border-t text-[11px] shrink-0"

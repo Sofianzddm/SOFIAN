@@ -605,7 +605,7 @@ export default function CastingComposer({
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm max-w-none min-h-[8rem] px-3 py-2 text-sm focus:outline-none",
+          "prose prose-sm max-w-none min-h-[7rem] px-3 py-2 text-sm focus:outline-none",
         style: `font-family: Switzer, system-ui, sans-serif; color: ${LICORICE}`,
       },
       handleDOMEvents: {
@@ -1363,10 +1363,10 @@ export default function CastingComposer({
       aria-labelledby="casting-composer-title"
     >
       <div
-        className="flex w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-[#E8DED0] shadow-xl"
+        className="flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#E8DED0] shadow-xl"
         style={{
           backgroundColor: OLD_LACE,
-          height: "min(920px, calc(100dvh - 1.5rem))",
+          height: "min(820px, calc(100dvh - 1.5rem))",
           maxHeight: "calc(100dvh - 1.5rem)",
         }}
       >
@@ -1392,10 +1392,15 @@ export default function CastingComposer({
         </div>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {/* Colonne talents */}
+          {/* Colonne talents — largeur fixe (évite le trou beige au milieu) */}
           <div
-            className="flex w-[min(280px,38%)] shrink-0 flex-col overflow-hidden border-r"
-            style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+            className="flex shrink-0 flex-col overflow-hidden border-r"
+            style={{
+              width: 260,
+              minWidth: 260,
+              maxWidth: 260,
+              borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+            }}
           >
             <div className="px-4 py-3 shrink-0">
               <h3
@@ -1556,8 +1561,11 @@ export default function CastingComposer({
             )}
           </div>
 
-          {/* Colonne email : zone unique scrollable + footer fixe */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {/* Colonne email */}
+          <div
+            className="flex min-h-0 flex-col overflow-hidden"
+            style={{ flex: "1 1 0%", minWidth: 0 }}
+          >
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3">
               <div className="flex flex-wrap gap-1.5">
                 {contact.contacts.length === 0 ? (
@@ -1646,7 +1654,7 @@ export default function CastingComposer({
                     </span>
                   </button>
                   {briefOpen && (
-                    <div className="max-h-52 space-y-2 overflow-y-auto border-t border-amber-200/80 px-3 pb-3 pt-1">
+                    <div className="max-h-40 space-y-1.5 overflow-y-auto border-t border-amber-200/80 px-3 pb-2 pt-1">
                       <p className="text-amber-800">
                         <strong>Statut :</strong>{" "}
                         {missionStatus
