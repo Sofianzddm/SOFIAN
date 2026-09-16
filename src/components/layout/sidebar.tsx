@@ -547,6 +547,12 @@ export function Sidebar({
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
+            label: "Collaborations",
+            href: "/collaborations",
+            icon: Handshake,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
             label: "Cessions (confidentiel)",
             href: "/simulateur-cessions",
             icon: Scale,

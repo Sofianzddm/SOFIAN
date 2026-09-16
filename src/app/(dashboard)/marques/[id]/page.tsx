@@ -1066,14 +1066,26 @@ export default function MarqueDetailPage() {
     return acc;
   }, {});
 
-  const STATS: { label: string; value: string; sub: string | null; icon: typeof Euro; tint: string }[] = [
-    {
-      label: "CA total",
-      value: formatMoney(totalCA),
-      sub: marque._count.collaborations > 0 ? `${marque._count.collaborations} collab${marque._count.collaborations > 1 ? "s" : ""}` : "aucune collab",
-      icon: Euro,
-      tint: "text-emerald-600 bg-emerald-50",
-    },
+  const STATS: { label: string; value: string; sub: string | null; icon: typeof Euro | typeof Handshake; tint: string }[] = [
+    ...(!readOnly
+      ? [
+          {
+            label: "CA total",
+            value: formatMoney(totalCA),
+            sub: marque._count.collaborations > 0 ? `${marque._count.collaborations} collab${marque._count.collaborations > 1 ? "s" : ""}` : "aucune collab",
+            icon: Euro,
+            tint: "text-emerald-600 bg-emerald-50",
+          },
+        ]
+      : [
+          {
+            label: "Collaborations",
+            value: String(marque._count.collaborations),
+            sub: null,
+            icon: Handshake,
+            tint: "text-emerald-600 bg-emerald-50",
+          },
+        ]),
     {
       label: "Contacts",
       value: String(crmContacts.length),
@@ -2777,36 +2789,44 @@ export default function MarqueDetailPage() {
                   <div className="text-center py-14">
                     <Handshake className="w-10 h-10 text-gray-200 mx-auto mb-3" />
                     <p className="text-sm text-gray-400">Aucune collaboration pour l&apos;instant</p>
-                    <Link
-                      href={`/collaborations/new?marque=${marque.id}`}
-                      className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-[13px] font-semibold text-white rounded-lg hover:opacity-90 transition-opacity"
-                      style={{ backgroundColor: INK }}
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Créer une collab
-                    </Link>
+                    {!readOnly && (
+                      <Link
+                        href={`/collaborations/new?marque=${marque.id}`}
+                        className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-[13px] font-semibold text-white rounded-lg hover:opacity-90 transition-opacity"
+                        style={{ backgroundColor: INK }}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Créer une collab
+                      </Link>
+                    )}
                   </div>
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center gap-2 px-5 py-3.5 border-b border-gray-100">
-                      <span className="text-[13px] font-semibold tabular-nums" style={{ color: INK }}>
-                        {formatMoney(totalCA)}
-                      </span>
-                      <span className="text-xs text-gray-400">de CA</span>
-                      <span className="text-gray-200">·</span>
+                      {!readOnly && (
+                        <>
+                          <span className="text-[13px] font-semibold tabular-nums" style={{ color: INK }}>
+                            {formatMoney(totalCA)}
+                          </span>
+                          <span className="text-xs text-gray-400">de CA</span>
+                          <span className="text-gray-200">·</span>
+                        </>
+                      )}
                       {Object.entries(collabStatusCounts).map(([statut, count]) => (
                         <span key={statut} className={`text-[11px] font-medium px-2 py-[3px] rounded-md ${collabStatusClass(statut)}`}>
                           {count} {statut}
                         </span>
                       ))}
-                      <Link
-                        href={`/collaborations/new?marque=${marque.id}`}
-                        className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg hover:opacity-90 transition-opacity"
-                        style={{ backgroundColor: INK }}
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Nouvelle
-                      </Link>
+                      {!readOnly && (
+                        <Link
+                          href={`/collaborations/new?marque=${marque.id}`}
+                          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg hover:opacity-90 transition-opacity"
+                          style={{ backgroundColor: INK }}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Nouvelle
+                        </Link>
+                      )}
                     </div>
                     <div className="divide-y divide-gray-50">
                       {marque.collaborations.map((collab) => (

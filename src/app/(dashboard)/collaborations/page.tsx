@@ -91,6 +91,12 @@ export default function CollaborationsPage() {
 
   const canFilterByUser =
     userRole === "ADMIN" || userRole === "HEAD_OF" || userRole === "HEAD_OF_INFLUENCE";
+  /** STRATEGY_PLANNER (Inès) : lecture seule, sans récaps CA (comme TM pour les agrégats). */
+  const isViewOnly = userRole === "STRATEGY_PLANNER";
+  const hideFinancialRecaps = userRole === "TM" || isViewOnly;
+  /** Tarif unitaire par collab OK ; commission agence masquée pour viewers. */
+  const showBrutColumn = !hideFinancialRecaps || isViewOnly;
+  const showCommissionColumn = !hideFinancialRecaps;
 
   useEffect(() => {
     fetchUserRole();
@@ -346,17 +352,19 @@ export default function CollaborationsPage() {
           <h1 className="text-2xl font-bold text-glowup-licorice">Collaborations</h1>
           <p className="text-gray-500 mt-1">{filteredCollabs.length} collaboration(s) (sur {collaborations.length})</p>
         </div>
-        <Link
-          href="/collaborations/new"
-          className="flex items-center gap-2 px-4 py-2.5 bg-glowup-licorice text-white font-medium rounded-xl hover:bg-glowup-licorice/90 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Nouvelle collab
-        </Link>
+        {!isViewOnly && (
+          <Link
+            href="/collaborations/new"
+            className="flex items-center gap-2 px-4 py-2.5 bg-glowup-licorice text-white font-medium rounded-xl hover:bg-glowup-licorice/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Nouvelle collab
+          </Link>
+        )}
       </div>
 
-      {/* Stats - Masqués pour TM */}
-      {userRole !== "TM" && (
+      {/* Stats - Masqués pour TM et viewers lecture seule (pas de récap CA) */}
+      {!hideFinancialRecaps && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <div className="flex items-center justify-between">
@@ -450,33 +458,37 @@ export default function CollaborationsPage() {
               ))}
             </select>
           )}
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            disabled={exporting || filteredCollabs.length === 0}
-            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px]"
-          >
-            {exporting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4" />
-            )}
-            Export Excel
-          </button>
-          <button
-            type="button"
-            onClick={handleDownloadFacturesTalent}
-            disabled={zippingFactures}
-            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[180px]"
-            title="Télécharger les factures talent (selon le filtre) dans un ZIP"
-          >
-            {zippingFactures ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Archive className="w-4 h-4" />
-            )}
-            Factures talent (ZIP)
-          </button>
+          {!isViewOnly && (
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={exporting || filteredCollabs.length === 0}
+              className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px]"
+            >
+              {exporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              Export Excel
+            </button>
+          )}
+          {!isViewOnly && (
+            <button
+              type="button"
+              onClick={handleDownloadFacturesTalent}
+              disabled={zippingFactures}
+              className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed min-w-[180px]"
+              title="Télécharger les factures talent (selon le filtre) dans un ZIP"
+            >
+              {zippingFactures ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Archive className="w-4 h-4" />
+              )}
+              Factures talent (ZIP)
+            </button>
+          )}
         </div>
       </div>
 
@@ -488,9 +500,11 @@ export default function CollaborationsPage() {
           <div className="p-12 text-center">
             <Handshake className="w-10 h-10 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 mb-4">Aucune collaboration</p>
-            <Link href="/collaborations/new" className="inline-flex items-center gap-2 px-4 py-2 bg-glowup-licorice text-white text-sm font-medium rounded-lg">
-              <Plus className="w-4 h-4" />Créer
-            </Link>
+            {!isViewOnly && (
+              <Link href="/collaborations/new" className="inline-flex items-center gap-2 px-4 py-2 bg-glowup-licorice text-white text-sm font-medium rounded-lg">
+                <Plus className="w-4 h-4" />Créer
+              </Link>
+            )}
           </div>
         ) : (
           <table className="w-full">
@@ -500,8 +514,8 @@ export default function CollaborationsPage() {
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Talent</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Marque</th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Livrables</th>
-                {userRole !== "TM" && <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Brut</th>}
-                {userRole !== "TM" && <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Commission</th>}
+                {showBrutColumn && <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">{isViewOnly ? "Tarif" : "Brut"}</th>}
+                {showCommissionColumn && <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Commission</th>}
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Statut</th>
                 <th className="text-right py-3 px-4"></th>
               </tr>
@@ -561,12 +575,12 @@ export default function CollaborationsPage() {
                         <span className="text-sm text-gray-600">{getLivrablesLabel(collab.livrables)}</span>
                       </div>
                     </td>
-                    {userRole !== "TM" && (
+                    {showBrutColumn && (
                       <td className="py-3 px-4 text-right">
                         <span className="text-sm font-semibold text-glowup-licorice">{formatMoney(collab.montantBrut)}</span>
                       </td>
                     )}
-                    {userRole !== "TM" && (
+                    {showCommissionColumn && (
                       <td className="py-3 px-4 text-right">
                         <span className="text-sm text-glowup-rose font-medium">{formatMoney(collab.commissionEuros)}</span>
                         <span className="text-xs text-gray-400 ml-1">({collab.commissionPercent}%)</span>

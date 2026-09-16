@@ -5,6 +5,10 @@ import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { logDelegationActivite } from "@/lib/delegations";
 import { canAccessPrivateCollab } from "@/lib/collab-private-access";
+import {
+  canViewAllTalentCollabs,
+  isCollabViewOnly,
+} from "@/lib/collab-viewer-access";
 
 // GET - Détail d'une collaboration
 export async function GET(
@@ -138,6 +142,9 @@ export async function GET(
 
     const user = session.user as { id: string; role?: string; email?: string | null };
     const userRole = user.role;
+    if (userRole === "STRATEGY_PLANNER" && !canViewAllTalentCollabs(userRole, user.email)) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
     if (userRole === "JURISTE") {
       if (!collaboration.contratMarquePdfUrl) {
         return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
@@ -146,6 +153,14 @@ export async function GET(
 
     // Cloisonnement pôle Sales : on renvoie 404 (et pas 403) pour ne pas révéler l'existence
     if (!canAccessPrivateCollab(collaboration, user)) {
+      return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
+    }
+
+    // Viewer : collabs privées Sales hors scope
+    if (
+      canViewAllTalentCollabs(userRole || "", user.email) &&
+      collaboration.isPrivate
+    ) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
@@ -188,6 +203,13 @@ export async function PATCH(
     }
 
     const userRole = session.user.role;
+    if (isCollabViewOnly(userRole || "", session.user.email)) {
+      return NextResponse.json(
+        { error: "Accès lecture seule — modification interdite" },
+        { status: 403 }
+      );
+    }
+
     const { id } = await params;
     const data = await request.json();
 
@@ -407,6 +429,13 @@ export async function PUT(
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    if (isCollabViewOnly(session.user.role || "", session.user.email)) {
+      return NextResponse.json(
+        { error: "Accès lecture seule — modification interdite" },
+        { status: 403 }
+      );
     }
 
     const { id } = await params;

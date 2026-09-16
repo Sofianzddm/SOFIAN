@@ -5,6 +5,7 @@ import {
   isDecisionCenterEmail,
   isDecisionCenterEnabled,
 } from "@/lib/decision-center/constants";
+import { canViewAllTalentCollabs } from "@/lib/collab-viewer-access";
 
 const NOINDEX_HEADER = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
@@ -298,6 +299,8 @@ export async function middleware(request: NextRequest) {
   // + simulateur cessions + annuaire marques (/marques) + fiche détail en lecture
   // (/marques/{id}, pas new/duplicates/edit) pour ouvrir les marques liées
   // depuis les projets.
+  // + collaborations talents en lecture seule (liste + fiche, pas new/edit/facturer)
+  //   pour Inès (allowlist email — voir collab-viewer-access).
   const isCannes2026Path = pathname === "/cannes-2026" || pathname.startsWith("/cannes-2026/");
   const isTalentsPath = pathname === "/talents" || pathname.startsWith("/talents/");
   const isSimulateurCessionsPath =
@@ -307,6 +310,15 @@ export async function middleware(request: NextRequest) {
     /^\/marques\/[^/]+$/.test(pathname) &&
     pathname !== "/marques/new" &&
     pathname !== "/marques/duplicates";
+  const isCollabViewer = canViewAllTalentCollabs(
+    effectiveRole || "",
+    t.email
+  );
+  const isCollabListPath = pathname === "/collaborations";
+  const isCollabDetailPath =
+    /^\/collaborations\/[^/]+$/.test(pathname) &&
+    pathname !== "/collaborations/new" &&
+    pathname !== "/collaborations/rattrapage-marques";
   if (
     effectiveRole === "STRATEGY_PLANNER" &&
     !pathname.startsWith("/strategy") &&
@@ -314,7 +326,8 @@ export async function middleware(request: NextRequest) {
     !isTalentsPath &&
     !isSimulateurCessionsPath &&
     !isMarquesListPath &&
-    !isMarqueDetailPath
+    !isMarqueDetailPath &&
+    !(isCollabViewer && (isCollabListPath || isCollabDetailPath))
   ) {
     return withNoIndex(
       NextResponse.redirect(new URL("/strategy/projets/villa-cannes", request.url))

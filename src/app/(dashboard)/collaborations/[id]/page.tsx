@@ -377,6 +377,7 @@ export default function CollabDetailPage() {
   // Auto-ouvre la double saisie si le nom de marque n'est pas encore vérifié
   useEffect(() => {
     if (!collab) return;
+    if (effectiveRole === "STRATEGY_PLANNER") return;
     const force = searchParams.get("corrigerMarque") === "1";
     const needsVerify = !collab.nomMarqueVerifieAt;
     if (force || (crmLocked && needsVerify) || needsVerify) {
@@ -386,7 +387,7 @@ export default function CollabDetailPage() {
       setEditingNomMarque(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collab?.id, crmLocked, collab?.nomMarqueVerifieAt]);
+  }, [collab?.id, crmLocked, collab?.nomMarqueVerifieAt, effectiveRole]);
 
   useEffect(() => {
     const fetchMe = async () => {
@@ -1223,20 +1224,22 @@ export default function CollabDetailPage() {
 
   // Rôle effectif (via /api/auth/me) pour cohérence avec le masquage backend — seul ADMIN voit les infos de paiement
   const isAdmin = effectiveRole === "ADMIN";
+  const roleForUi = effectiveRole ?? (session?.user as { role?: string })?.role ?? "";
+  const isViewOnly = roleForUi === "STRATEGY_PLANNER";
   // Pour les non-ADMIN, on affiche "Facturé" au lieu de "Payé" (ils ne voient pas la suite des paiements)
   const displayStatut = isAdmin ? collab.statut : (collab.statut === "PAYE" ? "FACTURE_RECUE" : collab.statut);
   const statutInfo = getStatutInfo(displayStatut);
-  const nextStatutsRaw = WORKFLOW[collab.statut as keyof typeof WORKFLOW] || [];
+  const nextStatutsRaw = isViewOnly ? [] : (WORKFLOW[collab.statut as keyof typeof WORKFLOW] || []);
   const nextStatuts = isAdmin ? nextStatutsRaw : nextStatutsRaw.filter((s) => s !== "PAYE");
   const activeDevis = getActiveDocument("DEVIS");
   const activeFacture = getActiveDocument("FACTURE");
-  const roleForUi = effectiveRole ?? (session?.user as { role?: string })?.role ?? "";
-  const canGenerateDevis = ["NEGO", "GAGNE", "EN_COURS"].includes(collab.statut) && !activeDevis;
+  const canGenerateDevis = !isViewOnly && ["NEGO", "GAGNE", "EN_COURS"].includes(collab.statut) && !activeDevis;
   const canGenerateFacture =
+    !isViewOnly &&
     ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) &&
     (collab.isLongTerme || !activeFacture);
-  const canUploadSignedDevis = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(roleForUi);
-  const canOuvrirDevisPartiel = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(roleForUi);
+  const canUploadSignedDevis = !isViewOnly && ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(roleForUi);
+  const canOuvrirDevisPartiel = !isViewOnly && ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const activeDevisForManualUpload = (collab.documents || []).find(
     (d) => d.type === "DEVIS" && d.statut !== "ANNULE" && !d.avoirRef
   );
@@ -1245,9 +1248,9 @@ export default function CollabDetailPage() {
   );
   const existingDocs = collab.documents || [];
   const canSeeContratBloc = ["ADMIN", "TM", "HEAD_OF_INFLUENCE"].includes(roleForUi);
-  const canGenerateContrat = ["ADMIN", "TM"].includes(roleForUi);
-  const canEditCollabDate = roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES" || roleForUi === "CM";
-  const canCorrigerMarque = ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(roleForUi);
+  const canGenerateContrat = !isViewOnly && ["ADMIN", "TM"].includes(roleForUi);
+  const canEditCollabDate = !isViewOnly && (roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES" || roleForUi === "CM");
+  const canCorrigerMarque = !isViewOnly && ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(roleForUi);
   const contactAgenceAffiche = (
     collab.contactAgence ||
     collab.negociation?.contactAgence ||
@@ -1274,9 +1277,12 @@ export default function CollabDetailPage() {
             <button onClick={copyReference} className="p-2.5 text-gray-400 hover:text-glowup-licorice hover:bg-white hover:border hover:border-gray-100 rounded-xl transition-all shadow-sm" title="Copier la référence">
               {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
             </button>
-            <Link href={`/collaborations/${collab.id}/edit`} className="p-2.5 text-gray-400 hover:text-glowup-licorice hover:bg-white hover:border hover:border-gray-100 rounded-xl transition-all shadow-sm" title="Modifier">
-              <Pencil className="w-4 h-4" />
-            </Link>
+            {!isViewOnly && (
+              <Link href={`/collaborations/${collab.id}/edit`} className="p-2.5 text-gray-400 hover:text-glowup-licorice hover:bg-white hover:border hover:border-gray-100 rounded-xl transition-all shadow-sm" title="Modifier">
+                <Pencil className="w-4 h-4" />
+              </Link>
+            )}
+            {!isViewOnly && (
             <div className="relative">
               <button onClick={() => setShowMenu(!showMenu)} className="p-2.5 text-gray-400 hover:text-glowup-licorice hover:bg-white hover:border hover:border-gray-100 rounded-xl transition-all shadow-sm">
                 <MoreHorizontal className="w-4 h-4" />
@@ -1295,6 +1301,7 @@ export default function CollabDetailPage() {
                 </>
               )}
             </div>
+            )}
           </div>
         </div>
 
@@ -2381,7 +2388,7 @@ export default function CollabDetailPage() {
                     <a href={`/api/documents/${activeFacture.id}/pdf?locale=en`} target="_blank" className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-50/60 text-emerald-700 rounded-xl text-xs font-semibold hover:bg-emerald-100 transition-colors">
                       <Languages className="w-4 h-4" /> Invoice {activeFacture.reference} (EN)
                     </a>
-                    {activeFacture.statut !== "PAYE" && (
+                    {activeFacture.statut !== "PAYE" && !isViewOnly && (
                       <button onClick={() => createAvoir(activeFacture.id)} disabled={generatingDoc} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-orange-50 text-orange-600 rounded-xl text-sm font-semibold hover:bg-orange-100 transition-colors disabled:opacity-50">
                         <AlertTriangle className="w-4 h-4" /> Créer un avoir
                       </button>
@@ -2444,33 +2451,41 @@ export default function CollabDetailPage() {
             return (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden border-l-4 border-l-emerald-500/50">
                 <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-emerald-50/50 to-white">
-                  <h3 className="font-semibold text-glowup-licorice text-sm uppercase tracking-wider">Répartition</h3>
+                  <h3 className="font-semibold text-glowup-licorice text-sm uppercase tracking-wider">
+                    {isViewOnly ? "Tarif" : "Répartition"}
+                  </h3>
                 </div>
                 <div className="p-5 space-y-5">
                   <div>
                     <div className="flex justify-between items-baseline mb-2">
-                      <span className="text-sm text-gray-500 font-medium">Total brut HT</span>
+                      <span className="text-sm text-gray-500 font-medium">
+                        {isViewOnly ? "Tarif collaboration HT" : "Total brut HT"}
+                      </span>
                       <span className="text-xl font-bold text-glowup-licorice">{formatMoney(montantBrut)}</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div className="h-full bg-glowup-licorice rounded-full" style={{ width: "100%" }} />
                     </div>
                   </div>
-                  <div>
-                    <div className="flex justify-between items-baseline mb-2">
-                      <span className="text-sm text-gray-500 font-medium">Commission ({collab.commissionPercent}%)</span>
-                      <span className="text-lg font-bold text-glowup-rose">{formatMoney(commissionEuros)}</span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-glowup-rose to-glowup-old rounded-full" style={{ width: `${collab.commissionPercent}%` }} />
-                    </div>
-                  </div>
-                  <div className="pt-4 mt-2 border-t border-gray-100">
-                    <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-xl p-5 text-center border border-emerald-100">
-                      <p className="text-xs text-emerald-600 font-semibold uppercase tracking-wider mb-1">Net talent (HT)</p>
-                      <p className="text-2xl font-bold text-emerald-700">{formatMoney(montantNet)}</p>
-                    </div>
-                  </div>
+                  {!isViewOnly && (
+                    <>
+                      <div>
+                        <div className="flex justify-between items-baseline mb-2">
+                          <span className="text-sm text-gray-500 font-medium">Commission ({collab.commissionPercent}%)</span>
+                          <span className="text-lg font-bold text-glowup-rose">{formatMoney(commissionEuros)}</span>
+                        </div>
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-glowup-rose to-glowup-old rounded-full" style={{ width: `${collab.commissionPercent}%` }} />
+                        </div>
+                      </div>
+                      <div className="pt-4 mt-2 border-t border-gray-100">
+                        <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-xl p-5 text-center border border-emerald-100">
+                          <p className="text-xs text-emerald-600 font-semibold uppercase tracking-wider mb-1">Net talent (HT)</p>
+                          <p className="text-2xl font-bold text-emerald-700">{formatMoney(montantNet)}</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );

@@ -8,6 +8,10 @@ import { getDeviseInfo } from "@/lib/devises";
 import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
 import { accountManagerFieldsForCreator } from "@/lib/account-manager-assign";
 import { hideSofianPrivateCollabsWhere } from "@/lib/collab-private-access";
+import {
+  canViewAllTalentCollabs,
+  isCollabViewOnly,
+} from "@/lib/collab-viewer-access";
 
 // GET - Liste des collaborations
 export async function GET(request: NextRequest) {
@@ -43,9 +47,19 @@ export async function GET(request: NextRequest) {
     };
 
     const rolesCanFilterByUser = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"];
+    const isTalentCollabViewer = canViewAllTalentCollabs(user.role, user.email);
 
+    // STRATEGY_PLANNER hors allowlist : pas d'accès API collabs
+    if (user.role === "STRATEGY_PLANNER" && !isTalentCollabViewer) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
+    // Viewer lecture seule (Inès) : toutes les collabs talents publiques
+    if (isTalentCollabViewer) {
+      where.isPrivate = false;
+    }
     // Si TM → voir uniquement SES collaborations (via ses talents), tous statuts sauf PERDU
-    if (user.role === "TM") {
+    else if (user.role === "TM") {
       const mesTalents = await prisma.talent.findMany({
         where: {
           isArchived: false,
@@ -71,8 +85,11 @@ export async function GET(request: NextRequest) {
     // - HEAD_OF_SALES : ne voit QUE ses propres collabs (pôle Sales 100% séparé)
     // - CM (Account Manager) : UNIQUEMENT les collabs qui lui sont assignées
     // - ADMIN : voit tout
+    // - Viewer collabs : déjà filtré (publiques uniquement)
     // - Autres : voient les publiques OU celles qu'ils ont créées eux-mêmes
-    if (user.role === "HEAD_OF_SALES") {
+    if (isTalentCollabViewer) {
+      // déjà filtré ci-dessus
+    } else if (user.role === "HEAD_OF_SALES") {
       where.createdById = user.id;
     } else if (user.role === "CM") {
       where.accountManagerId = user.id;
@@ -224,6 +241,14 @@ export async function POST(request: NextRequest) {
     const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const viewerUser = session.user as { role?: string; email?: string | null };
+    if (isCollabViewOnly(viewerUser.role || "", viewerUser.email)) {
+      return NextResponse.json(
+        { error: "Accès lecture seule — création interdite" },
+        { status: 403 }
+      );
     }
 
     // Bloquer aussi la création de collab tant que le rattrapage n'est pas fini
