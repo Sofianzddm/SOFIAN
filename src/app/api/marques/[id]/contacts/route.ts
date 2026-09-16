@@ -373,10 +373,30 @@ export async function DELETE(
 
     const contact = await prisma.marqueContact.findFirst({
       where: { id: contactId, marqueId: id },
-      select: { id: true },
+      select: {
+        id: true,
+        email: true,
+        outreachTargets: {
+          where: { status: { not: "STOPPED" } },
+          select: { id: true },
+          take: 1,
+        },
+      },
     });
     if (!contact) {
       return NextResponse.json({ error: "Contact non trouvé." }, { status: 404 });
+    }
+
+    // Ne jamais supprimer un contact encore en cycle (sinon marqueContactId → null
+    // via onDelete SetNull et la fiche affiche 0 en Outreach).
+    if (contact.outreachTargets.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Ce contact est en cycle Outreach. Retire-le du cycle (ou fusionne la fiche) avant de le supprimer.",
+        },
+        { status: 409 }
+      );
     }
 
     await prisma.marqueContact.delete({ where: { id: contact.id } });

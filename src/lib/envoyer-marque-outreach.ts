@@ -1,9 +1,9 @@
 /**
- * Passage d'une marque (carto influence + AO) vers l'outreach clients.
+ * Passage d'une marque (carto influence) vers l'outreach clients.
  *
  * Règles métier :
- * 1. Une marque ne passe jamais en outreach tant que la carto influence
- *    ET l'AO (contacts ou fichier) ne sont pas présents.
+ * 1. Une marque passe en outreach dès que la carto influence est présente
+ *    (l'AO n'est plus un prérequis — utile si la feuille Achats manque encore).
  * 2. Les contacts influence sans email partent en enrichissement
  *    (emailLookupStatus=QUEUED) avec une suggestion de motif si possible.
  * 3. Tant qu'il reste des emails à trouver, aucun contact n'est enrôlé.
@@ -134,9 +134,9 @@ export async function enrollInfluenceContacts(opts: {
 /**
  * Met en file d'enrichissement tous les contacts influence sans email
  * (suggestions de motif si possible). Ne vérifie PAS l'AO — c'est pour
- * /enrichissement après drop d'une carto. L'enrôlement outreach reste
- * bloqué tant que AO + tous les mails non introuvables ne sont pas OK
- * (via envoyerMarqueEnOutreach / tryEnrollMarqueAfterEmailComplete).
+ * /enrichissement après drop d'une carto. L'enrôlement outreach part dès
+ * que les mails sont complétés (ou marqués introuvables), via
+ * envoyerMarqueEnOutreach / tryEnrollMarqueAfterEmailComplete.
  */
 export async function queueMarqueEnrichissement(opts: {
   marqueId: string;
@@ -368,11 +368,6 @@ export async function envoyerMarqueEnOutreach(opts: {
           emailLookupStatus: true,
         },
       },
-      cartoFiles: {
-        where: { kind: "AO" },
-        select: { id: true },
-        take: 1,
-      },
     },
   });
 
@@ -381,24 +376,12 @@ export async function envoyerMarqueEnOutreach(opts: {
   }
 
   const influence = marque.contacts.filter((c) => c.source === "CARTO");
-  const aoContacts = marque.contacts.filter((c) => c.source === "AO");
-  const hasAo = aoContacts.length > 0 || marque.cartoFiles.length > 0;
 
   if (influence.length === 0) {
     return {
       ok: false,
       error: "Importe d'abord la cartographie influence (feuille 1) avant d'envoyer en outreach.",
       missingInfluence: true,
-      statusCode: 400,
-    };
-  }
-
-  if (!hasAo) {
-    return {
-      ok: false,
-      error:
-        "L'AO (feuille 2 / Achats) doit être importée avant de passer cette marque en outreach.",
-      missingAo: true,
       statusCode: 400,
     };
   }
@@ -463,7 +446,7 @@ export async function envoyerMarqueEnOutreach(opts: {
 
 /**
  * Après complétion d'un email (enrichissement) : si plus aucun QUEUED
- * sur la marque et que l'AO est présent → enrôler automatiquement.
+ * sur la marque → enrôler automatiquement les contacts influence prêts.
  */
 export async function tryEnrollMarqueAfterEmailComplete(opts: {
   marqueId: string;
@@ -480,16 +463,9 @@ export async function tryEnrollMarqueAfterEmailComplete(opts: {
         where: { source: "CARTO", ...ENROLLABLE_CONTACT_WHERE },
         select: { id: true, email: true, emailLookupStatus: true },
       },
-      cartoFiles: { where: { kind: "AO" }, select: { id: true }, take: 1 },
     },
   });
   if (!marque) return { enrolled: 0, stillQueued: 0 };
-
-  const aoCount = await prisma.marqueContact.count({
-    where: { marqueId: marque.id, source: "AO" },
-  });
-  const hasAo = aoCount > 0 || marque.cartoFiles.length > 0;
-  if (!hasAo) return { enrolled: 0, stillQueued: 0 };
 
   // Encore des mails manquants (hors introuvables) → on n'enrôle personne.
   const missingEmail = marque.contacts.filter(

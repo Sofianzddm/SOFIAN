@@ -14,6 +14,7 @@ import {
   X,
   Play,
   UserPlus,
+  ExternalLink,
 } from "lucide-react";
 
 type Counts = {
@@ -384,6 +385,9 @@ export default function MarquesDuplicatesPage() {
                 ? "Marques ayant exactement le même nom normalisé."
                 : "Typos, sous-produits et variantes proches (algo)."}
           </p>
+          <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1 rounded-lg bg-sky-50 text-sky-800 ring-1 ring-inset ring-sky-100">
+            🇫🇷 CRM France uniquement — l&apos;annuaire BENELUX n&apos;est jamais mélangé ni fusionné ici.
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
@@ -619,7 +623,16 @@ export default function MarquesDuplicatesPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium text-glowup-licorice">{m.nom}</span>
+                              <Link
+                                href={`/marques/${m.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-glowup-licorice hover:underline inline-flex items-center gap-1"
+                                title="Ouvrir la fiche dans un nouvel onglet"
+                              >
+                                {m.nom}
+                                <ExternalLink className="w-3 h-3 text-gray-400 shrink-0" />
+                              </Link>
                               {isTarget && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">
                                   à garder
@@ -728,7 +741,17 @@ export default function MarquesDuplicatesPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-glowup-licorice">{m.nom}</span>
+                            <Link
+                              href={`/marques/${m.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="font-medium text-glowup-licorice hover:underline inline-flex items-center gap-1"
+                              title="Ouvrir la fiche dans un nouvel onglet"
+                            >
+                              {m.nom}
+                              <ExternalLink className="w-3 h-3 text-gray-400 shrink-0" />
+                            </Link>
                             {idx === 0 && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
                                 recommandé

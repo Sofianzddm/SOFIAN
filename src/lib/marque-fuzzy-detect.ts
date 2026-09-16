@@ -46,6 +46,11 @@ export function sortMarquesByScore(arr: MarqueDedupeRow[]): MarqueDedupeRow[] {
   });
 }
 
+/**
+ * Détection de doublons CRM marques FR uniquement.
+ * L'annuaire BENELUX (`BeneluxCompany`) est une table séparée : jamais chargé
+ * ni fusionné ici.
+ */
 export async function loadMarquesForDedupe(
   client: Pick<PrismaClient, "marque">
 ): Promise<MarqueDedupeRow[]> {
@@ -126,20 +131,40 @@ export function trigramSimilarity(a: string, b: string): number {
   return union === 0 ? 0 : inter / union;
 }
 
-/** Groupes avec le même slug (doublons exacts). */
+/** Groupes avec le même slug stocké OU le même nom normalisé (doublons exacts). */
 export function detectExactDuplicateGroups(rows: MarqueDedupeRow[]): DedupeGroup[] {
+  const byKey = new Map<string, MarqueDedupeRow[]>();
+  for (const r of rows) {
+    // Clé = nom normalisé (ex. deux « Boohoo » avec slugs légaux différents).
+    // Fallback sur le slug stocké si le nom est vide.
+    const key = marqueSlug(r.nom) || r.slug;
+    if (!key) continue;
+    const arr = byKey.get(key) ?? [];
+    arr.push(r);
+    byKey.set(key, arr);
+  }
+
+  const groups: DedupeGroup[] = [];
+  const claimed = new Set<string>();
+  for (const [key, marques] of byKey.entries()) {
+    if (marques.length < 2) continue;
+    groups.push({ key: `exact:${key}`, reason: "EXACT", marques: sortMarquesByScore([...marques]) });
+    for (const m of marques) claimed.add(m.id);
+  }
+
+  // Doublons de slug stocké non déjà couverts (ex. alias / nom différent, même slug).
   const bySlug = new Map<string, MarqueDedupeRow[]>();
   for (const r of rows) {
+    if (claimed.has(r.id) || !r.slug) continue;
     const arr = bySlug.get(r.slug) ?? [];
     arr.push(r);
     bySlug.set(r.slug, arr);
   }
-
-  const groups: DedupeGroup[] = [];
   for (const [slug, marques] of bySlug.entries()) {
     if (marques.length < 2) continue;
-    groups.push({ key: `exact:${slug}`, reason: "EXACT", marques: sortMarquesByScore([...marques]) });
+    groups.push({ key: `exact-slug:${slug}`, reason: "EXACT", marques: sortMarquesByScore([...marques]) });
   }
+
   return groups;
 }
 
@@ -291,6 +316,10 @@ export type SimilarMarqueMatch = {
 /**
  * Trouve les fiches proches d'une marque donnée (exact / typo / préfixe / trigramme).
  * Utilisé sur la fiche marque pour proposer une fusion en place.
+ *
+ * Important : on compare à la fois le slug stocké (souvent une raison sociale)
+ * ET le nom normalisé — sinon deux fiches « Boohoo » avec des slugs légaux
+ * différents (`boohoofrancesas` / `boohoocomuklimited`) ne matchent jamais.
  */
 export function findSimilarToMarque(
   rows: MarqueDedupeRow[],
@@ -298,46 +327,82 @@ export function findSimilarToMarque(
   threshold = 0.78
 ): SimilarMarqueMatch[] {
   const target = rows.find((r) => r.id === marqueId);
-  if (!target || !target.slug || target.slug.length < 3) return [];
+  if (!target) return [];
+
+  const targetNameKey = marqueSlug(target.nom);
+  const targetKeys = Array.from(
+    new Set([target.slug, targetNameKey].filter((k) => k && k.length >= 2))
+  );
+  if (targetKeys.length === 0) return [];
 
   const matches: SimilarMarqueMatch[] = [];
+  const seen = new Set<string>();
 
   for (const other of rows) {
-    if (other.id === target.id || !other.slug || other.slug.length < 3) continue;
+    if (other.id === target.id) continue;
+    const otherNameKey = marqueSlug(other.nom);
+    const otherKeys = Array.from(
+      new Set([other.slug, otherNameKey].filter((k) => k && k.length >= 2))
+    );
+    if (otherKeys.length === 0) continue;
 
-    if (other.slug === target.slug) {
+    // Exact : même nom normalisé OU même slug stocké.
+    if (
+      (targetNameKey && otherNameKey && targetNameKey === otherNameKey) ||
+      (target.slug && other.slug && target.slug === other.slug)
+    ) {
       matches.push({ marque: other, reason: "EXACT", similarity: 1 });
+      seen.add(other.id);
       continue;
     }
 
-    const short = target.slug.length <= other.slug.length ? target.slug : other.slug;
-    const long = target.slug.length <= other.slug.length ? other.slug : target.slug;
-    if (short.length >= 3 && long.startsWith(short) && long.length - short.length >= 3) {
-      matches.push({
-        marque: other,
-        reason: "PREFIX",
-        similarity: short.length / long.length,
-      });
-      continue;
-    }
+    let best: SimilarMarqueMatch | null = null;
+    for (const a of targetKeys) {
+      for (const b of otherKeys) {
+        if (a.length < 3 || b.length < 3) continue;
 
-    const minLen = Math.min(target.slug.length, other.slug.length);
-    const maxLen = Math.max(target.slug.length, other.slug.length);
-    if (maxLen - minLen <= 2 && minLen >= 4) {
-      const d = levenshtein(target.slug, other.slug);
-      if (d > 0 && d <= Math.min(2, Math.floor(minLen / 4))) {
-        matches.push({
-          marque: other,
-          reason: "TYPO",
-          similarity: 1 - d / maxLen,
-        });
-        continue;
+        const short = a.length <= b.length ? a : b;
+        const long = a.length <= b.length ? b : a;
+        if (short.length >= 3 && long.startsWith(short) && long.length - short.length >= 3) {
+          const cand: SimilarMarqueMatch = {
+            marque: other,
+            reason: "PREFIX",
+            similarity: short.length / long.length,
+          };
+          if (!best || cand.similarity > best.similarity) best = cand;
+          continue;
+        }
+
+        const minLen = Math.min(a.length, b.length);
+        const maxLen = Math.max(a.length, b.length);
+        if (maxLen - minLen <= 2 && minLen >= 4) {
+          const d = levenshtein(a, b);
+          if (d > 0 && d <= Math.min(2, Math.floor(minLen / 4))) {
+            const cand: SimilarMarqueMatch = {
+              marque: other,
+              reason: "TYPO",
+              similarity: 1 - d / maxLen,
+            };
+            if (!best || cand.similarity > best.similarity) best = cand;
+            continue;
+          }
+        }
+
+        const sim = trigramSimilarity(a, b);
+        if (sim >= threshold) {
+          const cand: SimilarMarqueMatch = {
+            marque: other,
+            reason: "TRIGRAM",
+            similarity: sim,
+          };
+          if (!best || cand.similarity > best.similarity) best = cand;
+        }
       }
     }
 
-    const sim = trigramSimilarity(target.slug, other.slug);
-    if (sim >= threshold) {
-      matches.push({ marque: other, reason: "TRIGRAM", similarity: sim });
+    if (best && !seen.has(other.id)) {
+      matches.push(best);
+      seen.add(other.id);
     }
   }
 

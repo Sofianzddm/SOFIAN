@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -16,6 +17,7 @@ import {
   Reply,
   Crown,
   FileSpreadsheet,
+  Send,
 } from "lucide-react";
 
 interface AgencyContact {
@@ -68,6 +70,10 @@ interface TopTalent {
 export default function PartnerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { data: session } = useSession();
+  const canAgencyOutreach = ["ADMIN", "HEAD_OF_SALES"].includes(
+    session?.user?.role || ""
+  );
   const [loading, setLoading] = useState(true);
   const [partner, setPartner] = useState<any>(null);
   const [stats, setStats] = useState<PartnerStats | null>(null);
@@ -85,6 +91,9 @@ export default function PartnerDetailPage() {
   const [savingContact, setSavingContact] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [downloadingExcel, setDownloadingExcel] = useState(false);
+  const [enrollingId, setEnrollingId] = useState<string | null>(null);
+  const [enrollingAll, setEnrollingAll] = useState(false);
+  const [enrollFlash, setEnrollFlash] = useState<string | null>(null);
 
   useEffect(() => {
     if (params.id) {
@@ -160,6 +169,85 @@ export default function PartnerDetailPage() {
     const url = `${window.location.origin}/partners/${partner.slug}`;
     navigator.clipboard.writeText(url);
     alert("Lien copié !");
+  }
+
+  function canEnrollContact(c: AgencyContact): boolean {
+    return (
+      canAgencyOutreach &&
+      !c.excluded &&
+      !c.inProspection &&
+      Boolean(c.email && c.email.includes("@"))
+    );
+  }
+
+  /** Ajoute un contact agence au cycle Prospection Agences (À contacter). */
+  async function enrollContact(c: AgencyContact) {
+    if (!canEnrollContact(c) || enrollingId) return;
+    setEnrollFlash(null);
+    setEnrollingId(c.id);
+    try {
+      const res = await fetch("/api/agency-outreach/targets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agencyContactId: c.id,
+          language: c.language === "en" ? "en" : "fr",
+          market: "FR",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Impossible d'ajouter au cycle.");
+      setEnrollFlash(
+        `${c.prenom}${c.nom ? ` ${c.nom}` : ""} ajouté(e) à la Prospection Agences.`
+      );
+      await fetchData();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setEnrollingId(null);
+    }
+  }
+
+  /** Enrôle tous les contacts éligibles de l'agence. */
+  async function enrollAllEligible() {
+    const contacts = ((partner?.agencyContacts || []) as AgencyContact[]).filter(
+      canEnrollContact
+    );
+    if (contacts.length === 0 || enrollingAll) return;
+    if (
+      !confirm(
+        `Mettre ${contacts.length} contact${contacts.length > 1 ? "s" : ""} en Prospection Agences ?`
+      )
+    ) {
+      return;
+    }
+    setEnrollFlash(null);
+    setEnrollingAll(true);
+    let ok = 0;
+    let failed = 0;
+    for (const c of contacts) {
+      try {
+        const res = await fetch("/api/agency-outreach/targets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agencyContactId: c.id,
+            language: c.language === "en" ? "en" : "fr",
+            market: "FR",
+          }),
+        });
+        if (res.ok) ok += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setEnrollingAll(false);
+    const parts: string[] = [];
+    if (ok > 0) parts.push(`${ok} ajouté${ok > 1 ? "s" : ""} au cycle`);
+    if (failed > 0) parts.push(`${failed} ignoré${failed > 1 ? "s" : ""}`);
+    setEnrollFlash(parts.join(" · ") || "Aucun contact ajouté.");
+    await fetchData();
   }
 
   /** Régénère l'Excel des contacts (même colonnes que l'import Prospection Agences). */
@@ -433,7 +521,7 @@ export default function PartnerDetailPage() {
               ({(partner.agencyContacts || []).length})
             </span>
           </h2>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               type="button"
               onClick={() => void exportContactsExcel()}
@@ -450,6 +538,36 @@ export default function PartnerDetailPage() {
               )}
               Exporter Excel
             </button>
+            {canAgencyOutreach && (
+              <>
+                {((partner.agencyContacts || []) as AgencyContact[]).some(canEnrollContact) ? (
+                  <button
+                    type="button"
+                    onClick={() => void enrollAllEligible()}
+                    disabled={enrollingAll}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white rounded-lg hover:opacity-90 disabled:opacity-50"
+                    style={{ backgroundColor: "#16110F" }}
+                    title="Ajoute tous les contacts avec email (hors cycle) à la Prospection Agences"
+                  >
+                    {enrollingAll ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    Mettre en Outreach agence
+                  </button>
+                ) : (
+                  ((partner.agencyContacts || []) as AgencyContact[]).some(
+                    (c) => c.inProspection && !c.excluded
+                  ) && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-100">
+                      <Send className="w-3.5 h-3.5" />
+                      Déjà en Prospection Agences
+                    </span>
+                  )
+                )}
+              </>
+            )}
             <Link
               href="/agency-outreach"
               className="text-sm text-blue-600 hover:underline"
@@ -458,6 +576,12 @@ export default function PartnerDetailPage() {
             </Link>
           </div>
         </div>
+
+        {enrollFlash && (
+          <div className="mb-4 px-3 py-2 rounded-lg text-sm bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-100">
+            {enrollFlash}
+          </div>
+        )}
 
         {(partner.agencyContacts || []).length === 0 ? (
           <div className="text-center py-10">
@@ -570,14 +694,40 @@ export default function PartnerDetailPage() {
                       {formatDate(c.lastSentAt)}
                     </td>
                     <td className="py-3 pr-2 text-right">
-                      <button
-                        onClick={() => openEditContact(c)}
-                        title="Modifier le contact (email, nom…)"
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs border rounded-lg hover:bg-gray-50 text-gray-600"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                        Modifier
-                      </button>
+                      <div className="inline-flex items-center gap-1.5 justify-end">
+                        {canEnrollContact(c) ? (
+                          <button
+                            type="button"
+                            onClick={() => void enrollContact(c)}
+                            disabled={enrollingId === c.id || enrollingAll}
+                            title="Ajouter ce contact au cycle Prospection Agences"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold border rounded-lg hover:bg-gray-50 text-gray-800 disabled:opacity-50"
+                          >
+                            {enrollingId === c.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Send className="w-3.5 h-3.5" />
+                            )}
+                            Outreach
+                          </button>
+                        ) : c.inProspection && !c.excluded ? (
+                          <Link
+                            href="/agency-outreach"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 hover:underline"
+                            title="Déjà dans le cycle — ouvrir la Prospection Agences"
+                          >
+                            Voir le cycle
+                          </Link>
+                        ) : null}
+                        <button
+                          onClick={() => openEditContact(c)}
+                          title="Modifier le contact (email, nom…)"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs border rounded-lg hover:bg-gray-50 text-gray-600"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          Modifier
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

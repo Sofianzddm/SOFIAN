@@ -39,6 +39,7 @@ import {
   isInternalGlowUpEmail,
   loadCastingRecipientBlocklist,
 } from "@/lib/casting-recipient-guard";
+import { enrollIfMissingAfterPipelineSend } from "@/lib/outreach-bridge";
 
 export { isInternalGlowUpEmail } from "@/lib/casting-recipient-guard";
 
@@ -705,6 +706,38 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       });
     } catch (mirrorErr) {
       console.error("mirrorCondensationSend:", mirrorErr);
+    }
+
+    // Enrôlement outreach 45j pour chaque contact réellement contacté
+    // et pas encore suivi (hors partners / agences).
+    const createdById = String(mission.createdById || "").trim();
+    if (createdById) {
+      const sentAt =
+        (stageUpdate as { sentAt?: Date }).sentAt ||
+        mission.sentAt ||
+        new Date();
+      for (const contact of newContacts) {
+        const email = (contact.email || "").toLowerCase();
+        if (!email || !outcome.byEmail[email]?.messageId) continue;
+        try {
+          await enrollIfMissingAfterPipelineSend({
+            email,
+            firstname: contact.firstname,
+            lastname: contact.lastname,
+            company: String(mission.targetBrand || ""),
+            marqueId: mission.marqueId || null,
+            language: contactLangByEmail.get(email) ?? fallbackLang,
+            createdById,
+            sentAt,
+            sourceLabel: "Mail pipeline casting envoyé",
+          });
+        } catch (enrollErr) {
+          console.warn(
+            `[executeCastingSend] enroll outreach ${email}:`,
+            enrollErr
+          );
+        }
+      }
     }
   }
 
@@ -1622,6 +1655,42 @@ export async function executeCastingRelance(
         });
       } catch (mirrorErr) {
         console.error("mirrorCondensationSend (relance):", mirrorErr);
+      }
+
+      // Filet : enrôler si le contact n'était toujours pas dans un cycle
+      // après l'envoi initial (ou s'il a été ajouté entre-temps).
+      const createdById = String(mission.createdById || "").trim();
+      if (createdById) {
+        const contactsByEmail = new Map(
+          parseCastingContacts(mission.clientContacts).map((c) => [
+            (c.email || "").toLowerCase(),
+            c,
+          ])
+        );
+        const sentAt = new Date();
+        for (const email of Object.keys(relanceMessages)) {
+          const contact = contactsByEmail.get(email);
+          try {
+            await enrollIfMissingAfterPipelineSend({
+              email,
+              firstname: contact?.firstname,
+              lastname: contact?.lastname,
+              company: String(mission.targetBrand || ""),
+              marqueId: mission.marqueId || null,
+              createdById,
+              sentAt,
+              sourceLabel:
+                round === 2
+                  ? "Relance pipeline casting R2 envoyée"
+                  : "Relance pipeline casting R1 envoyée",
+            });
+          } catch (enrollErr) {
+            console.warn(
+              `[executeCastingRelance] enroll outreach ${email}:`,
+              enrollErr
+            );
+          }
+        }
       }
     }
     console.info(

@@ -23,6 +23,7 @@ import {
   MapPin,
   ChevronRight,
   Loader2,
+  GitMerge,
 } from "lucide-react";
 
 interface Marque {
@@ -42,6 +43,10 @@ interface Marque {
   _count: {
     collaborations: number;
   };
+  /** Homonyme / lien vers l'autre marché (badge liste). */
+  linkedBenelux?: { id: string; nom: string } | null;
+  linkedMarque?: { id: string; nom: string } | null;
+  linkedMarqueId?: string | null;
 }
 
 const INK = "#16110F";
@@ -56,6 +61,8 @@ type BeneluxCompany = {
   secteur: string | null;
   siteWeb: string | null;
   ville: string | null;
+  linkedMarqueId?: string | null;
+  linkedMarque?: { id: string; nom: string } | null;
   contacts: { id: string; prenom: string; nom: string | null; email: string | null; principal: boolean }[];
   _count: { contacts: number; outreachTargets: number };
 };
@@ -77,6 +84,8 @@ function beneluxToMarque(c: BeneluxCompany): Marque {
     })),
     // La colonne « Collabs » sert d'indicateur « prospects suivis » côté BENELUX.
     _count: { collaborations: c._count.outreachTargets },
+    linkedMarqueId: c.linkedMarqueId ?? null,
+    linkedMarque: c.linkedMarque ?? null,
   };
 }
 
@@ -118,6 +127,9 @@ export default function MarquesPage() {
   const { data: session, status: sessionStatus } = useSession();
   // STRATEGY_PLANNER : annuaire en lecture seule (comme les fiches détail).
   const readOnly = (session?.user?.role || "") === "STRATEGY_PLANNER";
+  const canDedupe = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "HEAD_OF_INFLUENCE"].includes(
+    session?.user?.role || ""
+  );
   const [marques, setMarques] = useState<Marque[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -310,6 +322,16 @@ export default function MarquesPage() {
                 })}
               </div>
             )}
+            {!isBenelux && canDedupe && (
+              <Link
+                href="/marques/duplicates"
+                className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-lg ring-1 ring-black/[0.08] bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                title="Analyse tout le CRM pour trouver les fiches à fusionner"
+              >
+                <GitMerge className="w-3.5 h-3.5" style={{ color: ROSE }} />
+                Analyser les doublons
+              </Link>
+            )}
             {!isBenelux && !readOnly && (
               <Link
                 href="/marques/new"
@@ -440,6 +462,32 @@ export default function MarquesPage() {
                               title={`Marque fille de ${marque.parent.nom}`}
                             >
                               (marque fille)
+                            </span>
+                          )}
+                          {isBenelux && marque.linkedMarque && (
+                            <span
+                              className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide align-middle"
+                              style={{ backgroundColor: "#FEF3C7", color: "#92400E" }}
+                              title={`Liée à la fiche France « ${marque.linkedMarque.nom} »`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                router.push(`/marques/${marque.linkedMarque!.id}`);
+                              }}
+                            >
+                              liée FR
+                            </span>
+                          )}
+                          {!isBenelux && marque.linkedBenelux && (
+                            <span
+                              className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide align-middle"
+                              style={{ backgroundColor: "#EEF2FF", color: "#3730A3" }}
+                              title={`Homonyme dans l'annuaire BENELUX « ${marque.linkedBenelux.nom} »`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                router.push(`/marques/benelux/${marque.linkedBenelux!.id}`);
+                              }}
+                            >
+                              aussi BE
                             </span>
                           )}
                         </p>

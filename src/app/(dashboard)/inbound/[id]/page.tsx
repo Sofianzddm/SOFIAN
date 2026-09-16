@@ -635,7 +635,7 @@ export default function InboundDetailPage() {
         <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
           Ajoutee au cycle {outreachBridgeLabel(opportunity.outreachTargetRef)} le{" "}
           {new Date(opportunity.outreachBridgedAt).toLocaleDateString("fr-FR")} : le contact
-          sera reprospecte automatiquement 45 jours apres ce dernier echange.
+          est en attente de recontact automatique 45 jours apres ce dernier echange.
         </div>
       )}
 

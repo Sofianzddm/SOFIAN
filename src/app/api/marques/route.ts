@@ -28,7 +28,13 @@ export async function GET() {
       );
     }
 
+    // Masque les marques basculées vers l'annuaire BENELUX (lien linkedMarqueId).
+    // Elles restent en base pour collabs / activité, mais le CRM France n'affiche
+    // que les fiches dont le marché principal est encore la France.
     const marques = await prisma.marque.findMany({
+      where: {
+        beneluxLinks: { none: {} },
+      },
       include: {
         contacts: {
           select: {
@@ -50,7 +56,24 @@ export async function GET() {
       },
     });
 
-    return NextResponse.json(marques);
+    // Homonymes BENELUX non liés (même nom) → badge « aussi en BE » en liste.
+    const beneluxHomonyms = await prisma.beneluxCompany.findMany({
+      where: { linkedMarqueId: null },
+      select: { id: true, nom: true },
+    });
+    const beByNom = new Map(
+      beneluxHomonyms.map((c) => [c.nom.trim().toLowerCase(), c])
+    );
+
+    const withLinks = marques.map((m) => {
+      const be = beByNom.get(m.nom.trim().toLowerCase());
+      return {
+        ...m,
+        linkedBenelux: be ? { id: be.id, nom: be.nom } : null,
+      };
+    });
+
+    return NextResponse.json(withLinks);
   } catch (error) {
     console.error("Erreur GET marques:", error);
     return NextResponse.json(

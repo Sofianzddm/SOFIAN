@@ -10,11 +10,11 @@
  *     contact déjà suivi de « À contacter » / « À recontacter » vers WAITING
  *     (J+45) — pas de doublon avec le traitement inbound.
  *  3. `bridgeContactToOutreach(...)` : fait entrer un contact dans le bon
- *     pipeline avec un compteur 45j calé sur le dernier échange. Utilisé par le
- *     sweep de clôture des flux entrants (`runOutreachBridgeSweep`, appelé par
- *     le cron /api/cron/relances) : un inbound / une demande entrante terminé
- *     (réponse reçue ou séquence de relances épuisée) rejoint le cycle
- *     perpétuel en WAITING — jamais en TO_CONTACT.
+ *     pipeline avec un compteur 45j calé sur le dernier échange. Déclenché
+ *     dès l'envoi de notre réponse inbound / demande entrante (et re-poussé
+ *     à chaque R1/R2 / réponse client). Le sweep `runOutreachBridgeSweep`
+ *     reste un filet de sécurité pour les flux déjà envoyés ou clôturés
+ *     non encore marqués. Entrée toujours en WAITING — jamais en TO_CONTACT.
  *
  * Routage : email déjà suivi → on repousse simplement son compteur ; contact
  * qualifié « AGENCE » à la saisie (négo/inbound) → pipeline Prospection
@@ -198,6 +198,8 @@ export type BridgeInput = {
   createdById: string;
   /** Libellé du flux d'origine, pour la raison affichée (ex. "inbound"). */
   sourceLabel?: string;
+  /** Remplace le texte auto de `autoRescheduleReason` si fourni. */
+  reason?: string;
 };
 
 export type BridgeResult =
@@ -227,8 +229,8 @@ function addRecontactDelay(from: Date): Date {
  * (À contacter / À recontacter / En attente), on le bascule immédiatement en
  * WAITING avec recontact J+45 — sinon doublon UX (file « à contacter » +
  * traitement inbound en parallèle). Ne crée jamais de nouveau target : l'entrée
- * dans le cycle se fait uniquement à la clôture via `bridgeContactToOutreach`
- * (après qu'on les ait contactés). Un STOPPED reste stoppé.
+ * dans le cycle se fait à l'envoi de notre réponse via `bridgeContactToOutreach`
+ * (ou au filet de sécurité du sweep). Un STOPPED reste stoppé.
  */
 export async function parkOutreachOnInboundReceived(input: {
   email: string;
@@ -313,8 +315,9 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
   const language = input.language === "en" ? "en" : "fr";
   const sourceLabel = input.sourceLabel || "échange entrant";
   const reason =
+    (input.reason || "").trim() ||
     `Échange ${sourceLabel} clôturé le ${formatFrDate(input.lastExchangeAt)} : ` +
-    `recontact planifié au ${formatFrDate(nextRecontactAt)} (J+${OUTREACH_RECONTACT_DAYS}).`;
+      `recontact planifié au ${formatFrDate(nextRecontactAt)} (J+${OUTREACH_RECONTACT_DAYS}).`;
 
   const resolution = await resolveOutreachPipeline(email);
   const forcedAgency = (input.contactKind || "").trim().toUpperCase() === "AGENCE";
@@ -621,11 +624,207 @@ async function resolveBridgeCreatedById(): Promise<string | null> {
   return admin?.id ?? null;
 }
 
+function bridgeRef(bridge: BridgeResult): string {
+  if (!bridge.ok) return `skipped:${bridge.reason}`;
+  return `${bridge.pipeline}:${bridge.targetId}`;
+}
+
+function outboundSendReason(label: string, at: Date): string {
+  const next = addRecontactDelay(at);
+  return (
+    `${label} le ${formatFrDate(at)} : ` +
+    `recontact planifié au ${formatFrDate(next)} (J+${OUTREACH_RECONTACT_DAYS}).`
+  );
+}
+
 /**
- * Fait entrer dans le cycle outreach 45j les flux clôturés :
- *  - InboundOpportunity : réponse reçue, séquence R1/R2 épuisée, ou archivée
- *    (hors CONVERTED, géré par la conversion elle-même).
- *  - DemandeEntrante : status "repondu" ou "relance_terminee".
+ * Enrôle (ou re-planifie) un contact juste après l'envoi de notre réponse
+ * inbound / d'une relance R1-R2 / d'une détection de réponse client.
+ * Marque `outreachBridgedAt` pour que le sweep ne re-traite pas la ligne.
+ */
+export async function bridgeInboundOpportunityAfterSend(
+  opportunityId: string,
+  createdById?: string | null,
+  opts?: { lastExchangeAt?: Date; label?: string }
+): Promise<BridgeResult> {
+  const opp = await prisma.inboundOpportunity.findUnique({
+    where: { id: opportunityId },
+    select: {
+      id: true,
+      senderEmail: true,
+      senderName: true,
+      extractedBrand: true,
+      marqueId: true,
+      contactKind: true,
+      contactAgence: true,
+      contactLanguage: true,
+      outreachBridgedAt: true,
+    },
+  });
+  if (!opp) return { ok: false, reason: "introuvable" };
+
+  const actorId = createdById || (await resolveBridgeCreatedById());
+  if (!actorId) return { ok: false, reason: "createdBy-manquant" };
+
+  const lastExchangeAt = opts?.lastExchangeAt || new Date();
+  const label = opts?.label || "Réponse inbound envoyée";
+  const sender = parseSenderName(opp.senderName);
+
+  let bridge: BridgeResult;
+  try {
+    bridge = await bridgeContactToOutreach({
+      email: opp.senderEmail,
+      firstname: sender.prenom,
+      lastname: sender.prenom ? sender.nom : null,
+      company: opp.extractedBrand,
+      marqueId: opp.marqueId,
+      contactKind: opp.contactKind,
+      contactAgence: opp.contactAgence,
+      language: opp.contactLanguage,
+      lastExchangeAt,
+      createdById: actorId,
+      sourceLabel: "inbound",
+      reason: outboundSendReason(label, lastExchangeAt),
+    });
+  } catch (error) {
+    console.warn(
+      `[outreach-bridge] bridge inbound send ${opp.id} (${opp.senderEmail}):`,
+      error
+    );
+    bridge = { ok: false, reason: "erreur" };
+  }
+
+  await prisma.inboundOpportunity
+    .update({
+      where: { id: opp.id },
+      data: {
+        outreachBridgedAt: opp.outreachBridgedAt ?? new Date(),
+        outreachTargetRef: bridgeRef(bridge),
+      },
+    })
+    .catch((e) =>
+      console.warn(`[outreach-bridge] marquage inbound send ${opp.id}:`, e)
+    );
+
+  return bridge;
+}
+
+/**
+ * Après un envoi pipeline casting / projets : si le contact n'est pas encore
+ * dans un cycle outreach, l'enrôler en WAITING J+45. Ne touche pas aux
+ * contacts déjà suivis, ni aux partners / agences connues (Woo, Samy…).
+ */
+export async function enrollIfMissingAfterPipelineSend(input: {
+  email: string;
+  firstname?: string | null;
+  lastname?: string | null;
+  company?: string | null;
+  marqueId?: string | null;
+  language?: string | null;
+  createdById: string;
+  sentAt?: Date;
+  sourceLabel?: string;
+}): Promise<BridgeResult | { ok: true; action: "already-tracked" | "skipped-partner" }> {
+  const email = (input.email || "").trim().toLowerCase();
+  if (!email || !isValidEmail(email)) {
+    return { ok: false, reason: "email-invalide" };
+  }
+
+  const resolution = await resolveOutreachPipeline(email);
+  if (resolution.kind === "existing-target") {
+    return { ok: true, action: "already-tracked" };
+  }
+  if (resolution.kind === "known-agency") {
+    return { ok: true, action: "skipped-partner" };
+  }
+
+  const sentAt = input.sentAt || new Date();
+  return bridgeContactToOutreach({
+    email,
+    firstname: input.firstname,
+    lastname: input.lastname,
+    company: input.company,
+    marqueId: input.marqueId,
+    language: input.language,
+    lastExchangeAt: sentAt,
+    createdById: input.createdById,
+    sourceLabel: input.sourceLabel || "pipeline casting",
+    reason: outboundSendReason(
+      input.sourceLabel || "Mail pipeline casting envoyé",
+      sentAt
+    ),
+  });
+}
+
+/**
+ * Même pont pour une DemandeEntrante juste après envoi / relance / réponse.
+ */
+export async function bridgeDemandeEntranteAfterSend(
+  demandeId: string,
+  createdById?: string | null,
+  opts?: { lastExchangeAt?: Date; label?: string }
+): Promise<BridgeResult> {
+  const demande = await prisma.demandeEntrante.findUnique({
+    where: { id: demandeId },
+    select: {
+      id: true,
+      from: true,
+      extractedBrand: true,
+      marqueId: true,
+      outreachBridgedAt: true,
+    },
+  });
+  if (!demande) return { ok: false, reason: "introuvable" };
+
+  const actorId = createdById || (await resolveBridgeCreatedById());
+  if (!actorId) return { ok: false, reason: "createdBy-manquant" };
+
+  const email = extractEmailFromHeader(demande.from);
+  const lastExchangeAt = opts?.lastExchangeAt || new Date();
+  const label = opts?.label || "Réponse demande entrante envoyée";
+  const sender = parseSenderName(extractNameFromHeader(demande.from));
+
+  let bridge: BridgeResult;
+  try {
+    bridge = await bridgeContactToOutreach({
+      email,
+      firstname: sender.prenom,
+      lastname: sender.prenom ? sender.nom : null,
+      company: demande.extractedBrand,
+      marqueId: demande.marqueId,
+      lastExchangeAt,
+      createdById: actorId,
+      sourceLabel: "demande entrante",
+      reason: outboundSendReason(label, lastExchangeAt),
+    });
+  } catch (error) {
+    console.warn(
+      `[outreach-bridge] bridge demande send ${demande.id} (${email}):`,
+      error
+    );
+    bridge = { ok: false, reason: "erreur" };
+  }
+
+  await prisma.demandeEntrante
+    .update({
+      where: { id: demande.id },
+      data: {
+        outreachBridgedAt: demande.outreachBridgedAt ?? new Date(),
+        outreachTargetRef: bridgeRef(bridge),
+      },
+    })
+    .catch((e) =>
+      console.warn(`[outreach-bridge] marquage demande send ${demande.id}:`, e)
+    );
+
+  return bridge;
+}
+
+/**
+ * Fait entrer dans le cycle outreach 45j les flux clôturés OU déjà contactés :
+ *  - InboundOpportunity : réponse envoyée (sentAt), réponse reçue, R2, ou
+ *    archivée après envoi (hors CONVERTED).
+ *  - DemandeEntrante : status "envoye" / "repondu" / "relance_terminee".
  *  - Negociation : refusée/annulée, ou devenue collaboration (hors collab
  *    encore en négo) — le contact marque du deal revient dans la boucle.
  *  - Collaboration directe (sans négo) : publiée / facturée / payée / perdue —
@@ -633,6 +832,9 @@ async function resolveBridgeCreatedById(): Promise<string | null> {
  *
  * Idempotent : chaque ligne traitée est marquée (outreachBridgedAt), y compris
  * en cas d'échec de routage (ref "skipped:<raison>") pour ne pas boucler.
+ * L'enrôlement synchrone à l'envoi (`bridgeInboundOpportunityAfterSend` /
+ * `bridgeDemandeEntranteAfterSend`) est le chemin nominal ; ce sweep rattrape
+ * les historiques et les cas où le pont synchrone a échoué.
  */
 export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
   const result: BridgeSweepResult = {
@@ -662,15 +864,16 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
     return `${bridge.pipeline}:${bridge.targetId}`;
   };
 
-  // --- InboundOpportunity clôturées ---
-  // Uniquement après qu'on les ait contactés (réponse client, R2, ou archive
-  // d'un fil auquel on a répondu). Une simple archive sans envoi ne crée pas
-  // d'entrée « À contacter » / cycle — évite les doublons avec l'inbound.
+  // --- InboundOpportunity contactées / clôturées ---
+  // Dès qu'on a envoyé une réponse (sentAt), ou à la clôture (réponse client,
+  // R2, archive après envoi). Une simple archive sans envoi ne crée pas
+  // d'entrée — évite les doublons avec l'inbound non traité.
   const inbounds = await prisma.inboundOpportunity.findMany({
     where: {
       outreachBridgedAt: null,
       status: { not: "CONVERTED" },
       OR: [
+        { sentAt: { not: null } },
         { replied: true },
         { relance2SentAt: { not: null } },
         { status: "ARCHIVED", sentAt: { not: null } },
@@ -742,11 +945,11 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
       .catch((e) => console.warn(`[outreach-bridge] marquage inbound ${opp.id}:`, e));
   }
 
-  // --- DemandeEntrante clôturées ---
+  // --- DemandeEntrante contactées / clôturées ---
   const demandes = await prisma.demandeEntrante.findMany({
     where: {
       outreachBridgedAt: null,
-      status: { in: ["repondu", "relance_terminee"] },
+      status: { in: ["envoye", "repondu", "relance_terminee"] },
     },
     orderBy: { updatedAt: "asc" },
     take: SWEEP_BATCH_SIZE,

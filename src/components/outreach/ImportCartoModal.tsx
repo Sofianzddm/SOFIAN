@@ -81,6 +81,7 @@ export function ImportCartoModal({
   onImported,
   onError,
   lockedMarque,
+  lockedMarket,
   initialFile,
   defaultMarket = "FR",
   showMarket = true,
@@ -90,6 +91,8 @@ export function ImportCartoModal({
   onImported: (result: ImportCartoResult) => void;
   onError: (message: string) => void;
   lockedMarque?: { id: string; nom: string };
+  /** Marché forcé quand la marque/entreprise est déjà connue (fiche CRM). */
+  lockedMarket?: Market;
   initialFile?: File | null;
   defaultMarket?: Market;
   /** Afficher FR / BENELUX / FR+BE (désactivé sur fiche marque). */
@@ -112,7 +115,7 @@ export function ImportCartoModal({
   // CONTACT (rowMarkets) prime : il permet de répartir chaque contact sur son
   // marché. « BOTH » (global ou par contact) → le contact part dans les 2 fiches.
   const [importMarket, setImportMarket] = useState<RowMarket>(
-    lockedMarque ? "FR" : defaultMarket
+    lockedMarque ? lockedMarket || "FR" : defaultMarket
   );
 
   const [query, setQuery] = useState("");
@@ -304,8 +307,12 @@ export function ImportCartoModal({
         const useId =
           Boolean(selectedMarque?.id) &&
           ((m === "FR" &&
-            (importMarket === "FR" || importMarket === "BOTH" || Boolean(lockedMarque))) ||
-            (m === "BENELUX" && importMarket === "BENELUX"));
+            (importMarket === "FR" ||
+              importMarket === "BOTH" ||
+              (Boolean(lockedMarque) && (lockedMarket || "FR") === "FR"))) ||
+            (m === "BENELUX" &&
+              (importMarket === "BENELUX" ||
+                (Boolean(lockedMarque) && lockedMarket === "BENELUX"))));
 
         const res = await fetch(api, {
           method: "POST",

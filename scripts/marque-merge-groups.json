@@ -1,0 +1,3046 @@
+[
+  {
+    "n": 1,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Twister x Disneyland Paris",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Twister x Disneyland Paris (Frozen)",
+        "rel": 2
+      },
+      {
+        "nom": "Twister (glaces à l'eau) x Disneyland Paris",
+        "rel": 1
+      },
+      {
+        "nom": "TWISTER",
+        "rel": 1
+      },
+      {
+        "nom": "Twister (glaces à l'eau) via ADMS Paris pour Disneyland Paris",
+        "rel": 1
+      },
+      {
+        "nom": "Twister (marque de glaces) + Disneyland Paris",
+        "rel": 1
+      },
+      {
+        "nom": "Twister (glaces) x Disneyland Paris",
+        "rel": 1
+      },
+      {
+        "nom": "Twister (marque de glaces) x Disneyland Paris",
+        "rel": 1
+      },
+      {
+        "nom": "Twister (glaces à l'eau) x Disneyland Paris x Disney",
+        "rel": 1
+      },
+      {
+        "nom": "Twister (glaces à l'eau) + Disneyland Paris",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 2,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "BOSS",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Ba&sh",
+        "rel": 4
+      },
+      {
+        "nom": "Bosh",
+        "rel": 4
+      },
+      {
+        "nom": "Bose",
+        "rel": 1
+      },
+      {
+        "nom": "Boss (via Nice Work Paris)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 3,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Ysé Paris",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Yade Paris",
+        "rel": 5
+      },
+      {
+        "nom": "Yade",
+        "rel": 3
+      },
+      {
+        "nom": "Ysee",
+        "rel": 1
+      },
+      {
+        "nom": "Ysee paris",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 4,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "GALERIES LAFAYETTE MANAGEMENT (GLM)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Galeries Lafayette Toulouse",
+        "rel": 3
+      },
+      {
+        "nom": "Galleries lafayette",
+        "rel": 1
+      },
+      {
+        "nom": "Galeries Lafayette",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 5,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Celio",
+      "rel": 12
+    },
+    "sources": [
+      {
+        "nom": "Celio Women",
+        "rel": 3
+      },
+      {
+        "nom": "Ce-io",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 6,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Rhode",
+      "rel": 19
+    },
+    "sources": [
+      {
+        "nom": "Rode",
+        "rel": 2
+      },
+      {
+        "nom": "Rhode Beauty",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 7,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Swarovski",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "sworvski",
+        "rel": 1
+      },
+      {
+        "nom": "Swarowski",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 8,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Typology",
+      "rel": 15
+    },
+    "sources": [
+      {
+        "nom": "Typologie",
+        "rel": 3
+      },
+      {
+        "nom": "Typology (Good Brands)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 9,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Dessange Paris",
+      "rel": 7
+    },
+    "sources": [
+      {
+        "nom": "Dessange",
+        "rel": 1
+      },
+      {
+        "nom": "Dressange",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 10,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Lego",
+      "rel": 10
+    },
+    "sources": [
+      {
+        "nom": "Lelo",
+        "rel": 1
+      },
+      {
+        "nom": "Lelo et Halara",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 11,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "A well-known e-commerce platform (via Encore Influence)",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "A well-known e-commerce platform",
+        "rel": 1
+      },
+      {
+        "nom": "Well-known e-commerce platform (via Encore Influence)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 12,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Porsche",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Porshe",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 13,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Roger viver",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Roger vivier",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 14,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Veuve Clicquot",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Veuve cliquot",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 15,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "ASUS",
+      "rel": 12
+    },
+    "sources": [
+      {
+        "nom": "asos",
+        "rel": 13
+      }
+    ]
+  },
+  {
+    "n": 16,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Aquazurra",
+      "rel": 7
+    },
+    "sources": [
+      {
+        "nom": "AQUAZZURA",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 17,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Canon",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Canyon",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 18,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Ciao Kombucha",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Ciao Konbucha",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 19,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Clarks",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Clarck's",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 20,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Dole de monsieur",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Drole de monsieur",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 21,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Dyptique",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Diptyque",
+        "rel": 3
+      }
+    ]
+  },
+  {
+    "n": 22,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Embryolisse",
+      "rel": 13
+    },
+    "sources": [
+      {
+        "nom": "Embryoilisse",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 23,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Eme studio",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Esmée Studio",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 24,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Earo",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Etro",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 25,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Histoire d'Or",
+      "rel": 8
+    },
+    "sources": [
+      {
+        "nom": "Histore d'Or",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 26,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Jimmy Fairly",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "Jimmy Faily",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 27,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Juliette has a gun",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Juliette has gun",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 28,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Linvoges",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Linvosges",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 29,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "NAKO",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "NA-KD",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 30,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "yooji",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Yoogi",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 31,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Lusty France",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Lush France",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 32,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "Quiksilver",
+      "rel": 8
+    },
+    "sources": [
+      {
+        "nom": "Quicksilver",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 33,
+    "reason": "TYPO",
+    "keep": {
+      "nom": "David Guetta The Monolith Tour x On The Beach (via Click Creagency)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "David Guetta The Monolith Tour / On The Beach (via Click Creagency)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 34,
+    "reason": "TRIGRAM",
+    "keep": {
+      "nom": "Kreatornow (plateforme d'affiliation pour ManoMano, Place des Tendances, etc.)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Kreatornow (plateforme d'affiliate marketing pour ManoMano, Place des Tendances, etc.)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 35,
+    "reason": "TRIGRAM",
+    "keep": {
+      "nom": "Dash & Lenor (via Publicis Consultants)",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Dash & Lenor (Publicis Consultants)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 36,
+    "reason": "TRIGRAM",
+    "keep": {
+      "nom": "Video Studio (Citadel/Navigate Citadel)",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Video Studio (Navigate Citadel)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 37,
+    "reason": "TRIGRAM",
+    "keep": {
+      "nom": "Shesaidyes Jewelry",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "SHE·SAID·YES (SheSaidYes Jewelry)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 38,
+    "reason": "TRIGRAM",
+    "keep": {
+      "nom": "Uber / Uber Eats",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Uber Eats",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 39,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "L'Oréal Paris",
+      "rel": 29
+    },
+    "sources": [
+      {
+        "nom": "L'Oréal Professionnel",
+        "rel": 12
+      },
+      {
+        "nom": "L'OREAL",
+        "rel": 5
+      },
+      {
+        "nom": "L'oreal men expert",
+        "rel": 3
+      },
+      {
+        "nom": "L'Oréal Dermatological Beauty (CeraVe, La Roche-Posay, SkinCeuticals, Vichy)",
+        "rel": 3
+      },
+      {
+        "nom": "L'Oréal Luxe (Samy agency) - Multiple brands (Paradigme, YSL Y Iced, Azzaro Most Wanted Elixir, Biotherm Aquapower)",
+        "rel": 2
+      },
+      {
+        "nom": "L'Oréal Dermatological Beauty (CeraVe, La Roche-Posay, Vichy)",
+        "rel": 2
+      },
+      {
+        "nom": "L'Oréal Luxe (via Douglas - Multibrand Retail)",
+        "rel": 2
+      },
+      {
+        "nom": "L'Oreal Hair",
+        "rel": 1
+      },
+      {
+        "nom": "L'Oréal skin",
+        "rel": 1
+      },
+      {
+        "nom": "L'oreal make up",
+        "rel": 1
+      },
+      {
+        "nom": "L'Oréal Luxe (via agence SAMY)",
+        "rel": 1
+      },
+      {
+        "nom": "L'OREAL (KERASTASE ; MIZANI ; L'OREAL PROFESSIONNEL PARIS ; ESSIE PROFESSIONNEL ; BAXTER OF CALIFORNIA ; BIOL)",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 40,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "DOVE - STORYBOARD MEDIA B.V.",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Dove",
+        "rel": 3
+      },
+      {
+        "nom": "Dove Men",
+        "rel": 2
+      },
+      {
+        "nom": "Dove (Body+Mind)",
+        "rel": 2
+      },
+      {
+        "nom": "Dove (Whole Body Deodorant)",
+        "rel": 1
+      },
+      {
+        "nom": "Dove (Whole Body Deo)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 41,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Amazon Prime Video",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "Amazon.fr",
+        "rel": 4
+      },
+      {
+        "nom": "Amazon Belgique",
+        "rel": 2
+      },
+      {
+        "nom": "Amazon",
+        "rel": 1
+      },
+      {
+        "nom": "Amazon prime",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 42,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Crédit agricole",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Crédit Agricole Provence Côte d'Azur",
+        "rel": 2
+      },
+      {
+        "nom": "Crédit agricole Centre-est",
+        "rel": 1
+      },
+      {
+        "nom": "Crédit Agricole Personal Finance & Mobility",
+        "rel": 1
+      },
+      {
+        "nom": "Crédit Agricole CIB",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 43,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Dogs & Friends",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Dogs & Friends (événement) / Organisateur via efluenz.eu",
+        "rel": 1
+      },
+      {
+        "nom": "Dogs & Friends (event) / via eFluenz agency",
+        "rel": 1
+      },
+      {
+        "nom": "Dogs & Friends (événement organisé par Cinetelerevue Events)",
+        "rel": 1
+      },
+      {
+        "nom": "Dogs & Friends (événement) via Efluenz (agence)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 44,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Saily",
+      "rel": 8
+    },
+    "sources": [
+      {
+        "nom": "Saily (eSim by NordVPN)",
+        "rel": 3
+      },
+      {
+        "nom": "Saily (eSim créée par NordVPN)",
+        "rel": 2
+      },
+      {
+        "nom": "Saily (by NordVPN)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 45,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Starbucks At Home / Starbucks",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "Starbucks at home",
+        "rel": 5
+      },
+      {
+        "nom": "Starbucks capsule",
+        "rel": 0
+      },
+      {
+        "nom": "Starbucks",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 46,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "kiehl's",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "Kiehl's (L'Oréal Luxe)",
+        "rel": 5
+      },
+      {
+        "nom": "Kiehl's (L'Oréal)",
+        "rel": 2
+      },
+      {
+        "nom": "Kiehl's (via WOO Influence & L'Oréal Luxe)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 47,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Teststar",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "test",
+        "rel": 1
+      },
+      {
+        "nom": "TEST MARQUE 1",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 48,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "The bradery",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "The Bradery (Moodz)",
+        "rel": 2
+      },
+      {
+        "nom": "The Bradery / Biolane",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 49,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Dior Beauty",
+      "rel": 12
+    },
+    "sources": [
+      {
+        "nom": "Dior Backstage / Dior Beauty",
+        "rel": 2
+      },
+      {
+        "nom": "DIOR",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 50,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "MINI",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "MiniMax",
+        "rel": 1
+      },
+      {
+        "nom": "MINI (via agence YKONE)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 51,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Dire Agency",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "DIRE",
+        "rel": 1
+      },
+      {
+        "nom": "Directo Extension (Directo Travel Extension)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 52,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Avène",
+      "rel": 32
+    },
+    "sources": [
+      {
+        "nom": "Avène (via agence WOO)",
+        "rel": 3
+      },
+      {
+        "nom": "Avène (Eau Thermale Avène)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 53,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Miu Miu Beauty (L'Oréal)",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "miu miu",
+        "rel": 3
+      },
+      {
+        "nom": "Miu Miu Beauty (PRADA group)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 54,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "NIVEA",
+      "rel": 10
+    },
+    "sources": [
+      {
+        "nom": "Nivea Men",
+        "rel": 7
+      },
+      {
+        "nom": "Nivea / Eucerin",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 55,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Rayban",
+      "rel": 8
+    },
+    "sources": [
+      {
+        "nom": "Ray-Ban x Krys (via TBWA)",
+        "rel": 2
+      },
+      {
+        "nom": "Rayban meta",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 56,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "sony music",
+      "rel": 7
+    },
+    "sources": [
+      {
+        "nom": "Sony",
+        "rel": 3
+      },
+      {
+        "nom": "Sony Music France",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 57,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Temu",
+      "rel": 22
+    },
+    "sources": [
+      {
+        "nom": "Temu (via Zing Lab)",
+        "rel": 3
+      },
+      {
+        "nom": "Temu FR",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 58,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Armani Beauty",
+      "rel": 20
+    },
+    "sources": [
+      {
+        "nom": "Armani Beauty (L'Oréal Luxe)",
+        "rel": 2
+      },
+      {
+        "nom": "Armani",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 59,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Benefit",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Benefit Cosmetics",
+        "rel": 1
+      },
+      {
+        "nom": "BENEFIT-MERCH",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 60,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "CURÉL",
+      "rel": 13
+    },
+    "sources": [
+      {
+        "nom": "Curél (marque japonaise de skincare)",
+        "rel": 1
+      },
+      {
+        "nom": "Curél (Laboratoire Curél)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 61,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "GARNIER",
+      "rel": 14
+    },
+    "sources": [
+      {
+        "nom": "Garnier (gamme Ultra Doux Vignes Merveilleuses)",
+        "rel": 2
+      },
+      {
+        "nom": "Garnier Ultra Doux (L'Oréal)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 62,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "La Rosée",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "La Rosée Cosmétiques",
+        "rel": 3
+      },
+      {
+        "nom": "La Rosée, Le Rouge Français",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 63,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Elle magazine",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "ELLE Belgique",
+        "rel": 1
+      },
+      {
+        "nom": "Elle",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 64,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Givenchy",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Givenchy Beauty",
+        "rel": 3
+      },
+      {
+        "nom": "Givenchy Parfums (LVMH)",
+        "rel": 3
+      }
+    ]
+  },
+  {
+    "n": 65,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Philips OneBlade Intimate",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Philips",
+        "rel": 3
+      },
+      {
+        "nom": "Philips OneBlade",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 66,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Phlur",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Phlur (via Sephora France)",
+        "rel": 1
+      },
+      {
+        "nom": "Phlur (via Sephora)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 67,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "SpinDrive agency (client in iGaming industry)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "SpinDrive agency",
+        "rel": 1
+      },
+      {
+        "nom": "SpinDrive",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 68,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "TER Occitanie",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "TER Occitanie (liO)",
+        "rel": 2
+      },
+      {
+        "nom": "TER Occitanie (via agence Percie)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 69,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "sephora",
+      "rel": 17
+    },
+    "sources": [
+      {
+        "nom": "Sephora Belgique",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 70,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Garmin",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "GARMIN FRANCE (GARMIN FRANCE)",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 71,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Prada Beauty",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "PRADA",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 72,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Franui",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Franui Pink",
+        "rel": 3
+      }
+    ]
+  },
+  {
+    "n": 73,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Burberry",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Burberry Beauty",
+        "rel": 11
+      }
+    ]
+  },
+  {
+    "n": 74,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Klorane",
+      "rel": 11
+    },
+    "sources": [
+      {
+        "nom": "Klorane (via agence WOO)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 75,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Dyson",
+      "rel": 18
+    },
+    "sources": [
+      {
+        "nom": "Dyson Beauty",
+        "rel": 4
+      }
+    ]
+  },
+  {
+    "n": 76,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Indigo Lune",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "INDIGO",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 77,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "HelloDeco",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Hellodeco.fr (Fotocadeau group)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 78,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Nuxe",
+      "rel": 20
+    },
+    "sources": [
+      {
+        "nom": "Nuxe spa",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 79,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "HelloFresh",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "HelloFresh France",
+        "rel": 4
+      }
+    ]
+  },
+  {
+    "n": 80,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Creamy Fabrics",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Creamy Fabrics (CFAB)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 81,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "FRAME 55",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "FRAME 55 - Email Diamant",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 82,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Amika",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Amika (via Sephora France)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 83,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Paula's Choice",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Paul",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 84,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Melvita",
+      "rel": 9
+    },
+    "sources": [
+      {
+        "nom": "MELVITA (L'Oréal group)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 85,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Mercedes Benz",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Mercedes",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 86,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Milk Makeup",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Milk",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 87,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Mugler",
+      "rel": 11
+    },
+    "sources": [
+      {
+        "nom": "Mugler (Constellation)",
+        "rel": 3
+      }
+    ]
+  },
+  {
+    "n": 88,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Nestle",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Nestlé Nidal",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 89,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Nina Ricci",
+      "rel": 12
+    },
+    "sources": [
+      {
+        "nom": "Nina Ricci (Puig)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 90,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "On The Wild Side",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "On The Wild Side (OTWS)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 91,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Pandora",
+      "rel": 8
+    },
+    "sources": [
+      {
+        "nom": "PANDORA FRANCE",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 92,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Parmigiano Reggiano & Airbnb",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Parmigiano Reggiano",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 93,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Perrier",
+      "rel": 9
+    },
+    "sources": [
+      {
+        "nom": "Perrier Jouet",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 94,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Pink Lady",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Pink Lady (via agence Gangstères)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 95,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Powerade France",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Powerade",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 96,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Rouje",
+      "rel": 7
+    },
+    "sources": [
+      {
+        "nom": "Rouje Paris",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 97,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Réminiscence (Le Rem)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Réminiscence",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 98,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Shark Beauty FR",
+      "rel": 9
+    },
+    "sources": [
+      {
+        "nom": "Shark Beauty",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 99,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Sol de Janeiro",
+      "rel": 19
+    },
+    "sources": [
+      {
+        "nom": "Sol de Janeiro (via Snapchat)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 100,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "The Walt Disney Company France",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "The Walt Disney Company France / Disney Yuyus",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 101,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Torriden (via Monoprix Beauté)",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Torriden",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 102,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Tudor",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Tudor (Rolex group) via YKONE agency",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 103,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Uriage",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Uriage & Apivita",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 104,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Valentino Beauty",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "Valentino",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 105,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Vichy",
+      "rel": 15
+    },
+    "sources": [
+      {
+        "nom": "VICHY Dercos",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 106,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Victoria secret (pyjama)",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Victoria Secret",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 107,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "White Fox, AKIRA, Meller",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "White Fox",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 108,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Xiaomi",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Xiaomi x Orange",
+        "rel": 3
+      }
+    ]
+  },
+  {
+    "n": 109,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "YSL Beauty",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "YSL Beauty (Yves Saint Laurent)",
+        "rel": 3
+      }
+    ]
+  },
+  {
+    "n": 110,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Bulldog Skin care",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "bulldog skin",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 111,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "clinique",
+      "rel": 9
+    },
+    "sources": [
+      {
+        "nom": "Clinique (Moisture Surge)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 112,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Ultra Premium Direct ",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Ultra Premium",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 113,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "IT Cosmetics (L'Oréal Luxe)",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "it cosmetics",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 114,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Accor",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Accor hotel",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 115,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Aime",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Aime léon dore",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 116,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Avril Cosmetics",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Avril",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 117,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Adidas",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Adidas Originals",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 118,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Baobab",
+      "rel": 10
+    },
+    "sources": [
+      {
+        "nom": "Baobab Collection",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 119,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Biocyte - UGC",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Biocyte",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 120,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Biotherm",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "Biotherm (L'Oréal Luxe France)",
+        "rel": 4
+      }
+    ]
+  },
+  {
+    "n": 121,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Blissim",
+      "rel": 9
+    },
+    "sources": [
+      {
+        "nom": "Blissim x Banana Moon",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 122,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Bobochic Paris",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "BOBOCHIC",
+        "rel": 3
+      }
+    ]
+  },
+  {
+    "n": 123,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Cacharel Parfums",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Cacharel Parfums x Lancôme",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 124,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "CARREFOUR",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "Carrefour High Proteins",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 125,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Champo",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Champo Haircare x Studio LBB",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 126,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Chanel Beauty",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Chanel",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 127,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Diesel",
+      "rel": 9
+    },
+    "sources": [
+      {
+        "nom": "Diesel Fragrances",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 128,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Disneyland",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Disney+",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 129,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "EstheClinic (AURA Paris)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Estheclinic",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 130,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Estée Lauder",
+      "rel": 7
+    },
+    "sources": [
+      {
+        "nom": "Estée Lauder Compagnies",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 131,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Evian",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Evian Belgium (Danone)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 132,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "FRENCHIE & CO / LE BON COIN",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "FRENCHIE & CO",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 133,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Fujifilm",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "FUJIFILM Healthcare",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 134,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "GoodNews",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Goodnews Coffee",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 135,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "HOURGLASS",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Hourglass (via Nice Work Paris)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 136,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Herbal Essence",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Herbal Essences",
+        "rel": 5
+      }
+    ]
+  },
+  {
+    "n": 137,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Insta 360",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Insta360 (principal) + Shokz (secondaire)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 138,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Jo Malone London",
+      "rel": 11
+    },
+    "sources": [
+      {
+        "nom": "Jo Malone",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 139,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Kaplan International Languages",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Kaplan",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 140,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Lancaster",
+      "rel": 16
+    },
+    "sources": [
+      {
+        "nom": "lancaster 2",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 141,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Lancôme",
+      "rel": 24
+    },
+    "sources": [
+      {
+        "nom": "Lancôme (L'Oréal Group)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 142,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Lanolips Australia",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Lanolips",
+        "rel": 3
+      }
+    ]
+  },
+  {
+    "n": 143,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Les Nenettes Swimwear",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Les Nenettes",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 144,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Well-known e-commerce platform (non spécifiée)",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Well-known e-commerce platform (non spécifié)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 145,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Hacoo",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Hacoo Alliance",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 146,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Invisibobble (via New Flag France)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Invisibobble",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 147,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Marie Claire",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "Marie Claire Belgique",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 148,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Yves Saint Laurent",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "Yves Saint Laurent Beauty",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 149,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Polene",
+      "rel": 5
+    },
+    "sources": [
+      {
+        "nom": "POLENE PARIS",
+        "rel": 4
+      }
+    ]
+  },
+  {
+    "n": 150,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "La Banque Postale",
+      "rel": 8
+    },
+    "sources": [
+      {
+        "nom": "La Banque Postale (via agence The Source)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 151,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Meleg Perfumes / Umeno Okiya",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Meleg Perfumes",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 152,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Invisalign",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Invisalign SmileSquad",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 153,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "MSC Cruises",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "MSC Cruises Belgium",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 154,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Missacc",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Missacc (Missaccdress)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 155,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Decathlon",
+      "rel": 9
+    },
+    "sources": [
+      {
+        "nom": "DECATHLON x Vivi",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 156,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Hypic",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Hypic (via GrowMaxValue Inc.)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 157,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "IRON Peptides",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "IRON Peptides (Iron Flow Logistics)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 158,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Laifen",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "Laifen France",
+        "rel": 4
+      }
+    ]
+  },
+  {
+    "n": 159,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "L'OCCITANE PARIS / Erborian",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "L'OCCITANE PARIS",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 160,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Jean Louis David",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Jean Louis David (groupe Provalliance)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 161,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Nocibe",
+      "rel": 6
+    },
+    "sources": [
+      {
+        "nom": "Nocibé / Ôrebella",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 162,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Samawa Living & Envii Paje Resorts Zanzibar (via indaHash)",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Samawa Living & Envii Paje Resorts Zanzibar",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 163,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Azazie",
+      "rel": 7
+    },
+    "sources": [
+      {
+        "nom": "Azazie Fr",
+        "rel": 5
+      }
+    ]
+  },
+  {
+    "n": 164,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Norauto France",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Norauto",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 165,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Caisse d'Epargne Loire Drome Ardeche",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Caisse d'Epargne",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 166,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "JD Sports",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "JD Sports Fashion",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 167,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Head & Shoulders",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Head",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 168,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Fenty Beauty / Sephora",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Fenty Beauty",
+        "rel": 7
+      }
+    ]
+  },
+  {
+    "n": 169,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Atelier l'Or & Pierres (LP Créations)",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Atelier l'Or & Pierres (LP Créations / FairBelle)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 170,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "TAESI.K (via Kglowing PR)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "TAESI.K (via Kglowing)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 171,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Sisley Paris",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Sisley",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 172,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Pippit",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Pippit AI",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 173,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Marvis Toothpaste",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Marvis",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 174,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Brilicmedia",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Brilic Media (Tech & Lifestyle apps)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 175,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "BURGA",
+      "rel": 10
+    },
+    "sources": [
+      {
+        "nom": "BURGA FR",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 176,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Adobe Acrobat Studio (via Influencer agency)",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Adobe Acrobat Studio",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 177,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "SUNLUTION",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Sunlution (par Monde Nouveau)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 178,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Metagenics",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Metagenics (via agence WOO)",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 179,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "LYSMO Eyelet Detail Series",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "LYSMO Eyelet Detail",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 180,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "A-Qui-S",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "A-Qui-S (Etiquettes et Compagnie)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 181,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "LUM Partners Agency (client in iGaming)",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Lum Partners Agency (client in iGaming category)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 182,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Lulli sur la toile",
+      "rel": 4
+    },
+    "sources": [
+      {
+        "nom": "Lulli",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 183,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Optimum Nutrition (ON)",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Optimum Nutrition",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 184,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Original Audio x TikTok",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Original Audio",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 185,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "JOIN MADDY",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Join Maddy (Miléade)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 186,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Simple App",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Simple App (Palta)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 187,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Grazia",
+      "rel": 16
+    },
+    "sources": [
+      {
+        "nom": "Grazi",
+        "rel": 0
+      }
+    ]
+  },
+  {
+    "n": 188,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "DigitalVoices",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Digital Voices / PMG",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 189,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "CIBC Occitanie",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "CIBC Occitanie (via NRJ Global)",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 190,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "SAMY / Notino (L'Oréal multibrand campaign)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "SAMY / Notino / L'Oréal",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 191,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "TYMO (via Amazon.fr)",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "TYMO",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 192,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Sport 2000",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Sport 2000 / New Balance",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 193,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Hadat",
+      "rel": 3
+    },
+    "sources": [
+      {
+        "nom": "HADAT Cosmetics Europe",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 194,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "SHEIN",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "Shein.com",
+        "rel": 1
+      }
+    ]
+  },
+  {
+    "n": 195,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "HolyPote",
+      "rel": 2
+    },
+    "sources": [
+      {
+        "nom": "HOLY",
+        "rel": 2
+      }
+    ]
+  },
+  {
+    "n": 196,
+    "reason": "PREFIX",
+    "keep": {
+      "nom": "Dreamina (ByteDance)",
+      "rel": 1
+    },
+    "sources": [
+      {
+        "nom": "Dreamina",
+        "rel": 1
+      }
+    ]
+  }
+]

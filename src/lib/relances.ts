@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { checkThreadActivity, sendGmail } from "@/lib/gmail";
 import { relanceDue, isBusinessDay, isWithinRelanceHours } from "@/lib/business-days";
+import {
+  bridgeDemandeEntranteAfterSend,
+  bridgeInboundOpportunityAfterSend,
+} from "@/lib/outreach-bridge";
 
 const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 
@@ -41,6 +45,22 @@ function extractEmail(fromValue: string): string {
   const bracketMatch = trimmed.match(/<([^>]+)>/);
   if (bracketMatch?.[1]) return bracketMatch[1].trim();
   return trimmed;
+}
+
+async function pushOutreachAfterInboundExchange(
+  kind: "demande" | "inbound",
+  id: string,
+  label: string
+): Promise<void> {
+  try {
+    if (kind === "demande") {
+      await bridgeDemandeEntranteAfterSend(id, null, { label });
+    } else {
+      await bridgeInboundOpportunityAfterSend(id, null, { label });
+    }
+  } catch (error) {
+    console.warn(`[relances] bridge outreach ${kind} ${id}:`, error);
+  }
 }
 
 /**
@@ -152,6 +172,11 @@ export async function runRelances(
           WHERE "id" = ${demande.id}
         `;
       }
+      await pushOutreachAfterInboundExchange(
+        demande.kind,
+        demande.id,
+        "Réponse client reçue"
+      );
       continue;
     }
     // Bounce : inutile de relancer, on saute sans marquer replied.
@@ -189,6 +214,11 @@ export async function runRelances(
         `;
       }
       r1Sent += 1;
+      await pushOutreachAfterInboundExchange(
+        demande.kind,
+        demande.id,
+        "Relance inbound R1 envoyée"
+      );
       continue;
     }
 
@@ -222,6 +252,11 @@ export async function runRelances(
         `;
       }
       r2Sent += 1;
+      await pushOutreachAfterInboundExchange(
+        demande.kind,
+        demande.id,
+        "Relance inbound R2 envoyée"
+      );
     }
   }
 

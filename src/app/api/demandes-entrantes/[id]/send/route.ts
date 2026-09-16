@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 import { sendGmail } from "@/lib/gmail";
+import { bridgeDemandeEntranteAfterSend } from "@/lib/outreach-bridge";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "ADMIN"] as const;
 
@@ -84,6 +85,17 @@ export async function POST(
         "updatedAt" = NOW()
       WHERE "id" = ${id}
     `;
+
+    try {
+      await bridgeDemandeEntranteAfterSend(id, session.user.id, {
+        label: "Réponse demande entrante envoyée",
+      });
+    } catch (error) {
+      console.warn(
+        `[demandes-entrantes/send] bridge outreach ${id} (${destinationEmail}):`,
+        error
+      );
+    }
 
     return NextResponse.json({ success: true, messageId });
   } catch (e) {

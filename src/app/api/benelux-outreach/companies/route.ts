@@ -49,6 +49,8 @@ export async function GET(request: NextRequest) {
         ville: true,
         notes: true,
         createdAt: true,
+        linkedMarqueId: true,
+        linkedMarque: { select: { id: true, nom: true } },
         contacts: {
           where: { excluded: false },
           orderBy: [{ principal: "desc" }, { prenom: "asc" }],

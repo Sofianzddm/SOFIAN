@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { sendGmail } from "@/lib/gmail";
 import { injectInboundTracking } from "@/lib/email-tracking";
+import { bridgeInboundOpportunityAfterSend } from "@/lib/outreach-bridge";
 
 const ALLOWED_ROLES = ["CASTING_MANAGER", "ADMIN"] as const;
 const COOLDOWN_DAYS = 20;
@@ -118,6 +119,19 @@ export async function POST(
         "updatedAt" = NOW()
       WHERE "id" = ${id}
     `;
+
+    // Enrôlement immédiat dans le cycle outreach 45j (WAITING).
+    // Ne doit jamais faire échouer l'envoi Gmail déjà réussi.
+    try {
+      await bridgeInboundOpportunityAfterSend(id, session.user.id, {
+        label: "Réponse inbound envoyée",
+      });
+    } catch (error) {
+      console.warn(
+        `[inbound/send] bridge outreach ${id} (${opportunity.senderEmail}):`,
+        error
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

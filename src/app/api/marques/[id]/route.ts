@@ -96,10 +96,28 @@ export async function GET(
           },
           take: 20,
         },
+        // Targets outreach au niveau marque (sert à recoller les orphelins
+        // marqueContactId=null sur le bon contact par email).
+        outreachTargets: {
+          select: {
+            id: true,
+            email: true,
+            status: true,
+            cycleCount: true,
+            lastSentAt: true,
+            nextRecontactAt: true,
+            lastRepliedAt: true,
+            marqueContactId: true,
+          },
+        },
         _count: {
           select: {
             collaborations: true,
           },
+        },
+        beneluxLinks: {
+          select: { id: true, nom: true },
+          take: 1,
         },
       },
     });
@@ -111,7 +129,50 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(marque);
+    // Si un target est en cycle mais détaché du contact (FK null après fusion),
+    // on l'attache en mémoire au contact du même email pour l'UI.
+    const orphanByEmail = new Map<
+      string,
+      {
+        id: string;
+        status: string;
+        cycleCount: number;
+        lastSentAt: Date | null;
+        nextRecontactAt: Date | null;
+        lastRepliedAt: Date | null;
+      }
+    >();
+    for (const t of marque.outreachTargets) {
+      if (t.marqueContactId) continue;
+      const email = (t.email || "").trim().toLowerCase();
+      if (email) orphanByEmail.set(email, t);
+    }
+    if (orphanByEmail.size > 0) {
+      marque.contacts = marque.contacts.map((c) => {
+        const email = (c.email || "").trim().toLowerCase();
+        const orphan = email ? orphanByEmail.get(email) : undefined;
+        if (!orphan || (c.outreachTargets && c.outreachTargets.length > 0)) return c;
+        return {
+          ...c,
+          outreachTargets: [
+            {
+              id: orphan.id,
+              status: orphan.status as (typeof c.outreachTargets)[number]["status"],
+              cycleCount: orphan.cycleCount,
+              lastSentAt: orphan.lastSentAt,
+              nextRecontactAt: orphan.nextRecontactAt,
+              lastRepliedAt: orphan.lastRepliedAt,
+            },
+          ],
+        };
+      });
+    }
+
+    // Ne pas exposer la liste brute des targets dans le JSON fiche (déjà sur contacts).
+    const { outreachTargets: _targets, ...marquePayload } = marque;
+    void _targets;
+
+    return NextResponse.json(marquePayload);
   } catch (error) {
     console.error("Erreur GET marque:", error);
     return NextResponse.json(

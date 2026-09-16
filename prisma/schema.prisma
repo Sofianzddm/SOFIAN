@@ -737,6 +737,10 @@ model Marque {
   outreachTargets      OutreachTarget[]
   cartoFiles           MarqueCartoFile[]
 
+  // Fiches BENELUX liées (après transfert CRM) — collabs / activité restent ici,
+  // la fiche BENELUX les affiche via linkedMarqueId.
+  beneluxLinks BeneluxCompany[]
+
   // Contacts (portés par une autre marque, souvent la mère) rattachés à cette
   // marque en tant que sous-marque qu'ils couvrent.
   sousMarqueContacts MarqueContactSousMarque[] @relation("SousMarqueContacts")
@@ -4020,6 +4024,11 @@ model BeneluxCompany {
   ville   String?
   notes   String? @db.Text
 
+  // Marque FR liée : collabs, négo, activité 360°, facturation restent sur la
+  // Marque ; la fiche BENELUX les affiche via ce lien (transfert CRM).
+  linkedMarqueId String?
+  linkedMarque   Marque? @relation(fields: [linkedMarqueId], references: [id], onDelete: SetNull)
+
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -4028,6 +4037,7 @@ model BeneluxCompany {
   outreachTargets BeneluxOutreachTarget[]
 
   @@index([nom])
+  @@index([linkedMarqueId])
   @@map("benelux_companies")
 }
 
