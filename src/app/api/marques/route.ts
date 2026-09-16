@@ -28,13 +28,9 @@ export async function GET() {
       );
     }
 
-    // Masque les marques basculées vers l'annuaire BENELUX (lien linkedMarqueId).
-    // Elles restent en base pour collabs / activité, mais le CRM France n'affiche
-    // que les fiches dont le marché principal est encore la France.
+    // Toutes les marques FR restent listées. Celles liées au BENELUX portent
+    // un badge « liée BE » (via beneluxLinks) pour éviter la confusion.
     const marques = await prisma.marque.findMany({
-      where: {
-        beneluxLinks: { none: {} },
-      },
       include: {
         contacts: {
           select: {
@@ -45,6 +41,10 @@ export async function GET() {
           },
         },
         parent: { select: { id: true, nom: true } },
+        beneluxLinks: {
+          select: { id: true, nom: true },
+          take: 1,
+        },
         _count: {
           select: {
             collaborations: true,
@@ -56,7 +56,7 @@ export async function GET() {
       },
     });
 
-    // Homonymes BENELUX non liés (même nom) → badge « aussi en BE » en liste.
+    // Homonymes BENELUX non liés (même nom) → badge « aussi en BE ».
     const beneluxHomonyms = await prisma.beneluxCompany.findMany({
       where: { linkedMarqueId: null },
       select: { id: true, nom: true },
@@ -66,10 +66,18 @@ export async function GET() {
     );
 
     const withLinks = marques.map((m) => {
-      const be = beByNom.get(m.nom.trim().toLowerCase());
+      const linked = m.beneluxLinks[0] || null;
+      const homonym = !linked
+        ? beByNom.get(m.nom.trim().toLowerCase()) || null
+        : null;
       return {
         ...m,
-        linkedBenelux: be ? { id: be.id, nom: be.nom } : null,
+        linkedBenelux: linked
+          ? { id: linked.id, nom: linked.nom }
+          : homonym
+            ? { id: homonym.id, nom: homonym.nom }
+            : null,
+        linkedBeneluxKind: linked ? ("linked" as const) : homonym ? ("homonym" as const) : null,
       };
     });
 

@@ -39,6 +39,7 @@ import {
   Search,
   ArrowUpDown,
   Building2,
+  ArrowLeftRight,
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import { businessDaysAfter } from "@/lib/business-days";
@@ -701,6 +702,40 @@ export default function OutreachPage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
         flash("success", action === "stop" ? "Client sorti du cycle." : "Client remis dans le cycle.");
+        await loadTargets();
+      } catch (e) {
+        flash("error", e instanceof Error ? e.message : "Erreur");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [flash, loadTargets]
+  );
+
+  /** Bascule un contact Outreach Clients FR → pipeline BENELUX. */
+  const handleConvertToBenelux = useCallback(
+    async (target: Target) => {
+      if (
+        !window.confirm(
+          `Passer ${target.firstname} (${target.company}) en Outreach BENELUX ?\n\n` +
+            `Il sortira d'Outreach Clients FR (statut conservé) et sera suivi côté 🇧🇪 BENELUX.`
+        )
+      ) {
+        return;
+      }
+      setActionBusy(target.id);
+      try {
+        const res = await fetch(
+          `/api/outreach/targets/${target.id}/convert-to-benelux`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ companyName: target.company }),
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Erreur lors de la bascule");
+        flash("success", data.message || "Contact basculé en BENELUX.");
         await loadTargets();
       } catch (e) {
         flash("error", e instanceof Error ? e.message : "Erreur");
@@ -1894,14 +1929,24 @@ export default function OutreachPage() {
                             <PenLine className="w-4 h-4" />
                           </button>
                           {market === "FR" && (
-                            <button
-                              onClick={() => setConvertTarget(target)}
-                              disabled={busy}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-700 hover:bg-indigo-50 transition disabled:opacity-50"
-                              title="Ce contact est en réalité une agence : le déplacer vers Prospection Agences"
-                            >
-                              <Building2 className="w-4 h-4" />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => void handleConvertToBenelux(target)}
+                                disabled={busy}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-amber-800 hover:bg-amber-50 transition disabled:opacity-50"
+                                title="Basculer ce client vers Outreach BENELUX"
+                              >
+                                <ArrowLeftRight className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setConvertTarget(target)}
+                                disabled={busy}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-700 hover:bg-indigo-50 transition disabled:opacity-50"
+                                title="Ce contact est en réalité une agence : le déplacer vers Prospection Agences"
+                              >
+                                <Building2 className="w-4 h-4" />
+                              </button>
+                            </>
                           )}
                           {target.status !== "STOPPED" ? (
                             <button

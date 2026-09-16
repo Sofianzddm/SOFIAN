@@ -508,6 +508,7 @@ export default function MarqueRecordPage({
 
   const [exporting, setExporting] = useState(false);
   const [transferringMarket, setTransferringMarket] = useState(false);
+  const [transferringContactId, setTransferringContactId] = useState<string | null>(null);
 
   // Import d'une cartographie directement depuis la fiche marque
   const [showImportCarto, setShowImportCarto] = useState(false);
@@ -953,6 +954,49 @@ export default function MarqueRecordPage({
       alert(e instanceof Error ? e.message : "Erreur lors du transfert.");
     } finally {
       setTransferringMarket(false);
+    }
+  };
+
+  /** Bascule un contact vers l'autre CRM (FR ↔ BENELUX) + cycle outreach si présent. */
+  const transferContactMarket = async (contact: Contact) => {
+    if (!marque || transferringContactId) return;
+    if (!contact.email?.trim()) {
+      alert("Ajoute un email avant de basculer ce contact.");
+      return;
+    }
+    const fullName =
+      [contact.prenom, contact.nom].filter(Boolean).join(" ") || contact.email;
+    const ok = confirm(
+      isBenelux
+        ? `Basculer ${fullName} sur la fiche CRM France ?\n\n` +
+          `Le contact sera créé côté France` +
+          ((contact.outreachTargets || []).some((t) => t.status !== "STOPPED")
+            ? " et son cycle outreach passera en France."
+            : ".")
+        : `Basculer ${fullName} sur la fiche BENELUX ?\n\n` +
+          `Le contact sera créé côté BENELUX` +
+          ((contact.outreachTargets || []).some((t) => t.status !== "STOPPED")
+            ? " et son cycle outreach passera en BENELUX."
+            : ".")
+    );
+    if (!ok) return;
+    setTransferringContactId(contact.id);
+    try {
+      const url = isBenelux
+        ? `${recordApi}/contacts/transfer-to-fr`
+        : `/api/marques/${marque.id}/contacts/transfer-to-benelux`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: contact.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Bascule impossible.");
+      router.push(data.targetPath || (isBenelux ? `/marques/${data.marqueId}` : `/marques/benelux/${data.companyId}`));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur lors de la bascule.");
+    } finally {
+      setTransferringContactId(null);
     }
   };
 
@@ -1785,7 +1829,7 @@ export default function MarqueRecordPage({
                   <>
                     Aussi en <span className="font-semibold">🇧🇪 BENELUX</span>
                     {beLink ? <> — « {beLink.nom} »</> : null}.
-                    Basculée hors liste France ; les collabs restent ici.
+                    Les collabs restent sur cette fiche France.
                   </>
                 )}
               </p>
@@ -2575,6 +2619,30 @@ export default function MarqueRecordPage({
                                         title="Modifier l'email"
                                       >
                                         <Pencil className="w-3 h-3 text-gray-400" />
+                                      </button>
+                                    )}
+                                    {canOutreach && contact.email && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void transferContactMarket(contact)}
+                                        disabled={transferringContactId === contact.id}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide hover:opacity-90 disabled:opacity-50"
+                                        style={{
+                                          backgroundColor: isBenelux ? "#EEF2FF" : "#FEF3C7",
+                                          color: isBenelux ? "#3730A3" : "#92400E",
+                                        }}
+                                        title={
+                                          isBenelux
+                                            ? "Basculer ce contact sur la fiche CRM France"
+                                            : "Basculer ce contact sur la fiche BENELUX"
+                                        }
+                                      >
+                                        {transferringContactId === contact.id ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <ArrowLeftRight className="w-3 h-3" />
+                                        )}
+                                        {isBenelux ? "→ FR" : "→ BE"}
                                       </button>
                                     )}
                                   </span>

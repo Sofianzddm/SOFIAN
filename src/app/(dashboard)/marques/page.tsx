@@ -45,6 +45,8 @@ interface Marque {
   };
   /** Homonyme / lien vers l'autre marché (badge liste). */
   linkedBenelux?: { id: string; nom: string } | null;
+  /** "linked" = bascule officielle ; "homonym" = même nom sans lien. */
+  linkedBeneluxKind?: "linked" | "homonym" | null;
   linkedMarque?: { id: string; nom: string } | null;
   linkedMarqueId?: string | null;
 }
@@ -480,14 +482,29 @@ export default function MarquesPage() {
                           {!isBenelux && marque.linkedBenelux && (
                             <span
                               className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide align-middle"
-                              style={{ backgroundColor: "#EEF2FF", color: "#3730A3" }}
-                              title={`Homonyme dans l'annuaire BENELUX « ${marque.linkedBenelux.nom} »`}
+                              style={{
+                                backgroundColor:
+                                  marque.linkedBeneluxKind === "linked"
+                                    ? "#FEF3C7"
+                                    : "#EEF2FF",
+                                color:
+                                  marque.linkedBeneluxKind === "linked"
+                                    ? "#92400E"
+                                    : "#3730A3",
+                              }}
+                              title={
+                                marque.linkedBeneluxKind === "linked"
+                                  ? `Liée à la fiche BENELUX « ${marque.linkedBenelux.nom} »`
+                                  : `Homonyme dans l'annuaire BENELUX « ${marque.linkedBenelux.nom} »`
+                              }
                               onClick={(e) => {
                                 e.stopPropagation();
                                 router.push(`/marques/benelux/${marque.linkedBenelux!.id}`);
                               }}
                             >
-                              aussi BE
+                              {marque.linkedBeneluxKind === "linked"
+                                ? "liée BE"
+                                : "aussi BE"}
                             </span>
                           )}
                         </p>
