@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreatePartnerByName } from "@/lib/agency-partner";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
+import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
 
 /**
  * GET  → liste des contacts d'agences du cycle Prospection Agences (toutes files)
@@ -161,6 +162,15 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      if (await emailHasDiffusionOptOut(contact.email)) {
+        return NextResponse.json(
+          {
+            error:
+              "Ce contact a demandé à ne plus faire partie de la liste de diffusion — enrôlement impossible.",
+          },
+          { status: 403 }
+        );
+      }
 
       const existing = await prisma.agencyOutreachTarget.findUnique({
         where: { email: contact.email.toLowerCase() },
@@ -223,6 +233,15 @@ export async function POST(request: NextRequest) {
     }
     if (!email || !isValidEmail(email)) {
       return NextResponse.json({ error: "Email invalide." }, { status: 400 });
+    }
+    if (await emailHasDiffusionOptOut(email)) {
+      return NextResponse.json(
+        {
+          error:
+            "Ce contact a demandé à ne plus faire partie de la liste de diffusion — enrôlement impossible.",
+        },
+        { status: 403 }
+      );
     }
 
     let partner: { id: string; name: string; slug: string } | null = null;

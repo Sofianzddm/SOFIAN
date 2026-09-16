@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { tryEnrollMarqueAfterEmailComplete } from "@/lib/envoyer-marque-outreach";
+import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
 
 /**
  * GET  → liste des clients du cycle Outreach (toutes files) + stats
@@ -105,6 +106,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Email invalide." }, { status: 400 });
     }
 
+    if (await emailHasDiffusionOptOut(email)) {
+      return NextResponse.json(
+        {
+          error:
+            "Ce contact a demandé à ne plus faire partie de la liste de diffusion — enrôlement impossible.",
+        },
+        { status: 403 }
+      );
+    }
+
     const language = body.language === "en" ? "en" : "fr";
 
     // Boîte expéditrice du cycle (optionnel, défaut Leyna) : choix réservé à
@@ -160,6 +171,15 @@ export async function POST(request: NextRequest) {
       if (!contact) {
         return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
       }
+      if (contact.diffusionOptOut || contact.outreachExcluded) {
+        return NextResponse.json(
+          {
+            error:
+              "Ce contact est exclu de la liste de diffusion — enrôlement impossible.",
+          },
+          { status: 403 }
+        );
+      }
 
       // Enrichissement / gate marque : si ce contact (ou d'autres de la marque)
       // est en QUEUED, on ne lance le cycle qu'une fois TOUS les emails influence
@@ -170,6 +190,7 @@ export async function POST(request: NextRequest) {
           source: "CARTO",
           emailLookupStatus: "QUEUED",
           outreachExcluded: false,
+          diffusionOptOut: false,
         },
       });
       const inAssistantFlow =

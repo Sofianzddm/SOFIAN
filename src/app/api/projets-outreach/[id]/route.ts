@@ -243,6 +243,8 @@ async function attachMarqueContacts<T extends { missions: Array<{ marqueId: stri
   const rows = await prisma.marqueContact.findMany({
     where: {
       marqueId: { in: marqueIds },
+      outreachExcluded: false,
+      diffusionOptOut: false,
     },
     select: {
       id: true,

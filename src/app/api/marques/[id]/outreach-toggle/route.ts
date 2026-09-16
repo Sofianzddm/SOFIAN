@@ -47,9 +47,13 @@ export async function POST(
     }
 
     if (enabled) {
-      // Mettre en Outreach : lève l'exclusion, enrôle (email) + met en file (sans email).
+      // Mettre en Outreach : lève l'exclusion opérationnelle (pas l'opt-out client).
       await prisma.marqueContact.updateMany({
-        where: { marqueId: marque.id, outreachExcluded: true },
+        where: {
+          marqueId: marque.id,
+          outreachExcluded: true,
+          diffusionOptOut: false,
+        },
         data: { outreachExcluded: false },
       });
 

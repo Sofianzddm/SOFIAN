@@ -34,6 +34,7 @@ import {
   brandNameFromEmailDomain,
   parseSenderName,
 } from "@/lib/marque-resolver";
+import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
 
 export type OutreachPipeline = "client" | "agency" | "benelux";
 
@@ -301,6 +302,11 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
   const email = (input.email || "").trim().toLowerCase();
   if (!email || !isValidEmail(email)) {
     return { ok: false, reason: "email-invalide" };
+  }
+
+  // Opt-out client « liste de diffusion » : email conservé, aucun pipeline.
+  if (await emailHasDiffusionOptOut(email)) {
+    return { ok: false, reason: "diffusion-opt-out" };
   }
 
   const nextRecontactAt = addRecontactDelay(input.lastExchangeAt);
@@ -1022,6 +1028,7 @@ export async function runCrmDormantEnrollSweep(): Promise<CrmEnrollSweepResult> 
     where: {
       outreachEnrolledAt: null,
       outreachExcluded: false,
+      diffusionOptOut: false,
       email: { not: null },
       createdAt: { lt: graceCutoff },
       marque: {

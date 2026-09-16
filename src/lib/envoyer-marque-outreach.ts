@@ -24,6 +24,7 @@ import {
   dismissBeneluxEnrichissementDuplicates,
   dismissMarqueEnrichissementDuplicates,
 } from "@/lib/contact-person-key";
+import { ENROLLABLE_CONTACT_WHERE } from "@/lib/diffusion-opt-out";
 
 export type EnvoyerOutreachResult =
   | {
@@ -77,7 +78,7 @@ export async function enrollInfluenceContacts(opts: {
     where: {
       marqueId: opts.marqueId,
       source: "CARTO",
-      outreachExcluded: false,
+      ...ENROLLABLE_CONTACT_WHERE,
       email: { not: null },
       outreachTargets: { none: {} },
     },
@@ -156,7 +157,7 @@ export async function queueMarqueEnrichissement(opts: {
         // Influence (CARTO) ET achats/appel d'offre (AO) : on complète les
         // emails manquants des deux feuilles. Seuls les CARTO seront ensuite
         // enrôlés en outreach (cf. enrollInfluenceContacts).
-        where: { source: { in: ["CARTO", "AO"] }, outreachExcluded: false },
+        where: { source: { in: ["CARTO", "AO"] }, ...ENROLLABLE_CONTACT_WHERE },
         select: {
           id: true,
           prenom: true,
@@ -255,7 +256,7 @@ export async function queueBeneluxEnrichissement(opts: {
       nom: true,
       siteWeb: true,
       contacts: {
-        where: { source: { in: ["CARTO", "AO"] }, outreachExcluded: false },
+        where: { source: { in: ["CARTO", "AO"] }, ...ENROLLABLE_CONTACT_WHERE },
         select: {
           id: true,
           prenom: true,
@@ -356,7 +357,7 @@ export async function envoyerMarqueEnOutreach(opts: {
       contacts: {
         where: {
           OR: [{ source: "CARTO" }, { source: "AO" }],
-          outreachExcluded: false,
+          ...ENROLLABLE_CONTACT_WHERE,
         },
         select: {
           id: true,
@@ -476,7 +477,7 @@ export async function tryEnrollMarqueAfterEmailComplete(opts: {
       id: true,
       nom: true,
       contacts: {
-        where: { source: "CARTO", outreachExcluded: false },
+        where: { source: "CARTO", ...ENROLLABLE_CONTACT_WHERE },
         select: { id: true, email: true, emailLookupStatus: true },
       },
       cartoFiles: { where: { kind: "AO" }, select: { id: true }, take: 1 },
@@ -522,7 +523,7 @@ export async function tryEnrollBeneluxAfterEmailComplete(opts: {
       id: true,
       nom: true,
       contacts: {
-        where: { source: "CARTO", outreachExcluded: false },
+        where: { source: "CARTO", ...ENROLLABLE_CONTACT_WHERE },
         select: {
           id: true,
           prenom: true,

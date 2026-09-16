@@ -147,8 +147,13 @@ export async function POST(request: NextRequest) {
       // éventuelle exclusion posée par un précédent « Retirer de l'outreach ».
       // (Sauf import CRM seul : on ne réactive rien.)
       if (!skipOutreach) {
+        // Ne pas lever un opt-out client (demande explicite hors liste de diffusion).
         await prisma.marqueContact.updateMany({
-          where: { marqueId: id, outreachExcluded: true },
+          where: {
+            marqueId: id,
+            outreachExcluded: true,
+            diffusionOptOut: false,
+          },
           data: { outreachExcluded: false },
         });
       }

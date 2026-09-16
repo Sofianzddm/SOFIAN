@@ -66,6 +66,8 @@ export async function GET(request: NextRequest) {
     const rows = await prisma.marqueContact.findMany({
       where: {
         email: { not: null },
+        diffusionOptOut: false,
+        outreachExcluded: false,
         OR: [
           { prenom: { contains: q, mode: "insensitive" } },
           { nom: { contains: q, mode: "insensitive" } },

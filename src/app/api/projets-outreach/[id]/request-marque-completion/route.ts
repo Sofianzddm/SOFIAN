@@ -69,7 +69,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         id: true,
         nom: true,
         contacts: {
-          where: { outreachExcluded: false },
+          where: { outreachExcluded: false, diffusionOptOut: false },
           select: { email: true, emailSuggested: true },
         },
       },

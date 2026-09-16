@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
+import { setMarqueContactDiffusionOptOut } from "@/lib/diffusion-opt-out";
 
 /**
  * POST → ajout rapide d'un contact depuis la fiche marque (sans passer par
@@ -114,6 +115,7 @@ export async function PATCH(
       nom?: string;
       poste?: string;
       telephone?: string;
+      diffusionOptOut?: boolean;
       addSousMarqueId?: string;
       removeSousMarqueId?: string;
       newSousMarqueName?: string;
@@ -122,6 +124,25 @@ export async function PATCH(
     const contactId = (body.contactId || "").trim();
     if (!contactId) {
       return NextResponse.json({ error: "contactId requis." }, { status: 400 });
+    }
+
+    // Mode « opt-out liste de diffusion » : garde l'email, bloque tout enrôlement.
+    if (typeof body.diffusionOptOut === "boolean") {
+      try {
+        const result = await setMarqueContactDiffusionOptOut({
+          contactId,
+          marqueId: id,
+          optedOut: body.diffusionOptOut,
+        });
+        return NextResponse.json({
+          contact: result.contact,
+          removedClientTargets: result.removedClientTargets,
+        });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Erreur";
+        const status = message === "Contact non trouvé." ? 404 : 500;
+        return NextResponse.json({ error: message }, { status });
+      }
     }
 
     // Mode « sous-marques » : rattache / détache le contact à une ou plusieurs

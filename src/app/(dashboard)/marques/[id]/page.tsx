@@ -42,6 +42,7 @@ import {
   Star,
   Download,
   Briefcase,
+  Ban,
 } from "lucide-react";
 import { MarqueCrmTab } from "./MarqueCrmTab";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
@@ -75,6 +76,8 @@ type Contact = {
   linkedinUrl?: string | null;
   source?: string | null;
   outreachExcluded?: boolean;
+  diffusionOptOut?: boolean;
+  diffusionOptOutAt?: string | null;
   outreachTargets?: OutreachInfo[];
   sousMarques?: { marque: { id: string; nom: string } }[];
 };
@@ -503,6 +506,8 @@ export default function MarqueDetailPage() {
 
   // Suppression d'un contact depuis la fiche marque
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+  // Opt-out liste de diffusion (par contact)
+  const [togglingOptOutId, setTogglingOptOutId] = useState<string | null>(null);
 
   // Modification de la langue d'un contact directement depuis la fiche marque
   const [updatingLangId, setUpdatingLangId] = useState<string | null>(null);
@@ -924,6 +929,55 @@ export default function MarqueDetailPage() {
       alert(e instanceof Error ? e.message : "Erreur lors de la suppression.");
     } finally {
       setDeletingContactId(null);
+    }
+  };
+
+  /** Opt-out / réinscription liste de diffusion (email conservé, enrôlement bloqué). */
+  const toggleDiffusionOptOut = async (contact: Contact, optedOut: boolean) => {
+    if (togglingOptOutId) return;
+    const fullName = [contact.prenom, contact.nom].filter(Boolean).join(" ") || "ce contact";
+    if (optedOut) {
+      const ok = confirm(
+        `${fullName} ne souhaite plus faire partie de la liste de diffusion ?\n\n` +
+          `L'email reste sur la fiche, mais le contact sortira de tous les cycles ` +
+          `(Outreach, mailer, projets) et ne pourra plus être enrôlé.`
+      );
+      if (!ok) return;
+    }
+    setTogglingOptOutId(contact.id);
+    // Optimiste
+    setMarque((prev) =>
+      prev
+        ? {
+            ...prev,
+            contacts: prev.contacts.map((c) =>
+              c.id === contact.id
+                ? {
+                    ...c,
+                    diffusionOptOut: optedOut,
+                    diffusionOptOutAt: optedOut ? new Date().toISOString() : null,
+                    outreachExcluded: optedOut ? true : c.outreachExcluded,
+                    outreachTargets: optedOut ? [] : c.outreachTargets,
+                  }
+                : c
+            ),
+          }
+        : prev
+    );
+    try {
+      const res = await fetch(`/api/marques/${params.id}/contacts`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: contact.id, diffusionOptOut: optedOut }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur lors de la mise à jour.");
+      await fetchMarque();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur");
+      await fetchMarque();
+    } finally {
+      setTogglingOptOutId(null);
     }
   };
 
@@ -1997,6 +2051,16 @@ export default function MarqueDetailPage() {
                                     <MessageSquareReply className="w-3 h-3" />A répondu
                                   </span>
                                 )}
+                                {contact.diffusionOptOut && (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-[2px] rounded-md ring-1 ring-inset"
+                                    style={{ backgroundColor: "#FEF2F2", color: "#B91C1C", borderColor: "#FECACA" }}
+                                    title="Hors liste de diffusion — email conservé, enrôlement impossible"
+                                  >
+                                    <Ban className="w-2.5 h-2.5" />
+                                    Hors diffusion
+                                  </span>
+                                )}
                               </div>
                               {contact.poste && (
                                 <p className="text-[12.5px] text-gray-500 mt-0.5 leading-snug">{contact.poste}</p>
@@ -2144,6 +2208,46 @@ export default function MarqueDetailPage() {
                                 )}
                               </div>
 
+                              {/* Opt-out liste de diffusion */}
+                              {!readOnly && (
+                                <label
+                                  className={`mt-2.5 flex items-start gap-2 cursor-pointer select-none rounded-lg px-2.5 py-2 ring-1 ring-inset transition-colors ${
+                                    contact.diffusionOptOut
+                                      ? "bg-red-50/80 ring-red-200"
+                                      : "bg-gray-50/80 ring-black/[0.04] hover:bg-gray-50"
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="mt-0.5 rounded border-gray-300"
+                                    checked={Boolean(contact.diffusionOptOut)}
+                                    disabled={togglingOptOutId === contact.id}
+                                    onChange={(e) =>
+                                      toggleDiffusionOptOut(contact, e.target.checked)
+                                    }
+                                  />
+                                  <span className="min-w-0">
+                                    <span
+                                      className="block text-[12px] font-medium leading-snug"
+                                      style={{ color: contact.diffusionOptOut ? "#B91C1C" : INK }}
+                                    >
+                                      Le client ne souhaite plus faire partie de notre liste de diffusion
+                                    </span>
+                                    <span className="block text-[11px] text-gray-400 mt-0.5 leading-snug">
+                                      L&apos;email est conservé ; aucun enrôlement Outreach / mailer / projets.
+                                    </span>
+                                  </span>
+                                  {togglingOptOutId === contact.id && (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400 shrink-0 mt-0.5" />
+                                  )}
+                                </label>
+                              )}
+                              {readOnly && contact.diffusionOptOut && (
+                                <p className="mt-2 text-[12px] text-red-700">
+                                  Hors liste de diffusion — enrôlement impossible.
+                                </p>
+                              )}
+
                               {/* Sous-marques couvertes par ce contact (peut en avoir plusieurs) */}
                               {((contact.sousMarques && contact.sousMarques.length > 0) ||
                                 !readOnly) && (
@@ -2259,7 +2363,8 @@ export default function MarqueDetailPage() {
                                 <OutreachBadge info={outreach} />
                               ) : (
                                 contact.email &&
-                                canOutreach && (
+                                canOutreach &&
+                                !contact.diffusionOptOut && (
                                   <button
                                     type="button"
                                     onClick={() => launchOutreach(contact)}
@@ -2276,6 +2381,11 @@ export default function MarqueDetailPage() {
                                     Lancer le contact
                                   </button>
                                 )
+                              )}
+                              {contact.diffusionOptOut && !outreach && (
+                                <span className="text-[10px] font-medium text-red-600 text-right max-w-[160px] leading-tight">
+                                  Hors liste de diffusion
+                                </span>
                               )}
                               {launchError?.id === contact.id && (
                                 <span className="text-[10px] text-red-500 text-right max-w-[180px] leading-tight">

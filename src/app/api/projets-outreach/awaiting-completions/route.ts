@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
             id: true,
             nom: true,
             contacts: {
-              where: { outreachExcluded: false },
+              where: { outreachExcluded: false, diffusionOptOut: false },
               select: { email: true, emailSuggested: true },
             },
           },

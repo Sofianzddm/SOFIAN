@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
       where: {
         source: "CARTO",
         outreachExcluded: false,
+        diffusionOptOut: false,
         outreachTargets: { none: {} },
         // On masque UNIQUEMENT les contacts encore en file d'enrichissement
         // (emails à trouver). Tous les autres (statut null, FOUND, NOT_FOUND…)

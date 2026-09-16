@@ -880,7 +880,16 @@ model MarqueContact {
 
   // Retiré de l'outreach (marque sortie du cycle par erreur) : le contact reste
   // dans le CRM mais ne réapparaît plus dans la liste « en attente d'email ».
+  // Peut être levé par « Mettre en Outreach » / réimport carto — sauf si
+  // diffusionOptOut (demande client) est posé.
   outreachExcluded Boolean @default(false)
+
+  // Demande client : ne plus faire partie de la liste de diffusion.
+  // L'email est conservé sur la fiche, mais aucun enrôlement (cycle 45j,
+  // sweep dormant, pont de clôture, mailer, projets casting) n'est possible.
+  // Contrairement à outreachExcluded, ce flag n'est jamais levé automatiquement.
+  diffusionOptOut   Boolean   @default(false)
+  diffusionOptOutAt DateTime?
 
   // Enrichissement : recherche / complétion d'email avant passage outreach.
   // null = pas en file ; QUEUED = à trouver ; FOUND = complété ; NOT_FOUND = introuvable.

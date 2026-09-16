@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
       where: {
         emailLookupStatus: "QUEUED",
         outreachExcluded: false,
+        diffusionOptOut: false,
         source: { in: ["CARTO", "AO"] },
       },
       select: { marqueId: true },
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
       where: {
         emailLookupStatus: "QUEUED",
         outreachExcluded: false,
+        diffusionOptOut: false,
         source: { in: ["CARTO", "AO"] },
       },
       orderBy: [{ emailLookupQueuedAt: "asc" }, { priorite: "asc" }],

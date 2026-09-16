@@ -85,6 +85,8 @@ async function searchAppContacts(brand: string): Promise<{
   const rows = await prisma.marqueContact.findMany({
     where: {
       marqueId: { in: marqueIds },
+      outreachExcluded: false,
+      diffusionOptOut: false,
       OR: [{ source: { not: "AO" } }, { source: null }],
     },
     select: {
