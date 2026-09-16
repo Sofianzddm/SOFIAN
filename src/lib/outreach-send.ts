@@ -38,9 +38,14 @@ import {
   markContactContactedFromApp,
 } from "@/lib/hubspot";
 
-export const OUTREACH_RELANCE_BUSINESS_DAYS = 3;
-/** Jours calendaires avant le retour du client en file « À recontacter ». */
-export const OUTREACH_RECONTACT_DAYS = 45;
+export {
+  OUTREACH_RELANCE_BUSINESS_DAYS,
+  OUTREACH_RECONTACT_DAYS,
+} from "@/lib/outreach-constants";
+import {
+  OUTREACH_RELANCE_BUSINESS_DAYS,
+  OUTREACH_RECONTACT_DAYS,
+} from "@/lib/outreach-constants";
 
 /** Boîte expéditrice du cycle d'un client (défaut : Leyna). */
 export function outreachFromEmail(target: { fromEmail?: string | null }): string {

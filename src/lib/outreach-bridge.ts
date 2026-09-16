@@ -24,7 +24,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { OUTREACH_RECONTACT_DAYS } from "@/lib/outreach-send";
+import { OUTREACH_RECONTACT_DAYS } from "@/lib/outreach-constants";
 import { findOrCreatePartnerByName } from "@/lib/agency-partner";
 import {
   emailDomain,
