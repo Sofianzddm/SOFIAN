@@ -280,3 +280,69 @@ export function pairKey(idA: string, idB: string): string {
 export function groupMemberKey(marqueIds: string[]): string {
   return [...marqueIds].sort().join("|");
 }
+
+export type SimilarMarqueMatch = {
+  marque: MarqueDedupeRow;
+  reason: DedupeGroupReason;
+  /** Similarité trigramme 0..1 (1 = slug identique). */
+  similarity: number;
+};
+
+/**
+ * Trouve les fiches proches d'une marque donnée (exact / typo / préfixe / trigramme).
+ * Utilisé sur la fiche marque pour proposer une fusion en place.
+ */
+export function findSimilarToMarque(
+  rows: MarqueDedupeRow[],
+  marqueId: string,
+  threshold = 0.78
+): SimilarMarqueMatch[] {
+  const target = rows.find((r) => r.id === marqueId);
+  if (!target || !target.slug || target.slug.length < 3) return [];
+
+  const matches: SimilarMarqueMatch[] = [];
+
+  for (const other of rows) {
+    if (other.id === target.id || !other.slug || other.slug.length < 3) continue;
+
+    if (other.slug === target.slug) {
+      matches.push({ marque: other, reason: "EXACT", similarity: 1 });
+      continue;
+    }
+
+    const short = target.slug.length <= other.slug.length ? target.slug : other.slug;
+    const long = target.slug.length <= other.slug.length ? other.slug : target.slug;
+    if (short.length >= 3 && long.startsWith(short) && long.length - short.length >= 3) {
+      matches.push({
+        marque: other,
+        reason: "PREFIX",
+        similarity: short.length / long.length,
+      });
+      continue;
+    }
+
+    const minLen = Math.min(target.slug.length, other.slug.length);
+    const maxLen = Math.max(target.slug.length, other.slug.length);
+    if (maxLen - minLen <= 2 && minLen >= 4) {
+      const d = levenshtein(target.slug, other.slug);
+      if (d > 0 && d <= Math.min(2, Math.floor(minLen / 4))) {
+        matches.push({
+          marque: other,
+          reason: "TYPO",
+          similarity: 1 - d / maxLen,
+        });
+        continue;
+      }
+    }
+
+    const sim = trigramSimilarity(target.slug, other.slug);
+    if (sim >= threshold) {
+      matches.push({ marque: other, reason: "TRIGRAM", similarity: sim });
+    }
+  }
+
+  return matches.sort((a, b) => {
+    if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+    return marqueActivityScore(b.marque) - marqueActivityScore(a.marque);
+  });
+}

@@ -43,10 +43,11 @@ import {
   Download,
   Briefcase,
   Ban,
+  GitMerge,
 } from "lucide-react";
 import { MarqueCrmTab } from "./MarqueCrmTab";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
-import { canAccessFullMarqueCrm } from "@/lib/marque-crm-access";
+import { canAccessFullMarqueCrm, canWriteMarqueCrm } from "@/lib/marque-crm-access";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -466,6 +467,7 @@ export default function MarqueDetailPage() {
   const canOutreach = ["ADMIN", "CASTING_MANAGER"].includes(session?.user?.role || "");
   // CRM complet (onglet Achats-AO, fichiers AO, sync) : ADMIN + HEAD_OF_SALES (Leyna)
   const canFullCrm = canAccessFullMarqueCrm(session?.user?.role);
+  const canMerge = canWriteMarqueCrm(session?.user?.role);
   const [marque, setMarque] = useState<MarqueDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"activite" | "contacts" | "carto" | "ao" | "collabs">("activite");
@@ -534,6 +536,27 @@ export default function MarqueDetailPage() {
     { type: "success" | "error"; message: string; projetSlug?: string; projetNom?: string } | null
   >(null);
 
+  // Doublons potentiels de cette fiche (fusion possible en 1 marque).
+  type SimilarMatch = {
+    id: string;
+    nom: string;
+    slug: string;
+    secteur: string | null;
+    reason: "EXACT" | "TYPO" | "PREFIX" | "TRIGRAM";
+    similarity: number;
+    counts: {
+      collaborations: number;
+      negociations: number;
+      contacts: number;
+      inboundOpportunities: number;
+    };
+  };
+  const [similarMatches, setSimilarMatches] = useState<SimilarMatch[]>([]);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [similarChecked, setSimilarChecked] = useState(false);
+  const [mergingSimilarId, setMergingSimilarId] = useState<string | null>(null);
+  const [similarDismissed, setSimilarDismissed] = useState(false);
+
   const [aoSyncing, setAoSyncing] = useState(false);
   const aoSyncTriedRef = useRef(false);
 
@@ -580,6 +603,41 @@ export default function MarqueDetailPage() {
       cancelled = true;
     };
   }, [canFullCrm, activeTab, marque, aoSyncing, fetchMarque]);
+
+  // Détecte les fiches doublons / proches pour proposer une fusion sur place.
+  useEffect(() => {
+    if (!canMerge || !params.id) {
+      setSimilarMatches([]);
+      setSimilarChecked(false);
+      return;
+    }
+    let cancelled = false;
+    setSimilarLoading(true);
+    setSimilarDismissed(false);
+    setSimilarChecked(false);
+    (async () => {
+      try {
+        const res = await fetch(`/api/marques/${params.id}/similar`);
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (res.ok) {
+          setSimilarMatches(Array.isArray(data.matches) ? data.matches : []);
+        } else {
+          setSimilarMatches([]);
+        }
+      } catch {
+        if (!cancelled) setSimilarMatches([]);
+      } finally {
+        if (!cancelled) {
+          setSimilarLoading(false);
+          setSimilarChecked(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canMerge, params.id]);
 
   // Charge la liste des marques (pour le sélecteur de rattachement) à la demande.
   const loadAllMarques = useCallback(async () => {
@@ -830,6 +888,34 @@ export default function MarqueDetailPage() {
       router.push("/marques");
     } catch {
       alert("Erreur lors de la suppression");
+    }
+  };
+
+  /** Fusionne une fiche doublon dans la fiche courante (cible = page actuelle). */
+  const mergeSimilarIntoCurrent = async (source: SimilarMatch) => {
+    if (mergingSimilarId || !marque) return;
+    const ok = confirm(
+      `Fusionner « ${source.nom} » dans « ${marque.nom} » ?\n\n` +
+        `Tous les contacts, collabs et pipelines de « ${source.nom} » seront déplacés ici. ` +
+        `La fiche « ${source.nom} » sera supprimée. Action irréversible.`
+    );
+    if (!ok) return;
+    setMergingSimilarId(source.id);
+    try {
+      const res = await fetch(`/api/marques/${marque.id}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceMarqueId: source.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur lors de la fusion.");
+      setSimilarMatches((prev) => prev.filter((m) => m.id !== source.id));
+      await fetchMarque();
+      alert(`Fusion réussie : « ${source.nom} » a été intégrée dans cette fiche.`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur lors de la fusion.");
+    } finally {
+      setMergingSimilarId(null);
     }
   };
 
@@ -1584,6 +1670,126 @@ export default function MarqueDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* ====================== Doublons / fusions possibles ====================== */}
+        {canMerge && !similarDismissed && (similarLoading || (similarChecked && similarMatches.length > 0)) && (
+          <div
+            className="rounded-2xl ring-1 ring-inset overflow-hidden"
+            style={{
+              backgroundColor: similarMatches.some((m) => m.reason === "EXACT") ? "#FEF2F2" : "#FFF8F0",
+              borderColor: similarMatches.some((m) => m.reason === "EXACT") ? "#FECACA" : "#F5E6D3",
+            }}
+          >
+            <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-black/[0.04]">
+              <div className="flex items-start gap-2.5 min-w-0">
+                {similarLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mt-0.5 shrink-0" style={{ color: ROSE }} />
+                ) : (
+                  <GitMerge className="w-4 h-4 mt-0.5 shrink-0" style={{ color: ROSE }} />
+                )}
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold" style={{ color: INK }}>
+                    {similarLoading
+                      ? "Recherche de fiches doublons…"
+                      : `${similarMatches.length} fiche${similarMatches.length > 1 ? "s" : ""} similaire${
+                          similarMatches.length > 1 ? "s" : ""
+                        } — fusion possible`}
+                  </p>
+                  {!similarLoading && (
+                    <p className="text-[12px] text-gray-500 mt-0.5">
+                      Tu peux fusionner une fiche dans celle-ci : contacts, collabs et pipelines seront
+                      regroupés ici.
+                    </p>
+                  )}
+                </div>
+              </div>
+              {!similarLoading && (
+                <button
+                  type="button"
+                  onClick={() => setSimilarDismissed(true)}
+                  className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-white/60 shrink-0"
+                  title="Masquer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {!similarLoading && similarMatches.length > 0 && (
+              <ul className="divide-y divide-black/[0.04]">
+                {similarMatches.map((m) => {
+                  const reasonLabel =
+                    m.reason === "EXACT"
+                      ? "Doublon exact"
+                      : m.reason === "TYPO"
+                        ? "Typo / faute"
+                        : m.reason === "PREFIX"
+                          ? "Nom proche (préfixe)"
+                          : "Variante proche";
+                  const activity =
+                    m.counts.collaborations +
+                    m.counts.negociations +
+                    m.counts.contacts +
+                    m.counts.inboundOpportunities;
+                  return (
+                    <li
+                      key={m.id}
+                      className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-white/50"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Link
+                            href={`/marques/${m.id}`}
+                            className="text-[13.5px] font-semibold hover:underline"
+                            style={{ color: INK }}
+                          >
+                            {m.nom}
+                          </Link>
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-[2px] rounded-md ${
+                              m.reason === "EXACT"
+                                ? "bg-red-100 text-red-700"
+                                : m.reason === "TYPO"
+                                  ? "bg-orange-100 text-orange-700"
+                                  : "bg-amber-100 text-amber-800"
+                            }`}
+                          >
+                            {reasonLabel}
+                          </span>
+                          {m.secteur && (
+                            <span className="text-[11px] text-gray-400">{m.secteur}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          Similarité {Math.round(m.similarity * 100)}%
+                          {activity > 0
+                            ? ` · ${m.counts.contacts} contact${m.counts.contacts > 1 ? "s" : ""} · ${
+                                m.counts.collaborations
+                              } collab${m.counts.collaborations > 1 ? "s" : ""}`
+                            : " · fiche peu active"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => mergeSimilarIntoCurrent(m)}
+                        disabled={mergingSimilarId === m.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-lg text-white hover:opacity-90 disabled:opacity-60 shrink-0"
+                        style={{ backgroundColor: INK }}
+                        title={`Fusionner « ${m.nom} » dans cette fiche`}
+                      >
+                        {mergingSimilarId === m.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <GitMerge className="w-3.5 h-3.5" />
+                        )}
+                        Fusionner ici
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
 
         {/* ====================== Stat cards ====================== */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
