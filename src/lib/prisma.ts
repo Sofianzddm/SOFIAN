@@ -1,16 +1,20 @@
 import { PrismaClient } from "@prisma/client";
+import { withEmailNormalization } from "@/lib/prisma-email-guard";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-function createPrismaClient() {
-  return new PrismaClient({
+function createPrismaClient(): PrismaClient {
+  // Scrub automatique des emails (< >, "Name <email>") à chaque écriture.
+  const base = new PrismaClient({
     log:
       process.env.NODE_ENV === "development"
         ? ["query", "error", "warn"]
         : ["error"],
   });
+  // Cast : l'extension ne change pas l'API métier, seulement les args d'écriture.
+  return withEmailNormalization(base) as unknown as PrismaClient;
 }
 
 let prisma = globalForPrisma.prisma ?? createPrismaClient();
@@ -21,17 +25,17 @@ if (process.env.NODE_ENV !== "production") {
   const p = prisma as unknown as {
     dossierProspection?: unknown;
     cannesCoiffeurPrestation?: unknown;
-        rhEmployee?: unknown;
-        fwCartoFile?: unknown;
-        dcPolicy?: unknown;
-      };
-      if (
-        typeof p.dossierProspection === "undefined" ||
-        typeof p.cannesCoiffeurPrestation === "undefined" ||
-        typeof p.rhEmployee === "undefined" ||
-        typeof p.fwCartoFile === "undefined" ||
-        typeof p.dcPolicy === "undefined"
-      ) {
+    rhEmployee?: unknown;
+    fwCartoFile?: unknown;
+    dcPolicy?: unknown;
+  };
+  if (
+    typeof p.dossierProspection === "undefined" ||
+    typeof p.cannesCoiffeurPrestation === "undefined" ||
+    typeof p.rhEmployee === "undefined" ||
+    typeof p.fwCartoFile === "undefined" ||
+    typeof p.dcPolicy === "undefined"
+  ) {
     void globalForPrisma.prisma?.$disconnect().catch(() => undefined);
     prisma = createPrismaClient();
     globalForPrisma.prisma = prisma;

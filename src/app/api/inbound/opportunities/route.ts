@@ -10,6 +10,7 @@ import {
   linkMarqueFromBrandName,
   parseSenderName,
 } from "@/lib/marque-resolver";
+import { normalizeEmail } from "@/lib/normalize-email";
 const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
 type AllowedRole = (typeof ALLOWED_ROLES)[number];
 const ALLOWED_CATEGORIES = new Set([
@@ -24,7 +25,10 @@ const InboundPayloadSchema = z.object({
   talentEmail: z.string().email(),
   talentName: z.string().min(1),
   talentId: z.string().optional(),
-  senderEmail: z.string().email(),
+  senderEmail: z.preprocess(
+    (v) => normalizeEmail(String(v ?? "")),
+    z.string().email()
+  ),
   senderName: z.string().nullable().optional(),
   senderDomain: z.string().min(1),
   subject: z.string().min(1),
