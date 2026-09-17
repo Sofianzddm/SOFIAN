@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 import {
-  basculerOwnershipPourDelegation,
+  alignerOwnershipSurResponsable,
   desactiverAutresDelegations,
 } from "@/lib/delegations";
 
@@ -53,20 +53,12 @@ export async function PATCH(
 
     try {
       if (actif) {
-        const remplacees = await desactiverAutresDelegations(updated.talentId, updated.id);
-        for (const ancienne of remplacees) {
-          await basculerOwnershipPourDelegation(
-            { ...ancienne, talent: updated.talent },
-            "vers_origine"
-          );
-        }
+        // Un seul relai actif par talent.
+        await desactiverAutresDelegations(updated.talentId, updated.id);
       }
-      await basculerOwnershipPourDelegation(
-        updated,
-        actif ? "vers_relai" : "vers_origine"
-      );
+      await alignerOwnershipSurResponsable(updated.talentId);
     } catch (e) {
-      console.error("Erreur bascule ownership délégation:", e);
+      console.error("Erreur alignement ownership délégation:", e);
     }
 
     return NextResponse.json(updated);
@@ -92,22 +84,21 @@ export async function DELETE(
 
     const delegation = await prisma.delegationTM.findUnique({
       where: { id },
-      include: {
-        talent: { select: { managerId: true } },
-      },
+      select: { talentId: true, actif: true },
     });
-
-    if (delegation?.actif) {
-      try {
-        await basculerOwnershipPourDelegation(delegation, "vers_origine");
-      } catch (e) {
-        console.error("Erreur bascule ownership avant suppression délégation:", e);
-      }
-    }
 
     await prisma.delegationTM.delete({
       where: { id },
     });
+
+    // Après suppression seulement : le responsable a changé, on réaligne dessus.
+    if (delegation?.actif) {
+      try {
+        await alignerOwnershipSurResponsable(delegation.talentId);
+      } catch (e) {
+        console.error("Erreur alignement ownership après suppression délégation:", e);
+      }
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

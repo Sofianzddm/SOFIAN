@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 import {
-  basculerOwnershipPourDelegation,
+  alignerOwnershipSurResponsable,
   desactiverAutresDelegations,
 } from "@/lib/delegations";
 
@@ -131,18 +131,11 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      // Un seul relai actif par talent : les délégations concurrentes sont
-      // coupées et leur ownership renvoyé vers le nouveau relai.
-      const remplacees = await desactiverAutresDelegations(talentId, delegation.id);
-      for (const ancienne of remplacees) {
-        await basculerOwnershipPourDelegation(
-          { ...ancienne, talent: delegation.talent },
-          "vers_origine"
-        );
-      }
-      await basculerOwnershipPourDelegation(delegation, "vers_relai");
+      // Un seul relai actif par talent.
+      await desactiverAutresDelegations(talentId, delegation.id);
+      await alignerOwnershipSurResponsable(talentId, tmRelaiId);
     } catch (e) {
-      console.error("Erreur bascule ownership vers relai:", e);
+      console.error("Erreur alignement ownership sur le relai:", e);
     }
 
     return NextResponse.json(delegation, { status: 201 });

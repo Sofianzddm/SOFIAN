@@ -87,76 +87,62 @@ export async function desactiverAutresDelegations(
   return autres;
 }
 
+/** Gifts encore vivants ; les gifts clos gardent la TM qui les a traités. */
+const STATUTS_GIFT_OUVERTS = [
+  "BROUILLON",
+  "EN_ATTENTE",
+  "EN_COURS",
+  "ATTENTE_MARQUE",
+  "ACCEPTE",
+  "ENVOYE",
+] as const;
+
 /**
- * Bascule tout l'ownership opérationnel d'un talent d'un TM vers un autre :
- * gifts + négociations (les deux portent un `tmId` qui conditionne l'écriture
- * et le dashboard "mes dossiers").
+ * Aligne l'ownership des dossiers en cours d'un talent (gifts + négociations,
+ * qui portent un `tmId` conditionnant l'écriture et le dashboard) sur son
+ * responsable courant.
+ *
+ * L'alignement est absolu, et non un transfert « de A vers B » : à appeler
+ * après tout changement de délégation ou de TM, il rattrape de lui-même les
+ * dossiers restés sur une TM tierce après une délégation mal terminée.
  */
-export async function basculerOwnershipDelegation({
-  talentId,
-  fromTmId,
-  toTmId,
-}: {
-  talentId: string;
-  fromTmId: string;
-  toTmId: string;
-}): Promise<{ gifts: number; negociations: number }> {
-  if (!talentId || !fromTmId || !toTmId || fromTmId === toTmId) {
-    return { gifts: 0, negociations: 0 };
-  }
+export async function alignerOwnershipSurResponsable(
+  talentId: string,
+  responsableId?: string | null
+): Promise<{ gifts: number; negociations: number }> {
+  if (!talentId) return { gifts: 0, negociations: 0 };
+  const tmId = responsableId ?? (await getResponsableTmId(talentId));
+  if (!tmId) return { gifts: 0, negociations: 0 };
 
   const [gifts, negociations] = await Promise.all([
     prisma.demandeGift.updateMany({
-      where: { talentId, tmId: fromTmId },
-      data: { tmId: toTmId },
+      where: {
+        talentId,
+        statut: { in: [...STATUTS_GIFT_OUVERTS] },
+        tmId: { not: tmId },
+      },
+      data: { tmId },
     }),
-    // Les négos closes (archivées / converties) gardent leur TM d'origine :
-    // elles sont de l'historique, pas du travail en cours.
+    // Les négos converties ou annulées sont de l'historique : on n'y touche pas.
     prisma.negociation.updateMany({
       where: {
         talentId,
-        tmId: fromTmId,
         collaborationId: null,
         statut: { notIn: ["ANNULEE"] },
+        tmId: { not: tmId },
       },
-      data: { tmId: toTmId },
+      data: { tmId },
     }),
   ]);
 
   return { gifts: gifts.count, negociations: negociations.count };
 }
 
-/** À l'activation du relai : ownership → TM relai. À la désactivation : → TM principale. */
-export async function basculerOwnershipPourDelegation(
-  delegation: {
-    talentId: string;
-    tmOrigineId: string;
-    tmRelaiId: string;
-    talent?: { managerId?: string | null } | null;
-  },
-  sens: "vers_relai" | "vers_origine"
-): Promise<{ gifts: number; negociations: number }> {
-  const origine = delegation.talent?.managerId || delegation.tmOrigineId;
-  if (sens === "vers_relai") {
-    return basculerOwnershipDelegation({
-      talentId: delegation.talentId,
-      fromTmId: origine,
-      toTmId: delegation.tmRelaiId,
-    });
-  }
-  return basculerOwnershipDelegation({
-    talentId: delegation.talentId,
-    fromTmId: delegation.tmRelaiId,
-    toTmId: origine,
-  });
-}
-
 /**
  * Changement de TM d'un talent : les délégations le concernant doivent suivre.
- * - Délégation active dont le nouveau manager est le relai → elle n'a plus de
- *   sens (relai == manager), on la coupe.
- * - Sinon on resynchronise `tmOrigineId` et on récupère l'ownership resté sur
- *   l'ancien manager pour le renvoyer vers le responsable courant.
+ * Une délégation dont le nouveau manager est le relai n'a plus de sens, on la
+ * coupe ; sinon on resynchronise `tmOrigineId`. L'ownership est réaligné sur le
+ * responsable qui en résulte.
  */
 export async function syncDelegationsApresChangementManager({
   talentId,
@@ -183,14 +169,7 @@ export async function syncDelegationsApresChangementManager({
     data: { tmOrigineId: nouveauManagerId },
   });
 
-  const responsableId = (await getResponsableTmId(talentId)) ?? nouveauManagerId;
-  if (ancienManagerId) {
-    await basculerOwnershipDelegation({
-      talentId,
-      fromTmId: ancienManagerId,
-      toTmId: responsableId,
-    });
-  }
+  await alignerOwnershipSurResponsable(talentId);
 }
 
 export async function getTalentIdsAccessibles(userId: string): Promise<string[]> {
