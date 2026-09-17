@@ -2315,6 +2315,10 @@ model Depense {
   justificatifNom  String? // Nom de fichier d'origine
   justificatifType String? // MIME type (application/pdf, image/jpeg…)
 
+  // Acquitté sans ticket (ex. paiement Libeo déjà suivi ailleurs, abonnement…)
+  // → sort de la liste « à justifier » sans fichier ni factures talents liées.
+  sansJustificatif Boolean @default(false)
+
   // Résultat de l'analyse IA du justificatif (fournisseur, montants, date,
   // catégorie suggérée…) — sert au pré-remplissage et au contrôle de cohérence
   // avec la transaction bancaire.

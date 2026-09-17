@@ -115,6 +115,7 @@ export async function POST(request: NextRequest) {
       justificatifUrl,
       justificatifNom,
       justificatifType,
+      sansJustificatif: str("sansJustificatif") === "true" || str("sansJustificatif") === "1",
       analyse,
       source: "WEB",
       createdById: auth.userId,

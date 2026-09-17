@@ -11,11 +11,14 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  FileText,
   Loader2,
   Plus,
   RefreshCw,
+  Search,
   Send,
   Sparkles,
+  Users,
   X,
 } from "lucide-react";
 
@@ -37,20 +40,49 @@ interface DepenseInfo {
   tauxTVA: number | string | null;
   dateDepense: string;
   justificatifUrl: string | null;
+  sansJustificatif?: boolean;
   analyseIA?: AnalyseIA | null;
   // Factures talents liées (paiements Defacto / Libeo justifiés sur le web)
   facturesTalent?: Array<{ id: string }>;
   facturesTalentCycles?: Array<{ id: string }>;
 }
 
-/** Justifiée par un fichier OU par des factures talents liées */
+/** Justifiée par un fichier, un OK sans ticket, ou des factures talents */
 function depenseJustifiee(d: DepenseInfo | null): boolean {
   if (!d) return false;
   return (
     !!d.justificatifUrl ||
+    !!d.sansJustificatif ||
     (d.facturesTalent?.length ?? 0) > 0 ||
     (d.facturesTalentCycles?.length ?? 0) > 0
   );
+}
+
+function monthKey(dateStr: string): string {
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  const label = new Date(y, m - 1, 1).toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function groupByMonth<T>(items: T[], getDate: (item: T) => string) {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const k = monthKey(getDate(item));
+    const list = map.get(k);
+    if (list) list.push(item);
+    else map.set(k, [item]);
+  }
+  return Array.from(map.entries())
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, group]) => ({ key, label: monthLabel(key), items: group }));
 }
 
 interface TransactionDebit {
@@ -64,6 +96,31 @@ interface TransactionDebit {
 
 interface HorsBanque extends DepenseInfo {
   libelle: string | null;
+}
+
+interface FactureTalentCollab {
+  id: string;
+  reference: string;
+  montantNet: number | string;
+  factureTalentUrl: string | null;
+  paidAt?: string | null;
+  depenseId?: string | null;
+  talent: { prenom: string; nom: string };
+  marque: { nom: string };
+}
+
+interface FactureTalentCycle {
+  id: string;
+  numero: number;
+  montantNet: number | string;
+  factureTalentUrl: string | null;
+  paidAt?: string | null;
+  depenseId?: string | null;
+  collaboration: {
+    reference: string;
+    talent: { prenom: string; nom: string };
+    marque: { nom: string };
+  };
 }
 
 const CATEGORIES = [
@@ -173,6 +230,18 @@ export default function MobileDepensesPage() {
   const [sending, setSending] = useState(false);
   const [verify, setVerify] = useState<VerifyState | null>(null);
   const [verifySaving, setVerifySaving] = useState(false);
+
+  // Sans ticket : justifier via factures talents (Libeo / Defacto)
+  const [linkTx, setLinkTx] = useState<TransactionDebit | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkSaving, setLinkSaving] = useState(false);
+  const [linkSearch, setLinkSearch] = useState("");
+  const [linkCollabs, setLinkCollabs] = useState<FactureTalentCollab[]>([]);
+  const [linkCycles, setLinkCycles] = useState<FactureTalentCycle[]>([]);
+  const [selCollabs, setSelCollabs] = useState<Set<string>>(new Set());
+  const [selCycles, setSelCycles] = useState<Set<string>>(new Set());
+  const [okSavingId, setOkSavingId] = useState<string | null>(null);
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -409,6 +478,151 @@ export default function MobileDepensesPage() {
     }
   };
 
+  // ——— Sans ticket : Libeo / Defacto via factures talents ———
+
+  const openLink = async (tx: TransactionDebit) => {
+    setLinkTx(tx);
+    setLinkLoading(true);
+    setLinkSearch("");
+    try {
+      const depenseId = tx.depense?.id ?? "";
+      const res = await fetch(
+        `/api/depenses/factures-talent${depenseId ? `?depenseId=${depenseId}` : ""}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Erreur lors du chargement des factures talents");
+        setLinkTx(null);
+        return;
+      }
+      const collabs: FactureTalentCollab[] = data.collabs || [];
+      const cycles: FactureTalentCycle[] = data.cycles || [];
+      setLinkCollabs(collabs);
+      setLinkCycles(cycles);
+      setSelCollabs(
+        new Set(
+          collabs.filter((c) => depenseId && c.depenseId === depenseId).map((c) => c.id)
+        )
+      );
+      setSelCycles(
+        new Set(
+          cycles.filter((c) => depenseId && c.depenseId === depenseId).map((c) => c.id)
+        )
+      );
+    } catch {
+      setError("Erreur lors du chargement des factures talents");
+      setLinkTx(null);
+    } finally {
+      setLinkLoading(false);
+    }
+  };
+
+  const closeLink = () => {
+    setLinkTx(null);
+    setLinkCollabs([]);
+    setLinkCycles([]);
+    setSelCollabs(new Set());
+    setSelCycles(new Set());
+    setLinkSearch("");
+  };
+
+  const toggleSel = (set: Set<string>, id: string): Set<string> => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  };
+
+  const saveLink = async () => {
+    if (!linkTx) return;
+    if (selCollabs.size + selCycles.size === 0) {
+      setError("Cochez au moins une facture talent");
+      return;
+    }
+    setLinkSaving(true);
+    setError(null);
+    try {
+      let depenseId = linkTx.depense?.id;
+      if (!depenseId) {
+        const formData = new FormData();
+        formData.append("transactionId", linkTx.id);
+        const res = await fetch("/api/depenses", { method: "POST", body: formData });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(data.error || "Erreur lors de la création de la dépense");
+          return;
+        }
+        depenseId = data.depense.id as string;
+      }
+
+      const res = await fetch(`/api/depenses/${depenseId}/factures-talent`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          collabIds: Array.from(selCollabs),
+          cycleIds: Array.from(selCycles),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Erreur lors de la liaison");
+        return;
+      }
+      await fetchData();
+      closeLink();
+      setToast("Justifié via factures talents ✓");
+    } catch {
+      setError("Erreur lors de la liaison");
+    } finally {
+      setLinkSaving(false);
+    }
+  };
+
+  /** Bouton OK : sort la dépense de « à justifier » sans ticket */
+  const markOk = async (tx: TransactionDebit) => {
+    setOkSavingId(tx.id);
+    setError(null);
+    try {
+      if (tx.depense?.id) {
+        const res = await fetch(`/api/depenses/${tx.depense.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sansJustificatif: true }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(data.error || "Erreur");
+          return;
+        }
+      } else {
+        const formData = new FormData();
+        formData.append("transactionId", tx.id);
+        formData.append("sansJustificatif", "true");
+        const res = await fetch("/api/depenses", { method: "POST", body: formData });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(data.error || "Erreur");
+          return;
+        }
+      }
+      await fetchData();
+      setToast("OK — retiré des factures manquantes");
+    } catch {
+      setError("Erreur lors de l'acquittement");
+    } finally {
+      setOkSavingId(null);
+    }
+  };
+
+  const toggleMonth = (key: string) => {
+    setCollapsedMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   // ——— Rendu ———
 
   if (status === "loading" || (status === "authenticated" && loading)) {
@@ -441,6 +655,28 @@ export default function MobileDepensesPage() {
     (s, t) => s + Math.abs(toNumber(t.montant)),
     0
   );
+
+  const selectionTotal =
+    linkCollabs
+      .filter((c) => selCollabs.has(c.id))
+      .reduce((s, c) => s + toNumber(c.montantNet), 0) +
+    linkCycles
+      .filter((c) => selCycles.has(c.id))
+      .reduce((s, c) => s + toNumber(c.montantNet), 0);
+
+  const lq = linkSearch.trim().toLowerCase();
+  const matchCollab = (c: FactureTalentCollab) =>
+    !lq ||
+    `${c.talent.prenom} ${c.talent.nom}`.toLowerCase().includes(lq) ||
+    c.marque.nom.toLowerCase().includes(lq) ||
+    c.reference.toLowerCase().includes(lq);
+  const matchCycle = (c: FactureTalentCycle) =>
+    !lq ||
+    `${c.collaboration.talent.prenom} ${c.collaboration.talent.nom}`
+      .toLowerCase()
+      .includes(lq) ||
+    c.collaboration.marque.nom.toLowerCase().includes(lq) ||
+    c.collaboration.reference.toLowerCase().includes(lq);
 
   // Écart montant lu / montant banque sur l'écran de vérification
   const montantLu = verify?.montantTTC ? Number(verify.montantTTC.replace(",", ".")) : null;
@@ -497,7 +733,7 @@ export default function MobileDepensesPage() {
         </div>
       )}
 
-      {/* À justifier */}
+      {/* À justifier — dossiers par mois */}
       <section className="px-4 pt-4">
         {aJustifier.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-12 text-center">
@@ -508,35 +744,84 @@ export default function MobileDepensesPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {aJustifier.map((tx) => (
-              <div
-                key={tx.id}
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">
-                      {tx.emetteur || tx.libelle || "—"}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {formatDate(tx.dateTransaction)}
-                      {tx.emetteur && tx.libelle ? ` · ${tx.libelle}` : ""}
-                    </p>
-                  </div>
-                  <p className="whitespace-nowrap font-semibold tabular-nums text-red-600">
-                    −{formatMoney(Math.abs(toNumber(tx.montant)))}
-                  </p>
+          <div className="space-y-5">
+            {groupByMonth(aJustifier, (t) => t.dateTransaction).map((folder) => {
+              const collapsed = collapsedMonths.has(folder.key);
+              return (
+                <div key={folder.key}>
+                  <button
+                    type="button"
+                    onClick={() => toggleMonth(folder.key)}
+                    className="mb-2 flex w-full items-center justify-between px-1"
+                  >
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {folder.label}
+                      <span className="ml-2 font-normal text-slate-400">
+                        ({folder.items.length})
+                      </span>
+                    </h2>
+                    {collapsed ? (
+                      <ChevronDown className="h-4 w-4 text-slate-400" />
+                    ) : (
+                      <ChevronUp className="h-4 w-4 text-slate-400" />
+                    )}
+                  </button>
+                  {!collapsed && (
+                    <div className="space-y-3">
+                      {folder.items.map((tx) => (
+                        <div
+                          key={tx.id}
+                          className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-slate-900">
+                                {tx.emetteur || tx.libelle || "—"}
+                              </p>
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                {formatDate(tx.dateTransaction)}
+                                {tx.emetteur && tx.libelle ? ` · ${tx.libelle}` : ""}
+                              </p>
+                            </div>
+                            <p className="whitespace-nowrap font-semibold tabular-nums text-red-600">
+                              −{formatMoney(Math.abs(toNumber(tx.montant)))}
+                            </p>
+                          </div>
+                          <div className="mt-3 grid grid-cols-1 gap-2">
+                            <button
+                              onClick={() => void markOk(tx)}
+                              disabled={okSavingId === tx.id}
+                              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-sm font-semibold text-white active:bg-emerald-700 disabled:opacity-60"
+                            >
+                              {okSavingId === tx.id ? (
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-5 w-5" />
+                              )}
+                              OK — pas de ticket
+                            </button>
+                            <button
+                              onClick={() => takePhotoFor(tx)}
+                              className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white active:bg-slate-700"
+                            >
+                              <Camera className="h-5 w-5" />
+                              Photographier le reçu
+                            </button>
+                            <button
+                              onClick={() => void openLink(tx)}
+                              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-3 text-sm font-medium text-slate-700 active:bg-slate-50"
+                            >
+                              <Users className="h-4 w-4" />
+                              Sans ticket · Libeo / Defacto
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={() => takePhotoFor(tx)}
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-semibold text-white active:bg-slate-700"
-                >
-                  <Camera className="h-5 w-5" />
-                  Photographier le reçu
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -575,9 +860,9 @@ export default function MobileDepensesPage() {
         </section>
       )}
 
-      {/* Justifiées (repliées) */}
+      {/* Justifiées (repliées) — dossiers par mois */}
       {justifiees.length > 0 && (
-        <section className="px-4 pt-6">
+        <section className="px-4 pt-2 pb-4">
           <button
             onClick={() => setShowJustifiees((v) => !v)}
             className="flex w-full items-center justify-between px-1 py-1"
@@ -592,32 +877,44 @@ export default function MobileDepensesPage() {
             )}
           </button>
           {showJustifiees && (
-            <div className="mt-2 divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
-              {justifiees.map((tx) => (
-                <div key={tx.id} className="flex items-center gap-3 px-4 py-3">
-                  <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-500" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-700">
-                      {tx.depense?.fournisseur || tx.emetteur || tx.libelle || "—"}
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      {formatDate(tx.dateTransaction)}
-                      {tx.depense?.categorie ? ` · ${tx.depense.categorie}` : ""}
-                    </p>
-                  </div>
-                  <p className="whitespace-nowrap text-sm tabular-nums text-slate-500">
-                    −{formatMoney(Math.abs(toNumber(tx.montant)))}
+            <div className="mt-2 space-y-4">
+              {groupByMonth(justifiees, (t) => t.dateTransaction).map((folder) => (
+                <div key={folder.key}>
+                  <p className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    {folder.label}
                   </p>
-                  {tx.depense?.justificatifUrl && (
-                    <a
-                      href={tx.depense.justificatifUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-slate-400"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  )}
+                  <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
+                    {folder.items.map((tx) => (
+                      <div key={tx.id} className="flex items-center gap-3 px-4 py-3">
+                        <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-500" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-slate-700">
+                            {tx.depense?.fournisseur || tx.emetteur || tx.libelle || "—"}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {formatDate(tx.dateTransaction)}
+                            {tx.depense?.categorie ? ` · ${tx.depense.categorie}` : ""}
+                            {tx.depense?.sansJustificatif && !tx.depense?.justificatifUrl
+                              ? " · OK sans ticket"
+                              : ""}
+                          </p>
+                        </div>
+                        <p className="whitespace-nowrap text-sm tabular-nums text-slate-500">
+                          −{formatMoney(Math.abs(toNumber(tx.montant)))}
+                        </p>
+                        {tx.depense?.justificatifUrl && (
+                          <a
+                            href={tx.depense.justificatifUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-slate-400"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
@@ -855,6 +1152,175 @@ export default function MobileDepensesPage() {
               )}
               Valider la dépense
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Sans ticket : lier des factures talents (Libeo / Defacto) */}
+      {linkTx && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60">
+          <div
+            className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-t-3xl bg-white"
+            style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+          >
+            <div className="border-b border-slate-100 px-5 pb-3 pt-5">
+              <div className="mb-1 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-slate-900">
+                  Sans ticket · Libeo / Defacto
+                </h3>
+                <button onClick={closeLink} className="text-slate-400">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="text-sm text-slate-500">
+                Débit{" "}
+                <span className="font-semibold text-slate-800">
+                  {formatMoney(Math.abs(toNumber(linkTx.montant)))}
+                </span>{" "}
+                — cochez les factures talents déjà uploadées (pas de photo).
+              </p>
+              <div className="relative mt-3">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  placeholder="Talent, marque, référence…"
+                  value={linkSearch}
+                  onChange={(e) => setLinkSearch(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm focus:border-slate-400 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-2">
+              {linkLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="h-7 w-7 animate-spin text-slate-400" />
+                </div>
+              ) : linkCollabs.length === 0 && linkCycles.length === 0 ? (
+                <p className="px-2 py-10 text-center text-sm text-slate-500">
+                  Aucune facture talent disponible. Elles apparaissent ici dès
+                  qu&apos;un talent dépose sa facture sur une collab.
+                </p>
+              ) : (
+                <div className="space-y-0.5">
+                  {linkCollabs.filter(matchCollab).map((c) => (
+                    <label
+                      key={c.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-3 active:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selCollabs.has(c.id)}
+                        onChange={() => setSelCollabs((s) => toggleSel(s, c.id))}
+                        className="h-5 w-5 rounded border-slate-300"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {c.talent.prenom} {c.talent.nom}
+                          <span className="font-normal text-slate-500">
+                            {" "}
+                            · {c.marque.nom}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-400">{c.reference}</p>
+                      </div>
+                      {c.factureTalentUrl && (
+                        <a
+                          href={c.factureTalentUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-slate-400"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </a>
+                      )}
+                      <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-slate-700">
+                        {formatMoney(toNumber(c.montantNet))}
+                      </span>
+                    </label>
+                  ))}
+                  {linkCycles.filter(matchCycle).map((c) => (
+                    <label
+                      key={c.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-3 active:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selCycles.has(c.id)}
+                        onChange={() => setSelCycles((s) => toggleSel(s, c.id))}
+                        className="h-5 w-5 rounded border-slate-300"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {c.collaboration.talent.prenom}{" "}
+                          {c.collaboration.talent.nom}
+                          <span className="font-normal text-slate-500">
+                            {" "}
+                            · {c.collaboration.marque.nom} — c.{c.numero}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {c.collaboration.reference}
+                        </p>
+                      </div>
+                      {c.factureTalentUrl && (
+                        <a
+                          href={c.factureTalentUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-slate-400"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </a>
+                      )}
+                      <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-slate-700">
+                        {formatMoney(toNumber(c.montantNet))}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-100 px-5 py-4">
+              <div className="mb-3 flex items-center justify-between text-sm">
+                <span className="text-slate-500">Sélection</span>
+                <span
+                  className={`font-semibold tabular-nums ${
+                    Math.abs(selectionTotal - Math.abs(toNumber(linkTx.montant))) <= 0.05
+                      ? "text-emerald-600"
+                      : "text-slate-900"
+                  }`}
+                >
+                  {formatMoney(selectionTotal)} /{" "}
+                  {formatMoney(Math.abs(toNumber(linkTx.montant)))}
+                </span>
+              </div>
+              {selectionTotal > 0 &&
+                Math.abs(selectionTotal - Math.abs(toNumber(linkTx.montant))) > 0.05 && (
+                  <p className="mb-3 flex items-center gap-1.5 text-xs text-amber-600">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Écart possible (frais Libeo / Defacto)
+                  </p>
+                )}
+              <button
+                onClick={() => void saveLink()}
+                disabled={linkSaving || linkLoading || selCollabs.size + selCycles.size === 0}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-semibold text-white active:bg-slate-700 disabled:opacity-50"
+              >
+                {linkSaving ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5" />
+                )}
+                Justifier
+                {selCollabs.size + selCycles.size > 0
+                  ? ` (${selCollabs.size + selCycles.size})`
+                  : ""}
+              </button>
+            </div>
           </div>
         </div>
       )}

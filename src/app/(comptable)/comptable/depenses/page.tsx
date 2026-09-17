@@ -61,6 +61,7 @@ interface DepenseInfo {
   justificatifUrl: string | null;
   justificatifNom: string | null;
   justificatifType: string | null;
+  sansJustificatif?: boolean;
   analyseIA?: {
     fournisseur?: string | null;
     montantTTC?: number | null;
@@ -71,14 +72,42 @@ interface DepenseInfo {
   facturesTalentCycles?: FactureTalentCycle[];
 }
 
-/** Une dépense est justifiée par un fichier OU par des factures talents liées */
+/** Justifiée par un fichier, un OK sans ticket, ou des factures talents */
 function depenseJustifiee(d: DepenseInfo | null): boolean {
   if (!d) return false;
   return (
     !!d.justificatifUrl ||
+    !!d.sansJustificatif ||
     (d.facturesTalent?.length ?? 0) > 0 ||
     (d.facturesTalentCycles?.length ?? 0) > 0
   );
+}
+
+function monthKey(dateStr: string): string {
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  const label = new Date(y, m - 1, 1).toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function groupByMonth<T>(items: T[], getDate: (item: T) => string) {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const k = monthKey(getDate(item));
+    const list = map.get(k);
+    if (list) list.push(item);
+    else map.set(k, [item]);
+  }
+  return Array.from(map.entries())
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, group]) => ({ key, label: monthLabel(key), items: group }));
 }
 
 interface TransactionDebit {
@@ -346,6 +375,7 @@ export default function DepensesPage() {
         justificatifUrl: null,
         justificatifNom: null,
         justificatifType: null,
+        sansJustificatif: false,
         source: "WEB",
       }
     );
@@ -453,6 +483,41 @@ export default function DepensesPage() {
     setLinkCycles([]);
     setSelCollabs(new Set());
     setSelCycles(new Set());
+  };
+
+  const markOk = async (tx: TransactionDebit) => {
+    setUploadingId(tx.id);
+    setError(null);
+    try {
+      if (tx.depense?.id) {
+        const res = await fetch(`/api/depenses/${tx.depense.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sansJustificatif: true }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(data.error || "Erreur lors de l'acquittement");
+          return;
+        }
+      } else {
+        const formData = new FormData();
+        formData.append("transactionId", tx.id);
+        formData.append("sansJustificatif", "true");
+        const res = await fetch("/api/depenses", { method: "POST", body: formData });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(data.error || "Erreur lors de l'acquittement");
+          return;
+        }
+      }
+      await fetchData();
+    } catch (e) {
+      console.error("Erreur OK sans ticket:", e);
+      setError("Erreur lors de l'acquittement");
+    } finally {
+      setUploadingId(null);
+    }
   };
 
   const saveLink = async () => {
@@ -727,90 +792,116 @@ export default function DepensesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAJustifier.map((tx) => {
-                    const isDragOver = dragOverId === tx.id;
-                    const isUploading = uploadingId === tx.id;
-                    return (
-                      <tr
-                        key={tx.id}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          setDragOverId(tx.id);
-                        }}
-                        onDragLeave={() => setDragOverId(null)}
-                        onDrop={onDropRow(tx)}
-                        className={`border-b border-slate-100 transition-colors align-top ${
-                          isDragOver
-                            ? "bg-amber-50 outline outline-2 outline-dashed outline-amber-400 -outline-offset-2"
-                            : "hover:bg-slate-50/50"
-                        }`}
-                      >
-                        <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                          {formatDate(tx.dateTransaction)}
+                  {groupByMonth(filteredAJustifier, (t) => t.dateTransaction).flatMap(
+                    (folder) => [
+                      <tr key={`m-${folder.key}`} className="bg-slate-50/90">
+                        <td
+                          colSpan={5}
+                          className="py-2.5 px-4 text-xs font-semibold uppercase tracking-wide text-slate-500"
+                        >
+                          {folder.label}
+                          <span className="ml-2 font-normal text-slate-400">
+                            ({folder.items.length})
+                          </span>
                         </td>
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-slate-900">
-                            {tx.emetteur || tx.libelle || "—"}
-                          </div>
-                          {tx.emetteur && tx.libelle && (
-                            <div className="text-xs text-slate-500 mt-0.5">
-                              {tx.libelle}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <button
-                            onClick={() => openEdit(tx, tx.depense)}
-                            className="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-900"
+                      </tr>,
+                      ...folder.items.map((tx) => {
+                        const isDragOver = dragOverId === tx.id;
+                        const isUploading = uploadingId === tx.id;
+                        return (
+                          <tr
+                            key={tx.id}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              setDragOverId(tx.id);
+                            }}
+                            onDragLeave={() => setDragOverId(null)}
+                            onDrop={onDropRow(tx)}
+                            className={`border-b border-slate-100 transition-colors align-top ${
+                              isDragOver
+                                ? "bg-amber-50 outline outline-2 outline-dashed outline-amber-400 -outline-offset-2"
+                                : "hover:bg-slate-50/50"
+                            }`}
                           >
-                            {tx.depense?.categorie ? (
-                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
-                                {tx.depense.categorie}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-slate-400 underline decoration-dotted underline-offset-2">
-                                Catégoriser
-                              </span>
-                            )}
-                            <Pencil className="w-3 h-3 text-slate-400" />
-                          </button>
-                        </td>
-                        <td className="py-3 px-4 text-right font-semibold text-red-600 whitespace-nowrap tabular-nums">
-                          −{formatMoney(Math.abs(toNumber(tx.montant)))}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              onClick={() => openLink(tx)}
-                              title="Justifier avec des factures talents déjà uploadées (paiement Defacto / Libeo)"
-                              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors"
-                            >
-                              <Users className="w-4 h-4" />
-                              Factures talents
-                            </button>
-                            <button
-                              onClick={() => openFilePicker(tx)}
-                              disabled={isUploading}
-                              className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border-2 border-dashed transition-colors ${
-                                isDragOver
-                                  ? "border-amber-400 bg-amber-100 text-amber-700"
-                                  : "border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-700"
-                              } disabled:opacity-50`}
-                            >
-                              {isUploading ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Upload className="w-4 h-4" />
+                            <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                              {formatDate(tx.dateTransaction)}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-medium text-slate-900">
+                                {tx.emetteur || tx.libelle || "—"}
+                              </div>
+                              {tx.emetteur && tx.libelle && (
+                                <div className="text-xs text-slate-500 mt-0.5">
+                                  {tx.libelle}
+                                </div>
                               )}
-                              {isUploading
-                                ? "Envoi…"
-                                : "Glisser la facture ici"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                            </td>
+                            <td className="py-3 px-4">
+                              <button
+                                onClick={() => openEdit(tx, tx.depense)}
+                                className="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-900"
+                              >
+                                {tx.depense?.categorie ? (
+                                  <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                                    {tx.depense.categorie}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-400 underline decoration-dotted underline-offset-2">
+                                    Catégoriser
+                                  </span>
+                                )}
+                                <Pencil className="w-3 h-3 text-slate-400" />
+                              </button>
+                            </td>
+                            <td className="py-3 px-4 text-right font-semibold text-red-600 whitespace-nowrap tabular-nums">
+                              −{formatMoney(Math.abs(toNumber(tx.montant)))}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
+                                <button
+                                  onClick={() => void markOk(tx)}
+                                  disabled={isUploading}
+                                  title="OK : retirer des factures manquantes sans ticket"
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                                >
+                                  {isUploading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  )}
+                                  OK
+                                </button>
+                                <button
+                                  onClick={() => openLink(tx)}
+                                  title="Pas de ticket : justifier avec les factures talents (Libeo / Defacto)"
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors"
+                                >
+                                  <Users className="w-4 h-4" />
+                                  Libeo
+                                </button>
+                                <button
+                                  onClick={() => openFilePicker(tx)}
+                                  disabled={isUploading}
+                                  className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border-2 border-dashed transition-colors ${
+                                    isDragOver
+                                      ? "border-amber-400 bg-amber-100 text-amber-700"
+                                      : "border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-700"
+                                  } disabled:opacity-50`}
+                                >
+                                  {isUploading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Upload className="w-4 h-4" />
+                                  )}
+                                  {isUploading ? "Envoi…" : "Facture"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }),
+                    ]
+                  )}
                 </tbody>
               </table>
             </div>
@@ -931,126 +1022,148 @@ export default function DepensesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredJustifiees.map((tx) => {
-                    const d = tx.depense!;
-                    // Contrôle de cohérence : montant lu sur le reçu vs débit bancaire
-                    const montantLu = d.analyseIA?.montantTTC;
-                    const ecart =
-                      typeof montantLu === "number"
-                        ? Math.abs(montantLu - Math.abs(toNumber(tx.montant)))
-                        : 0;
-                    const incoherent = ecart > 0.05;
-                    return (
-                      <tr
-                        key={tx.id}
-                        className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
-                      >
-                        <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                          {formatDate(tx.dateTransaction)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-slate-900">
-                            {d.fournisseur || tx.emetteur || tx.libelle || "—"}
-                          </div>
-                          {tx.libelle && (
-                            <div className="text-xs text-slate-500 mt-0.5">
-                              {tx.libelle}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <button
-                            onClick={() => openEdit(tx, d)}
-                            className="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-900"
-                          >
-                            {d.categorie ? (
-                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
-                                {d.categorie}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-slate-400 underline decoration-dotted underline-offset-2">
-                                Catégoriser
-                              </span>
-                            )}
-                            <Pencil className="w-3 h-3 text-slate-400" />
-                          </button>
-                        </td>
-                        <td className="py-3 px-4 text-right font-semibold text-slate-900 whitespace-nowrap tabular-nums">
-                          <span className="inline-flex items-center gap-1.5">
-                            {incoherent && (
-                              <span
-                                title={`Le reçu indique ${formatMoney(montantLu as number)} mais la banque a débité ${formatMoney(Math.abs(toNumber(tx.montant)))} — vérifiez que le bon justificatif est attaché.`}
-                              >
-                                <AlertTriangle className="w-4 h-4 text-amber-500" />
-                              </span>
-                            )}
-                            −{formatMoney(Math.abs(toNumber(tx.montant)))}
+                  {groupByMonth(filteredJustifiees, (t) => t.dateTransaction).flatMap(
+                    (folder) => [
+                      <tr key={`jm-${folder.key}`} className="bg-slate-50/90">
+                        <td
+                          colSpan={5}
+                          className="py-2.5 px-4 text-xs font-semibold uppercase tracking-wide text-slate-500"
+                        >
+                          {folder.label}
+                          <span className="ml-2 font-normal text-slate-400">
+                            ({folder.items.length})
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-right">
-                          {d.justificatifUrl ? (
-                            <a
-                              href={d.justificatifUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-800 mr-3 whitespace-nowrap"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              {d.justificatifNom
-                                ? d.justificatifNom.length > 24
-                                  ? d.justificatifNom.slice(0, 21) + "…"
-                                  : d.justificatifNom
-                                : "Voir"}
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            <div className="inline-flex flex-col items-end gap-0.5 mr-3">
-                              {[
-                                ...(d.facturesTalent ?? []).map((f) => ({
-                                  key: `c-${f.id}`,
-                                  url: f.factureTalentUrl,
-                                  label: `${f.talent.prenom} ${f.talent.nom} · ${f.marque.nom}`,
-                                })),
-                                ...(d.facturesTalentCycles ?? []).map((f) => ({
-                                  key: `y-${f.id}`,
-                                  url: f.factureTalentUrl,
-                                  label: `${f.collaboration.talent.prenom} ${f.collaboration.talent.nom} · ${f.collaboration.marque.nom} (cycle ${f.numero})`,
-                                })),
-                              ].map((f) => (
+                      </tr>,
+                      ...folder.items.map((tx) => {
+                        const d = tx.depense!;
+                        const montantLu = d.analyseIA?.montantTTC;
+                        const ecart =
+                          typeof montantLu === "number"
+                            ? Math.abs(montantLu - Math.abs(toNumber(tx.montant)))
+                            : 0;
+                        const incoherent = ecart > 0.05;
+                        const hasFactures =
+                          (d.facturesTalent?.length ?? 0) > 0 ||
+                          (d.facturesTalentCycles?.length ?? 0) > 0;
+                        return (
+                          <tr
+                            key={tx.id}
+                            className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
+                          >
+                            <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                              {formatDate(tx.dateTransaction)}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-medium text-slate-900">
+                                {d.fournisseur || tx.emetteur || tx.libelle || "—"}
+                              </div>
+                              {tx.libelle && (
+                                <div className="text-xs text-slate-500 mt-0.5">
+                                  {tx.libelle}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              <button
+                                onClick={() => openEdit(tx, d)}
+                                className="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-900"
+                              >
+                                {d.categorie ? (
+                                  <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                                    {d.categorie}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-400 underline decoration-dotted underline-offset-2">
+                                    Catégoriser
+                                  </span>
+                                )}
+                                <Pencil className="w-3 h-3 text-slate-400" />
+                              </button>
+                            </td>
+                            <td className="py-3 px-4 text-right font-semibold text-slate-900 whitespace-nowrap tabular-nums">
+                              <span className="inline-flex items-center gap-1.5">
+                                {incoherent && (
+                                  <span
+                                    title={`Le reçu indique ${formatMoney(montantLu as number)} mais la banque a débité ${formatMoney(Math.abs(toNumber(tx.montant)))} — vérifiez que le bon justificatif est attaché.`}
+                                  >
+                                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                                  </span>
+                                )}
+                                −{formatMoney(Math.abs(toNumber(tx.montant)))}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {d.justificatifUrl ? (
                                 <a
-                                  key={f.key}
-                                  href={f.url ?? "#"}
+                                  href={d.justificatifUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-800 whitespace-nowrap"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-800 mr-3 whitespace-nowrap"
                                 >
-                                  <Link2 className="w-3.5 h-3.5" />
-                                  {f.label}
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  {d.justificatifNom
+                                    ? d.justificatifNom.length > 24
+                                      ? d.justificatifNom.slice(0, 21) + "…"
+                                      : d.justificatifNom
+                                    : "Voir"}
                                   <ExternalLink className="w-3 h-3" />
                                 </a>
-                              ))}
-                            </div>
-                          )}
-                          <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                            <button
-                              onClick={() => openLink(tx)}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700"
-                              title="Lier / modifier les factures talents"
-                            >
-                              <Users className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => removeJustificatif(d)}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700"
-                              title="Supprimer la dépense et son justificatif"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                              ) : hasFactures ? (
+                                <div className="inline-flex flex-col items-end gap-0.5 mr-3">
+                                  {[
+                                    ...(d.facturesTalent ?? []).map((f) => ({
+                                      key: `c-${f.id}`,
+                                      url: f.factureTalentUrl,
+                                      label: `${f.talent.prenom} ${f.talent.nom} · ${f.marque.nom}`,
+                                    })),
+                                    ...(d.facturesTalentCycles ?? []).map((f) => ({
+                                      key: `y-${f.id}`,
+                                      url: f.factureTalentUrl,
+                                      label: `${f.collaboration.talent.prenom} ${f.collaboration.talent.nom} · ${f.collaboration.marque.nom} (cycle ${f.numero})`,
+                                    })),
+                                  ].map((f) => (
+                                    <a
+                                      key={f.key}
+                                      href={f.url ?? "#"}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-800 whitespace-nowrap"
+                                    >
+                                      <Link2 className="w-3.5 h-3.5" />
+                                      {f.label}
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  ))}
+                                </div>
+                              ) : d.sansJustificatif ? (
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 mr-3">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                  OK sans ticket
+                                </span>
+                              ) : null}
+                              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                                <button
+                                  onClick={() => openLink(tx)}
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700"
+                                  title="Lier / modifier les factures talents"
+                                >
+                                  <Users className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => removeJustificatif(d)}
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-700"
+                                  title="Supprimer la dépense et son justificatif"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      }),
+                    ]
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1195,7 +1308,7 @@ export default function DepensesPage() {
             <div className="border-b border-slate-200 px-5 py-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-900">
-                  Justifier avec des factures talents
+                  Sans ticket · Libeo / Defacto
                 </h3>
                 <button onClick={closeLink} className="text-slate-400 hover:text-slate-600">
                   <X className="w-5 h-5" />

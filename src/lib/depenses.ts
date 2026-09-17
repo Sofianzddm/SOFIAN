@@ -202,6 +202,8 @@ export interface CreateDepenseInput {
   justificatifUrl?: string | null;
   justificatifNom?: string | null;
   justificatifType?: string | null;
+  /** Acquitté sans ticket → sort de « à justifier » */
+  sansJustificatif?: boolean;
   /** Résultat de l'analyse IA : sert de fallback pour les champs non saisis */
   analyse?: AnalyseJustificatif | null;
   source: "WEB" | "MOBILE";
@@ -274,6 +276,7 @@ export async function createDepense(input: CreateDepenseInput) {
       justificatifUrl: input.justificatifUrl ?? null,
       justificatifNom: input.justificatifNom ?? null,
       justificatifType: input.justificatifType ?? null,
+      sansJustificatif: input.sansJustificatif ?? false,
       analyseIA: analyse ? JSON.parse(JSON.stringify(analyse)) : undefined,
       source: input.source,
       createdById: input.createdById ?? null,

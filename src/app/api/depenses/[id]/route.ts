@@ -144,6 +144,10 @@ export async function PATCH(
         data.dateDepense = d;
       }
 
+      if ("sansJustificatif" in body) {
+        data.sansJustificatif = Boolean(body.sansJustificatif);
+      }
+
       // Rapprochement d'une dépense hors banque avec une transaction débit
       if ("transactionId" in body) {
         const transactionId = body.transactionId as string | null;
