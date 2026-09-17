@@ -1,33 +1,34 @@
 /**
- * Pont vers le cycle outreach 45 jours — « on n'oublie personne ».
+ * Pont vers le cycle outreach — « on n'oublie personne ».
  *
  * Deux rôles :
  *  1. `resolveOutreachPipeline(email)` : dit si un email est déjà suivi dans un
  *     des trois pipelines outreach (clients FR, agences, Benelux) ou s'il
  *     appartient à une agence partenaire connue (match email ou domaine).
- *     Sert aussi de garde-fou anti double-prospection à la création manuelle.
  *  2. `bridgeContactToOutreach(...)` : fait ENTRER un contact absent de tout
- *     pipeline, avec un compteur 45j calé sur le dernier échange. Déclenché
- *     dès l'envoi de notre réponse inbound / demande entrante. Le sweep
- *     `runOutreachBridgeSweep` reste un filet de sécurité pour les flux déjà
- *     envoyés ou clôturés non encore marqués. Entrée toujours en WAITING —
- *     jamais en TO_CONTACT.
+ *     pipeline. Déclenché dès l'envoi de notre réponse inbound / demande
+ *     entrante. Le sweep `runOutreachBridgeSweep` reste un filet de sécurité.
  *
- * RÈGLE : un contact DÉJÀ suivi n'est jamais modifié par un flux entrant.
- * Le cycle outreach et les échanges inbound / négo / collab sont deux choses
- * distinctes : ni le compteur de recontact ni le statut de la cible ne bougent
- * (retour `already-tracked`). Seule exception, une correction de routage : un
- * contact requalifié « AGENCE » alors qu'il est suivi côté marque migre vers
- * la Prospection Agences.
+ * Entrée après un email inbound (enrollmentMode = "inbound") :
+ *  - Agence inconnue → Prospection Agences, file « à contacter » tout de suite
+ *    (on peut envoyer un mail de prospection).
+ *  - Marque inconnue → Outreach Clients, fiche contact créée, WAITING avec
+ *    recontact à dernier échange + 30 j calendaires (évite de démarcher la
+ *    marque juste après lui avoir répondu — une agence peut porter plusieurs
+ *    marques).
+ *  - Contact déjà suivi → inchangé (ni statut, ni compteur).
  *
- * Routage : contact qualifié « AGENCE » à la saisie (négo/inbound) → pipeline
- * Prospection Agences, agence créée à la volée si inconnue ; email / domaine
- * d'une agence partenaire (Partner) → pipeline Prospection Agences ; sinon →
- * pipeline Outreach Clients (marque résolue/créée via le CRM).
+ * Flux sortant (pipeline casting) : WAITING J+45, on vient d'écrire.
+ * Autres clôtures (négo/collab) : TO_CONTACT par défaut.
+ *
+ * Les gifts (COLLAB_GIFTING) ne passent pas par le pont.
  */
 
 import { prisma } from "@/lib/prisma";
-import { OUTREACH_RECONTACT_DAYS } from "@/lib/outreach-constants";
+import {
+  OUTREACH_RECONTACT_DAYS,
+  INBOUND_MARQUE_RECONTACT_DAYS,
+} from "@/lib/outreach-constants";
 import { findOrCreatePartnerByName } from "@/lib/agency-partner";
 import {
   emailDomain,
@@ -195,14 +196,21 @@ export type BridgeInput = {
   /** Nom de l'agence saisi (si contactKind = AGENCE). */
   contactAgence?: string | null;
   language?: string | null;
-  /** Date du dernier échange : le compteur 45j part de là. */
+  /** Date du dernier échange, tracée dans la raison d'entrée. */
   lastExchangeAt: Date;
   /** Utilisateur porteur du target créé (notifications de cycle). */
   createdById: string;
   /** Libellé du flux d'origine, pour la raison affichée (ex. "inbound"). */
   sourceLabel?: string;
-  /** Remplace le texte auto de `autoRescheduleReason` si fourni. */
-  reason?: string;
+  /** Remplace « Échange <source> clôturé » dans la raison (ex. « Réponse inbound envoyée »). */
+  reasonLabel?: string;
+  /**
+   * Mode d'entrée dans le cycle (contact absent uniquement) :
+   *  - `inbound` : agence → TO_CONTACT ; marque → WAITING J+30 calendaires
+   *  - `outbound` : WAITING J+45 (on vient d'écrire, ex. pipeline casting)
+   *  - `default` : TO_CONTACT (négo / collab / rattrapage)
+   */
+  enrollmentMode?: "inbound" | "outbound" | "default";
 };
 
 export type BridgeResult =
@@ -227,8 +235,67 @@ function formatFrDate(date: Date): string {
   }).format(date);
 }
 
-function addRecontactDelay(from: Date): Date {
-  return new Date(from.getTime() + OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000);
+function addRecontactDelay(from: Date, days: number = OUTREACH_RECONTACT_DAYS): Date {
+  return new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Statut + compteur d'entrée selon le mode et le pipeline cible.
+ * Contact déjà suivi : jamais appelé (already-tracked en amont).
+ */
+function resolveEntry(
+  mode: "inbound" | "outbound" | "default",
+  pipeline: "agency" | "client",
+  lastExchangeAt: Date,
+  origin: string
+): {
+  status: "TO_CONTACT" | "WAITING";
+  nextRecontactAt: Date | null;
+  reason: string;
+} {
+  // Flux sortant : on vient d'écrire → attente J+45 quel que soit le pipeline.
+  if (mode === "outbound") {
+    const next = addRecontactDelay(lastExchangeAt, OUTREACH_RECONTACT_DAYS);
+    return {
+      status: "WAITING",
+      nextRecontactAt: next,
+      reason:
+        `${origin} le ${formatFrDate(lastExchangeAt)} : ` +
+        `recontact planifié au ${formatFrDate(next)} (J+${OUTREACH_RECONTACT_DAYS}).`,
+    };
+  }
+
+  // Inbound → agence : file « à contacter » tout de suite.
+  if (mode === "inbound" && pipeline === "agency") {
+    return {
+      status: "TO_CONTACT",
+      nextRecontactAt: null,
+      reason:
+        `${origin} le ${formatFrDate(lastExchangeAt)} : ` +
+        `contact ajouté à la file « à contacter ».`,
+    };
+  }
+
+  // Inbound → marque : WAITING + 30 j calendaires (pas de double contact immédiat).
+  if (mode === "inbound" && pipeline === "client") {
+    const next = addRecontactDelay(lastExchangeAt, INBOUND_MARQUE_RECONTACT_DAYS);
+    return {
+      status: "WAITING",
+      nextRecontactAt: next,
+      reason:
+        `${origin} le ${formatFrDate(lastExchangeAt)} : ` +
+        `recontact planifié au ${formatFrDate(next)} (J+${INBOUND_MARQUE_RECONTACT_DAYS}).`,
+    };
+  }
+
+  // Négo / collab / défaut : TO_CONTACT.
+  return {
+    status: "TO_CONTACT",
+    nextRecontactAt: null,
+    reason:
+      `${origin} le ${formatFrDate(lastExchangeAt)} : ` +
+      `contact ajouté à la file « à contacter ».`,
+  };
 }
 
 /**
@@ -245,14 +312,12 @@ function resolveForcedAgencyName(
 }
 
 /**
- * Fait entrer (ou re-planifie) un contact dans le cycle outreach 45j.
+ * Fait entrer un contact dans le cycle outreach s'il n'y est pas déjà.
  *
- *  - Email déjà suivi (quel que soit le pipeline) : on repousse son
- *    `nextRecontactAt` à dernier échange + 45j (jamais avancé) et on le remet
- *    en WAITING s'il attendait un envoi — inutile de le prospecter juste après
- *    un échange. Un target STOPPED reste stoppé (respect du stop manuel).
- *  - Agence partenaire connue (email/domaine) : entre dans Prospection Agences.
- *  - Sinon : entre dans Outreach Clients (marque résolue/créée via le CRM).
+ *  - Déjà suivi : cible laissée intacte (`already-tracked`).
+ *  - Agence (qualifiée / domaine connu) : Prospection Agences.
+ *  - Sinon : Outreach Clients (marque résolue/créée, contact fiche inclus).
+ *  - Mode d'entrée : voir `enrollmentMode` sur `BridgeInput`.
  */
 export async function bridgeContactToOutreach(input: BridgeInput): Promise<BridgeResult> {
   const email = (input.email || "").trim().toLowerCase();
@@ -265,13 +330,11 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
     return { ok: false, reason: "diffusion-opt-out" };
   }
 
-  const nextRecontactAt = addRecontactDelay(input.lastExchangeAt);
   const language = input.language === "en" ? "en" : "fr";
   const sourceLabel = input.sourceLabel || "échange entrant";
-  const reason =
-    (input.reason || "").trim() ||
-    `Échange ${sourceLabel} clôturé le ${formatFrDate(input.lastExchangeAt)} : ` +
-      `recontact planifié au ${formatFrDate(nextRecontactAt)} (J+${OUTREACH_RECONTACT_DAYS}).`;
+  const enrollmentMode = input.enrollmentMode || "default";
+  const origin =
+    (input.reasonLabel || "").trim() || `Échange ${sourceLabel} clôturé`;
 
   const resolution = await resolveOutreachPipeline(email);
   const forcedAgency = (input.contactKind || "").trim().toUpperCase() === "AGENCE";
@@ -307,6 +370,8 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
       };
     }
 
+    const entry = resolveEntry(enrollmentMode, "agency", input.lastExchangeAt, origin);
+
     const contact = await prisma.agencyContact.upsert({
       where: { partnerId_email: { partnerId: partner.id, email } },
       update: {},
@@ -331,9 +396,9 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
         partnerSlug: partner.slug,
         language,
         market: partner.market === "BENELUX" ? "BENELUX" : "FR",
-        status: "WAITING",
-        nextRecontactAt,
-        autoRescheduleReason: reason,
+        status: entry.status,
+        nextRecontactAt: entry.nextRecontactAt,
+        autoRescheduleReason: entry.reason,
         autoRescheduledAt: new Date(),
         createdById: input.createdById,
       },
@@ -407,7 +472,7 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
   }
 
   // 2bis. Qualifié AGENCE à la saisie mais agence inconnue en base : on crée
-  // le Partner à la volée (nom saisi, sinon marque/domaine) et il entre en
+  // le Partner à la volée (nom saisi, sinon domaine) et il entre en
   // Prospection Agences — il ne passera jamais par Outreach Clients.
   if (forcedAgency) {
     const agencyName = resolveForcedAgencyName(input, email);
@@ -452,6 +517,8 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
     company = marque?.nom || brandName;
   }
 
+  // Fiche contact marque : toujours créée / liée, même si le contact était
+  // déjà suivi (le chemin already-tracked est au-dessus). Ici = 1ʳᵉ entrée.
   await ensureMarqueContact({
     marqueId,
     email,
@@ -464,6 +531,8 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
     select: { id: true },
   });
 
+  const entry = resolveEntry(enrollmentMode, "client", input.lastExchangeAt, origin);
+
   const target = await prisma.outreachTarget.create({
     data: {
       marqueId,
@@ -473,9 +542,9 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
       email,
       company,
       language,
-      status: "WAITING",
-      nextRecontactAt,
-      autoRescheduleReason: reason,
+      status: entry.status,
+      nextRecontactAt: entry.nextRecontactAt,
+      autoRescheduleReason: entry.reason,
       autoRescheduledAt: new Date(),
       createdById: input.createdById,
     },
@@ -546,17 +615,10 @@ function bridgeRef(bridge: BridgeResult): string {
   return `${bridge.pipeline}:${bridge.targetId}`;
 }
 
-function outboundSendReason(label: string, at: Date): string {
-  const next = addRecontactDelay(at);
-  return (
-    `${label} le ${formatFrDate(at)} : ` +
-    `recontact planifié au ${formatFrDate(next)} (J+${OUTREACH_RECONTACT_DAYS}).`
-  );
-}
 
 /**
- * Enrôle (ou re-planifie) un contact juste après l'envoi de notre réponse
- * inbound / d'une relance R1-R2 / d'une détection de réponse client.
+ * Enrôle un contact juste après l'envoi de notre réponse inbound.
+ * Gifts exclus. Contact déjà suivi : cycle intact.
  * Marque `outreachBridgedAt` pour que le sweep ne re-traite pas la ligne.
  */
 export async function bridgeInboundOpportunityAfterSend(
@@ -568,6 +630,7 @@ export async function bridgeInboundOpportunityAfterSend(
     where: { id: opportunityId },
     select: {
       id: true,
+      category: true,
       senderEmail: true,
       senderName: true,
       extractedBrand: true,
@@ -579,6 +642,20 @@ export async function bridgeInboundOpportunityAfterSend(
     },
   });
   if (!opp) return { ok: false, reason: "introuvable" };
+
+  // Gift : on répond éventuellement, mais on n'enrôle pas en prospection.
+  if (opp.category === "COLLAB_GIFTING") {
+    await prisma.inboundOpportunity
+      .update({
+        where: { id: opp.id },
+        data: {
+          outreachBridgedAt: opp.outreachBridgedAt ?? new Date(),
+          outreachTargetRef: "skipped:gifting",
+        },
+      })
+      .catch(() => undefined);
+    return { ok: false, reason: "gifting" };
+  }
 
   const actorId = createdById || (await resolveBridgeCreatedById());
   if (!actorId) return { ok: false, reason: "createdBy-manquant" };
@@ -601,7 +678,8 @@ export async function bridgeInboundOpportunityAfterSend(
       lastExchangeAt,
       createdById: actorId,
       sourceLabel: "inbound",
-      reason: outboundSendReason(label, lastExchangeAt),
+      reasonLabel: label,
+      enrollmentMode: "inbound",
     });
   } catch (error) {
     console.warn(
@@ -666,10 +744,10 @@ export async function enrollIfMissingAfterPipelineSend(input: {
     lastExchangeAt: sentAt,
     createdById: input.createdById,
     sourceLabel: input.sourceLabel || "pipeline casting",
-    reason: outboundSendReason(
-      input.sourceLabel || "Mail pipeline casting envoyé",
-      sentAt
-    ),
+    reasonLabel: input.sourceLabel || "Mail pipeline casting envoyé",
+    // Flux sortant : on vient d'écrire au contact, il attend J+45 au lieu de
+    // repartir immédiatement dans la file « à contacter ».
+    enrollmentMode: "outbound",
   });
 }
 
@@ -712,7 +790,8 @@ export async function bridgeDemandeEntranteAfterSend(
       lastExchangeAt,
       createdById: actorId,
       sourceLabel: "demande entrante",
-      reason: outboundSendReason(label, lastExchangeAt),
+      reasonLabel: label,
+      enrollmentMode: "inbound",
     });
   } catch (error) {
     console.warn(
@@ -800,6 +879,7 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
     take: SWEEP_BATCH_SIZE,
     select: {
       id: true,
+      category: true,
       senderEmail: true,
       senderName: true,
       extractedBrand: true,
@@ -819,6 +899,18 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
 
   for (const opp of inbounds) {
     result.inboundProcessed += 1;
+
+    if (opp.category === "COLLAB_GIFTING") {
+      result.skipped += 1;
+      await prisma.inboundOpportunity
+        .update({
+          where: { id: opp.id },
+          data: { outreachBridgedAt: new Date(), outreachTargetRef: "skipped:gifting" },
+        })
+        .catch((e) => console.warn(`[outreach-bridge] marquage inbound ${opp.id}:`, e));
+      continue;
+    }
+
     const lastExchangeAt =
       maxDate(
         opp.receivedAt,
@@ -846,6 +938,7 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
         lastExchangeAt,
         createdById,
         sourceLabel: "inbound",
+        enrollmentMode: "inbound",
       });
       ref = applyResult(bridge);
     } catch (error) {
@@ -1061,6 +1154,7 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
         lastExchangeAt,
         createdById,
         sourceLabel: "demande entrante",
+        enrollmentMode: "inbound",
       });
       ref = applyResult(bridge);
     } catch (error) {

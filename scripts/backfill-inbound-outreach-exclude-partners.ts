@@ -232,7 +232,7 @@ async function main() {
         lastExchangeAt: c.lastExchangeAt,
         createdById: admin.id,
         sourceLabel: c.sourceLabel,
-        reason: `Rattrapage ${c.sourceLabel} du ${c.lastExchangeAt.toISOString().slice(0, 10)} : recontact J+45.`,
+        reasonLabel: `Rattrapage ${c.sourceLabel} du ${c.lastExchangeAt.toISOString().slice(0, 10)}`,
       });
 
       if (!bridge.ok) {
