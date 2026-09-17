@@ -79,6 +79,7 @@ export async function PATCH(
       pays,
       devise,
       langueDocument,
+      poClient,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -93,6 +94,7 @@ export async function PATCH(
       pays?: string;
       devise?: string;
       langueDocument?: string;
+      poClient?: string;
     };
 
     const deviseCode = getDeviseInfo(devise ?? (existing as any).devise).code;
@@ -191,6 +193,7 @@ export async function PATCH(
     const factureData: FactureData = {
       reference: existing.reference,
       titre: objet || existing.titre || existing.reference,
+      poClient: (poClient !== undefined ? poClient?.trim() : existing.poClient) || undefined,
       dateDocument: dateDoc.toISOString(),
       dateEcheance: dateEcheanceDocument.toISOString(),
       devise: deviseCode,
@@ -245,6 +248,8 @@ export async function PATCH(
         dateDocument: dateDoc,
         dateEcheance: dateEcheanceDocument,
         modePaiement: modePaiement ?? existing.modePaiement,
+        poClient:
+          poClient !== undefined ? poClient?.trim() || null : existing.poClient,
         notes: notesDocument,
         pdfBase64: pdfBuffer.toString("base64"),
         clientNom,

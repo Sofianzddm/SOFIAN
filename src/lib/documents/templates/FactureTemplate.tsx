@@ -315,6 +315,8 @@ interface FactureData {
   // Type de document : "FACTURE" (défaut) ou "AVOIR" (note de crédit)
   type?: "FACTURE" | "AVOIR" | "DEVIS" | "BON_DE_COMMANDE";
   titre: string;
+  /** Numéro de bon de commande / PO client */
+  poClient?: string;
   dateDocument: string;
   dateEcheance: string;
   // Code ISO 4217 de la devise (EUR par défaut)
@@ -466,6 +468,15 @@ export function FactureTemplate({ data }: { data: FactureData }) {
             {t.objet(docType)}
           </Text>
           <Text style={styles.campagneTitre}>{data.titre}</Text>
+          {data.poClient ? (
+            <Text style={{
+              fontSize: 9,
+              color: "#333333",
+              marginTop: 4,
+            }}>
+              {t.poClient} {data.poClient}
+            </Text>
+          ) : null}
         </View>
         
         {/* Tableau header */}

@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       pays,
       devise,
       langueDocument,
+      poClient,
     } = body as {
       clientNom: string;
       clientEmail?: string;
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
       pays?: string;
       devise?: string;
       langueDocument?: string;
+      poClient?: string;
     };
 
     const deviseCode = getDeviseInfo(devise).code;
@@ -169,6 +171,7 @@ export async function POST(request: NextRequest) {
     const factureData: FactureData = {
       reference,
       titre: objet || reference,
+      poClient: poClient?.trim() || undefined,
       dateDocument: dateDoc.toISOString(),
       dateEcheance: dateEcheanceDocument.toISOString(),
       devise: deviseCode,
@@ -226,7 +229,7 @@ export async function POST(request: NextRequest) {
         dateDocument: dateDoc,
         dateEmission: now,
         dateEcheance: dateEcheanceDocument,
-        poClient: null,
+        poClient: poClient?.trim() || null,
         modePaiement,
         notes: notesDocument,
         pdfBase64: pdfBuffer.toString("base64"),

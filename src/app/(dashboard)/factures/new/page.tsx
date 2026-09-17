@@ -38,6 +38,7 @@ export default function NouvelleFactureLibrePage() {
   const [clientAdresse, setClientAdresse] = useState("");
   const [pays, setPays] = useState<"France" | "UE" | "Hors UE">("France");
   const [objet, setObjet] = useState("");
+  const [poClient, setPoClient] = useState("");
   const [dateDocument, setDateDocument] = useState(() => new Date().toISOString().slice(0, 10));
   const [conditionsReglement, setConditionsReglement] = useState<"30" | "45" | "60" | "0" | "CUSTOM">("30");
   const [conditionsReglementLibre, setConditionsReglementLibre] = useState("");
@@ -71,6 +72,7 @@ export default function NouvelleFactureLibrePage() {
         setClientEmail(doc.clientEmail ?? "");
         setClientAdresse(doc.clientAdresse ?? "");
         setObjet(doc.titre ?? "");
+        setPoClient(doc.poClient ?? "");
         if (doc.dateDocument) {
           setDateDocument(new Date(doc.dateDocument).toISOString().slice(0, 10));
         }
@@ -224,6 +226,7 @@ export default function NouvelleFactureLibrePage() {
         clientAdresse: clientAdresse.trim() || undefined,
         pays,
         objet: objet.trim() || undefined,
+        poClient: poClient.trim() || undefined,
         dateDocument,
         conditionsReglement,
         conditionsReglementLibre:
@@ -453,6 +456,18 @@ export default function NouvelleFactureLibrePage() {
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Bon de commande client (PO)
+            </label>
+            <input
+              type="text"
+              value={poClient}
+              onChange={(e) => setPoClient(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
+              placeholder="Ex: PO-2026-001"
+            />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {!isAvoir && (

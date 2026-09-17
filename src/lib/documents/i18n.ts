@@ -38,6 +38,8 @@ export interface DocLabels {
 
   // Objet
   objet: (type: string) => string;
+  /** Label pour le numéro de bon de commande / PO client */
+  poClient: string;
 
   // Tableau
   colDesignation: string;
@@ -143,6 +145,7 @@ const LABELS: Record<DocLocale, DocLabels> = {
     siretShort: "SIRET :",
 
     objet: (t) => OBJET_LABELS.fr[t?.toUpperCase()] || OBJET_LABELS.fr.FACTURE,
+    poClient: "Bon de commande / PO :",
 
     colDesignation: "DÉSIGNATION",
     colQte: "QTÉ",
@@ -209,6 +212,7 @@ const LABELS: Record<DocLocale, DocLabels> = {
     siretShort: "Company reg.:",
 
     objet: (t) => OBJET_LABELS.en[t?.toUpperCase()] || OBJET_LABELS.en.FACTURE,
+    poClient: "Purchase order / PO:",
 
     colDesignation: "DESCRIPTION",
     colQte: "QTY",

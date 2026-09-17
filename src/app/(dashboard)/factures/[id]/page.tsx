@@ -1072,8 +1072,14 @@ export default function FactureDetailPage() {
               </div>
               <div className="mt-4 pt-4 border-t border-gray-100">
                 <p className="text-xs text-gray-500 uppercase font-medium mb-0.5">Objet</p>
-                <p className="text-sm text-[#1A1110]">{doc.titre || doc.poClient || "—"}</p>
+                <p className="text-sm text-[#1A1110]">{doc.titre || "—"}</p>
               </div>
+              {doc.poClient ? (
+                <div className="mt-2">
+                  <p className="text-xs text-gray-500 uppercase font-medium mb-0.5">Bon de commande / PO</p>
+                  <p className="text-sm text-[#1A1110]">{doc.poClient}</p>
+                </div>
+              ) : null}
               <div className="mt-2">
                 <p className="text-xs text-gray-500 uppercase font-medium mb-0.5">Mode de paiement</p>
                 <p className="text-sm text-[#1A1110]">{doc.modePaiement || "Virement"}</p>
