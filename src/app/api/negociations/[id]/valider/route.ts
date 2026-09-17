@@ -22,7 +22,7 @@ export async function POST(
       return NextResponse.json({ message: "Non autorisé" }, { status: 403 });
     }
 
-    const { action, raisonRefus } = await request.json();
+    const { action, raisonRefus, montantNegocie } = await request.json();
 
     if (!["valider", "refuser"].includes(action)) {
       return NextResponse.json({ message: "Action invalide" }, { status: 400 });
@@ -87,13 +87,26 @@ export async function POST(
     }
     const marqueIdFinal = marqueIdToUse as string;
 
-    // Montant brut = somme (prix accord par livrable × quantité), pas negociation.budgetFinal
-    const montantBrut = nego.livrables.reduce(
+    // Montant négocié saisi à la validation (prioritaire) ; sinon somme des prix livrables
+    const montantCalcule = nego.livrables.reduce(
       (sum, l) =>
         sum +
         Number(l.prixFinal ?? l.prixSouhaite ?? l.prixDemande ?? 0) * Number(l.quantite ?? 1),
       0
     );
+    const montantParsed =
+      montantNegocie !== undefined && montantNegocie !== null && String(montantNegocie).trim() !== ""
+        ? Number(montantNegocie)
+        : NaN;
+    const montantBrut = Number.isFinite(montantParsed) ? montantParsed : montantCalcule;
+
+    if (!Number.isFinite(montantBrut) || montantBrut <= 0) {
+      return NextResponse.json(
+        { message: "Indiquez le montant négocié de la collaboration (strictement positif)" },
+        { status: 400 }
+      );
+    }
+
     const commissionPercent = nego.source === "INBOUND"
       ? Number(nego.talent.commissionInbound)
       : Number(nego.talent.commissionOutbound);

@@ -117,6 +117,8 @@ export default function NegociationDetailPage() {
   const [newComment, setNewComment] = useState("");
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
   const [showRefusModal, setShowRefusModal] = useState(false);
+  const [showValiderModal, setShowValiderModal] = useState(false);
+  const [montantNegocieInput, setMontantNegocieInput] = useState("");
   const [raisonRefus, setRaisonRefus] = useState("");
   const commentsEndRef = useRef<HTMLDivElement>(null);
   const [isEditingContrePropo, setIsEditingContrePropo] = useState(false);
@@ -284,17 +286,53 @@ export default function NegociationDetailPage() {
     }
   };
 
+  const openValiderModal = () => {
+    if (!nego) return;
+    const montantSuggere = nego.livrables.reduce(
+      (sum, l) =>
+        sum +
+        (Number(l.prixFinal ?? l.prixSouhaite ?? l.prixDemande ?? 0) || 0) * (l.quantite || 1),
+      0
+    );
+    setMontantNegocieInput(
+      montantSuggere > 0 ? String(Math.round(montantSuggere * 100) / 100) : ""
+    );
+    setShowValiderModal(true);
+  };
+
   const handleValidation = async (action: "valider" | "refuser") => {
+    if (action === "valider") {
+      const montant = parseFloat(String(montantNegocieInput).replace(",", "."));
+      if (!Number.isFinite(montant) || montant <= 0) {
+        alert("Indiquez le montant négocié de la collaboration (strictement positif).");
+        return;
+      }
+    }
+
     setValidating(true);
     try {
+      const montant = parseFloat(String(montantNegocieInput).replace(",", "."));
       const res = await fetch(`/api/negociations/${params.id}/valider`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, raisonRefus: action === "refuser" ? raisonRefus : null }),
+        body: JSON.stringify({
+          action,
+          raisonRefus: action === "refuser" ? raisonRefus : null,
+          ...(action === "valider" ? { montantNegocie: montant } : {}),
+        }),
       });
       if (res.ok) {
         setShowRefusModal(false);
+        setShowValiderModal(false);
+        const data = await res.json();
+        if (action === "valider" && data?.collaboration?.id) {
+          router.push(`/collaborations/${data.collaboration.id}`);
+          return;
+        }
         fetchNego();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || err.error || "Erreur lors de la validation");
       }
     } finally {
       setValidating(false);
@@ -596,7 +634,7 @@ export default function NegociationDetailPage() {
               </button>
             )}
             <button
-              onClick={() => handleValidation("valider")}
+              onClick={openValiderModal}
               disabled={validating}
               className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
             >
@@ -996,6 +1034,81 @@ export default function NegociationDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal Validation — montant négocié */}
+      {showValiderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100">
+              <h3 className="text-lg font-semibold text-slate-900">Valider la négociation</h3>
+              <button
+                onClick={() => setShowValiderModal(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">
+                Indiquez le montant négocié de la collaboration avant de la créer en officiel.
+              </p>
+              <div>
+                <label htmlFor="montant-negocie" className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Montant négocié (HT)
+                </label>
+                <div className="relative">
+                  <input
+                    id="montant-negocie"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    autoFocus
+                    value={montantNegocieInput}
+                    onChange={(e) => setMontantNegocieInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleValidation("valider");
+                      }
+                    }}
+                    placeholder="Ex: 2500"
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 pr-12 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                  />
+                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                    €
+                  </span>
+                </div>
+                {montantNegocieInput && Number(montantNegocieInput) > 0 && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Ce montant sera enregistré comme montant brut de la collaboration.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 p-6 pt-0">
+              <button
+                onClick={() => setShowValiderModal(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => handleValidation("valider")}
+                disabled={validating}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+              >
+                {validating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                Confirmer et créer la collab
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Refus */}
       {showRefusModal && (
