@@ -21,6 +21,17 @@ import {
   Users,
   X,
 } from "lucide-react";
+import {
+  TAUX_TVA_OPTIONS,
+  TAUX_TVA_TALENT,
+  TOLERANCE_POINTAGE,
+  round2,
+  tauxExpliquantEcart,
+  totalFacturesTalent,
+  tvaDepuisHT,
+  tvaDepuisTTC,
+  ventiler,
+} from "@/lib/depenses-tva";
 
 interface AnalyseIA {
   fournisseur?: string | null;
@@ -56,6 +67,16 @@ function depenseJustifiee(d: DepenseInfo | null): boolean {
     (d.facturesTalent?.length ?? 0) > 0 ||
     (d.facturesTalentCycles?.length ?? 0) > 0
   );
+}
+
+/**
+ * Le montant lu sur le reçu est-il le HT du débit bancaire ? Renvoie le taux
+ * qui les réconcilie, sinon null — cas fréquent des factures de prestataires,
+ * où le total mis en avant est le hors taxes.
+ */
+function tauxRecuLuEnHT(depense: DepenseInfo, txMontant: number | null): number | null {
+  if (txMontant === null) return null;
+  return tauxExpliquantEcart(toNumber(depense.analyseIA?.montantTTC), txMontant);
 }
 
 function monthKey(dateStr: string): string {
@@ -144,6 +165,15 @@ function toNumber(v: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Montant saisi au clavier mobile (virgule française tolérée) */
+function parseMontant(v: string): number {
+  const n = Number(v.replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
+const formatTaux = (taux: number) =>
+  taux === 0 ? "Sans TVA" : `${String(taux).replace(".", ",")} %`;
+
 const formatMoney = (value: number) =>
   new Intl.NumberFormat("fr-FR", {
     style: "currency",
@@ -205,8 +235,24 @@ interface VerifyState {
   // Champs éditables
   fournisseur: string;
   categorie: string;
-  montantTTC: string;
+  /** Montant saisi, HT ou TTC selon `montantMode` (reçu hors banque) */
+  montant: string;
+  montantMode: "HT" | "TTC";
+  /** Taux choisi via les raccourcis ; "" = TVA saisie à la main */
+  tauxTVA: string;
   montantTVA: string;
+}
+
+/**
+ * Ventilation courante de l'écran de vérification. Pour une transaction
+ * bancaire, le débit est le TTC par définition : seule la TVA se déclare.
+ */
+function ventilerVerify(v: VerifyState) {
+  return ventiler(
+    v.txMontant ?? parseMontant(v.montant),
+    v.txMontant !== null ? "TTC" : v.montantMode,
+    parseMontant(v.montantTVA)
+  );
 }
 
 export default function MobileDepensesPage() {
@@ -240,6 +286,10 @@ export default function MobileDepensesPage() {
   const [linkCycles, setLinkCycles] = useState<FactureTalentCycle[]>([]);
   const [selCollabs, setSelCollabs] = useState<Set<string>>(new Set());
   const [selCycles, setSelCycles] = useState<Set<string>>(new Set());
+  // Factures dont le talent facture la TVA : montantNet étant un HT, le
+  // virement vaut montantNet × 1,20 — sinon le pointage affiche un écart de 20 %.
+  const [tvaCollabs, setTvaCollabs] = useState<Set<string>>(new Set());
+  const [tvaCycles, setTvaCycles] = useState<Set<string>>(new Set());
   const [okSavingId, setOkSavingId] = useState<string | null>(null);
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
 
@@ -360,19 +410,54 @@ export default function MobileDepensesPage() {
   // ——— Étape 2 : envoi → écran de vérification ———
 
   const openVerify = (depense: DepenseInfo, txMontant: number | null, preview: string | null) => {
+    const montant = txMontant ?? toNumber(depense.montantTTC);
+    // Reçu lu en HT : si le débit correspond au montant du reçu majoré d'un
+    // taux courant, on préremplit ce taux plutôt que de crier au mauvais reçu.
+    const tauxHT = tauxRecuLuEnHT(depense, txMontant);
+    const taux = tauxHT ?? toNumber(depense.tauxTVA);
+    // Une TVA lue explicitement sur le reçu fait foi ; sinon on la déduit du taux.
+    const tvaLue = toNumber(depense.montantTVA);
+    const tva =
+      tauxHT === null && tvaLue > 0 ? tvaLue : tvaDepuisTTC(montant, taux);
+
     setVerify({
       depense,
       txMontant,
       preview,
       fournisseur: depense.fournisseur ?? "",
       categorie: depense.categorie ?? "",
-      montantTTC:
-        toNumber(depense.montantTTC) > 0 ? String(toNumber(depense.montantTTC)) : "",
-      montantTVA:
-        depense.montantTVA !== null && depense.montantTVA !== ""
-          ? String(toNumber(depense.montantTVA))
-          : "",
+      montant: montant > 0 ? String(montant) : "",
+      montantMode: "TTC",
+      tauxTVA: taux > 0 ? String(taux) : "",
+      montantTVA: tva > 0 ? String(tva) : "",
     });
+  };
+
+  /** Applique un taux : la TVA est recalculée depuis le montant saisi. */
+  const appliquerTaux = (taux: number) => {
+    if (!verify) return;
+    const montant = verify.txMontant ?? parseMontant(verify.montant);
+    const tva =
+      verify.montantMode === "HT" && verify.txMontant === null
+        ? tvaDepuisHT(montant, taux)
+        : tvaDepuisTTC(montant, taux);
+    setVerify({ ...verify, tauxTVA: String(taux), montantTVA: String(tva) });
+  };
+
+  /** Montant ou base (HT / TTC) modifié : la TVA suit le taux choisi. */
+  const majMontant = (patch: { montant?: string; montantMode?: "HT" | "TTC" }) => {
+    if (!verify) return;
+    const next = { ...verify, ...patch };
+    if (next.tauxTVA !== "") {
+      const taux = Number(next.tauxTVA);
+      const montant = parseMontant(next.montant);
+      next.montantTVA = String(
+        next.montantMode === "HT"
+          ? tvaDepuisHT(montant, taux)
+          : tvaDepuisTTC(montant, taux)
+      );
+    }
+    setVerify(next);
   };
 
   const sendPending = async () => {
@@ -447,15 +532,17 @@ export default function MobileDepensesPage() {
     setVerifySaving(true);
     setError(null);
     try {
+      const ventilation = ventilerVerify(verify);
       const payload: Record<string, unknown> = {
         fournisseur: verify.fournisseur,
         categorie: verify.categorie,
-        montantTVA: verify.montantTVA === "" ? null : Number(verify.montantTVA.replace(",", ".")),
+        montantTVA: verify.montantTVA === "" ? null : ventilation.tva,
+        tauxTVA: verify.tauxTVA === "" ? null : Number(verify.tauxTVA),
       };
-      // Le montant TTC n'est éditable que pour un reçu hors banque
-      // (pour une transaction bancaire, le débit fait foi).
-      if (verify.txMontant === null && verify.montantTTC.trim()) {
-        payload.montantTTC = Number(verify.montantTTC.replace(",", "."));
+      // Le montant TTC n'est éditable que pour un reçu hors banque (pour une
+      // transaction bancaire, le débit fait foi). Saisi en HT, il est converti.
+      if (verify.txMontant === null && ventilation.ttc > 0) {
+        payload.montantTTC = ventilation.ttc;
       }
 
       const res = await fetch(`/api/depenses/${verify.depense.id}`, {
@@ -499,16 +586,19 @@ export default function MobileDepensesPage() {
       const cycles: FactureTalentCycle[] = data.cycles || [];
       setLinkCollabs(collabs);
       setLinkCycles(cycles);
-      setSelCollabs(
-        new Set(
-          collabs.filter((c) => depenseId && c.depenseId === depenseId).map((c) => c.id)
-        )
-      );
-      setSelCycles(
-        new Set(
-          cycles.filter((c) => depenseId && c.depenseId === depenseId).map((c) => c.id)
-        )
-      );
+      const dejaCollabs = collabs
+        .filter((c) => depenseId && c.depenseId === depenseId)
+        .map((c) => c.id);
+      const dejaCycles = cycles
+        .filter((c) => depenseId && c.depenseId === depenseId)
+        .map((c) => c.id);
+      setSelCollabs(new Set(dejaCollabs));
+      setSelCycles(new Set(dejaCycles));
+      // La TVA n'est pas mémorisée par facture : si la dépense en porte déjà,
+      // on recoche tout pour ne pas l'effacer en réenregistrant.
+      const avaitTVA = toNumber(tx.depense?.montantTVA) > 0;
+      setTvaCollabs(new Set(avaitTVA ? dejaCollabs : []));
+      setTvaCycles(new Set(avaitTVA ? dejaCycles : []));
     } catch {
       setError("Erreur lors du chargement des factures talents");
       setLinkTx(null);
@@ -523,6 +613,8 @@ export default function MobileDepensesPage() {
     setLinkCycles([]);
     setSelCollabs(new Set());
     setSelCycles(new Set());
+    setTvaCollabs(new Set());
+    setTvaCycles(new Set());
     setLinkSearch("");
   };
 
@@ -531,6 +623,18 @@ export default function MobileDepensesPage() {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     return next;
+  };
+
+  const sansId = (set: Set<string>, id: string): Set<string> => {
+    const next = new Set(set);
+    next.delete(id);
+    return next;
+  };
+
+  /** Le débit colle si toutes les factures cochées portent la TVA talent */
+  const appliquerTvaPartout = () => {
+    setTvaCollabs(new Set(selCollabs));
+    setTvaCycles(new Set(selCycles));
   };
 
   const saveLink = async () => {
@@ -561,6 +665,8 @@ export default function MobileDepensesPage() {
         body: JSON.stringify({
           collabIds: Array.from(selCollabs),
           cycleIds: Array.from(selCycles),
+          tvaCollabIds: Array.from(tvaCollabs),
+          tvaCycleIds: Array.from(tvaCycles),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -656,13 +762,27 @@ export default function MobileDepensesPage() {
     0
   );
 
-  const selectionTotal =
-    linkCollabs
+  // Pointage : total des factures cochées (TVA talent incluse là où elle est
+  // déclarée) face au débit bancaire, qui est un TTC.
+  const lignesSelection = [
+    ...linkCollabs
       .filter((c) => selCollabs.has(c.id))
-      .reduce((s, c) => s + toNumber(c.montantNet), 0) +
-    linkCycles
+      .map((c) => ({ montantNet: toNumber(c.montantNet), avecTva: tvaCollabs.has(c.id) })),
+    ...linkCycles
       .filter((c) => selCycles.has(c.id))
-      .reduce((s, c) => s + toNumber(c.montantNet), 0);
+      .map((c) => ({ montantNet: toNumber(c.montantNet), avecTva: tvaCycles.has(c.id) })),
+  ];
+  const selection = totalFacturesTalent(lignesSelection);
+  const debitLink = linkTx ? Math.abs(toNumber(linkTx.montant)) : 0;
+  const ecartLink = round2(selection.ttc - debitLink);
+  // Écart exactement égal à la TVA manquante → un tap pour corriger
+  const suggestionTva =
+    selection.ttc > 0 &&
+    Math.abs(ecartLink) > TOLERANCE_POINTAGE &&
+    Math.abs(
+      totalFacturesTalent(lignesSelection.map((l) => ({ ...l, avecTva: true }))).ttc -
+        debitLink
+    ) <= TOLERANCE_POINTAGE;
 
   const lq = linkSearch.trim().toLowerCase();
   const matchCollab = (c: FactureTalentCollab) =>
@@ -678,14 +798,15 @@ export default function MobileDepensesPage() {
     c.collaboration.marque.nom.toLowerCase().includes(lq) ||
     c.collaboration.reference.toLowerCase().includes(lq);
 
-  // Écart montant lu / montant banque sur l'écran de vérification
-  const montantLu = verify?.montantTTC ? Number(verify.montantTTC.replace(",", ".")) : null;
+  // Écran de vérification : ventilation courante, et écart entre le montant lu
+  // sur le reçu et le débit — sauf quand cet écart n'est que la TVA.
+  const ventilationVerify = verify ? ventilerVerify(verify) : null;
+  const montantLuVerify = toNumber(verify?.depense.analyseIA?.montantTTC);
+  const tauxVerifyHT = verify ? tauxRecuLuEnHT(verify.depense, verify.txMontant) : null;
   const ecartVerify =
-    verify && verify.txMontant !== null && montantLu !== null && Number.isFinite(montantLu)
-      ? Math.abs(montantLu - verify.txMontant)
-      : verify && verify.txMontant !== null && verify.depense.analyseIA?.montantTTC
-        ? Math.abs(toNumber(verify.depense.analyseIA.montantTTC) - verify.txMontant)
-        : 0;
+    verify && verify.txMontant !== null && montantLuVerify > 0 && tauxVerifyHT === null
+      ? Math.abs(montantLuVerify - verify.txMontant)
+      : 0;
 
   return (
     <div className="mx-auto max-w-lg pb-28">
@@ -1003,6 +1124,10 @@ export default function MobileDepensesPage() {
                   placeholder="Ex : 44,00"
                   className="w-full rounded-xl border border-slate-200 px-3 py-3 text-base focus:border-slate-400 focus:outline-none"
                 />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Si le reçu n'affiche que le HT, la TVA se précise à l'étape
+                  suivante.
+                </p>
               </div>
             )}
 
@@ -1057,7 +1182,7 @@ export default function MobileDepensesPage() {
               Lu automatiquement sur le reçu — corrigez si besoin puis validez.
             </p>
 
-            {verify.txMontant !== null && ecartVerify > 0.05 && (
+            {verify.txMontant !== null && ecartVerify > TOLERANCE_POINTAGE && (
               <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <span>
@@ -1068,44 +1193,101 @@ export default function MobileDepensesPage() {
               </div>
             )}
 
-            <div className="mb-4 grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Montant TTC (€)
-                </label>
-                {verify.txMontant !== null ? (
-                  <div className="rounded-xl bg-slate-100 px-3 py-3 text-base font-semibold tabular-nums text-slate-900">
+            {tauxVerifyHT !== null && verify.txMontant !== null && (
+              <div className="mb-4 flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm text-sky-800">
+                <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>
+                  Le reçu affiche {formatMoney(montantLuVerify)} hors taxes ; le
+                  débit de {formatMoney(verify.txMontant)} inclut{" "}
+                  {formatTaux(tauxVerifyHT)} de TVA. Taux prérempli — choisissez
+                  « Sans TVA » si le fournisseur n'est pas assujetti.
+                </span>
+              </div>
+            )}
+
+            <div className="mb-4 rounded-2xl border border-slate-200 p-3">
+              {verify.txMontant !== null ? (
+                <>
+                  <p className="text-xs font-medium text-slate-600">
+                    Débit bancaire (TTC)
+                  </p>
+                  <p className="mt-0.5 text-xl font-semibold tabular-nums text-slate-900">
                     {formatMoney(verify.txMontant)}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <label className="text-xs font-medium text-slate-600">
+                      Montant du reçu (€)
+                    </label>
+                    <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5">
+                      {(["TTC", "HT"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => majMontant({ montantMode: mode })}
+                          className={`rounded-md px-3 py-1 text-xs font-semibold ${
+                            verify.montantMode === mode
+                              ? "bg-white text-slate-900 shadow-sm"
+                              : "text-slate-500"
+                          }`}
+                        >
+                          {mode}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                ) : (
                   <input
                     type="number"
                     inputMode="decimal"
                     step="0.01"
-                    value={verify.montantTTC}
-                    onChange={(e) =>
-                      setVerify({ ...verify, montantTTC: e.target.value })
-                    }
+                    value={verify.montant}
+                    onChange={(e) => majMontant({ montant: e.target.value })}
                     className="w-full rounded-xl border border-slate-200 px-3 py-3 text-base focus:border-slate-400 focus:outline-none"
                   />
-                )}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
-                  dont TVA (€)
-                </label>
+                </>
+              )}
+
+              <p className="mb-1.5 mt-3 text-xs font-medium text-slate-600">TVA</p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {TAUX_TVA_OPTIONS.map((taux) => (
+                  <button
+                    key={taux}
+                    type="button"
+                    onClick={() => appliquerTaux(taux)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                      verify.tauxTVA === String(taux)
+                        ? "bg-slate-900 text-white"
+                        : "border border-slate-200 text-slate-600 active:bg-slate-50"
+                    }`}
+                  >
+                    {formatTaux(taux)}
+                  </button>
+                ))}
                 <input
                   type="number"
                   inputMode="decimal"
                   step="0.01"
                   value={verify.montantTVA}
                   onChange={(e) =>
-                    setVerify({ ...verify, montantTVA: e.target.value })
+                    setVerify({ ...verify, montantTVA: e.target.value, tauxTVA: "" })
                   }
-                  placeholder="—"
-                  className="w-full rounded-xl border border-slate-200 px-3 py-3 text-base focus:border-slate-400 focus:outline-none"
+                  placeholder="TVA €"
+                  aria-label="Montant de TVA en euros"
+                  className="w-24 rounded-full border border-slate-200 px-3 py-1.5 text-xs tabular-nums focus:border-slate-400 focus:outline-none"
                 />
               </div>
+
+              {ventilationVerify && ventilationVerify.ttc > 0 && (
+                <p className="mt-2.5 text-xs tabular-nums text-slate-500">
+                  HT {formatMoney(ventilationVerify.ht)} · TVA{" "}
+                  {formatMoney(ventilationVerify.tva)} ·{" "}
+                  <span className="font-semibold text-slate-700">
+                    TTC {formatMoney(ventilationVerify.ttc)}
+                  </span>
+                </p>
+              )}
             </div>
 
             <div className="mb-3">
@@ -1211,7 +1393,10 @@ export default function MobileDepensesPage() {
                       <input
                         type="checkbox"
                         checked={selCollabs.has(c.id)}
-                        onChange={() => setSelCollabs((s) => toggleSel(s, c.id))}
+                        onChange={() => {
+                          setSelCollabs((s) => toggleSel(s, c.id));
+                          setTvaCollabs((s) => sansId(s, c.id));
+                        }}
                         className="h-5 w-5 rounded border-slate-300"
                       />
                       <div className="min-w-0 flex-1">
@@ -1235,9 +1420,37 @@ export default function MobileDepensesPage() {
                           <FileText className="h-4 w-4" />
                         </a>
                       )}
-                      <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-slate-700">
-                        {formatMoney(toNumber(c.montantNet))}
-                      </span>
+                      {selCollabs.has(c.id) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setTvaCollabs((s) => toggleSel(s, c.id));
+                          }}
+                          className={`whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-semibold ${
+                            tvaCollabs.has(c.id)
+                              ? "bg-slate-900 text-white"
+                              : "border border-slate-200 text-slate-500"
+                          }`}
+                        >
+                          TVA {TAUX_TVA_TALENT} %
+                        </button>
+                      )}
+                      <div className="whitespace-nowrap text-right">
+                        <span className="block text-sm font-semibold tabular-nums text-slate-700">
+                          {formatMoney(
+                            toNumber(c.montantNet) +
+                              (tvaCollabs.has(c.id)
+                                ? tvaDepuisHT(toNumber(c.montantNet), TAUX_TVA_TALENT)
+                                : 0)
+                          )}
+                        </span>
+                        {tvaCollabs.has(c.id) && (
+                          <span className="block text-[10px] tabular-nums text-slate-400">
+                            HT {formatMoney(toNumber(c.montantNet))}
+                          </span>
+                        )}
+                      </div>
                     </label>
                   ))}
                   {linkCycles.filter(matchCycle).map((c) => (
@@ -1248,7 +1461,10 @@ export default function MobileDepensesPage() {
                       <input
                         type="checkbox"
                         checked={selCycles.has(c.id)}
-                        onChange={() => setSelCycles((s) => toggleSel(s, c.id))}
+                        onChange={() => {
+                          setSelCycles((s) => toggleSel(s, c.id));
+                          setTvaCycles((s) => sansId(s, c.id));
+                        }}
                         className="h-5 w-5 rounded border-slate-300"
                       />
                       <div className="min-w-0 flex-1">
@@ -1275,9 +1491,37 @@ export default function MobileDepensesPage() {
                           <FileText className="h-4 w-4" />
                         </a>
                       )}
-                      <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-slate-700">
-                        {formatMoney(toNumber(c.montantNet))}
-                      </span>
+                      {selCycles.has(c.id) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setTvaCycles((s) => toggleSel(s, c.id));
+                          }}
+                          className={`whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-semibold ${
+                            tvaCycles.has(c.id)
+                              ? "bg-slate-900 text-white"
+                              : "border border-slate-200 text-slate-500"
+                          }`}
+                        >
+                          TVA {TAUX_TVA_TALENT} %
+                        </button>
+                      )}
+                      <div className="whitespace-nowrap text-right">
+                        <span className="block text-sm font-semibold tabular-nums text-slate-700">
+                          {formatMoney(
+                            toNumber(c.montantNet) +
+                              (tvaCycles.has(c.id)
+                                ? tvaDepuisHT(toNumber(c.montantNet), TAUX_TVA_TALENT)
+                                : 0)
+                          )}
+                        </span>
+                        {tvaCycles.has(c.id) && (
+                          <span className="block text-[10px] tabular-nums text-slate-400">
+                            HT {formatMoney(toNumber(c.montantNet))}
+                          </span>
+                        )}
+                      </div>
                     </label>
                   ))}
                 </div>
@@ -1285,24 +1529,42 @@ export default function MobileDepensesPage() {
             </div>
 
             <div className="border-t border-slate-100 px-5 py-4">
-              <div className="mb-3 flex items-center justify-between text-sm">
+              <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-500">Sélection</span>
                 <span
                   className={`font-semibold tabular-nums ${
-                    Math.abs(selectionTotal - Math.abs(toNumber(linkTx.montant))) <= 0.05
+                    Math.abs(ecartLink) <= TOLERANCE_POINTAGE
                       ? "text-emerald-600"
                       : "text-slate-900"
                   }`}
                 >
-                  {formatMoney(selectionTotal)} /{" "}
-                  {formatMoney(Math.abs(toNumber(linkTx.montant)))}
+                  {formatMoney(selection.ttc)} / {formatMoney(debitLink)}
                 </span>
               </div>
-              {selectionTotal > 0 &&
-                Math.abs(selectionTotal - Math.abs(toNumber(linkTx.montant))) > 0.05 && (
-                  <p className="mb-3 flex items-center gap-1.5 text-xs text-amber-600">
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Écart possible (frais Libeo / Defacto)
+              <p className="mb-3 mt-0.5 text-right text-xs tabular-nums text-slate-400">
+                {selection.tva > 0
+                  ? `HT ${formatMoney(selection.ht)} · dont TVA ${formatMoney(selection.tva)}`
+                  : "aucune TVA déclarée"}
+              </p>
+              {suggestionTva && (
+                <button
+                  type="button"
+                  onClick={appliquerTvaPartout}
+                  className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 py-2.5 text-xs font-semibold text-sky-800 active:bg-sky-100"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Le débit colle avec {formatTaux(TAUX_TVA_TALENT)} de TVA — appliquer
+                </button>
+              )}
+              {selection.ttc > 0 &&
+                Math.abs(ecartLink) > TOLERANCE_POINTAGE &&
+                !suggestionTva && (
+                  <p className="mb-3 flex items-start gap-1.5 text-xs text-amber-600">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>
+                      Écart de {formatMoney(Math.abs(ecartLink))} — TVA d'un talent
+                      assujetti ou frais Libeo / Defacto ?
+                    </span>
                   </p>
                 )}
               <button

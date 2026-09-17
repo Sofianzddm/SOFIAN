@@ -10,7 +10,9 @@
  */
 
 import { v2 as cloudinary } from "cloudinary";
+import type { Prisma } from "@prisma/client";
 import type { AnalyseJustificatif } from "@/lib/depenses-analyse";
+import { TAUX_TVA_TALENT, round2, tvaDepuisHT } from "@/lib/depenses-tva";
 import { prisma } from "@/lib/prisma";
 import {
   buildKey,
@@ -385,12 +387,19 @@ export async function listFacturesTalentLiables(depenseId?: string | null) {
  * Defacto / Libeo / virement talent). Effets de bord assumés :
  *  - les collabs liées passent « payées » (paidAt = date du débit) si elles
  *    ne l'étaient pas déjà — c'est la preuve bancaire du paiement ;
- *  - la dépense est catégorisée « Prestataires & freelances » si sans catégorie.
+ *  - la dépense est catégorisée « Prestataires & freelances » si sans catégorie ;
+ *  - la TVA déductible est recalculée si `tva` est fourni.
+ *
+ * @param tva Factures dont le talent est assujetti. `montantNet` étant un HT,
+ *            ces factures ont été virées majorées de 20 % : la TVA
+ *            correspondante est reportée sur la dépense. Paramètre absent =
+ *            l'appelant ne se prononce pas, les montants restent inchangés.
  */
 export async function setFacturesTalentDepense(
   depenseId: string,
   collabIds: string[],
-  cycleIds: string[]
+  cycleIds: string[],
+  tva?: { collabIds: string[]; cycleIds: string[] }
 ) {
   const depense = await prisma.depense.findUnique({
     where: { id: depenseId },
@@ -401,6 +410,34 @@ export async function setFacturesTalentDepense(
   }
 
   const paidDate = depense.transaction?.dateTransaction ?? depense.dateDepense;
+
+  // TVA portée par les factures des talents assujettis, calculée sur les
+  // montants en base (jamais sur un total envoyé par le client).
+  let montantTVA: number | null = null;
+  if (tva) {
+    const tvaCollabIds = tva.collabIds.filter((id) => collabIds.includes(id));
+    const tvaCycleIds = tva.cycleIds.filter((id) => cycleIds.includes(id));
+    const [collabsAssujettis, cyclesAssujettis] = await Promise.all([
+      tvaCollabIds.length > 0
+        ? prisma.collaboration.findMany({
+            where: { id: { in: tvaCollabIds } },
+            select: { montantNet: true },
+          })
+        : [],
+      tvaCycleIds.length > 0
+        ? prisma.collabCycle.findMany({
+            where: { id: { in: tvaCycleIds } },
+            select: { montantNet: true },
+          })
+        : [],
+    ]);
+    montantTVA = round2(
+      [...collabsAssujettis, ...cyclesAssujettis].reduce(
+        (somme, f) => somme + tvaDepuisHT(Number(f.montantNet), TAUX_TVA_TALENT),
+        0
+      )
+    );
+  }
 
   await prisma.$transaction([
     // Délier les factures désélectionnées
@@ -445,12 +482,24 @@ export async function setFacturesTalentDepense(
   ]);
 
   const hasLiens = collabIds.length > 0 || cycleIds.length > 0;
+  const data: Prisma.DepenseUpdateInput = {};
+  if (hasLiens && !depense.categorie) {
+    data.categorie = "Prestataires & freelances";
+  }
+  // Une TVA nulle ne remplace pas celle lue sur un justificatif joint : ce
+  // reçu porte sa propre TVA, la liaison n'a pas à l'effacer.
+  if (
+    hasLiens &&
+    montantTVA !== null &&
+    (montantTVA > 0 || !depense.justificatifUrl)
+  ) {
+    data.montantTVA = montantTVA;
+    data.tauxTVA = montantTVA > 0 ? TAUX_TVA_TALENT : 0;
+  }
+
   return prisma.depense.update({
     where: { id: depenseId },
-    data:
-      hasLiens && !depense.categorie
-        ? { categorie: "Prestataires & freelances" }
-        : {},
+    data,
     include: DEPENSE_INCLUDE,
   });
 }

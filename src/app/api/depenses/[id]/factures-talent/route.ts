@@ -5,7 +5,12 @@ import { DepenseError, setFacturesTalentDepense } from "@/lib/depenses";
 
 /**
  * PUT /api/depenses/[id]/factures-talent
- * Body : { collabIds: string[], cycleIds: string[] }
+ * Body : { collabIds: string[], cycleIds: string[],
+ *          tvaCollabIds?: string[], tvaCycleIds?: string[] }
+ *
+ * `tvaCollabIds` / `tvaCycleIds` : factures dont le talent facture la TVA
+ * (montantNet est un HT). Fournis, la TVA déductible du débit est recalculée
+ * et enregistrée sur la dépense ; absents, les montants restent inchangés.
  *
  * Justifie une dépense bancaire (débit Defacto / Libeo / virement talent)
  * avec des factures talents déjà uploadées sur les collabs — pas de
@@ -29,14 +34,16 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
-    const collabIds: string[] = Array.isArray(body.collabIds)
-      ? body.collabIds.filter((v: unknown) => typeof v === "string")
-      : [];
-    const cycleIds: string[] = Array.isArray(body.cycleIds)
-      ? body.cycleIds.filter((v: unknown) => typeof v === "string")
-      : [];
+    const ids = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((x: unknown): x is string => typeof x === "string") : [];
+    const collabIds = ids(body.collabIds);
+    const cycleIds = ids(body.cycleIds);
+    const tva =
+      "tvaCollabIds" in body || "tvaCycleIds" in body
+        ? { collabIds: ids(body.tvaCollabIds), cycleIds: ids(body.tvaCycleIds) }
+        : undefined;
 
-    const depense = await setFacturesTalentDepense(id, collabIds, cycleIds);
+    const depense = await setFacturesTalentDepense(id, collabIds, cycleIds, tva);
     return NextResponse.json({ success: true, depense });
   } catch (error) {
     if (error instanceof DepenseError) {
