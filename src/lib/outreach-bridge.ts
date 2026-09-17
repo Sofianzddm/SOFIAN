@@ -613,6 +613,201 @@ function bridgeRef(bridge: BridgeResult): string {
   return `${bridge.pipeline}:${bridge.targetId}`;
 }
 
+/**
+ * Persiste la qualification inbound ET crée / met à jour la fiche contact
+ * (Partner + AgencyContact, ou Marque + MarqueContact) tout de suite —
+ * sans enrôler dans le cycle outreach (ça reste à l'envoi / sweep).
+ */
+export type PersistInboundContactResult =
+  | {
+      ok: true;
+      kind: "AGENCE";
+      partnerId: string;
+      partnerName: string;
+      contactId: string;
+      href: string;
+      created: boolean;
+    }
+  | {
+      ok: true;
+      kind: "MARQUE";
+      marqueId: string;
+      marqueName: string;
+      contactId: string | null;
+      href: string;
+      created: boolean;
+    }
+  | { ok: false; reason: string };
+
+export async function persistInboundQualifiedContact(
+  opportunityId: string,
+  createdById: string,
+  qualification: {
+    contactKind: "MARQUE" | "AGENCE";
+    contactAgence?: string | null;
+    contactLanguage?: string | null;
+  }
+): Promise<PersistInboundContactResult> {
+  const opp = await prisma.inboundOpportunity.findUnique({
+    where: { id: opportunityId },
+    select: {
+      id: true,
+      senderEmail: true,
+      senderName: true,
+      extractedBrand: true,
+      marqueId: true,
+    },
+  });
+  if (!opp) return { ok: false, reason: "introuvable" };
+
+  const email = normalizeEmail(opp.senderEmail);
+  if (!email || !isValidEmail(email)) {
+    return { ok: false, reason: "email-invalide" };
+  }
+
+  const language =
+    String(qualification.contactLanguage || "").trim().toLowerCase() === "en"
+      ? "en"
+      : "fr";
+  const kind = qualification.contactKind;
+  const sender = parseSenderName(opp.senderName);
+  const firstname =
+    sender.prenom || sender.nom || email.split("@")[0] || "Contact";
+  const lastname = sender.prenom ? sender.nom || null : null;
+
+  if (kind === "AGENCE") {
+    const agencyName =
+      (qualification.contactAgence || "").trim() ||
+      brandNameFromEmailDomain(email) ||
+      "";
+    if (!agencyName) {
+      return { ok: false, reason: "agence-sans-nom" };
+    }
+
+    const partner = await findOrCreatePartnerByName(agencyName, createdById);
+    const existing = await prisma.agencyContact.findUnique({
+      where: { partnerId_email: { partnerId: partner.id, email } },
+      select: { id: true },
+    });
+    const contact = await prisma.agencyContact.upsert({
+      where: { partnerId_email: { partnerId: partner.id, email } },
+      update: {
+        language,
+        ...(firstname ? { prenom: firstname } : {}),
+        ...(lastname ? { nom: lastname } : {}),
+      },
+      create: {
+        partnerId: partner.id,
+        prenom: firstname,
+        nom: lastname,
+        email,
+        language,
+        createdById,
+      },
+      select: { id: true },
+    });
+
+    await prisma.inboundOpportunity.update({
+      where: { id: opp.id },
+      data: {
+        contactKind: "AGENCE",
+        contactAgence: agencyName,
+        contactLanguage: language,
+      },
+    });
+
+    return {
+      ok: true,
+      kind: "AGENCE",
+      partnerId: partner.id,
+      partnerName: partner.name,
+      contactId: contact.id,
+      href: `/partners/manage/${partner.id}`,
+      created: !existing,
+    };
+  }
+
+  // MARQUE
+  let marqueId = (opp.marqueId || "").trim() || null;
+  let marqueName = (opp.extractedBrand || "").trim();
+
+  if (marqueId) {
+    const marque = await prisma.marque.findUnique({
+      where: { id: marqueId },
+      select: { id: true, nom: true },
+    });
+    if (marque) {
+      marqueName = marque.nom;
+    } else {
+      marqueId = null;
+    }
+  }
+
+  if (!marqueId) {
+    const brandName =
+      marqueName || brandNameFromEmailDomain(email) || "";
+    if (!brandName) {
+      return { ok: false, reason: "marque-introuvable" };
+    }
+    const linked = await linkMarqueFromBrandName({
+      brandName,
+      source: "INBOUND",
+      createDefaults: { sourceInitiale: "INBOUND" },
+    });
+    if (!linked) return { ok: false, reason: "marque-introuvable" };
+    marqueId = linked.marqueId;
+    const marque = await prisma.marque.findUnique({
+      where: { id: marqueId },
+      select: { nom: true },
+    });
+    marqueName = marque?.nom || brandName;
+  }
+
+  const existingMarqueContact = await prisma.marqueContact.findFirst({
+    where: { marqueId, email: { equals: email, mode: "insensitive" } },
+    select: { id: true },
+  });
+
+  await ensureMarqueContact({
+    marqueId,
+    email,
+    prenom: firstname,
+    nom: lastname || firstname,
+    poste: "Contact inbound",
+  });
+
+  const marqueContact = await prisma.marqueContact.findFirst({
+    where: { marqueId, email: { equals: email, mode: "insensitive" } },
+    select: { id: true },
+  });
+
+  if (marqueContact) {
+    await prisma.marqueContact.update({
+      where: { id: marqueContact.id },
+      data: { language },
+    });
+  }
+
+  await prisma.inboundOpportunity.update({
+    where: { id: opp.id },
+    data: {
+      contactKind: "MARQUE",
+      contactAgence: null,
+      contactLanguage: language,
+      marqueId,
+    },
+  });
+
+  return {
+    ok: true,
+    kind: "MARQUE",
+    marqueId,
+    marqueName,
+    contactId: marqueContact?.id || null,
+    href: `/marques/${marqueId}`,
+    created: !existingMarqueContact,
+  };
+}
 
 /**
  * Enrôle un contact juste après l'envoi de notre réponse inbound.

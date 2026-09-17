@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
@@ -73,6 +73,7 @@ type Opportunity = {
   convertedToProspectionId?: string | null;
   outreachBridgedAt?: string | null;
   outreachTargetRef?: string | null;
+  marqueId?: string | null;
   contactKind?: string | null;
   contactAgence?: string | null;
   contactLanguage?: string | null;
@@ -110,16 +111,23 @@ export default function InboundDetailPage() {
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
-  // Qualification locale : chaque sélection part en base immédiatement.
+  // Qualification locale : validée uniquement via le bouton Enregistrer
+  // (crée la fiche contact agence/marque tout de suite).
   const [qualifKind, setQualifKind] = useState<"" | "MARQUE" | "AGENCE">("");
   const [qualifAgence, setQualifAgence] = useState("");
-  // Sauvegarde en vol : l'envoi l'attend pour ne jamais partir avec une
-  // qualification non encore persistée (sinon routage outreach à côté).
-  const pendingQualifRef = useRef<Promise<void> | null>(null);
-  // Saisie libre du nom d'agence : on laisse retomber la frappe avant d'écrire
-  // (un choix dans la liste déclenche un seul change, donc un seul PATCH).
-  const agenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const qualifAgenceRef = useRef("");
+  const [qualifLanguage, setQualifLanguage] = useState<"fr" | "en">("fr");
+  const [qualifSaving, setQualifSaving] = useState(false);
+  const [qualifFiche, setQualifFiche] = useState<{
+    kind: "AGENCE" | "MARQUE";
+    label: string;
+    href: string;
+  } | null>(null);
+  // Snapshot de la dernière qualification commitée (pour détecter un brouillon local).
+  const [committedQualif, setCommittedQualif] = useState<{
+    kind: "" | "MARQUE" | "AGENCE";
+    agence: string;
+    language: "fr" | "en";
+  }>({ kind: "", agence: "", language: "fr" });
   // Agences existantes : suggérées dans le champ « Nom de l'agence » pour
   // réutiliser la fiche (pas de doublon) ; un nom inconnu crée l'agence.
   const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
@@ -130,6 +138,24 @@ export default function InboundDetailPage() {
       .then((d) => setAgencyOptions(Array.isArray(d.partners) ? d.partners : []))
       .catch(() => setAgencyOptions([]));
   }, []);
+
+  // Lien « ouvrir fiche agence » une fois les options partenaires chargées.
+  useEffect(() => {
+    if (committedQualif.kind !== "AGENCE" || !committedQualif.agence.trim()) return;
+    const match = agencyOptions.find(
+      (a) => a.name.trim().toLowerCase() === committedQualif.agence.trim().toLowerCase()
+    );
+    if (!match) return;
+    setQualifFiche((prev) =>
+      prev && prev.kind === "AGENCE"
+        ? { ...prev, label: match.name, href: `/partners/manage/${match.id}` }
+        : {
+            kind: "AGENCE",
+            label: match.name,
+            href: `/partners/manage/${match.id}`,
+          }
+    );
+  }, [agencyOptions, committedQualif.kind, committedQualif.agence]);
   const [recentSends, setRecentSends] = useState<{
     windowDays: number;
     sameEmail: RecentSendEntry[];
@@ -152,11 +178,69 @@ export default function InboundDetailPage() {
         if (!res.ok) throw new Error(data.error || "Erreur");
         const opp: Opportunity | null = data.opportunity || null;
         setOpportunity(opp);
-        setQualifKind(
-          opp?.contactKind === "AGENCE" ? "AGENCE" : opp?.contactKind === "MARQUE" ? "MARQUE" : ""
-        );
-        setQualifAgence(opp?.contactAgence || "");
-        qualifAgenceRef.current = opp?.contactAgence || "";
+        const kind: "" | "MARQUE" | "AGENCE" =
+          opp?.contactKind === "AGENCE" ? "AGENCE" : opp?.contactKind === "MARQUE" ? "MARQUE" : "";
+        const agence = opp?.contactAgence || "";
+        const language: "fr" | "en" = opp?.contactLanguage === "en" ? "en" : "fr";
+        setQualifKind(kind);
+        setQualifAgence(agence);
+        setQualifLanguage(language);
+        setCommittedQualif({ kind, agence, language });
+        if (kind === "AGENCE" && agence) {
+          setQualifFiche({ kind: "AGENCE", label: agence, href: "" });
+        } else if (kind === "MARQUE") {
+          setQualifFiche({
+            kind: "MARQUE",
+            label: opp?.extractedBrand || "Marque",
+            href: opp?.marqueId ? `/marques/${opp.marqueId}` : "",
+          });
+        } else {
+          setQualifFiche(null);
+        }
+
+        // Si déjà qualifié (ex. ancienne sauvegarde), on s'assure que la fiche
+        // contact existe bien côté CRM.
+        if (kind === "MARQUE" || (kind === "AGENCE" && agence)) {
+          void fetch(`/api/inbound/opportunities/${opp!.id}/qualify`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contactKind: kind,
+              contactAgence: kind === "AGENCE" ? agence : null,
+              contactLanguage: language,
+            }),
+          })
+            .then(async (r) => {
+              if (!r.ok) return;
+              const d = await r.json().catch(() => ({}));
+              const fiche = d.fiche as
+                | {
+                    ok: true;
+                    kind: "AGENCE" | "MARQUE";
+                    partnerName?: string;
+                    marqueName?: string;
+                    href: string;
+                  }
+                | undefined;
+              if (fiche?.ok) {
+                setQualifFiche({
+                  kind: fiche.kind,
+                  label:
+                    fiche.kind === "AGENCE"
+                      ? fiche.partnerName || agence
+                      : fiche.marqueName || opp?.extractedBrand || "Marque",
+                  href: fiche.href,
+                });
+              }
+              if (d.opportunity) {
+                setOpportunity((current) =>
+                  current ? { ...current, ...d.opportunity } : d.opportunity
+                );
+              }
+            })
+            .catch(() => undefined);
+        }
       } catch {
         setOpportunity(null);
       } finally {
@@ -194,86 +278,83 @@ export default function InboundDetailPage() {
     return Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
   };
 
-  // Qualification du contact (agence vs marque en direct + langue) : sauvegarde
-  // immédiate ; route le contact vers le bon pipeline outreach à la clôture.
-  const saveQualification = (patch: {
-    contactKind?: string | null;
-    contactAgence?: string | null;
-    contactLanguage?: string;
-  }): Promise<void> => {
-    if (!opportunity) return Promise.resolve();
-    const previous = opportunity;
-    setOpportunity({ ...opportunity, ...patch });
-    const run = (async () => {
-      try {
-        const res = await fetch(`/api/inbound/opportunities/${previous.id}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Erreur");
-        setOpportunity((current) => ({ ...(current || previous), ...(data.opportunity || {}) }));
-      } catch (error) {
-        setOpportunity(previous);
-        setQualifKind(
-          previous.contactKind === "AGENCE"
-            ? "AGENCE"
-            : previous.contactKind === "MARQUE"
-              ? "MARQUE"
-              : ""
-        );
-        setQualifAgence(previous.contactAgence || "");
-        qualifAgenceRef.current = previous.contactAgence || "";
-        setToast({
-          type: "error",
-          message: error instanceof Error ? error.message : "Erreur de sauvegarde",
-        });
-      }
-    })();
-    pendingQualifRef.current = run;
-    return run;
-  };
+  const qualifDirty =
+    qualifKind !== committedQualif.kind ||
+    qualifAgence.trim() !== committedQualif.agence.trim() ||
+    qualifLanguage !== committedQualif.language;
 
-  /** Nom d'agence : écrit après la frappe (ou tout de suite via `flush`). */
-  const queueAgenceSave = (name: string, flush = false) => {
-    qualifAgenceRef.current = name;
-    if (agenceTimerRef.current) {
-      clearTimeout(agenceTimerRef.current);
-      agenceTimerRef.current = null;
-    }
-    const write = () =>
-      saveQualification({ contactKind: "AGENCE", contactAgence: name.trim() || null });
-    if (flush) {
-      write();
+  const qualificationReady =
+    (committedQualif.kind === "MARQUE" || committedQualif.kind === "AGENCE") &&
+    !qualifDirty;
+
+  /** Bouton Enregistrer : écrit la qualification + crée la fiche contact. */
+  const commitQualification = async () => {
+    if (!opportunity) return;
+    if (qualifKind !== "MARQUE" && qualifKind !== "AGENCE") {
+      showToast("Choisis Agence ou Marque en direct.", "error");
       return;
     }
-    agenceTimerRef.current = setTimeout(() => {
-      agenceTimerRef.current = null;
-      write();
-    }, 400);
-  };
-
-  /** Avant un envoi : on force l'écriture en attente et on l'attend. */
-  const flushQualification = async () => {
-    if (agenceTimerRef.current) {
-      clearTimeout(agenceTimerRef.current);
-      agenceTimerRef.current = null;
-      saveQualification({
-        contactKind: "AGENCE",
-        contactAgence: qualifAgenceRef.current.trim() || null,
-      });
+    if (qualifKind === "AGENCE" && !qualifAgence.trim()) {
+      showToast("Indique le nom de l'agence.", "error");
+      return;
     }
-    if (pendingQualifRef.current) await pendingQualifRef.current;
+
+    setQualifSaving(true);
+    try {
+      const res = await fetch(`/api/inbound/opportunities/${opportunity.id}/qualify`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactKind: qualifKind,
+          contactAgence: qualifKind === "AGENCE" ? qualifAgence.trim() : null,
+          contactLanguage: qualifLanguage,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Erreur d'enregistrement");
+
+      const opp = (data.opportunity || {}) as Opportunity;
+      setOpportunity((current) => ({ ...(current || opportunity), ...opp }));
+      const kind: "MARQUE" | "AGENCE" = qualifKind;
+      const agence = kind === "AGENCE" ? qualifAgence.trim() : "";
+      setCommittedQualif({ kind, agence, language: qualifLanguage });
+      setQualifAgence(agence);
+
+      const fiche = data.fiche as
+        | {
+            ok: true;
+            kind: "AGENCE" | "MARQUE";
+            partnerName?: string;
+            marqueName?: string;
+            href: string;
+            created: boolean;
+          }
+        | undefined;
+      if (fiche?.ok) {
+        const label =
+          fiche.kind === "AGENCE"
+            ? fiche.partnerName || agence
+            : fiche.marqueName || opp.extractedBrand || "Marque";
+        setQualifFiche({ kind: fiche.kind, label, href: fiche.href });
+        showToast(
+          fiche.created
+            ? `Fiche ${fiche.kind === "AGENCE" ? "agence" : "marque"} créée : ${label}`
+            : `Contact ajouté sur la fiche ${label}`,
+          "success"
+        );
+      } else {
+        showToast("Qualification enregistrée", "success");
+      }
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Erreur d'enregistrement",
+        "error"
+      );
+    } finally {
+      setQualifSaving(false);
+    }
   };
-
-  useEffect(() => {
-    return () => {
-      if (agenceTimerRef.current) clearTimeout(agenceTimerRef.current);
-    };
-  }, []);
-
   const bodyText = useMemo(() => {
     if (!opportunity) return "";
     if (showAll) return opportunity.bodyExcerpt;
@@ -491,6 +572,7 @@ export default function InboundDetailPage() {
   );
 
   const canAct = opportunity.status === "NEW" || opportunity.status === "IN_REVIEW";
+  const canCompose = canAct && qualificationReady;
   const canDelete = opportunity.status !== "CONVERTED";
 
   const removeOpportunity = async () => {
@@ -566,9 +648,15 @@ export default function InboundDetailPage() {
 
     setSendingFromLeyna(true);
     try {
-      // La qualification pilote le routage outreach fait à l'envoi : elle doit
-      // être en base avant le POST /send.
-      await flushQualification();
+      // La qualification + fiche contact doivent être enregistrées avant l'envoi
+      // (routage outreach à la clôture).
+      if (!qualificationReady) {
+        showToast(
+          "Qualifie le contact (Agence ou Marque) et clique sur Enregistrer avant d'envoyer.",
+          "error"
+        );
+        return;
+      }
       await saveDraft({ subject, bodyHtml });
 
       const sendRes = await fetch(`/api/inbound/opportunities/${opportunity.id}/send`, {
@@ -754,8 +842,8 @@ export default function InboundDetailPage() {
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="font-semibold text-slate-900">Qualification du contact</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Agence ou marque en direct + langue : une agence part en Prospection Agences
-              après l&apos;échange, jamais dans Outreach Clients.
+              Choisis Agence ou Marque, puis Enregistrer : le contact est créé tout de suite
+              sur la fiche correspondante. Obligatoire avant de rédiger un mail.
             </p>
             <div className="mt-3 space-y-2">
               <div>
@@ -765,20 +853,11 @@ export default function InboundDetailPage() {
                   onChange={(e) => {
                     const kind = e.target.value as "" | "MARQUE" | "AGENCE";
                     setQualifKind(kind);
-                    if (kind === "AGENCE") {
-                      saveQualification({
-                        contactKind: "AGENCE",
-                        contactAgence: qualifAgenceRef.current.trim() || null,
-                      });
-                      return;
-                    }
-                    setQualifAgence("");
-                    qualifAgenceRef.current = "";
-                    saveQualification({ contactKind: kind || null, contactAgence: null });
+                    if (kind !== "AGENCE") setQualifAgence("");
                   }}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">Non qualifié (détection auto par domaine)</option>
+                  <option value="">Non qualifié</option>
                   <option value="MARQUE">Marque en direct</option>
                   <option value="AGENCE">Agence</option>
                 </select>
@@ -786,23 +865,13 @@ export default function InboundDetailPage() {
               {qualifKind === "AGENCE" && (
                 <div>
                   <label className="mb-1 block text-xs text-slate-500">
-                    Nom de l&apos;agence * — saisie libre si elle n&apos;est pas dans la liste
+                    Nom de l&apos;agence *
                   </label>
                   <input
                     type="text"
                     list="agency-options"
                     value={qualifAgence}
-                    onChange={(e) => {
-                      const name = e.target.value;
-                      setQualifAgence(name);
-                      // Choix dans la liste = save immédiat ; frappe libre =
-                      // save dès que la saisie retombe.
-                      const picked = agencyOptions.some(
-                        (a) => a.name.toLowerCase() === name.trim().toLowerCase()
-                      );
-                      queueAgenceSave(name, picked);
-                    }}
-                    onBlur={(e) => queueAgenceSave(e.target.value, true)}
+                    onChange={(e) => setQualifAgence(e.target.value)}
                     placeholder="Écris le nom ou choisis dans la liste (ex: WOO, Heaven…)"
                     className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   />
@@ -813,7 +882,7 @@ export default function InboundDetailPage() {
                   </datalist>
                   {!qualifAgence.trim() ? (
                     <p className="mt-1 text-xs text-amber-600">
-                      Sans nom, l&apos;agence sera déduite du domaine de l&apos;expéditeur.
+                      Le nom de l&apos;agence est obligatoire pour enregistrer.
                     </p>
                   ) : matchedAgency ? (
                     <p className="mt-1 text-xs text-emerald-700">
@@ -821,7 +890,7 @@ export default function InboundDetailPage() {
                     </p>
                   ) : (
                     <p className="mt-1 text-xs text-slate-500">
-                      Nouvelle agence : la fiche « {qualifAgence.trim()} » sera créée à l&apos;envoi.
+                      Nouvelle agence : la fiche « {qualifAgence.trim()} » sera créée.
                     </p>
                   )}
                 </div>
@@ -829,14 +898,50 @@ export default function InboundDetailPage() {
               <div>
                 <label className="mb-1 block text-xs text-slate-500">Langue du contact</label>
                 <select
-                  value={opportunity.contactLanguage === "en" ? "en" : "fr"}
-                  onChange={(e) => saveQualification({ contactLanguage: e.target.value })}
+                  value={qualifLanguage}
+                  onChange={(e) => setQualifLanguage(e.target.value === "en" ? "en" : "fr")}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
                   <option value="fr">Français</option>
                   <option value="en">Anglais</option>
                 </select>
               </div>
+              <button
+                type="button"
+                disabled={
+                  qualifSaving ||
+                  (qualifKind !== "MARQUE" && qualifKind !== "AGENCE") ||
+                  (qualifKind === "AGENCE" && !qualifAgence.trim()) ||
+                  (!qualifDirty && qualificationReady)
+                }
+                onClick={() => void commitQualification()}
+                className="w-full rounded-lg bg-[#C8F285] px-3 py-2 text-sm font-semibold text-[#1A1110] disabled:opacity-50"
+              >
+                {qualifSaving
+                  ? "Enregistrement…"
+                  : !qualifDirty && qualificationReady
+                    ? "Enregistré"
+                    : "Enregistrer"}
+              </button>
+              {qualificationReady && qualifFiche ? (
+                <p className="text-xs text-emerald-700">
+                  Contact sur la fiche {qualifFiche.kind === "AGENCE" ? "agence" : "marque"}{" "}
+                  <strong>{qualifFiche.label}</strong>
+                  {qualifFiche.href ? (
+                    <>
+                      {" "}
+                      —{" "}
+                      <Link href={qualifFiche.href} className="underline hover:text-emerald-900">
+                        ouvrir
+                      </Link>
+                    </>
+                  ) : null}
+                </p>
+              ) : (
+                <p className="text-xs text-amber-700">
+                  Qualifie et enregistre le contact pour pouvoir rédiger un mail.
+                </p>
+              )}
             </div>
           </div>
 
@@ -894,13 +999,20 @@ export default function InboundDetailPage() {
           {(canAct || canDelete) && (
             <div className="rounded-xl border border-slate-200 bg-white p-4">
               {canAct && (
-                <button
-                  disabled={submitting}
-                  onClick={() => setComposerOpen(true)}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
-                >
-                  Rediger un mail
-                </button>
+                <>
+                  <button
+                    disabled={submitting || !canCompose}
+                    onClick={() => setComposerOpen(true)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
+                  >
+                    Rediger un mail
+                  </button>
+                  {!canCompose ? (
+                    <p className="mt-2 text-xs text-amber-700">
+                      Enregistre d&apos;abord la qualification du contact (bouton Enregistrer).
+                    </p>
+                  ) : null}
+                </>
               )}
               {canDelete && (
                 <button
