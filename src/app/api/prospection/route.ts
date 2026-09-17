@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
 
     const actor = await resolveProspectionActor(session);
     const globalProspectionView =
-      actor.role === "ADMIN" || actor.role === "HEAD_OF_INFLUENCE";
+      actor.role === "ADMIN" ||
+      actor.role === "HEAD_OF" ||
+      actor.role === "HEAD_OF_INFLUENCE";
 
     // Chargement sans include direct sur `user` : si un userId est orphelin (compte supprimé,
     // données migrées), un include Prisma peut faire échouer toute la liste — on charge les users à part.
@@ -130,7 +132,9 @@ export async function POST(request: NextRequest) {
     const userId = actor.userId;
     const role = actor.role;
     const canManageDossiers =
-      role === "ADMIN" || role === "HEAD_OF_INFLUENCE";
+      role === "ADMIN" ||
+      role === "HEAD_OF" ||
+      role === "HEAD_OF_INFLUENCE";
 
     console.info(
       "[prospection-api] POST",
@@ -142,7 +146,7 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    if (!["ADMIN", "HEAD_OF_INFLUENCE", "TM"].includes(role)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"].includes(role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -160,7 +164,7 @@ export async function POST(request: NextRequest) {
         dossierId = null;
       } else {
         const d = await findDossierProspectionById(String(dossierIdRaw).trim());
-        if (!d || d.userId !== userId) {
+        if (!d) {
           return NextResponse.json(
             { error: "Dossier invalide ou non autorisé" },
             { status: 400 }

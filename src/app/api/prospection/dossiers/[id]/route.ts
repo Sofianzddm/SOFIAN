@@ -21,7 +21,9 @@ export async function DELETE(
 
     const actor = await resolveProspectionActor(session);
     const globalView =
-      actor.role === "ADMIN" || actor.role === "HEAD_OF_INFLUENCE";
+      actor.role === "ADMIN" ||
+      actor.role === "HEAD_OF" ||
+      actor.role === "HEAD_OF_INFLUENCE";
 
     if (!globalView) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });

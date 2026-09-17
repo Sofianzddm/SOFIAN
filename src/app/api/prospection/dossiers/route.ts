@@ -16,7 +16,9 @@ export async function GET(request: NextRequest) {
 
     const actor = await resolveProspectionActor(session);
     const globalView =
-      actor.role === "ADMIN" || actor.role === "HEAD_OF_INFLUENCE";
+      actor.role === "ADMIN" ||
+      actor.role === "HEAD_OF" ||
+      actor.role === "HEAD_OF_INFLUENCE";
 
     if (!globalView) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
@@ -49,7 +51,11 @@ export async function POST(request: NextRequest) {
     }
 
     const actor = await resolveProspectionActor(session);
-    if (actor.role !== "ADMIN" && actor.role !== "HEAD_OF_INFLUENCE") {
+    if (
+      actor.role !== "ADMIN" &&
+      actor.role !== "HEAD_OF" &&
+      actor.role !== "HEAD_OF_INFLUENCE"
+    ) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 

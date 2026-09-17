@@ -87,7 +87,9 @@ export default function ProspectionListPage() {
 
   const role = (session?.user as any)?.role as string | undefined;
   const isAdminOrHeadOfInfluence =
-    role === "ADMIN" || role === "HEAD_OF_INFLUENCE";
+    role === "ADMIN" ||
+    role === "HEAD_OF" ||
+    role === "HEAD_OF_INFLUENCE";
 
   const loadData = useCallback(async () => {
     const res = await fetch("/api/prospection", {

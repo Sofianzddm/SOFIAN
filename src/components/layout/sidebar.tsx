@@ -223,7 +223,7 @@ const menuItems = [
     label: "Prospection",
     href: "/prospection",
     icon: Target,
-    roles: ["ADMIN", "HEAD_OF_INFLUENCE", "TM"],
+    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"],
   },
   {
     label: "Primes",

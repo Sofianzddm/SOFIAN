@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession, resolveProspectionActor } from "@/lib/getAppSession";
 import { findDossierProspectionById } from "@/lib/prospectionDossiersDb";
 
-const ADMIN_ROLES = ["ADMIN", "HEAD_OF_INFLUENCE"] as const;
+const ADMIN_ROLES = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"] as const;
+const DOSSIER_MANAGER_ROLES = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"] as const;
 
 async function getSessionAndFichier(request: NextRequest, id: string) {
   const session = await getAppSession(request);
@@ -98,10 +99,12 @@ export async function PATCH(
     if ("error" in result) return result.error;
 
     const { role, fichier } = result;
-    const canManageDossiers = role === "ADMIN" || role === "HEAD_OF_INFLUENCE";
+    const canManageDossiers = DOSSIER_MANAGER_ROLES.includes(
+      role as (typeof DOSSIER_MANAGER_ROLES)[number]
+    );
 
-    // HEAD_OF_INFLUENCE & ADMIN peuvent modifier tous les fichiers
-    if (!["ADMIN", "HEAD_OF_INFLUENCE", "TM"].includes(role)) {
+    // Head of Influence & ADMIN peuvent modifier tous les fichiers
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"].includes(role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -113,7 +116,7 @@ export async function PATCH(
 
     if (dossierIdRaw !== undefined && !canManageDossiers) {
       return NextResponse.json(
-        { error: "Seuls les administrateurs peuvent gérer les dossiers" },
+        { error: "Seuls l'admin et la Head of Influence peuvent gérer les dossiers" },
         { status: 403 }
       );
     }
@@ -138,12 +141,8 @@ export async function PATCH(
         if (!d) {
           return NextResponse.json({ error: "Dossier introuvable" }, { status: 404 });
         }
-        if (d.userId !== fichier.userId) {
-          return NextResponse.json(
-            { error: "Ce dossier ne correspond pas au propriétaire du fichier" },
-            { status: 403 }
-          );
-        }
+        // Les dossiers sont gérés globalement par ADMIN/HEAD : le propriétaire
+        // du dossier (souvent l'admin créateur) n'a pas à matcher celui du fichier.
         data.dossierId = d.id;
       }
     }
