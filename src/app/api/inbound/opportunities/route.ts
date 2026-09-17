@@ -8,7 +8,6 @@ import { sendInboundNotificationEmail } from "@/lib/emails/inbound-notification"
 import {
   brandNameFromEmailDomain,
   linkMarqueFromBrandName,
-  parseSenderName,
 } from "@/lib/marque-resolver";
 import { normalizeEmail } from "@/lib/normalize-email";
 const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
@@ -148,7 +147,6 @@ export async function POST(req: NextRequest) {
           select: { id: true },
         });
 
-    const sender = parseSenderName(data.senderName);
     // Marque : d'abord extractedBrand (IA), sinon déduction du domaine expéditeur.
     const brandName =
       (data.extractedBrand || "").trim() ||
@@ -159,15 +157,11 @@ export async function POST(req: NextRequest) {
     let marqueId: string | null = null;
     if (brandName) {
       try {
+        // Fiche marque seulement : le contact n'est créé qu'à l'envoi de notre
+        // réponse (pont outreach), pas à la simple réception du mail.
         const linked = await linkMarqueFromBrandName({
           brandName,
           source: "INBOUND",
-          contact: {
-            email: data.senderEmail,
-            nom: sender.nom,
-            prenom: sender.prenom,
-            poste: "Contact inbound",
-          },
         });
         marqueId = linked?.marqueId ?? null;
       } catch (err) {
