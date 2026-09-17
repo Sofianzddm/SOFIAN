@@ -43,6 +43,9 @@ import {
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import { businessDaysAfter } from "@/lib/business-days";
+import InboundExchangeBadge, {
+  type LastInboundExchange,
+} from "@/components/outreach/InboundExchangeBadge";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -127,6 +130,8 @@ type Target = {
   touches: TouchSummary[];
   /** Autres marques (filles) couvertes par ce contact, hors marque principale. */
   coveredBrands?: string[];
+  /** Dernier mail reçu de ce contact (inbound / demande entrante). */
+  lastInbound?: LastInboundExchange | null;
 };
 
 /** Boîte Gmail connectée, utilisable comme expéditrice d'un cycle. */
@@ -1682,6 +1687,7 @@ export default function OutreachPage() {
                             >
                               {target.language === "en" ? "🇬🇧 EN" : "🇫🇷 FR"}
                             </span>
+                            <InboundExchangeBadge exchange={target.lastInbound} />
                           </div>
                           <div className="text-xs text-gray-500 mt-0.5">{target.email}</div>
                           {target.coveredBrands && target.coveredBrands.length > 0 && (

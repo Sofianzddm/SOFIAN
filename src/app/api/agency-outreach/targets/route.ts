@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreatePartnerByName } from "@/lib/agency-partner";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
+import { findLastInboundExchanges } from "@/lib/last-inbound-exchange";
 
 /**
  * GET  → liste des contacts d'agences du cycle Prospection Agences (toutes files)
@@ -73,6 +74,11 @@ export async function GET(request: NextRequest) {
     // le snapshot company / partnerSlug en base si l'agence a été modifiée depuis
     // l'ajout au cycle), pour que la liste et l'aperçu du token {{agence.lien}}
     // reflètent exactement la fiche /partners.
+    // Dernier échange entrant : un inbound ne décale plus le compteur de
+    // recontact, le badge de la liste évite d'écrire à froid à un contact
+    // avec qui on discute déjà.
+    const lastInbound = await findLastInboundExchanges(rows.map((r) => r.email));
+
     const stale: { id: string; name: string; slug: string }[] = [];
     const targets = rows.map(({ partner, ...t }) => {
       const liveName = partner?.name ?? t.company;
@@ -80,7 +86,12 @@ export async function GET(request: NextRequest) {
       if (partner && (t.company !== liveName || t.partnerSlug !== liveSlug)) {
         stale.push({ id: t.id, name: liveName, slug: liveSlug ?? "" });
       }
-      return { ...t, company: liveName, partnerSlug: liveSlug };
+      return {
+        ...t,
+        company: liveName,
+        partnerSlug: liveSlug,
+        lastInbound: lastInbound.get(t.email.trim().toLowerCase()) || null,
+      };
     });
 
     if (stale.length > 0) {

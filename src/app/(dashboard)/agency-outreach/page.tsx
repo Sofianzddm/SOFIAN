@@ -58,6 +58,9 @@ import {
   ImportAgencyModal,
   type AgencyImportResult,
 } from "@/components/agency-outreach/ImportAgencyModal";
+import InboundExchangeBadge, {
+  type LastInboundExchange,
+} from "@/components/outreach/InboundExchangeBadge";
 
 // Doit rester aligné avec AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS côté serveur.
 // (Constante dupliquée ici pour éviter d'importer le moteur d'envoi serveur
@@ -118,6 +121,8 @@ type Target = {
   bouncedAt: string | null;
   createdAt: string;
   touches: TouchSummary[];
+  /** Dernier mail reçu de ce contact (inbound / demande entrante). */
+  lastInbound?: LastInboundExchange | null;
 };
 
 function parisYmd(iso: string | null | undefined): string | null {
@@ -1527,6 +1532,7 @@ export default function AgencyOutreachPage() {
                                 Email incorrect
                               </span>
                             )}
+                            <InboundExchangeBadge exchange={t.lastInbound} />
                           </p>
                           <p className="text-xs opacity-70 truncate" style={{ color: LICORICE }}>
                             {t.email}

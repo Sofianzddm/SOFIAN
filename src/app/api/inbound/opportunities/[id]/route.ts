@@ -88,14 +88,11 @@ export async function PATCH(
         );
       }
       qualification.contactKind = kind || null;
+      // Le type est enregistré dès la sélection ; le nom d'agence peut arriver
+      // juste après (second PATCH). À défaut, le pont outreach déduit l'agence
+      // du domaine de l'expéditeur.
       const agence =
         kind === "AGENCE" ? String(body.contactAgence || "").trim() : "";
-      if (kind === "AGENCE" && !agence) {
-        return NextResponse.json(
-          { error: "Nom de l'agence obligatoire quand le contact est une agence" },
-          { status: 400 }
-        );
-      }
       qualification.contactAgence = agence || null;
     }
     if (body.contactLanguage !== undefined) {

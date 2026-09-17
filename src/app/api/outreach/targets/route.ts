@@ -5,6 +5,7 @@ import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { tryEnrollMarqueAfterEmailComplete } from "@/lib/envoyer-marque-outreach";
 import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
+import { findLastInboundExchanges } from "@/lib/last-inbound-exchange";
 
 /**
  * GET  → liste des clients du cycle Outreach (toutes files) + stats
@@ -64,12 +65,21 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Dernier échange entrant : un inbound ne décale plus le compteur de
+    // recontact, le badge de la liste évite d'écrire à froid à un contact
+    // avec qui on discute déjà.
+    const lastInbound = await findLastInboundExchanges(targets.map((t) => t.email));
+
     // On expose la liste des marques couvertes (hors marque principale) par cible.
     const shaped = targets.map(({ marqueContact, ...t }) => {
       const covered = (marqueContact?.sousMarques || [])
         .map((s) => s.marque.nom)
         .filter((nom) => nom && nom !== t.company);
-      return { ...t, coveredBrands: Array.from(new Set(covered)) };
+      return {
+        ...t,
+        coveredBrands: Array.from(new Set(covered)),
+        lastInbound: lastInbound.get(t.email.trim().toLowerCase()) || null,
+      };
     });
 
     return NextResponse.json({ targets: shaped });

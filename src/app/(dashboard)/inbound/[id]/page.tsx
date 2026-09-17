@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
@@ -110,9 +110,16 @@ export default function InboundDetailPage() {
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
-  // Qualification locale (le mode Agence n'est sauvegardé qu'avec un nom d'agence).
+  // Qualification locale : chaque sélection part en base immédiatement.
   const [qualifKind, setQualifKind] = useState<"" | "MARQUE" | "AGENCE">("");
   const [qualifAgence, setQualifAgence] = useState("");
+  // Sauvegarde en vol : l'envoi l'attend pour ne jamais partir avec une
+  // qualification non encore persistée (sinon routage outreach à côté).
+  const pendingQualifRef = useRef<Promise<void> | null>(null);
+  // Saisie libre du nom d'agence : on laisse retomber la frappe avant d'écrire
+  // (un choix dans la liste déclenche un seul change, donc un seul PATCH).
+  const agenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const qualifAgenceRef = useRef("");
   // Agences existantes : suggérées dans le champ « Nom de l'agence » pour
   // réutiliser la fiche (pas de doublon) ; un nom inconnu crée l'agence.
   const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
@@ -149,6 +156,7 @@ export default function InboundDetailPage() {
           opp?.contactKind === "AGENCE" ? "AGENCE" : opp?.contactKind === "MARQUE" ? "MARQUE" : ""
         );
         setQualifAgence(opp?.contactAgence || "");
+        qualifAgenceRef.current = opp?.contactAgence || "";
       } catch {
         setOpportunity(null);
       } finally {
@@ -188,32 +196,83 @@ export default function InboundDetailPage() {
 
   // Qualification du contact (agence vs marque en direct + langue) : sauvegarde
   // immédiate ; route le contact vers le bon pipeline outreach à la clôture.
-  const saveQualification = async (patch: {
+  const saveQualification = (patch: {
     contactKind?: string | null;
     contactAgence?: string | null;
     contactLanguage?: string;
-  }) => {
-    if (!opportunity) return;
+  }): Promise<void> => {
+    if (!opportunity) return Promise.resolve();
     const previous = opportunity;
     setOpportunity({ ...opportunity, ...patch });
-    try {
-      const res = await fetch(`/api/inbound/opportunities/${opportunity.id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      setOpportunity(data.opportunity || previous);
-    } catch (error) {
-      setOpportunity(previous);
-      setToast({
-        type: "error",
-        message: error instanceof Error ? error.message : "Erreur de sauvegarde",
+    const run = (async () => {
+      try {
+        const res = await fetch(`/api/inbound/opportunities/${previous.id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Erreur");
+        setOpportunity((current) => ({ ...(current || previous), ...(data.opportunity || {}) }));
+      } catch (error) {
+        setOpportunity(previous);
+        setQualifKind(
+          previous.contactKind === "AGENCE"
+            ? "AGENCE"
+            : previous.contactKind === "MARQUE"
+              ? "MARQUE"
+              : ""
+        );
+        setQualifAgence(previous.contactAgence || "");
+        qualifAgenceRef.current = previous.contactAgence || "";
+        setToast({
+          type: "error",
+          message: error instanceof Error ? error.message : "Erreur de sauvegarde",
+        });
+      }
+    })();
+    pendingQualifRef.current = run;
+    return run;
+  };
+
+  /** Nom d'agence : écrit après la frappe (ou tout de suite via `flush`). */
+  const queueAgenceSave = (name: string, flush = false) => {
+    qualifAgenceRef.current = name;
+    if (agenceTimerRef.current) {
+      clearTimeout(agenceTimerRef.current);
+      agenceTimerRef.current = null;
+    }
+    const write = () =>
+      saveQualification({ contactKind: "AGENCE", contactAgence: name.trim() || null });
+    if (flush) {
+      write();
+      return;
+    }
+    agenceTimerRef.current = setTimeout(() => {
+      agenceTimerRef.current = null;
+      write();
+    }, 400);
+  };
+
+  /** Avant un envoi : on force l'écriture en attente et on l'attend. */
+  const flushQualification = async () => {
+    if (agenceTimerRef.current) {
+      clearTimeout(agenceTimerRef.current);
+      agenceTimerRef.current = null;
+      saveQualification({
+        contactKind: "AGENCE",
+        contactAgence: qualifAgenceRef.current.trim() || null,
       });
     }
+    if (pendingQualifRef.current) await pendingQualifRef.current;
   };
+
+  useEffect(() => {
+    return () => {
+      if (agenceTimerRef.current) clearTimeout(agenceTimerRef.current);
+    };
+  }, []);
 
   const bodyText = useMemo(() => {
     if (!opportunity) return "";
@@ -426,6 +485,11 @@ export default function InboundDetailPage() {
   if (forbidden) return <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm">Acces refuse.</div>;
   if (!opportunity) return <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm">Opportunite introuvable.</div>;
 
+  // Champ agence libre : la liste ne sert qu'à réutiliser une fiche existante.
+  const matchedAgency = agencyOptions.find(
+    (a) => a.name.trim().toLowerCase() === qualifAgence.trim().toLowerCase()
+  );
+
   const canAct = opportunity.status === "NEW" || opportunity.status === "IN_REVIEW";
   const canDelete = opportunity.status !== "CONVERTED";
 
@@ -502,6 +566,9 @@ export default function InboundDetailPage() {
 
     setSendingFromLeyna(true);
     try {
+      // La qualification pilote le routage outreach fait à l'envoi : elle doit
+      // être en base avant le POST /send.
+      await flushQualification();
       await saveDraft({ subject, bodyHtml });
 
       const sendRes = await fetch(`/api/inbound/opportunities/${opportunity.id}/send`, {
@@ -698,10 +765,16 @@ export default function InboundDetailPage() {
                   onChange={(e) => {
                     const kind = e.target.value as "" | "MARQUE" | "AGENCE";
                     setQualifKind(kind);
-                    if (kind !== "AGENCE") {
-                      setQualifAgence("");
-                      saveQualification({ contactKind: kind || null, contactAgence: null });
+                    if (kind === "AGENCE") {
+                      saveQualification({
+                        contactKind: "AGENCE",
+                        contactAgence: qualifAgenceRef.current.trim() || null,
+                      });
+                      return;
                     }
+                    setQualifAgence("");
+                    qualifAgenceRef.current = "";
+                    saveQualification({ contactKind: kind || null, contactAgence: null });
                   }}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
@@ -712,19 +785,25 @@ export default function InboundDetailPage() {
               </div>
               {qualifKind === "AGENCE" && (
                 <div>
-                  <label className="mb-1 block text-xs text-slate-500">Nom de l&apos;agence *</label>
+                  <label className="mb-1 block text-xs text-slate-500">
+                    Nom de l&apos;agence * — saisie libre si elle n&apos;est pas dans la liste
+                  </label>
                   <input
                     type="text"
                     list="agency-options"
                     value={qualifAgence}
-                    onChange={(e) => setQualifAgence(e.target.value)}
-                    onBlur={() => {
-                      const name = qualifAgence.trim();
-                      if (name) {
-                        saveQualification({ contactKind: "AGENCE", contactAgence: name });
-                      }
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      setQualifAgence(name);
+                      // Choix dans la liste = save immédiat ; frappe libre =
+                      // save dès que la saisie retombe.
+                      const picked = agencyOptions.some(
+                        (a) => a.name.toLowerCase() === name.trim().toLowerCase()
+                      );
+                      queueAgenceSave(name, picked);
                     }}
-                    placeholder="Ex: WOO, Influence4You…"
+                    onBlur={(e) => queueAgenceSave(e.target.value, true)}
+                    placeholder="Écris le nom ou choisis dans la liste (ex: WOO, Heaven…)"
                     className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   />
                   <datalist id="agency-options">
@@ -734,11 +813,15 @@ export default function InboundDetailPage() {
                   </datalist>
                   {!qualifAgence.trim() ? (
                     <p className="mt-1 text-xs text-amber-600">
-                      Indique le nom de l&apos;agence pour enregistrer la qualification.
+                      Sans nom, l&apos;agence sera déduite du domaine de l&apos;expéditeur.
+                    </p>
+                  ) : matchedAgency ? (
+                    <p className="mt-1 text-xs text-emerald-700">
+                      Agence connue : la fiche {matchedAgency.name} sera réutilisée.
                     </p>
                   ) : (
                     <p className="mt-1 text-xs text-slate-500">
-                      Choisis une agence existante dans la liste ; un nouveau nom créera la fiche agence.
+                      Nouvelle agence : la fiche « {qualifAgence.trim()} » sera créée à l&apos;envoi.
                     </p>
                   )}
                 </div>

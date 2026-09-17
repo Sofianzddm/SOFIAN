@@ -149,7 +149,7 @@ async function main() {
   console.log(`Candidats uniques (inbound/demande envoyés): ${byEmail.size}`);
 
   let enrolled = 0;
-  let rescheduled = 0;
+  let alreadyTracked = 0;
   let skippedPartner = 0;
   let skippedOptOut = 0;
   let skippedStopped = 0;
@@ -265,8 +265,8 @@ async function main() {
         if (enrolledSamples.length < 30) {
           enrolledSamples.push(`${c.company || "?"} — ${c.email} (${bridge.pipeline})`);
         }
-      } else if (bridge.action === "rescheduled") {
-        rescheduled++;
+      } else if (bridge.action === "already-tracked") {
+        alreadyTracked++;
       } else if (bridge.action === "skipped-stopped") {
         skippedStopped++;
       }
@@ -300,7 +300,7 @@ async function main() {
   console.log("\n=== Résultat rattrapage ===");
   console.log({
     enrolled,
-    rescheduled,
+    alreadyTracked,
     alreadyClientOk,
     skippedPartner,
     skippedOptOut,

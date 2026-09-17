@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateBeneluxCompany } from "@/lib/benelux-company";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
+import { findLastInboundExchanges } from "@/lib/last-inbound-exchange";
 
 /**
  * GET  → liste des prospects BENELUX du cycle (toutes files)
@@ -62,12 +63,18 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Dernier échange entrant : un inbound ne décale plus le compteur de
+    // recontact, le badge de la liste évite d'écrire à froid à un contact
+    // avec qui on discute déjà.
+    const lastInbound = await findLastInboundExchanges(rows.map((r) => r.email));
+
     const targets = rows.map(({ companyId, companyName, ...t }) => ({
       ...t,
       marqueId: companyId,
       company: companyName,
       hubspotContactId: null,
       hubspotSyncedAt: null,
+      lastInbound: lastInbound.get(t.email.trim().toLowerCase()) || null,
     }));
 
     return NextResponse.json({ targets });
