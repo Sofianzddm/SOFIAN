@@ -45,6 +45,7 @@ import {
   Ban,
   GitMerge,
   ArrowLeftRight,
+  Search,
 } from "lucide-react";
 import { MarqueCrmTab } from "@/app/(dashboard)/marques/[id]/MarqueCrmTab";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
@@ -583,6 +584,12 @@ export default function MarqueRecordPage({
   const [similarChecked, setSimilarChecked] = useState(false);
   const [mergingSimilarId, setMergingSimilarId] = useState<string | null>(null);
   const [similarPanelOpen, setSimilarPanelOpen] = useState(false);
+  /** Recherche manuelle dans le panneau Doublons (quand l’auto ne trouve rien, ou pour forcer). */
+  const [manualMergeQuery, setManualMergeQuery] = useState("");
+  const [manualMergeResults, setManualMergeResults] = useState<
+    { id: string; nom: string; ville: string; contactCount: number }[]
+  >([]);
+  const [manualMergeSearching, setManualMergeSearching] = useState(false);
 
   const [aoSyncing, setAoSyncing] = useState(false);
   const aoSyncTriedRef = useRef(false);
@@ -1001,7 +1008,7 @@ export default function MarqueRecordPage({
   };
 
   /** Fusionne une fiche doublon dans la fiche courante (cible = page actuelle). */
-  const mergeSimilarIntoCurrent = async (source: SimilarMatch) => {
+  const mergeSimilarIntoCurrent = async (source: { id: string; nom: string }) => {
     if (mergingSimilarId || !marque) return;
     const ok = confirm(
       `Fusionner « ${source.nom} » dans « ${marque.nom} » ?\n\n` +
@@ -1019,6 +1026,8 @@ export default function MarqueRecordPage({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Erreur lors de la fusion.");
       setSimilarMatches((prev) => prev.filter((m) => m.id !== source.id));
+      setManualMergeResults((prev) => prev.filter((m) => m.id !== source.id));
+      setManualMergeQuery("");
       await fetchMarque();
       alert(`Fusion réussie : « ${source.nom} » a été intégrée dans cette fiche.`);
     } catch (e) {
@@ -1027,6 +1036,64 @@ export default function MarqueRecordPage({
       setMergingSimilarId(null);
     }
   };
+
+  // Recherche manuelle CRM pour fusion (debounce 280 ms, min 2 caractères).
+  const marqueIdForMerge = marque?.id;
+  const parentIdForMerge = marque?.parent?.id;
+  const childrenIdsForMerge = (marque?.children || []).map((c) => c.id).join(",");
+  useEffect(() => {
+    if (!canMerge || !similarPanelOpen || !marqueIdForMerge) return;
+    const q = manualMergeQuery.trim();
+    if (q.length < 2) {
+      setManualMergeResults([]);
+      setManualMergeSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setManualMergeSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/marques/search?q=${encodeURIComponent(q)}`);
+        if (!res.ok) throw new Error("Recherche impossible");
+        const data = await res.json();
+        const exclude = new Set<string>([
+          marqueIdForMerge,
+          ...(parentIdForMerge ? [parentIdForMerge] : []),
+          ...childrenIdsForMerge.split(",").filter(Boolean),
+        ]);
+        if (!cancelled) {
+          setManualMergeResults(
+            ((data.marques || []) as { id: string; nom: string; ville: string; contactCount: number }[]).filter(
+              (m) => !exclude.has(m.id)
+            )
+          );
+        }
+      } catch {
+        if (!cancelled) setManualMergeResults([]);
+      } finally {
+        if (!cancelled) setManualMergeSearching(false);
+      }
+    }, 280);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [
+    manualMergeQuery,
+    canMerge,
+    similarPanelOpen,
+    marqueIdForMerge,
+    parentIdForMerge,
+    childrenIdsForMerge,
+  ]);
+
+  // Reset de la recherche manuelle à la fermeture du panneau.
+  useEffect(() => {
+    if (similarPanelOpen) return;
+    setManualMergeQuery("");
+    setManualMergeResults([]);
+    setManualMergeSearching(false);
+  }, [similarPanelOpen]);
 
   const copyEmail = (email: string) => {
     navigator.clipboard.writeText(email);
@@ -1945,7 +2012,7 @@ export default function MarqueRecordPage({
                     <p className="text-[12px] text-gray-500 mt-0.5">
                       {similarMatches.length > 0
                         ? "Tu peux fusionner une fiche dans celle-ci : contacts, collabs et pipelines seront regroupés ici."
-                        : "Pas de doublon exact ni de variante proche trouvée pour cette marque."}
+                        : "Pas de doublon exact ni de variante proche trouvée automatiquement — tu peux aussi chercher une fiche à la main."}
                     </p>
                   )}
                 </div>
@@ -2032,6 +2099,74 @@ export default function MarqueRecordPage({
                   );
                 })}
               </ul>
+            )}
+            {!similarLoading && (
+              <div
+                className={`px-4 py-3 bg-white/40 ${
+                  similarMatches.length > 0 ? "border-t border-black/[0.04]" : ""
+                }`}
+              >
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-gray-400 mb-1.5">
+                  Chercher une fiche à fusionner
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                  <input
+                    type="search"
+                    value={manualMergeQuery}
+                    onChange={(e) => setManualMergeQuery(e.target.value)}
+                    placeholder="Nom de la marque dans le CRM…"
+                    className="w-full pl-8 pr-3 py-2 text-[13px] rounded-lg bg-white ring-1 ring-black/[0.08] focus:outline-none focus:ring-2 focus:ring-black/20"
+                    style={{ color: INK }}
+                    autoComplete="off"
+                  />
+                  {manualMergeSearching && (
+                    <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-gray-400" />
+                  )}
+                </div>
+                {manualMergeQuery.trim().length >= 2 && !manualMergeSearching && manualMergeResults.length === 0 && (
+                  <p className="text-[12px] text-gray-400 mt-2">Aucune marque trouvée pour « {manualMergeQuery.trim()} ».</p>
+                )}
+                {manualMergeResults.length > 0 && (
+                  <ul className="mt-2 divide-y divide-black/[0.04] rounded-lg overflow-hidden ring-1 ring-black/[0.06] bg-white">
+                    {manualMergeResults.slice(0, 8).map((m) => (
+                      <li
+                        key={m.id}
+                        className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <Link
+                            href={`/marques/${m.id}`}
+                            className="text-[13px] font-semibold hover:underline"
+                            style={{ color: INK }}
+                          >
+                            {m.nom}
+                          </Link>
+                          <p className="text-[11px] text-gray-400 mt-0.5">
+                            {m.contactCount} contact{m.contactCount > 1 ? "s" : ""}
+                            {m.ville ? ` · ${m.ville}` : ""}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => mergeSimilarIntoCurrent(m)}
+                          disabled={mergingSimilarId === m.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-lg text-white hover:opacity-90 disabled:opacity-60 shrink-0"
+                          style={{ backgroundColor: INK }}
+                          title={`Fusionner « ${m.nom} » dans cette fiche`}
+                        >
+                          {mergingSimilarId === m.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <GitMerge className="w-3.5 h-3.5" />
+                          )}
+                          Fusionner ici
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
           </div>
         )}
