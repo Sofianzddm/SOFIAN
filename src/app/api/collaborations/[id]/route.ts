@@ -42,7 +42,11 @@ export async function GET(
             manager: { select: { prenom: true, nom: true } },
             delegations: {
               where: { actif: true },
-              select: { actif: true, tmRelaiId: true },
+              select: {
+                actif: true,
+                tmRelaiId: true,
+                tmRelai: { select: { prenom: true, nom: true } },
+              },
             },
           },
         },

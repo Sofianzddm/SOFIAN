@@ -655,10 +655,17 @@ export async function GET(request: NextRequest) {
           },
         }),
         // ✅ CORRIGÉ: Chercher dans la table Negociation, pas Collaboration
+        // Périmètre = talents dont la TM est responsable (portefeuille + relais actifs),
+        // pour que le relai voie les négos reprises pendant une délégation.
         prisma.negociation.findMany({
-          where: { 
-            tmId: user.id,
-            statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] }
+          where: {
+            statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] },
+            talent: {
+              OR: [
+                { managerId: user.id },
+                { delegations: { some: { tmRelaiId: user.id, actif: true } } },
+              ],
+            },
           },
           include: { 
             talent: { select: { id: true, prenom: true, nom: true } }, 

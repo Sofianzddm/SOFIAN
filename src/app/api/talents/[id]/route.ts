@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
+import {
+  getTalentIdsAccessibles,
+  logDelegationActivite,
+  syncDelegationsApresChangementManager,
+} from "@/lib/delegations";
 
 // GET - Détail d'un talent
 export async function GET(
@@ -31,7 +35,11 @@ export async function GET(
         },
         delegations: {
           where: { actif: true },
-          select: { tmRelaiId: true, actif: true },
+          select: {
+            tmRelaiId: true,
+            actif: true,
+            tmRelai: { select: { prenom: true, nom: true } },
+          },
         },
         user: {
           select: {
@@ -375,6 +383,16 @@ export async function PUT(
       }
     }
 
+    const ancienManagerId =
+      data.managerId !== undefined
+        ? (
+            await prisma.talent.findUnique({
+              where: { id },
+              select: { managerId: true },
+            })
+          )?.managerId ?? null
+        : null;
+
     const talent = await prisma.talent.update({
       where: { id },
       data: talentData,
@@ -434,6 +452,20 @@ export async function PUT(
         },
       },
     });
+
+    // Changement de TM : les délégations en cours et l'ownership (gifts, négos)
+    // doivent suivre le nouveau responsable.
+    if (data.managerId) {
+      try {
+        await syncDelegationsApresChangementManager({
+          talentId: id,
+          ancienManagerId,
+          nouveauManagerId: data.managerId,
+        });
+      } catch (e) {
+        console.error("Erreur sync délégations après changement de TM:", e);
+      }
+    }
 
     if (userRole === "TM" && userId) {
       await logDelegationActivite({

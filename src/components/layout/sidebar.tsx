@@ -450,7 +450,11 @@ export function Sidebar({
         const talentsPropres = talents.filter(
           (t) => t.managerId === meId && !t.isArchived
         );
-        const delegTalentIds = new Set(delegations.map((d) => d.talent.id));
+        // Seules les délégations actives couvrent une absence : une délégation
+        // terminée ne doit pas faire croire que le talent est encore relayé.
+        const delegTalentIds = new Set(
+          delegations.filter((d) => d.actif).map((d) => d.talent.id)
+        );
         const nonDelegues = talentsPropres.filter(
           (t: any) => !delegTalentIds.has(t.id)
         );

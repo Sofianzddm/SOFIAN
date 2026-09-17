@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { getResponsableTmId } from "@/lib/delegations";
 
 // POST - Soumettre une négociation (BROUILLON → EN_ATTENTE)
 export async function POST(
@@ -30,8 +31,14 @@ export async function POST(
       return NextResponse.json({ error: "Négociation non trouvée" }, { status: 404 });
     }
 
-    // Vérifier que c'est bien le TM propriétaire
-    if (nego.tmId !== session.user.id && session.user.role !== "ADMIN") {
+    // Soumission réservée au responsable courant du talent : la TM relai pendant
+    // une délégation active, sinon la TM du talent.
+    const responsableId = await getResponsableTmId(nego.talentId);
+    if (
+      nego.tmId !== session.user.id &&
+      responsableId !== session.user.id &&
+      session.user.role !== "ADMIN"
+    ) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
     }
 

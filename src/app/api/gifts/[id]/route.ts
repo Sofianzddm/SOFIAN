@@ -288,12 +288,10 @@ export async function PATCH(
           console.error("Erreur logDelegationActivite STATUT_GIFT:", e);
         }
 
-        // Notifier la TM (via délégation) pour certains statuts (hors EN_ATTENTE)
-        if (
-          nouveauStatut !== "EN_ATTENTE" &&
-          demande.tmId &&
-          demande.tmId !== user.id
-        ) {
+        // Notifier la TM responsable (relai si délégation active) pour certains
+        // statuts (hors EN_ATTENTE). On se base sur le talent, pas sur le `tmId`
+        // stocké, qui peut être en retard sur la délégation en cours.
+        if (nouveauStatut !== "EN_ATTENTE") {
           let messageTM: string | null = null;
           if (nouveauStatut === "ATTENTE_MARQUE") {
             messageTM = "Un Account Manager a contacté la marque pour " + ref;
@@ -310,7 +308,9 @@ export async function PATCH(
           }
 
           if (messageTM && demande.talentId) {
-            const destinataires = await getDestinatairesNotification(demande.talentId);
+            const destinataires = (
+              await getDestinatairesNotification(demande.talentId)
+            ).filter((destId) => destId !== user.id);
             await Promise.all(
               destinataires.map((userId) =>
                 prisma.notification.create({

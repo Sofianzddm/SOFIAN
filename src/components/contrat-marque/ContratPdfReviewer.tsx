@@ -95,7 +95,12 @@ type CollabShape = {
     prenom: string;
     nom: string;
     managerId?: string | null;
-    delegations?: { tmRelaiId?: string; actif?: boolean }[];
+    manager?: { prenom: string; nom: string } | null;
+    delegations?: {
+      tmRelaiId?: string;
+      actif?: boolean;
+      tmRelai?: { prenom: string; nom: string } | null;
+    }[];
   };
   marque: { nom: string };
 };
@@ -363,7 +368,9 @@ export default function ContratPdfReviewer({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/users/mentionable");
+        const res = await fetch(
+          `/api/users/mentionable?contratMarqueCollabId=${encodeURIComponent(collaborationId)}`
+        );
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as MentionableUser[];
         if (!cancelled) setMentionableUsers(data);
@@ -374,7 +381,26 @@ export default function ContratPdfReviewer({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [collaborationId]);
+
+  /**
+   * Qui est en charge du talent : la TM relai pendant une délégation active,
+   * sinon sa TM. C'est la personne à mentionner sur la relecture.
+   */
+  const responsableTalent = useMemo(() => {
+    const relai = (collaboration.talent.delegations ?? []).find(
+      (d) => d.actif !== false && d.tmRelai
+    );
+    if (relai?.tmRelai) {
+      const origine = collaboration.talent.manager;
+      return {
+        nom: `${relai.tmRelai.prenom} ${relai.tmRelai.nom}`,
+        detail: origine ? `relai de ${origine.prenom} ${origine.nom}` : "relai",
+      };
+    }
+    const manager = collaboration.talent.manager;
+    return manager ? { nom: `${manager.prenom} ${manager.nom}`, detail: "TM du talent" } : null;
+  }, [collaboration.talent.delegations, collaboration.talent.manager]);
 
   const mentionUsersById = useMemo(() => {
     const m = new Map<string, { firstName: string; lastName: string }>();
@@ -1253,6 +1279,12 @@ export default function ContratPdfReviewer({
                   <p>
                     <span className="text-gray-500">Marque :</span> {collaboration.marque.nom}
                   </p>
+                  {responsableTalent ? (
+                    <p>
+                      <span className="text-gray-500">En charge :</span> {responsableTalent.nom}{" "}
+                      <span className="text-gray-500">({responsableTalent.detail})</span>
+                    </p>
+                  ) : null}
                   <p>
                     <span className="text-gray-500">Montant net :</span> {montant} €
                   </p>

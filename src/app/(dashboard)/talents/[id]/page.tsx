@@ -46,6 +46,7 @@ import KitPhotosManager from "@/components/talent/KitPhotosManager";
 import ContratsTalentBloc from "@/components/talent/ContratsTalentBloc";
 import { talentSlug } from "@/lib/talent-slug";
 import { isTmAssigneOuRelai } from "@/lib/contratMarqueAccess";
+import DelegationBanner from "@/components/delegation/DelegationBanner";
 
 interface TalentDetail {
   id: string;
@@ -80,7 +81,13 @@ interface TalentDetail {
   createdAt: string;
   managerId: string;
   manager?: { id: string; prenom: string; nom: string; email: string } | null;
-  delegations?: { tmRelaiId?: string | null; actif?: boolean }[] | null;
+  delegations?:
+    | {
+        tmRelaiId?: string | null;
+        actif?: boolean;
+        tmRelai?: { prenom: string; nom: string } | null;
+      }[]
+    | null;
   user?: { id: string; email: string; actif: boolean } | null;
   stats?: {
     igFollowers: number | null;
@@ -1064,7 +1071,9 @@ export default function TalentDetailPage() {
       {/* CONTENT */}
       {/* ============================================ */}
       <div className="max-w-7xl mx-auto px-6 -mt-16 relative z-20 pb-12 space-y-8">
-        
+
+        <DelegationBanner talent={talent} userId={userId} contexte="ce talent" />
+
         {/* Alerte stats périmées */}
         {role === "TM" && isMyTalent && stats?.lastUpdate && (
           (() => {

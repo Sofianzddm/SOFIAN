@@ -43,6 +43,7 @@ import {
 import { MentionTextarea, renderCommentWithMentions, type MentionableUser } from "@/components/MentionTextarea";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
 import ContratMarqueBloc from "@/components/collaboration/ContratMarqueBloc";
+import DelegationBanner from "@/components/delegation/DelegationBanner";
 import { DEVISES, formatMontant, type DeviseCode } from "@/lib/devises";
 
 interface Livrable {
@@ -130,7 +131,11 @@ interface CollabDetail {
     pays?: string | null;
     managerId?: string;
     manager?: { prenom: string; nom: string } | null;
-    delegations?: { actif: boolean; tmRelaiId?: string }[];
+    delegations?: {
+      actif: boolean;
+      tmRelaiId?: string;
+      tmRelai?: { prenom: string; nom: string } | null;
+    }[];
   };
   marque: { 
     id: string; 
@@ -1304,6 +1309,12 @@ export default function CollabDetailPage() {
             )}
           </div>
         </div>
+
+        <DelegationBanner
+          talent={collab.talent}
+          userId={currentUserForContratMarque.id}
+          contexte="ce talent"
+        />
 
         {/* Hero */}
         <div className="relative mb-8 rounded-2xl bg-white border border-gray-100 p-6 sm:p-8 shadow-sm overflow-hidden">

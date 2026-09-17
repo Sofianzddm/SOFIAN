@@ -32,9 +32,14 @@ export default async function ContratMarqueReviewPage({
     include: {
       talent: {
         include: {
+          manager: { select: { prenom: true, nom: true } },
           delegations: {
             where: { actif: true },
-            select: { tmRelaiId: true, actif: true },
+            select: {
+              tmRelaiId: true,
+              actif: true,
+              tmRelai: { select: { prenom: true, nom: true } },
+            },
           },
         },
       },

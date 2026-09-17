@@ -28,7 +28,19 @@ export default async function JuristeContratPage({
   const collaboration = await prisma.collaboration.findUnique({
     where: { id },
     include: {
-      talent: true,
+      talent: {
+        include: {
+          manager: { select: { prenom: true, nom: true } },
+          delegations: {
+            where: { actif: true },
+            select: {
+              tmRelaiId: true,
+              actif: true,
+              tmRelai: { select: { prenom: true, nom: true } },
+            },
+          },
+        },
+      },
       marque: true,
       livrables: { orderBy: { createdAt: "asc" } },
       contratMarqueAnnotations: { orderBy: { createdAt: "asc" } },

@@ -120,9 +120,12 @@ export async function POST(
         where: { id: { in: Array.from(mentionedIds) }, actif: true },
         select: { id: true, email: true, prenom: true, role: true },
       });
-      const mentionedUsers = isHeadOfSalesCollab
-        ? mentionedUsersRaw.filter((u) => u.role !== "TM" && u.role !== "HEAD_OF_INFLUENCE")
-        : mentionedUsersRaw;
+      // On ne notifie que les personnes qui ont réellement accès à cette
+      // relecture : mentionner une TM qui n'est ni la TM du talent ni son relai
+      // actif lui envoyait une notif vers une page interdite.
+      const mentionedUsers = mentionedUsersRaw.filter((mu) =>
+        canReadContratMarqueReview(mu.id, mu.role, collab)
+      );
 
       try {
         await prisma.$transaction(
@@ -179,16 +182,50 @@ export async function POST(
       }
     }
 
+    // Destinataires "système" du commentaire : juriste(s) + TM responsable du
+    // talent (relai si délégation active, sinon la TM du talent). Mêmes
+    // destinataires en in-app et en email.
+    const juristes = await findJuristesContratMarque();
+    const destTmIds = isHeadOfSalesCollab
+      ? []
+      : await getDestinatairesNotification(collab.talent.id);
+
+    const broadcastIds = [
+      ...new Set([...juristes.map((j) => j.id), ...destTmIds]),
+    ].filter((uid) => uid !== user.id && !mentionedIds.has(uid));
+
+    if (broadcastIds.length > 0) {
+      try {
+        const broadcastUsers = await prisma.user.findMany({
+          where: { id: { in: broadcastIds }, actif: true },
+          select: { id: true, role: true },
+        });
+        await prisma.$transaction(
+          broadcastUsers.map((bu) =>
+            prisma.notification.create({
+              data: {
+                userId: bu.id,
+                type: "GENERAL",
+                titre: "💬 Nouveau commentaire sur un contrat marque",
+                message: `${label} — ${auteur} a commenté la relecture.`,
+                lien: reviewLinkFor(bu.role),
+                actorId: user.id,
+                collabId: id,
+              },
+            })
+          )
+        );
+      } catch (notifErr) {
+        console.error("Erreur création notifications commentaire contrat marque:", notifErr);
+      }
+    }
+
     const resendKey = process.env.RESEND_API_KEY?.trim();
     if (resendKey) {
       try {
-        const juristes = await findJuristesContratMarque();
         const destinataires: { email: string | null; prenom: string | null }[] = juristes
           .filter((j) => j.id !== user.id)
           .map((j) => ({ email: j.email, prenom: j.prenom }));
-        const destTmIds = isHeadOfSalesCollab
-          ? []
-          : await getDestinatairesNotification(collab.talent.id);
         if (destTmIds.length > 0) {
           const tmUsers = await prisma.user.findMany({
             where: { id: { in: destTmIds.filter((tid) => tid !== user.id) } },

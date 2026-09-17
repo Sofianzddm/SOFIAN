@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
-import { basculerGiftsPourDelegation } from "@/lib/delegations";
+import {
+  basculerOwnershipPourDelegation,
+  desactiverAutresDelegations,
+} from "@/lib/delegations";
 
 function requireAdmin(session: Awaited<ReturnType<typeof getAppSession>>) {
   const role = (session?.user as { role?: string })?.role;
@@ -128,9 +131,18 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      await basculerGiftsPourDelegation(delegation, "vers_relai");
+      // Un seul relai actif par talent : les délégations concurrentes sont
+      // coupées et leur ownership renvoyé vers le nouveau relai.
+      const remplacees = await desactiverAutresDelegations(talentId, delegation.id);
+      for (const ancienne of remplacees) {
+        await basculerOwnershipPourDelegation(
+          { ...ancienne, talent: delegation.talent },
+          "vers_origine"
+        );
+      }
+      await basculerOwnershipPourDelegation(delegation, "vers_relai");
     } catch (e) {
-      console.error("Erreur bascule gifts vers relai:", e);
+      console.error("Erreur bascule ownership vers relai:", e);
     }
 
     return NextResponse.json(delegation, { status: 201 });

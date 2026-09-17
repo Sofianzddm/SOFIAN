@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getTalentIdsAccessibles, logDelegationActivite } from "@/lib/delegations";
+import {
+  getResponsableTmId,
+  getTalentIdsAccessibles,
+  logDelegationActivite,
+} from "@/lib/delegations";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -180,9 +184,12 @@ export async function PUT(
       return NextResponse.json({ error: "Négociation non trouvée" }, { status: 404 });
     }
 
-    // Vérifier les permissions
+    // Édition réservée au responsable courant du talent : la TM relai pendant une
+    // délégation active, sinon la TM du talent.
+    const responsableId = await getResponsableTmId(negoActuelle.talentId);
     const canEdit =
       session.user.id === negoActuelle.tmId ||
+      session.user.id === responsableId ||
       ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(session.user.role || "");
 
     if (!canEdit) {

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
-import { basculerGiftsPourDelegation } from "@/lib/delegations";
+import {
+  basculerOwnershipPourDelegation,
+  desactiverAutresDelegations,
+} from "@/lib/delegations";
 
 function requireAdmin(session: Awaited<ReturnType<typeof getAppSession>>) {
   const role = (session?.user as { role?: string })?.role;
@@ -49,12 +52,21 @@ export async function PATCH(
     });
 
     try {
-      await basculerGiftsPourDelegation(
+      if (actif) {
+        const remplacees = await desactiverAutresDelegations(updated.talentId, updated.id);
+        for (const ancienne of remplacees) {
+          await basculerOwnershipPourDelegation(
+            { ...ancienne, talent: updated.talent },
+            "vers_origine"
+          );
+        }
+      }
+      await basculerOwnershipPourDelegation(
         updated,
         actif ? "vers_relai" : "vers_origine"
       );
     } catch (e) {
-      console.error("Erreur bascule gifts délégation:", e);
+      console.error("Erreur bascule ownership délégation:", e);
     }
 
     return NextResponse.json(updated);
@@ -85,11 +97,11 @@ export async function DELETE(
       },
     });
 
-    if (delegation) {
+    if (delegation?.actif) {
       try {
-        await basculerGiftsPourDelegation(delegation, "vers_origine");
+        await basculerOwnershipPourDelegation(delegation, "vers_origine");
       } catch (e) {
-        console.error("Erreur bascule gifts avant suppression délégation:", e);
+        console.error("Erreur bascule ownership avant suppression délégation:", e);
       }
     }
 

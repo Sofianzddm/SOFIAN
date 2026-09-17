@@ -48,9 +48,16 @@ export async function GET(request: NextRequest) {
       // Si aucun talent accessible, on force un IN vide pour ne rien retourner.
       where.talentId = { in: talentIds.length > 0 ? talentIds : ["__none__"] };
     }
-    // Head Of et Admin voient tout (possibilité de filtrer par TM)
+    // Head Of et Admin voient tout (possibilité de filtrer par TM).
+    // Même sémantique que les collaborations : le filtre TM porte sur le
+    // portefeuille du TM (ses talents + ceux qu'il a en relai actif).
     else if (tmId) {
-      where.tmId = tmId;
+      where.talent = {
+        OR: [
+          { managerId: tmId },
+          { delegations: { some: { tmRelaiId: tmId, actif: true } } },
+        ],
+      };
     }
 
     if (statut) {
