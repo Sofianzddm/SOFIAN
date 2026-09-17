@@ -5,6 +5,7 @@ import { findOrCreatePartnerByName } from "@/lib/agency-partner";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
 import { findLastInboundExchanges } from "@/lib/last-inbound-exchange";
+import { normalizeEmail } from "@/lib/normalize-email";
 
 /**
  * GET  → liste des contacts d'agences du cycle Prospection Agences (toutes files)
@@ -90,7 +91,7 @@ export async function GET(request: NextRequest) {
         ...t,
         company: liveName,
         partnerSlug: liveSlug,
-        lastInbound: lastInbound.get(t.email.trim().toLowerCase()) || null,
+        lastInbound: lastInbound.get(normalizeEmail(t.email)) || null,
       };
     });
 
@@ -233,7 +234,7 @@ export async function POST(request: NextRequest) {
     const partnerName = (body.partnerName || "").trim();
     const prenom = (body.prenom || "").trim();
     const nom = (body.nom || "").trim();
-    const email = (body.email || "").trim().toLowerCase();
+    const email = normalizeEmail(body.email);
     const poste = (body.poste || "").trim();
 
     if (!partnerId && !partnerName) {

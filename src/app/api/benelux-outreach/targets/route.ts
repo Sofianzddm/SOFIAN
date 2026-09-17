@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { findOrCreateBeneluxCompany } from "@/lib/benelux-company";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { findLastInboundExchanges } from "@/lib/last-inbound-exchange";
+import { normalizeEmail } from "@/lib/normalize-email";
 
 /**
  * GET  → liste des prospects BENELUX du cycle (toutes files)
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest) {
       company: companyName,
       hubspotContactId: null,
       hubspotSyncedAt: null,
-      lastInbound: lastInbound.get(t.email.trim().toLowerCase()) || null,
+      lastInbound: lastInbound.get(normalizeEmail(t.email)) || null,
     }));
 
     return NextResponse.json({ targets });

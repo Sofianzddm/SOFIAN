@@ -6,6 +6,7 @@ import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { tryEnrollMarqueAfterEmailComplete } from "@/lib/envoyer-marque-outreach";
 import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
 import { findLastInboundExchanges } from "@/lib/last-inbound-exchange";
+import { normalizeEmail } from "@/lib/normalize-email";
 
 /**
  * GET  → liste des clients du cycle Outreach (toutes files) + stats
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
       return {
         ...t,
         coveredBrands: Array.from(new Set(covered)),
-        lastInbound: lastInbound.get(t.email.trim().toLowerCase()) || null,
+        lastInbound: lastInbound.get(normalizeEmail(t.email)) || null,
       };
     });
 
@@ -111,7 +112,7 @@ export async function POST(request: NextRequest) {
       language?: string;
     };
 
-    const email = (body.email || "").trim().toLowerCase();
+    const email = normalizeEmail(body.email);
     if (!email || !isValidEmail(email)) {
       return NextResponse.json({ error: "Email invalide." }, { status: 400 });
     }

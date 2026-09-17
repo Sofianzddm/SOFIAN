@@ -39,6 +39,7 @@ import {
   parseSenderName,
 } from "@/lib/marque-resolver";
 import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
+import { normalizeEmail, isValidNormalizedEmail } from "@/lib/normalize-email";
 
 export type OutreachPipeline = "client" | "agency" | "benelux";
 
@@ -70,7 +71,7 @@ export type PipelineResolution =
   | { kind: "none" };
 
 function isValidEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  return isValidNormalizedEmail(normalizeEmail(value));
 }
 
 /**
@@ -81,7 +82,7 @@ function isValidEmail(value: string): boolean {
 export async function resolveOutreachPipeline(
   rawEmail: string
 ): Promise<PipelineResolution> {
-  const email = rawEmail.trim().toLowerCase();
+  const email = normalizeEmail(rawEmail);
   if (!email || !isValidEmail(email)) return { kind: "none" };
 
   const [client, agency, benelux] = await Promise.all([
@@ -320,7 +321,7 @@ function resolveForcedAgencyName(
  *  - Mode d'entrée : voir `enrollmentMode` sur `BridgeInput`.
  */
 export async function bridgeContactToOutreach(input: BridgeInput): Promise<BridgeResult> {
-  const email = (input.email || "").trim().toLowerCase();
+  const email = normalizeEmail(input.email);
   if (!email || !isValidEmail(email)) {
     return { ok: false, reason: "email-invalide" };
   }
@@ -586,10 +587,7 @@ function maxDate(...dates: Array<Date | null | undefined>): Date | null {
 
 /** "Marie Dupont <marie@agence.fr>" → "marie@agence.fr" */
 function extractEmailFromHeader(fromValue: string): string {
-  const trimmed = (fromValue || "").trim();
-  const bracketMatch = trimmed.match(/<([^>]+)>/);
-  if (bracketMatch?.[1]) return bracketMatch[1].trim().toLowerCase();
-  return trimmed.toLowerCase();
+  return normalizeEmail(fromValue);
 }
 
 /** "Marie Dupont <marie@agence.fr>" → "Marie Dupont" (sinon ""). */
@@ -720,7 +718,7 @@ export async function enrollIfMissingAfterPipelineSend(input: {
   sentAt?: Date;
   sourceLabel?: string;
 }): Promise<BridgeResult | { ok: true; action: "already-tracked" | "skipped-partner" }> {
-  const email = (input.email || "").trim().toLowerCase();
+  const email = normalizeEmail(input.email);
   if (!email || !isValidEmail(email)) {
     return { ok: false, reason: "email-invalide" };
   }
@@ -1371,7 +1369,7 @@ export async function runCrmDormantEnrollSweep(): Promise<CrmEnrollSweepResult> 
 
   for (const contact of contacts) {
     result.contactsProcessed += 1;
-    const email = (contact.email || "").trim().toLowerCase();
+    const email = normalizeEmail(contact.email);
     let ref: string;
 
     try {

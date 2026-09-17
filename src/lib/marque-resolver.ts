@@ -17,6 +17,7 @@
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { normalizeEmail } from "@/lib/normalize-email";
 
 export type MarqueAliasSource =
   | "INBOUND"
@@ -295,8 +296,8 @@ export async function ensureMarqueContact(
   input: EnsureMarqueContactInput,
   client: TxClient = prisma
 ): Promise<void> {
-  const email = input.email?.trim().toLowerCase();
-  const nom = (input.nom || input.email?.split("@")[0] || "Contact").trim();
+  const email = input.email ? normalizeEmail(input.email) : "";
+  const nom = (input.nom || email.split("@")[0] || "Contact").trim();
   if (!nom && !email) return;
 
   if (email) {

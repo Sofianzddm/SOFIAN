@@ -9,6 +9,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { normalizeEmail } from "@/lib/normalize-email";
 
 /** Au-delà, l'info n'aide plus à décider d'un envoi : pas de badge. */
 export const INBOUND_BADGE_WINDOW_DAYS = 120;
@@ -23,13 +24,6 @@ export type LastInboundExchange = {
   subject: string | null;
 };
 
-/** "Marie Dupont <marie@agence.fr>" → "marie@agence.fr" */
-function emailFromHeader(fromValue: string): string {
-  const trimmed = (fromValue || "").trim();
-  const bracket = trimmed.match(/<([^>]+)>/);
-  return (bracket?.[1] || trimmed).trim().toLowerCase();
-}
-
 /**
  * Pour une liste d'emails de cibles outreach, renvoie le dernier échange
  * entrant de chacun (fenêtre glissante de `INBOUND_BADGE_WINDOW_DAYS`).
@@ -38,9 +32,7 @@ function emailFromHeader(fromValue: string): string {
 export async function findLastInboundExchanges(
   emails: string[]
 ): Promise<Map<string, LastInboundExchange>> {
-  const wanted = new Set(
-    emails.map((e) => (e || "").trim().toLowerCase()).filter(Boolean)
-  );
+  const wanted = new Set(emails.map((e) => normalizeEmail(e)).filter(Boolean));
   const result = new Map<string, LastInboundExchange>();
   if (wanted.size === 0) return result;
 
@@ -76,7 +68,7 @@ export async function findLastInboundExchanges(
   };
 
   for (const opp of inbounds) {
-    keepLatest((opp.senderEmail || "").trim().toLowerCase(), {
+    keepLatest(normalizeEmail(opp.senderEmail), {
       receivedAt: opp.receivedAt.toISOString(),
       answeredAt: opp.sentAt?.toISOString() || null,
       inboundId: opp.id,
@@ -85,7 +77,7 @@ export async function findLastInboundExchanges(
   }
 
   for (const demande of demandes) {
-    keepLatest(emailFromHeader(demande.from), {
+    keepLatest(normalizeEmail(demande.from), {
       receivedAt: demande.date.toISOString(),
       answeredAt: demande.sentAt?.toISOString() || null,
       inboundId: null,
