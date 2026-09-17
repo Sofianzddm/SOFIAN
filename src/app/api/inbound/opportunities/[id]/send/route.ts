@@ -120,10 +120,12 @@ export async function POST(
       WHERE "id" = ${id}
     `;
 
-    // Enrôlement immédiat dans le cycle outreach 45j (WAITING).
-    // Ne doit jamais faire échouer l'envoi Gmail déjà réussi.
+    // Enrôlement cycle outreach juste après l'envoi :
+    // marque → WAITING J+30 à partir de cet envoi ; agence déjà enrôlée au
+    // qualify (ou already-tracked).
     try {
       await bridgeInboundOpportunityAfterSend(id, session.user.id, {
+        lastExchangeAt: new Date(),
         label: "Réponse inbound envoyée",
       });
     } catch (error) {

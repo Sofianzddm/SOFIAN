@@ -342,8 +342,8 @@ export default function InboundDetailPage() {
         const outreachMsg =
           fiche.outreachAction === "created" && fiche.kind === "AGENCE"
             ? " — ajoutée en Prospection Agences (à contacter)"
-            : fiche.outreachAction === "created" && fiche.kind === "MARQUE"
-              ? " — ajoutée en Outreach Clients (attente J+30)"
+            : fiche.outreachAction === "deferred" && fiche.kind === "MARQUE"
+              ? " — Outreach Clients (WAITING J+30) après l'envoi de ta réponse"
               : fiche.outreachAction === "already-tracked"
                 ? " — déjà dans un cycle outreach"
                 : "";
@@ -852,9 +852,10 @@ export default function InboundDetailPage() {
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="font-semibold text-slate-900">Qualification du contact</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Choisis Agence ou Marque, puis Enregistrer : le contact est créé sur
-              la fiche et entre tout de suite dans le cycle outreach s&apos;il n&apos;y
-              est pas déjà (agence → à contacter). Obligatoire avant de rédiger.
+              Choisis Agence ou Marque, puis Enregistrer.
+              Agence absente du cycle → Prospection Agences (à contacter).
+              Marque → fiche contact ; WAITING J+30 seulement après l&apos;envoi
+              de ta réponse. Obligatoire avant de rédiger.
             </p>
             <div className="mt-3 space-y-2">
               <div>

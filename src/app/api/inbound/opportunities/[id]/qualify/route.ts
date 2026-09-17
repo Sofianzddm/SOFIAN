@@ -13,9 +13,9 @@ const ALLOWED_CATEGORIES = new Set([
 ]);
 
 /**
- * Enregistre la qualification (agence / marque + langue), crée la fiche
- * contact CRM, et enrôle immédiatement dans le cycle outreach si absent
- * (agence → à contacter ; marque → WAITING J+30).
+ * Enregistre la qualification (agence / marque + langue) et crée la fiche
+ * contact CRM. Agence absente du cycle → Prospection Agences (à contacter).
+ * Marque → fiche seulement ; WAITING J+30 au moment de l'envoi de la réponse.
  */
 export async function POST(
   req: NextRequest,

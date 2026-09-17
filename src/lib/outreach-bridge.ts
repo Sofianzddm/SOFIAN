@@ -614,11 +614,12 @@ function bridgeRef(bridge: BridgeResult): string {
 }
 
 /**
- * Persiste la qualification inbound, crée / met à jour la fiche contact
- * (Partner + AgencyContact, ou Marque + MarqueContact) ET enrôle tout de suite
- * dans le cycle outreach si le contact n'y est pas déjà :
- *  - Agence → Prospection Agences, file « à contacter »
- *  - Marque → Outreach Clients, WAITING J+30
+ * Persiste la qualification inbound et crée / met à jour la fiche contact.
+ *
+ * Enrôlement outreach :
+ *  - Agence → tout de suite en Prospection Agences (« à contacter ») si absente du cycle
+ *  - Marque → fiche contact seulement ; WAITING J+30 au moment de l'envoi
+ *    de notre réponse (`bridgeInboundOpportunityAfterSend`)
  */
 export type PersistInboundContactResult =
   | {
@@ -640,8 +641,8 @@ export type PersistInboundContactResult =
       contactId: string | null;
       href: string;
       created: boolean;
-      outreachAction: "created" | "already-tracked" | "skipped-stopped" | "skipped";
-      outreachPipeline?: "agency" | "client" | "benelux";
+      /** Marque : cycle outreach seulement après l'envoi de la réponse. */
+      outreachAction: "deferred";
     }
   | { ok: false; reason: string };
 
@@ -866,12 +867,8 @@ export async function persistInboundQualifiedContact(
     },
   });
 
-  const outreach = await enrollOutreach({
-    company: marqueName,
-    marqueId,
-    contactKind: "MARQUE",
-  });
-
+  // Pas d'enrôlement outreach ici : WAITING J+30 démarre à l'envoi
+  // de notre réponse (bridgeInboundOpportunityAfterSend).
   return {
     ok: true,
     kind: "MARQUE",
@@ -880,8 +877,7 @@ export async function persistInboundQualifiedContact(
     contactId: marqueContact?.id || null,
     href: `/marques/${marqueId}`,
     created: !existingMarqueContact,
-    outreachAction: outreach.action,
-    outreachPipeline: outreach.pipeline,
+    outreachAction: "deferred",
   };
 }
 
