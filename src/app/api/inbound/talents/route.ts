@@ -8,9 +8,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Pas de boîte Gmail Workspace fiable pour le HORS TM → exclus du scan inbound.
+    const horsTm = await prisma.user.findFirst({
+      where: {
+        role: "TM",
+        prenom: { equals: "HORS", mode: "insensitive" },
+        nom: { equals: "TM", mode: "insensitive" },
+      },
+      select: { id: true },
+    });
+
     const talents = await prisma.talent.findMany({
       where: {
         isArchived: false,
+        ...(horsTm ? { managerId: { not: horsTm.id } } : {}),
       },
       select: {
         id: true,

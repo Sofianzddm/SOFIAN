@@ -1063,7 +1063,10 @@ export async function runOutreachBridgeSweep(): Promise<BridgeSweepResult> {
         select: {
           nom: true,
           contacts: {
-            where: { email: { not: null } },
+            where: {
+              email: { not: null },
+              OR: [{ source: { not: "AO" } }, { source: null }],
+            },
             orderBy: [{ principal: "desc" }, { createdAt: "desc" }],
             take: 1,
             select: { email: true, prenom: true, nom: true, language: true },
@@ -1171,6 +1174,9 @@ const CRM_RECENT_EXCHANGE_DAYS = OUTREACH_RECONTACT_DAYS;
 /** Petits lots pour un flux digeste dans la file « à contacter » de Leyna. */
 const CRM_ENROLL_BATCH_SIZE = 25;
 
+/** Marquage permanent : les contacts Achats / AO ne rejoignent jamais le cycle. */
+const AO_SKIP_REF = "skipped:source-ao";
+
 /**
  * Adresses techniques auxquelles il est inutile d'écrire (no-reply, robots,
  * notifications) : présentes dans le CRM via des mails automatiques archivés.
@@ -1182,12 +1188,70 @@ function isNoReplyEmail(email: string): boolean {
   );
 }
 
+export type PurgeAoOutreachResult = {
+  deletedClient: number;
+  deletedAgency: number;
+  marked: number;
+};
+
+/**
+ * Règle métier dure : aucun contact `source=AO` (feuille Achats / Appel d'offre)
+ * ne doit figurer dans un pipeline outreach. Retire les cibles déjà créées à
+ * tort et marque tous les contacts AO pour qu'ils ne soient plus enrôlés.
+ */
+export async function purgeAoContactsFromOutreach(): Promise<PurgeAoOutreachResult> {
+  const result: PurgeAoOutreachResult = {
+    deletedClient: 0,
+    deletedAgency: 0,
+    marked: 0,
+  };
+
+  const aoClientTargets = await prisma.outreachTarget.findMany({
+    where: { marqueContact: { source: "AO" } },
+    select: { id: true },
+  });
+  if (aoClientTargets.length > 0) {
+    const deleted = await prisma.outreachTarget.deleteMany({
+      where: { id: { in: aoClientTargets.map((t) => t.id) } },
+    });
+    result.deletedClient = deleted.count;
+  }
+
+  const aoAgencyRefs = await prisma.marqueContact.findMany({
+    where: {
+      source: "AO",
+      outreachTargetRef: { startsWith: "agency:" },
+    },
+    select: { id: true, outreachTargetRef: true },
+  });
+  for (const contact of aoAgencyRefs) {
+    const targetId = (contact.outreachTargetRef || "").slice("agency:".length).trim();
+    if (!targetId) continue;
+    const deleted = await prisma.agencyOutreachTarget.deleteMany({
+      where: { id: targetId },
+    });
+    result.deletedAgency += deleted.count;
+  }
+
+  const marked = await prisma.marqueContact.updateMany({
+    where: { source: "AO" },
+    data: {
+      outreachEnrolledAt: new Date(),
+      outreachTargetRef: AO_SKIP_REF,
+    },
+  });
+  result.marked = marked.count;
+
+  return result;
+}
+
 export type CrmEnrollSweepResult = {
   contactsProcessed: number;
   enrolledClient: number;
   enrolledAgency: number;
   alreadyTracked: number;
   skipped: number;
+  aoPurge: PurgeAoOutreachResult;
 };
 
 /**
@@ -1201,6 +1265,9 @@ export type CrmEnrollSweepResult = {
  * carto) qui ne passent par aucun flux : sans ce sweep, personne ne les
  * prospecterait jamais.
  *
+ * Les contacts Achats / AO (`source=AO`) sont exclus : ils ne rejoignent
+ * jamais le cycle (purge + filtre + garde dans la boucle).
+ *
  * Routage : domaine/email d'agence connue → Prospection Agences ; sinon →
  * Outreach Clients. Respecte `outreachExcluded` (contact sorti volontairement).
  * Idempotent : chaque contact traité est marqué (outreachEnrolledAt), y compris
@@ -1209,12 +1276,15 @@ export type CrmEnrollSweepResult = {
  * le flux sera clos (le pont de clôture couvre alors le contact du deal).
  */
 export async function runCrmDormantEnrollSweep(): Promise<CrmEnrollSweepResult> {
+  const aoPurge = await purgeAoContactsFromOutreach();
+
   const result: CrmEnrollSweepResult = {
     contactsProcessed: 0,
     enrolledClient: 0,
     enrolledAgency: 0,
     alreadyTracked: 0,
     skipped: 0,
+    aoPurge,
   };
 
   const createdById = await resolveBridgeCreatedById();
@@ -1234,6 +1304,8 @@ export async function runCrmDormantEnrollSweep(): Promise<CrmEnrollSweepResult> 
       diffusionOptOut: false,
       email: { not: null },
       createdAt: { lt: graceCutoff },
+      // Achats / AO : jamais dans le cycle (Prisma `not: "AO"` exclut aussi null).
+      OR: [{ source: { not: "AO" } }, { source: null }],
       marque: {
         // Flux actif ou échange récent (< 45j) sur la marque → on n'enrôle pas
         // maintenant ; le contact sera repris à un prochain passage (non marqué).
@@ -1280,6 +1352,7 @@ export async function runCrmDormantEnrollSweep(): Promise<CrmEnrollSweepResult> 
       nom: true,
       poste: true,
       language: true,
+      source: true,
       marqueId: true,
       marque: { select: { nom: true } },
     },
@@ -1291,7 +1364,10 @@ export async function runCrmDormantEnrollSweep(): Promise<CrmEnrollSweepResult> 
     let ref: string;
 
     try {
-      if (!email || !isValidEmail(email)) {
+      if ((contact.source || "").toUpperCase() === "AO") {
+        result.skipped += 1;
+        ref = AO_SKIP_REF;
+      } else if (!email || !isValidEmail(email)) {
         result.skipped += 1;
         ref = "skipped:email-invalide";
       } else if (isNoReplyEmail(email)) {

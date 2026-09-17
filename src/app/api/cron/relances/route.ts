@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
     console.error("[cron/relances] sweep pont outreach:", error);
   }
 
-  // Filet « aucune fiche ne dort » : les contacts CRM avec email, dans aucun
-  // pipeline et sans échange récent, entrent en TO_CONTACT par petits lots
-  // (aucun envoi de mail ici non plus).
+  // Filet « aucune fiche ne dort » : les contacts CRM (hors AO) avec email,
+  // dans aucun pipeline et sans échange récent, entrent en TO_CONTACT par
+  // petits lots. La purge AO retire d'abord toute cible Achats déjà enrôlée.
   let crmEnroll = null;
   try {
     crmEnroll = await runCrmDormantEnrollSweep();
