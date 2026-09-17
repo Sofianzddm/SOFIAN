@@ -614,9 +614,11 @@ function bridgeRef(bridge: BridgeResult): string {
 }
 
 /**
- * Persiste la qualification inbound ET crée / met à jour la fiche contact
- * (Partner + AgencyContact, ou Marque + MarqueContact) tout de suite —
- * sans enrôler dans le cycle outreach (ça reste à l'envoi / sweep).
+ * Persiste la qualification inbound, crée / met à jour la fiche contact
+ * (Partner + AgencyContact, ou Marque + MarqueContact) ET enrôle tout de suite
+ * dans le cycle outreach si le contact n'y est pas déjà :
+ *  - Agence → Prospection Agences, file « à contacter »
+ *  - Marque → Outreach Clients, WAITING J+30
  */
 export type PersistInboundContactResult =
   | {
@@ -627,6 +629,8 @@ export type PersistInboundContactResult =
       contactId: string;
       href: string;
       created: boolean;
+      outreachAction: "created" | "already-tracked" | "skipped-stopped" | "skipped";
+      outreachPipeline?: "agency" | "client" | "benelux";
     }
   | {
       ok: true;
@@ -636,6 +640,8 @@ export type PersistInboundContactResult =
       contactId: string | null;
       href: string;
       created: boolean;
+      outreachAction: "created" | "already-tracked" | "skipped-stopped" | "skipped";
+      outreachPipeline?: "agency" | "client" | "benelux";
     }
   | { ok: false; reason: string };
 
@@ -656,6 +662,8 @@ export async function persistInboundQualifiedContact(
       senderName: true,
       extractedBrand: true,
       marqueId: true,
+      receivedAt: true,
+      outreachBridgedAt: true,
     },
   });
   if (!opp) return { ok: false, reason: "introuvable" };
@@ -674,6 +682,58 @@ export async function persistInboundQualifiedContact(
   const firstname =
     sender.prenom || sender.nom || email.split("@")[0] || "Contact";
   const lastname = sender.prenom ? sender.nom || null : null;
+  const lastExchangeAt = opp.receivedAt || new Date();
+
+  /** Enrôle dans le cycle outreach + marque l'opportunité comme bridgée. */
+  const enrollOutreach = async (input: {
+    company?: string | null;
+    marqueId?: string | null;
+    contactKind: "MARQUE" | "AGENCE";
+    contactAgence?: string | null;
+  }): Promise<{
+    action: "created" | "already-tracked" | "skipped-stopped" | "skipped";
+    pipeline?: "agency" | "client" | "benelux";
+  }> => {
+    let bridge: BridgeResult;
+    try {
+      bridge = await bridgeContactToOutreach({
+        email,
+        firstname,
+        lastname,
+        company: input.company,
+        marqueId: input.marqueId,
+        contactKind: input.contactKind,
+        contactAgence: input.contactAgence,
+        language,
+        lastExchangeAt,
+        createdById,
+        sourceLabel: "inbound",
+        reasonLabel: "Qualification inbound enregistrée",
+        enrollmentMode: "inbound",
+      });
+    } catch (error) {
+      console.warn(
+        `[outreach-bridge] enroll on qualify ${opp.id} (${email}):`,
+        error
+      );
+      bridge = { ok: false, reason: "erreur" };
+    }
+
+    await prisma.inboundOpportunity
+      .update({
+        where: { id: opp.id },
+        data: {
+          outreachBridgedAt: opp.outreachBridgedAt ?? new Date(),
+          outreachTargetRef: bridgeRef(bridge),
+        },
+      })
+      .catch((e) =>
+        console.warn(`[outreach-bridge] marquage qualify ${opp.id}:`, e)
+      );
+
+    if (!bridge.ok) return { action: "skipped" };
+    return { action: bridge.action, pipeline: bridge.pipeline };
+  };
 
   if (kind === "AGENCE") {
     const agencyName =
@@ -716,6 +776,12 @@ export async function persistInboundQualifiedContact(
       },
     });
 
+    const outreach = await enrollOutreach({
+      company: agencyName,
+      contactKind: "AGENCE",
+      contactAgence: agencyName,
+    });
+
     return {
       ok: true,
       kind: "AGENCE",
@@ -724,6 +790,8 @@ export async function persistInboundQualifiedContact(
       contactId: contact.id,
       href: `/partners/manage/${partner.id}`,
       created: !existing,
+      outreachAction: outreach.action,
+      outreachPipeline: outreach.pipeline,
     };
   }
 
@@ -798,6 +866,12 @@ export async function persistInboundQualifiedContact(
     },
   });
 
+  const outreach = await enrollOutreach({
+    company: marqueName,
+    marqueId,
+    contactKind: "MARQUE",
+  });
+
   return {
     ok: true,
     kind: "MARQUE",
@@ -806,6 +880,8 @@ export async function persistInboundQualifiedContact(
     contactId: marqueContact?.id || null,
     href: `/marques/${marqueId}`,
     created: !existingMarqueContact,
+    outreachAction: outreach.action,
+    outreachPipeline: outreach.pipeline,
   };
 }
 

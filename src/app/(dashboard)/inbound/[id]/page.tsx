@@ -329,6 +329,8 @@ export default function InboundDetailPage() {
             marqueName?: string;
             href: string;
             created: boolean;
+            outreachAction?: string;
+            outreachPipeline?: string;
           }
         | undefined;
       if (fiche?.ok) {
@@ -337,10 +339,18 @@ export default function InboundDetailPage() {
             ? fiche.partnerName || agence
             : fiche.marqueName || opp.extractedBrand || "Marque";
         setQualifFiche({ kind: fiche.kind, label, href: fiche.href });
+        const outreachMsg =
+          fiche.outreachAction === "created" && fiche.kind === "AGENCE"
+            ? " — ajoutée en Prospection Agences (à contacter)"
+            : fiche.outreachAction === "created" && fiche.kind === "MARQUE"
+              ? " — ajoutée en Outreach Clients (attente J+30)"
+              : fiche.outreachAction === "already-tracked"
+                ? " — déjà dans un cycle outreach"
+                : "";
         showToast(
-          fiche.created
+          (fiche.created
             ? `Fiche ${fiche.kind === "AGENCE" ? "agence" : "marque"} créée : ${label}`
-            : `Contact ajouté sur la fiche ${label}`,
+            : `Contact enregistré sur ${label}`) + outreachMsg,
           "success"
         );
       } else {
@@ -842,8 +852,9 @@ export default function InboundDetailPage() {
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="font-semibold text-slate-900">Qualification du contact</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Choisis Agence ou Marque, puis Enregistrer : le contact est créé tout de suite
-              sur la fiche correspondante. Obligatoire avant de rédiger un mail.
+              Choisis Agence ou Marque, puis Enregistrer : le contact est créé sur
+              la fiche et entre tout de suite dans le cycle outreach s&apos;il n&apos;y
+              est pas déjà (agence → à contacter). Obligatoire avant de rédiger.
             </p>
             <div className="mt-3 space-y-2">
               <div>
