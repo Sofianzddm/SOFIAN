@@ -41,6 +41,11 @@ import {
   AlertCircle,
   X,
   Languages,
+  Mail,
+  Bell,
+  Eye,
+  AlertTriangle,
+  Clock,
 } from "lucide-react";
 
 type DocStatut = "BROUILLON" | "VALIDE" | "ENVOYE" | "PAYE" | "ANNULE" | "REFUSE";
@@ -83,6 +88,11 @@ interface DocDetail {
   poClient: string | null;
   notes: string | null;
   mentionTVA?: string | null;
+  clientNom?: string | null;
+  clientEmail?: string | null;
+  relance1SentAt?: string | null;
+  relance2SentAt?: string | null;
+  relance3SentAt?: string | null;
   lignes?: unknown;
   collaboration?: {
     id: string;
@@ -270,6 +280,18 @@ export default function FactureDetailPage() {
   const [reconcileError, setReconcileError] = useState<string | null>(null);
   const [reconcileAssociating, setReconcileAssociating] = useState<string | null>(null);
   const [reconcileTransactions, setReconcileTransactions] = useState<ReconcileTransaction[]>([]);
+  const [relanceLoading, setRelanceLoading] = useState(false);
+  const [relanceToast, setRelanceToast] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [relancePreview, setRelancePreview] = useState<{
+    level: 1 | 2 | 3;
+    subject: string;
+    html: string;
+    sentAt: string;
+    sentTo: string | null;
+    sentBy: { prenom: string; nom: string } | null;
+    from: string;
+  } | null>(null);
+  const [relancePreviewLoading, setRelancePreviewLoading] = useState<1 | 2 | 3 | null>(null);
   const { data: session, status } = useSession();
   const sendRef = useRef<HTMLDivElement>(null);
   const downloadRef = useRef<HTMLDivElement>(null);
@@ -661,6 +683,71 @@ export default function FactureDetailPage() {
     }
   }, [id, commentContent, fetchDoc]);
 
+  const handleSendRelance = useCallback(
+    async (level: 1 | 2 | 3) => {
+      if (!id) return;
+      const ordinal = level === 1 ? "1ère" : level === 2 ? "2ème" : "3ème";
+      if (!window.confirm(`Envoyer la ${ordinal} relance par email depuis comptabilite@glowupagence.fr ?`)) {
+        return;
+      }
+      setRelanceLoading(true);
+      try {
+        const r = await fetch(`/api/documents/${id}/relance`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ level }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setRelanceToast({ kind: "error", message: data.error || "Erreur lors de l'envoi de la relance" });
+        } else {
+          setRelanceToast({
+            kind: "success",
+            message: `${ordinal} relance envoyée à ${data.sentTo ?? "le client"}`,
+          });
+          await fetchDoc();
+        }
+      } catch (e) {
+        setRelanceToast({ kind: "error", message: e instanceof Error ? e.message : "Erreur réseau" });
+      } finally {
+        setRelanceLoading(false);
+        setTimeout(() => setRelanceToast(null), 6000);
+      }
+    },
+    [id, fetchDoc]
+  );
+
+  const handlePreviewRelance = useCallback(
+    async (level: 1 | 2 | 3) => {
+      if (!id) return;
+      setRelancePreviewLoading(level);
+      try {
+        const r = await fetch(`/api/documents/${id}/relance?level=${level}`, { cache: "no-store" });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setRelanceToast({ kind: "error", message: data.error || "Impossible d'ouvrir l'aperçu" });
+          setTimeout(() => setRelanceToast(null), 6000);
+          return;
+        }
+        setRelancePreview({
+          level: data.level,
+          subject: data.subject,
+          html: data.html,
+          sentAt: data.sentAt,
+          sentTo: data.sentTo,
+          sentBy: data.sentBy ?? null,
+          from: data.from,
+        });
+      } catch (e) {
+        setRelanceToast({ kind: "error", message: e instanceof Error ? e.message : "Erreur réseau" });
+        setTimeout(() => setRelanceToast(null), 6000);
+      } finally {
+        setRelancePreviewLoading(null);
+      }
+    },
+    [id]
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -685,7 +772,7 @@ export default function FactureDetailPage() {
   }
 
   const isLate =
-    doc.statut === "ENVOYE" &&
+    (doc.statut === "ENVOYE" || doc.statut === "VALIDE") &&
     doc.dateEcheance &&
     new Date(doc.dateEcheance) < new Date();
   const isCancelled = doc.statut === "ANNULE";
@@ -698,14 +785,23 @@ export default function FactureDetailPage() {
   const currentStepIndex = PIPELINE_STEPS.findIndex((s) => s.key === doc.statut);
   const marque = doc.collaboration?.marque;
   const talent = doc.collaboration?.talent;
-  const clientName = marque?.nom ?? (doc as any).clientNom ?? "—";
+  const clientName = marque?.nom ?? doc.clientNom ?? "—";
   const talentName = talent ? `${talent.prenom} ${talent.nom}` : null;
+
+  const eventLabel = (type: string, description: string | null) => {
+    if (type === "CREATED") return "Création";
+    if (type === "REGISTERED") return "Enregistrement";
+    if (type === "SENT") return "Envoi";
+    if (type === "PAYMENT") return "Paiement";
+    if (type === "REMINDER_SENT") return description || "Relance envoyée";
+    return description || type;
+  };
 
   // Historique : events ou dérivé
   const historyItems = (doc.events && doc.events.length > 0)
     ? doc.events.map((e) => ({
         user: `${e.user.prenom} ${e.user.nom}`,
-        event: e.type === "CREATED" ? "Création" : e.type === "REGISTERED" ? "Enregistrement" : e.type === "SENT" ? "Envoi" : e.type === "PAYMENT" ? "Paiement" : e.description || e.type,
+        event: eventLabel(e.type, e.description),
         document: `Facture (${doc.reference})`,
         date: e.createdAt,
       }))
@@ -731,6 +827,59 @@ export default function FactureDetailPage() {
             ]
           : []),
       ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const parseRelanceFromEvent = (description: string | null): { level: 1 | 2 | 3; email: string | null } | null => {
+    if (!description) return null;
+    for (const [level, prefix] of [
+      [1, "1ère relance envoyée à "],
+      [2, "2ème relance envoyée à "],
+      [3, "3ème relance envoyée à "],
+    ] as const) {
+      if (description.startsWith(prefix)) {
+        return { level, email: description.slice(prefix.length).trim() || null };
+      }
+    }
+    return null;
+  };
+
+  const relanceRows = ([1, 2, 3] as const).map((level) => {
+    const sentAtField =
+      level === 1 ? doc.relance1SentAt : level === 2 ? doc.relance2SentAt : doc.relance3SentAt;
+    const matchingEvents = (doc.events ?? [])
+      .map((e) => ({ e, parsed: e.type === "REMINDER_SENT" ? parseRelanceFromEvent(e.description) : null }))
+      .filter((x) => x.parsed?.level === level);
+    const lastEvent = matchingEvents[0]?.e ?? null; // events are ordered desc
+    const email = matchingEvents[0]?.parsed?.email ?? null;
+    return {
+      level,
+      sentAt: sentAtField || lastEvent?.createdAt || null,
+      sentTo: email,
+      sentBy: lastEvent ? `${lastEvent.user.prenom} ${lastEvent.user.nom}` : null,
+    };
+  });
+
+  const joursRetard =
+    doc.dateEcheance && new Date(doc.dateEcheance) < new Date()
+      ? Math.max(1, Math.floor((Date.now() - new Date(doc.dateEcheance).getTime()) / 86400000))
+      : 0;
+  let nextRelanceLevel: 1 | 2 | 3 | null = null;
+  if (isFacture && isLate && (doc.statut === "ENVOYE" || doc.statut === "VALIDE") && doc.statut !== "PAYE") {
+    if (!doc.relance1SentAt) nextRelanceLevel = 1;
+    else if (!doc.relance2SentAt && joursRetard >= 30) nextRelanceLevel = 2;
+    else if (!doc.relance3SentAt && joursRetard >= 60) nextRelanceLevel = 3;
+  }
+  const nextEligibleIn =
+    doc.relance1SentAt && !doc.relance2SentAt
+      ? Math.max(0, 30 - joursRetard)
+      : doc.relance2SentAt && !doc.relance3SentAt
+        ? Math.max(0, 60 - joursRetard)
+        : 0;
+  const canRelance =
+    isFacture &&
+    !isCancelled &&
+    doc.statut !== "PAYE" &&
+    (doc.statut === "ENVOYE" || doc.statut === "VALIDE") &&
+    !!isLate;
 
   return (
     <div className="min-h-screen bg-gray-50/50">
@@ -1315,6 +1464,100 @@ export default function FactureDetailPage() {
 
         {/* ═══ ZONE 3 : Sections pleine largeur ═══ */}
         <div className="mt-8 space-y-6">
+          {/* Relances client */}
+          {isFacture && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-[#1A1110] flex items-center gap-2">
+                    <Bell className="w-5 h-5" />
+                    Relances client
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-1">
+                    R1 dès l&apos;échéance dépassée · R2 après 30 j de retard · R3 après 60 j
+                  </p>
+                </div>
+                {canRelance && nextRelanceLevel ? (
+                  <button
+                    type="button"
+                    onClick={() => handleSendRelance(nextRelanceLevel)}
+                    disabled={relanceLoading}
+                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 ${
+                      nextRelanceLevel === 1
+                        ? "bg-amber-500 hover:bg-amber-600"
+                        : nextRelanceLevel === 2
+                          ? "bg-orange-500 hover:bg-orange-600"
+                          : "bg-red-600 hover:bg-red-700"
+                    }`}
+                  >
+                    {relanceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                    Faire {nextRelanceLevel === 1 ? "1ère" : nextRelanceLevel === 2 ? "2ème" : "3ème"} relance
+                  </button>
+                ) : canRelance && nextEligibleIn > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+                    <Clock className="w-3.5 h-3.5" />
+                    Prochaine relance dans {nextEligibleIn} j
+                  </span>
+                ) : isLate ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-red-600">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    {joursRetard} j de retard
+                  </span>
+                ) : null}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-xs text-gray-500 uppercase font-medium">
+                      <th className="text-left py-3 px-4">Niveau</th>
+                      <th className="text-left py-3 px-4">Date</th>
+                      <th className="text-left py-3 px-4">Destinataire</th>
+                      <th className="text-left py-3 px-4">Envoyée par</th>
+                      <th className="text-right py-3 px-4">Aperçu</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {relanceRows.map((row) => (
+                      <tr key={row.level} className="border-t border-gray-100">
+                        <td className="py-3 px-4 font-medium text-[#1A1110]">
+                          {row.level === 1 ? "1ère relance" : row.level === 2 ? "2ème relance" : "3ème relance"}
+                        </td>
+                        <td className="py-3 px-4 text-gray-600">
+                          {row.sentAt ? formatDateTime(row.sentAt) : (
+                            <span className="text-gray-400 italic">Non envoyée</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-gray-600">
+                          {row.sentTo || (row.sentAt ? "—" : doc.clientEmail || "—")}
+                        </td>
+                        <td className="py-3 px-4 text-gray-600">{row.sentBy || "—"}</td>
+                        <td className="py-3 px-4 text-right">
+                          {row.sentAt ? (
+                            <button
+                              type="button"
+                              onClick={() => handlePreviewRelance(row.level)}
+                              disabled={relancePreviewLoading === row.level}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#1A1110] hover:underline disabled:opacity-50"
+                            >
+                              {relancePreviewLoading === row.level ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Eye className="w-3.5 h-3.5" />
+                              )}
+                              Voir le mail
+                            </button>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* Conditions particulières */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <h2 className="text-lg font-semibold text-[#1A1110] mb-4">Conditions particulières</h2>
@@ -1806,6 +2049,76 @@ export default function FactureDetailPage() {
                 className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
               >
                 {actionLoading === "annuler" ? <Loader2 className="w-4 h-4 animate-spin inline" /> : "Confirmer l'annulation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast relance */}
+      {relanceToast && (
+        <div className="fixed bottom-6 right-6 z-[60] max-w-sm">
+          <div
+            className={`flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg ${
+              relanceToast.kind === "success"
+                ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                : "bg-red-50 border-red-200 text-red-800"
+            }`}
+          >
+            {relanceToast.kind === "success" ? (
+              <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            )}
+            <div className="flex-1 text-sm">{relanceToast.message}</div>
+            <button type="button" onClick={() => setRelanceToast(null)} className="text-current/70 hover:text-current">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Aperçu mail de relance */}
+      {relancePreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-[#1A1110]">
+                  Aperçu — {relancePreview.level === 1 ? "1ère" : relancePreview.level === 2 ? "2ème" : "3ème"} relance
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Envoyée le {formatDateTime(relancePreview.sentAt)}
+                  {relancePreview.sentTo ? ` · à ${relancePreview.sentTo}` : ""}
+                  {relancePreview.sentBy
+                    ? ` · par ${relancePreview.sentBy.prenom} ${relancePreview.sentBy.nom}`
+                    : ""}
+                </p>
+                <p className="text-xs text-gray-500">De : {relancePreview.from}</p>
+                <p className="text-sm font-medium text-[#1A1110] mt-2">{relancePreview.subject}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRelancePreview(null)}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto bg-gray-50 p-4">
+              <iframe
+                title="Aperçu relance"
+                srcDoc={relancePreview.html}
+                className="w-full min-h-[420px] bg-white rounded-lg border border-gray-200"
+              />
+            </div>
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setRelancePreview(null)}
+                className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Fermer
               </button>
             </div>
           </div>

@@ -297,6 +297,69 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Historique des relances (destinataire réel + auteur) pour l'onglet Relances
+    const docsWithRelanceIds = documents
+      .filter((d) => d.relance1SentAt || d.relance2SentAt || d.relance3SentAt)
+      .map((d) => d.id);
+    const relanceEvents =
+      docsWithRelanceIds.length > 0
+        ? await prisma.documentEvent.findMany({
+            where: { documentId: { in: docsWithRelanceIds }, type: "REMINDER_SENT" },
+            orderBy: { createdAt: "asc" },
+            select: {
+              documentId: true,
+              description: true,
+              createdAt: true,
+              user: { select: { id: true, prenom: true, nom: true } },
+            },
+          })
+        : [];
+
+    const parseRelanceLevel = (description: string | null): 1 | 2 | 3 | null => {
+      if (!description) return null;
+      if (description.startsWith("1ère relance envoyée à ")) return 1;
+      if (description.startsWith("2ème relance envoyée à ")) return 2;
+      if (description.startsWith("3ème relance envoyée à ")) return 3;
+      return null;
+    };
+    const parseRelanceEmail = (description: string | null, level: 1 | 2 | 3): string | null => {
+      if (!description) return null;
+      const prefix =
+        level === 1
+          ? "1ère relance envoyée à "
+          : level === 2
+            ? "2ème relance envoyée à "
+            : "3ème relance envoyée à ";
+      if (!description.startsWith(prefix)) return null;
+      const email = description.slice(prefix.length).trim();
+      return email || null;
+    };
+
+    const relancesByDoc = new Map<
+      string,
+      Array<{
+        level: 1 | 2 | 3;
+        sentAt: string;
+        sentTo: string | null;
+        sentBy: { id: string; prenom: string; nom: string } | null;
+      }>
+    >();
+    for (const ev of relanceEvents) {
+      const level = parseRelanceLevel(ev.description);
+      if (!level) continue;
+      const entry = {
+        level,
+        sentAt: ev.createdAt.toISOString(),
+        sentTo: parseRelanceEmail(ev.description, level),
+        sentBy: ev.user ?? null,
+      };
+      const list = relancesByDoc.get(ev.documentId) ?? [];
+      // garder le plus récent pour un même niveau
+      const withoutLevel = list.filter((r) => r.level !== level);
+      withoutLevel.push(entry);
+      relancesByDoc.set(ev.documentId, withoutLevel.sort((a, b) => a.level - b.level));
+    }
+
     // ============================================
     // RESPONSE — masquer infos de paiement pour non-ADMIN (marque nous a réglé / talent payé)
     // ============================================
@@ -310,6 +373,15 @@ export async function GET(request: NextRequest) {
       // Liste complète pour la page factures (toutes les factures, avec collaboration optionnelle)
       documents: documents.map((d) => {
         const principalContact = d.collaboration?.marque?.contacts?.[0] ?? null;
+        const relanceHistory = relancesByDoc.get(d.id) ?? [];
+        // Destinataire probable pour la prochaine relance (même logique simplifiée que l'API relance)
+        const relanceDestinataire =
+          d.clientEmail?.trim() ||
+          principalContact?.email?.trim() ||
+          null;
+        const lastRelance = [...relanceHistory].sort(
+          (a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()
+        )[0] ?? null;
         return {
           id: d.id,
           reference: d.reference,
@@ -328,6 +400,9 @@ export async function GET(request: NextRequest) {
           relance1SentAt: d.relance1SentAt,
           relance2SentAt: d.relance2SentAt,
           relance3SentAt: d.relance3SentAt,
+          relanceHistory,
+          lastRelance,
+          relanceDestinataire,
           collaboration: d.collaboration
             ? {
                 id: d.collaboration.id,

@@ -41,6 +41,13 @@ function formatMonthLabel(monthKey: string): string {
   return new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
 }
 
+interface RelanceHistoryEntry {
+  level: 1 | 2 | 3;
+  sentAt: string;
+  sentTo: string | null;
+  sentBy: { id: string; prenom: string; nom: string } | null;
+}
+
 interface DocumentInfo {
   id: string;
   reference: string;
@@ -59,6 +66,9 @@ interface DocumentInfo {
   relance1SentAt?: string | null;
   relance2SentAt?: string | null;
   relance3SentAt?: string | null;
+  relanceHistory?: RelanceHistoryEntry[];
+  lastRelance?: RelanceHistoryEntry | null;
+  relanceDestinataire?: string | null;
   collaboration: {
     id: string;
     reference: string;
@@ -374,15 +384,15 @@ export default function FacturesPage() {
   // À l’ouverture de l’onglet Relances, remettre le filtre statut à "Tout" si pas une valeur relance
   useEffect(() => {
     if (tab !== "relances") return;
-    if (statutFilter !== "all" && !["R1", "R2", "R3", "DONE"].includes(statutFilter)) {
+    if (statutFilter !== "all" && !["R1", "R2", "R3", "WAITING", "DONE"].includes(statutFilter)) {
       setStatutFilter("all");
     }
   }, [tab, statutFilter]);
 
-  // Lorsque l'on quitte l'onglet relances, on reset un filtre R1/R2/R3/DONE
+  // Lorsque l'on quitte l'onglet relances, on reset un filtre R1/R2/R3/WAITING/DONE
   useEffect(() => {
     if (tab === "relances") return;
-    if (["R1", "R2", "R3", "DONE"].includes(statutFilter)) {
+    if (["R1", "R2", "R3", "WAITING", "DONE"].includes(statutFilter)) {
       setStatutFilter("all");
     }
   }, [tab, statutFilter]);
@@ -481,9 +491,20 @@ export default function FacturesPage() {
             : d.relance2SentAt && !d.relance3SentAt
               ? Math.max(0, 60 - joursRetard)
               : 0;
-        return { doc: d, joursRetard, nextLevel, nextEligibleIn };
+        const allDone = !!d.relance3SentAt;
+        const waiting = nextLevel === null && !allDone && nextEligibleIn > 0;
+        return { doc: d, joursRetard, nextLevel, nextEligibleIn, allDone, waiting };
       })
-      .filter((x): x is { doc: DocumentInfo; joursRetard: number; nextLevel: 1 | 2 | 3 | null; nextEligibleIn: number } => x !== null);
+      .filter(
+        (x): x is {
+          doc: DocumentInfo;
+          joursRetard: number;
+          nextLevel: 1 | 2 | 3 | null;
+          nextEligibleIn: number;
+          allDone: boolean;
+          waiting: boolean;
+        } => x !== null
+      );
   }, [documents]);
 
   const relancesFiltered = useMemo(() => {
@@ -494,6 +515,9 @@ export default function FacturesPage() {
         doc.reference.toLowerCase().includes(q) ||
         (doc.titre ?? "").toLowerCase().includes(q) ||
         (doc.clientNom ?? "").toLowerCase().includes(q) ||
+        (doc.clientEmail ?? "").toLowerCase().includes(q) ||
+        (doc.relanceDestinataire ?? "").toLowerCase().includes(q) ||
+        (doc.lastRelance?.sentTo ?? "").toLowerCase().includes(q) ||
         (doc.collaboration?.marque?.nom ?? "").toLowerCase().includes(q)
       );
     }
@@ -501,13 +525,14 @@ export default function FacturesPage() {
       if (statutFilter === "R1") list = list.filter((x) => x.nextLevel === 1);
       else if (statutFilter === "R2") list = list.filter((x) => x.nextLevel === 2);
       else if (statutFilter === "R3") list = list.filter((x) => x.nextLevel === 3);
-      else if (statutFilter === "DONE") list = list.filter((x) => x.nextLevel === null);
+      else if (statutFilter === "WAITING") list = list.filter((x) => x.waiting);
+      else if (statutFilter === "DONE") list = list.filter((x) => x.allDone);
     }
-    // Tri : niveau dispo en premier, puis plus gros retard
+    // Tri : actionnable en premier, puis plus gros retard
     list.sort((a, b) => {
-      const aDone = a.nextLevel === null ? 1 : 0;
-      const bDone = b.nextLevel === null ? 1 : 0;
-      if (aDone !== bDone) return aDone - bDone;
+      const aPrio = a.nextLevel !== null ? 0 : a.waiting ? 1 : 2;
+      const bPrio = b.nextLevel !== null ? 0 : b.waiting ? 1 : 2;
+      if (aPrio !== bPrio) return aPrio - bPrio;
       return b.joursRetard - a.joursRetard;
     });
     return list;
@@ -519,8 +544,15 @@ export default function FacturesPage() {
   }, [relancesFiltered, page, perPage]);
 
   const relancesStats = useMemo(() => {
+    const aRelancer =
+      relancesItems.filter((x) => x.nextLevel === 1).length +
+      relancesItems.filter((x) => x.nextLevel === 2).length +
+      relancesItems.filter((x) => x.nextLevel === 3).length;
     return {
       total: relancesItems.length,
+      aRelancer,
+      waiting: relancesItems.filter((x) => x.waiting).length,
+      done: relancesItems.filter((x) => x.allDone).length,
       r1: relancesItems.filter((x) => x.nextLevel === 1).length,
       r2: relancesItems.filter((x) => x.nextLevel === 2).length,
       r3: relancesItems.filter((x) => x.nextLevel === 3).length,
@@ -851,17 +883,22 @@ export default function FacturesPage() {
               <>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-700">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  À relancer : {relancesStats.total}
+                  À relancer : {relancesStats.aRelancer}
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700">
-                  1ère relance : {relancesStats.r1}
+                  1ère : {relancesStats.r1}
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-orange-50 text-orange-700">
-                  2ème relance : {relancesStats.r2}
+                  2ème : {relancesStats.r2}
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-100 text-red-700">
-                  3ème relance : {relancesStats.r3}
+                  3ème : {relancesStats.r3}
                 </span>
+                {relancesStats.waiting > 0 && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-100 text-gray-600">
+                    En attente délai : {relancesStats.waiting}
+                  </span>
+                )}
               </>
             )}
           </div>
@@ -988,9 +1025,9 @@ export default function FacturesPage() {
             <span className={isRelances ? "text-glowup-licorice" : "text-gray-500 hover:text-gray-700"}>
               Relances
             </span>
-            {relancesStats.total > 0 && (
+            {relancesStats.aRelancer > 0 && (
               <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold bg-red-500 text-white">
-                {relancesStats.total}
+                {relancesStats.aRelancer}
               </span>
             )}
             {isRelances && (
@@ -1080,6 +1117,7 @@ export default function FacturesPage() {
                     <option value="R1">1ère relance à faire</option>
                     <option value="R2">2ème relance à faire</option>
                     <option value="R3">3ème relance à faire</option>
+                    <option value="WAITING">En attente de délai</option>
                     <option value="DONE">3 relances déjà envoyées</option>
                   </>
                 ) : isAvoirs ? (
@@ -1919,6 +1957,13 @@ function formatMoney(amount: number, currency: string | null | undefined = "EUR"
 // ============================================
 // Composant : Onglet Relances
 // ============================================
+function formatRelanceDate(date: Date | string | null | undefined): string {
+  if (!date) return "—";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
 function RelancesTab({
   items,
   totalItems,
@@ -1935,6 +1980,8 @@ function RelancesTab({
     joursRetard: number;
     nextLevel: 1 | 2 | 3 | null;
     nextEligibleIn: number;
+    allDone: boolean;
+    waiting: boolean;
   }>;
   totalItems: number;
   page: number;
@@ -1965,25 +2012,52 @@ function RelancesTab({
 
   return (
     <>
+      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/60 text-xs text-gray-600">
+        <span className="font-medium text-gray-700">Règles :</span>{" "}
+        R1 dès l&apos;échéance dépassée · R2 après 30 j de retard · R3 après 60 j de retard.
+        Les dates et destinataires des relances déjà envoyées sont visibles ci-dessous.
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50">
               <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Facture n°</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Client</th>
-              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Émise le</th>
-              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Échéance</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase hidden lg:table-cell">Échéance</th>
               <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Retard</th>
-              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Relances envoyées</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Dernière relance</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Historique R1–R3</th>
               <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase">Montant TTC</th>
               <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase">Action</th>
             </tr>
           </thead>
           <tbody>
-            {items.map(({ doc, joursRetard, nextLevel, nextEligibleIn }) => {
+            {items.map(({ doc, joursRetard, nextLevel, nextEligibleIn, allDone, waiting }) => {
               const r1 = doc.relance1SentAt ? new Date(doc.relance1SentAt) : null;
               const r2 = doc.relance2SentAt ? new Date(doc.relance2SentAt) : null;
               const r3 = doc.relance3SentAt ? new Date(doc.relance3SentAt) : null;
+              const historyByLevel = new Map(
+                (doc.relanceHistory ?? []).map((h) => [h.level, h] as const)
+              );
+              const last = doc.lastRelance ?? null;
+              const lastDate = last?.sentAt
+                ? new Date(last.sentAt)
+                : r3 || r2 || r1;
+              const lastLevel = last?.level ?? (r3 ? 3 : r2 ? 2 : r1 ? 1 : null);
+              const lastEmail =
+                last?.sentTo ||
+                doc.relanceDestinataire ||
+                doc.clientEmail ||
+                doc.collaboration?.marqueContact?.email ||
+                null;
+              const lastBy = last?.sentBy
+                ? `${last.sentBy.prenom} ${last.sentBy.nom}`.trim()
+                : null;
+              const nextEmail =
+                doc.relanceDestinataire ||
+                doc.clientEmail ||
+                doc.collaboration?.marqueContact?.email ||
+                null;
               const marqueNom = doc.collaboration?.marque?.nom ?? doc.clientNom ?? "—";
               const isLoading = loadingId === doc.id;
               return (
@@ -1995,21 +2069,13 @@ function RelancesTab({
                   </td>
                   <td className="py-4 px-4 text-sm text-[#1A1110]">
                     <div className="font-medium">{marqueNom}</div>
-                    {doc.collaboration?.marqueContact?.email && (
-                      <div className="text-xs text-gray-500 truncate max-w-[200px]">
-                        {doc.collaboration.marqueContact.email}
+                    {nextEmail && (
+                      <div className="text-xs text-gray-500 truncate max-w-[220px]" title={nextEmail}>
+                        {nextEmail}
                       </div>
                     )}
-                    {!doc.collaboration?.marqueContact?.email && doc.clientEmail && (
-                      <div className="text-xs text-gray-500 truncate max-w-[200px]">{doc.clientEmail}</div>
-                    )}
                   </td>
-                  <td className="py-4 px-4 text-sm text-gray-600 hidden md:table-cell">
-                    {doc.dateDocument || doc.dateEmission
-                      ? new Date((doc.dateDocument || doc.dateEmission) as string).toLocaleDateString("fr-FR")
-                      : "—"}
-                  </td>
-                  <td className="py-4 px-4 text-sm text-gray-600 hidden md:table-cell">
+                  <td className="py-4 px-4 text-sm text-gray-600 hidden lg:table-cell">
                     {doc.dateEcheance ? new Date(doc.dateEcheance).toLocaleDateString("fr-FR") : "—"}
                   </td>
                   <td className="py-4 px-4">
@@ -2019,10 +2085,43 @@ function RelancesTab({
                     </span>
                   </td>
                   <td className="py-4 px-4">
-                    <div className="flex items-center gap-1.5">
-                      <RelanceDot done={!!r1} label="1" date={r1} />
-                      <RelanceDot done={!!r2} label="2" date={r2} />
-                      <RelanceDot done={!!r3} label="3" date={r3} />
+                    {lastLevel && lastDate ? (
+                      <div className="text-sm text-[#1A1110]">
+                        <div className="font-medium">
+                          R{lastLevel} · {formatRelanceDate(lastDate)}
+                        </div>
+                        {lastEmail && (
+                          <div className="text-xs text-gray-500 truncate max-w-[200px]" title={lastEmail}>
+                            {lastEmail}
+                          </div>
+                        )}
+                        {lastBy && (
+                          <div className="text-[11px] text-gray-400 truncate max-w-[200px]">
+                            par {lastBy}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic">Jamais relancée</span>
+                    )}
+                  </td>
+                  <td className="py-4 px-4 hidden md:table-cell">
+                    <div className="flex flex-col gap-1">
+                      {([1, 2, 3] as const).map((level) => {
+                        const date = level === 1 ? r1 : level === 2 ? r2 : r3;
+                        const hist = historyByLevel.get(level);
+                        const email = hist?.sentTo;
+                        return (
+                          <div key={level} className="flex items-center gap-2 text-xs">
+                            <RelanceDot done={!!date} label={String(level)} date={date} />
+                            <span className={date ? "text-gray-700" : "text-gray-400"}>
+                              {date
+                                ? `${formatRelanceDate(date)}${email ? ` · ${email}` : ""}`
+                                : `R${level} non envoyée`}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </td>
                   <td className="py-4 px-4 text-right text-sm font-semibold text-red-600">
@@ -2041,7 +2140,11 @@ function RelancesTab({
                               ? "bg-orange-500 hover:bg-orange-600 text-white"
                               : "bg-red-600 hover:bg-red-700 text-white"
                         }`}
-                        title={`Envoyer depuis comptabilite@glowupagence.fr`}
+                        title={
+                          nextEmail
+                            ? `Envoyer à ${nextEmail} depuis comptabilite@glowupagence.fr`
+                            : "Envoyer depuis comptabilite@glowupagence.fr"
+                        }
                       >
                         {isLoading ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2050,12 +2153,14 @@ function RelancesTab({
                         )}
                         {nextLevel === 1 ? "Faire 1ère relance" : nextLevel === 2 ? "Faire 2ème relance" : "Faire 3ème relance"}
                       </button>
-                    ) : nextEligibleIn > 0 ? (
+                    ) : waiting ? (
                       <span className="text-xs text-gray-500 italic">
-                        Prochaine relance dans {nextEligibleIn} j
+                        Prochaine dans {nextEligibleIn} j
                       </span>
-                    ) : (
+                    ) : allDone ? (
                       <span className="text-xs text-gray-500 italic">3 relances envoyées</span>
+                    ) : (
+                      <span className="text-xs text-gray-500 italic">—</span>
                     )}
                   </td>
                 </tr>
@@ -2111,7 +2216,7 @@ function RelanceDot({ done, label, date }: { done: boolean; label: string; date:
   return (
     <div
       title={done && date ? `Envoyée le ${date.toLocaleDateString("fr-FR")}` : `Relance ${label} non envoyée`}
-      className={`flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold border ${
+      className={`flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold border shrink-0 ${
         done
           ? "bg-emerald-500 text-white border-emerald-600"
           : "bg-gray-100 text-gray-400 border-gray-200"

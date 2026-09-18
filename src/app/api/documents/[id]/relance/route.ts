@@ -321,7 +321,11 @@ export async function GET(
     const events = await prisma.documentEvent.findMany({
       where: { documentId: id, type: "REMINDER_SENT" },
       orderBy: { createdAt: "asc" },
-      select: { description: true, createdAt: true },
+      select: {
+        description: true,
+        createdAt: true,
+        user: { select: { id: true, prenom: true, nom: true } },
+      },
     });
     const prefix = `${levelLabel(level)} relance envoyée à `;
     const event = [...events].reverse().find((e) => e.description?.startsWith(prefix));
@@ -356,6 +360,9 @@ export async function GET(
       html,
       sentAt: sentAt.toISOString(),
       sentTo,
+      sentBy: event?.user
+        ? { id: event.user.id, prenom: event.user.prenom, nom: event.user.nom }
+        : null,
       from: `Comptabilité Glow Up <${AGENCE_CONFIG.email}>`,
       fromEmail: AGENCE_CONFIG.email,
       reference: document.reference,
