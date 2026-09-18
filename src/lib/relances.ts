@@ -18,6 +18,8 @@ type RelanceRow = {
   id: string;
   kind: "demande" | "inbound";
   toEmail: string;
+  senderName: string | null;
+  contactLanguage: string | null;
   sujetPret: string | null;
   gmailSentMessageId: string | null;
   sentAt: Date | null;
@@ -34,17 +36,86 @@ export type RelancesResult = {
   skipped?: "weekend" | "hors-heures";
 };
 
-const R1_HTML =
-  "<p>Bonjour,</p><p>Je me permets de revenir vers vous suite à mon message de quelques jours concernant une collaboration avec nos talents.</p><p>Avez-vous eu l'occasion d'en prendre connaissance ? Je reste disponible pour échanger.</p><p>Belle journée,<br/>Leyna - Glow Up Agence</p>";
-
-const R2_HTML =
-  "<p>Bonjour,</p><p>Dernière relance de ma part, je reste disponible pour échanger si le sujet vous intéresse.</p><p>Belle journée,<br/>Leyna - Glow Up Agence</p>";
-
 function extractEmail(fromValue: string): string {
   const trimmed = fromValue.trim();
   const bracketMatch = trimmed.match(/<([^>]+)>/);
   if (bracketMatch?.[1]) return bracketMatch[1].trim();
   return trimmed;
+}
+
+/** Vendredi calendaire Europe/Paris (pour le « bon week-end »). */
+function isFridayParis(date: Date): boolean {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Paris",
+    weekday: "short",
+  }).format(date);
+  return weekday === "Fri";
+}
+
+/**
+ * Prénom affichable depuis un nom complet, un header From, ou un email.
+ * Ex. "Capucine Brendle <c@…>" → "Capucine" ; "capucine.brendle@…" → "Capucine".
+ */
+function extractFirstName(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  let name = raw.trim();
+  const beforeAngle = name.match(/^([^<]+)</);
+  if (beforeAngle?.[1]) {
+    name = beforeAngle[1].trim().replace(/^["']|["']$/g, "");
+  } else if (name.includes("@")) {
+    name = name.split("@")[0]?.split(/[._+\-]/)[0] || "";
+  }
+  const first = name.split(/\s+/)[0]?.trim();
+  if (!first || first.length < 2) return null;
+  if (/^(noreply|no-reply|contact|info|hello|bonjour|team|service)$/i.test(first)) {
+    return null;
+  }
+  if (first === first.toUpperCase() || first === first.toLowerCase()) {
+    return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+  }
+  return first;
+}
+
+function resolveRelanceFirstName(row: RelanceRow): string | null {
+  if (row.kind === "inbound") {
+    return extractFirstName(row.senderName) || extractFirstName(row.toEmail);
+  }
+  // DemandeEntrante : `toEmail` = header From complet ("Prénom Nom <email>")
+  return extractFirstName(row.toEmail);
+}
+
+/** Corps R1/R2 façon Leyna : prénom, tutoiement, « bon week-end » le vendredi. */
+function buildRelanceHtml(opts: {
+  step: 1 | 2;
+  firstName: string | null;
+  language: "fr" | "en";
+  now: Date;
+}): string {
+  const friday = isFridayParis(opts.now);
+  const hello = opts.firstName
+    ? `Hello ${opts.firstName},`
+    : opts.language === "en"
+      ? "Hello,"
+      : "Bonjour,";
+
+  if (opts.language === "en") {
+    const closing = friday
+      ? "Have a lovely day and a great weekend :)"
+      : "Have a lovely day !";
+    if (opts.step === 1) {
+      return `<p>${hello}</p><p>just following up on my previous message — did you get a chance to take a look?</p><p>Happy to chat whenever it works for you.</p><p>${closing}</p>`;
+    }
+    return `<p>${hello}</p><p>just a quick last follow-up from my side</p><p>Feel free to reply if the topic is still of interest</p><p>${closing}</p>`;
+  }
+
+  const closing = friday
+    ? "Belle journée ! et bon week-end :)"
+    : "Belle journée !";
+
+  if (opts.step === 1) {
+    return `<p>${hello}</p><p>je me permets de revenir vers toi suite à mon message de quelques jours concernant une collaboration avec nos talents.</p><p>Tu as eu l'occasion d'en prendre connaissance ? N'hésite pas si tu veux en discuter.</p><p>${closing}</p>`;
+  }
+  return `<p>${hello}</p><p>je te fais une petite dernière relance</p><p>N'hésite pas si le sujet t'intéresse</p><p>${closing}</p>`;
 }
 
 async function pushOutreachAfterInboundExchange(
@@ -90,6 +161,8 @@ export async function runRelances(
       'demande'::text AS "kind",
       "id",
       "from" AS "toEmail",
+      NULL::text AS "senderName",
+      'fr'::text AS "contactLanguage",
       "sujetPret",
       "gmailSentMessageId",
       "sentAt",
@@ -106,6 +179,8 @@ export async function runRelances(
       'inbound'::text AS "kind",
       "id",
       "senderEmail" AS "toEmail",
+      "senderName",
+      "contactLanguage",
       COALESCE("draftEmailSubject", "subject") AS "sujetPret",
       "gmailSentMessageId",
       "sentAt",
@@ -188,6 +263,10 @@ export async function runRelances(
         : demande.toEmail.trim();
     if (!to || !to.includes("@") || !demande.sujetPret) continue;
 
+    const firstName = resolveRelanceFirstName(demande);
+    const language =
+      demande.contactLanguage?.toLowerCase() === "en" ? "en" : "fr";
+
     // Rattrapage R1 d'abord : si la R1 n'est jamais partie, on l'envoie
     // toujours en tant que R1 (jamais convertie en R2), même si l'envoi
     // initial est très ancien. La R2 ne pourra partir qu'au passage suivant,
@@ -197,7 +276,12 @@ export async function runRelances(
         fromEmail: LEYNA_FROM_EMAIL,
         to,
         subject: `Re: ${demande.sujetPret}`,
-        htmlBody: R1_HTML,
+        htmlBody: buildRelanceHtml({
+          step: 1,
+          firstName,
+          language,
+          now: nowDate,
+        }),
         threadId,
       });
       if (demande.kind === "demande") {
@@ -230,7 +314,12 @@ export async function runRelances(
         fromEmail: LEYNA_FROM_EMAIL,
         to,
         subject: `Re: ${demande.sujetPret}`,
-        htmlBody: R2_HTML,
+        htmlBody: buildRelanceHtml({
+          step: 2,
+          firstName,
+          language,
+          now: nowDate,
+        }),
         threadId,
       });
       if (demande.kind === "demande") {
