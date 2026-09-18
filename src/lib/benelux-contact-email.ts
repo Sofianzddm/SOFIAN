@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/prisma";
+import {
+  isForbiddenCastingRecipient,
+  loadCastingRecipientBlocklist,
+} from "@/lib/casting-recipient-guard";
 
 /**
  * Écrit l'email d'un contact BENELUX en respectant la contrainte
@@ -13,14 +17,48 @@ import { prisma } from "@/lib/prisma";
  * impose de toute façon un email unique).
  *
  * Retourne `deduped: true` quand le contact a été traité comme doublon.
+ * Retourne `blockedAsTalent: true` si l'email est celui d'un talent.
  */
 export async function writeBeneluxContactEmail(
   id: string,
   companyId: string,
   email: string
-): Promise<{ deduped: boolean }> {
+): Promise<{ deduped: boolean; blockedAsTalent?: boolean }> {
+  const normalized = String(email || "")
+    .trim()
+    .toLowerCase();
+
+  const contact = await prisma.beneluxContact.findFirst({
+    where: { id, companyId },
+    select: { prenom: true, nom: true },
+  });
+  if (contact) {
+    const blocklist = await loadCastingRecipientBlocklist();
+    if (
+      isForbiddenCastingRecipient(
+        {
+          email: normalized,
+          prenom: contact.prenom,
+          nom: contact.nom,
+        },
+        blocklist
+      )
+    ) {
+      await prisma.beneluxContact.update({
+        where: { id },
+        data: {
+          emailLookupStatus: "FOUND",
+          emailSuggested: null,
+          emailLookupQueuedAt: null,
+          outreachExcluded: true,
+        },
+      });
+      return { deduped: false, blockedAsTalent: true };
+    }
+  }
+
   const sibling = await prisma.beneluxContact.findFirst({
-    where: { companyId, email, id: { not: id } },
+    where: { companyId, email: normalized, id: { not: id } },
     select: { id: true },
   });
 
@@ -38,7 +76,11 @@ export async function writeBeneluxContactEmail(
 
   await prisma.beneluxContact.update({
     where: { id },
-    data: { email, emailLookupStatus: "FOUND", emailSuggested: null },
+    data: {
+      email: normalized,
+      emailLookupStatus: "FOUND",
+      emailSuggested: null,
+    },
   });
   return { deduped: false };
 }

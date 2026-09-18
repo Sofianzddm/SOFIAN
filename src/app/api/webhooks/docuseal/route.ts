@@ -218,6 +218,10 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
     if (!document) {
       const collabContrat = await prisma.collaboration.findFirst({
         where: { contratSubmissionId: submissionId },
+        include: {
+          talent: { select: { prenom: true, nom: true } },
+          marque: { select: { nom: true } },
+        },
       });
       if (collabContrat) {
         const submittersRaw = body.submitters ?? body.data?.submitters ?? [];
@@ -258,6 +262,14 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
           completedCount,
           nextStatut,
         });
+        // Talent a signé → envoyer le lien de signature à contrat@ (comme pour TalentContrat)
+        if (nextStatut === "EN_ATTENTE_AGENCE" && current !== "EN_ATTENTE_AGENCE") {
+          const titre =
+            `Contrat ${collabContrat.talent.prenom} ${collabContrat.talent.nom} x ${collabContrat.marque.nom}`.trim();
+          await envoyerLienSignatureAgence(submissionId, titre).catch((err) =>
+            console.error("Collaboration contrat: erreur envoi lien agence", err)
+          );
+        }
       } else if (await handleTalentContratFormCompleted(submissionId, body)) {
         // Contrat talent (fiche talent) : statut avancé
       } else {
@@ -413,24 +425,35 @@ async function handleTalentContratFormCompleted(
 
   // Le talent a signé → envoyer son lien de signature à l'agence (email branded)
   if (nextStatut === "EN_ATTENTE_AGENCE" && current !== "EN_ATTENTE_AGENCE") {
-    await envoyerLienSignatureAgence(contrat.id, submissionId, contrat.titre).catch((err) =>
+    await envoyerLienSignatureAgence(submissionId, contrat.titre).catch((err) =>
       console.error("TalentContrat: erreur envoi lien agence", err)
     );
   }
   return true;
 }
 
+/**
+ * From Resend pour un destinataire donné.
+ * Évite From = To (ex. contrat@ → contrat@) qui est souvent filtré / invisible dans Gmail Workspace.
+ */
+function resendFromAddress(toEmail: string): string {
+  const configured = process.env.RESEND_FROM_EMAIL?.trim() || "contrat@glowupagence.fr";
+  const to = toEmail.trim().toLowerCase();
+  const fromAddr = configured.includes("<")
+    ? (configured.match(/<([^>]+)>/)?.[1] ?? configured).trim().toLowerCase()
+    : configured.toLowerCase();
+  if (to && to === fromAddr) {
+    return "Glow Up Agence <notifications@glowupagence.fr>";
+  }
+  return configured.includes("<") ? configured : `Glow Up Agence <${configured}>`;
+}
+
 /** Récupère le lien de signature de l'agence sur la submission et lui envoie l'email. */
-async function envoyerLienSignatureAgence(
-  contratId: string,
-  submissionId: string,
-  contratTitre: string
-) {
+async function envoyerLienSignatureAgence(submissionId: string, contratTitre: string) {
   const docusealKey = process.env.DOCUSEAL_API_KEY;
   const resendKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
-  if (!docusealKey || !resendKey || !fromEmail) {
-    console.warn("TalentContrat: DocuSeal/Resend non configuré, email agence non envoyé");
+  if (!docusealKey || !resendKey) {
+    console.warn("Contrat: DocuSeal/Resend non configuré, email agence non envoyé");
     return;
   }
 
@@ -438,7 +461,7 @@ async function envoyerLienSignatureAgence(
     headers: { "X-Auth-Token": docusealKey },
   });
   if (!res.ok) {
-    console.error("TalentContrat: erreur GET submission", res.status, await res.text());
+    console.error("Contrat: erreur GET submission", res.status, await res.text());
     return;
   }
   const submission = (await res.json()) as {
@@ -451,21 +474,28 @@ async function envoyerLienSignatureAgence(
       status?: string;
     }>;
   };
-  const agence = (submission.submitters ?? []).find(
-    (s) =>
-      s.role === "Agence" &&
-      !(s.completed_at && String(s.completed_at).trim()) &&
-      s.status !== "completed"
-  );
+  const agenceEmailConfigured = (
+    process.env.AGENCE_SIGNATURE_EMAIL?.trim() ||
+    process.env.NEXT_PUBLIC_AGENCE_EMAIL?.trim() ||
+    "contrat@glowupagence.fr"
+  ).toLowerCase();
+  const agence = (submission.submitters ?? []).find((s) => {
+    const pending =
+      !(s.completed_at && String(s.completed_at).trim()) && s.status !== "completed";
+    if (!pending) return false;
+    const role = (s.role || "").trim().toLowerCase();
+    const email = (s.email || "").trim().toLowerCase();
+    return role === "agence" || email === agenceEmailConfigured;
+  });
   if (!agence?.email) {
-    console.warn("TalentContrat: submitter Agence en attente introuvable", contratId);
+    console.warn("Contrat: submitter Agence en attente introuvable", submissionId);
     return;
   }
   const signingUrl =
     agence.embed_src?.trim() ||
     (agence.slug ? `https://docuseal.com/s/${agence.slug}` : null);
   if (!signingUrl) {
-    console.warn("TalentContrat: pas de lien de signature agence", contratId);
+    console.warn("Contrat: pas de lien de signature agence", submissionId);
     return;
   }
 
@@ -478,11 +508,15 @@ async function envoyerLienSignatureAgence(
     })
   );
   const resend = new Resend(resendKey);
-  await resend.emails.send({
-    from: `Glow Up Agence <${fromEmail}>`,
+  const sendResult = await resend.emails.send({
+    from: resendFromAddress(agence.email),
     to: agence.email,
     subject: `À signer — Contrat talent — ${contratTitre}`,
     html,
   });
-  console.log("TalentContrat: lien signature envoyé à l'agence", agence.email);
+  if (sendResult.error) {
+    console.error("Contrat: erreur Resend lien agence:", sendResult.error);
+    return;
+  }
+  console.log("Contrat: lien signature envoyé à l'agence", agence.email);
 }

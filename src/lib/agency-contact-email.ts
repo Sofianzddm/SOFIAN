@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
+import {
+  isForbiddenCastingRecipient,
+  loadCastingRecipientBlocklist,
+} from "@/lib/casting-recipient-guard";
 
 /**
  * Écrit l'email d'un contact agence en respectant `@@unique([partnerId, email])`.
@@ -11,9 +15,41 @@ export async function writeAgencyContactEmail(
   id: string,
   partnerId: string,
   email: string
-): Promise<{ deduped: boolean }> {
+): Promise<{ deduped: boolean; blockedAsTalent?: boolean }> {
+  const normalized = String(email || "")
+    .trim()
+    .toLowerCase();
+
+  const contact = await prisma.agencyContact.findFirst({
+    where: { id, partnerId },
+    select: { prenom: true, nom: true },
+  });
+  if (contact) {
+    const blocklist = await loadCastingRecipientBlocklist();
+    if (
+      isForbiddenCastingRecipient(
+        {
+          email: normalized,
+          prenom: contact.prenom,
+          nom: contact.nom,
+        },
+        blocklist
+      )
+    ) {
+      await prisma.agencyContact.update({
+        where: { id },
+        data: {
+          emailLookupStatus: "FOUND",
+          emailSuggested: null,
+          excluded: true,
+        },
+      });
+      return { deduped: false, blockedAsTalent: true };
+    }
+  }
+
   const sibling = await prisma.agencyContact.findFirst({
-    where: { partnerId, email, id: { not: id } },
+    where: { partnerId, email: normalized, id: { not: id } },
     select: { id: true },
   });
 
@@ -31,7 +67,11 @@ export async function writeAgencyContactEmail(
 
   await prisma.agencyContact.update({
     where: { id },
-    data: { email, emailLookupStatus: "FOUND", emailSuggested: null },
+    data: {
+      email: normalized,
+      emailLookupStatus: "FOUND",
+      emailSuggested: null,
+    },
   });
   return { deduped: false };
 }

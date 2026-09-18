@@ -214,7 +214,20 @@ export async function PATCH(
         );
       }
 
-      await writeAgencyContactEmail(contactId, contact.partnerId, email);
+      const agencyWritten = await writeAgencyContactEmail(
+        contactId,
+        contact.partnerId,
+        email
+      );
+      if (agencyWritten.blockedAsTalent) {
+        return NextResponse.json(
+          {
+            error:
+              "Cet email correspond à un talent Glow Up — non enregistré comme contact.",
+          },
+          { status: 422 }
+        );
+      }
 
       return NextResponse.json({
         ok: true,
@@ -271,7 +284,20 @@ export async function PATCH(
         }
       }
 
-      await writeBeneluxContactEmail(contactId, contact.companyId, email);
+      const beneluxWritten = await writeBeneluxContactEmail(
+        contactId,
+        contact.companyId,
+        email
+      );
+      if (beneluxWritten.blockedAsTalent) {
+        return NextResponse.json(
+          {
+            error:
+              "Cet email correspond à un talent Glow Up — non enregistré comme contact.",
+          },
+          { status: 422 }
+        );
+      }
 
       return NextResponse.json({
         ok: true,
@@ -325,7 +351,20 @@ export async function PATCH(
       }
     }
 
-    await writeMarqueContactEmail(contactId, contact.marqueId, email);
+    const marqueWritten = await writeMarqueContactEmail(
+      contactId,
+      contact.marqueId,
+      email
+    );
+    if (marqueWritten.blockedAsTalent) {
+      return NextResponse.json(
+        {
+          error:
+            "Cet email correspond à un talent Glow Up — non enregistré comme contact.",
+        },
+        { status: 422 }
+      );
+    }
 
     return NextResponse.json({
       ok: true,

@@ -499,11 +499,25 @@ export async function syncPipelineContactsToMarque(
   contacts: PipelineClientContact[],
   client: TxClient = prisma
 ): Promise<void> {
+  // Import dynamique : évite le cycle avec casting-recipient-guard
+  // (qui réutilise la notion de domaines grand public).
+  const { isForbiddenCastingRecipient, loadCastingRecipientBlocklist } =
+    await import("@/lib/casting-recipient-guard");
+  const blocklist = await loadCastingRecipientBlocklist();
+
   for (const c of contacts) {
     const email = String(c.email || "").trim().toLowerCase();
     const firstname = String(c.firstname || "").trim();
     if (!firstname || !email) continue;
     const lastname = String(c.lastname || "").trim();
+    if (
+      isForbiddenCastingRecipient(
+        { email, firstname, lastname },
+        blocklist
+      )
+    ) {
+      continue;
+    }
     await ensureMarqueContact(
       {
         marqueId,

@@ -23,6 +23,11 @@ const GLOW_UP_API_URL = 'https://app.glowupagence.fr';
 const SCAN_GROUP_EMAIL = 'talents-scan@glowupagence.fr';
 const WORKSPACE_ADMIN_EMAIL = 's.zeddam@glowupagence.fr';
 
+/** Boîtes absentes / suspendues dans Workspace — skip avant même l'oauth. */
+const SKIP_MAILBOXES = {
+  'kelly@glowupagence.fr': true
+};
+
 const CONFIG = {
   scanWindowMinutes: 10080,
   minConfidence: 0.7,
@@ -59,8 +64,14 @@ function scanAllTalentInboxes() {
   }
 
   let totalProcessed = 0, totalDetected = 0, totalPushed = 0;
+  let boxesOk = 0, boxesSkipped = 0, boxesError = 0;
 
   talentEmails.forEach(function (email) {
+    if (SKIP_MAILBOXES[String(email || '').toLowerCase()]) {
+      boxesSkipped++;
+      Logger.log('⏭️ Skip ' + email + ' : exclus (boîte Workspace absente)');
+      return;
+    }
     try {
       const talent = {
         email: email,
@@ -68,17 +79,33 @@ function scanAllTalentInboxes() {
         nom: (email.split('@')[0].split('.')[1] || ''),
       };
       const result = scanInboxForTalent(talent, sinceTimestamp);
-      totalProcessed += result.processed;
-      totalDetected += result.detected;
-      totalPushed += result.pushed;
+      if (result.skipped) {
+        boxesSkipped++;
+      } else {
+        boxesOk++;
+        totalProcessed += result.processed;
+        totalDetected += result.detected;
+        totalPushed += result.pushed;
+      }
     } catch (e) {
-      Logger.log('❌ Erreur sur ' + email + ' : ' + e.toString());
+      if (isUnreachableMailboxError(e)) {
+        boxesSkipped++;
+        Logger.log('⏭️ Skip ' + email + ' : boîte introuvable / inactive dans Workspace');
+      } else {
+        boxesError++;
+        Logger.log('❌ Erreur sur ' + email + ' : ' + e.toString());
+      }
     }
   });
 
   props.setProperty('lastScanTimestamp', now.toString());
   const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-  Logger.log('✅ SCAN END — ' + totalProcessed + ' analysés, ' + totalDetected + ' opportunités, ' + totalPushed + ' poussées en ' + durationSec + 's');
+  Logger.log(
+    '✅ SCAN END — ' +
+      boxesOk + ' boîtes OK, ' + boxesSkipped + ' skip, ' + boxesError + ' erreurs | ' +
+      totalProcessed + ' analysés, ' + totalDetected + ' opportunités, ' + totalPushed +
+      ' poussées en ' + durationSec + 's'
+  );
 }
 
 /**
@@ -109,10 +136,23 @@ function fetchTalentEmailsFromGroup() {
   });
 }
 
+function isUnreachableMailboxError(e) {
+  const msg = (e && e.message) ? e.message : String(e || '');
+  return (
+    msg.indexOf('UNREACHABLE_MAILBOX') !== -1 ||
+    msg.indexOf('invalid_grant') !== -1 ||
+    msg.indexOf('Invalid email or User ID') !== -1
+  );
+}
+
 function scanInboxForTalent(talent, sinceTimestamp) {
   const accessToken = getAccessTokenForUser(talent.email, [
     'https://www.googleapis.com/auth/gmail.readonly'
   ]);
+  if (!accessToken) {
+    Logger.log('⏭️ Skip ' + talent.email + ' : boîte introuvable / inactive dans Workspace');
+    return { processed: 0, detected: 0, pushed: 0, skipped: true };
+  }
 
   const sinceSec = Math.floor(sinceTimestamp / 1000);
   const query = 'in:inbox -from:me -category:promotions -category:social after:' + sinceSec;
@@ -449,7 +489,15 @@ function getAccessTokenForUser(userEmail, scopes) {
   });
 
   if (tokenResp.getResponseCode() !== 200) {
-    throw new Error('Token exchange failed : ' + tokenResp.getContentText());
+    const body = tokenResp.getContentText();
+    // Compte absent / suspendu / typo → pas une vraie erreur, on saute la boîte
+    if (
+      body.indexOf('invalid_grant') !== -1 ||
+      body.indexOf('Invalid email or User ID') !== -1
+    ) {
+      return null;
+    }
+    throw new Error('Token exchange failed : ' + body);
   }
 
   const token = JSON.parse(tokenResp.getContentText()).access_token;
@@ -528,18 +576,22 @@ function testSetup() {
     if (emails.length > 0) {
       Logger.log('\n🔑 Test 2 : OAuth impersonation sur Gmail...');
       const token = getAccessTokenForUser(emails[0], ['https://www.googleapis.com/auth/gmail.readonly']);
-      Logger.log('   ✅ Token obtenu pour ' + emails[0] + ' : ' + token.substring(0, 20) + '...');
-
-      Logger.log('\n📬 Test 3 : appel Gmail API...');
-      const profileResp = UrlFetchApp.fetch(
-        'https://gmail.googleapis.com/gmail/v1/users/' + encodeURIComponent(emails[0]) + '/profile',
-        { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true }
-      );
-      if (profileResp.getResponseCode() === 200) {
-        const profile = JSON.parse(profileResp.getContentText());
-        Logger.log('   ✅ Boîte ' + profile.emailAddress + ' accessible (' + profile.messagesTotal + ' mails)');
+      if (!token) {
+        Logger.log('   ⏭️ ' + emails[0] + ' introuvable dans Workspace');
       } else {
-        Logger.log('   ❌ Gmail API échec ' + profileResp.getResponseCode());
+        Logger.log('   ✅ Token obtenu pour ' + emails[0] + ' : ' + token.substring(0, 20) + '...');
+
+        Logger.log('\n📬 Test 3 : appel Gmail API...');
+        const profileResp = UrlFetchApp.fetch(
+          'https://gmail.googleapis.com/gmail/v1/users/' + encodeURIComponent(emails[0]) + '/profile',
+          { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true }
+        );
+        if (profileResp.getResponseCode() === 200) {
+          const profile = JSON.parse(profileResp.getContentText());
+          Logger.log('   ✅ Boîte ' + profile.emailAddress + ' accessible (' + profile.messagesTotal + ' mails)');
+        } else {
+          Logger.log('   ❌ Gmail API échec ' + profileResp.getResponseCode());
+        }
       }
     }
 
@@ -582,11 +634,19 @@ function catchUpNextTalents() {
   var email = talentEmails[startIdx];
   Logger.log('📥 Talent ' + (startIdx + 1) + '/' + talentEmails.length + ' : ' + email);
 
-  scanInboxForTalent({
-    email: email,
-    prenom: email.split('@')[0].split('.')[0],
-    nom: email.split('@')[0].split('.')[1] || ''
-  }, fourteenDaysAgo);
+  try {
+    scanInboxForTalent({
+      email: email,
+      prenom: email.split('@')[0].split('.')[0],
+      nom: email.split('@')[0].split('.')[1] || ''
+    }, fourteenDaysAgo);
+  } catch (e) {
+    if (isUnreachableMailboxError(e)) {
+      Logger.log('⏭️ Skip ' + email + ' : boîte introuvable / inactive dans Workspace');
+    } else {
+      Logger.log('⚠️ Skip ' + email + ' : ' + e.toString());
+    }
+  }
 
   props.setProperty('catchupTalentIndex', String(startIdx + 1));
   CONFIG.scanWindowMinutes = prevWindow;
@@ -599,18 +659,77 @@ function setCatchUpFromJasmine() {
   Logger.log('Index = 6 (reprise ~ Jasmine). Lance catchUpNextTalents');
 }
 
+function isCatchUpOrScanHandler(fn) {
+  return (
+    fn === 'scanAllTalentInboxes' ||
+    fn === 'catchUpNextTalents' ||
+    fn === 'catchUpNextTalents4d' ||
+    fn === 'catchUpNextTalents7d' ||
+    fn === 'catchUpNextTalents21d'
+  );
+}
+
+/** Rattrapage 4 jours — lancer UNE fois. Tourne tout seul ensuite. */
+function startCatchUp4Days() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (isCatchUpOrScanHandler(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
+  });
+
+  PropertiesService.getScriptProperties().setProperty('catchupTalentIndex', '0');
+  ScriptApp.newTrigger('catchUpNextTalents4d').timeBased().everyMinutes(5).create();
+  Logger.log('✅ Rattrapage 4j armé : 1 talent / 5 min (auto). À la fin → scan permanent.');
+
+  // Premier tour tout de suite (pas besoin d'attendre le 1er tick)
+  catchUpNextTalents4d();
+}
+
+function catchUpNextTalents4d() {
+  var props = PropertiesService.getScriptProperties();
+  var startIdx = parseInt(props.getProperty('catchupTalentIndex') || '0', 10);
+  var talentEmails = fetchTalentEmailsFromGroup();
+
+  if (startIdx >= talentEmails.length) {
+    Logger.log('✅ Rattrapage 4j terminé (' + talentEmails.length + ' talents)');
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'catchUpNextTalents4d') ScriptApp.deleteTrigger(t);
+    });
+    installTrigger(); // scanAllTalentInboxes toutes les 5 min, pour de bon
+    Logger.log('🔁 Scan permanent installé (scanAllTalentInboxes / 5 min)');
+    return;
+  }
+
+  var since = Date.now() - 4 * 24 * 60 * 60 * 1000;
+  var prevWindow = CONFIG.scanWindowMinutes;
+  var prevMax = CONFIG.maxMailsPerInbox;
+  CONFIG.scanWindowMinutes = 4 * 24 * 60;
+  CONFIG.maxMailsPerInbox = 80;
+
+  var email = talentEmails[startIdx];
+  Logger.log('📥 4j ' + (startIdx + 1) + '/' + talentEmails.length + ' : ' + email);
+
+  try {
+    scanInboxForTalent({
+      email: email,
+      prenom: email.split('@')[0].split('.')[0],
+      nom: email.split('@')[0].split('.')[1] || ''
+    }, since);
+  } catch (e) {
+    if (isUnreachableMailboxError(e)) {
+      Logger.log('⏭️ Skip ' + email + ' : boîte introuvable / inactive dans Workspace');
+    } else {
+      Logger.log('⚠️ Skip ' + email + ' : ' + e.toString());
+    }
+  }
+
+  props.setProperty('catchupTalentIndex', String(startIdx + 1));
+  CONFIG.scanWindowMinutes = prevWindow;
+  CONFIG.maxMailsPerInbox = prevMax;
+}
+
 /** Rattrapage 7 jours — lancer UNE fois. 1 talent / 5 min. */
 function startCatchUp7Days() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    var fn = t.getHandlerFunction();
-    if (
-      fn === 'scanAllTalentInboxes' ||
-      fn === 'catchUpNextTalents' ||
-      fn === 'catchUpNextTalents7d' ||
-      fn === 'catchUpNextTalents21d'
-    ) {
-      ScriptApp.deleteTrigger(t);
-    }
+    if (isCatchUpOrScanHandler(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
   });
 
   PropertiesService.getScriptProperties().setProperty('catchupTalentIndex', '0');
@@ -641,11 +760,19 @@ function catchUpNextTalents7d() {
   var email = talentEmails[startIdx];
   Logger.log('📥 7j ' + (startIdx + 1) + '/' + talentEmails.length + ' : ' + email);
 
-  scanInboxForTalent({
-    email: email,
-    prenom: email.split('@')[0].split('.')[0],
-    nom: email.split('@')[0].split('.')[1] || ''
-  }, since);
+  try {
+    scanInboxForTalent({
+      email: email,
+      prenom: email.split('@')[0].split('.')[0],
+      nom: email.split('@')[0].split('.')[1] || ''
+    }, since);
+  } catch (e) {
+    if (isUnreachableMailboxError(e)) {
+      Logger.log('⏭️ Skip ' + email + ' : boîte introuvable / inactive dans Workspace');
+    } else {
+      Logger.log('⚠️ Skip ' + email + ' : ' + e.toString());
+    }
+  }
 
   props.setProperty('catchupTalentIndex', String(startIdx + 1));
   CONFIG.scanWindowMinutes = prevWindow;
@@ -654,15 +781,7 @@ function catchUpNextTalents7d() {
 
 function startCatchUp21Days() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    var fn = t.getHandlerFunction();
-    if (
-      fn === 'scanAllTalentInboxes' ||
-      fn === 'catchUpNextTalents' ||
-      fn === 'catchUpNextTalents7d' ||
-      fn === 'catchUpNextTalents21d'
-    ) {
-      ScriptApp.deleteTrigger(t);
-    }
+    if (isCatchUpOrScanHandler(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
   });
 
   PropertiesService.getScriptProperties().setProperty('catchupTalentIndex', '0');
@@ -693,11 +812,19 @@ function catchUpNextTalents21d() {
   var email = talentEmails[startIdx];
   Logger.log('📥 21j ' + (startIdx + 1) + '/' + talentEmails.length + ' : ' + email);
 
-  scanInboxForTalent({
-    email: email,
-    prenom: email.split('@')[0].split('.')[0],
-    nom: email.split('@')[0].split('.')[1] || ''
-  }, since);
+  try {
+    scanInboxForTalent({
+      email: email,
+      prenom: email.split('@')[0].split('.')[0],
+      nom: email.split('@')[0].split('.')[1] || ''
+    }, since);
+  } catch (e) {
+    if (isUnreachableMailboxError(e)) {
+      Logger.log('⏭️ Skip ' + email + ' : boîte introuvable / inactive dans Workspace');
+    } else {
+      Logger.log('⚠️ Skip ' + email + ' : ' + e.toString());
+    }
+  }
 
   props.setProperty('catchupTalentIndex', String(startIdx + 1));
   CONFIG.scanWindowMinutes = prevWindow;
@@ -707,7 +834,11 @@ function catchUpNextTalents21d() {
 function stopCatchUpAndRestoreScan() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     var fn = t.getHandlerFunction();
-    if (fn === 'catchUpNextTalents21d' || fn === 'catchUpNextTalents7d') {
+    if (
+      fn === 'catchUpNextTalents4d' ||
+      fn === 'catchUpNextTalents7d' ||
+      fn === 'catchUpNextTalents21d'
+    ) {
       ScriptApp.deleteTrigger(t);
     }
   });

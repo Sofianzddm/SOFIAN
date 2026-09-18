@@ -863,7 +863,7 @@ export default function FactureDetailPage() {
       ? Math.max(1, Math.floor((Date.now() - new Date(doc.dateEcheance).getTime()) / 86400000))
       : 0;
   let nextRelanceLevel: 1 | 2 | 3 | null = null;
-  if (isFacture && isLate && (doc.statut === "ENVOYE" || doc.statut === "VALIDE") && doc.statut !== "PAYE") {
+  if (isFacture && isLate && (doc.statut === "ENVOYE" || doc.statut === "VALIDE")) {
     if (!doc.relance1SentAt) nextRelanceLevel = 1;
     else if (!doc.relance2SentAt && joursRetard >= 30) nextRelanceLevel = 2;
     else if (!doc.relance3SentAt && joursRetard >= 60) nextRelanceLevel = 3;

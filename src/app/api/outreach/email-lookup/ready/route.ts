@@ -205,7 +205,8 @@ export async function POST(request: NextRequest) {
         }
         const blocked = await guardConflict(false);
         if (blocked) return blocked;
-        await writeAgencyContactEmail(id, marqueId, email);
+        const written = await writeAgencyContactEmail(id, marqueId, email);
+        if (written.blockedAsTalent) continue;
       } else if (market === "BENELUX") {
         const contact = await prisma.beneluxContact.findFirst({
           where: { id, companyId: marqueId },
@@ -216,7 +217,8 @@ export async function POST(request: NextRequest) {
         }
         const blocked = await guardConflict(contact.source === "AO");
         if (blocked) return blocked;
-        await writeBeneluxContactEmail(id, marqueId, email);
+        const written = await writeBeneluxContactEmail(id, marqueId, email);
+        if (written.blockedAsTalent) continue;
       } else {
         const contact = await prisma.marqueContact.findFirst({
           where: { id, marqueId },
@@ -227,7 +229,8 @@ export async function POST(request: NextRequest) {
         }
         const blocked = await guardConflict(contact.source === "AO");
         if (blocked) return blocked;
-        await writeMarqueContactEmail(id, marqueId, email);
+        const written = await writeMarqueContactEmail(id, marqueId, email);
+        if (written.blockedAsTalent) continue;
       }
       saved.push(email);
       enrollableIds.push(id);

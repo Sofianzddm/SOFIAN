@@ -91,10 +91,27 @@ export async function enrollInfluenceContacts(opts: {
     },
   });
 
+  const { isForbiddenCastingRecipient, loadCastingRecipientBlocklist } =
+    await import("@/lib/casting-recipient-guard");
+  const blocklist = await loadCastingRecipientBlocklist();
+
   let enrolled = 0;
   for (const c of contacts) {
     const email = (c.email || "").trim().toLowerCase();
     if (!isValidEmail(email)) continue;
+
+    if (
+      isForbiddenCastingRecipient(
+        { email, prenom: c.prenom, nom: c.nom },
+        blocklist
+      )
+    ) {
+      await prisma.marqueContact.update({
+        where: { id: c.id },
+        data: { outreachExcluded: true },
+      });
+      continue;
+    }
 
     const conflict = await findCrossPipelineConflict(email, "client", {
       allowClientBeneluxSibling: opts.crossMarketEmails?.has(email),

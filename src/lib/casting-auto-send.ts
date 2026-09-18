@@ -1504,12 +1504,29 @@ export async function executeCastingRelance(
   // la mission `replied=true` même sur une relance manuelle.
   const repliedDetected: string[] = [];
 
+  const recipientBlocklist = await loadCastingRecipientBlocklist();
+
   for (const [email, record] of Object.entries(sentByEmail)) {
     if (!record?.threadId || record.error) continue;
     const emailKey = email.trim().toLowerCase();
     if (included && !included.has(emailKey)) continue;
     if (excluded.has(emailKey)) {
       skippedReplied += 1;
+      continue;
+    }
+    const contactForGuard = parseCastingContacts(mission.clientContacts).find(
+      (c) => (c.email || "").toLowerCase() === emailKey
+    );
+    if (
+      isForbiddenCastingRecipient(
+        {
+          email: emailKey,
+          firstname: contactForGuard?.firstname,
+          lastname: contactForGuard?.lastname,
+        },
+        recipientBlocklist
+      )
+    ) {
       continue;
     }
     // Garde-fou systématique : on ne relance JAMAIS un contact qui a déjà

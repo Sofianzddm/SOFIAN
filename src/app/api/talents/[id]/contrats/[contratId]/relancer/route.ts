@@ -144,8 +144,16 @@ export async function POST(
         isRelance: true,
       })
     );
+    // Évite From = To (contrat@ → contrat@) souvent filtré par Workspace
+    const fromAddr = fromEmail.includes("<")
+      ? (fromEmail.match(/<([^>]+)>/)?.[1] ?? fromEmail).trim().toLowerCase()
+      : fromEmail.toLowerCase();
+    const from =
+      relanceEmail.trim().toLowerCase() === fromAddr
+        ? "Glow Up Agence <notifications@glowupagence.fr>"
+        : `Glow Up Agence <${fromEmail}>`;
     await resend.emails.send({
-      from: `Glow Up Agence <${fromEmail}>`,
+      from,
       to: relanceEmail,
       subject: `Rappel — Votre contrat Glow Up — ${contrat.titre}`,
       html,
