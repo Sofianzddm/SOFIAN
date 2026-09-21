@@ -32,6 +32,7 @@ interface Talent {
   commissionInbound: number;
   commissionOutbound: number;
   tarifs: Record<string, number | null> | null;
+  isArchived?: boolean;
 }
 
 // Client déjà présent dans le CRM (fiche marque existante)
@@ -235,8 +236,10 @@ export default function NewCollaborationPage() {
   const montantNet = totalBrut - commissionEuros;
 
   useEffect(() => {
+    // Attendre la session pour savoir si on doit inclure les archivés (HoS)
+    if (session === undefined) return;
     fetchTalents();
-  }, []);
+  }, [session?.user]);
 
   useEffect(() => {
     if (selectedTalent) {
@@ -250,7 +253,16 @@ export default function NewCollaborationPage() {
 
   const fetchTalents = async () => {
     try {
-      const res = await fetch("/api/talents");
+      // HoS / Head / Admin : inclure les talents archivés pour pouvoir créer une collab
+      // (Coca × Sacha, Biotherm × Seb, etc.) sans les désarchiver.
+      const includeArchived =
+        user?.role === "HEAD_OF_SALES" ||
+        user?.role === "ADMIN" ||
+        user?.role === "HEAD_OF" ||
+        user?.role === "HEAD_OF_INFLUENCE";
+      const res = await fetch(
+        includeArchived ? "/api/talents?includeArchived=true" : "/api/talents"
+      );
       const data = await res.json();
       const list: Talent[] = Array.isArray(data) ? data : (data.talents || []);
 
@@ -554,7 +566,10 @@ export default function NewCollaborationPage() {
                     >
                       <option value="">Sélectionner un talent</option>
                       {talents.map((t) => (
-                        <option key={t.id} value={t.id}>{t.prenom} {t.nom}</option>
+                        <option key={t.id} value={t.id}>
+                          {t.prenom} {t.nom}
+                          {t.isArchived ? " (archivé)" : ""}
+                        </option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />

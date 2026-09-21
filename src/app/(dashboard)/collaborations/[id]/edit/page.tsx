@@ -46,6 +46,7 @@ interface Talent {
   nom: string;
   commissionInbound: number;
   commissionOutbound: number;
+  isArchived?: boolean;
 }
 
 interface Marque {
@@ -86,10 +87,11 @@ export default function EditCollaborationPage() {
   const [montantNet, setMontantNet] = useState(0);
 
   useEffect(() => {
+    if (session === undefined) return;
     fetchCollaboration();
     fetchTalents();
     fetchMarques();
-  }, [params.id]);
+  }, [params.id, session?.user]);
 
   useEffect(() => {
     calculerMontants();
@@ -123,7 +125,15 @@ export default function EditCollaborationPage() {
   };
 
   const fetchTalents = async () => {
-    const res = await fetch("/api/talents");
+    const role = (session?.user as { role?: string } | undefined)?.role;
+    const includeArchived =
+      role === "HEAD_OF_SALES" ||
+      role === "ADMIN" ||
+      role === "HEAD_OF" ||
+      role === "HEAD_OF_INFLUENCE";
+    const res = await fetch(
+      includeArchived ? "/api/talents?includeArchived=true" : "/api/talents"
+    );
     if (res.ok) setTalents(await res.json());
   };
 
@@ -279,6 +289,7 @@ export default function EditCollaborationPage() {
                 {talents.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.prenom} {t.nom}
+                    {t.isArchived ? " (archivé)" : ""}
                   </option>
                 ))}
               </select>

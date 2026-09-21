@@ -19,8 +19,17 @@ export async function GET(request: NextRequest) {
     // Marché ciblé (outreach) : sur BENELUX, ne proposer que les créateurs belges
     // (même convention que le talent book /talentbook/be : pays = "Belgique").
     const market = searchParams.get('market')?.toUpperCase();
+    // HoS / Head / Admin : créer une collab sur un ancien talent sans le désarchiver
+    const includeArchivedRequested = searchParams.get("includeArchived") === "true";
+    const canIncludeArchived = [
+      "ADMIN",
+      "HEAD_OF",
+      "HEAD_OF_INFLUENCE",
+      "HEAD_OF_SALES",
+    ].includes(user.role);
+    const includeArchived = includeArchivedRequested && canIncludeArchived;
 
-    let whereClause: any = { isArchived: false };
+    let whereClause: any = includeArchived ? {} : { isArchived: false };
 
     if (isPresskit && market === "BENELUX") {
       whereClause.pays = "Belgique";
@@ -73,7 +82,9 @@ export async function GET(request: NextRequest) {
       },
       orderBy: isPresskit 
         ? [{ stats: { igFollowers: 'desc' } }] // Trier par followers pour le presskit
-        : [{ createdAt: "desc" }],
+        : includeArchived
+          ? [{ isArchived: "asc" }, { prenom: "asc" }, { nom: "asc" }]
+          : [{ createdAt: "desc" }],
     });
 
     // Si presskit, formater les données pour le sélecteur
