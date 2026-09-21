@@ -346,18 +346,19 @@ export async function GET(request: NextRequest) {
     >();
     for (const ev of relanceEvents) {
       const level = parseRelanceLevel(ev.description);
-      if (!level) continue;
+      if (!level || !ev.documentId) continue;
+      const documentId = ev.documentId;
       const entry = {
         level,
         sentAt: ev.createdAt.toISOString(),
         sentTo: parseRelanceEmail(ev.description, level),
         sentBy: ev.user ?? null,
       };
-      const list = relancesByDoc.get(ev.documentId) ?? [];
+      const list = relancesByDoc.get(documentId) ?? [];
       // garder le plus récent pour un même niveau
       const withoutLevel = list.filter((r) => r.level !== level);
       withoutLevel.push(entry);
-      relancesByDoc.set(ev.documentId, withoutLevel.sort((a, b) => a.level - b.level));
+      relancesByDoc.set(documentId, withoutLevel.sort((a, b) => a.level - b.level));
     }
 
     // ============================================
