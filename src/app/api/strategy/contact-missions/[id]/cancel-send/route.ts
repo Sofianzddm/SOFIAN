@@ -33,12 +33,6 @@ export async function POST(
       return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
     }
 
-    if (mission.sentAt) {
-      return NextResponse.json(
-        { error: "Le mail a deja ete envoye, impossible d'annuler." },
-        { status: 409 }
-      );
-    }
     if (!mission.scheduledSendAt) {
       return NextResponse.json(
         { error: "Aucun envoi planifie pour cette mission." },
@@ -46,16 +40,24 @@ export async function POST(
       );
     }
 
+    // Renvoi post-envoi (nouveaux contacts) : on annule seulement le
+    // scheduledSendAt, sans redescendre le stage ni toucher a sentAt.
+    const wasAlreadySent = Boolean(mission.sentAt);
     const updated = await contactMissionModel.update({
       where: { id },
-      data: {
-        scheduledSendAt: null,
-        stage: "DRAFTED_FOR_VALIDATION",
-        status: "EMAIL_DRAFTED",
-      },
+      data: wasAlreadySent
+        ? { scheduledSendAt: null }
+        : {
+            scheduledSendAt: null,
+            stage: "DRAFTED_FOR_VALIDATION",
+            status: "EMAIL_DRAFTED",
+          },
     });
 
-    return NextResponse.json({ mission: updated });
+    return NextResponse.json({
+      mission: updated,
+      cancelledAdditional: wasAlreadySent,
+    });
   } catch (error) {
     console.error("POST /api/strategy/contact-missions/[id]/cancel-send:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

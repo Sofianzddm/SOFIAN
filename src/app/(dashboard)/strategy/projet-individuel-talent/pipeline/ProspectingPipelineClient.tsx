@@ -412,8 +412,10 @@ export function ProspectingPipelineClient() {
   }, [pipelineView]);
 
   useEffect(() => {
+    // Inclut aussi les renvois post-envoi (stage SENT + sentAt déjà set) :
+    // schedule-send ne redescend pas en TO_SEND, il pose seulement scheduledSendAt.
     const hydrated: ScheduledSend[] = missions
-      .filter((m) => m.scheduledSendAt && !m.sentAt && m.stage === "TO_SEND")
+      .filter((m) => Boolean(m.scheduledSendAt))
       .map((m) => ({
         missionId: m.id,
         brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
@@ -423,9 +425,7 @@ export function ProspectingPipelineClient() {
       const byId = new Map(prev.map((s) => [s.missionId, s]));
       for (const s of hydrated) byId.set(s.missionId, s);
       for (const id of Array.from(byId.keys())) {
-        const stillPlanned = missions.find(
-          (m) => m.id === id && m.scheduledSendAt && !m.sentAt && m.stage === "TO_SEND"
-        );
+        const stillPlanned = missions.find((m) => m.id === id && m.scheduledSendAt);
         if (!stillPlanned) byId.delete(id);
       }
       return Array.from(byId.values());
@@ -1086,7 +1086,14 @@ export function ProspectingPipelineClient() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Annulation impossible.");
       setScheduledSends((prev) => prev.filter((s) => s.missionId !== missionId));
-      setSuccess("Envoi annulé. La carte est revenue en « Rédigé ».");
+      const wasAdditional =
+        data?.cancelledAdditional === true ||
+        Boolean(missions.find((m) => m.id === missionId)?.sentAt);
+      setSuccess(
+        wasAdditional
+          ? "Envoi additionnel annulé. La carte reste en « Envoyé »."
+          : "Envoi annulé. La carte est revenue en « Rédigé »."
+      );
       await loadMissions();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -1509,7 +1516,7 @@ export function ProspectingPipelineClient() {
         {visibleStages.map((stage) => (
           <div
             key={stage}
-            className={`rounded-xl border p-3 ${isCastingManager ? "min-h-[300px] max-h-[calc(100vh-220px)] flex flex-col" : "bg-white border-gray-200"}`}
+            className={`min-w-0 rounded-xl border p-3 ${isCastingManager ? "min-h-[300px] max-h-[calc(100vh-220px)] flex flex-col" : "bg-white border-gray-200"}`}
             style={
               isCastingManager
                 ? {
@@ -1549,7 +1556,11 @@ export function ProspectingPipelineClient() {
                   return (
                 <article
                   key={m.id}
-                  className={isCastingManager ? "bg-white rounded-xl border shadow-sm p-3" : "rounded-lg border border-gray-200 p-2"}
+                  className={
+                    isCastingManager
+                      ? "min-w-0 overflow-hidden bg-white rounded-xl border shadow-sm p-3"
+                      : "min-w-0 overflow-hidden rounded-lg border border-gray-200 p-2"
+                  }
                   style={
                     isCastingManager
                       ? {
@@ -1714,6 +1725,29 @@ export function ProspectingPipelineClient() {
                     {m.strategyReason}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
+                    {role === "ADMIN" && (
+                      <button
+                        type="button"
+                        disabled={updatingId === m.id}
+                        onClick={() =>
+                          setContactFormByMission((prev) => ({
+                            ...prev,
+                            [m.id]: {
+                              open: !prev[m.id]?.open,
+                              contacts:
+                                prev[m.id]?.contacts?.length
+                                  ? prev[m.id].contacts
+                                  : [{ firstname: "", lastname: "", email: "", role: "" }],
+                            },
+                          }))
+                        }
+                        className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-700"
+                      >
+                        {contactFormByMission[m.id]?.open
+                          ? "Fermer contacts"
+                          : "Ajouter contact client"}
+                      </button>
+                    )}
                     {role === "CASTING_MANAGER" && stage === "TO_DRAFT" && (
                       <button
                         type="button"
@@ -1788,7 +1822,7 @@ export function ProspectingPipelineClient() {
                           >
                             {updatingId === m.id ? "Ouverture..." : "Afficher mail"}
                           </button>
-                          {m.scheduledSendAt && !m.sentAt && (
+                          {m.scheduledSendAt && (
                             <button
                               type="button"
                               disabled={updatingId === m.id}
@@ -1799,6 +1833,18 @@ export function ProspectingPipelineClient() {
                             </button>
                           )}
                         </>
+                      )}
+                    {(role === "HEAD_OF_SALES" || role === "ADMIN" || role === "HEAD_OF") &&
+                      stage === "SENT" &&
+                      m.scheduledSendAt && (
+                        <button
+                          type="button"
+                          disabled={updatingId === m.id}
+                          onClick={() => void cancelSend(m.id)}
+                          className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700"
+                        >
+                          Annuler l'envoi additionnel
+                        </button>
                       )}
                     {(role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_SALES" || role === "STRATEGY_PLANNER") &&
                       stage === "SENT" &&
@@ -1847,27 +1893,6 @@ export function ProspectingPipelineClient() {
                           </button>
                         )
                       )}
-                    {role === "ADMIN" && (
-                      <button
-                        type="button"
-                        disabled={updatingId === m.id}
-                        onClick={() =>
-                          setContactFormByMission((prev) => ({
-                            ...prev,
-                            [m.id]: {
-                              open: !prev[m.id]?.open,
-                              contacts:
-                                prev[m.id]?.contacts?.length
-                                  ? prev[m.id].contacts
-                                  : [{ firstname: "", lastname: "", email: "", role: "" }],
-                            },
-                          }))
-                        }
-                        className="rounded border border-gray-300 px-2 py-1 text-xs"
-                      >
-                        Ajouter contact client
-                      </button>
-                    )}
                     {(role === "ADMIN" || role === "HEAD_OF") && (
                       <>
                         {stage !== "WON" && (
@@ -1894,9 +1919,9 @@ export function ProspectingPipelineClient() {
                     )}
                   </div>
                   {role === "ADMIN" && contactFormByMission[m.id]?.open && (
-                    <div className="mt-2 grid gap-2 rounded-lg border border-gray-200 p-2">
-                      <div className="grid gap-2 rounded-md border border-dashed border-gray-300 bg-gray-50 p-2">
-                        <div className="flex items-center justify-between gap-2">
+                    <div className="mt-2 grid min-w-0 gap-2 rounded-lg border border-gray-200 p-2">
+                      <div className="grid min-w-0 gap-2 rounded-md border border-dashed border-gray-300 bg-gray-50 p-2">
+                        <div className="flex flex-col gap-2">
                           <span className="text-xs font-medium text-gray-600">
                             Pas les contacts ? Cherche la marque dans l&apos;app et HubSpot
                           </span>
@@ -1904,7 +1929,7 @@ export function ProspectingPipelineClient() {
                             type="button"
                             disabled={contactSearchByMission[m.id]?.loading}
                             onClick={() => void searchClientContacts(m)}
-                            className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs disabled:opacity-50"
+                            className="inline-flex w-full items-center justify-center gap-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-xs disabled:opacity-50"
                           >
                             {contactSearchByMission[m.id]?.loading ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -1962,11 +1987,11 @@ export function ProspectingPipelineClient() {
                               </p>
                             )}
                           {(brandSearchByMission[m.id]?.results.length ?? 0) > 0 && (
-                            <ul className="grid gap-1">
+                            <ul className="grid min-w-0 gap-1">
                               {brandSearchByMission[m.id]?.results.map((b) => (
                                 <li
                                   key={b.id}
-                                  className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-2 py-1"
+                                  className="flex min-w-0 flex-col gap-1.5 rounded border border-gray-200 bg-white px-2 py-1.5"
                                 >
                                   <div className="min-w-0">
                                     <p className="truncate text-xs font-medium text-gray-800">
@@ -1981,7 +2006,7 @@ export function ProspectingPipelineClient() {
                                     type="button"
                                     disabled={contactSearchByMission[m.id]?.loading}
                                     onClick={() => void searchClientContacts(m, b.nom)}
-                                    className="shrink-0 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] text-indigo-700 disabled:opacity-50"
+                                    className="w-full rounded border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] text-indigo-700 disabled:opacity-50"
                                   >
                                     Voir les contacts
                                   </button>
@@ -1999,7 +2024,7 @@ export function ProspectingPipelineClient() {
                             </p>
                           )}
                         {(contactSearchByMission[m.id]?.results.length ?? 0) > 0 && (
-                          <ul className="grid gap-1">
+                          <ul className="grid min-w-0 gap-1">
                             {contactSearchByMission[m.id]?.results.map((sc) => {
                               const scEmail = sc.email.trim().toLowerCase();
                               const already =
@@ -2010,11 +2035,11 @@ export function ProspectingPipelineClient() {
                               return (
                                 <li
                                   key={sc.id || sc.email}
-                                  className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-2 py-1"
+                                  className="flex min-w-0 flex-col gap-1.5 rounded border border-gray-200 bg-white px-2 py-1.5"
                                 >
                                   <div className="min-w-0">
-                                    <p className="flex items-center gap-1.5 truncate text-xs font-medium text-gray-800">
-                                      <span className="truncate">
+                                    <p className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs font-medium text-gray-800">
+                                      <span className="min-w-0 break-words">
                                         {[sc.firstname, sc.lastname].filter(Boolean).join(" ") ||
                                           sc.email ||
                                           "Contact sans nom"}
@@ -2034,7 +2059,7 @@ export function ProspectingPipelineClient() {
                                         </span>
                                       )}
                                     </p>
-                                    <p className="truncate text-[11px] text-gray-500">
+                                    <p className="break-all text-[11px] text-gray-500">
                                       {sc.email || "— email manquant —"}
                                       {sc.companyName ? ` · ${sc.companyName}` : ""}
                                       {sc.role ? ` · ${sc.role}` : ""}
@@ -2044,7 +2069,7 @@ export function ProspectingPipelineClient() {
                                     type="button"
                                     disabled={already}
                                     onClick={() => addSearchedContactToForm(m.id, sc)}
-                                    className="shrink-0 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700 disabled:opacity-50"
+                                    className="w-full rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] font-medium text-emerald-700 disabled:opacity-50"
                                   >
                                     {already ? "Ajouté" : "+ Ajouter"}
                                   </button>
@@ -2055,7 +2080,7 @@ export function ProspectingPipelineClient() {
                         )}
                       </div>
                       {(contactFormByMission[m.id]?.contacts || []).map((contact, index) => (
-                        <div key={`${m.id}-contact-${index}`} className="grid grid-cols-1 gap-2 md:grid-cols-4">
+                        <div key={`${m.id}-contact-${index}`} className="grid min-w-0 grid-cols-1 gap-2">
                           <input
                             value={contact.firstname}
                             onChange={(e) =>
@@ -2070,7 +2095,7 @@ export function ProspectingPipelineClient() {
                               }))
                             }
                             placeholder="Prénom*"
-                            className="rounded border border-gray-300 px-2 py-1 text-xs"
+                            className="min-w-0 w-full rounded border border-gray-300 px-2 py-1 text-xs"
                           />
                           <input
                             value={contact.lastname}
@@ -2086,7 +2111,7 @@ export function ProspectingPipelineClient() {
                               }))
                             }
                             placeholder="Nom"
-                            className="rounded border border-gray-300 px-2 py-1 text-xs"
+                            className="min-w-0 w-full rounded border border-gray-300 px-2 py-1 text-xs"
                           />
                           <input
                             value={contact.email}
@@ -2102,7 +2127,7 @@ export function ProspectingPipelineClient() {
                               }))
                             }
                             placeholder="Email*"
-                            className="rounded border border-gray-300 px-2 py-1 text-xs"
+                            className="min-w-0 w-full rounded border border-gray-300 px-2 py-1 text-xs"
                           />
                           <input
                             value={contact.role}
@@ -2118,7 +2143,7 @@ export function ProspectingPipelineClient() {
                               }))
                             }
                             placeholder="Rôle / Poste"
-                            className="rounded border border-gray-300 px-2 py-1 text-xs"
+                            className="min-w-0 w-full rounded border border-gray-300 px-2 py-1 text-xs"
                           />
                         </div>
                       ))}
@@ -2147,7 +2172,7 @@ export function ProspectingPipelineClient() {
                             clientLanguage: e.target.value === "EN" ? "EN" : "FR",
                           })
                         }
-                        className="rounded border border-gray-300 px-2 py-1 text-xs"
+                        className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
                       >
                         <option value="FR">Client français</option>
                         <option value="EN">Client anglais</option>
@@ -2156,7 +2181,7 @@ export function ProspectingPipelineClient() {
                         type="button"
                         disabled={updatingId === m.id}
                         onClick={() => void addClientContact(m)}
-                        className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
+                        className="w-full rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs font-medium text-emerald-700"
                       >
                         Enregistrer contact
                       </button>
