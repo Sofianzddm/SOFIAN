@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { canWriteMarqueCrm } from "@/lib/marque-crm-access";
 import {
   findSimilarToMarque,
   loadMarquesForDedupe,
 } from "@/lib/marque-fuzzy-detect";
-
-const ALLOWED = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"];
 
 /**
  * GET /api/marques/[id]/similar
@@ -22,8 +21,7 @@ export async function GET(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    const role = (session.user as { role?: string }).role ?? "";
-    if (!ALLOWED.includes(role)) {
+    if (!canWriteMarqueCrm(session.user.role)) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 

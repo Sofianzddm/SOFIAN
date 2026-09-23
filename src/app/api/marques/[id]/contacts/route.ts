@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { setMarqueContactDiffusionOptOut } from "@/lib/diffusion-opt-out";
+import { canWriteMarqueCrm } from "@/lib/marque-crm-access";
 
 /**
  * POST → ajout rapide d'un contact depuis la fiche marque (sans passer par
@@ -17,6 +18,9 @@ export async function POST(
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!canWriteMarqueCrm(session.user.role)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     const { id } = await params;
@@ -104,6 +108,9 @@ export async function PATCH(
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!canWriteMarqueCrm(session.user.role)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     const { id } = await params;
@@ -363,6 +370,9 @@ export async function DELETE(
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!canWriteMarqueCrm(session.user.role)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     const { id } = await params;

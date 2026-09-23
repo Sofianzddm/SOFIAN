@@ -127,8 +127,8 @@ function BrandLogo({ nom, siteWeb, size = 9 }: { nom: string; siteWeb: string | 
 export default function MarquesPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
-  // STRATEGY_PLANNER : annuaire en lecture seule (comme les fiches détail).
-  const readOnly = (session?.user?.role || "") === "STRATEGY_PLANNER";
+  // STRATEGY_PLANNER + CM (Account Manager) : annuaire en lecture seule.
+  const readOnly = ["STRATEGY_PLANNER", "CM"].includes(session?.user?.role || "");
   const canDedupe = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "HEAD_OF_INFLUENCE"].includes(
     session?.user?.role || ""
   );

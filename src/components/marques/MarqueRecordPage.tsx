@@ -49,7 +49,7 @@ import {
 } from "lucide-react";
 import { MarqueCrmTab } from "@/app/(dashboard)/marques/[id]/MarqueCrmTab";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
-import { canAccessFullMarqueCrm, canWriteMarqueCrm } from "@/lib/marque-crm-access";
+import { canAccessFullMarqueCrm, canWriteMarqueCrm, isMarqueCrmReadOnly } from "@/lib/marque-crm-access";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -482,11 +482,9 @@ export default function MarqueRecordPage({
   const outreachHref = isBenelux
     ? "/outreach?market=BENELUX"
     : "/outreach";
-  // STRATEGY_PLANNER : fiche en lecture seule (accès depuis les projets
-  // strategy type Ski Trip) — pas de modification/suppression ni de liens
-  // vers des espaces auxquels le rôle n'a pas accès.
-  const readOnly =
-    !isBenelux && (session?.user?.role || "") === "STRATEGY_PLANNER";
+  // STRATEGY_PLANNER + CM (Account Manager) : fiche en lecture seule —
+  // pas de modification/suppression. CM voit clients / mails, sans Achats-AO.
+  const readOnly = !isBenelux && isMarqueCrmReadOnly(session?.user?.role);
   // Lancer un contact dans le cycle Outreach est réservé aux rôles qui y ont
   // accès côté API (ADMIN / CASTING_MANAGER).
   const canOutreach = ["ADMIN", "CASTING_MANAGER"].includes(session?.user?.role || "");

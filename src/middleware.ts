@@ -6,6 +6,7 @@ import {
   isDecisionCenterEnabled,
 } from "@/lib/decision-center/constants";
 import { canViewAllTalentCollabs } from "@/lib/collab-viewer-access";
+import { isMarqueCrmReadOnly } from "@/lib/marque-crm-access";
 
 const NOINDEX_HEADER = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
@@ -310,6 +311,16 @@ export async function middleware(request: NextRequest) {
     /^\/marques\/[^/]+$/.test(pathname) &&
     pathname !== "/marques/new" &&
     pathname !== "/marques/duplicates";
+  // CM / STRATEGY_PLANNER : pas d'édition / création / dédoublonnage marques
+  const isMarqueWritePath =
+    pathname === "/marques/new" ||
+    pathname === "/marques/duplicates" ||
+    pathname.startsWith("/marques/duplicates/") ||
+    /^\/marques\/[^/]+\/edit$/.test(pathname) ||
+    /^\/marques\/benelux\/[^/]+\/edit$/.test(pathname);
+  if (isMarqueCrmReadOnly(effectiveRole) && isMarqueWritePath) {
+    return withNoIndex(NextResponse.redirect(new URL("/marques", request.url)));
+  }
   const isCollabViewer = canViewAllTalentCollabs(
     effectiveRole || "",
     t.email

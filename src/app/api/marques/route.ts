@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
+import { canWriteMarqueCrm } from "@/lib/marque-crm-access";
 
 // GET - Liste des marques
 export async function GET() {
@@ -97,6 +98,12 @@ export async function POST(request: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!canWriteMarqueCrm(session.user.role)) {
+      return NextResponse.json(
+        { error: "Permissions insuffisantes" },
+        { status: 403 }
+      );
     }
 
     const data = await request.json();

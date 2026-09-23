@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { canAccessFullMarqueCrm } from "@/lib/marque-crm-access";
+import {
+  canAccessFullMarqueCrm,
+  canMutateFullMarqueCrm,
+} from "@/lib/marque-crm-access";
 
 /** GET → télécharge le fichier de cartographie original tel qu'importé. */
 export async function GET(
@@ -42,7 +45,7 @@ export async function GET(
   }
 }
 
-/** DELETE → retire un fichier de carto / AO de la fiche (CRM complet). */
+/** DELETE → retire un fichier de carto / AO (ADMIN / HEAD_OF_SALES — pas CM). */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; fileId: string }> }
@@ -52,7 +55,7 @@ export async function DELETE(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!canAccessFullMarqueCrm(session.user.role)) {
+    if (!canMutateFullMarqueCrm(session.user.role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
