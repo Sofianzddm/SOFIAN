@@ -294,75 +294,6 @@ export default function NouvelleFactureLibrePage() {
             Client
           </h2>
           <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Recherche d’entreprise (nom ou SIRET)
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    if (!e.target.value.trim()) setShowSearchResults(false);
-                  }}
-                  onKeyDown={(e) =>
-                    e.key === "Enter" && (e.preventDefault(), searchEntreprise())
-                  }
-                  placeholder="Ex : L'Oréal, Nike ou 123 456 789 00012"
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
-                />
-                <button
-                  type="button"
-                  onClick={searchEntreprise}
-                  disabled={searching || searchQuery.trim().length < 2}
-                  className="px-4 py-2 rounded-lg bg-[#1A1110] text-white text-sm font-medium hover:bg-black disabled:opacity-50"
-                >
-                  {searching ? "Recherche..." : "Rechercher"}
-                </button>
-              </div>
-              {showSearchResults && (
-                <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                  {searchResults.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-gray-500">
-                      {searching
-                        ? "Recherche..."
-                        : "Aucun résultat. Essayez un autre nom ou SIRET."}
-                    </div>
-                  ) : (
-                    searchResults.map((ent, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => fillFromSearchResult(ent)}
-                        className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors"
-                      >
-                        <p className="font-medium text-gray-900">
-                          {ent.nom_entreprise}
-                        </p>
-                        {(ent.siret || ent.ville) && (
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {[
-                              ent.siret,
-                              [ent.code_postal, ent.ville]
-                                .filter(Boolean)
-                                .join(" "),
-                            ]
-                              .filter(Boolean)
-                              .join(" • ")}
-                          </p>
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-              <p className="text-xs text-gray-500 mt-1.5">
-                Recherche via API officielle (api.gouv.fr). Tu peux aussi remplir la
-                facturation à la main ci‑dessous.
-              </p>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -373,8 +304,12 @@ export default function NouvelleFactureLibrePage() {
                   value={clientNom}
                   onChange={(e) => setClientNom(e.target.value)}
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
-                  placeholder="Glow Up Agence"
+                  placeholder="Écrire le nom à la main (ex. Nike, L'Oréal…)"
+                  autoFocus={!editId}
                 />
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Saisie libre : tu peux écrire n’importe quel nom de marque / client.
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -423,6 +358,75 @@ export default function NouvelleFactureLibrePage() {
                 <option value="UE">Union Européenne</option>
                 <option value="Hors UE">Hors UE</option>
               </select>
+            </div>
+
+            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-4">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Préremplir via recherche d’entreprise (optionnel)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    if (!e.target.value.trim()) setShowSearchResults(false);
+                  }}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && (e.preventDefault(), searchEntreprise())
+                  }
+                  placeholder="Ex : L'Oréal, Nike ou 123 456 789 00012"
+                  className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C08B8B]"
+                />
+                <button
+                  type="button"
+                  onClick={searchEntreprise}
+                  disabled={searching || searchQuery.trim().length < 2}
+                  className="px-4 py-2 rounded-lg bg-[#1A1110] text-white text-sm font-medium hover:bg-black disabled:opacity-50"
+                >
+                  {searching ? "Recherche..." : "Rechercher"}
+                </button>
+              </div>
+              {showSearchResults && (
+                <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                  {searchResults.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-gray-500">
+                      {searching
+                        ? "Recherche..."
+                        : "Aucun résultat. Écris le nom à la main dans le champ ci-dessus."}
+                    </div>
+                  ) : (
+                    searchResults.map((ent, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => fillFromSearchResult(ent)}
+                        className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors"
+                      >
+                        <p className="font-medium text-gray-900">
+                          {ent.nom_entreprise}
+                        </p>
+                        {(ent.siret || ent.ville) && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {[
+                              ent.siret,
+                              [ent.code_postal, ent.ville]
+                                .filter(Boolean)
+                                .join(" "),
+                            ]
+                              .filter(Boolean)
+                              .join(" • ")}
+                          </p>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mt-1.5">
+                Optionnel — API officielle (api.gouv.fr). Remplit nom + adresse si tu
+                sélectionnes un résultat. Sinon, saisis tout à la main au-dessus.
+              </p>
             </div>
           </div>
         </section>
