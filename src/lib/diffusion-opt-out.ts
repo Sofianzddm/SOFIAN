@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/prisma";
 
 /**
- * Filtre Prisma : contact encore enrôlable dans les listes de diffusion /
+ * Filtre Prisma : contact FR encore enrôlable dans les listes de diffusion /
  * cycles outreach (ni exclusion opérationnelle, ni opt-out client).
+ * Ne pas utiliser sur BeneluxContact (pas de colonne diffusionOptOut).
  */
 export const ENROLLABLE_CONTACT_WHERE = {
   outreachExcluded: false,

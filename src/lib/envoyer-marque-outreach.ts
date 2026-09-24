@@ -273,7 +273,11 @@ export async function queueBeneluxEnrichissement(opts: {
       nom: true,
       siteWeb: true,
       contacts: {
-        where: { source: { in: ["CARTO", "AO"] }, ...ENROLLABLE_CONTACT_WHERE },
+        // BeneluxContact n'a pas diffusionOptOut (FR only) — cf. outreachExcluded.
+        where: {
+          source: { in: ["CARTO", "AO"] },
+          outreachExcluded: false,
+        },
         select: {
           id: true,
           prenom: true,
@@ -516,7 +520,8 @@ export async function tryEnrollBeneluxAfterEmailComplete(opts: {
       id: true,
       nom: true,
       contacts: {
-        where: { source: "CARTO", ...ENROLLABLE_CONTACT_WHERE },
+        // BeneluxContact n'a pas diffusionOptOut (FR only) — cf. outreachExcluded.
+        where: { source: "CARTO", outreachExcluded: false },
         select: {
           id: true,
           prenom: true,
