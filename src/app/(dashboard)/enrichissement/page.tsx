@@ -149,6 +149,8 @@ export default function EnrichissementPage() {
   const [savingMarketKey, setSavingMarketKey] = useState<string | null>(null);
   /** Maison FW dont la langue est en cours de sauvegarde. */
   const [savingFwLang, setSavingFwLang] = useState(false);
+  /** Clé personne en cours d'enregistrement email (bouton Enregistrer). */
+  const [savingPersonKey, setSavingPersonKey] = useState<string | null>(null);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -466,7 +468,7 @@ export default function EnrichissementPage() {
   }, [active?.key, active?.people]);
 
   const deletePerson = async (p: Person) => {
-    if (busy || deletingKey) return;
+    if (busy || deletingKey || savingPersonKey) return;
     const name = [p.prenom, p.nom].filter(Boolean).join(" ") || "ce contact";
     if (
       !window.confirm(
@@ -504,6 +506,109 @@ export default function EnrichissementPage() {
       setFlash(e instanceof Error ? e.message : "Erreur");
     } finally {
       setDeletingKey(null);
+    }
+  };
+
+  /**
+   * Enregistre un contact tout de suite (email ou « pas d'email ») sans
+   * attendre le Prêt global — utile si on quitte la fiche en cours de route.
+   */
+  const savePerson = async (p: Person) => {
+    if (busy || savingPersonKey || deletingKey) return;
+    const isNf = Boolean(notFound[p.key]);
+    const email = (drafts[p.key] || "").trim().toLowerCase();
+    if (!isNf && !isValidEmail(email)) return;
+
+    const name = [p.prenom, p.nom].filter(Boolean).join(" ") || "Contact";
+    setSavingPersonKey(p.key);
+    setFlash(null);
+    try {
+      type ReadyRow = {
+        id: string;
+        email?: string;
+        notFound?: boolean;
+        bothMarkets?: boolean;
+      };
+
+      const bothMarkets =
+        !isNf &&
+        p.refs.some((r) => r.market === "FR") &&
+        p.refs.some((r) => r.market === "BENELUX");
+
+      const groups = new Map<
+        string,
+        { market: Market; marqueId: string; contacts: ReadyRow[] }
+      >();
+      for (const ref of p.refs) {
+        const k = `${ref.market}:${ref.marqueId}`;
+        let g = groups.get(k);
+        if (!g) {
+          g = { market: ref.market, marqueId: ref.marqueId, contacts: [] };
+          groups.set(k, g);
+        }
+        g.contacts.push(
+          isNf
+            ? { id: ref.id, notFound: true }
+            : {
+                id: ref.id,
+                email,
+                ...(bothMarkets &&
+                (ref.market === "FR" || ref.market === "BENELUX")
+                  ? { bothMarkets: true }
+                  : {}),
+              }
+        );
+      }
+
+      let totalSaved = 0;
+      let totalEnrolled = 0;
+      let totalNotFound = 0;
+      for (const g of groups.values()) {
+        const res = await fetch("/api/outreach/email-lookup/ready", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            market: g.market,
+            marqueId: g.marqueId,
+            contacts: g.contacts,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Échec de l'enregistrement");
+        totalSaved += data.saved || 0;
+        totalEnrolled += data.enrolled || 0;
+        totalNotFound += data.notFound || 0;
+      }
+
+      setContacts((prev) =>
+        prev.filter((c) => !p.refs.some((ref) => ref.id === c.id))
+      );
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[p.key];
+        return next;
+      });
+      setNotFound((prev) => {
+        const next = { ...prev };
+        delete next[p.key];
+        return next;
+      });
+
+      if (totalEnrolled > 0) {
+        setFlash(
+          `${name} enregistré — ${totalEnrolled} contact(s) envoyés en outreach.`
+        );
+      } else if (isNf || totalNotFound > 0) {
+        setFlash(`${name} marqué sans email.`);
+      } else {
+        setFlash(
+          `${name} enregistré${totalSaved > 0 ? ` (${email})` : ""}.`
+        );
+      }
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingPersonKey(null);
     }
   };
 
@@ -1447,7 +1552,11 @@ export default function EnrichissementPage() {
                       <button
                         type="button"
                         onClick={() => void deletePerson(p)}
-                        disabled={deletingKey === p.key || busy}
+                        disabled={
+                          deletingKey === p.key ||
+                          busy ||
+                          savingPersonKey === p.key
+                        }
                         title="Supprimer ce contact (mauvais poste, doublon…)"
                         className="inline-flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition disabled:opacity-40"
                       >
@@ -1480,35 +1589,59 @@ export default function EnrichissementPage() {
                     </div>
                   )}
 
-                  <input
-                    type="email"
-                    value={isNf ? "" : value}
-                    disabled={isNf}
-                    onChange={(e) => {
-                      setNotFound((prev) => ({ ...prev, [p.key]: false }));
-                      setDrafts((prev) => ({ ...prev, [p.key]: e.target.value }));
-                    }}
-                    placeholder={
-                      isNf
-                        ? "Pas d'email trouvé"
-                        : isAgencyTab
-                          ? "email@agence.com"
-                          : isFwTab
-                            ? "email@maison.com"
-                            : "email@marque.fr"
-                    }
-                    className="w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                    style={{
-                      borderColor: isNf ? "#D4D0CB" : valid ? GREEN : "#E5E0DA",
-                      backgroundColor: isNf ? "#F5F3F0" : valid ? "#F8FCEF" : "#fff",
-                    }}
-                    autoComplete="off"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="email"
+                      value={isNf ? "" : value}
+                      disabled={isNf || savingPersonKey === p.key}
+                      onChange={(e) => {
+                        setNotFound((prev) => ({ ...prev, [p.key]: false }));
+                        setDrafts((prev) => ({ ...prev, [p.key]: e.target.value }));
+                      }}
+                      placeholder={
+                        isNf
+                          ? "Pas d'email trouvé"
+                          : isAgencyTab
+                            ? "email@agence.com"
+                            : isFwTab
+                              ? "email@maison.com"
+                              : "email@marque.fr"
+                      }
+                      className="min-w-0 flex-1 px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      style={{
+                        borderColor: isNf ? "#D4D0CB" : valid ? GREEN : "#E5E0DA",
+                        backgroundColor: isNf ? "#F5F3F0" : valid ? "#F8FCEF" : "#fff",
+                      }}
+                      autoComplete="off"
+                    />
+                    {(valid || isNf) && (
+                      <button
+                        type="button"
+                        onClick={() => void savePerson(p)}
+                        disabled={
+                          busy ||
+                          savingPersonKey === p.key ||
+                          deletingKey === p.key
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-semibold text-white shrink-0 disabled:opacity-40 transition"
+                        style={{ backgroundColor: GREEN }}
+                        title="Enregistrer ce contact maintenant (conservé si tu quittes la fiche)"
+                      >
+                        {savingPersonKey === p.key ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Check className="w-3.5 h-3.5" />
+                        )}
+                        Enregistrer
+                      </button>
+                    )}
+                  </div>
 
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={isNf}
+                      disabled={savingPersonKey === p.key || busy}
                       onChange={(e) => {
                         const checked = e.target.checked;
                         setNotFound((prev) => ({ ...prev, [p.key]: checked }));
@@ -1529,7 +1662,7 @@ export default function EnrichissementPage() {
           <button
             type="button"
             onClick={() => void markReady()}
-            disabled={!allReady || busy}
+            disabled={!allReady || busy || Boolean(savingPersonKey)}
             className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-base font-semibold text-white disabled:opacity-40 sticky bottom-4"
             style={{ backgroundColor: allReady ? GREEN : INK }}
           >
