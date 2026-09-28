@@ -51,6 +51,8 @@ const norm = (s: string) =>
     .trim();
 
 type Market = "FR" | "BENELUX" | "AGENCY" | "FW";
+type BrandMarket = "FR" | "BENELUX";
+type PersonMarket = BrandMarket | "BOTH";
 type Tab = "marques" | "agences" | "fw";
 
 type ContactLang = "fr" | "en";
@@ -90,6 +92,17 @@ type Person = {
   source: "CARTO" | "AO" | null;
   refs: PersonRef[];
 };
+
+const personMarketSelection = (p: Person): PersonMarket => {
+  const hasFr = p.refs.some((r) => r.market === "FR");
+  const hasBe = p.refs.some((r) => r.market === "BENELUX");
+  if (hasFr && hasBe) return "BOTH";
+  if (hasBe) return "BENELUX";
+  return "FR";
+};
+
+const marketsFromSelection = (m: PersonMarket): BrandMarket[] =>
+  m === "BOTH" ? ["FR", "BENELUX"] : [m];
 
 const toLang = (v: string | null | undefined): ContactLang =>
   v === "en" ? "en" : "fr";
@@ -132,6 +145,8 @@ export default function EnrichissementPage() {
   const [deletingGroupKey, setDeletingGroupKey] = useState<string | null>(null);
   /** Clé personne dont la langue est en cours de sauvegarde. */
   const [savingLangKey, setSavingLangKey] = useState<string | null>(null);
+  /** Clé personne dont le marché est en cours de sauvegarde. */
+  const [savingMarketKey, setSavingMarketKey] = useState<string | null>(null);
   /** Maison FW dont la langue est en cours de sauvegarde. */
   const [savingFwLang, setSavingFwLang] = useState(false);
 
@@ -517,6 +532,44 @@ export default function EnrichissementPage() {
       setFlash(e instanceof Error ? e.message : "Erreur");
     } finally {
       setSavingLangKey(null);
+    }
+  };
+
+  const updatePersonMarkets = async (p: Person, next: PersonMarket) => {
+    if (isAgencyTab || isFwTab || savingMarketKey || busy) return;
+    const current = personMarketSelection(p);
+    if (current === next) return;
+    const brandRefs = p.refs.filter(
+      (r): r is PersonRef & { market: BrandMarket } =>
+        r.market === "FR" || r.market === "BENELUX"
+    );
+    if (brandRefs.length === 0) return;
+
+    setSavingMarketKey(p.key);
+    setFlash(null);
+    try {
+      const res = await fetch("/api/outreach/email-lookup/set-markets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          refs: brandRefs.map((r) => ({ id: r.id, market: r.market })),
+          markets: marketsFromSelection(next),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Échec de la mise à jour");
+
+      // Recharge la file pour refléter les refs FR/BE (création / suppression).
+      await load({ silent: true });
+      const label = next === "BOTH" ? "FR + BE" : next === "BENELUX" ? "BE" : "FR";
+      setFlash(
+        data.message ||
+          `${[p.prenom, p.nom].filter(Boolean).join(" ")} → ${label}`
+      );
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingMarketKey(null);
     }
   };
 
@@ -1291,15 +1344,44 @@ export default function EnrichissementPage() {
                               Influence
                             </span>
                           ))}
-                        {!isAgencyTab && p.refs.length > 1 && (
+                        {!isAgencyTab && !isFwTab && (
                           <span
-                            className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: "#EEF2FF", color: INK }}
-                            title="Ce contact est sur les deux marchés — un seul mail suffit"
+                            className="inline-flex rounded-md overflow-hidden border shrink-0"
+                            style={{ borderColor: "#E5E0DA" }}
+                            title="Corriger le marché : FR, BE, ou les deux"
                           >
-                            FR + BE
+                            {(["FR", "BENELUX", "BOTH"] as const).map((m) => {
+                              const selected = personMarketSelection(p) === m;
+                              return (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  disabled={
+                                    savingMarketKey === p.key ||
+                                    busy ||
+                                    deletingKey === p.key
+                                  }
+                                  onClick={() => void updatePersonMarkets(p, m)}
+                                  className="px-1.5 py-0.5 text-[10px] font-bold uppercase transition disabled:opacity-40"
+                                  style={
+                                    selected
+                                      ? { backgroundColor: INK, color: "#fff" }
+                                      : { backgroundColor: "#fff", color: "#9CA3AF" }
+                                  }
+                                >
+                                  {m === "FR"
+                                    ? "🇫🇷 FR"
+                                    : m === "BENELUX"
+                                      ? "🇧🇪 BE"
+                                      : "FR+BE"}
+                                </button>
+                              );
+                            })}
                           </span>
                         )}
+                        {savingMarketKey === p.key ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                        ) : null}
                         {p.priorite ? (
                           <span className="text-[10px] font-bold text-gray-400">
                             {p.priorite}
