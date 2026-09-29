@@ -658,7 +658,10 @@ export default function CollabDetailPage() {
         body: JSON.stringify(marqueFormData),
       });
       if (res.ok) { setShowCompleteMarqueModal(false); setPappersShowResults(false); setPappersSearchQuery(""); await fetchCollab(); await generateDocument(pendingDocType, true, notesDevis || undefined, paysDevis, numeroTVADevis, delaiPaiementJours, inclureCgvDevis, langueDevis, deviseDevis); }
-      else alert("Erreur lors de la mise à jour de la marque");
+      else {
+        const err = await res.json().catch(() => null);
+        alert(err?.error || err?.message || "Erreur lors de la mise à jour de la marque");
+      }
     } catch (error) { alert("Erreur lors de la mise à jour"); }
     finally { setSavingMarque(false); setPendingDocType(null); }
   };

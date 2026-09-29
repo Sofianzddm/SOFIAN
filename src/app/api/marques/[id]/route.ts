@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import {
   canAccessFullMarqueCrm,
+  canUpdateMarqueBilling,
   canWriteMarqueCrm,
 } from "@/lib/marque-crm-access";
 
@@ -110,6 +111,18 @@ export async function GET(
             marqueContactId: true,
           },
         },
+        // Agences liées (représentation CRM — sans enroll clients).
+        partners: {
+          select: {
+            id: true,
+            source: true,
+            createdAt: true,
+            partner: {
+              select: { id: true, name: true, slug: true, market: true },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        },
         _count: {
           select: {
             collaborations: true,
@@ -192,7 +205,11 @@ export async function PUT(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!canWriteMarqueCrm(session.user.role)) {
+
+    const role = session.user.role;
+    const canFullWrite = canWriteMarqueCrm(role);
+    const canBilling = canUpdateMarqueBilling(role);
+    if (!canBilling) {
       return NextResponse.json(
         { error: "Permissions insuffisantes" },
         { status: 403 }
@@ -201,6 +218,41 @@ export async function PUT(
 
     const { id } = await params;
     const data = await request.json();
+
+    // TM / CM / HoI : uniquement les champs de facturation (modal devis/facture).
+    // Le CRM complet (nom, contacts, hiérarchie…) reste réservé aux rôles write.
+    if (!canFullWrite) {
+      if (data.contacts || "parentMarqueId" in data || data.nom) {
+        return NextResponse.json(
+          { error: "Permissions insuffisantes pour modifier ces champs" },
+          { status: 403 }
+        );
+      }
+
+      const marque = await prisma.marque.update({
+        where: { id },
+        data: {
+          raisonSociale: data.raisonSociale || null,
+          adresseRue: data.adresseRue || null,
+          adresseComplement: data.adresseComplement || null,
+          codePostal: data.codePostal || null,
+          ville: data.ville || null,
+          pays: data.pays || "France",
+          siret: data.siret || null,
+          numeroTVA: data.numeroTVA || null,
+          ...(data.delaiPaiement !== undefined
+            ? { delaiPaiement: data.delaiPaiement ? parseInt(data.delaiPaiement) : 30 }
+            : {}),
+          ...(data.modePaiement !== undefined
+            ? { modePaiement: data.modePaiement || "Virement" }
+            : {}),
+          ...(data.devise !== undefined
+            ? { devise: data.devise || "EUR" }
+            : {}),
+        },
+      });
+      return NextResponse.json(marque);
+    }
 
     const before = await prisma.marque.findUnique({
       where: { id },
