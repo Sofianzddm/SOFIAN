@@ -331,6 +331,8 @@ export default function InboundDetailPage() {
             created: boolean;
             outreachAction?: string;
             outreachPipeline?: string;
+            linkedMarqueId?: string | null;
+            linkedMarqueName?: string | null;
           }
         | undefined;
       if (fiche?.ok) {
@@ -347,10 +349,16 @@ export default function InboundDetailPage() {
               : fiche.outreachAction === "already-tracked"
                 ? " — déjà dans un cycle outreach"
                 : "";
+        const marqueLinkMsg =
+          fiche.kind === "AGENCE" && fiche.linkedMarqueName
+            ? ` — aussi liée sur la fiche ${fiche.linkedMarqueName}`
+            : "";
         showToast(
           (fiche.created
             ? `Fiche ${fiche.kind === "AGENCE" ? "agence" : "marque"} créée : ${label}`
-            : `Contact enregistré sur ${label}`) + outreachMsg,
+            : `Contact enregistré sur ${label}`) +
+            outreachMsg +
+            marqueLinkMsg,
           "success"
         );
       } else {

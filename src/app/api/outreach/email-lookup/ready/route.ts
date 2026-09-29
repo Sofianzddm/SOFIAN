@@ -182,10 +182,25 @@ export async function POST(request: NextRequest) {
       if (market === "FW") {
         const contact = await prisma.fwContact.findFirst({
           where: { id, clientId: marqueId },
-          select: { id: true },
+          select: { id: true, firstName: true, lastName: true },
         });
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
+        }
+        const { isForbiddenCastingRecipient, loadCastingRecipientBlocklist } =
+          await import("@/lib/casting-recipient-guard");
+        const blocklist = await loadCastingRecipientBlocklist();
+        if (
+          isForbiddenCastingRecipient(
+            {
+              email,
+              firstname: contact.firstName,
+              lastname: contact.lastName,
+            },
+            blocklist
+          )
+        ) {
+          continue;
         }
         await prisma.fwContact.update({
           where: { id },

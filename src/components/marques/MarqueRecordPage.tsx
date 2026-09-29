@@ -146,6 +146,13 @@ interface MarqueDetail {
   linkedMarque?: { id: string; nom: string } | null;
   /** Fiches BENELUX pointant vers cette marque FR (après bascule). */
   beneluxLinks?: { id: string; nom: string }[];
+  /** Agences liées (ex. inbound AGENCE pour cette marque) — CRM only. */
+  partners?: {
+    id: string;
+    source: string;
+    createdAt: string;
+    partner: { id: string; name: string; slug: string; market: string };
+  }[];
 }
 
 /** Résultat léger pour le sélecteur de rattachement mère/fille. */
@@ -2392,6 +2399,30 @@ export default function MarqueRecordPage({
                 )}
               </div>
             </SectionCard>
+            )}
+
+            {!isBenelux && (marque.partners || []).length > 0 && (
+              <SectionCard title="Agences" icon={Briefcase}>
+                <ul className="space-y-2">
+                  {(marque.partners || []).map((link) => (
+                    <li key={link.id} className="flex items-center justify-between gap-2 min-w-0">
+                      <Link
+                        href={`/partners/manage/${link.partner.id}`}
+                        className="text-[13px] font-medium hover:underline truncate"
+                        style={{ color: INK }}
+                      >
+                        {link.partner.name}
+                      </Link>
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 shrink-0">
+                        {link.source === "INBOUND" ? "Inbound" : link.source}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[11px] text-gray-400 mt-2 leading-snug">
+                  Liées en CRM uniquement — pas d’enrôlement Outreach Clients.
+                </p>
+              </SectionCard>
             )}
 
             <SectionCard title="Facturation" icon={ReceiptText}>

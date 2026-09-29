@@ -20,6 +20,8 @@ import {
   Sparkles,
   Trash2,
   Globe,
+  Zap,
+  ShieldCheck,
 } from "lucide-react";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
 import { FwImportCartoModal } from "@/components/fw/FwImportCartoModal";
@@ -32,6 +34,14 @@ import {
   suggestEmailsForContact,
   type EmailSuggestion,
 } from "@/lib/email-pattern";
+import type {
+  EnrichCompareResponse,
+  ProviderEnrichmentResult,
+} from "@/lib/enrichment/types";
+import type {
+  EmailVerifyResult,
+  EmailVerifyStatus,
+} from "@/lib/enrichment/verify-email";
 
 const INK = "#1A1110";
 const ROSE = "#C08B8B";
@@ -107,6 +117,134 @@ const marketsFromSelection = (m: PersonMarket): BrandMarket[] =>
 const toLang = (v: string | null | undefined): ContactLang =>
   v === "en" ? "en" : "fr";
 
+const verifyStatusColor = (status: EmailVerifyStatus): string => {
+  switch (status) {
+    case "valid":
+      return GREEN;
+    case "invalid":
+    case "no_mx":
+      return "#DC2626";
+    case "catch_all":
+      return "#D97706";
+    default:
+      return "#6B7280";
+  }
+};
+
+function ProviderCard({
+  label,
+  result,
+  agreement,
+  onPick,
+  onVerify,
+  verifyingEmail,
+  verifyByEmail,
+}: {
+  label: string;
+  result: ProviderEnrichmentResult;
+  agreement: string[];
+  onPick: (email: string) => void;
+  onVerify: (email: string) => void;
+  verifyingEmail: string | null;
+  verifyByEmail: Record<string, EmailVerifyResult>;
+}) {
+  const agreeSet = new Set(agreement.map((e) => e.toLowerCase()));
+  return (
+    <div
+      className="rounded-lg border p-3 space-y-2 min-w-0"
+      style={{ borderColor: "#E5E0DA", backgroundColor: "#FAFAF8" }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold" style={{ color: INK }}>
+          {label}
+        </span>
+        {!result.configured ? (
+          <span className="text-[10px] font-medium text-amber-700">Clé API manquante</span>
+        ) : result.ok && result.found ? (
+          <span className="text-[10px] font-medium" style={{ color: GREEN }}>
+            Match
+            {result.confidence ? ` · ${result.confidence}` : ""}
+          </span>
+        ) : result.ok ? (
+          <span className="text-[10px] font-medium text-gray-400">Non trouvé</span>
+        ) : (
+          <span className="text-[10px] font-medium text-red-600">Erreur</span>
+        )}
+      </div>
+      {result.error ? (
+        <p className="text-[11px] text-red-600/90 leading-snug">{result.error}</p>
+      ) : null}
+      {(result.fullName || result.title || result.company) && (
+        <p className="text-[11px] text-gray-500 leading-snug">
+          {[result.fullName, result.title, result.company].filter(Boolean).join(" · ")}
+        </p>
+      )}
+      {result.emails.length > 0 ? (
+        <div className="space-y-1.5">
+          {result.emails.map((e) => {
+            const shared = agreeSet.has(e.email.toLowerCase());
+            const verified = verifyByEmail[e.email.toLowerCase()];
+            const isVerifying = verifyingEmail === e.email.toLowerCase();
+            return (
+              <div key={e.email} className="space-y-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onPick(e.email)}
+                    className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border transition"
+                    style={{
+                      color: INK,
+                      backgroundColor: shared ? "#EEF7EE" : "#fff",
+                      borderColor: shared ? GREEN : "#E5E0DA",
+                    }}
+                    title={shared ? "Commun aux deux providers" : "Préremplir cet email"}
+                  >
+                    {shared ? <Check className="w-3 h-3" style={{ color: GREEN }} /> : null}
+                    {e.email}
+                    <span className="text-[9px] text-gray-400 uppercase">{e.type}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onVerify(e.email)}
+                    disabled={isVerifying}
+                    className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border font-semibold disabled:opacity-40"
+                    style={{ color: INK, borderColor: "#E5E0DA", backgroundColor: "#fff" }}
+                    title="Tester cet email (MX + SMTP)"
+                  >
+                    {isVerifying ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3 h-3" />
+                    )}
+                    Tester
+                  </button>
+                </div>
+                {verified ? (
+                  <p
+                    className="text-[10px] leading-snug pl-0.5"
+                    style={{ color: verifyStatusColor(verified.status) }}
+                    title={verified.detail || undefined}
+                  >
+                    {verified.label}
+                    {verified.detail ? ` — ${verified.detail}` : ""}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-[11px] text-gray-400">Aucun email révélé</p>
+      )}
+      {result.phones.length > 0 ? (
+        <p className="text-[10px] text-gray-400">
+          Tél. : {result.phones.map((ph) => ph.number).join(" · ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** Une marque / agence = fusion des fiches FR et BE portant le même nom. */
 type BrandGroup = {
   key: string;
@@ -151,6 +289,25 @@ export default function EnrichissementPage() {
   const [savingFwLang, setSavingFwLang] = useState(false);
   /** Clé personne en cours d'enregistrement email (bouton Enregistrer). */
   const [savingPersonKey, setSavingPersonKey] = useState<string | null>(null);
+  /** Clé personne en cours d'enrichissement Apollo+Lusha. */
+  const [enrichingKey, setEnrichingKey] = useState<string | null>(null);
+  /** Batch « Enrichir tous » en cours sur la fiche active. */
+  const [enrichingAll, setEnrichingAll] = useState(false);
+  /** Progression batch : index 1-based / total. */
+  const [enrichAllProgress, setEnrichAllProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  /** Résultats de comparaison providers par personne. */
+  const [enrichResults, setEnrichResults] = useState<
+    Record<string, EnrichCompareResponse>
+  >({});
+  /** Email en cours de test (normalisé). */
+  const [verifyingEmail, setVerifyingEmail] = useState<string | null>(null);
+  /** Résultats de test par email. */
+  const [verifyByEmail, setVerifyByEmail] = useState<
+    Record<string, EmailVerifyResult>
+  >({});
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -501,6 +658,11 @@ export default function EnrichissementPage() {
         delete next[p.key];
         return next;
       });
+      setEnrichResults((prev) => {
+        const next = { ...prev };
+        delete next[p.key];
+        return next;
+      });
       setFlash(`${name} supprimé.`);
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
@@ -514,7 +676,7 @@ export default function EnrichissementPage() {
    * attendre le Prêt global — utile si on quitte la fiche en cours de route.
    */
   const savePerson = async (p: Person) => {
-    if (busy || savingPersonKey || deletingKey) return;
+    if (busy || savingPersonKey || deletingKey || enrichingKey || enrichingAll) return;
     const isNf = Boolean(notFound[p.key]);
     const email = (drafts[p.key] || "").trim().toLowerCase();
     if (!isNf && !isValidEmail(email)) return;
@@ -593,6 +755,11 @@ export default function EnrichissementPage() {
         delete next[p.key];
         return next;
       });
+      setEnrichResults((prev) => {
+        const next = { ...prev };
+        delete next[p.key];
+        return next;
+      });
 
       if (totalEnrolled > 0) {
         setFlash(
@@ -609,6 +776,162 @@ export default function EnrichissementPage() {
       setFlash(e instanceof Error ? e.message : "Erreur");
     } finally {
       setSavingPersonKey(null);
+    }
+  };
+
+  /**
+   * Choisit un email à préremplir : accord Apollo∩Lusha, sinon email unique.
+   */
+  const pickBestEnrichEmail = (result: EnrichCompareResponse): string | null => {
+    if (result.agreement.length > 0) return result.agreement[0];
+    if (result.allEmails.length === 1) return result.allEmails[0].email;
+    const apolloOnly = result.apollo.emails;
+    const lushaOnly = result.lusha.emails;
+    if (apolloOnly.length === 1 && lushaOnly.length === 0) return apolloOnly[0].email;
+    if (lushaOnly.length === 1 && apolloOnly.length === 0) return lushaOnly[0].email;
+    return null;
+  };
+
+  const verifyEmail = async (raw: string) => {
+    const email = raw.trim().toLowerCase();
+    if (!isValidEmail(email) || verifyingEmail) return;
+    setVerifyingEmail(email);
+    setFlash(null);
+    try {
+      const res = await fetch("/api/outreach/email-lookup/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Échec du test");
+      const result = data as EmailVerifyResult;
+      setVerifyByEmail((prev) => ({ ...prev, [email]: result }));
+      setFlash(`${email} → ${result.label}`);
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur test email");
+    } finally {
+      setVerifyingEmail(null);
+    }
+  };
+
+  const fetchEnrichResult = async (
+    p: Person,
+    company: string
+  ): Promise<EnrichCompareResponse> => {
+    const res = await fetch("/api/outreach/email-lookup/enrich", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prenom: p.prenom,
+        nom: p.nom,
+        linkedinUrl: p.linkedinUrl,
+        company,
+        refs: p.refs.map((r) => ({ id: r.id, market: r.market })),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Échec de l'enrichissement");
+    return data as EnrichCompareResponse;
+  };
+
+  /** Apollo + Lusha en parallèle — comparaison sans écrire l'email automatiquement. */
+  const enrichPerson = async (p: Person, company: string) => {
+    if (busy || enrichingKey || enrichingAll || savingPersonKey || deletingKey) return;
+    setEnrichingKey(p.key);
+    setFlash(null);
+    try {
+      const result = await fetchEnrichResult(p, company);
+      setEnrichResults((prev) => ({ ...prev, [p.key]: result }));
+
+      const best = pickBestEnrichEmail(result);
+      if (best) {
+        setNotFound((prev) => ({ ...prev, [p.key]: false }));
+        setDrafts((prev) => ({ ...prev, [p.key]: best }));
+      }
+
+      const apolloN = result.apollo.emails.length;
+      const lushaN = result.lusha.emails.length;
+      if (result.agreement.length > 0) {
+        setFlash(
+          `${result.agreement.length} email(s) en commun Apollo + Lusha — prérempli.`
+        );
+      } else if (best) {
+        setFlash(`Email prérempli (${best}) — vérifie puis Enregistrer.`);
+      } else if (apolloN + lushaN > 0) {
+        setFlash(
+          `Enrichi : Apollo ${apolloN} · Lusha ${lushaN} — compare et choisis.`
+        );
+      } else {
+        const missing = [
+          !result.apollo.configured && "Apollo (clé)",
+          !result.lusha.configured && "Lusha (clé)",
+          result.apollo.configured && result.apollo.error,
+          result.lusha.configured && result.lusha.error,
+        ].filter(Boolean);
+        setFlash(
+          missing.length
+            ? `Aucun email trouvé. ${missing.join(" · ")}`
+            : "Aucun email trouvé chez Apollo ni Lusha."
+        );
+      }
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur enrichissement");
+    } finally {
+      setEnrichingKey(null);
+    }
+  };
+
+  /** Enrichit tous les contacts de la fiche (séquentiel, pour crédits / rate-limit). */
+  const enrichAllPeople = async () => {
+    if (!active || busy || enrichingAll || enrichingKey || savingPersonKey || deletingKey) {
+      return;
+    }
+    const people = active.people;
+    if (people.length === 0) return;
+
+    setEnrichingAll(true);
+    setEnrichAllProgress({ done: 0, total: people.length });
+    setFlash(null);
+
+    let filled = 0;
+    let found = 0;
+    let errors = 0;
+
+    try {
+      for (let i = 0; i < people.length; i++) {
+        const p = people[i];
+        setEnrichingKey(p.key);
+        setEnrichAllProgress({ done: i, total: people.length });
+        try {
+          const result = await fetchEnrichResult(p, active.company);
+          setEnrichResults((prev) => ({ ...prev, [p.key]: result }));
+          const emailCount =
+            result.apollo.emails.length + result.lusha.emails.length;
+          if (emailCount > 0) found += 1;
+          const best = pickBestEnrichEmail(result);
+          if (best) {
+            filled += 1;
+            setNotFound((prev) => ({ ...prev, [p.key]: false }));
+            setDrafts((prev) => ({ ...prev, [p.key]: best }));
+          }
+        } catch {
+          errors += 1;
+        }
+        setEnrichAllProgress({ done: i + 1, total: people.length });
+      }
+
+      const parts = [
+        `${people.length} contact${people.length > 1 ? "s" : ""}`,
+        found > 0 ? `${found} avec email` : "aucun email",
+        filled > 0 ? `${filled} prérempli${filled > 1 ? "s" : ""}` : null,
+        errors > 0 ? `${errors} erreur${errors > 1 ? "s" : ""}` : null,
+      ].filter(Boolean);
+      setFlash(`Enrichissement terminé — ${parts.join(" · ")}.`);
+    } finally {
+      setEnrichingKey(null);
+      setEnrichingAll(false);
+      setEnrichAllProgress(null);
     }
   };
 
@@ -1278,17 +1601,43 @@ export default function EnrichissementPage() {
                 setActiveKey(null);
                 setDrafts({});
                 setNotFound({});
+                setEnrichResults({});
               }}
               className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
             >
               <ArrowLeft className="w-4 h-4" />
               {isAgencyTab ? "Agences" : isFwTab ? "Fashion Week" : "Marques"}
             </button>
-            <div className="text-xs text-gray-400">
-              {resolvedCount} / {active.people.length} traités
-              {emailCount < resolvedCount
-                ? ` · ${emailCount} email${emailCount > 1 ? "s" : ""}`
-                : ""}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void enrichAllPeople()}
+                disabled={
+                  enrichingAll ||
+                  Boolean(enrichingKey) ||
+                  busy ||
+                  Boolean(savingPersonKey) ||
+                  active.people.length === 0
+                }
+                title="Enrichir tous les contacts via Apollo + Lusha"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white disabled:opacity-40 transition"
+                style={{ backgroundColor: INK }}
+              >
+                {enrichingAll ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Zap className="w-3.5 h-3.5" style={{ color: ROSE }} />
+                )}
+                {enrichingAll && enrichAllProgress
+                  ? `Enrichir… ${enrichAllProgress.done}/${enrichAllProgress.total}`
+                  : `Enrichir tous (${active.people.length})`}
+              </button>
+              <div className="text-xs text-gray-400">
+                {resolvedCount} / {active.people.length} traités
+                {emailCount < resolvedCount
+                  ? ` · ${emailCount} email${emailCount > 1 ? "s" : ""}`
+                  : ""}
+              </div>
             </div>
           </div>
 
@@ -1537,6 +1886,27 @@ export default function EnrichissementPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => void enrichPerson(p, active.company)}
+                        disabled={
+                          enrichingKey === p.key ||
+                          enrichingAll ||
+                          busy ||
+                          savingPersonKey === p.key ||
+                          deletingKey === p.key
+                        }
+                        title="Enrichir via Apollo + Lusha et comparer"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white disabled:opacity-40 transition"
+                        style={{ backgroundColor: INK }}
+                      >
+                        {enrichingKey === p.key ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Zap className="w-3.5 h-3.5" style={{ color: ROSE }} />
+                        )}
+                        Enrichir
+                      </button>
                       {p.linkedinUrl ? (
                         <a
                           href={p.linkedinUrl}
@@ -1555,7 +1925,9 @@ export default function EnrichissementPage() {
                         disabled={
                           deletingKey === p.key ||
                           busy ||
-                          savingPersonKey === p.key
+                          savingPersonKey === p.key ||
+                          enrichingKey === p.key ||
+                          enrichingAll
                         }
                         title="Supprimer ce contact (mauvais poste, doublon…)"
                         className="inline-flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition disabled:opacity-40"
@@ -1568,6 +1940,43 @@ export default function EnrichissementPage() {
                       </button>
                     </div>
                   </div>
+
+                  {enrichResults[p.key] ? (
+                    <div className="space-y-2">
+                      {enrichResults[p.key].agreement.length > 0 ? (
+                        <p className="text-[11px] font-medium" style={{ color: GREEN }}>
+                          Accord Apollo ∩ Lusha :{" "}
+                          {enrichResults[p.key].agreement.join(", ")}
+                        </p>
+                      ) : null}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <ProviderCard
+                          label="Apollo"
+                          result={enrichResults[p.key].apollo}
+                          agreement={enrichResults[p.key].agreement}
+                          onPick={(email) => {
+                            setNotFound((prev) => ({ ...prev, [p.key]: false }));
+                            setDrafts((prev) => ({ ...prev, [p.key]: email }));
+                          }}
+                          onVerify={(email) => void verifyEmail(email)}
+                          verifyingEmail={verifyingEmail}
+                          verifyByEmail={verifyByEmail}
+                        />
+                        <ProviderCard
+                          label="Lusha"
+                          result={enrichResults[p.key].lusha}
+                          agreement={enrichResults[p.key].agreement}
+                          onPick={(email) => {
+                            setNotFound((prev) => ({ ...prev, [p.key]: false }));
+                            setDrafts((prev) => ({ ...prev, [p.key]: email }));
+                          }}
+                          onVerify={(email) => void verifyEmail(email)}
+                          verifyingEmail={verifyingEmail}
+                          verifyByEmail={verifyByEmail}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
 
                   {!isNf && suggestions.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
@@ -1614,6 +2023,27 @@ export default function EnrichissementPage() {
                       }}
                       autoComplete="off"
                     />
+                    {valid && !isNf && (
+                      <button
+                        type="button"
+                        onClick={() => void verifyEmail(value)}
+                        disabled={
+                          Boolean(verifyingEmail) ||
+                          busy ||
+                          savingPersonKey === p.key
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-semibold border shrink-0 disabled:opacity-40"
+                        style={{ color: INK, borderColor: "#E5E0DA", backgroundColor: "#fff" }}
+                        title="Tester l'email saisi (MX + SMTP)"
+                      >
+                        {verifyingEmail === value.trim().toLowerCase() ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                        )}
+                        Tester
+                      </button>
+                    )}
                     {(valid || isNf) && (
                       <button
                         type="button"
@@ -1636,6 +2066,23 @@ export default function EnrichissementPage() {
                       </button>
                     )}
                   </div>
+                  {!isNf &&
+                    valid &&
+                    verifyByEmail[value.trim().toLowerCase()] && (
+                      <p
+                        className="text-[11px] leading-snug"
+                        style={{
+                          color: verifyStatusColor(
+                            verifyByEmail[value.trim().toLowerCase()].status
+                          ),
+                        }}
+                      >
+                        {verifyByEmail[value.trim().toLowerCase()].label}
+                        {verifyByEmail[value.trim().toLowerCase()].detail
+                          ? ` — ${verifyByEmail[value.trim().toLowerCase()].detail}`
+                          : ""}
+                      </p>
+                    )}
 
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input

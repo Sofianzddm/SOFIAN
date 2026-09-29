@@ -326,7 +326,7 @@ export default function ContratsTalentBloc({
               onChange={(e) => setAvecSignatureAgence(e.target.checked)}
               className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
             />
-            Ajouter la signature de l'agence (après celle du talent)
+            Ajouter la signature de l'agence (contrat@ reçoit le lien dès l'envoi ; signe après le talent)
           </label>
           <button
             type="button"

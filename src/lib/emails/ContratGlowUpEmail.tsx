@@ -35,6 +35,11 @@ export interface ContratGlowUpEmailProps {
   signingUrl: string;
   /** true si le destinataire est l'agence (adapte le texte) */
   isAgence?: boolean;
+  /**
+   * Agence uniquement : true si le talent a déjà signé (webhook).
+   * false = mail envoyé dès l'envoi du contrat (lien reçu en avance).
+   */
+  talentHasSigned?: boolean;
   /** true pour une relance */
   isRelance?: boolean;
 }
@@ -44,10 +49,13 @@ export function ContratGlowUpEmail({
   contratTitre,
   signingUrl,
   isAgence = false,
+  talentHasSigned = true,
   isRelance = false,
 }: ContratGlowUpEmailProps) {
   const intro = isAgence
-    ? "Le talent a signé — c'est à votre tour de signer le contrat ci-dessous."
+    ? talentHasSigned
+      ? "Le talent a signé — c'est à votre tour de signer le contrat ci-dessous."
+      : "Un contrat talent vient d'être envoyé en signature. Voici votre lien pour la double signature (après celle du talent)."
     : isRelance
       ? "Petit rappel : votre contrat Glow Up vous attend, il ne vous reste plus qu'à le signer."
       : "Votre contrat Glow Up est prêt ! Il ne vous reste plus qu'à le signer électroniquement.";

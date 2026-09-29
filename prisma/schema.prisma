@@ -736,6 +736,8 @@ model Marque {
   demandesEntrantes    DemandeEntrante[]
   outreachTargets      OutreachTarget[]
   cartoFiles           MarqueCartoFile[]
+  // Agences qui ont contacté / représenté cette marque (lien CRM, sans enroll).
+  partners             MarquePartner[]
 
   // Fiches BENELUX liées (après transfert CRM) — collabs / activité restent ici,
   // la fiche BENELUX les affiche via linkedMarqueId.
@@ -748,6 +750,31 @@ model Marque {
   @@index([slug])
   @@index([parentMarqueId])
   @@map("marques")
+}
+
+// Lien CRM marque ↔ agence (Partner). Créé notamment à la qualif inbound AGENCE
+// quand l'agence contacte pour le compte d'une marque. N'enrôle PAS l'outreach
+// clients : le contact reste côté AgencyContact / Prospection Agences.
+model MarquePartner {
+  id String @id @default(cuid())
+
+  marqueId String
+  marque   Marque @relation(fields: [marqueId], references: [id], onDelete: Cascade)
+
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  // INBOUND | MANUAL | COLLABORATION | NEGOCIATION …
+  source      String  @default("INBOUND")
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([marqueId, partnerId])
+  @@index([marqueId])
+  @@index([partnerId])
+  @@map("marque_partners")
 }
 
 // Fichier de cartographie original (Excel/CSV importé) — conservé tel quel
@@ -2617,6 +2644,9 @@ model Partner {
   // Prospection agences (module distinct des marques)
   agencyContacts        AgencyContact[]
   agencyOutreachTargets AgencyOutreachTarget[]
+
+  // Marques représentées / contactées via cette agence (lien CRM uniquement).
+  marques MarquePartner[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

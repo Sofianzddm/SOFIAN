@@ -35,6 +35,19 @@ function getSubmitterSigningUrl(s: DocuSealSubmitter): string | null {
   return raw && raw.startsWith("http") ? raw : null;
 }
 
+/** Évite From = To (ex. contrat@ → contrat@) souvent filtré par Gmail Workspace. */
+function resendFromAddress(toEmail: string): string {
+  const configured = process.env.RESEND_FROM_EMAIL?.trim() || "contrat@glowupagence.fr";
+  const to = toEmail.trim().toLowerCase();
+  const fromAddr = configured.includes("<")
+    ? (configured.match(/<([^>]+)>/)?.[1] ?? configured).trim().toLowerCase()
+    : configured.toLowerCase();
+  if (to && to === fromAddr) {
+    return "Glow Up Agence <notifications@glowupagence.fr>";
+  }
+  return configured.includes("<") ? configured : `Glow Up Agence <${configured}>`;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; contratId: string }> }
@@ -171,38 +184,81 @@ export async function POST(
       );
     }
 
-    // Email personnalisé au talent uniquement (l'agence signera à son tour,
-    // notifiée par le webhook / DocuSeal quand order 1 est complété)
+    // Emails branded via Resend : talent + agence (si double signature), comme les devis
     let emailEnvoye = false;
+    let emailAgenceEnvoye = false;
     const resendKey = process.env.RESEND_API_KEY;
-    const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
-    if (resendKey && fromEmail) {
+    if (resendKey) {
+      const resend = new Resend(resendKey);
+
       const talentSubmitter = submissionList.find(
         (s) => s.email?.trim().toLowerCase() === talentEmail.toLowerCase()
       );
-      const signingUrl = talentSubmitter ? getSubmitterSigningUrl(talentSubmitter) : null;
-      if (signingUrl) {
-        const resend = new Resend(resendKey);
+      const talentSigningUrl = talentSubmitter
+        ? getSubmitterSigningUrl(talentSubmitter)
+        : null;
+      if (talentSigningUrl) {
         const html = await render(
           React.createElement(ContratGlowUpEmail, {
             signerName: contrat.talent.prenom || talentName,
             contratTitre: contrat.titre,
-            signingUrl,
+            signingUrl: talentSigningUrl,
           })
         );
         const sendResult = await resend.emails.send({
-          from: `Glow Up Agence <${fromEmail}>`,
+          from: resendFromAddress(talentEmail),
           to: talentEmail,
           subject: `Votre contrat Glow Up — ${contrat.titre}`,
           html,
         });
         if (sendResult.error) {
-          console.error("Contrat talent: erreur Resend:", sendResult.error);
+          console.error("Contrat talent: erreur Resend talent:", sendResult.error);
         } else {
           emailEnvoye = true;
         }
       } else {
         console.warn("Contrat talent: pas de signing_url pour le talent, email non envoyé");
+      }
+
+      // Double signature : envoyer le lien à contrat@ dès l'envoi (comme les devis).
+      // Un 2e mail « Le talent a signé » partira via le webhook DocuSeal.
+      if (contrat.avecSignatureAgence) {
+        const agenceSubmitter = submissionList.find((s) => {
+          const role = (s.role || "").trim().toLowerCase();
+          const email = (s.email || "").trim().toLowerCase();
+          return (
+            role === "agence" || email === agenceEmail.toLowerCase()
+          );
+        });
+        const agenceSigningUrl = agenceSubmitter
+          ? getSubmitterSigningUrl(agenceSubmitter)
+          : null;
+        if (agenceSubmitter?.email && agenceSigningUrl) {
+          const htmlAgence = await render(
+            React.createElement(ContratGlowUpEmail, {
+              signerName: agenceName,
+              contratTitre: contrat.titre,
+              signingUrl: agenceSigningUrl,
+              isAgence: true,
+              talentHasSigned: false,
+            })
+          );
+          const sendAgence = await resend.emails.send({
+            from: resendFromAddress(agenceSubmitter.email),
+            to: agenceSubmitter.email,
+            subject: `À signer — Contrat talent — ${contrat.titre}`,
+            html: htmlAgence,
+          });
+          if (sendAgence.error) {
+            console.error("Contrat talent: erreur Resend agence:", sendAgence.error);
+          } else {
+            emailAgenceEnvoye = true;
+          }
+        } else {
+          console.warn(
+            "Contrat talent: pas de signing_url pour l'agence, email double signature non envoyé"
+          );
+        }
       }
     } else {
       console.warn("Contrat talent: Resend non configuré, email non envoyé");
@@ -230,6 +286,7 @@ export async function POST(
       submissionId,
       statut: updated.statut,
       emailEnvoye,
+      emailAgenceEnvoye,
       email: talentEmail,
     });
   } catch (error) {

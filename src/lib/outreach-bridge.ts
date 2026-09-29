@@ -29,7 +29,7 @@ import {
   OUTREACH_RECONTACT_DAYS,
   INBOUND_MARQUE_RECONTACT_DAYS,
 } from "@/lib/outreach-constants";
-import { findOrCreatePartnerByName } from "@/lib/agency-partner";
+import { findOrCreatePartnerByName, linkPartnerToMarque } from "@/lib/agency-partner";
 import {
   emailDomain,
   isGenericEmailDomain,
@@ -618,6 +618,8 @@ function bridgeRef(bridge: BridgeResult): string {
  *
  * Enrôlement outreach :
  *  - Agence → tout de suite en Prospection Agences (« à contacter ») si absente du cycle
+ *    + lien Partner↔Marque sur la fiche marque (si marque du brief résolue),
+ *    SANS MarqueContact ni enrôlement Outreach Clients
  *  - Marque → fiche contact seulement ; WAITING J+30 au moment de l'envoi
  *    de notre réponse (`bridgeInboundOpportunityAfterSend`)
  */
@@ -632,6 +634,9 @@ export type PersistInboundContactResult =
       created: boolean;
       outreachAction: "created" | "already-tracked" | "skipped-stopped" | "skipped";
       outreachPipeline?: "agency" | "client" | "benelux";
+      /** Marque du brief liée à l'agence (CRM only, pas d'enroll clients). */
+      linkedMarqueId?: string | null;
+      linkedMarqueName?: string | null;
     }
   | {
       ok: true;
@@ -768,12 +773,59 @@ export async function persistInboundQualifiedContact(
       select: { id: true },
     });
 
+    // Résoudre la marque du brief et lier l'agence sur sa fiche CRM.
+    // Pas de MarqueContact / pas d'enrôlement Outreach Clients : l'enrôlement
+    // auto est uniquement côté Prospection Agences.
+    let linkedMarqueId: string | null = (opp.marqueId || "").trim() || null;
+    let linkedMarqueName: string | null = null;
+
+    if (linkedMarqueId) {
+      const marque = await prisma.marque.findUnique({
+        where: { id: linkedMarqueId },
+        select: { id: true, nom: true },
+      });
+      if (marque) {
+        linkedMarqueName = marque.nom;
+      } else {
+        linkedMarqueId = null;
+      }
+    }
+
+    if (!linkedMarqueId) {
+      const brandName = (opp.extractedBrand || "").trim();
+      if (brandName) {
+        const linked = await linkMarqueFromBrandName({
+          brandName,
+          source: "INBOUND",
+          createDefaults: { sourceInitiale: "INBOUND" },
+        });
+        if (linked) {
+          linkedMarqueId = linked.marqueId;
+          const marque = await prisma.marque.findUnique({
+            where: { id: linkedMarqueId },
+            select: { nom: true },
+          });
+          linkedMarqueName = marque?.nom || brandName;
+        }
+      }
+    }
+
+    if (linkedMarqueId) {
+      await linkPartnerToMarque({
+        marqueId: linkedMarqueId,
+        partnerId: partner.id,
+        source: "INBOUND",
+        createdById,
+      });
+    }
+
     await prisma.inboundOpportunity.update({
       where: { id: opp.id },
       data: {
         contactKind: "AGENCE",
         contactAgence: agencyName,
         contactLanguage: language,
+        ...(linkedMarqueId ? { marqueId: linkedMarqueId } : {}),
       },
     });
 
@@ -781,6 +833,7 @@ export async function persistInboundQualifiedContact(
       company: agencyName,
       contactKind: "AGENCE",
       contactAgence: agencyName,
+      // Pas de marqueId ici : évite tout pont client pour cet email.
     });
 
     return {
@@ -793,6 +846,8 @@ export async function persistInboundQualifiedContact(
       created: !existing,
       outreachAction: outreach.action,
       outreachPipeline: outreach.pipeline,
+      linkedMarqueId,
+      linkedMarqueName,
     };
   }
 

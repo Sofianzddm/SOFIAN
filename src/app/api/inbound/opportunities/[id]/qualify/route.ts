@@ -14,8 +14,10 @@ const ALLOWED_CATEGORIES = new Set([
 
 /**
  * Enregistre la qualification (agence / marque + langue) et crée la fiche
- * contact CRM. Agence absente du cycle → Prospection Agences (à contacter).
- * Marque → fiche seulement ; WAITING J+30 au moment de l'envoi de la réponse.
+ * contact CRM. Agence absente du cycle → Prospection Agences (à contacter) ;
+ * si une marque est connue sur le brief, l'agence est aussi liée sur sa fiche
+ * (CRM only, sans enrôlement Outreach Clients). Marque → fiche seulement ;
+ * WAITING J+30 au moment de l'envoi de la réponse.
  */
 export async function POST(
   req: NextRequest,

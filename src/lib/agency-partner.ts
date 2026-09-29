@@ -3,6 +3,9 @@
  * la prospection agences. Permet de saisir une agence en champ libre : on
  * réutilise un Partner existant (nom insensible à la casse) ou on en crée un
  * nouveau avec un slug unique (talent book par défaut, /partners/{slug}).
+ *
+ * Lien Marque ↔ Partner : enregistrement CRM uniquement (pas d'enrôlement
+ * Outreach Clients — le contact reste côté AgencyContact).
  */
 
 import { prisma } from "@/lib/prisma";
@@ -56,4 +59,37 @@ export async function findOrCreatePartnerByName(
     data: { name: trimmed, slug, createdBy },
     select: { id: true, name: true, slug: true, market: true },
   });
+}
+
+/**
+ * Attache une agence (Partner) à une fiche marque. Idempotent.
+ * Ne crée pas de MarqueContact et n'enrôle pas l'outreach clients.
+ */
+export async function linkPartnerToMarque(input: {
+  marqueId: string;
+  partnerId: string;
+  source?: string;
+  createdById?: string | null;
+}): Promise<{ id: string; created: boolean }> {
+  const existing = await prisma.marquePartner.findUnique({
+    where: {
+      marqueId_partnerId: {
+        marqueId: input.marqueId,
+        partnerId: input.partnerId,
+      },
+    },
+    select: { id: true },
+  });
+  if (existing) return { id: existing.id, created: false };
+
+  const created = await prisma.marquePartner.create({
+    data: {
+      marqueId: input.marqueId,
+      partnerId: input.partnerId,
+      source: (input.source || "INBOUND").trim() || "INBOUND",
+      createdById: input.createdById || null,
+    },
+    select: { id: true },
+  });
+  return { id: created.id, created: true };
 }

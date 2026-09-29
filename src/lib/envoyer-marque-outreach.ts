@@ -24,7 +24,10 @@ import {
   dismissBeneluxEnrichissementDuplicates,
   dismissMarqueEnrichissementDuplicates,
 } from "@/lib/contact-person-key";
-import { ENROLLABLE_CONTACT_WHERE } from "@/lib/diffusion-opt-out";
+import {
+  ENROLLABLE_BENELUX_CONTACT_WHERE,
+  ENROLLABLE_CONTACT_WHERE,
+} from "@/lib/diffusion-opt-out";
 
 export type EnvoyerOutreachResult =
   | {
@@ -273,10 +276,9 @@ export async function queueBeneluxEnrichissement(opts: {
       nom: true,
       siteWeb: true,
       contacts: {
-        // BeneluxContact n'a pas diffusionOptOut (FR only) — cf. outreachExcluded.
         where: {
           source: { in: ["CARTO", "AO"] },
-          outreachExcluded: false,
+          ...ENROLLABLE_BENELUX_CONTACT_WHERE,
         },
         select: {
           id: true,
@@ -520,8 +522,7 @@ export async function tryEnrollBeneluxAfterEmailComplete(opts: {
       id: true,
       nom: true,
       contacts: {
-        // BeneluxContact n'a pas diffusionOptOut (FR only) — cf. outreachExcluded.
-        where: { source: "CARTO", outreachExcluded: false },
+        where: { source: "CARTO", ...ENROLLABLE_BENELUX_CONTACT_WHERE },
         select: {
           id: true,
           prenom: true,

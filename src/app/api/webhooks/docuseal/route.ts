@@ -505,6 +505,7 @@ async function envoyerLienSignatureAgence(submissionId: string, contratTitre: st
       contratTitre,
       signingUrl,
       isAgence: true,
+      talentHasSigned: true,
     })
   );
   const resend = new Resend(resendKey);

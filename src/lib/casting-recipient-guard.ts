@@ -60,6 +60,24 @@ export function isInternalGlowUpEmail(value: string | undefined | null): boolean
   return email.endsWith("@glowupagence.fr");
 }
 
+/**
+ * Emails perso talents déjà vus collés en CRM marque — blocage absolu
+ * même si la fiche Talent ne porte que l'adresse @glowupagence.fr.
+ */
+const HARD_BLOCKED_CASTING_EMAILS = new Set<string>([
+  "mae.brun@orange.fr",
+  "oceanepedrosa2@gmail.com",
+]);
+
+export function isHardBlockedCastingEmail(
+  value: string | undefined | null
+): boolean {
+  const email = String(value || "")
+    .trim()
+    .toLowerCase();
+  return HARD_BLOCKED_CASTING_EMAILS.has(email);
+}
+
 function normalizePersonTokens(...parts: Array<string | null | undefined>): string[] {
   const key = contactPersonKey(parts[0], parts[1]);
   if (!key) return [];
@@ -110,6 +128,23 @@ function matchesTalentViaConsumerEmail(
     if (hits >= 1 && localTokens.length === 1 && nameTokens.length === 1) {
       return true;
     }
+  }
+  return false;
+}
+
+/** Maéva Brun ↔ Maé Brun : ≥ 2 tokens flous (préfixe) sur le nom du contact. */
+function matchesTalentViaFuzzyName(
+  contactTokens: string[],
+  talentNameTokens: string[][]
+): boolean {
+  if (contactTokens.length < 2) return false;
+  for (const nameTokens of talentNameTokens) {
+    if (nameTokens.length < 2) continue;
+    let hits = 0;
+    for (const nt of nameTokens) {
+      if (contactTokens.some((ct) => tokenMatches(ct, nt))) hits += 1;
+    }
+    if (hits >= 2) return true;
   }
   return false;
 }
@@ -171,12 +206,22 @@ export function isForbiddenCastingRecipient(
     .trim()
     .toLowerCase();
   if (isInternalGlowUpEmail(email)) return true;
+  if (isHardBlockedCastingEmail(email)) return true;
   if (email && blocklist?.emails.has(email)) return true;
 
   const firstname = contact.firstname ?? contact.prenom;
   const lastname = contact.lastname ?? contact.nom;
   const nameKey = contactPersonKey(firstname, lastname);
   if (nameKey && blocklist?.names.has(nameKey)) return true;
+
+  const contactTokens = normalizePersonTokens(firstname, lastname);
+  if (
+    contactTokens.length >= 2 &&
+    blocklist?.talentNameTokens?.length &&
+    matchesTalentViaFuzzyName(contactTokens, blocklist.talentNameTokens)
+  ) {
+    return true;
+  }
 
   if (
     email &&
