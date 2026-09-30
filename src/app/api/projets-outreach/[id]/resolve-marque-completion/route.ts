@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { isProjetsOutreachRole } from "@/lib/projets-outreach";
+import {
+  formatAwaitingSourcesLabel,
+  notifyCastingMarqueDebloquee,
+} from "@/lib/resolve-awaiting-enrichissement";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -10,7 +14,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  * Body: { missionId: string }
  *
  * Accessible aux rôles projets-outreach (typiquement ADMIN après avoir
- * complété la fiche).
+ * complété la fiche). Notifie les Casting Managers (mail + in-app).
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
@@ -38,6 +42,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         marqueId: true,
         awaitingContactsCompletion: true,
         marque: { select: { nom: true } },
+        campaign: { select: { id: true, title: true } },
       },
     });
     if (!mission) {
@@ -52,6 +57,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
 
     const name = mission.marque?.nom || mission.targetBrand;
+    const campaignTitle = mission.campaign?.title || null;
     await prisma.prospectingCampaignEvent.create({
       data: {
         campaignId,
@@ -66,6 +72,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
 
+    const sourceLabel = formatAwaitingSourcesLabel(
+      ["projet"],
+      campaignTitle ? [campaignTitle] : []
+    );
+    const mail = await notifyCastingMarqueDebloquee({
+      marqueName: name,
+      sourceLabel,
+      missions: [
+        {
+          missionId,
+          brandName: name,
+          source: "projet",
+          campaignId,
+          campaignTitle,
+        },
+      ],
+      actorId: session.user.id,
+      resolvedByName: session.user.name?.trim() || session.user.email || null,
+    });
+
     const stillBlocked = await prisma.contactMission.count({
       where: { campaignId, awaitingContactsCompletion: true },
     });
@@ -75,6 +101,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       missionId,
       awaitingContactsCompletion: false,
       stillBlocked,
+      notifiedTo: mail.to,
+      mailSent: mail.sent,
       message:
         stillBlocked > 0
           ? `${name} débloquée. ${stillBlocked} autre(s) marque(s) encore en attente.`

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { notifyMarqueCompletionResolved } from "@/lib/emails/notify-enrichissement";
 
 export type AwaitingSourceKind = "pipeline" | "projet";
 
@@ -16,6 +17,8 @@ export type ResolveAwaitingResult = {
   sources: AwaitingSourceKind[];
   sourceLabel: string;
   missions: ResolvedAwaitingMission[];
+  mailSent?: boolean;
+  notifiedTo?: string[];
 };
 
 function hasEmailableContact(
@@ -50,6 +53,105 @@ export function formatAwaitingSourcesLabel(
   return "";
 }
 
+export function contextsFromResolvedMissions(
+  missions: ResolvedAwaitingMission[]
+): Array<{ kind: AwaitingSourceKind; label: string; path: string }> {
+  const seen = new Set<string>();
+  const contexts: Array<{ kind: AwaitingSourceKind; label: string; path: string }> =
+    [];
+  for (const m of missions) {
+    const key =
+      m.source === "projet"
+        ? `projet:${m.campaignId || m.missionId}`
+        : "pipeline";
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (m.source === "projet" && m.campaignId) {
+      contexts.push({
+        kind: "projet",
+        label: m.campaignTitle
+          ? `Projet « ${m.campaignTitle} »`
+          : "Projet outreach",
+        path: `/projets-outreach/${m.campaignId}`,
+      });
+    } else if (m.source === "pipeline") {
+      contexts.push({
+        kind: "pipeline",
+        label: "Pipeline Casting",
+        path: "/strategy/projet-individuel-talent/pipeline",
+      });
+    }
+  }
+  return contexts;
+}
+
+/** Notifie les Casting Managers (mail + in-app) qu'une marque est débloquée. */
+export async function notifyCastingMarqueDebloquee(opts: {
+  marqueName: string;
+  sourceLabel: string;
+  emailableCount?: number;
+  missions: ResolvedAwaitingMission[];
+  actorId?: string | null;
+  resolvedByName?: string | null;
+}): Promise<{ sent: boolean; to: string[] }> {
+  try {
+    const castingManagers = await prisma.user.findMany({
+      where: { role: "CASTING_MANAGER", actif: true },
+      select: { id: true, email: true },
+    });
+    const recipients = castingManagers.filter(
+      (u) => u.id !== opts.actorId && Boolean(u.email)
+    );
+    const toEmails = recipients.map((u) => u.email).filter(Boolean);
+
+    let resolvedByName = opts.resolvedByName?.trim() || null;
+    if (!resolvedByName && opts.actorId) {
+      const actor = await prisma.user.findUnique({
+        where: { id: opts.actorId },
+        select: { prenom: true, nom: true, email: true },
+      });
+      resolvedByName =
+        `${actor?.prenom || ""} ${actor?.nom || ""}`.trim() ||
+        actor?.email ||
+        null;
+    }
+
+    const contexts = contextsFromResolvedMissions(opts.missions);
+    const mail = await notifyMarqueCompletionResolved({
+      marqueName: opts.marqueName,
+      sourceLabel: opts.sourceLabel,
+      resolvedByName,
+      emailableCount: opts.emailableCount,
+      contexts,
+      toEmails,
+    });
+
+    const primaryPath =
+      contexts.find((c) => c.kind === "projet")?.path ||
+      contexts[0]?.path ||
+      "/enrichissement";
+
+    await Promise.all(
+      recipients.map((u) =>
+        prisma.notification.create({
+          data: {
+            userId: u.id,
+            type: "GENERAL",
+            titre: `${opts.marqueName} enrichie`,
+            message: `${resolvedByName || "Quelqu’un"} a débloqué ${opts.marqueName} — ${opts.sourceLabel || "outreach"}. Rédaction possible.`,
+            lien: primaryPath,
+          },
+        })
+      )
+    );
+
+    return mail;
+  } catch (error) {
+    console.error("notifyCastingMarqueDebloquee:", error);
+    return { sent: false, to: [] };
+  }
+}
+
 /**
  * Si la fiche marque a au moins un email utilisable, débloque toutes les
  * missions en attente d'enrichissement (pipeline et/ou projets).
@@ -60,6 +162,8 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
   actorId?: string | null;
   /** Si true, résout même sans vérifier les emails (forcer). */
   force?: boolean;
+  /** Si false, ne mail pas Casting (défaut: true). */
+  notifyCasting?: boolean;
 }): Promise<ResolveAwaitingResult> {
   const empty: ResolveAwaitingResult = {
     resolvedCount: 0,
@@ -154,12 +258,28 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
       });
     }
 
+    let mailSent = false;
+    let notifiedTo: string[] = [];
+    if (opts.notifyCasting !== false) {
+      const mail = await notifyCastingMarqueDebloquee({
+        marqueName: marque.nom,
+        sourceLabel,
+        emailableCount,
+        missions,
+        actorId: opts.actorId,
+      });
+      mailSent = mail.sent;
+      notifiedTo = mail.to;
+    }
+
     return {
       resolvedCount: missions.length,
       emailableCount,
       sources,
       sourceLabel,
       missions,
+      mailSent,
+      notifiedTo,
     };
   } catch (error) {
     console.error("resolveAwaitingEnrichissementForMarque:", error);

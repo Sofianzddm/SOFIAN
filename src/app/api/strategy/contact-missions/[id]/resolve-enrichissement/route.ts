@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
+import {
+  formatAwaitingSourcesLabel,
+  notifyCastingMarqueDebloquee,
+} from "@/lib/resolve-awaiting-enrichissement";
 
 /**
  * POST — retire une mission de la file d'enrichissement
- * (contacts prêts / traité).
+ * (contacts prêts / traité). Notifie les Casting Managers.
  */
 const ALLOWED = ["ADMIN", "CASTING_MANAGER", "HEAD_OF", "HEAD_OF_SALES"] as const;
 
@@ -31,6 +35,7 @@ export async function POST(
         campaignId: true,
         awaitingContactsCompletion: true,
         marque: { select: { nom: true } },
+        campaign: { select: { id: true, title: true } },
       },
     });
     if (!mission) {
@@ -60,10 +65,34 @@ export async function POST(
       });
     }
 
+    const source: "projet" | "pipeline" = mission.campaignId ? "projet" : "pipeline";
+    const campaignTitle = mission.campaign?.title || null;
+    const sourceLabel = formatAwaitingSourcesLabel(
+      [source],
+      source === "projet" && campaignTitle ? [campaignTitle] : []
+    );
+    const mail = await notifyCastingMarqueDebloquee({
+      marqueName: name,
+      sourceLabel,
+      missions: [
+        {
+          missionId,
+          brandName: name,
+          source,
+          campaignId: mission.campaignId,
+          campaignTitle,
+        },
+      ],
+      actorId: session.user.id,
+      resolvedByName: session.user.name?.trim() || session.user.email || null,
+    });
+
     return NextResponse.json({
       ok: true,
       missionId,
       awaitingContactsCompletion: false,
+      notifiedTo: mail.to,
+      mailSent: mail.sent,
       message: `${name} retirée de la file d'enrichissement.`,
     });
   } catch (error) {

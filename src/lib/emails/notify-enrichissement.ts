@@ -143,6 +143,87 @@ export async function notifyMarqueCompletionRequested(opts: {
   }
 }
 
+/**
+ * Prévenir Casting qu'une marque en attente d'enrichissement est débloquée
+ * (rédaction possible à nouveau). Best-effort Resend.
+ */
+export async function notifyMarqueCompletionResolved(opts: {
+  marqueName: string;
+  sourceLabel: string;
+  resolvedByName?: string | null;
+  emailableCount?: number;
+  contexts: Array<{
+    kind: "projet" | "pipeline";
+    label: string;
+    path: string;
+  }>;
+  toEmails: string[];
+}): Promise<{ sent: boolean; to: string[] }> {
+  const key = process.env.RESEND_API_KEY?.trim();
+  const to = Array.from(
+    new Set(
+      opts.toEmails
+        .map((e) => String(e || "").trim().toLowerCase())
+        .filter((e) => e.includes("@"))
+    )
+  );
+  if (!key || to.length === 0) return { sent: false, to };
+
+  const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || "https://app.glowupagence.fr").replace(
+    /\/$/,
+    ""
+  );
+  const who = opts.resolvedByName?.trim() || "Quelqu’un";
+  const contactNote =
+    typeof opts.emailableCount === "number" && opts.emailableCount > 0
+      ? ` · ${opts.emailableCount} email(s) utilisable(s) en fiche`
+      : "";
+  const contextsHtml =
+    opts.contexts.length > 0
+      ? `<ul style="font-size:14px;line-height:1.6;margin:0 0 16px;padding-left:18px">${opts.contexts
+          .map((c) => {
+            const url = `${baseUrl}${c.path.startsWith("/") ? c.path : `/${c.path}`}`;
+            return `<li><a href="${url}" style="color:#1A1110;font-weight:600">${escapeHtml(
+              c.label
+            )}</a></li>`;
+          })
+          .join("")}</ul>`
+      : "";
+
+  const subject = `Marque enrichie — ${opts.marqueName} débloquée`;
+
+  const html = `
+  <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A1110">
+    <h2 style="font-size:18px;margin:0 0 8px">Marque enrichie — rédaction débloquée</h2>
+    <p style="font-size:14px;line-height:1.5;margin:0 0 12px">
+      <strong>${escapeHtml(who)}</strong> a complété la fiche
+      <strong>${escapeHtml(opts.marqueName)}</strong>${escapeHtml(contactNote)}.
+    </p>
+    <p style="font-size:14px;line-height:1.5;margin:0 0 8px">
+      Contexte : <strong>${escapeHtml(opts.sourceLabel || "outreach")}</strong>.
+      Tu peux à nouveau rédiger / envoyer.
+    </p>
+    ${contextsHtml}
+    <p style="font-size:12px;color:#8A8079;margin:16px 0 0">
+      La marque a quitté la file « Marques en attente » côté Enrichissement.
+    </p>
+  </div>`;
+
+  try {
+    const resend = new Resend(key);
+    await resend.emails.send({
+      from: "Glow Up <contact@glowupagence.fr>",
+      to,
+      subject,
+      html,
+    });
+    return { sent: true, to };
+  } catch (error) {
+    console.error("notifyMarqueCompletionResolved:", error);
+    return { sent: false, to };
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
