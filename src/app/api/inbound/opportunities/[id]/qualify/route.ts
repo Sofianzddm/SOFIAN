@@ -51,6 +51,26 @@ export async function POST(
       );
     }
 
+    const marqueId =
+      kind === "MARQUE" ? String(body.marqueId || "").trim() : "";
+    const beneluxCompanyId =
+      kind === "MARQUE" ? String(body.beneluxCompanyId || "").trim() : "";
+    const contactMarketRaw = String(body.contactMarket || "BOTH").trim().toUpperCase();
+    const contactMarket =
+      contactMarketRaw === "BENELUX" || contactMarketRaw === "BE" ? "BENELUX" : "BOTH";
+
+    if (kind === "MARQUE") {
+      if (!marqueId && !beneluxCompanyId) {
+        return NextResponse.json(
+          {
+            error:
+              "Sélectionne une marque du CRM (ou crée-la) avant d'enregistrer.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const contactLanguage =
       String(body.contactLanguage || "").trim().toLowerCase() === "en" ? "en" : "fr";
 
@@ -67,6 +87,9 @@ export async function POST(
       contactKind: kind,
       contactAgence: contactAgence || null,
       contactLanguage,
+      marqueId: marqueId || null,
+      beneluxCompanyId: beneluxCompanyId || null,
+      contactMarket: kind === "MARQUE" ? contactMarket : "BOTH",
     });
 
     if (!fiche.ok) {
@@ -74,7 +97,9 @@ export async function POST(
         introuvable: "Opportunité introuvable",
         "email-invalide": "Email expéditeur invalide",
         "agence-sans-nom": "Indique le nom de l'agence",
-        "marque-introuvable": "Impossible de résoudre la marque",
+        "marque-introuvable": "Marque CRM introuvable",
+        "marque-requise":
+          "Sélectionne une marque du CRM (ou crée-la) avant d'enregistrer.",
       };
       return NextResponse.json(
         { error: messages[fiche.reason] || `Erreur: ${fiche.reason}` },

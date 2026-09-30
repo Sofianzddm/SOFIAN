@@ -1,12 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Loader2, Building2, Globe, Plus } from "lucide-react";
 
 interface QuickMarqueModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreated: (marque: { id: string; nom: string }) => void;
+  onCreated: (marque: {
+    id: string;
+    nom: string;
+    market?: "FR" | "BENELUX";
+    linkedMarqueId?: string | null;
+  }) => void;
+  /** Préremplit le nom (ex. marque extraite du mail inbound). */
+  defaultNom?: string;
+  /** CRM cible à la création. Défaut FR. */
+  market?: "FR" | "BENELUX" | "BOTH";
 }
 
 const SECTEURS = [
@@ -14,7 +23,13 @@ const SECTEURS = [
   "Luxe", "Automobile", "Finance", "Santé", "Voyage", "Entertainment",
 ];
 
-export default function QuickMarqueModal({ isOpen, onClose, onCreated }: QuickMarqueModalProps) {
+export default function QuickMarqueModal({
+  isOpen,
+  onClose,
+  onCreated,
+  defaultNom = "",
+  market = "FR",
+}: QuickMarqueModalProps) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     nom: "",
@@ -22,26 +37,77 @@ export default function QuickMarqueModal({ isOpen, onClose, onCreated }: QuickMa
     siteWeb: "",
   });
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setFormData({
+      nom: String(defaultNom || "").trim(),
+      secteur: "",
+      siteWeb: "",
+    });
+  }, [isOpen, defaultNom]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.nom.trim()) return;
 
     setLoading(true);
     try {
-      const res = await fetch("/api/marques", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
+      const wantsFr = market === "FR" || market === "BOTH";
+      const wantsBe = market === "BENELUX" || market === "BOTH";
 
-      if (res.ok) {
+      let frId: string | null = null;
+      let frNom = formData.nom.trim();
+      let beId: string | null = null;
+
+      if (wantsFr) {
+        const res = await fetch("/api/marques", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData),
+        });
+        if (!res.ok) {
+          alert("Erreur lors de la création (CRM France)");
+          return;
+        }
         const marque = await res.json();
-        onCreated(marque);
-        setFormData({ nom: "", secteur: "", siteWeb: "" });
-        onClose();
+        frId = marque.id;
+        frNom = marque.nom || frNom;
+      }
+
+      if (wantsBe) {
+        const res = await fetch("/api/benelux-outreach/companies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...formData,
+            ...(frId ? { linkedMarqueId: frId } : {}),
+          }),
+        });
+        if (!res.ok) {
+          alert("Erreur lors de la création (CRM BENELUX)");
+          return;
+        }
+        const company = await res.json();
+        beId = company.id;
+        if (!frNom) frNom = company.nom || frNom;
+      }
+
+      if (market === "BENELUX" && beId) {
+        onCreated({
+          id: beId,
+          nom: frNom,
+          market: "BENELUX",
+          linkedMarqueId: frId,
+        });
+      } else if (frId) {
+        onCreated({ id: frId, nom: frNom, market: "FR" });
       } else {
         alert("Erreur lors de la création");
+        return;
       }
+
+      setFormData({ nom: "", secteur: "", siteWeb: "" });
+      onClose();
     } catch (error) {
       alert("Erreur lors de la création");
     } finally {
@@ -60,7 +126,11 @@ export default function QuickMarqueModal({ isOpen, onClose, onCreated }: QuickMa
               <Building2 className="w-5 h-5 text-glowup-green" />
             </div>
             <h3 className="text-lg font-semibold text-glowup-licorice">
-              Nouvelle marque
+              {market === "BENELUX"
+                ? "Nouvelle marque (BENELUX)"
+                : market === "BOTH"
+                  ? "Nouvelle marque (FR + BE)"
+                  : "Nouvelle marque"}
             </h3>
           </div>
           <button

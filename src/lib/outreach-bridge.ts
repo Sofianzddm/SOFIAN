@@ -37,9 +37,20 @@ import {
   linkMarqueFromBrandName,
   brandNameFromEmailDomain,
   parseSenderName,
+  findOrCreateMarque,
 } from "@/lib/marque-resolver";
+import { findOrCreateBeneluxCompany } from "@/lib/benelux-company";
 import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
 import { normalizeEmail, isValidNormalizedEmail } from "@/lib/normalize-email";
+
+export type ContactMarket = "BENELUX" | "BOTH";
+
+/** Inbound marque : soit FR+BE (défaut), soit BE uniquement. « FR » seul → BOTH. */
+function parseContactMarket(raw: unknown): ContactMarket {
+  const m = String(raw || "").trim().toUpperCase();
+  if (m === "BENELUX" || m === "BE") return "BENELUX";
+  return "BOTH";
+}
 
 export type OutreachPipeline = "client" | "agency" | "benelux";
 
@@ -658,6 +669,12 @@ export async function persistInboundQualifiedContact(
     contactKind: "MARQUE" | "AGENCE";
     contactAgence?: string | null;
     contactLanguage?: string | null;
+    /** Obligatoire pour MARQUE : fiche CRM choisie ou créée par l'utilisateur. */
+    marqueId?: string | null;
+    /** Fiche BENELUX (si marché BE ou FR+BE). */
+    beneluxCompanyId?: string | null;
+    /** Marché CRM : BOTH (FR+BE) | BENELUX (BE only). */
+    contactMarket?: string | null;
   }
 ): Promise<PersistInboundContactResult> {
   const opp = await prisma.inboundOpportunity.findUnique({
@@ -851,8 +868,13 @@ export async function persistInboundQualifiedContact(
     };
   }
 
-  // MARQUE
-  let marqueId = (opp.marqueId || "").trim() || null;
+  // MARQUE — fiche CRM choisie côté UI + marché FR / BE / FR+BE.
+  const contactMarket = parseContactMarket(qualification.contactMarket);
+  const wantsFr = contactMarket === "BOTH";
+  const wantsBe = true; // BOTH ou BENELUX → toujours une fiche BE
+
+  let marqueId = (qualification.marqueId || "").trim() || null;
+  let companyId = (qualification.beneluxCompanyId || "").trim() || null;
   let marqueName = (opp.extractedBrand || "").trim();
 
   if (marqueId) {
@@ -860,26 +882,35 @@ export async function persistInboundQualifiedContact(
       where: { id: marqueId },
       select: { id: true, nom: true },
     });
-    if (marque) {
-      marqueName = marque.nom;
-    } else {
-      marqueId = null;
+    if (!marque) return { ok: false, reason: "marque-introuvable" };
+    marqueName = marque.nom;
+  }
+
+  if (companyId) {
+    const company = await prisma.beneluxCompany.findUnique({
+      where: { id: companyId },
+      select: { id: true, nom: true, linkedMarqueId: true },
+    });
+    if (!company) return { ok: false, reason: "marque-introuvable" };
+    if (!marqueName) marqueName = company.nom;
+    if (!marqueId && company.linkedMarqueId) {
+      marqueId = company.linkedMarqueId;
     }
   }
 
-  if (!marqueId) {
+  // BE sélectionnée sans marque FR : pour FR+BE (et pour garder la FK inbound),
+  // on crée / lie le jumeau FR. Pour BE only, on crée aussi un jumeau FR lié
+  // (navigation) mais le contact n'est posé que côté BE.
+  if (!marqueId && (wantsFr || wantsBe)) {
     const brandName =
       marqueName || brandNameFromEmailDomain(email) || "";
-    if (!brandName) {
-      return { ok: false, reason: "marque-introuvable" };
-    }
-    const linked = await linkMarqueFromBrandName({
-      brandName,
+    if (!brandName) return { ok: false, reason: "marque-requise" };
+    const resolved = await findOrCreateMarque({
+      name: brandName,
       source: "INBOUND",
       createDefaults: { sourceInitiale: "INBOUND" },
     });
-    if (!linked) return { ok: false, reason: "marque-introuvable" };
-    marqueId = linked.marqueId;
+    marqueId = resolved.marqueId;
     const marque = await prisma.marque.findUnique({
       where: { id: marqueId },
       select: { nom: true },
@@ -887,29 +918,91 @@ export async function persistInboundQualifiedContact(
     marqueName = marque?.nom || brandName;
   }
 
-  const existingMarqueContact = await prisma.marqueContact.findFirst({
-    where: { marqueId, email: { equals: email, mode: "insensitive" } },
-    select: { id: true },
-  });
+  if (!marqueId) return { ok: false, reason: "marque-requise" };
 
-  await ensureMarqueContact({
-    marqueId,
-    email,
-    prenom: firstname,
-    nom: lastname || firstname,
-    poste: "Contact inbound",
-  });
-
-  const marqueContact = await prisma.marqueContact.findFirst({
-    where: { marqueId, email: { equals: email, mode: "insensitive" } },
-    select: { id: true },
-  });
-
-  if (marqueContact) {
-    await prisma.marqueContact.update({
-      where: { id: marqueContact.id },
-      data: { language },
+  if (wantsBe) {
+    if (!companyId) {
+      const linked = await prisma.beneluxCompany.findFirst({
+        where: { linkedMarqueId: marqueId },
+        select: { id: true, nom: true },
+      });
+      if (linked) {
+        companyId = linked.id;
+        if (!marqueName) marqueName = linked.nom;
+      } else {
+        const be = await findOrCreateBeneluxCompany(
+          marqueName || "Entreprise",
+          createdById
+        );
+        companyId = be.id;
+        marqueName = be.nom || marqueName;
+      }
+    }
+    await prisma.beneluxCompany.update({
+      where: { id: companyId },
+      data: { linkedMarqueId: marqueId },
     });
+  }
+
+  let existingMarqueContact: { id: string } | null = null;
+  let marqueContactId: string | null = null;
+
+  if (wantsFr) {
+    existingMarqueContact = await prisma.marqueContact.findFirst({
+      where: { marqueId, email: { equals: email, mode: "insensitive" } },
+      select: { id: true },
+    });
+
+    await ensureMarqueContact({
+      marqueId,
+      email,
+      prenom: firstname,
+      nom: lastname || firstname,
+      poste: "Contact inbound",
+    });
+
+    const marqueContact = await prisma.marqueContact.findFirst({
+      where: { marqueId, email: { equals: email, mode: "insensitive" } },
+      select: { id: true },
+    });
+    marqueContactId = marqueContact?.id || null;
+
+    if (marqueContact) {
+      await prisma.marqueContact.update({
+        where: { id: marqueContact.id },
+        data: { language },
+      });
+    }
+  }
+
+  if (wantsBe && companyId) {
+    const existingBe = await prisma.beneluxContact.findFirst({
+      where: { companyId, email: { equals: email, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (existingBe) {
+      await prisma.beneluxContact.update({
+        where: { id: existingBe.id },
+        data: {
+          language,
+          ...(firstname ? { prenom: firstname } : {}),
+          ...(lastname ? { nom: lastname } : {}),
+        },
+      });
+    } else {
+      await prisma.beneluxContact.create({
+        data: {
+          companyId,
+          prenom: firstname,
+          nom: lastname || firstname,
+          email,
+          language,
+          poste: "Contact inbound",
+          source: "INBOUND",
+          createdById,
+        },
+      });
+    }
   }
 
   await prisma.inboundOpportunity.update({
@@ -918,19 +1011,24 @@ export async function persistInboundQualifiedContact(
       contactKind: "MARQUE",
       contactAgence: null,
       contactLanguage: language,
+      contactMarket,
       marqueId,
+      ...(marqueName ? { extractedBrand: marqueName } : {}),
     },
   });
 
-  // Pas d'enrôlement outreach ici : WAITING J+30 démarre à l'envoi
+  // Pas d'enrôlement outreach ici : WAITING démarre à l'envoi
   // de notre réponse (bridgeInboundOpportunityAfterSend).
   return {
     ok: true,
     kind: "MARQUE",
     marqueId,
     marqueName,
-    contactId: marqueContact?.id || null,
-    href: `/marques/${marqueId}`,
+    contactId: marqueContactId,
+    href:
+      contactMarket === "BENELUX" && companyId
+        ? `/marques/benelux/${companyId}`
+        : `/marques/${marqueId}`,
     created: !existingMarqueContact,
     outreachAction: "deferred",
   };
@@ -958,6 +1056,7 @@ export async function bridgeInboundOpportunityAfterSend(
       contactKind: true,
       contactAgence: true,
       contactLanguage: true,
+      contactMarket: true,
       outreachBridgedAt: true,
     },
   });
@@ -983,30 +1082,139 @@ export async function bridgeInboundOpportunityAfterSend(
   const lastExchangeAt = opts?.lastExchangeAt || new Date();
   const label = opts?.label || "Réponse inbound envoyée";
   const sender = parseSenderName(opp.senderName);
+  const market = parseContactMarket(opp.contactMarket);
+  const wantsFr = market === "BOTH";
+  const wantsBe = true; // BOTH ou BE only
 
-  let bridge: BridgeResult;
-  try {
-    bridge = await bridgeContactToOutreach({
-      email: opp.senderEmail,
-      firstname: sender.prenom,
-      lastname: sender.prenom ? sender.nom : null,
-      company: opp.extractedBrand,
-      marqueId: opp.marqueId,
-      contactKind: opp.contactKind,
-      contactAgence: opp.contactAgence,
-      language: opp.contactLanguage,
-      lastExchangeAt,
-      createdById: actorId,
-      sourceLabel: "inbound",
-      reasonLabel: label,
-      enrollmentMode: "inbound",
-    });
-  } catch (error) {
-    console.warn(
-      `[outreach-bridge] bridge inbound send ${opp.id} (${opp.senderEmail}):`,
-      error
-    );
-    bridge = { ok: false, reason: "erreur" };
+  let bridge: BridgeResult = { ok: false, reason: "skipped" };
+
+  // FR (ou FR+BE) → Outreach Clients. BE only saute ce pipeline.
+  if (wantsFr || !wantsBe) {
+    try {
+      bridge = await bridgeContactToOutreach({
+        email: opp.senderEmail,
+        firstname: sender.prenom,
+        lastname: sender.prenom ? sender.nom : null,
+        company: opp.extractedBrand,
+        marqueId: opp.marqueId,
+        contactKind: opp.contactKind,
+        contactAgence: opp.contactAgence,
+        language: opp.contactLanguage,
+        lastExchangeAt,
+        createdById: actorId,
+        sourceLabel: "inbound",
+        reasonLabel: label,
+        enrollmentMode: "inbound",
+      });
+    } catch (error) {
+      console.warn(
+        `[outreach-bridge] bridge inbound send FR ${opp.id} (${opp.senderEmail}):`,
+        error
+      );
+      bridge = { ok: false, reason: "erreur" };
+    }
+  }
+
+  // BE (ou FR+BE) → Prospection Benelux (WAITING J+30 comme le client FR).
+  if (wantsBe && (opp.contactKind || "").toUpperCase() !== "AGENCE") {
+    try {
+      const email = normalizeEmail(opp.senderEmail);
+      if (email && isValidEmail(email)) {
+        let company = await prisma.beneluxCompany.findFirst({
+          where: opp.marqueId
+            ? { linkedMarqueId: opp.marqueId }
+            : { nom: { equals: opp.extractedBrand || "", mode: "insensitive" } },
+          select: { id: true, nom: true },
+        });
+        if (!company && opp.extractedBrand) {
+          company = await findOrCreateBeneluxCompany(opp.extractedBrand, actorId);
+          if (opp.marqueId) {
+            await prisma.beneluxCompany.update({
+              where: { id: company.id },
+              data: { linkedMarqueId: opp.marqueId },
+            });
+          }
+        }
+
+        if (company) {
+          const beContact =
+            (await prisma.beneluxContact.findFirst({
+              where: { companyId: company.id, email: { equals: email, mode: "insensitive" } },
+              select: { id: true },
+            })) ||
+            (await prisma.beneluxContact.create({
+              data: {
+                companyId: company.id,
+                prenom: sender.prenom || sender.nom || email.split("@")[0] || "Contact",
+                nom: sender.prenom ? sender.nom || null : null,
+                email,
+                language: opp.contactLanguage === "en" ? "en" : "fr",
+                poste: "Contact inbound",
+                source: "INBOUND",
+                createdById: actorId,
+              },
+              select: { id: true },
+            }));
+
+          const existingBeTarget = await prisma.beneluxOutreachTarget.findUnique({
+            where: { email },
+            select: { id: true, companyName: true, status: true },
+          });
+
+          if (!existingBeTarget) {
+            const entry = resolveEntry(
+              "inbound",
+              "client",
+              lastExchangeAt,
+              label
+            );
+            const target = await prisma.beneluxOutreachTarget.create({
+              data: {
+                companyId: company.id,
+                beneluxContactId: beContact.id,
+                firstname: sender.prenom || sender.nom || "Contact",
+                lastname: sender.prenom ? sender.nom || null : null,
+                email,
+                companyName: company.nom,
+                language: opp.contactLanguage === "en" ? "en" : "fr",
+                status: entry.status,
+                nextRecontactAt: entry.nextRecontactAt,
+                autoRescheduleReason: entry.reason,
+                autoRescheduledAt: new Date(),
+                createdById: actorId,
+              },
+            });
+            // Si FR n'a pas créé de target (BE only), le bridge principal = BE.
+            if (!wantsFr || !bridge.ok) {
+              bridge = {
+                ok: true,
+                action: "created",
+                pipeline: "benelux",
+                targetId: target.id,
+                company: company.nom,
+              };
+            }
+          } else if (!wantsFr || !bridge.ok) {
+            bridge = {
+              ok: true,
+              action:
+                existingBeTarget.status === "STOPPED"
+                  ? "skipped-stopped"
+                  : "already-tracked",
+              pipeline: "benelux",
+              targetId: existingBeTarget.id,
+              company: existingBeTarget.companyName,
+            };
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `[outreach-bridge] bridge inbound send BE ${opp.id} (${opp.senderEmail}):`,
+        error
+      );
+      if (!bridge.ok) bridge = { ok: false, reason: "erreur" };
+    }
   }
 
   await prisma.inboundOpportunity

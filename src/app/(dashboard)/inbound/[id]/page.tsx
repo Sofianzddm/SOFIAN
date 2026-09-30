@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import Image from "next/image";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -17,6 +17,7 @@ import EmailComposer, {
 import { getInstagramProfileUrl } from "@/lib/social-links";
 import { inboundCategoryLabel } from "@/lib/inbound-categories";
 import { resolveTalentPlaceholders, talentToTiptapNode } from "@/lib/talent-email-links";
+import QuickMarqueModal from "@/components/QuickMarqueModal";
 
 type InboundStatus = "NEW" | "READY" | "IN_REVIEW" | "CONVERTED" | "ARCHIVED";
 
@@ -77,6 +78,7 @@ type Opportunity = {
   contactKind?: string | null;
   contactAgence?: string | null;
   contactLanguage?: string | null;
+  contactMarket?: string | null;
 };
 
 // "agency:xyz" → "Prospection Agences", "client:xyz" → "Outreach Clients"…
@@ -127,16 +129,71 @@ export default function InboundDetailPage() {
     kind: "" | "MARQUE" | "AGENCE";
     agence: string;
     language: "fr" | "en";
-  }>({ kind: "", agence: "", language: "fr" });
+    marqueId: string;
+    crmKey: string;
+    market: "BENELUX" | "BOTH";
+  }>({ kind: "", agence: "", language: "fr", marqueId: "", crmKey: "", market: "BOTH" });
   // Agences existantes : suggérées dans le champ « Nom de l'agence » pour
   // réutiliser la fiche (pas de doublon) ; un nom inconnu crée l'agence.
   const [agencyOptions, setAgencyOptions] = useState<{ id: string; name: string }[]>([]);
+  // Marques CRM FR + entreprises BENELUX (deux CRM).
+  type CrmPick = {
+    source: "FR" | "BENELUX";
+    id: string;
+    nom: string;
+    linkedMarqueId?: string | null;
+    raisonSociale?: string | null;
+  };
+  const [crmMarques, setCrmMarques] = useState<CrmPick[]>([]);
+  const [crmBeCompanies, setCrmBeCompanies] = useState<CrmPick[]>([]);
+  const [qualifMarket, setQualifMarket] = useState<"BENELUX" | "BOTH">("BOTH");
+  const [selectedCrm, setSelectedCrm] = useState<CrmPick | null>(null);
+  const [marqueSearch, setMarqueSearch] = useState("");
+  const [createMarqueOpen, setCreateMarqueOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/partners/options", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { partners: [] }))
       .then((d) => setAgencyOptions(Array.isArray(d.partners) ? d.partners : []))
       .catch(() => setAgencyOptions([]));
+    fetch("/api/marques/options", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { marques: [] }))
+      .then((d) =>
+        setCrmMarques(
+          Array.isArray(d.marques)
+            ? d.marques.map(
+                (m: { id: string; nom: string; raisonSociale?: string | null }) => ({
+                  source: "FR" as const,
+                  id: m.id,
+                  nom: m.nom,
+                  raisonSociale: m.raisonSociale ?? null,
+                })
+              )
+            : []
+        )
+      )
+      .catch(() => setCrmMarques([]));
+    fetch("/api/benelux-outreach/companies", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { companies: [] }))
+      .then((d) =>
+        setCrmBeCompanies(
+          Array.isArray(d.companies)
+            ? d.companies.map(
+                (c: {
+                  id: string;
+                  nom: string;
+                  linkedMarqueId?: string | null;
+                }) => ({
+                  source: "BENELUX" as const,
+                  id: c.id,
+                  nom: c.nom,
+                  linkedMarqueId: c.linkedMarqueId ?? null,
+                })
+              )
+            : []
+        )
+      )
+      .catch(() => setCrmBeCompanies([]));
   }, []);
 
   // Lien « ouvrir fiche agence » une fois les options partenaires chargées.
@@ -156,6 +213,25 @@ export default function InboundDetailPage() {
           }
     );
   }, [agencyOptions, committedQualif.kind, committedQualif.agence]);
+
+  // Affiche le vrai nom CRM une fois les options chargées.
+  useEffect(() => {
+    if (!selectedCrm) return;
+    if (selectedCrm.source === "FR") {
+      const match = crmMarques.find((m) => m.id === selectedCrm.id);
+      if (match && match.nom !== selectedCrm.nom) {
+        setSelectedCrm(match);
+        setMarqueSearch(match.nom);
+      }
+    } else {
+      const match = crmBeCompanies.find((m) => m.id === selectedCrm.id);
+      if (match && match.nom !== selectedCrm.nom) {
+        setSelectedCrm(match);
+        setMarqueSearch(match.nom);
+      }
+    }
+  }, [crmMarques, crmBeCompanies, selectedCrm]);
+
   const [recentSends, setRecentSends] = useState<{
     windowDays: number;
     sameEmail: RecentSendEntry[];
@@ -182,17 +258,48 @@ export default function InboundDetailPage() {
           opp?.contactKind === "AGENCE" ? "AGENCE" : opp?.contactKind === "MARQUE" ? "MARQUE" : "";
         const agence = opp?.contactAgence || "";
         const language: "fr" | "en" = opp?.contactLanguage === "en" ? "en" : "fr";
+        const marqueId = (opp?.marqueId || "").trim();
+        const marketRaw = String(opp?.contactMarket || "BOTH")
+          .trim()
+          .toUpperCase();
+        const market: "BENELUX" | "BOTH" =
+          marketRaw === "BENELUX" || marketRaw === "BE" ? "BENELUX" : "BOTH";
         setQualifKind(kind);
         setQualifAgence(agence);
         setQualifLanguage(language);
-        setCommittedQualif({ kind, agence, language });
+        setQualifMarket(market);
+        setCommittedQualif({
+          kind,
+          agence,
+          language,
+          marqueId,
+          crmKey: kind === "MARQUE" && marqueId ? `FR:${marqueId}` : "",
+          market,
+        });
+        if (kind === "MARQUE" && marqueId) {
+          setSelectedCrm({
+            source: "FR",
+            id: marqueId,
+            nom: opp?.extractedBrand || "Marque",
+          });
+          setMarqueSearch(opp?.extractedBrand || "");
+        } else if (kind === "MARQUE") {
+          setSelectedCrm(null);
+          setMarqueSearch(opp?.extractedBrand || "");
+        } else {
+          setSelectedCrm(null);
+          setMarqueSearch("");
+        }
         if (kind === "AGENCE" && agence) {
           setQualifFiche({ kind: "AGENCE", label: agence, href: "" });
-        } else if (kind === "MARQUE") {
+        } else if (kind === "MARQUE" && marqueId) {
           setQualifFiche({
             kind: "MARQUE",
             label: opp?.extractedBrand || "Marque",
-            href: opp?.marqueId ? `/marques/${opp.marqueId}` : "",
+            href:
+              market === "BENELUX"
+                ? ""
+                : `/marques/${marqueId}`,
           });
         } else {
           setQualifFiche(null);
@@ -200,7 +307,10 @@ export default function InboundDetailPage() {
 
         // Si déjà qualifié (ex. ancienne sauvegarde), on s'assure que la fiche
         // contact existe bien côté CRM.
-        if (kind === "MARQUE" || (kind === "AGENCE" && agence)) {
+        if (
+          (kind === "MARQUE" && marqueId) ||
+          (kind === "AGENCE" && agence)
+        ) {
           void fetch(`/api/inbound/opportunities/${opp!.id}/qualify`, {
             method: "POST",
             credentials: "include",
@@ -209,6 +319,8 @@ export default function InboundDetailPage() {
               contactKind: kind,
               contactAgence: kind === "AGENCE" ? agence : null,
               contactLanguage: language,
+              marqueId: kind === "MARQUE" ? marqueId : null,
+              contactMarket: kind === "MARQUE" ? market : undefined,
             }),
           })
             .then(async (r) => {
@@ -232,6 +344,14 @@ export default function InboundDetailPage() {
                       : fiche.marqueName || opp?.extractedBrand || "Marque",
                   href: fiche.href,
                 });
+                if (fiche.kind === "MARQUE" && fiche.marqueName) {
+                  setMarqueSearch(fiche.marqueName);
+                  setSelectedCrm((prev) =>
+                    prev
+                      ? { ...prev, nom: fiche.marqueName || prev.nom }
+                      : prev
+                  );
+                }
               }
               if (d.opportunity) {
                 setOpportunity((current) =>
@@ -278,13 +398,54 @@ export default function InboundDetailPage() {
     return Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
   };
 
+  const normalizeMarque = (s: string) =>
+    s
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+
+  const marqueSuggestions = useMemo(() => {
+    if (selectedCrm) return [];
+    const q = normalizeMarque(marqueSearch);
+    if (q.length < 2) return [];
+    const pool: CrmPick[] = [];
+    if (qualifMarket === "BOTH") {
+      pool.push(...crmMarques);
+    }
+    if (qualifMarket === "BENELUX" || qualifMarket === "BOTH") {
+      pool.push(...crmBeCompanies);
+    }
+    return pool
+      .filter(
+        (m) =>
+          normalizeMarque(m.nom).includes(q) ||
+          normalizeMarque(m.raisonSociale || "").includes(q)
+      )
+      .slice(0, 10);
+  }, [crmMarques, crmBeCompanies, marqueSearch, selectedCrm, qualifMarket]);
+
+  const pickCrmMarque = (m: CrmPick) => {
+    setSelectedCrm(m);
+    setMarqueSearch(m.nom);
+  };
+
+  const clearCrmMarque = () => {
+    setSelectedCrm(null);
+  };
+
+  const selectedCrmKey = selectedCrm ? `${selectedCrm.source}:${selectedCrm.id}` : "";
+
   const qualifDirty =
     qualifKind !== committedQualif.kind ||
     qualifAgence.trim() !== committedQualif.agence.trim() ||
-    qualifLanguage !== committedQualif.language;
+    qualifLanguage !== committedQualif.language ||
+    qualifMarket !== committedQualif.market ||
+    selectedCrmKey !== committedQualif.crmKey;
 
   const qualificationReady =
-    (committedQualif.kind === "MARQUE" || committedQualif.kind === "AGENCE") &&
+    ((committedQualif.kind === "MARQUE" && Boolean(committedQualif.marqueId)) ||
+      (committedQualif.kind === "AGENCE" && Boolean(committedQualif.agence.trim()))) &&
     !qualifDirty;
 
   /** Bouton Enregistrer : écrit la qualification + crée la fiche contact. */
@@ -298,6 +459,13 @@ export default function InboundDetailPage() {
       showToast("Indique le nom de l'agence.", "error");
       return;
     }
+    if (qualifKind === "MARQUE" && !selectedCrm) {
+      showToast(
+        "Sélectionne une marque du CRM, ou crée-la si elle n'existe pas.",
+        "error"
+      );
+      return;
+    }
 
     setQualifSaving(true);
     try {
@@ -309,6 +477,17 @@ export default function InboundDetailPage() {
           contactKind: qualifKind,
           contactAgence: qualifKind === "AGENCE" ? qualifAgence.trim() : null,
           contactLanguage: qualifLanguage,
+          contactMarket: qualifKind === "MARQUE" ? qualifMarket : undefined,
+          marqueId:
+            qualifKind === "MARQUE"
+              ? selectedCrm?.source === "FR"
+                ? selectedCrm.id
+                : selectedCrm?.linkedMarqueId || null
+              : null,
+          beneluxCompanyId:
+            qualifKind === "MARQUE" && selectedCrm?.source === "BENELUX"
+              ? selectedCrm.id
+              : null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -318,7 +497,18 @@ export default function InboundDetailPage() {
       setOpportunity((current) => ({ ...(current || opportunity), ...opp }));
       const kind: "MARQUE" | "AGENCE" = qualifKind;
       const agence = kind === "AGENCE" ? qualifAgence.trim() : "";
-      setCommittedQualif({ kind, agence, language: qualifLanguage });
+      const marqueId =
+        kind === "MARQUE"
+          ? String(opp.marqueId || selectedCrm?.id || "")
+          : "";
+      setCommittedQualif({
+        kind,
+        agence,
+        language: qualifLanguage,
+        marqueId,
+        crmKey: selectedCrm ? `${selectedCrm.source}:${selectedCrm.id}` : "",
+        market: kind === "MARQUE" ? qualifMarket : "BOTH",
+      });
       setQualifAgence(agence);
 
       const fiche = data.fiche as
@@ -339,13 +529,19 @@ export default function InboundDetailPage() {
         const label =
           fiche.kind === "AGENCE"
             ? fiche.partnerName || agence
-            : fiche.marqueName || opp.extractedBrand || "Marque";
+            : fiche.marqueName || selectedCrm?.nom || opp.extractedBrand || "Marque";
         setQualifFiche({ kind: fiche.kind, label, href: fiche.href });
+        if (fiche.kind === "MARQUE" && fiche.marqueName) {
+          setMarqueSearch(fiche.marqueName);
+          setSelectedCrm((prev) =>
+            prev ? { ...prev, nom: fiche.marqueName || prev.nom } : prev
+          );
+        }
         const outreachMsg =
           fiche.outreachAction === "created" && fiche.kind === "AGENCE"
             ? " — ajoutée en Prospection Agences (à contacter)"
             : fiche.outreachAction === "deferred" && fiche.kind === "MARQUE"
-              ? " — Outreach Clients (WAITING J+30) après l'envoi de ta réponse"
+              ? " — Outreach (WAITING J+30) après l'envoi de ta réponse"
               : fiche.outreachAction === "already-tracked"
                 ? " — déjà dans un cycle outreach"
                 : "";
@@ -861,9 +1057,9 @@ export default function InboundDetailPage() {
             <h2 className="font-semibold text-slate-900">Qualification du contact</h2>
             <p className="mt-1 text-xs text-slate-500">
               Choisis Agence ou Marque, puis Enregistrer.
-              Agence absente du cycle → Prospection Agences (à contacter).
-              Marque → fiche contact ; WAITING J+30 seulement après l&apos;envoi
-              de ta réponse. Obligatoire avant de rédiger.
+              Pour une marque en direct : sélectionne la fiche CRM (ou crée-la)
+              pour éviter les doublons. Agence absente du cycle → Prospection
+              Agences. Obligatoire avant de rédiger.
             </p>
             <div className="mt-3 space-y-2">
               <div>
@@ -874,6 +1070,12 @@ export default function InboundDetailPage() {
                     const kind = e.target.value as "" | "MARQUE" | "AGENCE";
                     setQualifKind(kind);
                     if (kind !== "AGENCE") setQualifAgence("");
+                    if (kind !== "MARQUE") {
+                      setSelectedCrm(null);
+                      setMarqueSearch("");
+                    } else if (!selectedCrm) {
+                      setMarqueSearch(opportunity.extractedBrand || "");
+                    }
                   }}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
@@ -915,6 +1117,133 @@ export default function InboundDetailPage() {
                   )}
                 </div>
               )}
+              {qualifKind === "MARQUE" && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500">
+                      Marché CRM *
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(
+                        [
+                          { id: "BOTH", label: "FR + BE" },
+                          { id: "BENELUX", label: "🇧🇪 BE uniquement" },
+                        ] as const
+                      ).map((opt) => {
+                        const active = qualifMarket === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setQualifMarket(opt.id);
+                              setSelectedCrm(null);
+                            }}
+                            className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                              active
+                                ? "border-slate-900 bg-slate-900 text-white"
+                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Par défaut FR+BE (les deux CRM). Choisis BE uniquement si
+                      la marque est clairement belgo/néerlandaise.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500">
+                      Marque CRM *
+                    </label>
+                    {selectedCrm ? (
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                        <span className="min-w-0 flex-1 text-sm font-medium text-emerald-900">
+                          {selectedCrm.nom}
+                          <span className="ml-1 text-[10px] font-semibold uppercase opacity-70">
+                            {selectedCrm.source === "BENELUX" ? "BE" : "FR"}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={clearCrmMarque}
+                          className="text-xs font-medium text-emerald-800 underline hover:text-emerald-950"
+                        >
+                          Changer
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={marqueSearch}
+                          onChange={(e) => {
+                            setMarqueSearch(e.target.value);
+                            if (selectedCrm) clearCrmMarque();
+                          }}
+                          placeholder={
+                            opportunity.extractedBrand
+                              ? `Cherche « ${opportunity.extractedBrand} » dans le CRM…`
+                              : "Cherche une marque dans le CRM…"
+                          }
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                        />
+                        {marqueSuggestions.length > 0 && (
+                          <ul className="absolute z-20 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                            {marqueSuggestions.map((m) => (
+                              <li key={`${m.source}-${m.id}`}>
+                                <button
+                                  type="button"
+                                  onClick={() => pickCrmMarque(m)}
+                                  className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                                >
+                                  <span className="font-medium text-slate-900">
+                                    {m.nom}
+                                  </span>
+                                  <span className="ml-1 text-[10px] font-semibold uppercase text-slate-400">
+                                    {m.source === "BENELUX" ? "BE" : "FR"}
+                                  </span>
+                                  {m.raisonSociale ? (
+                                    <span className="mt-0.5 block text-xs text-slate-500">
+                                      {m.raisonSociale}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                    {!selectedCrm ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <p className="text-xs text-amber-600">
+                          Sélectionne une fiche existante — obligatoire pour enregistrer.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setCreateMarqueOpen(true)}
+                          className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          <Plus className="h-3 w-3" />
+                          Créer
+                          {qualifMarket === "BENELUX" ? " (BE)" : " (FR+BE)"}
+                          {opportunity.extractedBrand
+                            ? ` « ${opportunity.extractedBrand} »`
+                            : ""}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-xs text-emerald-700">
+                        Fiche CRM sélectionnée — pas de doublon.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="mb-1 block text-xs text-slate-500">Langue du contact</label>
                 <select
@@ -932,6 +1261,7 @@ export default function InboundDetailPage() {
                   qualifSaving ||
                   (qualifKind !== "MARQUE" && qualifKind !== "AGENCE") ||
                   (qualifKind === "AGENCE" && !qualifAgence.trim()) ||
+                  (qualifKind === "MARQUE" && !selectedCrm) ||
                   (!qualifDirty && qualificationReady)
                 }
                 onClick={() => void commitQualification()}
@@ -1217,6 +1547,41 @@ export default function InboundDetailPage() {
           </div>
         </div>
       )}
+      <QuickMarqueModal
+        isOpen={createMarqueOpen}
+        onClose={() => setCreateMarqueOpen(false)}
+        defaultNom={marqueSearch.trim() || opportunity?.extractedBrand || ""}
+        market={qualifMarket}
+        onCreated={(marque) => {
+          if (marque.market === "BENELUX") {
+            const pick: CrmPick = {
+              source: "BENELUX",
+              id: marque.id,
+              nom: marque.nom,
+              linkedMarqueId: marque.linkedMarqueId ?? null,
+            };
+            setCrmBeCompanies((prev) =>
+              prev.some((m) => m.id === pick.id)
+                ? prev
+                : [...prev, pick].sort((a, b) => a.nom.localeCompare(b.nom, "fr"))
+            );
+            pickCrmMarque(pick);
+          } else {
+            const pick: CrmPick = {
+              source: "FR",
+              id: marque.id,
+              nom: marque.nom,
+            };
+            setCrmMarques((prev) =>
+              prev.some((m) => m.id === pick.id)
+                ? prev
+                : [...prev, pick].sort((a, b) => a.nom.localeCompare(b.nom, "fr"))
+            );
+            pickCrmMarque(pick);
+          }
+          setCreateMarqueOpen(false);
+        }}
+      />
     </div>
   );
 }
