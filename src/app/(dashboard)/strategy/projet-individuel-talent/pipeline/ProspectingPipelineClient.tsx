@@ -501,6 +501,7 @@ export function ProspectingPipelineClient() {
       await loadMissions();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
+      throw e;
     } finally {
       setUpdatingId(null);
     }
@@ -526,9 +527,13 @@ export function ProspectingPipelineClient() {
       cancelEditBrand();
       return;
     }
-    await patchMission(m.id, { targetBrand: next });
-    setSuccess(`Marque renommée en « ${next} ».`);
-    cancelEditBrand();
+    try {
+      await patchMission(m.id, { targetBrand: next });
+      setSuccess(`Marque renommée en « ${next} ».`);
+      cancelEditBrand();
+    } catch {
+      // erreur déjà affichée via patchMission
+    }
   }
 
   async function searchClientContacts(m: Mission, brandOverride?: string) {
@@ -1137,6 +1142,7 @@ export function ProspectingPipelineClient() {
         initialBodyHtml: String(m.draftEmailBody || "").trim(),
         missionBrief: {
           id: m.id,
+          stage: m.stage,
           creatorName: m.creatorName,
           targetBrand: m.targetBrand,
           strategyReason: m.strategyReason,
@@ -1779,15 +1785,21 @@ export function ProspectingPipelineClient() {
                       </button>
                     )}
                     {(role === "ADMIN" || role === "HEAD_OF" || role === "STRATEGY_PLANNER") &&
-                      (stage === "DRAFTED_FOR_VALIDATION" || stage === "TO_SEND" || stage === "SENT") &&
-                      (m.draftEmailSubject || m.draftEmailBody) && (
+                      (stage === "TO_DRAFT" ||
+                        stage === "DRAFTED_FOR_VALIDATION" ||
+                        stage === "TO_SEND" ||
+                        stage === "SENT") && (
                         <button
                           type="button"
                           disabled={updatingId === m.id}
                           onClick={() => void openComposer(m)}
                           className="rounded border border-gray-300 px-2 py-1 text-xs"
                         >
-                          {updatingId === m.id ? "Ouverture..." : "Afficher mail"}
+                          {updatingId === m.id
+                            ? "Ouverture..."
+                            : stage === "TO_DRAFT"
+                              ? "Rédiger"
+                              : "Modifier le mail"}
                         </button>
                       )}
                     {role === "HEAD_OF_SALES" && stage === "DRAFTED_FOR_VALIDATION" && (
@@ -1854,7 +1866,9 @@ export function ProspectingPipelineClient() {
                           disabled={updatingId === m.id}
                           onClick={() => {
                             setAckedReminderIds((prev) => new Set(prev).add(m.id));
-                            void patchMission(m.id, { stage: "SENT", status: "RELANCED" });
+                            void patchMission(m.id, { stage: "SENT", status: "RELANCED" }).catch(
+                              () => {}
+                            );
                           }}
                           className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700"
                         >
@@ -1899,7 +1913,7 @@ export function ProspectingPipelineClient() {
                           <button
                             type="button"
                             disabled={updatingId === m.id}
-                            onClick={() => void patchMission(m.id, { stage: "WON" })}
+                            onClick={() => void patchMission(m.id, { stage: "WON" }).catch(() => {})}
                             className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
                           >
                             Gagné
@@ -1909,7 +1923,7 @@ export function ProspectingPipelineClient() {
                           <button
                             type="button"
                             disabled={updatingId === m.id}
-                            onClick={() => void patchMission(m.id, { stage: "LOST" })}
+                            onClick={() => void patchMission(m.id, { stage: "LOST" }).catch(() => {})}
                             className="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700"
                           >
                             Perdu
@@ -2170,7 +2184,7 @@ export function ProspectingPipelineClient() {
                         onChange={(e) =>
                           void patchMission(m.id, {
                             clientLanguage: e.target.value === "EN" ? "EN" : "FR",
-                          })
+                          }).catch(() => {})
                         }
                         className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
                       >
@@ -2250,33 +2264,66 @@ export function ProspectingPipelineClient() {
           setComposerOpen(false);
           setComposerContact(null);
         }}
-        onSaved={(
+        onSaved={async (
           status: "pret" | "en_cours" | "reset",
           draft?: { subject: string; bodyHtml: string; language?: "fr" | "en" }
         ) => {
           const missionId = composerContact?.missionBrief?.id as string | undefined;
           if (!missionId) return;
           const draftLanguage: "fr" | "en" = draft?.language === "en" ? "en" : "fr";
+          const currentStage = composerContact?.missionBrief?.stage as Stage | undefined;
           if (status === "pret") {
-            void patchMission(missionId, {
+            await patchMission(missionId, {
               stage: "DRAFTED_FOR_VALIDATION",
               status: "EMAIL_DRAFTED",
               draftEmailSubject: draft?.subject ?? "",
               draftEmailBody: draft?.bodyHtml ?? "",
               draftLanguage,
             });
+            setComposerContact((prev: any) =>
+              prev
+                ? {
+                    ...prev,
+                    missionBrief: {
+                      ...prev.missionBrief,
+                      stage: "DRAFTED_FOR_VALIDATION",
+                    },
+                  }
+                : prev
+            );
           } else if (status === "en_cours") {
-            void patchMission(missionId, {
-              stage: "TO_DRAFT",
+            // Ne pas rétrograder une carte déjà en validation / envoi :
+            // un admin qui modifie puis « Enregistrer brouillon » doit
+            // garder la carte accessible dans sa colonne actuelle.
+            const keepStage =
+              currentStage === "DRAFTED_FOR_VALIDATION" ||
+              currentStage === "TO_SEND" ||
+              currentStage === "SENT"
+                ? currentStage
+                : "TO_DRAFT";
+            await patchMission(missionId, {
+              stage: keepStage,
               status: "EMAIL_DRAFTED",
               draftEmailSubject: draft?.subject ?? "",
               draftEmailBody: draft?.bodyHtml ?? "",
               draftLanguage,
             });
+            setComposerContact((prev: any) =>
+              prev
+                ? {
+                    ...prev,
+                    missionBrief: {
+                      ...prev.missionBrief,
+                      stage: keepStage,
+                    },
+                  }
+                : prev
+            );
           }
         }}
         onError={(msg) => setError(msg)}
-        onSuccess={() => {
+        onSuccess={(msg) => {
+          setSuccess(msg);
           void loadMissions();
         }}
       />
