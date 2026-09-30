@@ -1423,7 +1423,7 @@ export default function OutreachPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: LICORICE }}>
             <Repeat className="w-6 h-6" style={{ color: OLD_ROSE }} />
@@ -1441,41 +1441,7 @@ export default function OutreachPage() {
                 : "Unique FR — cycle clients France uniquement (hors doublons FR+BE)."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Tri marché : Unique FR / Unique BE / FR+BE */}
-          <div
-            className="inline-flex rounded-lg overflow-hidden border shrink-0"
-            style={{ borderColor: "#E5E0DA" }}
-            title="Trier Unique FR, Unique BE, ou présents dans les deux"
-          >
-            {(
-              [
-                { id: "FR" as const, label: "Unique FR" },
-                { id: "BENELUX" as const, label: "Unique BE" },
-                { id: "BOTH" as const, label: "FR + BE" },
-              ] as const
-            ).map((m) => {
-              const active = marketView === m.id;
-              const count = marketViewCounts[m.id];
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => setMarketView(m.id)}
-                  className="px-3 py-2 text-sm font-semibold transition"
-                  style={
-                    active
-                      ? { backgroundColor: LICORICE, color: "white" }
-                      : { backgroundColor: "white", color: "#9CA3AF" }
-                  }
-                >
-                  {m.label}
-                  {typeof count === "number" && count > 0 ? (
-                    <span className="ml-1.5 text-xs opacity-70">{count}</span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleCheckBounces}
             disabled={checkingBounces}
@@ -1490,7 +1456,7 @@ export default function OutreachPage() {
             )}
             Vérifier les bounces
           </button>
-          {!isBenelux && (
+          {!isBenelux && !isBothView && (
             <a
               href="/enrichissement"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition hover:bg-gray-50"
@@ -1519,6 +1485,46 @@ export default function OutreachPage() {
             Ajouter un client
           </button>
         </div>
+      </div>
+
+      {/* Tri marché : toujours visible sur sa propre ligne */}
+      <div
+        className="flex flex-wrap items-center gap-2 mb-5 p-1.5 rounded-xl border"
+        style={{ borderColor: "#E5E0DA", backgroundColor: OLD_LACE }}
+        title="Trier Unique FR, Unique BE, ou présents dans les deux"
+      >
+        {(
+          [
+            { id: "FR" as const, label: "🇫🇷 Unique FR" },
+            { id: "BENELUX" as const, label: "🇧🇪 Unique BE" },
+            { id: "BOTH" as const, label: "FR + BE" },
+          ] as const
+        ).map((m) => {
+          const active = marketView === m.id;
+          const count = marketViewCounts[m.id];
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setMarketView(m.id)}
+              className="flex-1 min-w-[7.5rem] px-3.5 py-2.5 rounded-lg text-sm font-semibold transition"
+              style={
+                active
+                  ? {
+                      backgroundColor: LICORICE,
+                      color: "white",
+                      boxShadow: "0 6px 14px rgba(26,17,16,0.14)",
+                    }
+                  : { backgroundColor: "white", color: "#6B7280" }
+              }
+            >
+              {m.label}
+              {typeof count === "number" && count > 0 ? (
+                <span className="ml-1.5 text-xs opacity-70">{count}</span>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
 
       {/* Flash messages */}
