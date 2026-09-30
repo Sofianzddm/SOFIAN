@@ -502,8 +502,14 @@ export default function OutreachPage() {
 
       const base =
         requestMarket === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach";
-      const res = await fetch(`${base}/targets`);
-      const data = await res.json();
+      const siblingBase =
+        requestMarket === "BENELUX" ? "/api/outreach" : "/api/benelux-outreach";
+      const [res, siblingRes] = await Promise.all([
+        fetch(`${base}/targets`),
+        fetch(`${siblingBase}/targets`),
+      ]);
+      const data = await res.json().catch(() => ({}));
+      const siblingData = await siblingRes.json().catch(() => ({}));
       if (
         (marketView === "BENELUX" ? "BENELUX" : "FR") !== requestMarket ||
         marketView === "BOTH"
@@ -511,11 +517,22 @@ export default function OutreachPage() {
         return;
       }
       if (!res.ok) throw new Error(data.error || "Erreur de chargement");
+      const siblingEmails = new Set(
+        ((siblingRes.ok ? siblingData.targets : []) as Target[])
+          .map((t) => (t.email || "").trim().toLowerCase())
+          .filter(Boolean)
+      );
       setTargets(
-        ((data.targets || []) as Target[]).map((t) => ({
-          ...t,
-          pipeline: requestMarket,
-        }))
+        ((data.targets || []) as Target[]).map((t) => {
+          const email = (t.email || "").trim().toLowerCase();
+          return {
+            ...t,
+            pipeline: requestMarket,
+            alsoInSiblingMarket:
+              Boolean(t.alsoInSiblingMarket) ||
+              (email ? siblingEmails.has(email) : false),
+          };
+        })
       );
     } catch (e) {
       if (marketView !== requestView) return;
