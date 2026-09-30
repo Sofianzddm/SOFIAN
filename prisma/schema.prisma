@@ -1051,6 +1051,9 @@ model InboundOpportunity {
   contactKind     String? // "MARQUE" | "AGENCE"
   contactAgence   String? // Nom de l'agence si contactKind = AGENCE
   contactLanguage String  @default("fr") // "fr" | "en"
+  // Marché CRM pour « Marque en direct » : BOTH (FR+BE, défaut) ou BENELUX (BE only).
+  // « FR » seul n'existe plus côté inbound : trop tôt pour trancher → on pose les deux.
+  contactMarket   String  @default("BOTH")
 
   // Pont vers le cycle outreach 45j : posé quand l'échange est clôturé et que
   // le contact a été ajouté (ou re-planifié) dans un pipeline outreach.
