@@ -1,4 +1,36 @@
 /**
+ * Valeurs de `Talent.pays` reconnues comme Belgique (talent book BE,
+ * sélecteur rédaction outreach BENELUX).
+ */
+export const BELGIAN_PAYS_VALUES = [
+  "Belgique",
+  "Belgium",
+  "BE",
+  "BEL",
+] as const;
+
+/** Filtre Prisma : talents belges (insensible à la casse). */
+export const belgianPaysPrismaFilter = {
+  in: [...BELGIAN_PAYS_VALUES],
+  mode: "insensitive" as const,
+};
+
+export function isBelgianPays(pays: string | null | undefined): boolean {
+  const n = String(pays || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (!n) return false;
+  return (
+    n === "belgique" ||
+    n === "belgium" ||
+    n === "be" ||
+    n === "bel"
+  );
+}
+
+/**
  * Liste des pays pour listes déroulantes (facturation, collaborations, etc.)
  * Ordre : France en premier, puis pays francophones / UE, puis alphabétique.
  */

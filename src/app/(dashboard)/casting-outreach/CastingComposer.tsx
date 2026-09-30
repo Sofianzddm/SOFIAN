@@ -25,6 +25,7 @@ import {
   normalizeEditorHtmlForEmail,
   plainTextToEmailHtml,
 } from "@/lib/email-body-html";
+import { isBelgianPays } from "@/lib/pays";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -122,6 +123,7 @@ type PresskitTalent = {
   nom: string;
   photo: string | null;
   niches: string[];
+  pays?: string | null;
   instagram?: string | null;
   igFollowers: number;
   igEngagement: number;
@@ -819,7 +821,17 @@ export default function CastingComposer({
       })
       .then(async (data: { talents?: PresskitTalent[] }) => {
         if (cancelled) return;
-        const all = Array.isArray(data.talents) ? data.talents : [];
+        const allRaw = Array.isArray(data.talents) ? data.talents : [];
+        // Filet client : en BENELUX, exclure tout talent explicitement hors Belgique.
+        const all =
+          market === "BENELUX"
+            ? allRaw.filter(
+                (t) =>
+                  t.pays == null ||
+                  String(t.pays).trim() === "" ||
+                  isBelgianPays(t.pays)
+              )
+            : allRaw;
         let filtered =
           effectiveLockedTalentIds.length > 0
             ? all.filter((t) => effectiveLockedTalentIds.includes(t.id))
@@ -1442,8 +1454,15 @@ export default function CastingComposer({
                   ? effectiveLockedTalentIds.length > 1
                     ? "Talents de la condensation"
                     : "Talent du projet"
-                  : "Sélectionner les talents"}
+                  : market === "BENELUX"
+                    ? "Créateurs belges"
+                    : "Sélectionner les talents"}
               </h3>
+              {!isTalentLocked && market === "BENELUX" && (
+                <p className="text-[11px] mb-2 opacity-70" style={{ color: LICORICE }}>
+                  Uniquement les talents dont le pays est Belgique.
+                </p>
+              )}
               {talentsError && (
                 <p className="text-xs text-red-600 mb-2">{talentsError}</p>
               )}

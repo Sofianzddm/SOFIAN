@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
+import { belgianPaysPrismaFilter } from "@/lib/pays";
 
 // GET - Liste des talents (filtrée par rôle)
 export async function GET(request: NextRequest) {
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const isPresskit = searchParams.get('presskit') === 'true';
     // Marché ciblé (outreach) : sur BENELUX, ne proposer que les créateurs belges
-    // (même convention que le talent book /talentbook/be : pays = "Belgique").
+    // (même convention que le talent book /talentbook/be).
     const market = searchParams.get('market')?.toUpperCase();
     // HoS / Head / Admin : créer une collab sur un ancien talent sans le désarchiver
     const includeArchivedRequested = searchParams.get("includeArchived") === "true";
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     let whereClause: any = includeArchived ? {} : { isArchived: false };
 
     if (isPresskit && market === "BENELUX") {
-      whereClause.pays = "Belgique";
+      whereClause.pays = belgianPaysPrismaFilter;
     }
     
     if (user.role === "TM" && !isPresskit) {
@@ -95,6 +96,7 @@ export async function GET(request: NextRequest) {
         prenom: t.prenom,
         nom: t.nom,
         photo: t.photo,
+        pays: t.pays ?? null,
         instagram: t.instagram,
         tiktok: t.tiktok,
         niches: t.niches || [],

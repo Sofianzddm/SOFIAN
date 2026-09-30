@@ -69,14 +69,31 @@ export async function GET(request: NextRequest) {
     // avec qui on discute déjà.
     const lastInbound = await findLastInboundExchanges(rows.map((r) => r.email));
 
-    const targets = rows.map(({ companyId, companyName, ...t }) => ({
-      ...t,
-      marqueId: companyId,
-      company: companyName,
-      hubspotContactId: null,
-      hubspotSyncedAt: null,
-      lastInbound: lastInbound.get(normalizeEmail(t.email)) || null,
-    }));
+    const emails = rows.map((r) => normalizeEmail(r.email)).filter(Boolean);
+    const siblingRows =
+      emails.length > 0
+        ? await prisma.outreachTarget.findMany({
+            where: { email: { in: emails, mode: "insensitive" } },
+            select: { email: true },
+          })
+        : [];
+    const siblingEmails = new Set(
+      siblingRows.map((r) => normalizeEmail(r.email)).filter(Boolean)
+    );
+
+    const targets = rows.map(({ companyId, companyName, ...t }) => {
+      const emailNorm = normalizeEmail(t.email);
+      return {
+        ...t,
+        marqueId: companyId,
+        company: companyName,
+        hubspotContactId: null,
+        hubspotSyncedAt: null,
+        lastInbound: lastInbound.get(emailNorm) || null,
+        /** Présent aussi dans le pipeline Clients FR (import / enrichissement FR+BE). */
+        alsoInSiblingMarket: siblingEmails.has(emailNorm),
+      };
+    });
 
     return NextResponse.json({ targets });
   } catch (error) {

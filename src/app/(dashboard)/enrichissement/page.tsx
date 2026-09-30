@@ -66,6 +66,16 @@ type Market = "FR" | "BENELUX" | "AGENCY" | "FW";
 type BrandMarket = "FR" | "BENELUX";
 type PersonMarket = BrandMarket | "BOTH";
 type Tab = "marques" | "attente" | "agences" | "fw";
+/** Sous-onglets Cartographies : destination outreach après « Prêt ». */
+type MarqueMarketTab = PersonMarket;
+
+const brandMarketBucket = (markets: Market[]): MarqueMarketTab => {
+  const hasFr = markets.includes("FR");
+  const hasBe = markets.includes("BENELUX");
+  if (hasFr && hasBe) return "BOTH";
+  if (hasBe) return "BENELUX";
+  return "FR";
+};
 
 type AwaitingMarqueItem = {
   key: string;
@@ -285,6 +295,7 @@ export default function EnrichissementPage() {
   const isAdmin = role === "ADMIN";
 
   const [tab, setTab] = useState<Tab>("marques");
+  const [marqueMarketTab, setMarqueMarketTab] = useState<MarqueMarketTab>("FR");
   const [awaitingItems, setAwaitingItems] = useState<AwaitingMarqueItem[]>([]);
   const [awaitingLoading, setAwaitingLoading] = useState(false);
   const [resolvingMissionId, setResolvingMissionId] = useState<string | null>(null);
@@ -563,10 +574,28 @@ export default function EnrichissementPage() {
     [contacts]
   );
 
+  const marqueMarketCounts = useMemo(() => {
+    const counts: Record<MarqueMarketTab, number> = {
+      FR: 0,
+      BENELUX: 0,
+      BOTH: 0,
+    };
+    for (const b of brands) {
+      counts[brandMarketBucket(b.markets)] += 1;
+    }
+    return counts;
+  }, [brands]);
+
+  const filteredBrands = useMemo(() => {
+    if (tab !== "marques") return brands;
+    return brands.filter((b) => brandMarketBucket(b.markets) === marqueMarketTab);
+  }, [brands, tab, marqueMarketTab]);
+
   const active = brands.find((b) => b.key === activeKey) || null;
   const isAgencyTab = tab === "agences";
   const isFwTab = tab === "fw";
   const isAttenteTab = tab === "attente";
+  const isMarquesTab = tab === "marques";
 
   useEffect(() => {
     if (activeKey && !active) setActiveKey(null);
@@ -878,7 +907,9 @@ export default function EnrichissementPage() {
 
       if (totalEnrolled > 0) {
         setFlash(
-          `${name} enregistré — ${totalEnrolled} contact(s) envoyés en outreach.${unlockSuffix}`
+          bothMarkets
+            ? `${name} enregistré — envoyé en Outreach FR et BENELUX.${unlockSuffix}`
+            : `${name} enregistré — ${totalEnrolled} contact(s) envoyés en outreach.${unlockSuffix}`
         );
       } else if (isNf || totalNotFound > 0) {
         setFlash(`${name} marqué sans email.${unlockSuffix}`);
@@ -1107,6 +1138,7 @@ export default function EnrichissementPage() {
 
       // Recharge la file pour refléter les refs FR/BE (création / suppression).
       await load({ silent: true });
+      setMarqueMarketTab(next);
       const label = next === "BOTH" ? "FR + BE" : next === "BENELUX" ? "BE" : "FR";
       setFlash(
         data.message ||
@@ -1343,7 +1375,11 @@ export default function EnrichissementPage() {
       let totalSaved = 0;
       let totalEnrolled = 0;
       let totalNotFound = 0;
+      let touchedFr = false;
+      let touchedBe = false;
       for (const g of groups.values()) {
+        if (g.market === "FR") touchedFr = true;
+        if (g.market === "BENELUX") touchedBe = true;
         const res = await fetch("/api/outreach/email-lookup/ready", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1360,9 +1396,16 @@ export default function EnrichissementPage() {
         totalNotFound += data.notFound || 0;
       }
 
+      const destNote =
+        touchedFr && touchedBe
+          ? " FR + BE"
+          : touchedBe
+            ? " BENELUX"
+            : "";
+
       setFlash(
         totalEnrolled > 0
-          ? `${active.company} — ${totalEnrolled} contact(s) envoyés dans « À contacter » 🎉`
+          ? `${active.company} — ${totalEnrolled} contact(s) envoyés dans « À contacter »${destNote} 🎉`
           : totalSaved > 0
             ? `${totalSaved} email(s) enregistrés.`
             : totalNotFound > 0
@@ -1409,7 +1452,11 @@ export default function EnrichissementPage() {
                 ? "Ouvre une agence · note les mails (ou « pas d'email ») · Prêt → Prospection Agences"
                 : isFwTab
                   ? "Glisse une carto FW · ouvre une maison · note les mails (ou « pas d'email ») · Prêt → Fashion Week"
-                  : "Glisse une carto · ouvre une marque · note les mails (ou « pas d'email ») · Prêt"}
+                  : marqueMarketTab === "BOTH"
+                    ? "FR + BE · un mail saisi une fois · Prêt → Outreach Clients FR et BENELUX"
+                    : marqueMarketTab === "BENELUX"
+                      ? "Unique BE · Prêt → Outreach BENELUX uniquement"
+                      : "Unique FR · Prêt → Outreach Clients FR uniquement"}
           </p>
 
           <div
@@ -1766,18 +1813,85 @@ export default function EnrichissementPage() {
 
           {!isAttenteTab && (
           <>
+          {isMarquesTab && (
+            <div className="flex flex-wrap gap-1.5 p-1 rounded-xl mb-4 bg-white ring-1 ring-black/[0.06]">
+              {(
+                [
+                  {
+                    id: "FR" as const,
+                    label: "Unique FR",
+                    hint: "→ Outreach FR",
+                    count: marqueMarketCounts.FR,
+                  },
+                  {
+                    id: "BENELUX" as const,
+                    label: "Unique BE",
+                    hint: "→ Outreach BE",
+                    count: marqueMarketCounts.BENELUX,
+                  },
+                  {
+                    id: "BOTH" as const,
+                    label: "FR + BE",
+                    hint: "→ les deux",
+                    count: marqueMarketCounts.BOTH,
+                  },
+                ] as const
+              ).map((t) => {
+                const selected = marqueMarketTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setMarqueMarketTab(t.id)}
+                    className="flex-1 min-w-[7.5rem] px-3 py-2 rounded-lg text-left transition"
+                    style={
+                      selected
+                        ? {
+                            backgroundColor: INK,
+                            color: "#fff",
+                            boxShadow: "0 6px 14px rgba(26,17,16,0.14)",
+                          }
+                        : { color: "#6B7280" }
+                    }
+                  >
+                    <span className="block text-sm font-semibold leading-tight">
+                      {t.label}
+                      {t.count > 0 ? (
+                        <span className="ml-1.5 text-xs opacity-70">{t.count}</span>
+                      ) : null}
+                    </span>
+                    <span
+                      className="block text-[10px] font-medium leading-tight mt-0.5"
+                      style={{ opacity: selected ? 0.75 : 0.85 }}
+                    >
+                      {t.hint}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
               À traiter
             </h2>
-            <span className="text-xs text-gray-400">{brands.length}</span>
+            <span className="text-xs text-gray-400">{filteredBrands.length}</span>
           </div>
 
-          {brands.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-8">Rien en file.</p>
+          {filteredBrands.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">
+              {isMarquesTab
+                ? marqueMarketTab === "BOTH"
+                  ? "Aucune marque FR + BE en file."
+                  : marqueMarketTab === "BENELUX"
+                    ? "Aucune marque unique BE en file."
+                    : "Aucune marque unique FR en file."
+                : "Rien en file."}
+            </p>
           ) : (
             <ul className="space-y-2">
-              {brands.map((b, i) => (
+              {filteredBrands.map((b, i) => (
                 <li key={b.key}>
                   <div className="w-full flex items-center gap-2 px-4 py-3.5 rounded-xl bg-white ring-1 ring-black/[0.06] hover:ring-black/15 transition">
                     <button

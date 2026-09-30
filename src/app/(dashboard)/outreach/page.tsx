@@ -57,6 +57,8 @@ const ALLOWED = ["ADMIN", "CASTING_MANAGER"];
 const RELANCE_BUSINESS_DAYS = 3;
 
 type Market = "FR" | "BENELUX";
+/** Vue file : uniques FR / uniques BE / présents dans les deux pipelines. */
+type MarketView = "FR" | "BENELUX" | "BOTH";
 // Marché choisi par contact à l'import : « BOTH » duplique le contact dans les
 // deux fiches (FR + BENELUX) et le prospecte dans chaque pipeline.
 type RowMarket = Market | "BOTH";
@@ -71,6 +73,16 @@ type RowMarket = Market | "BOTH";
 let OUTREACH_API_BASE = "/api/outreach";
 function outreachApi(path: string): string {
   return `${OUTREACH_API_BASE}${path}`;
+}
+
+function outreachApiForPipeline(pipeline: Market | undefined, path: string): string {
+  const base =
+    pipeline === "BENELUX"
+      ? "/api/benelux-outreach"
+      : pipeline === "FR"
+        ? "/api/outreach"
+        : OUTREACH_API_BASE;
+  return `${base}${path}`;
 }
 
 type TargetStatus = "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED";
@@ -132,6 +144,10 @@ type Target = {
   coveredBrands?: string[];
   /** Dernier mail reçu de ce contact (inbound / demande entrante). */
   lastInbound?: LastInboundExchange | null;
+  /** Aussi présent dans le pipeline frère (FR ↔ BENELUX) — cas FR+BE. */
+  alsoInSiblingMarket?: boolean;
+  /** Pipeline d'origine (utile en vue FR+BE où les deux listes sont fusionnées). */
+  pipeline?: Market;
 };
 
 /** Boîte Gmail connectée, utilisable comme expéditrice d'un cycle. */
@@ -380,11 +396,20 @@ export default function OutreachPage() {
   const role = session?.user?.role || "";
   const isAdmin = role === "ADMIN";
 
-  // Marché actif : prospection clients FR ou BENELUX. Les données sont
-  // strictement séparées en base ; on ne fait que basculer la base d'API.
-  const [market, setMarket] = useState<Market>("FR");
+  // Marché actif : Unique FR, Unique BE, ou FR+BE (présents dans les deux
+  // pipelines). BOTH charge les deux APIs ; le côté actif suit le composer
+  // (ou FR par défaut pour les actions hors composer).
+  const [marketView, setMarketView] = useState<MarketView>("FR");
+  const [composerGroup, setComposerGroup] = useState<{
+    company: string;
+    targets: Target[];
+  } | null>(null);
+  const market: Market =
+    composerGroup?.targets[0]?.pipeline ||
+    (marketView === "BENELUX" ? "BENELUX" : "FR");
   OUTREACH_API_BASE = market === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach";
   const isBenelux = market === "BENELUX";
+  const isBothView = marketView === "BOTH";
   // Réf lue par les chargements asynchrones : si l'utilisateur bascule de
   // marché pendant qu'un fetch est en cours, la réponse « périmée » de
   // l'ancien marché est ignorée (sinon les clients FR s'affichent en BENELUX).
@@ -405,10 +430,6 @@ export default function OutreachPage() {
   const [editTarget, setEditTarget] = useState<Target | null>(null);
   // Correction d'erreur de classement : ce « client » est en réalité une agence.
   const [convertTarget, setConvertTarget] = useState<Target | null>(null);
-  const [composerGroup, setComposerGroup] = useState<{
-    company: string;
-    targets: Target[];
-  } | null>(null);
   const [senderAccounts, setSenderAccounts] = useState<SenderAccount[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedTouches, setExpandedTouches] = useState<Touch[]>([]);
@@ -434,22 +455,75 @@ export default function OutreachPage() {
   }, []);
 
   const loadTargets = useCallback(async () => {
-    const requestMarket = marketRef.current;
-    const base = requestMarket === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach";
+    const requestView = marketView;
+    const requestMarket: Market = requestView === "BENELUX" ? "BENELUX" : "FR";
     try {
+      if (requestView === "BOTH") {
+        const [frRes, beRes] = await Promise.all([
+          fetch("/api/outreach/targets"),
+          fetch("/api/benelux-outreach/targets"),
+        ]);
+        const frData = await frRes.json().catch(() => ({}));
+        const beData = await beRes.json().catch(() => ({}));
+        if (marketView !== "BOTH") return;
+        if (!frRes.ok) throw new Error(frData.error || "Erreur de chargement FR");
+        if (!beRes.ok) throw new Error(beData.error || "Erreur de chargement BE");
+        const frList = (frData.targets || []) as Target[];
+        const beList = (beData.targets || []) as Target[];
+        const frEmails = new Set(
+          frList.map((t) => (t.email || "").trim().toLowerCase()).filter(Boolean)
+        );
+        const beEmails = new Set(
+          beList.map((t) => (t.email || "").trim().toLowerCase()).filter(Boolean)
+        );
+        const bothEmails = new Set(
+          [...frEmails].filter((e) => beEmails.has(e))
+        );
+        // Une entrée par pipeline (FR + BE) pour pouvoir rédiger chaque côté.
+        const merged: Target[] = [
+          ...frList
+            .filter((t) => bothEmails.has((t.email || "").trim().toLowerCase()))
+            .map((t) => ({
+              ...t,
+              alsoInSiblingMarket: true,
+              pipeline: "FR" as const,
+            })),
+          ...beList
+            .filter((t) => bothEmails.has((t.email || "").trim().toLowerCase()))
+            .map((t) => ({
+              ...t,
+              alsoInSiblingMarket: true,
+              pipeline: "BENELUX" as const,
+            })),
+        ];
+        setTargets(merged);
+        return;
+      }
+
+      const base =
+        requestMarket === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach";
       const res = await fetch(`${base}/targets`);
       const data = await res.json();
-      // Bascule FR ↔ BENELUX pendant le fetch : on jette la réponse périmée.
-      if (marketRef.current !== requestMarket) return;
+      if (
+        (marketView === "BENELUX" ? "BENELUX" : "FR") !== requestMarket ||
+        marketView === "BOTH"
+      ) {
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Erreur de chargement");
-      setTargets(data.targets || []);
+      setTargets(
+        ((data.targets || []) as Target[]).map((t) => ({
+          ...t,
+          pipeline: requestMarket,
+        }))
+      );
     } catch (e) {
-      if (marketRef.current !== requestMarket) return;
+      if (marketView !== requestView) return;
       flash("error", e instanceof Error ? e.message : "Erreur de chargement");
     } finally {
-      if (marketRef.current === requestMarket) setLoading(false);
+      if (marketView === requestView) setLoading(false);
     }
-  }, [flash]);
+  }, [flash, marketView]);
 
   const loadPendingContacts = useCallback(async () => {
     const requestMarket = marketRef.current;
@@ -498,19 +572,21 @@ export default function OutreachPage() {
     const urlMarket = params.get("market");
     const urlQuery = params.get("q");
     if (urlQuery) setSearchTerm(urlQuery);
-    if (urlMarket === "BENELUX" || urlMarket === "FR") {
-      setMarket(urlMarket);
+    if (urlMarket === "BENELUX" || urlMarket === "FR" || urlMarket === "BOTH") {
+      setMarketView(urlMarket);
       return;
     }
     const saved = window.localStorage.getItem("outreach.market");
-    if (saved === "BENELUX" || saved === "FR") setMarket(saved);
+    if (saved === "BENELUX" || saved === "FR" || saved === "BOTH") {
+      setMarketView(saved);
+    }
   }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem("outreach.market", market);
+      window.localStorage.setItem("outreach.market", marketView);
     }
-  }, [market]);
+  }, [marketView]);
 
   // Recharge à l'authentification ET à chaque changement de marché (les
   // données FR / BENELUX vivent dans des tables séparées).
@@ -526,7 +602,7 @@ export default function OutreachPage() {
       loadPendingContacts();
       loadSenderAccounts();
     }
-  }, [sessionStatus, role, market, loadTargets, loadPendingContacts, loadSenderAccounts]);
+  }, [sessionStatus, role, marketView, loadTargets, loadPendingContacts, loadSenderAccounts]);
 
   const counts = useMemo(() => {
     const c: Record<TargetStatus, number> = {
@@ -535,19 +611,47 @@ export default function OutreachPage() {
       TO_RECONTACT: 0,
       STOPPED: 0,
     };
-    for (const t of targets) c[t.status] += 1;
+    for (const t of targets) {
+      const both = Boolean(t.alsoInSiblingMarket);
+      if (marketView === "BOTH" ? both : !both) {
+        c[t.status] += 1;
+      }
+    }
     return c;
-  }, [targets]);
+  }, [targets, marketView]);
+
+  const marketViewCounts = useMemo(() => {
+    const toContact = targets.filter((t) => t.status === "TO_CONTACT");
+    if (marketView === "BOTH") {
+      const emails = new Set(
+        toContact.map((t) => (t.email || "").trim().toLowerCase()).filter(Boolean)
+      );
+      return { FR: null, BENELUX: null, BOTH: emails.size };
+    }
+    const both = toContact.filter((t) => t.alsoInSiblingMarket).length;
+    const unique = toContact.length - both;
+    return {
+      FR: marketView === "FR" ? unique : null,
+      BENELUX: marketView === "BENELUX" ? unique : null,
+      BOTH: both,
+    } as Record<MarketView, number | null>;
+  }, [targets, marketView]);
 
   const visibleTargets = useMemo(() => {
-    const filtered = targets.filter((t) => t.status === activeTab);
+    const byStatus = targets.filter((t) => t.status === activeTab);
+    // Tri Unique FR / Unique BE / FR+BE selon la présence dans le pipeline frère.
+    const filtered = byStatus.filter((t) => {
+      const both = Boolean(t.alsoInSiblingMarket);
+      if (marketView === "BOTH") return both;
+      return !both;
+    });
     // Garde-fou anti-doublon : une même personne (email) ne doit jamais
     // apparaître deux fois. Si un état transitoire contient deux versions de
     // la même cible, on garde celle qui couvre le plus de marques.
     const byEmail = new Map<string, (typeof filtered)[number]>();
     const order: string[] = [];
     for (const t of filtered) {
-      const key = (t.email || t.id).toLowerCase();
+      const key = `${t.pipeline || "FR"}:${(t.email || t.id).toLowerCase()}`;
       const prev = byEmail.get(key);
       if (!prev) {
         byEmail.set(key, t);
@@ -557,7 +661,7 @@ export default function OutreachPage() {
       }
     }
     return order.map((k) => byEmail.get(k)!);
-  }, [targets, activeTab]);
+  }, [targets, activeTab, marketView]);
 
   /**
    * Regroupement par marque : un seul mail rédigé pour tous les contacts
@@ -587,7 +691,8 @@ export default function OutreachPage() {
       }
     >();
     for (const t of visibleTargets) {
-      const key = `${t.marqueId}::${brandSetKey(t.coveredBrands)}`;
+      const pipe = t.pipeline || "FR";
+      const key = `${pipe}::${t.marqueId}::${brandSetKey(t.coveredBrands)}`;
       const group = map.get(key);
       if (group) group.targets.push(t);
       else
@@ -599,7 +704,7 @@ export default function OutreachPage() {
           pending: [],
         });
     }
-    if (activeTab === "TO_CONTACT") {
+    if (activeTab === "TO_CONTACT" && marketView !== "BOTH") {
       for (const c of pendingContacts) {
         const key = `${c.marqueId}::${brandSetKey(c.coveredBrands)}`;
         const group = map.get(key);
@@ -667,7 +772,7 @@ export default function OutreachPage() {
     }
 
     return groups;
-  }, [visibleTargets, pendingContacts, activeTab, searchTerm, sortBy]);
+  }, [visibleTargets, pendingContacts, activeTab, searchTerm, sortBy, marketView]);
 
   const toggleExpand = useCallback(
     async (target: Target) => {
@@ -680,7 +785,7 @@ export default function OutreachPage() {
       setExpandedTouches([]);
       setExpandedLoading(true);
       try {
-        const res = await fetch(outreachApi(`/targets/${target.id}`));
+        const res = await fetch(outreachApiForPipeline(target.pipeline, `/targets/${target.id}`));
         const data = await res.json();
         if (res.ok) setExpandedTouches(data.target?.touches || []);
       } finally {
@@ -839,14 +944,17 @@ export default function OutreachPage() {
 
   /** Brouillon partagé : enregistré sur chaque contact du groupe. */
   const saveDraft = useCallback(
-    async (targetIds: string[], subject: string, bodyHtml: string) => {
+    async (targetsInGroup: Target[], subject: string, bodyHtml: string) => {
       await Promise.all(
-        targetIds.map(async (targetId) => {
-          const res = await fetch(outreachApi(`/targets/${targetId}`), {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "draft", subject, bodyHtml }),
-          });
+        targetsInGroup.map(async (t) => {
+          const res = await fetch(
+            outreachApiForPipeline(t.pipeline, `/targets/${t.id}`),
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "draft", subject, bodyHtml }),
+            }
+          );
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
             throw new Error(data.error || "Impossible d'enregistrer le brouillon.");
@@ -880,14 +988,14 @@ export default function OutreachPage() {
       void (async () => {
         try {
           if (status === "reset") {
-            await saveDraft(ids, "", "");
+            await saveDraft(group.targets, "", "");
             flash("success", "Brouillon effacé.");
             await loadTargets();
             return;
           }
 
           if (status === "en_cours") {
-            await saveDraft(ids, draft?.subject || "", draft?.bodyHtml || "");
+            await saveDraft(group.targets, draft?.subject || "", draft?.bodyHtml || "");
             await loadTargets();
             return;
           }
@@ -926,7 +1034,7 @@ export default function OutreachPage() {
               ? `${verb} ce mail aux ${group.targets.length} contacts de ${group.company} ?\n\n${recipients}\n\nChacun reçoit son propre mail personnalisé (thread et relances séparés).${translateNote}${scheduleNote}\n\nAnnuler = garder en brouillon.`
               : `${verb} ce mail à ${recipients} depuis la boîte de Leyna ?${translateNote}${scheduleNote}\n\nAnnuler = garder en brouillon.`
           );
-          await saveDraft(ids, draft?.subject || "", draft?.bodyHtml || "");
+          await saveDraft(group.targets, draft?.subject || "", draft?.bodyHtml || "");
           if (!confirmed) {
             flash("success", "Brouillon enregistré (mail non envoyé).");
             await loadTargets();
@@ -1319,27 +1427,40 @@ export default function OutreachPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: LICORICE }}>
             <Repeat className="w-6 h-6" style={{ color: OLD_ROSE }} />
-            {isBenelux ? "Outreach BENELUX" : "Outreach Clients"}
+            {isBothView
+              ? "Outreach FR + BE"
+              : isBenelux
+                ? "Outreach BENELUX"
+                : "Outreach Clients"}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            {isBenelux
-              ? "Prospection clients BENELUX — pipeline 100 % séparé de vos marques FR."
-              : "Cycle de contact 45 jours — premier mail, relance auto J+3, puis recontact en boucle."}
+            {isBothView
+              ? "Contacts présents dans les deux pipelines — rédige chaque côté (FR et BE) séparément."
+              : isBenelux
+                ? "Unique BE — prospection BENELUX uniquement (hors doublons FR+BE)."
+                : "Unique FR — cycle clients France uniquement (hors doublons FR+BE)."}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Bascule marché : FR ↔ BENELUX (données séparées en base) */}
+          {/* Tri marché : Unique FR / Unique BE / FR+BE */}
           <div
             className="inline-flex rounded-lg overflow-hidden border shrink-0"
             style={{ borderColor: "#E5E0DA" }}
-            title="Basculer entre la prospection clients France et BENELUX"
+            title="Trier Unique FR, Unique BE, ou présents dans les deux"
           >
-            {(["FR", "BENELUX"] as const).map((m) => {
-              const active = market === m;
+            {(
+              [
+                { id: "FR" as const, label: "Unique FR" },
+                { id: "BENELUX" as const, label: "Unique BE" },
+                { id: "BOTH" as const, label: "FR + BE" },
+              ] as const
+            ).map((m) => {
+              const active = marketView === m.id;
+              const count = marketViewCounts[m.id];
               return (
                 <button
-                  key={m}
-                  onClick={() => setMarket(m)}
+                  key={m.id}
+                  onClick={() => setMarketView(m.id)}
                   className="px-3 py-2 text-sm font-semibold transition"
                   style={
                     active
@@ -1347,7 +1468,10 @@ export default function OutreachPage() {
                       : { backgroundColor: "white", color: "#9CA3AF" }
                   }
                 >
-                  {m === "FR" ? "🇫🇷 France" : "🇧🇪 BENELUX"}
+                  {m.label}
+                  {typeof count === "number" && count > 0 ? (
+                    <span className="ml-1.5 text-xs opacity-70">{count}</span>
+                  ) : null}
                 </button>
               );
             })}
@@ -1538,14 +1662,14 @@ export default function OutreachPage() {
                   <div className="flex-1 min-w-[180px] flex items-center gap-1.5">
                     <a
                       href={
-                        isBenelux
+                        (group.targets[0]?.pipeline || market) === "BENELUX"
                           ? `/marques/benelux/${group.marqueId}`
                           : `/marques/${group.marqueId}`
                       }
                       className="font-semibold text-sm hover:underline inline-flex items-center gap-1.5"
                       style={{ color: LICORICE }}
                       title={
-                        isBenelux
+                        (group.targets[0]?.pipeline || market) === "BENELUX"
                           ? "Ouvrir la fiche entreprise BENELUX (contacts et statut de prospection)"
                           : "Ouvrir la fiche marque (carto et contacts visibles par toute l'équipe)"
                       }
@@ -1553,6 +1677,22 @@ export default function OutreachPage() {
                       {group.company}
                       <ExternalLink className="w-3 h-3 text-gray-400" />
                     </a>
+                    {isBothView && (
+                      <span
+                        className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                        style={{
+                          backgroundColor:
+                            group.targets[0]?.pipeline === "BENELUX"
+                              ? "#EEF2FF"
+                              : OLD_LACE,
+                          color: LICORICE,
+                        }}
+                      >
+                        {group.targets[0]?.pipeline === "BENELUX"
+                          ? "🇧🇪 BE"
+                          : "🇫🇷 FR"}
+                      </span>
+                    )}
                     {(() => {
                       const gb =
                         group.targets[0]?.coveredBrands ||
@@ -2208,7 +2348,13 @@ export default function OutreachPage() {
         contact={composerContact}
         brandColumn={"todo"}
         useHubspot={false}
-        market={market}
+        market={
+          composerGroup?.targets[0]?.pipeline === "BENELUX"
+            ? "BENELUX"
+            : composerGroup?.targets[0]?.pipeline === "FR"
+              ? "FR"
+              : market
+        }
         allowSchedule
         readyLabel={`Envoyer depuis ${senderLabel(
           senderAccounts,

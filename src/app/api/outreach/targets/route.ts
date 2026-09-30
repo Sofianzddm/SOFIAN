@@ -72,14 +72,29 @@ export async function GET(request: NextRequest) {
     const lastInbound = await findLastInboundExchanges(targets.map((t) => t.email));
 
     // On expose la liste des marques couvertes (hors marque principale) par cible.
+    const emails = targets.map((t) => normalizeEmail(t.email)).filter(Boolean);
+    const siblingRows =
+      emails.length > 0
+        ? await prisma.beneluxOutreachTarget.findMany({
+            where: { email: { in: emails, mode: "insensitive" } },
+            select: { email: true },
+          })
+        : [];
+    const siblingEmails = new Set(
+      siblingRows.map((r) => normalizeEmail(r.email)).filter(Boolean)
+    );
+
     const shaped = targets.map(({ marqueContact, ...t }) => {
       const covered = (marqueContact?.sousMarques || [])
         .map((s) => s.marque.nom)
         .filter((nom) => nom && nom !== t.company);
+      const emailNorm = normalizeEmail(t.email);
       return {
         ...t,
         coveredBrands: Array.from(new Set(covered)),
-        lastInbound: lastInbound.get(normalizeEmail(t.email)) || null,
+        lastInbound: lastInbound.get(emailNorm) || null,
+        /** Présent aussi dans le pipeline BENELUX (import / enrichissement FR+BE). */
+        alsoInSiblingMarket: siblingEmails.has(emailNorm),
       };
     });
 

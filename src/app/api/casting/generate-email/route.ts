@@ -191,6 +191,9 @@ export async function POST(request: NextRequest) {
     const brandName = body.brandName.trim();
     const language: "fr" | "en" = body.language === "en" ? "en" : "fr";
     const isBenelux = body.market === "BENELUX";
+    const talentbookUrl = isBenelux
+      ? "https://app.glowupagence.fr/talentbook/be"
+      : "https://app.glowupagence.fr/talentbook";
     const { newProducts, brandPositioning, influenceStrategy } = body.brandResearch;
     const availabilityFrEu =
       typeof body.brandResearch.availabilityFrEu === "string"
@@ -629,7 +632,7 @@ ${
   isProjectMail
     ? `- FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook). Do NOT pitch a full agency roster.
 - End with a short CTA to discuss the project(s) or a brief call — never media kits for a full roster.`
-    : `- MUST add one sentence that includes a CLICKABLE link to our full roster, in this exact HTML format: <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
+    : `- MUST add one sentence that includes a CLICKABLE link to our full roster, in this exact HTML format: <a href="${talentbookUrl}">${talentbookUrl}</a>
 - The email MUST end, right before the closing, with two sentences that convey these two ideas (rephrase them naturally, vary the wording every time, do NOT copy them verbatim):
   1) an offer to quickly send their complete media kits, a moodboard and tailored performance estimates;
   2) a proposal for a short 10-15 minute call next week to introduce our agency and our creators.
@@ -752,7 +755,7 @@ ${
   isProjectMail
     ? `- INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook). Ne propose PAS le roster complet de l'agence.
 - Terminer par une CTA courte pour échanger sur le(s) projet(s) ou un court call — jamais les médias kits d'un roster complet.`
-    : `- Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="https://app.glowupagence.fr/talentbook">https://app.glowupagence.fr/talentbook</a>
+    : `- Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="${talentbookUrl}">${talentbookUrl}</a>
 - Terminer OBLIGATOIREMENT le mail, juste avant la clôture, par deux phrases qui portent ces deux idées (reformule-les naturellement, varie la tournure à chaque mail, ne les recopie PAS à l'identique) :
   1) proposer d'envoyer rapidement leurs médias kits complets, un moodboard et des estimations de performance sur mesure ;
   2) proposer un court appel de 10-15 minutes la semaine prochaine pour présenter notre agence et nos talents.
