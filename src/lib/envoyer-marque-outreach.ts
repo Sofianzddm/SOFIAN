@@ -6,9 +6,10 @@
  *    (l'AO n'est plus un prérequis — utile si la feuille Achats manque encore).
  * 2. Les contacts influence sans email partent en enrichissement
  *    (emailLookupStatus=QUEUED) avec une suggestion de motif si possible.
- * 3. Tant qu'il reste des emails à trouver, aucun contact n'est enrôlé.
- * 4. Dès que tous les influence ont un email → création des OutreachTarget.
- * 5. Les contacts AO ne vont jamais dans le cycle outreach.
+ * 3. Dès qu'un contact influence a un email → enrôlement immédiat (FR et/ou BE
+ *    selon son marché). Les autres QUEUED n'attendent pas.
+ * 4. Les contacts AO ne vont jamais dans le cycle outreach.
+ * 5. FR+BE : même email dans les deux pipelines (marché frère autorisé).
  */
 
 import { prisma } from "@/lib/prisma";
@@ -475,8 +476,9 @@ export async function envoyerMarqueEnOutreach(opts: {
 }
 
 /**
- * Après complétion d'un email (enrichissement) : si plus aucun QUEUED
- * sur la marque → enrôler automatiquement les contacts influence prêts.
+ * Après complétion d'un email (enrichissement) : enrôler immédiatement les
+ * contacts influence qui ont déjà un email. On n'attend plus que toute la
+ * fiche soit complète (sinon un QUEUED bloque tout le monde).
  */
 export async function tryEnrollMarqueAfterEmailComplete(opts: {
   marqueId: string;
@@ -497,15 +499,11 @@ export async function tryEnrollMarqueAfterEmailComplete(opts: {
   });
   if (!marque) return { enrolled: 0, stillQueued: 0 };
 
-  // Encore des mails manquants (hors introuvables) → on n'enrôle personne.
-  const missingEmail = marque.contacts.filter(
+  const stillQueued = marque.contacts.filter(
     (c) =>
       c.emailLookupStatus === "QUEUED" ||
       (!c.email?.trim() && c.emailLookupStatus !== "NOT_FOUND")
   ).length;
-  if (missingEmail > 0) {
-    return { enrolled: 0, stillQueued: missingEmail };
-  }
 
   const enrolled = await enrollInfluenceContacts({
     marqueId: marque.id,
@@ -513,7 +511,140 @@ export async function tryEnrollMarqueAfterEmailComplete(opts: {
     createdById: opts.userId,
     crossMarketEmails: opts.crossMarketEmails,
   });
-  return { enrolled, stillQueued: 0 };
+  return { enrolled, stillQueued };
+}
+
+/**
+ * Enrôle un contact FR précis dès qu'il a un email (sélection marché / Prêt).
+ */
+export async function enrollOneFrContactNow(opts: {
+  marqueContactId: string;
+  userId: string;
+  allowBeneluxSibling?: boolean;
+}): Promise<boolean> {
+  const contact = await prisma.marqueContact.findUnique({
+    where: { id: opts.marqueContactId },
+    select: {
+      id: true,
+      prenom: true,
+      nom: true,
+      email: true,
+      language: true,
+      source: true,
+      outreachExcluded: true,
+      diffusionOptOut: true,
+      marqueId: true,
+      marque: { select: { nom: true } },
+      outreachTargets: { select: { id: true }, take: 1 },
+    },
+  });
+  if (!contact || contact.source !== "CARTO") return false;
+  if (contact.outreachExcluded || contact.diffusionOptOut) return false;
+  if (contact.outreachTargets.length > 0) return false;
+  const email = (contact.email || "").trim().toLowerCase();
+  if (!isValidEmail(email)) return false;
+
+  const { isForbiddenCastingRecipient, loadCastingRecipientBlocklist } =
+    await import("@/lib/casting-recipient-guard");
+  const blocklist = await loadCastingRecipientBlocklist();
+  if (
+    isForbiddenCastingRecipient(
+      { email, prenom: contact.prenom, nom: contact.nom },
+      blocklist
+    )
+  ) {
+    await prisma.marqueContact.update({
+      where: { id: contact.id },
+      data: { outreachExcluded: true },
+    });
+    return false;
+  }
+
+  const beSibling = await prisma.beneluxOutreachTarget.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+  const conflict = await findCrossPipelineConflict(email, "client", {
+    allowClientBeneluxSibling:
+      opts.allowBeneluxSibling === true || Boolean(beSibling),
+  });
+  if (conflict) return false;
+
+  await prisma.outreachTarget.create({
+    data: {
+      marqueId: contact.marqueId,
+      marqueContactId: contact.id,
+      firstname: contact.prenom || contact.nom,
+      lastname: contact.prenom ? contact.nom : null,
+      email,
+      company: contact.marque.nom,
+      language: contact.language === "en" ? "en" : "fr",
+      createdById: opts.userId,
+    },
+  });
+  await prisma.marqueContact.update({
+    where: { id: contact.id },
+    data: { emailLookupStatus: "FOUND", emailSuggested: null },
+  });
+  return true;
+}
+
+/**
+ * Enrôle un contact BE précis dès qu'il a un email (sélection marché / Prêt).
+ */
+export async function enrollOneBeContactNow(opts: {
+  beneluxContactId: string;
+  userId: string;
+  allowFrSibling?: boolean;
+}): Promise<boolean> {
+  const contact = await prisma.beneluxContact.findUnique({
+    where: { id: opts.beneluxContactId },
+    select: {
+      id: true,
+      prenom: true,
+      nom: true,
+      email: true,
+      language: true,
+      source: true,
+      outreachExcluded: true,
+      companyId: true,
+      company: { select: { nom: true } },
+      outreachTargets: { select: { id: true }, take: 1 },
+    },
+  });
+  if (!contact || contact.source !== "CARTO") return false;
+  if (contact.outreachExcluded) return false;
+  if (contact.outreachTargets.length > 0) return false;
+  const email = (contact.email || "").trim().toLowerCase();
+  if (!isValidEmail(email)) return false;
+
+  const frSibling = await prisma.outreachTarget.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+  const conflict = await findCrossPipelineConflict(email, "benelux", {
+    allowClientBeneluxSibling:
+      opts.allowFrSibling === true || Boolean(frSibling),
+  });
+  if (conflict) return false;
+
+  await prisma.beneluxOutreachTarget.create({
+    data: {
+      companyId: contact.companyId,
+      beneluxContactId: contact.id,
+      firstname: contact.prenom || contact.nom || "Contact",
+      lastname: contact.nom || null,
+      email,
+      companyName: contact.company.nom,
+      language: contact.language === "en" ? "en" : "fr",
+      createdById: opts.userId,
+    },
+  });
+  await prisma.beneluxContact.update({
+    where: { id: contact.id },
+    data: { emailLookupStatus: "FOUND", emailSuggested: null },
+  });
+  return true;
 }
 
 /** Enrôle les contacts BENELUX avec email dès qu'il n'en manque plus. */

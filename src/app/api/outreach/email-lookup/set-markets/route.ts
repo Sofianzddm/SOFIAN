@@ -8,16 +8,22 @@ import {
   slugifyBenelux,
 } from "@/lib/benelux-company";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
+import {
+  enrollOneBeContactNow,
+  enrollOneFrContactNow,
+} from "@/lib/envoyer-marque-outreach";
 
 /**
- * POST → corrige le/les marché(s) d'un contact en file d'enrichissement.
+ * POST → corrige le/les marché(s) d'un contact.
  * Body: {
  *   refs: [{ id, market: "FR"|"BENELUX" }],
- *   markets: ("FR"|"BENELUX")[]   // cible : FR seul, BE seul, ou les deux
+ *   markets: ("FR"|"BENELUX")[]   // FR seul, BE seul, ou les deux
  * }
  *
- * Ajoute le jumeau manquant (crée la fiche marché liée si besoin) et/ou
- * supprime le contact du marché retiré. Reste en QUEUED.
+ * Règle :
+ * - BE → fiche BE + enrôlement BE immédiat si email
+ * - FR → fiche FR + enrôlement FR immédiat si email
+ * - FR+BE → les deux fiches + enrôlement des deux si email
  */
 
 const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
@@ -251,6 +257,42 @@ function samePerson(
   return contactPersonKey(a.prenom, a.nom) === contactPersonKey(b.prenom, b.nom);
 }
 
+function isValidEmail(value: string | null | undefined): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+/** État email à propager sur le jumeau (copie depuis le snapshot source). */
+function twinEmailFields(snapshot: ContactSnapshot): {
+  email: string | null;
+  emailSuggested: string | null;
+  emailLookupStatus: string | null;
+  emailLookupQueuedAt: Date | null;
+} {
+  const email = snapshot.email?.trim().toLowerCase() || null;
+  if (email && isValidEmail(email)) {
+    return {
+      email,
+      emailSuggested: null,
+      emailLookupStatus: "FOUND",
+      emailLookupQueuedAt: null,
+    };
+  }
+  if (snapshot.emailLookupStatus === "NOT_FOUND") {
+    return {
+      email: null,
+      emailSuggested: null,
+      emailLookupStatus: "NOT_FOUND",
+      emailLookupQueuedAt: null,
+    };
+  }
+  return {
+    email: null,
+    emailSuggested: snapshot.emailSuggested,
+    emailLookupStatus: "QUEUED",
+    emailLookupQueuedAt: snapshot.emailLookupQueuedAt || new Date(),
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getAppSession(request);
@@ -294,7 +336,12 @@ export async function POST(request: NextRequest) {
     const companyName = frContact?.company || beContact!.company;
     const wantFr = desired.includes("FR");
     const wantBe = desired.includes("BENELUX");
-    const now = new Date();
+    const bothMarkets = wantFr && wantBe;
+    const emailFields = twinEmailFields(snapshot);
+    const readyEmail =
+      emailFields.email && isValidEmail(emailFields.email)
+        ? emailFields.email
+        : null;
 
     const { marqueId, companyId } = await resolveLinkedPair({
       marqueId: frContact?.marqueId || null,
@@ -304,19 +351,34 @@ export async function POST(request: NextRequest) {
     });
 
     const nextRefs: Array<{ id: string; market: BrandMarket; marqueId: string }> = [];
+    let frContactId: string | null = frContact?.id || null;
+    let beContactId: string | null = beContact?.id || null;
 
     // —— FR ——
     if (wantFr) {
       if (frContact) {
+        // Aligne l'email si le snapshot BE en a un et le FR pas encore.
+        if (readyEmail && !frContact.email) {
+          await prisma.marqueContact.update({
+            where: { id: frContact.id },
+            data: {
+              email: readyEmail,
+              emailLookupStatus: "FOUND",
+              emailSuggested: null,
+              emailLookupQueuedAt: null,
+            },
+          });
+        }
+        frContactId = frContact.id;
         nextRefs.push({ id: frContact.id, market: "FR", marqueId: frContact.marqueId });
       } else {
-        // Réutilise un jumeau déjà présent sur la fiche FR (même personne).
         const existing = await prisma.marqueContact.findMany({
           where: { marqueId },
           select: {
             id: true,
             prenom: true,
             nom: true,
+            email: true,
             emailLookupStatus: true,
             outreachExcluded: true,
             diffusionOptOut: true,
@@ -324,20 +386,14 @@ export async function POST(request: NextRequest) {
         });
         let twin = existing.find((c) => samePerson(snapshot, c)) || null;
         if (twin) {
-          if (
-            twin.emailLookupStatus !== "QUEUED" &&
-            !twin.outreachExcluded &&
-            !twin.diffusionOptOut
-          ) {
-            await prisma.marqueContact.update({
-              where: { id: twin.id },
-              data: {
-                emailLookupStatus: "QUEUED",
-                emailLookupQueuedAt: now,
-                emailSuggested: snapshot.emailSuggested,
-              },
-            });
-          }
+          await prisma.marqueContact.update({
+            where: { id: twin.id },
+            data: {
+              ...emailFields,
+              outreachExcluded: snapshot.outreachExcluded,
+            },
+          });
+          frContactId = twin.id;
           nextRefs.push({ id: twin.id, market: "FR", marqueId });
         } else {
           const created = await prisma.marqueContact.create({
@@ -345,7 +401,6 @@ export async function POST(request: NextRequest) {
               marqueId,
               prenom: snapshot.prenom,
               nom: snapshot.nom,
-              email: null,
               poste: snapshot.poste,
               perimetre: snapshot.perimetre,
               localisation: snapshot.localisation,
@@ -354,12 +409,11 @@ export async function POST(request: NextRequest) {
               language: snapshot.language === "en" ? "en" : "fr",
               source: snapshot.source === "AO" ? "AO" : "CARTO",
               outreachExcluded: snapshot.outreachExcluded,
-              emailLookupStatus: "QUEUED",
-              emailLookupQueuedAt: now,
-              emailSuggested: snapshot.emailSuggested,
+              ...emailFields,
             },
             select: { id: true },
           });
+          frContactId = created.id;
           nextRefs.push({ id: created.id, market: "FR", marqueId });
         }
       }
@@ -368,6 +422,18 @@ export async function POST(request: NextRequest) {
     // —— BENELUX ——
     if (wantBe) {
       if (beContact) {
+        if (readyEmail && !beContact.email) {
+          await prisma.beneluxContact.update({
+            where: { id: beContact.id },
+            data: {
+              email: readyEmail,
+              emailLookupStatus: "FOUND",
+              emailSuggested: null,
+              emailLookupQueuedAt: null,
+            },
+          });
+        }
+        beContactId = beContact.id;
         nextRefs.push({
           id: beContact.id,
           market: "BENELUX",
@@ -380,22 +446,21 @@ export async function POST(request: NextRequest) {
             id: true,
             prenom: true,
             nom: true,
+            email: true,
             emailLookupStatus: true,
             outreachExcluded: true,
           },
         });
         let twin = existing.find((c) => samePerson(snapshot, c)) || null;
         if (twin) {
-          if (twin.emailLookupStatus !== "QUEUED" && !twin.outreachExcluded) {
-            await prisma.beneluxContact.update({
-              where: { id: twin.id },
-              data: {
-                emailLookupStatus: "QUEUED",
-                emailLookupQueuedAt: now,
-                emailSuggested: snapshot.emailSuggested,
-              },
-            });
-          }
+          await prisma.beneluxContact.update({
+            where: { id: twin.id },
+            data: {
+              ...emailFields,
+              outreachExcluded: snapshot.outreachExcluded,
+            },
+          });
+          beContactId = twin.id;
           nextRefs.push({ id: twin.id, market: "BENELUX", marqueId: companyId });
         } else {
           const prenom = (snapshot.prenom || snapshot.nom || "Contact").trim();
@@ -405,7 +470,6 @@ export async function POST(request: NextRequest) {
               companyId,
               prenom,
               nom,
-              email: null,
               poste: snapshot.poste,
               perimetre: snapshot.perimetre,
               localisation: snapshot.localisation,
@@ -414,34 +478,83 @@ export async function POST(request: NextRequest) {
               language: snapshot.language === "en" ? "en" : "fr",
               source: snapshot.source === "AO" ? "AO" : "CARTO",
               outreachExcluded: snapshot.outreachExcluded,
-              emailLookupStatus: "QUEUED",
-              emailLookupQueuedAt: now,
-              emailSuggested: snapshot.emailSuggested,
               createdById: session.user.id,
+              ...emailFields,
             },
             select: { id: true },
           });
+          beContactId = created.id;
           nextRefs.push({ id: created.id, market: "BENELUX", marqueId: companyId });
         }
       }
     }
 
-    // Supprime les marchés retirés (après création du jumeau pour ne pas perdre la fiche).
+    // Marchés retirés : sort le contact ET sa cible outreach de ce pipeline.
     if (!wantFr && frContact) {
+      if (readyEmail) {
+        await prisma.outreachTarget.deleteMany({
+          where: { email: readyEmail },
+        });
+      } else {
+        await prisma.outreachTarget.deleteMany({
+          where: { marqueContactId: frContact.id },
+        });
+      }
       await prisma.marqueContact.delete({ where: { id: frContact.id } });
+      frContactId = null;
     }
     if (!wantBe && beContact) {
+      if (readyEmail) {
+        await prisma.beneluxOutreachTarget.deleteMany({
+          where: { email: readyEmail },
+        });
+      } else {
+        await prisma.beneluxOutreachTarget.deleteMany({
+          where: { beneluxContactId: beContact.id },
+        });
+      }
       await prisma.beneluxContact.delete({ where: { id: beContact.id } });
+      beContactId = null;
+    }
+
+    // Enrôlement immédiat dès qu'il y a un email.
+    let enrolledFr = false;
+    let enrolledBe = false;
+    if (readyEmail && snapshot.source !== "AO") {
+      if (wantFr && frContactId) {
+        enrolledFr = await enrollOneFrContactNow({
+          marqueContactId: frContactId,
+          userId: session.user.id,
+          allowBeneluxSibling: bothMarkets,
+        });
+      }
+      if (wantBe && beContactId) {
+        enrolledBe = await enrollOneBeContactNow({
+          beneluxContactId: beContactId,
+          userId: session.user.id,
+          allowFrSibling: bothMarkets,
+        });
+      }
     }
 
     const label =
       wantFr && wantBe ? "FR + BE" : wantFr ? "FR" : "BE";
+    const enrollParts: string[] = [];
+    if (enrolledFr) enrollParts.push("Outreach FR");
+    if (enrolledBe) enrollParts.push("Outreach BE");
+    const enrollNote =
+      enrollParts.length > 0
+        ? ` Enrôlé dans ${enrollParts.join(" + ")}.`
+        : readyEmail
+          ? " (déjà en cycle ou email non enrôlable)."
+          : " Email manquant → reste en enrichissement.";
 
     return NextResponse.json({
       ok: true,
       refs: nextRefs,
       markets: desired,
-      message: `Marché mis à jour : ${label}.`,
+      enrolled: { fr: enrolledFr, be: enrolledBe },
+      message: `Marché mis à jour : ${label}.${enrollNote}`,
     });
   } catch (error) {
     console.error("POST /api/outreach/email-lookup/set-markets:", error);
