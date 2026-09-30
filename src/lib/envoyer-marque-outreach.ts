@@ -117,7 +117,14 @@ export async function enrollInfluenceContacts(opts: {
     }
 
     const conflict = await findCrossPipelineConflict(email, "client", {
-      allowClientBeneluxSibling: opts.crossMarketEmails?.has(email),
+      allowClientBeneluxSibling:
+        opts.crossMarketEmails?.has(email) ||
+        Boolean(
+          await prisma.beneluxOutreachTarget.findUnique({
+            where: { email },
+            select: { id: true },
+          })
+        ),
     });
     if (conflict) continue;
 
@@ -539,17 +546,21 @@ export async function tryEnrollBeneluxAfterEmailComplete(opts: {
   const missingEmail = company.contacts.filter(
     (c) => !c.email?.trim() && c.emailLookupStatus !== "NOT_FOUND"
   ).length;
-  if (missingEmail > 0) {
-    return { enrolled: 0, stillQueued: missingEmail };
-  }
+  // On enrôle quand même les contacts déjà emailés : sinon un seul QUEUED
+  // restant bloque tout le monde (cas FR+BE fréquent).
 
   let enrolled = 0;
   for (const c of company.contacts) {
     const email = (c.email || "").trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
 
+    const frSibling = await prisma.outreachTarget.findUnique({
+      where: { email },
+      select: { id: true },
+    });
     const conflict = await findCrossPipelineConflict(email, "benelux", {
-      allowClientBeneluxSibling: opts.crossMarketEmails?.has(email),
+      allowClientBeneluxSibling:
+        opts.crossMarketEmails?.has(email) || Boolean(frSibling),
     });
     if (conflict) continue;
 
@@ -577,7 +588,7 @@ export async function tryEnrollBeneluxAfterEmailComplete(opts: {
     });
     enrolled += 1;
   }
-  return { enrolled, stillQueued: 0 };
+  return { enrolled, stillQueued: missingEmail };
 }
 
 export async function getEmailSuggestionsForContact(contactId: string) {
