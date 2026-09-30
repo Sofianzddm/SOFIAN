@@ -425,6 +425,7 @@ export function StrategyProjectClient({
   const [brandResearchResult, setBrandResearchResult] = useState<{
     recentCampaigns: string;
     newProducts: string;
+    availabilityFrEu?: string;
     brandPositioning: string;
     influenceStrategy: string;
   } | null>(null);
@@ -453,12 +454,14 @@ export function StrategyProjectClient({
       const data = (await res.json()) as {
         recentCampaigns?: string;
         newProducts?: string;
+        availabilityFrEu?: string;
         brandPositioning?: string;
         influenceStrategy?: string;
       };
       setBrandResearchResult({
         recentCampaigns: data.recentCampaigns || "",
         newProducts: data.newProducts || "",
+        availabilityFrEu: data.availabilityFrEu || "",
         brandPositioning: data.brandPositioning || "",
         influenceStrategy: data.influenceStrategy || "",
       });
@@ -1066,6 +1069,12 @@ export function StrategyProjectClient({
                       Dernières nouveautés produit
                     </p>
                     <p className="whitespace-pre-line">{brandResearchResult.newProducts || "Aucune information disponible."}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-1">
+                      Dispo France / Europe
+                    </p>
+                    <p className="whitespace-pre-line">{brandResearchResult.availabilityFrEu || "Non vérifiée."}</p>
                   </div>
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
                     <p className="text-xs font-semibold text-gray-500 mb-1">

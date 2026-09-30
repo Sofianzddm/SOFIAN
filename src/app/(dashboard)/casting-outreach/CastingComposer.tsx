@@ -228,6 +228,7 @@ function toParisDatetimeLocal(date: Date): string {
 type BrandResearchState = {
   recentCampaigns: string;
   newProducts: string;
+  availabilityFrEu?: string;
   brandPositioning: string;
   influenceStrategy: string;
 };

@@ -18,6 +18,8 @@ function isAllowed(role: string | undefined): boolean {
 export interface BrandResearchPayload {
   recentCampaigns: string;
   newProducts: string;
+  /** Dispo France d'abord, sinon Europe — critique pour ne pas citer un lancement US-only. */
+  availabilityFrEu: string;
   brandPositioning: string;
   influenceStrategy: string;
 }
@@ -48,6 +50,7 @@ function tryParseBrandJson(raw: string): BrandResearchPayload {
         return {
           recentCampaigns: String(o.recentCampaigns ?? ""),
           newProducts: String(o.newProducts ?? ""),
+          availabilityFrEu: String(o.availabilityFrEu ?? ""),
           brandPositioning: String(o.brandPositioning ?? ""),
           influenceStrategy: String(o.influenceStrategy ?? ""),
         };
@@ -95,24 +98,33 @@ function getResearchMonthWindow(now = new Date()): {
 /** Prompt d'analyse pour UNE marque. */
 function buildBrandPrompt(brand: string): string {
   const { currentLabel, previousLabel, contextLabel } = getResearchMonthWindow();
-  return `Tu es un expert en marketing d'influence et en analyse de marques.
+  return `Tu es un expert en marketing d'influence et en analyse de marques, spécialisé marché France / Europe.
 
 Utilise les outils de recherche (web + X) pour identifier **la toute dernière nouveauté** de la marque "${brand}" (contexte actuel : ${currentLabel}).
 
 Objectif prioritaire : Trouver et décrire précisément **le lancement le plus récent du mois en cours ou du mois précédent uniquement** (${contextLabel}). Rien d'antérieur à ${previousLabel}.
 
+CRITIQUE — DISPONIBILITÉ RÉGIONALE (à vérifier systématiquement via recherche web) :
+Beaucoup de lancements sont annoncés / sortis aux US (ou UK / Asie) mais **pas encore en France ni en Europe**. Tu DOIS vérifier si le produit / la collection est :
+1) disponible / en vente / lancé en **France** (sites .fr, Sephora FR, retailers FR, communiqués FR) ;
+2) sinon disponible / lancé en **Europe** (UE, UK, DE, ES, IT, Benelux, etc.) ;
+3) sinon clairement **US-only / hors Europe** (ou date de sortie Europe encore inconnue).
+Cherche explicitement des indices du type "available in Europe", "coming to France", "sortie Europe", "disponible en France", "US exclusive", "US only", "not available in Europe".
+
 Pour chaque champ JSON, rédige 2 à 4 phrases en français, concrètes et vivantes :
 
 - recentCampaigns : les activations et campagnes de ${contextLabel} uniquement, en mettant l'accent sur ce qui est en cours ou très frais.
-- newProducts : **la toute dernière nouveauté** dans cette fenêtre (nom exact du produit/collection, date de lancement, notes clés, vibe). Si plusieurs, priorise le plus récent. Sois précis.
+- newProducts : **la toute dernière nouveauté** dans cette fenêtre (nom exact du produit/collection, date de lancement, notes clés, vibe). Si plusieurs, **priorise une nouveauté disponible en France** ; à défaut en Europe ; ne retiens un lancement US-only que si aucune alternative FR/EU n'existe dans la fenêtre, et dis-le clairement.
+- availabilityFrEu : verdict clair sur la dispo de cette nouveauté : France oui/non (+ preuve courte), sinon Europe oui/non (+ preuve courte), sinon "US / hors Europe uniquement" ou "dispo Europe non confirmée". Indique aussi une date de sortie FR/EU si trouvée.
 - brandPositioning : le positionnement actuel, ce qui les distingue vraiment aujourd'hui.
 - influenceStrategy : comment ils travaillent avec les créateurs en ce moment (type de profils, formats, tonalité).
 
 Règles strictes :
 - Fenêtre temporelle MAXIMALE : ${previousLabel} et ${currentLabel} seulement. Ignore tout lancement / campagne antérieur.
-- Priorise toujours la nouveauté la plus récente dans cette fenêtre (idéalement ${currentLabel}).
-- Sois concret : nom du produit, date approximative, notes ou caractéristiques clés.
+- Priorise toujours la nouveauté la plus récente **et pertinente pour le marché FR/EU** dans cette fenêtre (idéalement ${currentLabel}).
+- Sois concret : nom du produit, date approximative, notes ou caractéristiques clés, et statut de dispo FR puis EU.
 - Si tu ne trouves rien dans ${contextLabel}, dis-le clairement au lieu d'inventer ou de remonter plus loin.
+- Ne présente JAMAIS un lancement US comme s'il était sorti en France/Europe sans preuve.
 - Parle comme quelqu'un qui suit vraiment la marque, pas comme un communiqué.
 
 Réponds UNIQUEMENT en JSON strict :
@@ -120,6 +132,7 @@ Réponds UNIQUEMENT en JSON strict :
 {
   "recentCampaigns": "...",
   "newProducts": "...",
+  "availabilityFrEu": "...",
   "brandPositioning": "...",
   "influenceStrategy": "..."
 }
@@ -236,6 +249,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       recentCampaigns: mergeField("recentCampaigns"),
       newProducts: mergeField("newProducts"),
+      availabilityFrEu: mergeField("availabilityFrEu"),
       brandPositioning: mergeField("brandPositioning"),
       influenceStrategy: mergeField("influenceStrategy"),
     });

@@ -58,6 +58,7 @@ const PIPELINE_VARIABLES: { token: string; label: string; hint: string }[] = [
 export type BrandResearch = {
   recentCampaigns: string;
   newProducts: string;
+  availabilityFrEu?: string;
   brandPositioning: string;
   influenceStrategy: string;
 };
@@ -382,11 +383,17 @@ export default function EmailComposer({
       </div>
       {brandResearch && researchOpen && (
         <div
-          className="rounded-lg border px-3 py-2 space-y-1.5 text-xs shrink-0 max-h-28 overflow-y-auto"
+          className="rounded-lg border px-3 py-2 space-y-1.5 text-xs shrink-0 max-h-36 overflow-y-auto"
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, color: LICORICE }}
         >
           <p>{brandResearch.recentCampaigns}</p>
           <p>{brandResearch.newProducts}</p>
+          {brandResearch.availabilityFrEu?.trim() ? (
+            <p>
+              <span className="font-semibold">Dispo FR / EU : </span>
+              {brandResearch.availabilityFrEu}
+            </p>
+          ) : null}
           <p>{brandResearch.brandPositioning}</p>
           <p>{brandResearch.influenceStrategy}</p>
         </div>

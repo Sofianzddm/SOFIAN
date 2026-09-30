@@ -56,6 +56,7 @@ export interface GenerateEmailBody {
   brandResearch: {
     recentCampaigns: string;
     newProducts: string;
+    availabilityFrEu?: string;
     brandPositioning: string;
     influenceStrategy: string;
   };
@@ -191,6 +192,10 @@ export async function POST(request: NextRequest) {
     const language: "fr" | "en" = body.language === "en" ? "en" : "fr";
     const isBenelux = body.market === "BENELUX";
     const { newProducts, brandPositioning, influenceStrategy } = body.brandResearch;
+    const availabilityFrEu =
+      typeof body.brandResearch.availabilityFrEu === "string"
+        ? body.brandResearch.availabilityFrEu.trim()
+        : "";
 
     const rawProject = body.projectBrief;
     const rawProjects = Array.isArray(body.projectBriefs) ? body.projectBriefs : [];
@@ -578,6 +583,7 @@ Avoid stacking superlatives: maximum 1-2 compliments in the whole email, and onl
 CURRENT CONTEXT: April 2026
 Brand: ${brandName}${multiBrandNoteEn}
 New products / collections to prioritize: ${newProducts}
+Market availability (France first, then Europe): ${availabilityFrEu || "—"}
 Positioning: ${brandPositioning}
 Current influence strategy of the brand (profile types, formats, tone of their collaborations): ${influenceStrategy || "—"}
 Available talents: ${talentsString} (the variable already contains complete HTML links in the form <a><strong>Firstname Lastname</strong></a>; keep them as-is, do NOT remove the bold or the link)
@@ -600,6 +606,7 @@ STRUCTURE (a logical flow, not a rigid template — vary the wording on every em
 - Mention the strongest new launch ONCE ONLY, in a SHORT, spoken form, never the full commercial name. A human writing fast says "your Baby Rose lip serum" or "the SPF plumper", not "Plumping Lip Serum SPF30 + Peptides tinted 'Baby Rose'". Keep just enough to identify it (1 to 3 words, the line/shade name).
   FORBIDDEN: re-describing features already contained in the product's name ("X with its peptides and sun protection" when "Peptides" and "SPF" are already in X). If an info is in the name, do not repeat it.
   Cite the product to SAY something useful (it's performing well, it fits the kind of content our creators make…), not to prove you know the product. Avoid hollow observations like "is still well promoted" (promoted where? by whom?). A single sentence that flows into what comes next.
+  MARKET AVAILABILITY (mandatory): Prefer a launch available in France; if not France, prefer Europe. NEVER write as if a US-only (or outside Europe) launch is already out locally. If the product is US-only / not yet in Europe, either skip it for the hook or acknowledge it carefully (e.g. US launch / not yet in Europe) — never imply French/European shoppers can already buy it.
 - Explain why you're thinking of them, simply and concretely (1-2 sentences). No jargon, no "synergy" or "brand DNA".
 ${
   isProjectMail
@@ -699,6 +706,7 @@ Ton attendu : professionnel, posé et soigné, mais naturel et incarné — jama
 CONTEXTE ACTUEL : avril 2026
 Marque : ${brandName}${multiBrandNoteFr}
 Nouveautés / collections à citer en priorité : ${newProducts}
+Disponibilité marché (France d'abord, sinon Europe) : ${availabilityFrEu || "—"}
 Positionnement : ${brandPositioning}
 Stratégie d'influence actuelle de la marque (types de profils, formats, tonalité de leurs collaborations) : ${influenceStrategy || "—"}
 Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme <a><strong>Prénom Nom</strong></a> ; conserve-les tels quels, NE retire jamais le gras ni le lien)
@@ -721,6 +729,7 @@ STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à c
 - Citer la nouveauté la plus forte UNE SEULE FOIS, en VERSION COURTE et parlée, jamais le nom commercial complet. Un humain qui écrit vite dit "votre sérum lèvres Baby Rose" ou "le repulpant SPF", pas "Sérum Lèvres Repulpant SPF30 + Peptides teinté 'Baby Rose'". Garde juste ce qui permet de l'identifier (1 à 3 mots, le nom de gamme/coloris).
   INTERDIT : re-décrire des caractéristiques déjà contenues dans le nom du produit ("X avec ses peptides et sa protection solaire" alors que "Peptides" et "SPF" sont déjà dans X). Si une info est dans le nom, ne la répète pas.
   Cite le produit pour DIRE quelque chose d'utile (il marche bien, il colle au type de contenu de nos créatrices…), pas pour prouver que tu connais le produit. Évite les constats creux du type "reste bien mis en avant" (mis en avant où ? par qui ?). Une seule phrase qui enchaîne vers la suite.
+  DISPONIBILITÉ MARCHÉ (obligatoire) : Priorise une nouveauté disponible en France ; sinon en Europe. N'écris JAMAIS comme si un lancement US-only (ou hors Europe) était déjà sorti localement. Si le produit est US-only / pas encore en Europe, soit tu ne l'utilises pas en accroche, soit tu le formules prudemment (ex. sortie US / pas encore en Europe) — jamais laisser croire qu'on peut déjà l'acheter en France/Europe.
 - Expliquer pourquoi vous pensez à eux, simplement et concrètement (1-2 phrases). Pas de jargon, pas de "synergie" ni "ADN de marque".
 ${
   isProjectMail
