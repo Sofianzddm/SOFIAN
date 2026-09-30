@@ -353,7 +353,7 @@ const OLD_LACE = "#F5EBE0";
 const STAGE_LABEL: Record<Stage, string> = {
   STRATEGY_DEFINED: "Stratégie définie",
   TO_DRAFT: "À rédiger",
-  DRAFTED_FOR_VALIDATION: "Rédigé (validation)",
+  DRAFTED_FOR_VALIDATION: "Prêt à envoyer",
   TO_SEND: "À envoyer",
   SENT: "Envoyé",
   RESPONSE_RECEIVED: "Réponse reçue",
@@ -391,10 +391,7 @@ function allowedColumns(role: Role | null): Stage[] {
   ];
 }
 
-function stageLabelForRole(stage: Stage, role: Role | null): string {
-  if (role === "CASTING_MANAGER" && stage === "DRAFTED_FOR_VALIDATION") {
-    return "Prêt";
-  }
+function stageLabelForRole(stage: Stage, _role: Role | null): string {
   return STAGE_LABEL[stage];
 }
 
@@ -424,7 +421,7 @@ const STAGE_ICON: Record<Stage, typeof Feather> = {
 const STAGE_HINT: Record<Stage, string> = {
   STRATEGY_DEFINED: "Brief validé",
   TO_DRAFT: "Rédaction",
-  DRAFTED_FOR_VALIDATION: "Relecture",
+  DRAFTED_FOR_VALIDATION: "File d'attente (pas d'envoi)",
   TO_SEND: "Planification",
   SENT: "En attente de retour",
   RESPONSE_RECEIVED: "Réponse reçue",
@@ -3423,6 +3420,8 @@ export function ProspectingPipelineClient() {
         contact={composerContact}
         brandColumn={"todo"}
         useHubspot={false}
+        readyMode="queue"
+        readyLabel="Prêt à envoyer"
         onClose={() => {
           setComposerOpen(false);
           setComposerContact(null);
@@ -3454,6 +3453,8 @@ export function ProspectingPipelineClient() {
                   }
                 : prev
             );
+            setActiveStageTab("DRAFTED_FOR_VALIDATION");
+            setReadySubTab("cards");
           } else if (status === "en_cours") {
             // Ne pas rétrograder une carte déjà en validation / envoi :
             // un admin qui modifie puis « Enregistrer brouillon » doit

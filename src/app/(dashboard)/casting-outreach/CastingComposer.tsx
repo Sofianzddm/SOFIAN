@@ -265,6 +265,13 @@ export interface CastingComposerProps {
   market?: "FR" | "BENELUX";
   /** Libellé du bouton principal (défaut : « Marquer comme prêt »). */
   readyLabel?: string;
+  /**
+   * `send` (défaut) : « prêt » ouvre le choix des destinataires puis déclenche
+   * l'envoi (parcours projets / outreach).
+   * `queue` : « prêt » = prêt à envoyer — enregistre le brouillon et sort du
+   * composer, sans envoi (parcours pipeline talent).
+   */
+  readyMode?: "send" | "queue";
   /** Langue de génération du mail pré-sélectionnée à l'ouverture (défaut : fr). */
   defaultLanguage?: "fr" | "en";
   /**
@@ -318,6 +325,7 @@ export default function CastingComposer({
   useHubspot = true,
   market = "FR",
   readyLabel = "Marquer comme prêt",
+  readyMode = "send",
   defaultLanguage = "fr",
   allowSchedule = false,
   lockedTalentId = null,
@@ -1149,11 +1157,18 @@ export default function CastingComposer({
     }
   ) => {
     if (status === "pret") {
-      const n = draft?.selectedContacts?.length ?? 0;
-      setSendProgress({
-        label: n > 0 ? `Préparation de l'envoi (${n} destinataire${n > 1 ? "s" : ""})…` : "Préparation de l'envoi…",
-        percent: 8,
-      });
+      if (readyMode === "queue") {
+        setSendProgress({ label: "Passage en prêt à envoyer…", percent: 20 });
+      } else {
+        const n = draft?.selectedContacts?.length ?? 0;
+        setSendProgress({
+          label:
+            n > 0
+              ? `Préparation de l'envoi (${n} destinataire${n > 1 ? "s" : ""})…`
+              : "Préparation de l'envoi…",
+          percent: 8,
+        });
+      }
     } else if (status === "en_cours") {
       setSendProgress({ label: "Enregistrement du brouillon…", percent: 40 });
     } else {
@@ -1166,7 +1181,10 @@ export default function CastingComposer({
         })
       );
       if (status === "pret") {
-        setSendProgress({ label: "Envoi terminé", percent: 100 });
+        setSendProgress({
+          label: readyMode === "queue" ? "Prêt à envoyer ✓" : "Envoi terminé",
+          percent: 100,
+        });
       }
     } finally {
       // Laisse voir le 100% un instant si le parent n'a pas encore fermé.
@@ -1194,6 +1212,28 @@ export default function CastingComposer({
     const scheduledValue =
       allowSchedule && status === "pret" && sendMode === "at" ? scheduledAt : null;
     const bodyHtml = getBodyHtml();
+
+    // Pipeline talent : « prêt » = file prêt à envoyer, sans envoi ni picker.
+    if (readyMode === "queue" && status === "pret") {
+      setSaving(true);
+      try {
+        await runSaved("pret", {
+          subject: sub,
+          bodyHtml,
+          language: emailLanguage,
+          scheduledAt: null,
+        });
+        const marque = contact.company || "la marque";
+        onSuccess(`Mail prêt à envoyer pour ${marque} ✓`);
+        onClose();
+      } catch (e: unknown) {
+        setSendProgress(null);
+        onError(e instanceof Error ? e.message : "Erreur inattendue.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
 
     // Parcours projet / mission : avant envoi, on choisit les contacts fiche marque.
     if (!useHubspot && status === "pret" && contact.missionBrief) {
