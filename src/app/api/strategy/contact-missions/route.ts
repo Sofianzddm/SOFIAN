@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
-import { normalizeMissionBrandKey, parseMissionPriority } from "@/lib/contact-missions";
+import { normalizeMissionBrandKey, parseMissionPriority, findTalentBrandLastSend, TALENT_BRAND_RECONTACT_DAYS } from "@/lib/contact-missions";
 import {
+  INDIV_BRAND_WAVE_DAYS,
+  PIPELINE_CASTING_SCOPE,
+  evaluateIndivBrandSendGuard,
+} from "@/lib/contact-cooldown";
+import {
+  findAllMarqueIdsByName,
+  findMarqueByName,
   linkMarqueFromBrandName,
   marqueSlug,
   syncMissionClientContactsToMarque,
@@ -72,7 +79,6 @@ async function resolveMarqueNomsBySlug(
 
 const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
 const campaignModel = (prisma as unknown as { talentProspectingCampaign: any }).talentProspectingCampaign;
-const HUBSPOT_BASE_URL = "https://api.hubapi.com";
 const ADMIN_CONTACT_EMAIL = "S.zeddam@glowupagence.fr";
 
 const VALID_STAGES = [
@@ -91,37 +97,26 @@ function isValidStage(v: string): v is (typeof VALID_STAGES)[number] {
   return (VALID_STAGES as readonly string[]).includes(v);
 }
 
-async function hasHubspotContactForBrand(brandName: string): Promise<boolean> {
+/** Au moins un contact email utilisable sur la fiche marque interne (plus de HubSpot). */
+async function hasInternalContactForBrand(brandName: string): Promise<boolean> {
   const brand = String(brandName || "").trim();
   if (!brand) return false;
-  const apiKey = process.env.HUBSPOT_API_KEY;
-  if (!apiKey) return false;
-  const response = await fetch(`${HUBSPOT_BASE_URL}/crm/v3/objects/contacts/search`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+  let marqueIds = await findAllMarqueIdsByName(brand);
+  if (marqueIds.length === 0) {
+    const exact = await findMarqueByName(brand);
+    if (exact) marqueIds = [exact.marqueId];
+  }
+  if (marqueIds.length === 0) return false;
+  const count = await prisma.marqueContact.count({
+    where: {
+      marqueId: { in: marqueIds },
+      email: { not: null },
+      outreachExcluded: false,
+      diffusionOptOut: false,
+      OR: [{ source: { not: "AO" } }, { source: null }],
     },
-    body: JSON.stringify({
-      filterGroups: [
-        {
-          filters: [
-            {
-              propertyName: "company",
-              operator: "CONTAINS_TOKEN",
-              value: brand,
-            },
-          ],
-        },
-      ],
-      properties: ["email"],
-      limit: 1,
-    }),
   });
-  if (!response.ok) return false;
-  const data = (await response.json()) as { total?: number; results?: unknown[] };
-  if (typeof data.total === "number") return data.total > 0;
-  return Array.isArray(data.results) && data.results.length > 0;
+  return count > 0;
 }
 
 export async function GET(request: NextRequest) {
@@ -141,40 +136,116 @@ export async function GET(request: NextRequest) {
       const mineOnly = mineParam === "1" || mineParam === "true";
 
       const where: Record<string, unknown> = {};
+      // Pipeline Casting uniquement — exclut Projets outreach talent (event CREATED).
+      const pipelineScope = PIPELINE_CASTING_SCOPE;
       if (campaignId) {
         // Vue projet explicite : uniquement les missions de cette campagne.
         where.campaignId = campaignId;
+      } else if (mineOnly && session.user.role === "STRATEGY_PLANNER") {
+        where.AND = [
+          pipelineScope,
+          { campaign: { createdById: session.user.id } },
+        ];
       } else {
-        // Pipeline Casting = prospection individuelle.
-        // Exclure les missions des « Projets outreach talent » (event CREATED).
-        const pipelineScope = {
-          OR: [
-            { campaignId: null },
-            { campaign: { events: { none: { type: "CREATED" } } } },
-          ],
-        };
-        if (mineOnly && session.user.role === "STRATEGY_PLANNER") {
-          where.AND = [
-            pipelineScope,
-            { campaign: { createdById: session.user.id } },
-          ];
-        } else {
-          Object.assign(where, pipelineScope);
-        }
+        Object.assign(where, pipelineScope);
       }
-      if (talentId) where.talentId = talentId;
-      if (isValidStage(stageParam)) where.stage = stageParam;
+      // Filtre talent pour les cartes ouvertes — PAS pour la vague marque
+      // (sinon on rate les envois pipeline des autres talents).
+      const whereOpen: Record<string, unknown> = { ...where };
+      if (talentId) whereOpen.talentId = talentId;
+      if (isValidStage(stageParam)) whereOpen.stage = stageParam;
 
-      const missions = await contactMissionModel.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        include: {
-          talent: { select: { id: true, prenom: true, nom: true } },
-          campaign: { select: { id: true, title: true, createdById: true, isActive: true } },
-          marque: { select: { id: true, nom: true } },
-        },
-        take: 200,
-      });
+      const missionInclude = {
+        talent: { select: { id: true, prenom: true, nom: true } },
+        campaign: { select: { id: true, title: true, createdById: true, isActive: true } },
+        marque: { select: { id: true, nom: true } },
+      } as const;
+
+      // Pour le blocage marque (20 j / tous talents) il faut :
+      // 1) TOUTES les cartes encore ouvertes (sinon un vieux « Rédigé » échappe au take)
+      // 2) TOUS les envois PIPELINE de la fenêtre marque (pas les projets Ibiza)
+      // 3) un filet de cartes récentes (SENT / réponses) pour le parcours
+      const sinceBrandWave = new Date(
+        Date.now() - INDIV_BRAND_WAVE_DAYS * 24 * 60 * 60 * 1000
+      );
+      const OPEN_STAGES = [
+        "STRATEGY_DEFINED",
+        "TO_DRAFT",
+        "DRAFTED_FOR_VALIDATION",
+        "TO_SEND",
+      ] as const;
+
+      // Vague marque = pipeline casting, tous talents (ignore filtre talent / mine)
+      const brandWaveWhere: Record<string, unknown> = campaignId
+        ? { campaignId }
+        : { ...pipelineScope };
+
+      let missions: any[];
+      if (isValidStage(stageParam)) {
+        missions = await contactMissionModel.findMany({
+          where: whereOpen,
+          orderBy: { createdAt: "desc" },
+          include: missionInclude,
+          take: 800,
+        });
+      } else {
+        const [openMissions, sentLastWave, recentClosed] = await Promise.all([
+          contactMissionModel.findMany({
+            where: {
+              AND: [whereOpen, { stage: { in: [...OPEN_STAGES] } }],
+            },
+            orderBy: { createdAt: "desc" },
+            include: missionInclude,
+            take: 2500,
+          }),
+          contactMissionModel.findMany({
+            where: {
+              AND: [
+                brandWaveWhere,
+                { sentAt: { gte: sinceBrandWave, not: null } },
+              ],
+            },
+            orderBy: { sentAt: "desc" },
+            include: missionInclude,
+            take: 800,
+          }),
+          contactMissionModel.findMany({
+            where: {
+              AND: [
+                whereOpen,
+                {
+                  stage: {
+                    in: [
+                      "SENT",
+                      "RESPONSE_RECEIVED",
+                      "IN_NEGOTIATION",
+                      "WON",
+                      "LOST",
+                    ],
+                  },
+                },
+              ],
+            },
+            orderBy: { updatedAt: "desc" },
+            include: missionInclude,
+            take: 400,
+          }),
+        ]);
+
+        const byId = new Map<string, (typeof openMissions)[number]>();
+        for (const m of openMissions) byId.set(m.id, m);
+        for (const m of sentLastWave) {
+          if (!byId.has(m.id)) byId.set(m.id, m);
+        }
+        for (const m of recentClosed) {
+          if (!byId.has(m.id)) byId.set(m.id, m);
+        }
+        missions = [...byId.values()].sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      }
+
       const resolvedBySlug = await resolveMarqueNomsBySlug(missions);
       return NextResponse.json({
         missions: missions.map((m: any) => {
@@ -216,6 +287,11 @@ export async function GET(request: NextRequest) {
             openedAt: m.openedAt ?? null,
             clickCount: m.clickCount ?? 0,
             clickedAt: m.clickedAt ?? null,
+            awaitingContactsCompletion: Boolean(m.awaitingContactsCompletion),
+            contactsCompletionRequestedAt:
+              m.contactsCompletionRequestedAt?.toISOString?.() ??
+              m.contactsCompletionRequestedAt ??
+              null,
             createdAt: m.createdAt,
             updatedAt: m.updatedAt,
           };
@@ -293,6 +369,7 @@ export async function POST(request: NextRequest) {
       campaignId?: string | null;
       creatorName?: string;
       targetBrand?: string;
+      marqueId?: string | null;
       strategyReason?: string;
       recommendedAngle?: string | null;
       objective?: string | null;
@@ -314,11 +391,41 @@ export async function POST(request: NextRequest) {
       creatorName = `${talent.prenom} ${talent.nom}`.trim();
     }
 
-    const targetBrand = String(body.targetBrand || "").trim();
-    const strategyReason = String(body.strategyReason || "").trim();
-    if (!creatorName || !targetBrand || !strategyReason) {
+    const requestedMarqueId = String(body.marqueId || "").trim() || null;
+    let targetBrand = String(body.targetBrand || "").trim();
+    let marqueId: string | null = null;
+
+    if (requestedMarqueId) {
+      const marque = await prisma.marque.findUnique({
+        where: { id: requestedMarqueId },
+        select: { id: true, nom: true },
+      });
+      if (!marque) {
+        return NextResponse.json({ error: "Marque CRM introuvable." }, { status: 404 });
+      }
+      marqueId = marque.id;
+      // Toujours le nom canonique CRM pour éviter fautes / doublons.
+      targetBrand = marque.nom;
+    } else if (targetBrand) {
+      const linkedMarque = await linkMarqueFromBrandName({
+        brandName: targetBrand,
+        source: "CONTACT_MISSION",
+      });
+      marqueId = linkedMarque?.marqueId ?? null;
+      if (linkedMarque?.marqueId) {
+        const canon = await prisma.marque.findUnique({
+          where: { id: linkedMarque.marqueId },
+          select: { nom: true },
+        });
+        if (canon?.nom) targetBrand = canon.nom;
+      }
+    }
+
+    const strategyReason =
+      String(body.strategyReason || "").trim() || "À préciser";
+    if (!creatorName || !targetBrand) {
       return NextResponse.json(
-        { error: "creatorName, targetBrand et strategyReason sont requis." },
+        { error: "creatorName et targetBrand (ou marqueId) sont requis." },
         { status: 400 }
       );
     }
@@ -333,10 +440,61 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const linkedMarque = await linkMarqueFromBrandName({
-      brandName: targetBrand,
-      source: "CONTACT_MISSION",
+    if (talentId) {
+      const prior = await findTalentBrandLastSend({
+        talentId,
+        marqueId,
+        targetBrand,
+      });
+      if (prior?.blocked) {
+        const sentLabel = new Intl.DateTimeFormat("fr-FR", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        }).format(prior.sentAt);
+        return NextResponse.json(
+          {
+            error:
+              `« ${prior.targetBrand} » a déjà été envoyée pour ce talent le ${sentLabel}. ` +
+              `Bloqué encore ${prior.daysLeft} j (fenêtre ${TALENT_BRAND_RECONTACT_DAYS} j).`,
+            code: "TALENT_BRAND_RECONTACT",
+            prior: {
+              targetBrand: prior.targetBrand,
+              sentAt: prior.sentAt.toISOString(),
+              daysLeft: prior.daysLeft,
+              daysAgo: prior.daysAgo,
+            },
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    // Vague marque indiv (tous talents) — même règle qu'à l'envoi
+    const brandWave = await evaluateIndivBrandSendGuard({
+      id: "__new__",
+      talentId,
+      creatorName,
+      marqueId,
+      targetBrandKey: normalizeMissionBrandKey(targetBrand),
+      targetBrand,
     });
+    if (!brandWave.allowed) {
+      return NextResponse.json(
+        {
+          error: brandWave.message,
+          code: "INDIV_BRAND_WAVE",
+          canForce: false,
+          prior: {
+            targetBrand: brandWave.prior.targetBrand,
+            sentAt: brandWave.prior.sentAt.toISOString(),
+            creatorName: brandWave.prior.creatorName,
+            nextAllowedAt: brandWave.nextAllowedAt?.toISOString() ?? null,
+          },
+        },
+        { status: 409 }
+      );
+    }
 
     const mission = await contactMissionModel.create({
       data: {
@@ -345,7 +503,7 @@ export async function POST(request: NextRequest) {
         creatorName,
         targetBrand,
         targetBrandKey: normalizeMissionBrandKey(targetBrand),
-        marqueId: linkedMarque?.marqueId ?? null,
+        marqueId,
         strategyReason,
         recommendedAngle: String(body.recommendedAngle || "").trim() || null,
         objective: String(body.objective || "").trim() || null,
@@ -514,12 +672,12 @@ export async function PATCH(request: NextRequest) {
       (nextStage === "TO_SEND" || nextStage === "SENT") &&
       session.user.role === "HEAD_OF_SALES"
     ) {
-      const hasContact = await hasHubspotContactForBrand(currentMission.targetBrand);
+      const hasContact = await hasInternalContactForBrand(currentMission.targetBrand);
       if (!hasContact) {
         return NextResponse.json(
           {
             error:
-              "Aucun contact HubSpot pour cette marque. Admin doit d'abord ajouter le ou les contacts.",
+              "Aucun contact en base pour cette marque. Ajoute d'abord un contact sur la fiche marque (carto / CRM interne).",
           },
           { status: 400 }
         );
@@ -541,12 +699,33 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Sync contacts pipeline → fiche marque (onglet Contacts sur /marques/[id])
+    let awaitingResolved: {
+      resolvedCount: number;
+      sourceLabel: string;
+      message: string;
+    } | null = null;
     if (body.clientContacts !== undefined) {
       marqueIdForUpdate = await syncMissionClientContactsToMarque(
         effectiveBrand,
         marqueIdForUpdate ?? null,
         body.clientContacts
       );
+      if (marqueIdForUpdate) {
+        const { resolveAwaitingEnrichissementForMarque } = await import(
+          "@/lib/resolve-awaiting-enrichissement"
+        );
+        const resolved = await resolveAwaitingEnrichissementForMarque({
+          marqueId: marqueIdForUpdate,
+          actorId: session.user.id,
+        });
+        if (resolved.resolvedCount > 0) {
+          awaitingResolved = {
+            resolvedCount: resolved.resolvedCount,
+            sourceLabel: resolved.sourceLabel,
+            message: `Contacts enregistrés — ${resolved.resolvedCount} demande(s) débloquée(s) (${resolved.sourceLabel}).`,
+          };
+        }
+      }
     }
 
     const mission = await contactMissionModel.update({
@@ -639,7 +818,7 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ mission });
+    return NextResponse.json({ mission, awaitingResolved });
   } catch (error) {
     console.error("PATCH /api/strategy/contact-missions:", error);
     return NextResponse.json({ error: "Erreur lors de la mise a jour de mission" }, { status: 500 });

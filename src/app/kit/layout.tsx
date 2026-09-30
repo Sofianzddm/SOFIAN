@@ -5,7 +5,7 @@ import type { Metadata } from "next";
  *
  * Garantit que la page Kit Media n'est jamais indexée par les moteurs de
  * recherche, même si quelqu'un partage le lien public. Le middleware
- * (src/middleware.ts) bloque déjà les crawlers et envoie X-Robots-Tag,
+ * (src/proxy.ts) bloque déjà les crawlers et envoie X-Robots-Tag,
  * mais ce metadata pose en plus les meta tags HTML dans le <head> en cas
  * de cache CDN ou de bot qui ignorerait les headers HTTP.
  *

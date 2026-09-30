@@ -1685,7 +1685,7 @@ export function StrategyProjectClient({
             <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-3 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm text-gray-600">
-                  Pas les contacts ? Cherche la marque dans l&apos;app et HubSpot
+                  Pas les contacts ? Cherche la marque dans la base interne
                 </p>
                 <button
                   type="button"
@@ -1708,7 +1708,7 @@ export function StrategyProjectClient({
               )}
               {contactSearchResults && contactSearchResults.length === 0 && (
                 <p className="text-sm text-gray-500">
-                  Aucun contact trouvé dans l&apos;app ni dans HubSpot pour cette marque.
+                  Aucun contact trouvé dans la base interne pour cette marque.
                 </p>
               )}
               {contactSearchResults && contactSearchResults.length > 0 && (
@@ -1725,14 +1725,8 @@ export function StrategyProjectClient({
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-gray-900">
                             {`${c.firstname} ${c.lastname}`.trim() || c.email}
-                            <span
-                              className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                c.source === "hubspot"
-                                  ? "bg-orange-50 text-orange-700"
-                                  : "bg-emerald-50 text-emerald-700"
-                              }`}
-                            >
-                              {c.source === "hubspot" ? "HubSpot" : "App"}
+                            <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                              App
                             </span>
                           </p>
                           <p className="truncate text-xs text-gray-500">

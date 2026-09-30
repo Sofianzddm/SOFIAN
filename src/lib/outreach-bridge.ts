@@ -1026,8 +1026,9 @@ export async function bridgeInboundOpportunityAfterSend(
 
 /**
  * Après un envoi pipeline casting / projets : si le contact n'est pas encore
- * dans un cycle outreach, l'enrôler en WAITING J+45. Ne touche pas aux
- * contacts déjà suivis, ni aux partners / agences connues (Woo, Samy…).
+ * dans un cycle outreach, l'enrôler en WAITING J+45. S'il est déjà suivi
+ * (already-tracked), on recalcule quand même le compteur J+45 pour éviter
+ * qu'un mail outreach parte juste après le pitch casting.
  */
 export async function enrollIfMissingAfterPipelineSend(input: {
   email: string;
@@ -1039,21 +1040,69 @@ export async function enrollIfMissingAfterPipelineSend(input: {
   createdById: string;
   sentAt?: Date;
   sourceLabel?: string;
-}): Promise<BridgeResult | { ok: true; action: "already-tracked" | "skipped-partner" }> {
+}): Promise<
+  | BridgeResult
+  | { ok: true; action: "already-tracked" | "skipped-partner" | "rescheduled" }
+> {
   const email = normalizeEmail(input.email);
   if (!email || !isValidEmail(email)) {
     return { ok: false, reason: "email-invalide" };
   }
 
+  const sentAt = input.sentAt || new Date();
+  const sourceLabel = input.sourceLabel || "Mail pipeline casting envoyé";
   const resolution = await resolveOutreachPipeline(email);
+
   if (resolution.kind === "existing-target") {
-    return { ok: true, action: "already-tracked" };
+    if (resolution.target.status === "STOPPED") {
+      return { ok: true, action: "already-tracked" };
+    }
+    const next = addRecontactDelay(sentAt, OUTREACH_RECONTACT_DAYS);
+    const reason =
+      `${sourceLabel} le ${formatFrDate(sentAt)} : ` +
+      `recontact planifié au ${formatFrDate(next)} (J+${OUTREACH_RECONTACT_DAYS}).`;
+    const base = {
+      status: "WAITING" as const,
+      lastSentAt: sentAt,
+      nextRecontactAt: next,
+      autoRescheduleReason: reason,
+      autoRescheduledAt: new Date(),
+    };
+    if (resolution.pipeline === "client") {
+      await prisma.outreachTarget.update({
+        where: { id: resolution.target.id },
+        data: {
+          ...base,
+          scheduledSendAt: null,
+          scheduledSubject: null,
+          scheduledBodyHtml: null,
+          scheduledById: null,
+        },
+      });
+    } else if (resolution.pipeline === "agency") {
+      await prisma.agencyOutreachTarget.update({
+        where: { id: resolution.target.id },
+        data: {
+          ...base,
+          scheduledSendAt: null,
+          scheduledSubject: null,
+          scheduledBodyHtml: null,
+          scheduledById: null,
+        },
+      });
+    } else {
+      await prisma.beneluxOutreachTarget.update({
+        where: { id: resolution.target.id },
+        data: base,
+      });
+    }
+    return { ok: true, action: "rescheduled" };
   }
+
   if (resolution.kind === "known-agency") {
     return { ok: true, action: "skipped-partner" };
   }
 
-  const sentAt = input.sentAt || new Date();
   return bridgeContactToOutreach({
     email,
     firstname: input.firstname,
@@ -1064,9 +1113,7 @@ export async function enrollIfMissingAfterPipelineSend(input: {
     lastExchangeAt: sentAt,
     createdById: input.createdById,
     sourceLabel: input.sourceLabel || "pipeline casting",
-    reasonLabel: input.sourceLabel || "Mail pipeline casting envoyé",
-    // Flux sortant : on vient d'écrire au contact, il attend J+45 au lieu de
-    // repartir immédiatement dans la file « à contacter ».
+    reasonLabel: sourceLabel,
     enrollmentMode: "outbound",
   });
 }

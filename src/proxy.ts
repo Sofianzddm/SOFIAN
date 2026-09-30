@@ -39,13 +39,13 @@ function isPublicNoAuthPath(pathname: string): boolean {
 }
 
 /**
- * Middleware de sécurisation : les routes "outils internes" ne sont accessibles qu'aux utilisateurs connectés.
+ * Proxy (ex-middleware) de sécurisation : les routes "outils internes" ne sont accessibles qu'aux utilisateurs connectés.
  * Les routes non matchées historiquement (/, /login, /partners/[slug], /book/*, etc.) restent publiques.
  * Les webhooks externes (/api/webhooks/*) sont exclus : pas d'auth requise (DocuSeal, etc.).
  *
  * Anti-indexation : blocage Googlebot site-wide + X-Robots-Tag sur toutes les réponses.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const ua = request.headers.get("user-agent") ?? "";
 

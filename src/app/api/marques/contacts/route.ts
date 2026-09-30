@@ -19,24 +19,11 @@ type SearchedContact = {
   email: string;
   role: string;
   companyName: string;
-  source: "app" | "hubspot";
+  /** Toujours "app" : la recherche HubSpot a été retirée. */
+  source: "app";
   /** Langue fiche contact CRM : "fr" | "en" */
   language?: "fr" | "en";
 };
-
-type HubSpotSearchResponse = {
-  results?: Array<{
-    id?: string;
-    properties?: Record<string, string | undefined>;
-  }>;
-  paging?: {
-    next?: {
-      after?: string;
-    };
-  };
-};
-
-const HUBSPOT_BASE_URL = "https://api.hubapi.com";
 
 /**
  * Résout une marque à partir d'un nom saisi.
@@ -129,76 +116,8 @@ async function searchAppContacts(brand: string): Promise<{
   return { contacts, marqueId: primary };
 }
 
-// Recherche les contacts d'une marque dans HubSpot (par nom de société).
-async function searchHubspotContacts(brand: string): Promise<SearchedContact[]> {
-  const apiKey = process.env.HUBSPOT_API_KEY;
-  if (!apiKey) return [];
-
-  const contacts: SearchedContact[] = [];
-  let after: string | undefined;
-  let loops = 0;
-  try {
-    do {
-      loops += 1;
-      const response = await fetch(`${HUBSPOT_BASE_URL}/crm/v3/objects/contacts/search`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          filterGroups: [
-            {
-              filters: [
-                {
-                  propertyName: "company",
-                  operator: "CONTAINS_TOKEN",
-                  value: brand,
-                },
-              ],
-            },
-          ],
-          properties: ["firstname", "lastname", "email", "company", "jobtitle"],
-          limit: 100,
-          ...(after ? { after } : {}),
-        }),
-      });
-
-      if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        console.error("searchHubspotContacts:", response.status, detail);
-        break;
-      }
-
-      const data = (await response.json()) as HubSpotSearchResponse;
-      const batch = Array.isArray(data.results) ? data.results : [];
-      for (const item of batch) {
-        const props = item.properties || {};
-        const email = (props.email || "").trim();
-        if (!email) continue;
-        contacts.push({
-          id: `hs-${String(item.id || "")}`,
-          firstname: (props.firstname || "").trim(),
-          lastname: (props.lastname || "").trim(),
-          email,
-          role: (props.jobtitle || "").trim(),
-          companyName: (props.company || "").trim() || brand,
-          source: "hubspot",
-        });
-      }
-
-      after = data.paging?.next?.after;
-    } while (after && loops < 5);
-  } catch (error) {
-    console.error("searchHubspotContacts:", error);
-    return contacts;
-  }
-
-  return contacts;
-}
-
-// GET - Recherche les contacts d'une marque à la fois dans le CRM interne (table
-// `marques`) ET dans HubSpot, puis fusionne/dédoublonne les résultats par email.
+// GET - Recherche les contacts d'une marque dans le CRM interne uniquement.
+// HubSpot n'est plus interrogé (imports / listes HubSpot désactivés pour le casting).
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -214,16 +133,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const [app, hubspot] = await Promise.all([
-      searchAppContacts(brand),
-      searchHubspotContacts(brand),
-    ]);
+    const app = await searchAppContacts(brand);
 
     const blocklist = await loadCastingRecipientBlocklist();
-    // Fusion : contacts de l'app d'abord, puis HubSpot ; dédoublonnage par email.
-    // Les contacts sans email (à compléter) sont conservés, dédoublonnés par id.
     const byKey = new Map<string, SearchedContact>();
-    for (const c of [...app.contacts, ...hubspot]) {
+    for (const c of app.contacts) {
       const email = c.email.trim().toLowerCase();
       if (
         isForbiddenCastingRecipient(

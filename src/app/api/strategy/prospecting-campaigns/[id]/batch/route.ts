@@ -15,6 +15,7 @@ const contactMissionModel = (prisma as unknown as { contactMission: any }).conta
 
 type BatchRow = {
   targetBrand: string;
+  marqueId?: string | null;
   strategyReason: string;
   recommendedAngle?: string | null;
   objective?: string | null;
@@ -52,15 +53,38 @@ export async function POST(
 
     const creatorName = `${campaign.talent?.prenom ?? ""} ${campaign.talent?.nom ?? ""}`.trim() || "Talent";
     const filtered = items.filter(
-      (item) => String(item.targetBrand || "").trim() && String(item.strategyReason || "").trim()
+      (item) =>
+        String(item.marqueId || "").trim() || String(item.targetBrand || "").trim()
     );
     const created = [];
     for (const item of filtered) {
-      const targetBrand = String(item.targetBrand || "").trim();
-      const linked = await linkMarqueFromBrandName({
-        brandName: targetBrand,
-        source: "CONTACT_MISSION",
-      });
+      let targetBrand = String(item.targetBrand || "").trim();
+      const requestedMarqueId = String(item.marqueId || "").trim() || null;
+      let marqueId: string | null = null;
+
+      if (requestedMarqueId) {
+        const marque = await prisma.marque.findUnique({
+          where: { id: requestedMarqueId },
+          select: { id: true, nom: true },
+        });
+        if (!marque) continue;
+        marqueId = marque.id;
+        targetBrand = marque.nom;
+      } else {
+        const linked = await linkMarqueFromBrandName({
+          brandName: targetBrand,
+          source: "CONTACT_MISSION",
+        });
+        marqueId = linked?.marqueId ?? null;
+        if (linked?.marqueId) {
+          const canon = await prisma.marque.findUnique({
+            where: { id: linked.marqueId },
+            select: { nom: true },
+          });
+          if (canon?.nom) targetBrand = canon.nom;
+        }
+      }
+
       const mission = await contactMissionModel.create({
         data: {
           campaignId,
@@ -68,8 +92,8 @@ export async function POST(
           creatorName,
           targetBrand,
           targetBrandKey: normalizeMissionBrandKey(targetBrand),
-          marqueId: linked?.marqueId ?? null,
-          strategyReason: String(item.strategyReason || "").trim(),
+          marqueId,
+          strategyReason: String(item.strategyReason || "").trim() || "À préciser",
           recommendedAngle: String(item.recommendedAngle || "").trim() || null,
           objective: String(item.objective || "").trim() || null,
           dos: String(item.dos || "").trim() || null,

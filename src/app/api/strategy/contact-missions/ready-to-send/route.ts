@@ -11,8 +11,13 @@ import {
   loadFuzzyCandidatesCached,
   rankFuzzyCandidates,
 } from "@/lib/marque-fuzzy-search";
+import {
+  listIndivBrandWaveSends,
+  INDIV_BRAND_WAVE_DAYS,
+} from "@/lib/contact-cooldown";
+import { brandsLookSame } from "@/lib/brand-match";
 
-const ALLOWED_ROLES = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF"] as const;
+const ALLOWED_ROLES = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
 
 const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
 
@@ -64,10 +69,42 @@ async function resolveAllMarqueIds(brand: string): Promise<string[]> {
   return ranked.map((r) => r.id);
 }
 
+function mapMission(m: any, primaryMarqueId: string | null, marqueNomById: Map<string, string>) {
+  return {
+    id: m.id,
+    campaignId: m.campaignId,
+    campaignTitle: m.campaign?.title ?? null,
+    talentId: m.talentId,
+    talentName: m.talent ? `${m.talent.prenom} ${m.talent.nom}`.trim() : null,
+    creatorName: m.creatorName,
+    targetBrand: m.targetBrand,
+    marqueId: primaryMarqueId,
+    marqueNom: primaryMarqueId ? marqueNomById.get(primaryMarqueId) ?? null : null,
+    strategyReason: m.strategyReason,
+    recommendedAngle: m.recommendedAngle,
+    objective: m.objective,
+    dos: m.dos,
+    donts: m.donts,
+    priority: m.priority,
+    status: m.status,
+    stage: m.stage,
+    draftEmailSubject: m.draftEmailSubject ?? null,
+    draftEmailBody: m.draftEmailBody ?? null,
+    draftLanguage: m.draftLanguage ?? null,
+    clientLanguage: m.clientLanguage ?? null,
+    clientContacts: m.clientContacts ?? null,
+    scheduledSendAt: m.scheduledSendAt ?? null,
+    sentAt: m.sentAt ?? null,
+    createdAt: m.createdAt,
+    updatedAt: m.updatedAt,
+  };
+}
+
 /**
- * Missions rédigées (validation) pour lesquelles la fiche marque app a déjà
- * au moins un contact email utilisable — pour attacher + planifier sans
- * chercher carte par carte.
+ * Missions rédigées (DRAFTED) scindées en :
+ * - withContacts : contact email déjà en fiche marque → prêt à planifier
+ * - needsEnrichment : pas de contact utilisable → à enrichir
+ * Exclut les marques déjà contactées en pipeline (vague 20 j).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -84,7 +121,6 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = {
       stage: "DRAFTED_FOR_VALIDATION",
-      // Pipeline Casting uniquement — pas les Projets outreach talent.
       OR: [
         { campaignId: null },
         { campaign: { events: { none: { type: "CREATED" } } } },
@@ -92,15 +128,18 @@ export async function GET(request: NextRequest) {
     };
     if (talentId) where.talentId = talentId;
 
-    const missionsRaw = await contactMissionModel.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: {
-        talent: { select: { id: true, prenom: true, nom: true } },
-        campaign: { select: { id: true, title: true } },
-      },
-      take: 300,
-    });
+    const [missionsRaw, brandWave] = await Promise.all([
+      contactMissionModel.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: {
+          talent: { select: { id: true, prenom: true, nom: true } },
+          campaign: { select: { id: true, title: true } },
+        },
+        take: 800,
+      }),
+      listIndivBrandWaveSends(),
+    ]);
 
     const missions = (missionsRaw as any[]).filter((m) => {
       const subject = String(m.draftEmailSubject || "").trim();
@@ -108,11 +147,24 @@ export async function GET(request: NextRequest) {
       return Boolean(subject && body);
     });
 
-    // Résolution marque : toutes les fiches matchantes (doublons inclus).
-    // Même si `marqueId` est déjà posé, on élargit via le nom pour ne pas
-    // rater les contacts d'une fiche sœur (ex. Tezenis ×2).
+    const isBrandBlocked = (m: {
+      marqueId?: string | null;
+      targetBrand?: string | null;
+    }) => {
+      const brand = String(m.targetBrand || "").trim();
+      return brandWave.some((w) => {
+        if (m.marqueId && w.marqueId && m.marqueId === w.marqueId) return true;
+        return (
+          brandsLookSame(brand, w.targetBrand) ||
+          (w.targetBrandKey
+            ? brandsLookSame(brand, w.targetBrandKey)
+            : false)
+        );
+      });
+    };
+
     const marqueIdsByMission = new Map<string, string[]>();
-    const brandsToResolve = new Map<string, string[]>(); // brand → missionIds
+    const brandsToResolve = new Map<string, string[]>();
 
     for (const m of missions) {
       const brand = String(m.targetBrand || "").trim();
@@ -187,19 +239,48 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    type Item = {
+    type ReadyItem = {
       mission: Record<string, unknown>;
       availableContacts: AppContactOut[];
       alreadyAttachedCount: number;
     };
-    const items: Item[] = [];
+    type EnrichItem = {
+      mission: Record<string, unknown>;
+      reason: "no_marque" | "no_contacts";
+      crmContactCount: number;
+    };
+
+    const withContacts: ReadyItem[] = [];
+    const needsEnrichment: EnrichItem[] = [];
 
     for (const m of missions) {
+      if (isBrandBlocked(m)) continue;
+      if ((m as { awaitingContactsCompletion?: boolean }).awaitingContactsCompletion) {
+        continue;
+      }
+
       const marqueIds = marqueIdsByMission.get(m.id) || [];
-      if (marqueIds.length === 0) continue;
+      const primaryMarqueId = m.marqueId || marqueIds[0] || null;
+      const missionPayload = mapMission(m, primaryMarqueId, marqueNomById);
+
+      if (marqueIds.length === 0) {
+        needsEnrichment.push({
+          mission: missionPayload,
+          reason: "no_marque",
+          crmContactCount: 0,
+        });
+        continue;
+      }
 
       const marqueContacts = marqueIds.flatMap((id) => contactsByMarque.get(id) || []);
-      if (marqueContacts.length === 0) continue;
+      if (marqueContacts.length === 0) {
+        needsEnrichment.push({
+          mission: missionPayload,
+          reason: "no_contacts",
+          crmContactCount: 0,
+        });
+        continue;
+      }
 
       const attached = attachedEmails(m.clientContacts);
       const alreadySent = extractAlreadySentEmails(m.sentMessageIds);
@@ -211,7 +292,6 @@ export async function GET(request: NextRequest) {
           const email = (c.email || "").trim().toLowerCase();
           const prenom = (c.prenom || "").trim();
           const nom = (c.nom || "").trim();
-          // parseCastingContacts exige un prénom : on retombe sur le nom si besoin.
           const firstname = prenom || nom;
           const lastname = prenom ? nom : "";
           return {
@@ -231,6 +311,8 @@ export async function GET(request: NextRequest) {
           return true;
         });
 
+      // Contacts en CRM mais tous déjà attachés / envoyés → pas « à enrichir »
+      // (rien de nouveau à planifier non plus).
       if (candidates.length === 0) continue;
 
       const blocked = await findEmailsBlockedByCooldown(
@@ -243,45 +325,21 @@ export async function GET(request: NextRequest) {
         blockedByCooldown: blocked.has(c.email),
       }));
 
-      const primaryMarqueId = m.marqueId || marqueIds[0];
-      items.push({
-        mission: {
-          id: m.id,
-          campaignId: m.campaignId,
-          campaignTitle: m.campaign?.title ?? null,
-          talentId: m.talentId,
-          talentName: m.talent ? `${m.talent.prenom} ${m.talent.nom}`.trim() : null,
-          creatorName: m.creatorName,
-          targetBrand: m.targetBrand,
-          marqueId: primaryMarqueId,
-          marqueNom: marqueNomById.get(primaryMarqueId) ?? null,
-          strategyReason: m.strategyReason,
-          recommendedAngle: m.recommendedAngle,
-          objective: m.objective,
-          dos: m.dos,
-          donts: m.donts,
-          priority: m.priority,
-          status: m.status,
-          stage: m.stage,
-          draftEmailSubject: m.draftEmailSubject ?? null,
-          draftEmailBody: m.draftEmailBody ?? null,
-          draftLanguage: m.draftLanguage ?? null,
-          clientLanguage: m.clientLanguage ?? null,
-          clientContacts: m.clientContacts ?? null,
-          scheduledSendAt: m.scheduledSendAt ?? null,
-          sentAt: m.sentAt ?? null,
-          createdAt: m.createdAt,
-          updatedAt: m.updatedAt,
-        },
+      withContacts.push({
+        mission: missionPayload,
         availableContacts,
         alreadyAttachedCount,
       });
     }
 
     return NextResponse.json({
-      items,
-      count: items.length,
+      items: withContacts,
+      withContacts,
+      needsEnrichment,
+      count: withContacts.length,
+      enrichCount: needsEnrichment.length,
       cooldownDays: CASTING_COOLDOWN_DAYS,
+      brandWaveDays: INDIV_BRAND_WAVE_DAYS,
     });
   } catch (error) {
     console.error("GET /api/strategy/contact-missions/ready-to-send:", error);

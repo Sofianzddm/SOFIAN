@@ -85,7 +85,31 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ contact }, { status: 201 });
+    let awaitingResolved = null;
+    if (email) {
+      const { resolveAwaitingEnrichissementForMarque } = await import(
+        "@/lib/resolve-awaiting-enrichissement"
+      );
+      awaitingResolved = await resolveAwaitingEnrichissementForMarque({
+        marqueId: id,
+        actorId: session.user.id,
+      });
+    }
+
+    return NextResponse.json(
+      {
+        contact,
+        awaitingResolved:
+          awaitingResolved && awaitingResolved.resolvedCount > 0
+            ? {
+                resolvedCount: awaitingResolved.resolvedCount,
+                sourceLabel: awaitingResolved.sourceLabel,
+                message: `${awaitingResolved.resolvedCount} demande(s) débloquée(s) — ${awaitingResolved.sourceLabel}.`,
+              }
+            : null,
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("POST /api/marques/[id]/contacts:", error);
     return NextResponse.json(
@@ -315,7 +339,28 @@ export async function PATCH(
         });
       }
 
-      return NextResponse.json({ contact: updated });
+      let awaitingResolved = null;
+      if (body.email !== undefined && newEmail) {
+        const { resolveAwaitingEnrichissementForMarque } = await import(
+          "@/lib/resolve-awaiting-enrichissement"
+        );
+        awaitingResolved = await resolveAwaitingEnrichissementForMarque({
+          marqueId: id,
+          actorId: session.user.id,
+        });
+      }
+
+      return NextResponse.json({
+        contact: updated,
+        awaitingResolved:
+          awaitingResolved && awaitingResolved.resolvedCount > 0
+            ? {
+                resolvedCount: awaitingResolved.resolvedCount,
+                sourceLabel: awaitingResolved.sourceLabel,
+                message: `${awaitingResolved.resolvedCount} demande(s) débloquée(s) — ${awaitingResolved.sourceLabel}.`,
+              }
+            : null,
+      });
     }
 
     if (body.language !== "fr" && body.language !== "en") {

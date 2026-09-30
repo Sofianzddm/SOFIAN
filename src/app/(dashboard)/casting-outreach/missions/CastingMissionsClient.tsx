@@ -195,17 +195,36 @@ export function CastingMissionsClient() {
         // backend PATCH bloquera si besoin
       }
 
+      // Contacts = CRM interne uniquement (plus de HubSpot brand-contacts).
       const res = await fetch(
-        `/api/hubspot/casting/brand-contacts?brand=${encodeURIComponent(mission.targetBrand)}`,
+        `/api/marques/contacts?brand=${encodeURIComponent(mission.targetBrand)}`,
         { credentials: "include" }
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Impossible de charger les contacts de la marque.");
-      const contactsRaw = Array.isArray(data.contacts)
-        ? (data.contacts as HubSpotContactCasting[])
-        : [];
+      const contactsRaw = (Array.isArray(data.contacts) ? data.contacts : []).map(
+        (c: {
+          id?: string;
+          firstname?: string;
+          lastname?: string;
+          email?: string;
+        }) => ({
+          id: String(c.id || ""),
+          firstname: String(c.firstname || "").trim(),
+          lastname: String(c.lastname || "").trim(),
+          email: String(c.email || "").trim(),
+          companyName: mission.targetBrand,
+          domain: "",
+          castingEmailSubject: "",
+          castingEmailBody: "",
+          castingStatus: "",
+        })
+      ) as HubSpotContactCasting[];
       if (contactsRaw.length === 0) {
-        showNotice("Aucun contact HubSpot lié, rédaction disponible quand même.", "success");
+        showNotice(
+          "Aucun contact en base interne pour cette marque — rédaction dispo quand même.",
+          "success"
+        );
       }
 
       const payload: ComposerPayload = {

@@ -5,8 +5,10 @@ import {
   CASTING_SEND_DELAY_MS,
   preflightCastingSend,
 } from "@/lib/casting-auto-send";
+import { isValidForceReason } from "@/lib/contact-cooldown";
 
 const ALLOWED_ROLES = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
+const FORCE_ROLES = ["CASTING_MANAGER", "ADMIN", "HEAD_OF", "HEAD_OF_SALES"] as const;
 const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
 
 export async function POST(
@@ -44,6 +46,28 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const force = body?.force === true;
+    const forceReason =
+      typeof body?.forceReason === "string" ? body.forceReason.trim() : "";
+
+    if (force) {
+      if (!FORCE_ROLES.includes(role as (typeof FORCE_ROLES)[number])) {
+        return NextResponse.json(
+          { error: "Seuls les casting managers peuvent forcer un envoi urgent." },
+          { status: 403 }
+        );
+      }
+      if (!isValidForceReason(forceReason)) {
+        return NextResponse.json(
+          {
+            error:
+              "Motif « projet urgent » obligatoire (min. 5 caractères) pour forcer l'envoi.",
+            needsForceReason: true,
+            canForce: true,
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     const preflight = await preflightCastingSend(
       {
@@ -52,6 +76,9 @@ export async function POST(
         draftEmailBody: mission.draftEmailBody,
         clientContacts: mission.clientContacts,
         sentMessageIds: mission.sentMessageIds,
+        marqueId: mission.marqueId,
+        targetBrandKey: mission.targetBrandKey,
+        targetBrand: mission.targetBrand,
       },
       { force }
     );
@@ -78,6 +105,14 @@ export async function POST(
         forceSend: force,
       },
     });
+
+    if (force) {
+      console.info(
+        `[casting-force] mission=${id} by=${session.user.email || session.user.id} ` +
+          `role=${role} reason=${JSON.stringify(forceReason)} ` +
+          `brand=${mission.targetBrand || ""} contacts=${preflight.contacts.length}`
+      );
+    }
 
     return NextResponse.json({
       mission: updated,

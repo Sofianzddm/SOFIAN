@@ -533,6 +533,13 @@ export default function MarqueRecordPage({
   const [newContactLang, setNewContactLang] = useState<"fr" | "en" | null>(null);
   const [savingContact, setSavingContact] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!actionSuccess) return;
+    const t = window.setTimeout(() => setActionSuccess(null), 10000);
+    return () => window.clearTimeout(t);
+  }, [actionSuccess]);
 
   // Lancement d'un contact dans le cycle Outreach depuis la fiche marque
   const [launchingId, setLaunchingId] = useState<string | null>(null);
@@ -1147,6 +1154,9 @@ export default function MarqueRecordPage({
             }
           : prev
       );
+      if (data.awaitingResolved?.message) {
+        setActionSuccess(data.awaitingResolved.message);
+      }
       cancelEditEmail();
     } catch (e) {
       setEditEmailError(e instanceof Error ? e.message : "Erreur");
@@ -1170,6 +1180,9 @@ export default function MarqueRecordPage({
       setNewContact({ prenom: "", nom: "", poste: "", email: "", telephone: "", linkedinUrl: "" });
       setNewContactLang(null);
       setShowAddContact(false);
+      if (data.awaitingResolved?.message) {
+        setActionSuccess(data.awaitingResolved.message);
+      }
       await fetchMarque();
     } catch (e) {
       setContactError(e instanceof Error ? e.message : "Erreur");
@@ -1674,6 +1687,19 @@ export default function MarqueRecordPage({
   return (
     <div className="min-h-full" style={{ backgroundColor: "#FAF9F7" }}>
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">
+        {actionSuccess && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 flex items-start justify-between gap-3">
+            <p className="min-w-0 leading-relaxed">{actionSuccess}</p>
+            <button
+              type="button"
+              onClick={() => setActionSuccess(null)}
+              className="shrink-0 text-emerald-700/70 hover:text-emerald-900"
+              aria-label="Fermer"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {/* ====================== Topbar ====================== */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm min-w-0">

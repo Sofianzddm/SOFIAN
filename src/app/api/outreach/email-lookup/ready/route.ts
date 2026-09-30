@@ -305,12 +305,26 @@ export async function POST(request: NextRequest) {
             crossMarketEmails,
           });
 
+    let awaitingNote = "";
+    if (market === "FR" && saved.length > 0) {
+      const { resolveAwaitingEnrichissementForMarque } = await import(
+        "@/lib/resolve-awaiting-enrichissement"
+      );
+      const resolved = await resolveAwaitingEnrichissementForMarque({
+        marqueId,
+        actorId: session.user.id,
+      });
+      if (resolved.resolvedCount > 0) {
+        awaitingNote = ` · ${resolved.resolvedCount} demande(s) casting débloquée(s) (${resolved.sourceLabel}).`;
+      }
+    }
+
     const suffix = market === "BENELUX" ? " BENELUX" : "";
     const message =
       enroll.enrolled > 0
-        ? `${enroll.enrolled} contact(s) envoyés dans « À contacter »${suffix}.`
+        ? `${enroll.enrolled} contact(s) envoyés dans « À contacter »${suffix}.${awaitingNote}`
         : saved.length > 0
-          ? `${saved.length} email(s) enregistrés${suffix}.`
+          ? `${saved.length} email(s) enregistrés${suffix}.${awaitingNote}`
           : `${notFoundCount} contact(s) marqués sans email${suffix}.`;
 
     return NextResponse.json({

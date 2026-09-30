@@ -40,12 +40,19 @@ import {
   loadCastingRecipientBlocklist,
 } from "@/lib/casting-recipient-guard";
 import { enrollIfMissingAfterPipelineSend } from "@/lib/outreach-bridge";
+import {
+  filterEmailsBySendGuard,
+  resolveMissionSendLine,
+  evaluateIndivBrandSendGuard,
+  type SendLine,
+} from "@/lib/contact-cooldown";
 
 export { isInternalGlowUpEmail } from "@/lib/casting-recipient-guard";
 
 export const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
 export const LEYNA_OWNER_FIRSTNAME = "Leyna";
-export const CASTING_COOLDOWN_DAYS = 20;
+/** Alias historique — fenêtre du plafond 1 mail / mois / ligne. */
+export const CASTING_COOLDOWN_DAYS = 30;
 /**
  * Délai avant la relance automatique J+3 (jours ouvrés Lun-Ven en Europe/Paris).
  * On utilise des jours ouvrés pour éviter de relancer le week-end ou
@@ -165,35 +172,20 @@ async function filterAllowedCastingContacts(
 }
 
 /**
- * Cooldown anti-spam : meme email contacte dans les CASTING_COOLDOWN_DAYS
- * derniers jours = on bloque cet email precis (les autres passent).
- *
- * On regarde toutes les missions deja envoyees ou en cours d'envoi pour
- * tester si un mail a deja ete envoye a cet email.
+ * Emails bloqués sur la ligne de cette mission (1 mail / mois / ligne).
  */
 export async function findEmailsBlockedByCooldown(
   emails: string[],
-  excludeMissionId: string
+  excludeMissionId: string,
+  line?: SendLine
 ): Promise<Set<string>> {
   if (emails.length === 0) return new Set();
-  const since = new Date(Date.now() - CASTING_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
-  const rows = await prisma.$queryRaw<Array<{ sentMessageIds: unknown }>>`
-    SELECT "sentMessageIds"
-    FROM "contact_missions"
-    WHERE "id" <> ${excludeMissionId}
-      AND "sentAt" >= ${since}
-      AND "sentMessageIds" IS NOT NULL
-  `;
-  const blocked = new Set<string>();
-  const lowered = new Set(emails.map((e) => e.toLowerCase()));
-  for (const row of rows) {
-    if (!row.sentMessageIds || typeof row.sentMessageIds !== "object") continue;
-    for (const key of Object.keys(row.sentMessageIds as Record<string, unknown>)) {
-      const normalized = key.toLowerCase();
-      if (lowered.has(normalized)) blocked.add(normalized);
-    }
-  }
-  return blocked;
+  const resolvedLine = line || (await resolveMissionSendLine(excludeMissionId));
+  const { blocked } = await filterEmailsBySendGuard(emails, {
+    excludeMissionId,
+    line: resolvedLine,
+  });
+  return new Set(blocked.map((b) => b.email));
 }
 
 export type ScheduleSendPreflight =
@@ -210,11 +202,11 @@ export type ScheduleSendPreflight =
  * Si la mission est deja partiellement envoyee, seuls les nouveaux
  * contacts (absents de `sentMessageIds`) sont consideres.
  *
- * Avec `options.force`, on ignore le cooldown anti-spam de 20 jours : si le
- * SEUL motif de blocage etait "contact deja contacte recemment (autre
- * mission)", on laisse passer. Les autres garde-fous (brouillon incomplet,
- * aucun contact valide, tous deja contactes sur CETTE mission) restent
- * appliques car les forcer ne changerait rien.
+ * Plafond : 1 mail initial / email sur la ligne
+ *   - indiv : 20 j
+ *   - projet / outreach : 30 j
+ * Indiv : + 1 vague / marque / 20 j (tous talents — ex. H&M pour Flavy bloque Océane).
+ * Bypass urgent : options.force=true (+ motif côté API). Opt-out non bypassable.
  */
 export async function preflightCastingSend(
   mission: {
@@ -223,6 +215,11 @@ export async function preflightCastingSend(
     draftEmailBody: string | null;
     clientContacts: unknown;
     sentMessageIds?: unknown;
+    talentId?: string | null;
+    creatorName?: string | null;
+    marqueId?: string | null;
+    targetBrandKey?: string | null;
+    targetBrand?: string | null;
   },
   options: { force?: boolean } = {}
 ): Promise<ScheduleSendPreflight> {
@@ -252,19 +249,80 @@ export async function preflightCastingSend(
         "Tous les contacts ont deja recu le mail sur cette mission. Ajoute un nouveau contact pour declencher un envoi.",
     };
   }
-  // En mode force, on saute le cooldown : tous les nouveaux contacts sont
-  // consideres recevables.
-  if (options.force) {
-    return { ok: true, contacts: newContacts };
+
+  const line = await resolveMissionSendLine(mission.id);
+
+  if (line === "indiv") {
+    // Charger les clés marque / talent si absentes du payload preflight.
+    let marqueId = mission.marqueId;
+    let targetBrandKey = mission.targetBrandKey;
+    let targetBrand = mission.targetBrand;
+    let talentId = mission.talentId;
+    let creatorName = mission.creatorName;
+    if (
+      marqueId === undefined ||
+      targetBrandKey === undefined ||
+      talentId === undefined
+    ) {
+      const row = await prisma.contactMission.findUnique({
+        where: { id: mission.id },
+        select: {
+          marqueId: true,
+          targetBrandKey: true,
+          targetBrand: true,
+          talentId: true,
+          creatorName: true,
+        },
+      });
+      marqueId = row?.marqueId;
+      targetBrandKey = row?.targetBrandKey;
+      targetBrand = row?.targetBrand ?? targetBrand;
+      talentId = row?.talentId ?? talentId;
+      creatorName = row?.creatorName ?? creatorName;
+    }
+    const brandGuard = await evaluateIndivBrandSendGuard(
+      {
+        id: mission.id,
+        talentId,
+        creatorName,
+        marqueId,
+        targetBrandKey,
+        targetBrand,
+      },
+      { force: options.force === true }
+    );
+    if (!brandGuard.allowed) {
+      return {
+        ok: false,
+        error: brandGuard.message,
+        canForce: brandGuard.canForce,
+      };
+    }
   }
-  const emails = newContacts.map((c) => c.email!);
-  const blocked = await findEmailsBlockedByCooldown(emails, mission.id);
-  const reachable = newContacts.filter((c) => !blocked.has((c.email || "").toLowerCase()));
+
+  const { allowed, blocked } = await filterEmailsBySendGuard(
+    newContacts.map((c) => c.email!),
+    {
+      excludeMissionId: mission.id,
+      line,
+      force: options.force === true,
+    }
+  );
+  const allowedSet = new Set(allowed);
+  const reachable = newContacts.filter((c) =>
+    allowedSet.has((c.email || "").toLowerCase())
+  );
+
   if (reachable.length === 0) {
+    const optOutOnly =
+      blocked.length > 0 && blocked.every((b) => b.guard.reason === "opt-out");
+    const sample = blocked[0]?.guard.message;
     return {
       ok: false,
-      error: `Tous les nouveaux contacts ont deja recu un mail (autre mission) dans les ${CASTING_COOLDOWN_DAYS} derniers jours.`,
-      canForce: true,
+      error:
+        sample ||
+        `Tous les nouveaux contacts ont déjà reçu un mail sur cette ligne ce mois-ci (max 1/mois).`,
+      canForce: !optOutOnly,
     };
   }
   return { ok: true, contacts: reachable };
@@ -596,12 +654,43 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     (c) => !alreadySent.has((c.email || "").toLowerCase())
   );
   const emails = newContacts.map((c) => c.email!);
-  // Si l'envoi a ete force explicitement (case "envoyer quand meme"), on
-  // ignore le cooldown anti-spam de 20 jours.
-  const forceSend = Boolean(mission.forceSend);
-  const blocked = forceSend
-    ? new Set<string>()
-    : await findEmailsBlockedByCooldown(emails, missionId);
+  // forceSend = projet urgent : ignore plafonds email + marque indiv, jamais l'opt-out.
+  const line = await resolveMissionSendLine(missionId);
+
+  if (line === "indiv" && !mission.forceSend) {
+    const brandGuard = await evaluateIndivBrandSendGuard(
+      {
+        id: missionId,
+        talentId: mission.talentId,
+        creatorName: mission.creatorName,
+        marqueId: mission.marqueId,
+        targetBrandKey: mission.targetBrandKey,
+        targetBrand: mission.targetBrand,
+      },
+      { force: false }
+    );
+    if (!brandGuard.allowed) {
+      return {
+        attempted: newContacts.length,
+        succeeded: 0,
+        failed: newContacts.length,
+        errors: [brandGuard.message],
+        byEmail: Object.fromEntries(
+          newContacts.map((c) => [
+            (c.email || "").toLowerCase(),
+            { error: brandGuard.message },
+          ])
+        ),
+      };
+    }
+  }
+
+  const { blocked: blockedList } = await filterEmailsBySendGuard(emails, {
+    excludeMissionId: missionId,
+    line,
+    force: Boolean(mission.forceSend),
+  });
+  const blocked = new Set(blockedList.map((b) => b.email));
 
   const outcome: SendOutcome = {
     attempted: 0,
@@ -617,9 +706,11 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     outcome.attempted += 1;
     if (blocked.has(email)) {
       outcome.failed += 1;
-      const msg = `${email} : cooldown ${CASTING_COOLDOWN_DAYS}j actif`;
-      outcome.errors.push(msg);
-      outcome.byEmail[email] = { error: msg };
+      const detail =
+        blockedList.find((b) => b.email === email)?.guard.message ||
+        `${email} : plafond 1 mail/mois sur cette ligne`;
+      outcome.errors.push(detail);
+      outcome.byEmail[email] = { error: detail };
       continue;
     }
     // Langue de CE contact, captée depuis la fiche client (sinon fallback).
@@ -686,7 +777,7 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       scheduledSendAt: null,
       // Le flag de forcage est a usage unique : on le remet a false apres
       // l'execution pour ne pas court-circuiter le cooldown sur de futurs ajouts.
-      ...(forceSend ? { forceSend: false } : {}),
+      ...(mission.forceSend ? { forceSend: false } : {}),
       ...(outcome.succeeded > 0 && bodyTpl !== bodyRaw ? { draftEmailBody: bodyTpl } : {}),
     },
   });

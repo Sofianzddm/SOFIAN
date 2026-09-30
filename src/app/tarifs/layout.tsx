@@ -4,7 +4,7 @@ import type { Metadata } from "next";
  * Layout serveur pour /tarifs/[slug].
  *
  * Page Grille Tarifaire publique : accessible uniquement à qui possède le
- * lien, jamais indexée. Le middleware (src/middleware.ts) bloque déjà les
+ * lien, jamais indexée. Le proxy (src/proxy.ts) bloque déjà les
  * crawlers et envoie X-Robots-Tag, mais on pose en plus les meta tags HTML
  * dans le <head> au cas où un bot ignorerait les headers HTTP.
  */

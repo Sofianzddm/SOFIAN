@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
   Loader2,
@@ -22,6 +23,7 @@ import {
   Globe,
   Zap,
   ShieldCheck,
+  Inbox,
 } from "lucide-react";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
 import { FwImportCartoModal } from "@/components/fw/FwImportCartoModal";
@@ -63,7 +65,30 @@ const norm = (s: string) =>
 type Market = "FR" | "BENELUX" | "AGENCY" | "FW";
 type BrandMarket = "FR" | "BENELUX";
 type PersonMarket = BrandMarket | "BOTH";
-type Tab = "marques" | "agences" | "fw";
+type Tab = "marques" | "attente" | "agences" | "fw";
+
+type AwaitingMarqueItem = {
+  key: string;
+  brandName: string;
+  marqueId: string | null;
+  emailableCount: number;
+  contactCount: number;
+  requestedAt: string | null;
+  sources: Array<"projet" | "pipeline">;
+  sourceLabel: string;
+  both: boolean;
+  fichePath: string | null;
+  contexts: Array<{
+    missionId: string;
+    kind: "projet" | "pipeline";
+    label: string;
+    path: string;
+    talentName: string;
+    creatorName: string;
+    requestedByName: string | null;
+    requestedAt: string | null;
+  }>;
+};
 
 type ContactLang = "fr" | "en";
 
@@ -260,6 +285,9 @@ export default function EnrichissementPage() {
   const isAdmin = role === "ADMIN";
 
   const [tab, setTab] = useState<Tab>("marques");
+  const [awaitingItems, setAwaitingItems] = useState<AwaitingMarqueItem[]>([]);
+  const [awaitingLoading, setAwaitingLoading] = useState(false);
+  const [resolvingMissionId, setResolvingMissionId] = useState<string | null>(null);
   const [contacts, setContacts] = useState<LookupContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -331,6 +359,84 @@ export default function EnrichissementPage() {
   useEffect(() => {
     if (!isAdmin && (tab === "agences" || tab === "fw")) setTab("marques");
   }, [isAdmin, tab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "attente" || t === "marques" || t === "agences" || t === "fw") {
+      if ((t === "agences" || t === "fw") && !isAdmin) return;
+      setTab(t);
+    }
+  }, [isAdmin]);
+
+  const loadAwaiting = useCallback(async () => {
+    if (!allowed) return;
+    setAwaitingLoading(true);
+    try {
+      const res = await fetch("/api/enrichissement/awaiting-marques", {
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Impossible de charger la file.");
+      setAwaitingItems(Array.isArray(data.items) ? data.items : []);
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur de chargement");
+      setAwaitingItems([]);
+    } finally {
+      setAwaitingLoading(false);
+    }
+  }, [allowed]);
+
+  useEffect(() => {
+    if (!allowed) return;
+    void loadAwaiting();
+  }, [allowed, loadAwaiting]);
+
+  useEffect(() => {
+    if (!allowed) return;
+    if (tab === "attente") void loadAwaiting();
+  }, [allowed, tab, loadAwaiting]);
+
+  const resolveAwaiting = async (item: AwaitingMarqueItem) => {
+    if (resolvingMissionId) return;
+    const missionIds = item.contexts.map((c) => c.missionId);
+    if (missionIds.length === 0) return;
+    setResolvingMissionId(item.key);
+    try {
+      if (item.marqueId) {
+        const res = await fetch(
+          `/api/enrichissement/awaiting-marques/resolve`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ marqueId: item.marqueId, force: true }),
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Impossible de valider.");
+        setFlash(
+          data.message ||
+            `${item.brandName} débloquée — ${item.sourceLabel || "pipeline / projet"}.`
+        );
+      } else {
+        for (const id of missionIds) {
+          const res = await fetch(
+            `/api/strategy/contact-missions/${id}/resolve-enrichissement`,
+            { method: "POST", credentials: "include" }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "Impossible de valider.");
+        }
+        setFlash(`${item.brandName} retirée de la file.`);
+      }
+      await loadAwaiting();
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setResolvingMissionId(null);
+    }
+  };
 
   // Liste des agences pour le modal d'import (onglet Agences, ADMIN).
   useEffect(() => {
@@ -460,6 +566,7 @@ export default function EnrichissementPage() {
   const active = brands.find((b) => b.key === activeKey) || null;
   const isAgencyTab = tab === "agences";
   const isFwTab = tab === "fw";
+  const isAttenteTab = tab === "attente";
 
   useEffect(() => {
     if (activeKey && !active) setActiveKey(null);
@@ -725,6 +832,7 @@ export default function EnrichissementPage() {
       let totalSaved = 0;
       let totalEnrolled = 0;
       let totalNotFound = 0;
+      const awaitingNotes: string[] = [];
       for (const g of groups.values()) {
         const res = await fetch("/api/outreach/email-lookup/ready", {
           method: "POST",
@@ -740,6 +848,10 @@ export default function EnrichissementPage() {
         totalSaved += data.saved || 0;
         totalEnrolled += data.enrolled || 0;
         totalNotFound += data.notFound || 0;
+        const msg = String(data.message || "");
+        if (msg.includes("demande") || msg.includes("débloquée")) {
+          awaitingNotes.push(msg);
+        }
       }
 
       setContacts((prev) =>
@@ -761,16 +873,22 @@ export default function EnrichissementPage() {
         return next;
       });
 
+      const unlockSuffix =
+        awaitingNotes.length > 0 ? ` · ${awaitingNotes[awaitingNotes.length - 1]}` : "";
+
       if (totalEnrolled > 0) {
         setFlash(
-          `${name} enregistré — ${totalEnrolled} contact(s) envoyés en outreach.`
+          `${name} enregistré — ${totalEnrolled} contact(s) envoyés en outreach.${unlockSuffix}`
         );
       } else if (isNf || totalNotFound > 0) {
-        setFlash(`${name} marqué sans email.`);
+        setFlash(`${name} marqué sans email.${unlockSuffix}`);
       } else {
         setFlash(
-          `${name} enregistré${totalSaved > 0 ? ` (${email})` : ""}.`
+          `${name} enregistré${totalSaved > 0 ? ` (${email})` : ""}.${unlockSuffix}`
         );
+      }
+      if (unlockSuffix) {
+        void loadAwaiting();
       }
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
@@ -1285,67 +1403,225 @@ export default function EnrichissementPage() {
             Enrichissement
           </h1>
           <p className="text-sm text-gray-500 mt-1 mb-4">
-            {isAgencyTab
-              ? "Ouvre une agence · note les mails (ou « pas d'email ») · Prêt → Prospection Agences"
-              : isFwTab
-                ? "Glisse une carto FW · ouvre une maison · note les mails (ou « pas d'email ») · Prêt → Fashion Week"
-                : "Glisse une carto · ouvre une marque · note les mails (ou « pas d'email ») · Prêt"}
+            {isAttenteTab
+              ? "File terrain : marques signalées depuis le Pipeline Casting ou un projet — complète la fiche CRM, puis valide « Contacts prêts »."
+              : isAgencyTab
+                ? "Ouvre une agence · note les mails (ou « pas d'email ») · Prêt → Prospection Agences"
+                : isFwTab
+                  ? "Glisse une carto FW · ouvre une maison · note les mails (ou « pas d'email ») · Prêt → Fashion Week"
+                  : "Glisse une carto · ouvre une marque · note les mails (ou « pas d'email ») · Prêt"}
           </p>
 
-          {isAdmin && (
-            <div
-              className="flex gap-1 p-1 rounded-xl mb-5"
-              style={{ backgroundColor: CREAM }}
+          <div
+            className="flex flex-wrap gap-1.5 p-1.5 rounded-2xl mb-5 border border-black/[0.04]"
+            style={{ backgroundColor: CREAM }}
+          >
+            <button
+              type="button"
+              onClick={() => switchTab("marques")}
+              className="flex-1 min-w-[7rem] px-3.5 py-2.5 rounded-xl text-sm font-semibold transition"
+              style={
+                tab === "marques"
+                  ? { backgroundColor: INK, color: "#fff", boxShadow: "0 8px 18px rgba(26,17,16,0.18)" }
+                  : { color: "#6B7280" }
+              }
             >
-              <button
-                type="button"
-                onClick={() => switchTab("marques")}
-                className="flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition"
-                style={
-                  tab === "marques"
-                    ? { backgroundColor: "#fff", color: INK }
-                    : { color: "#6B7280" }
-                }
-              >
-                Marques
-                {marquesCount > 0 ? (
-                  <span className="ml-1.5 text-xs opacity-60">{marquesCount}</span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                onClick={() => switchTab("agences")}
-                className="flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition"
-                style={
-                  tab === "agences"
-                    ? { backgroundColor: "#fff", color: INK }
-                    : { color: "#6B7280" }
-                }
-              >
-                Agences
-                {agencyCount > 0 ? (
-                  <span className="ml-1.5 text-xs opacity-60">{agencyCount}</span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                onClick={() => switchTab("fw")}
-                className="flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition"
-                style={
-                  tab === "fw"
-                    ? { backgroundColor: "#fff", color: INK }
-                    : { color: "#6B7280" }
-                }
-              >
-                Fashion Week
-                {fwCount > 0 ? (
-                  <span className="ml-1.5 text-xs opacity-60">{fwCount}</span>
-                ) : null}
-              </button>
-            </div>
-          )}
+              Cartographies
+              {marquesCount > 0 ? (
+                <span className="ml-1.5 text-xs opacity-70">{marquesCount}</span>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => switchTab("attente")}
+              className="flex-1 min-w-[9rem] px-3.5 py-2.5 rounded-xl text-sm font-semibold transition text-left"
+              style={
+                tab === "attente"
+                  ? {
+                      backgroundColor: "#1e3a5f",
+                      color: "#fff",
+                      boxShadow: "0 8px 18px rgba(30,58,95,0.22)",
+                    }
+                  : { color: "#1e3a5f" }
+              }
+            >
+              <span className="block leading-tight">Marques en attente</span>
+              <span className="block text-[10px] font-medium opacity-70 leading-tight">
+                d&apos;enrichissement
+              </span>
+              {awaitingItems.length > 0 ? (
+                <span
+                  className="ml-0 mt-1 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                  style={{
+                    background:
+                      tab === "attente" ? "rgba(255,255,255,0.18)" : "#dbeafe",
+                  }}
+                >
+                  {awaitingItems.length}
+                </span>
+              ) : null}
+            </button>
+            {isAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => switchTab("agences")}
+                  className="flex-1 min-w-[7rem] px-3.5 py-2.5 rounded-xl text-sm font-semibold transition"
+                  style={
+                    tab === "agences"
+                      ? { backgroundColor: INK, color: "#fff", boxShadow: "0 8px 18px rgba(26,17,16,0.18)" }
+                      : { color: "#6B7280" }
+                  }
+                >
+                  Agences
+                  {agencyCount > 0 ? (
+                    <span className="ml-1.5 text-xs opacity-70">{agencyCount}</span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchTab("fw")}
+                  className="flex-1 min-w-[7rem] px-3.5 py-2.5 rounded-xl text-sm font-semibold transition"
+                  style={
+                    tab === "fw"
+                      ? { backgroundColor: INK, color: "#fff", boxShadow: "0 8px 18px rgba(26,17,16,0.18)" }
+                      : { color: "#6B7280" }
+                  }
+                >
+                  Fashion Week
+                  {fwCount > 0 ? (
+                    <span className="ml-1.5 text-xs opacity-70">{fwCount}</span>
+                  ) : null}
+                </button>
+              </>
+            )}
+          </div>
 
-          {!isAgencyTab && !isFwTab ? (
+          {isAttenteTab ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold" style={{ color: INK }}>
+                    Marques en attente d&apos;enrichissement
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Pipeline Casting &amp; projets — hors parcours tant que les
+                    contacts CRM ne sont pas prêts
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadAwaiting()}
+                  disabled={awaitingLoading}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:opacity-50"
+                >
+                  {awaitingLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  Rafraîchir
+                </button>
+              </div>
+              {awaitingLoading && awaitingItems.length === 0 ? (
+                <div className="flex items-center gap-2 py-14 text-sm text-gray-500 justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Chargement…
+                </div>
+              ) : awaitingItems.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-sky-200 bg-sky-50/50 px-5 py-12 text-center">
+                  <Inbox className="mx-auto mb-3 h-7 w-7 text-sky-800/40" />
+                  <p className="text-sm font-medium text-sky-950">
+                    File vide pour le moment
+                  </p>
+                  <p className="mt-1 text-xs text-sky-900/60 max-w-sm mx-auto">
+                    Les marques arrivent ici via « Enrichir » (pipeline) ou
+                    « À compléter » (projet). Dès qu&apos;un email est ajouté sur
+                    la fiche, pipeline et/ou projet se débloquent automatiquement.
+                  </p>
+                </div>
+              ) : (
+                <ul className="space-y-2.5">
+                  {awaitingItems.map((item) => (
+                    <li
+                      key={item.key}
+                      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                      style={{ borderLeft: "3px solid #0f172a" }}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-base font-semibold" style={{ color: INK }}>
+                              {item.brandName}
+                            </span>
+                            <span
+                              className="rounded-md px-2 py-0.5 text-[11px] font-semibold"
+                              style={
+                                item.both
+                                  ? { background: "#0f172a", color: "#fff" }
+                                  : item.sources.includes("pipeline")
+                                    ? { background: "#f1f5f9", color: "#334155" }
+                                    : { background: "#f8fafc", color: "#475569", border: "1px solid #e2e8f0" }
+                              }
+                            >
+                              {item.both
+                                ? "Pipeline + Projet"
+                                : item.sourceLabel || "Demande enrichissement"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            Demandé depuis : {item.sourceLabel}
+                            {item.emailableCount > 0
+                              ? ` · ${item.emailableCount} email(s) déjà en fiche (déblocage auto possible)`
+                              : " · aucun email en fiche"}
+                          </p>
+                          <ul className="space-y-0.5">
+                            {item.contexts.map((ctx) => (
+                              <li key={ctx.missionId} className="text-[11px] text-gray-500">
+                                <Link href={ctx.path} className="font-medium text-slate-700 underline-offset-2 hover:underline">
+                                  {ctx.label}
+                                </Link>
+                                {" · "}
+                                {ctx.talentName || ctx.creatorName}
+                                {ctx.requestedByName ? ` · par ${ctx.requestedByName}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {item.fichePath ? (
+                          <Link
+                            href={item.fichePath}
+                            className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800"
+                          >
+                            Ouvrir la fiche
+                          </Link>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={resolvingMissionId === item.key}
+                          onClick={() => void resolveAwaiting(item)}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                          style={{ backgroundColor: "#0f172a" }}
+                          title="Secours si le déblocage auto n'a pas tourné"
+                        >
+                          {resolvingMissionId === item.key ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
+                          Contacts prêts
+                        </button>
+                      </div>
+                      <p className="mt-2 text-[11px] text-gray-400">
+                        Dès qu&apos;un email est ajouté sur la fiche, la demande se débloque
+                        toute seule (pipeline et/ou projet).
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : !isAgencyTab && !isFwTab ? (
             <button
               type="button"
               onClick={() => {
@@ -1488,6 +1764,8 @@ export default function EnrichissementPage() {
             </p>
           )}
 
+          {!isAttenteTab && (
+          <>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
               À traiter
@@ -1589,6 +1867,8 @@ export default function EnrichissementPage() {
                 </li>
               ))}
             </ul>
+          )}
+          </>
           )}
         </>
       ) : (

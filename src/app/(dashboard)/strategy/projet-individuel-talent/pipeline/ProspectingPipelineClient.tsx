@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X, Clock } from "lucide-react";
+import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X, Clock, Feather, Sparkles, Send, Inbox, MessageCircle, Handshake, Trophy, XCircle, ShieldAlert, Layers, UserPlus, Database, ScanSearch, ExternalLink, Trash2 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import { businessDaysAfter, hasBusinessDaysElapsed } from "@/lib/business-days";
+import { brandsLookSame } from "@/lib/brand-match";
 
 type Role = "STRATEGY_PLANNER" | "CASTING_MANAGER" | "HEAD_OF_SALES" | "HEAD_OF" | "ADMIN";
 type Stage =
@@ -55,6 +56,8 @@ type Mission = {
   openedAt?: string | null;
   clickCount?: number;
   clickedAt?: string | null;
+  awaitingContactsCompletion?: boolean;
+  contactsCompletionRequestedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -99,7 +102,8 @@ type BrandSearchState = {
   searched: boolean;
 };
 
-type PipelineView = "pipeline" | "ready";
+type DraftedSubTab = "cards" | "contacts" | "enrich";
+type StageTab = Stage | "BLOCKED" | "AWAITING_ENRICH";
 
 type ReadyContact = {
   id: string;
@@ -117,9 +121,17 @@ type ReadyItem = {
   alreadyAttachedCount: number;
 };
 
+type EnrichItem = {
+  mission: Mission;
+  reason: "no_marque" | "no_contacts";
+  crmContactCount: number;
+};
+
 const REMINDER_BUSINESS_DAYS = 3;
 /** Doit rester aligné sur CASTING_RELANCE2_BUSINESS_DAYS (src/lib/casting-auto-send.ts). */
 const RELANCE2_BUSINESS_DAYS = 10;
+/** Aligné sur INDIV_BRAND_WAVE_DAYS : 1 vague / marque / 20 j (tous talents). */
+const BRAND_BLOCK_DAYS = 20;
 
 /** Affiche le nom fiche marque quand lié, sinon le libellé saisi (ex. MiuMiu → Miu Miu). */
 function brandDisplayName(m: Pick<Mission, "targetBrand" | "marqueNom">): string {
@@ -127,6 +139,173 @@ function brandDisplayName(m: Pick<Mission, "targetBrand" | "marqueNom">): string
   if (canonical) return canonical;
   return String(m.targetBrand || "").trim();
 }
+
+function daysLeftUntil(lastSentAt: Date, now: Date = new Date()): number {
+  const unlockAt = lastSentAt.getTime() + BRAND_BLOCK_DAYS * 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.ceil((unlockAt - now.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+type BlockedBrandCluster = {
+  key: string;
+  brandLabel: string;
+  variants: string[];
+  marqueIds: string[];
+  lastSentAt: Date;
+  daysLeft: number;
+  /** Talents déjà envoyés (cause du blocage) + autres talents en attente sur la même marque. */
+  talents: Array<{
+    missionId: string;
+    talentId: string | null;
+    name: string;
+    stage: Stage;
+    sentAt: string | null;
+  }>;
+};
+
+function buildBlockedBrandClusters(
+  missions: Mission[],
+  now: Date = new Date()
+): BlockedBrandCluster[] {
+  const since = now.getTime() - BRAND_BLOCK_DAYS * 24 * 60 * 60 * 1000;
+
+  const sent = missions.filter((m) => {
+    if (!m.sentAt) return false;
+    const t = new Date(m.sentAt).getTime();
+    return !Number.isNaN(t) && t >= since;
+  });
+  if (sent.length === 0) return [];
+
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    if (!parent.has(x)) parent.set(x, x);
+    const p = parent.get(x)!;
+    if (p !== x) parent.set(x, find(p));
+    return parent.get(x)!;
+  };
+  const unite = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  for (const m of sent) find(m.id);
+
+  for (let i = 0; i < sent.length; i++) {
+    for (let j = i + 1; j < sent.length; j++) {
+      const a = sent[i];
+      const b = sent[j];
+      if (a.marqueId && b.marqueId && a.marqueId === b.marqueId) {
+        unite(a.id, b.id);
+        continue;
+      }
+      if (
+        brandsLookSame(brandDisplayName(a), brandDisplayName(b)) ||
+        brandsLookSame(a.targetBrand, b.targetBrand)
+      ) {
+        unite(a.id, b.id);
+      }
+    }
+  }
+
+  type Acc = {
+    label: string;
+    variants: Set<string>;
+    marqueIds: Set<string>;
+    lastSentAt: Date;
+    talents: BlockedBrandCluster["talents"];
+    missionIds: Set<string>;
+  };
+  const byRoot = new Map<string, Acc>();
+
+  for (const m of sent) {
+    const root = find(m.id);
+    const label = brandDisplayName(m);
+    const sentAt = new Date(m.sentAt!);
+    let acc = byRoot.get(root);
+    if (!acc) {
+      acc = {
+        label,
+        variants: new Set([label, m.targetBrand].filter(Boolean)),
+        marqueIds: new Set(m.marqueId ? [m.marqueId] : []),
+        lastSentAt: sentAt,
+        talents: [],
+        missionIds: new Set(),
+      };
+      byRoot.set(root, acc);
+    } else {
+      acc.variants.add(label);
+      if (m.targetBrand) acc.variants.add(m.targetBrand);
+      if (m.marqueId) acc.marqueIds.add(m.marqueId);
+      if (sentAt > acc.lastSentAt) {
+        acc.lastSentAt = sentAt;
+        acc.label = label;
+      }
+    }
+    if (!acc.missionIds.has(m.id)) {
+      acc.missionIds.add(m.id);
+      acc.talents.push({
+        missionId: m.id,
+        talentId: m.talentId || null,
+        name: (m.talentName || m.creatorName || "Talent").trim(),
+        stage: m.stage,
+        sentAt: m.sentAt || null,
+      });
+    }
+  }
+
+  // Autres cartes ouvertes sur la même marque → aussi bloquées / listées
+  // (y compris celles avec un vieux sentAt hors fenêtre, ex. renvoyées en TO_SEND)
+  const roots = [...byRoot.entries()];
+  const anchorIds = new Set(sent.map((m) => m.id));
+  for (const m of missions) {
+    if (anchorIds.has(m.id)) continue;
+    if (m.stage === "SENT" || m.stage === "RESPONSE_RECEIVED") continue;
+    const label = brandDisplayName(m);
+    const hit = roots.find(([, acc]) => {
+      if (m.marqueId && acc.marqueIds.has(m.marqueId)) return true;
+      return (
+        brandsLookSame(label, acc.label) ||
+        [...acc.variants].some(
+          (v) => brandsLookSame(label, v) || brandsLookSame(m.targetBrand, v)
+        )
+      );
+    });
+    if (!hit) continue;
+    const [, acc] = hit;
+    if (acc.missionIds.has(m.id)) continue;
+    acc.missionIds.add(m.id);
+    if (m.marqueId) acc.marqueIds.add(m.marqueId);
+    acc.talents.push({
+      missionId: m.id,
+      talentId: m.talentId || null,
+      name: (m.talentName || m.creatorName || "Talent").trim(),
+      stage: m.stage,
+      // Pas un envoi de la vague courante → affiché comme en attente
+      sentAt: null,
+    });
+  }
+
+  const clusters: BlockedBrandCluster[] = roots.map(([root, acc]) => {
+    acc.talents.sort((a, b) => {
+      const aSent = a.sentAt ? 0 : 1;
+      const bSent = b.sentAt ? 0 : 1;
+      if (aSent !== bSent) return aSent - bSent;
+      return a.name.localeCompare(b.name, "fr");
+    });
+    return {
+      key: root,
+      brandLabel: acc.label,
+      variants: [...acc.variants],
+      marqueIds: [...acc.marqueIds],
+      lastSentAt: acc.lastSentAt,
+      daysLeft: daysLeftUntil(acc.lastSentAt, now),
+      talents: acc.talents,
+    };
+  });
+
+  return clusters.sort((a, b) => a.daysLeft - b.daysLeft);
+}
+
 
 /**
  * Date du dernier mail parti vers le client (mail initial ou relance auto).
@@ -219,14 +398,40 @@ function stageLabelForRole(stage: Stage, role: Role | null): string {
   return STAGE_LABEL[stage];
 }
 
-function columnAccentColor(stage: Stage): string {
-  if (stage === "TO_DRAFT") return OLD_ROSE;
-  if (stage === "DRAFTED_FOR_VALIDATION") return TEA_GREEN;
-  if (stage === "TO_SEND") return "#BFDBFE";
-  if (stage === "SENT") return "#86EFAC";
-  if (stage === "LOST") return "#FCA5A5";
-  return "#D1B070";
+function columnAccentColor(stage: Stage, casting = false): string {
+  if (casting) {
+    if (stage === "TO_DRAFT") return OLD_ROSE;
+    if (stage === "DRAFTED_FOR_VALIDATION") return TEA_GREEN;
+  }
+  if (stage === "LOST") return "#94a3b8";
+  if (stage === "WON") return "#334155";
+  if (stage === "SENT" || stage === "RESPONSE_RECEIVED") return "#475569";
+  return "#94a3b8";
 }
+
+const STAGE_ICON: Record<Stage, typeof Feather> = {
+  STRATEGY_DEFINED: Layers,
+  TO_DRAFT: Feather,
+  DRAFTED_FOR_VALIDATION: Sparkles,
+  TO_SEND: Send,
+  SENT: Inbox,
+  RESPONSE_RECEIVED: MessageCircle,
+  IN_NEGOTIATION: Handshake,
+  WON: Trophy,
+  LOST: XCircle,
+};
+
+const STAGE_HINT: Record<Stage, string> = {
+  STRATEGY_DEFINED: "Brief validé",
+  TO_DRAFT: "Rédaction",
+  DRAFTED_FOR_VALIDATION: "Relecture",
+  TO_SEND: "Planification",
+  SENT: "En attente de retour",
+  RESPONSE_RECEIVED: "Réponse reçue",
+  IN_NEGOTIATION: "Négociation",
+  WON: "Clos gagné",
+  LOST: "Clos perdu",
+};
 
 export function ProspectingPipelineClient() {
   const [role, setRole] = useState<Role | null>(null);
@@ -260,10 +465,12 @@ export function ProspectingPipelineClient() {
   const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
   const [editingBrandValue, setEditingBrandValue] = useState("");
 
-  const [pipelineView, setPipelineView] = useState<PipelineView>("pipeline");
+  const [activeStageTab, setActiveStageTab] = useState<StageTab>("TO_DRAFT");
   const [readyItems, setReadyItems] = useState<ReadyItem[]>([]);
+  const [enrichItems, setEnrichItems] = useState<EnrichItem[]>([]);
   const [readyLoading, setReadyLoading] = useState(false);
   const [readyCooldownDays, setReadyCooldownDays] = useState(20);
+  const [readySubTab, setReadySubTab] = useState<DraftedSubTab>("cards");
   /** Contacts cochés par mission (emails). */
   const [selectedEmailsByMission, setSelectedEmailsByMission] = useState<
     Record<string, string[]>
@@ -280,7 +487,17 @@ export function ProspectingPipelineClient() {
   const canEditBrand =
     role === "ADMIN" || role === "HEAD_OF" || role === "STRATEGY_PLANNER";
   const canUseReadyTab =
-    role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_SALES";
+    role === "ADMIN" ||
+    role === "HEAD_OF" ||
+    role === "HEAD_OF_SALES" ||
+    role === "CASTING_MANAGER";
+
+  useEffect(() => {
+    if (activeStageTab === "BLOCKED" || activeStageTab === "AWAITING_ENRICH") return;
+    if (!visibleStages.includes(activeStageTab)) {
+      setActiveStageTab(visibleStages[0] || "TO_DRAFT");
+    }
+  }, [visibleStages, activeStageTab]);
 
   async function loadRole() {
     const res = await fetch("/api/auth/me", { credentials: "include" });
@@ -324,6 +541,7 @@ export function ProspectingPipelineClient() {
   async function loadReadyToSend() {
     if (!canUseReadyTab) {
       setReadyItems([]);
+      setEnrichItems([]);
       return;
     }
     setReadyLoading(true);
@@ -337,14 +555,24 @@ export function ProspectingPipelineClient() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Erreur contacts dispo");
-      const items: ReadyItem[] = (Array.isArray(data.items) ? data.items : []).map(
-        (row: ReadyItem) => ({
-          mission: row.mission,
-          availableContacts: Array.isArray(row.availableContacts) ? row.availableContacts : [],
-          alreadyAttachedCount: Number(row.alreadyAttachedCount || 0),
-        })
-      );
+      const withContactsRaw = Array.isArray(data.withContacts)
+        ? data.withContacts
+        : Array.isArray(data.items)
+          ? data.items
+          : [];
+      const items: ReadyItem[] = withContactsRaw.map((row: ReadyItem) => ({
+        mission: row.mission,
+        availableContacts: Array.isArray(row.availableContacts) ? row.availableContacts : [],
+        alreadyAttachedCount: Number(row.alreadyAttachedCount || 0),
+      }));
+      const enrichRaw = Array.isArray(data.needsEnrichment) ? data.needsEnrichment : [];
+      const enrich: EnrichItem[] = enrichRaw.map((row: EnrichItem) => ({
+        mission: row.mission,
+        reason: row.reason === "no_marque" ? "no_marque" : "no_contacts",
+        crmContactCount: Number(row.crmContactCount || 0),
+      }));
       setReadyItems(items);
+      setEnrichItems(enrich);
       if (typeof data.cooldownDays === "number") setReadyCooldownDays(data.cooldownDays);
 
       setSelectedEmailsByMission((prev) => {
@@ -369,8 +597,74 @@ export function ProspectingPipelineClient() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
       setReadyItems([]);
+      setEnrichItems([]);
     } finally {
       setReadyLoading(false);
+    }
+  }
+
+  async function queueForEnrichissement(missionId: string) {
+    setUpdatingId(missionId);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(
+        `/api/strategy/contact-missions/${missionId}/request-enrichissement`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({}),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Impossible de mettre en file.");
+      setMissions((prev) =>
+        prev.map((m) =>
+          m.id === missionId
+            ? {
+                ...m,
+                awaitingContactsCompletion: true,
+                contactsCompletionRequestedAt: new Date().toISOString(),
+              }
+            : m
+        )
+      );
+      setActiveStageTab("AWAITING_ENRICH");
+      setSuccess(
+        data.message ||
+          "Marque basculée dans « Enrichissement » — complète les contacts CRM."
+      );
+      void loadReadyToSend();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function resolveEnrichissement(missionId: string) {
+    setUpdatingId(missionId);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(
+        `/api/strategy/contact-missions/${missionId}/resolve-enrichissement`,
+        { method: "POST", credentials: "include" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Impossible de valider.");
+      setMissions((prev) =>
+        prev.map((m) =>
+          m.id === missionId ? { ...m, awaitingContactsCompletion: false } : m
+        )
+      );
+      setSuccess(data.message || "Contacts prêts — carte redevenue active.");
+      void loadReadyToSend();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setUpdatingId(null);
     }
   }
 
@@ -399,17 +693,16 @@ export function ProspectingPipelineClient() {
 
   useEffect(() => {
     if (!canUseReadyTab) return;
-    // Badge compteur : on charge aussi hors onglet pour afficher N.
     void loadReadyToSend();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTalentId, role, canUseReadyTab]);
 
   useEffect(() => {
-    if (pipelineView === "ready" && canUseReadyTab) {
+    if (canUseReadyTab && activeStageTab === "DRAFTED_FOR_VALIDATION") {
       void loadReadyToSend();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelineView]);
+  }, [activeStageTab, readySubTab, canUseReadyTab]);
 
   useEffect(() => {
     // Inclut aussi les renvois post-envoi (stage SENT + sentAt déjà set) :
@@ -487,7 +780,9 @@ export function ProspectingPipelineClient() {
       clientLanguage?: "FR" | "EN" | "";
       clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }>;
     }
-  ) {
+  ): Promise<{
+    awaitingResolved?: { resolvedCount: number; sourceLabel: string; message: string } | null;
+  }> {
     setUpdatingId(missionId);
     try {
       const res = await fetch("/api/strategy/contact-missions", {
@@ -499,9 +794,40 @@ export function ProspectingPipelineClient() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Mise à jour impossible.");
       await loadMissions();
+      return {
+        awaitingResolved: data.awaitingResolved || null,
+      };
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
       throw e;
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function deleteMission(m: Mission) {
+    const label = `${m.creatorName} → ${brandDisplayName(m)}`;
+    if (
+      !window.confirm(
+        `Supprimer définitivement « ${label} » du pipeline ?\n\nCette action est irréversible.`
+      )
+    ) {
+      return;
+    }
+    setUpdatingId(m.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/strategy/contact-missions/${m.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Suppression impossible.");
+      setMissions((prev) => prev.filter((x) => x.id !== m.id));
+      setSuccess(data.message || `${label} supprimée.`);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
       setUpdatingId(null);
     }
@@ -566,7 +892,7 @@ export function ProspectingPipelineClient() {
           email: String(c.email || "").trim(),
           role: String(c.role || "").trim(),
           companyName: String(c.companyName || "").trim(),
-          source: c.source === "hubspot" ? "hubspot" : "app",
+          source: "app" as const,
         }));
       setContactSearchByMission((prev) => ({
         ...prev,
@@ -700,10 +1026,13 @@ export function ProspectingPipelineClient() {
         byEmail.set(c.email, c);
       }
       const nextContacts = Array.from(byEmail.values());
-      await patchMission(m.id, {
+      const patchResult = await patchMission(m.id, {
         clientContacts: nextContacts,
         clientLanguage: (m.clientLanguage || "FR") as "FR" | "EN",
       });
+      const unlockNote = patchResult.awaitingResolved?.message
+        ? ` ${patchResult.awaitingResolved.message}`
+        : "";
       setContactFormByMission((prev) => ({
         ...prev,
         [m.id]: { open: false, contacts: [{ firstname: "", lastname: "", email: "", role: "" }] },
@@ -715,7 +1044,7 @@ export function ProspectingPipelineClient() {
       // « tous déjà contactés »). On s'arrête sur un message d'info.
       if (isAlreadySent && newlyAdded.length === 0) {
         setSuccess(
-          `${cleaned.length} contact(s) enregistré(s). Aucun envoi à faire : ces emails ont déjà été contactés sur cette carte.`
+          `${cleaned.length} contact(s) enregistré(s). Aucun envoi à faire : ces emails ont déjà été contactés sur cette carte.${unlockNote}`
         );
         return;
       }
@@ -732,13 +1061,12 @@ export function ProspectingPipelineClient() {
         const sendData = await sendRes.json().catch(() => ({}));
         // Cas "deja contacte recemment" : on propose d'envoyer quand meme.
         if (!sendRes.ok && sendData?.canForce) {
-          const confirmed = window.confirm(
-            `${m.creatorName} → ${brandDisplayName(m)}\n\n${
-              sendData.error || "Ce contact a déjà été contacté récemment."
-            }\n\nÊtes-vous sûr de vouloir quand même envoyer le mail ?`
+          const reason = askUrgentForceReason(
+            `${m.creatorName} → ${brandDisplayName(m)}`,
+            sendData.error
           );
-          if (confirmed) {
-            await scheduleSend(m, true);
+          if (reason) {
+            await scheduleSend(m, true, reason);
             return;
           }
           setSuccess(
@@ -766,11 +1094,11 @@ export function ProspectingPipelineClient() {
           ]);
           if (isAlreadySent) {
             setSuccess(
-              `${cleaned.length} contact(s) enregistré(s). Envoi dans 30s uniquement au${recipientsCount > 1 ? "x" : ""} ${recipientsCount} nouveau${recipientsCount > 1 ? "x" : ""} contact${recipientsCount > 1 ? "s" : ""} (les ${existingEmails.size} déjà contacté${existingEmails.size > 1 ? "s" : ""} sont ignoré${existingEmails.size > 1 ? "s" : ""}).${translateNote}`
+              `${cleaned.length} contact(s) enregistré(s). Envoi dans 30s uniquement au${recipientsCount > 1 ? "x" : ""} ${recipientsCount} nouveau${recipientsCount > 1 ? "x" : ""} contact${recipientsCount > 1 ? "s" : ""} (les ${existingEmails.size} déjà contacté${existingEmails.size > 1 ? "s" : ""} sont ignoré${existingEmails.size > 1 ? "s" : ""}).${translateNote}${unlockNote}`
             );
           } else {
             setSuccess(
-              `${cleaned.length} contact(s) enregistré(s). Envoi auto dans 30s depuis leyna@glowupagence.fr.${translateNote}`
+              `${cleaned.length} contact(s) enregistré(s). Envoi auto dans 30s depuis leyna@glowupagence.fr.${translateNote}${unlockNote}`
             );
           }
           await loadMissions();
@@ -778,12 +1106,12 @@ export function ProspectingPipelineClient() {
           setSuccess(
             `${cleaned.length} contact(s) enregistré(s). Envoi auto en attente : ${
               sendData.error || "le brouillon n'est pas encore prêt."
-            }`
+            }${unlockNote}`
           );
         }
       } catch {
         setSuccess(
-          `${cleaned.length} contact(s) enregistré(s) (envoi auto en attente, brouillon non prêt).`
+          `${cleaned.length} contact(s) enregistré(s) (envoi auto en attente, brouillon non prêt).${unlockNote}`
         );
       }
     } catch (e: unknown) {
@@ -793,7 +1121,7 @@ export function ProspectingPipelineClient() {
     }
   }
 
-  async function scheduleSend(m: Mission, force = false) {
+  async function scheduleSend(m: Mission, force = false, forceReason?: string) {
     setUpdatingId(m.id);
     setError(null);
     setSuccess(null);
@@ -802,22 +1130,31 @@ export function ProspectingPipelineClient() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ force }),
+        body: JSON.stringify({
+          force,
+          ...(force && forceReason ? { forceReason } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        // Cas "deja contacte recemment" : on propose d'envoyer quand meme
-        // apres confirmation explicite (bypass du cooldown anti-spam).
+        // Projet urgent : confirmation + motif obligatoire (bypass cooldown / plafond).
         if (data?.canForce && !force) {
           const confirmed = window.confirm(
             `${m.creatorName} → ${brandDisplayName(m)}\n\n${
               data.error || "Ce contact a déjà été contacté récemment."
-            }\n\nÊtes-vous sûr de vouloir quand même envoyer le mail ?`
+            }\n\nProjet urgent — envoyer quand même ? (un motif sera demandé)`
           );
-          if (confirmed) {
-            setUpdatingId(null);
-            await scheduleSend(m, true);
+          if (!confirmed) return;
+          const reason = window.prompt(
+            "Motif du projet urgent (obligatoire, min. 5 caractères) :",
+            ""
+          );
+          if (!reason || reason.trim().length < 5) {
+            setError("Envoi annulé : motif urgent trop court ou vide.");
+            return;
           }
+          setUpdatingId(null);
+          await scheduleSend(m, true, reason.trim());
           return;
         }
         throw new Error(data.error || "Planification impossible.");
@@ -849,7 +1186,7 @@ export function ProspectingPipelineClient() {
    */
   async function attachAndScheduleReadyItem(
     item: ReadyItem,
-    options: { force?: boolean; silent?: boolean } = {}
+    options: { force?: boolean; silent?: boolean; forceReason?: string } = {}
   ): Promise<{ ok: boolean; canForce?: boolean; error?: string }> {
     const emails = selectedEmailsByMission[item.mission.id] || [];
     const contacts = item.availableContacts.filter((c) => emails.includes(c.email));
@@ -898,7 +1235,12 @@ export function ProspectingPipelineClient() {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force: options.force === true }),
+      body: JSON.stringify({
+        force: options.force === true,
+        ...(options.force && options.forceReason
+          ? { forceReason: options.forceReason }
+          : {}),
+      }),
     });
     const sendData = await sendRes.json().catch(() => ({}));
     if (!sendRes.ok) {
@@ -935,6 +1277,24 @@ export function ProspectingPipelineClient() {
     return { ok: true };
   }
 
+  function askUrgentForceReason(label: string, detail?: string): string | null {
+    const confirmed = window.confirm(
+      `${label}\n\n${
+        detail || "Ce contact a déjà été contacté récemment."
+      }\n\nProjet urgent — envoyer quand même ? (un motif sera demandé)`
+    );
+    if (!confirmed) return null;
+    const reason = window.prompt(
+      "Motif du projet urgent (obligatoire, min. 5 caractères) :",
+      ""
+    );
+    if (!reason || reason.trim().length < 5) {
+      setError("Envoi annulé : motif urgent trop court ou vide.");
+      return null;
+    }
+    return reason.trim();
+  }
+
   async function planifierReadyItem(item: ReadyItem) {
     setUpdatingId(item.mission.id);
     setError(null);
@@ -942,13 +1302,15 @@ export function ProspectingPipelineClient() {
     try {
       let result = await attachAndScheduleReadyItem(item);
       if (!result.ok && result.canForce) {
-        const confirmed = window.confirm(
-          `${item.mission.creatorName} → ${brandDisplayName(item.mission)}\n\n${
-            result.error || "Ce contact a déjà été contacté récemment."
-          }\n\nÊtes-vous sûr de vouloir quand même envoyer le mail ?`
+        const reason = askUrgentForceReason(
+          `${item.mission.creatorName} → ${brandDisplayName(item.mission)}`,
+          result.error
         );
-        if (confirmed) {
-          result = await attachAndScheduleReadyItem(item, { force: true });
+        if (reason) {
+          result = await attachAndScheduleReadyItem(item, {
+            force: true,
+            forceReason: reason,
+          });
         } else {
           setSuccess("Contacts enregistrés. Envoi non effectué (cooldown).");
           await Promise.all([loadMissions(), loadReadyToSend()]);
@@ -986,13 +1348,16 @@ export function ProspectingPipelineClient() {
         setUpdatingId(item.mission.id);
         let result = await attachAndScheduleReadyItem(item, { silent: true });
         if (!result.ok && result.canForce) {
-          const confirmed = window.confirm(
-            `${item.mission.creatorName} → ${brandDisplayName(item.mission)}\n\n${
-              result.error || "Ce contact a déjà été contacté récemment."
-            }\n\nEnvoyer quand même ? (Annuler = skip cette mission)`
+          const reason = askUrgentForceReason(
+            `${item.mission.creatorName} → ${brandDisplayName(item.mission)}`,
+            result.error
           );
-          if (confirmed) {
-            result = await attachAndScheduleReadyItem(item, { force: true, silent: true });
+          if (reason) {
+            result = await attachAndScheduleReadyItem(item, {
+              force: true,
+              silent: true,
+              forceReason: reason,
+            });
           } else {
             failCount += 1;
             errors.push(`${brandDisplayName(item.mission)}: skip cooldown`);
@@ -1176,7 +1541,10 @@ export function ProspectingPipelineClient() {
       WON: [],
       LOST: [],
     };
-    for (const m of missions) map[m.stage].push(m);
+    for (const m of missions) {
+      if (m.awaitingContactsCompletion) continue;
+      map[m.stage].push(m);
+    }
     const timeOf = (m: Mission): number => {
       const raw = m.createdAt || m.updatedAt;
       const t = raw ? new Date(raw).getTime() : NaN;
@@ -1190,6 +1558,76 @@ export function ProspectingPipelineClient() {
     return map;
   }, [missions, sortOrder]);
 
+  const awaitingEnrichMissions = useMemo(() => {
+    const list = missions.filter((m) => m.awaitingContactsCompletion);
+    const timeOf = (m: Mission): number => {
+      const raw = m.contactsCompletionRequestedAt || m.updatedAt || m.createdAt;
+      const t = raw ? new Date(raw).getTime() : NaN;
+      return Number.isNaN(t) ? 0 : t;
+    };
+    return list.sort((a, b) => timeOf(b) - timeOf(a));
+  }, [missions]);
+
+  /** Horloge minute : déblocage auto J+20 sans rebuild chaque seconde. */
+  const brandBlockClockMin = Math.floor(nowTick / 60_000);
+  const blockedBrandClusters = useMemo(
+    () => buildBlockedBrandClusters(missions, new Date(brandBlockClockMin * 60_000)),
+    [missions, brandBlockClockMin]
+  );
+
+  const isMissionBrandBlocked = (m: Mission): boolean => {
+    if (
+      blockedBrandClusters.some((c) =>
+        c.talents.some((t) => t.missionId === m.id)
+      )
+    ) {
+      return true;
+    }
+    const label = brandDisplayName(m);
+    return blockedBrandClusters.some((c) => {
+      if (m.marqueId && c.marqueIds.includes(m.marqueId)) return true;
+      return (
+        brandsLookSame(label, c.brandLabel) ||
+        c.variants.some(
+          (v) => brandsLookSame(label, v) || brandsLookSame(m.targetBrand, v)
+        )
+      );
+    });
+  };
+
+  /** Cartes hors marques déjà contactées ce mois (tous talents — affichées à part). */
+  const missionsForStage = (stage: Stage): Mission[] => {
+    const list = grouped[stage] || [];
+    if (stage === "SENT" || stage === "RESPONSE_RECEIVED") return list;
+    return list.filter((m) => !isMissionBrandBlocked(m));
+  };
+
+  const stageCounts = useMemo(() => {
+    const counts: Partial<Record<Stage, number>> = {};
+    for (const stage of visibleStages) {
+      const list = grouped[stage] || [];
+      if (stage === "SENT" || stage === "RESPONSE_RECEIVED") {
+        counts[stage] = list.length;
+        continue;
+      }
+      counts[stage] = list.filter((m) => !isMissionBrandBlocked(m)).length;
+    }
+    return counts;
+  }, [visibleStages, grouped, blockedBrandClusters]);
+
+  const pipelineProgress = useMemo(() => {
+    const total = visibleStages.reduce(
+      (acc, stage) => acc + (stageCounts[stage] || 0),
+      0
+    );
+    const doneish =
+      (stageCounts.SENT || 0) +
+      (stageCounts.RESPONSE_RECEIVED || 0) +
+      (stageCounts.IN_NEGOTIATION || 0) +
+      (stageCounts.WON || 0);
+    return { total, doneish };
+  }, [visibleStages, stageCounts]);
+
   const sentReminderCount = useMemo(() => {
     const now = new Date();
     return grouped.SENT.filter(
@@ -1197,82 +1635,129 @@ export function ProspectingPipelineClient() {
     ).length;
   }, [grouped.SENT, ackedReminderIds]);
 
+  const activeStageMissions =
+    activeStageTab === "BLOCKED" || activeStageTab === "AWAITING_ENRICH"
+      ? []
+      : missionsForStage(activeStageTab);
+  const StageIcon =
+    activeStageTab === "BLOCKED"
+      ? ShieldAlert
+      : activeStageTab === "AWAITING_ENRICH"
+        ? ScanSearch
+        : STAGE_ICON[activeStageTab];
+
   return (
     <main
-      className="space-y-4 p-6"
-      style={isCastingManager ? { fontFamily: "Switzer, system-ui, sans-serif" } : undefined}
+      className="min-h-screen space-y-5 p-4 md:p-6"
+      style={
+        isCastingManager
+          ? {
+              fontFamily: "Switzer, system-ui, sans-serif",
+              background: "#F7F1E8",
+            }
+          : {
+              background: "#f8fafc",
+            }
+      }
     >
       <section
-        className="rounded-2xl border p-4"
+        className="relative overflow-hidden rounded-2xl border bg-white p-5 md:p-6"
         style={
           isCastingManager
-            ? { backgroundColor: OLD_LACE, borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }
-            : undefined
+            ? {
+                borderColor: `color-mix(in srgb, ${OLD_ROSE} 22%, transparent)`,
+                boxShadow: "0 10px 30px color-mix(in srgb, #1A1110 4%, transparent)",
+              }
+            : {
+                borderColor: "#e2e8f0",
+                boxShadow: "0 8px 24px rgba(15,23,42,0.04)",
+              }
         }
       >
-        <div className="flex items-center justify-between gap-3">
-          <div>
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 max-w-2xl">
+            <p
+              className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+              style={{ color: isCastingManager ? OLD_ROSE : "#64748b" }}
+            >
+              Casting · Talent ↔ marque
+            </p>
             <h1
-              className="text-2xl font-semibold"
+              className="mt-1 text-3xl font-semibold tracking-tight md:text-[2rem]"
               style={
                 isCastingManager
                   ? { color: LICORICE, fontFamily: "Spectral, serif" }
-                  : { color: "#111827" }
+                  : { color: "#0f172a" }
               }
             >
               Pipeline Casting
             </h1>
-            <p className="text-sm" style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}>
-              Prospection individuelle : match talent ↔ marque. Les projets structurés (ex. Ibiza) sont dans Projets outreach talent.
+            <p
+              className="mt-2 text-sm leading-relaxed"
+              style={{ color: isCastingManager ? OLD_ROSE : "#64748b" }}
+            >
+              Parcours individuel par étape. Les projets structurés (Ibiza, etc.)
+              restent dans Projets outreach talent.
             </p>
+            {pipelineProgress.total > 0 && (
+              <div className="mt-4 max-w-md">
+                <div
+                  className="mb-1.5 flex items-center justify-between text-[11px] font-medium"
+                  style={{ color: isCastingManager ? LICORICE : "#475569" }}
+                >
+                  <span>Avancement</span>
+                  <span className="tabular-nums">
+                    {pipelineProgress.doneish}/{pipelineProgress.total}
+                  </span>
+                </div>
+                <div
+                  className="h-1.5 overflow-hidden rounded-full"
+                  style={{
+                    background: isCastingManager
+                      ? "color-mix(in srgb, #1A1110 8%, white)"
+                      : "#e2e8f0",
+                  }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.round(
+                          (pipelineProgress.doneish /
+                            Math.max(1, pipelineProgress.total)) *
+                            100
+                        )
+                      )}%`,
+                      background: isCastingManager ? LICORICE : "#0f172a",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/strategy/projet-individuel-talent/mails-envoyes"
-              className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              className="inline-flex items-center gap-2 rounded-lg border bg-white px-3.5 py-2 text-sm font-medium transition hover:bg-slate-50"
               style={
                 isCastingManager
-                  ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
-                  : { borderColor: "#D1D5DB", backgroundColor: "#fff", color: "#111827" }
+                  ? { borderColor: `color-mix(in srgb, ${OLD_ROSE} 40%, transparent)`, color: LICORICE }
+                  : { borderColor: "#e2e8f0", color: "#0f172a" }
               }
               title="Voir les mails envoyés, ouvertures, clics et relances prévues"
             >
               <Mail className="h-4 w-4" />
               Mails envoyés
             </Link>
-            {canUseReadyTab && (
-              <button
-                type="button"
-                disabled={readyLoading}
-                onClick={() => {
-                  setPipelineView("ready");
-                  setError(null);
-                  void loadReadyToSend();
-                }}
-                className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 disabled:opacity-50"
-                title="Analyser les missions rédigées qui ont déjà un contact email dans l'app"
-              >
-                {readyLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="h-4 w-4" />
-                )}
-                Analyser marques dispo
-                {!readyLoading && readyItems.length > 0 ? (
-                  <span className="rounded-full bg-emerald-200 px-1.5 py-0.5 text-xs font-semibold text-emerald-900">
-                    {readyItems.length}
-                  </span>
-                ) : null}
-              </button>
-            )}
             <button
               type="button"
               onClick={() => void refresh()}
-              className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              className="inline-flex items-center gap-2 rounded-lg border bg-white px-3.5 py-2 text-sm font-medium transition hover:bg-slate-50"
               style={
                 isCastingManager
-                  ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
-                  : undefined
+                  ? { borderColor: `color-mix(in srgb, ${OLD_ROSE} 40%, transparent)`, color: LICORICE }
+                  : { borderColor: "#e2e8f0", color: "#0f172a" }
               }
             >
               <RefreshCw className="h-4 w-4" />
@@ -1280,15 +1765,16 @@ export function ProspectingPipelineClient() {
             </button>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+
+        <div className="relative mt-5 flex flex-wrap items-center gap-2">
           <select
             value={selectedTalentId}
             onChange={(e) => setSelectedTalentId(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className="rounded-lg border bg-white px-3 py-2 text-sm"
             style={
               isCastingManager
-                ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
-                : undefined
+                ? { borderColor: `color-mix(in srgb, ${OLD_ROSE} 40%, transparent)`, color: LICORICE }
+                : { borderColor: "#e2e8f0" }
             }
           >
             <option value={ALL_TALENTS}>Tous les talents</option>
@@ -1298,61 +1784,21 @@ export function ProspectingPipelineClient() {
               </option>
             ))}
           </select>
-          {pipelineView === "pipeline" && (
-            <select
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value as SortOrder)}
-              className="rounded-lg border px-3 py-2 text-sm"
-              style={
-                isCastingManager
-                  ? { borderColor: OLD_ROSE, backgroundColor: "#fff", color: LICORICE }
-                  : undefined
-              }
-              title="Trier les cartes de chaque colonne par date de création"
-            >
-              <option value="oldest">Du plus ancien au plus récent</option>
-              <option value="newest">Du plus récent au plus ancien</option>
-            </select>
-          )}
+          <select
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+            className="rounded-lg border bg-white px-3 py-2 text-sm"
+            style={
+              isCastingManager
+                ? { borderColor: `color-mix(in srgb, ${OLD_ROSE} 40%, transparent)`, color: LICORICE }
+                : { borderColor: "#e2e8f0" }
+            }
+            title="Trier les cartes de l'onglet actif par date de création"
+          >
+            <option value="oldest">Du plus ancien au plus récent</option>
+            <option value="newest">Du plus récent au plus ancien</option>
+          </select>
         </div>
-
-        {canUseReadyTab && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setPipelineView("pipeline")}
-              className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                pipelineView === "pipeline"
-                  ? "border-gray-900 bg-gray-900 text-white"
-                  : "border-gray-300 bg-white text-gray-700"
-              }`}
-            >
-              Pipeline
-            </button>
-            <button
-              type="button"
-              onClick={() => setPipelineView("ready")}
-              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                pipelineView === "ready"
-                  ? "border-gray-900 bg-gray-900 text-white"
-                  : "border-gray-300 bg-white text-gray-700"
-              }`}
-            >
-              Contacts dispo
-              {readyItems.length > 0 && (
-                <span
-                  className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${
-                    pipelineView === "ready"
-                      ? "bg-white/20 text-white"
-                      : "bg-emerald-100 text-emerald-800"
-                  }`}
-                >
-                  {readyItems.length}
-                </span>
-              )}
-            </button>
-          </div>
-        )}
       </section>
 
       {error && (
@@ -1366,212 +1812,742 @@ export function ProspectingPipelineClient() {
         </div>
       )}
 
-      {pipelineView === "ready" && canUseReadyTab ? (
-        <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Marques dispo pour envoyer</h2>
-              <p className="text-sm text-gray-500">
-                Analyse des missions rédigées avec un contact email déjà en fiche marque — coche et
-                planifie l&apos;envoi (30s, boîte Leyna).
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void loadReadyToSend()}
-                disabled={readyLoading || bulkScheduling}
-                className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-50"
-              >
-                {readyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                Relancer l&apos;analyse
-              </button>
-              <button
-                type="button"
-                onClick={toggleBulkAll}
-                disabled={readyItems.length === 0 || bulkScheduling}
-                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-50"
-              >
-                {bulkSelectedMissionIds.size === readyItems.length && readyItems.length > 0
-                  ? "Tout désélectionner"
-                  : "Tout sélectionner"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void planifierBulkReady()}
-                disabled={bulkSelectedMissionIds.size === 0 || bulkScheduling}
-                className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              >
-                {bulkScheduling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
-                Planifier la sélection ({bulkSelectedMissionIds.size})
-              </button>
-            </div>
-          </div>
-
-          {readyLoading && readyItems.length === 0 ? (
-            <div className="flex items-center gap-2 py-8 text-sm text-gray-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Chargement…
-            </div>
-          ) : readyItems.length === 0 ? (
-            <p className="py-8 text-center text-sm text-gray-500">
-              Aucune mission rédigée avec un contact email disponible dans l&apos;app pour ce filtre.
-            </p>
-          ) : (
-            <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">
-              {readyItems.map((item) => {
-                const m = item.mission;
-                const selectedEmails = selectedEmailsByMission[m.id] || [];
-                const hasCooldown = item.availableContacts.some((c) => c.blockedByCooldown);
-                const isBusy = updatingId === m.id || bulkScheduling;
+      <section className="space-y-3">
+        <nav
+          className="rounded-2xl border bg-white p-2"
+          style={
+            isCastingManager
+              ? { borderColor: `color-mix(in srgb, ${OLD_ROSE} 20%, transparent)` }
+              : { borderColor: "#e2e8f0" }
+          }
+          aria-label="Étapes du parcours"
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {visibleStages
+              .filter((stage) => stage !== "LOST")
+              .map((stage) => {
+                const Icon = STAGE_ICON[stage];
+                const count = stageCounts[stage] || 0;
+                const active = activeStageTab === stage;
                 return (
-                  <li key={m.id} className="grid gap-3 p-3 sm:grid-cols-[auto_1fr_auto] sm:items-start">
-                    <label className="flex items-start pt-1">
-                      <input
-                        type="checkbox"
-                        checked={bulkSelectedMissionIds.has(m.id)}
-                        onChange={() => toggleBulkMission(m.id)}
-                        disabled={isBusy}
-                        className="mt-0.5 h-4 w-4 rounded border-gray-300"
-                      />
-                    </label>
-                    <div className="min-w-0 space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-gray-900">
-                          {m.creatorName || m.talentName || "Talent"} → {brandDisplayName(m)}
-                        </span>
-                        {item.alreadyAttachedCount > 0 && (
-                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
-                            {item.alreadyAttachedCount} déjà attaché
-                            {item.alreadyAttachedCount > 1 ? "s" : ""}
-                          </span>
-                        )}
-                        {hasCooldown && (
-                          <span
-                            className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800"
-                            title={`Au moins un contact a reçu un mail (autre mission) dans les ${readyCooldownDays} derniers jours`}
-                          >
-                            Cooldown {readyCooldownDays}j
-                          </span>
-                        )}
-                      </div>
-                      {m.draftEmailSubject && (
-                        <p className="truncate text-sm text-gray-500" title={m.draftEmailSubject}>
-                          Sujet : {m.draftEmailSubject}
-                        </p>
-                      )}
-                      <div className="flex flex-col gap-1.5">
-                        {item.availableContacts.map((c) => {
-                          const checked = selectedEmails.includes(c.email);
-                          return (
-                            <label
-                              key={c.id}
-                              className="flex cursor-pointer items-start gap-2 rounded-md border border-transparent px-1 py-0.5 hover:border-gray-200 hover:bg-gray-50"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleReadyContact(m.id, c.email)}
-                                disabled={isBusy}
-                                className="mt-1 h-3.5 w-3.5 rounded border-gray-300"
-                              />
-                              <span className="text-sm text-gray-800">
-                                <span className="font-medium">
-                                  {c.firstname}
-                                  {c.lastname ? ` ${c.lastname}` : ""}
-                                </span>
-                                <span className="text-gray-500"> · {c.email}</span>
-                                {c.role ? (
-                                  <span className="text-gray-400"> · {c.role}</span>
-                                ) : null}
-                                {c.principal ? (
-                                  <span className="ml-1 text-xs text-emerald-700">(principal)</span>
-                                ) : null}
-                                {c.blockedByCooldown ? (
-                                  <span className="ml-1 text-xs text-amber-700">(cooldown)</span>
-                                ) : null}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="flex sm:justify-end">
-                      <button
-                        type="button"
-                        disabled={isBusy || selectedEmails.length === 0}
-                        onClick={() => void planifierReadyItem(item)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 disabled:opacity-50"
+                  <button
+                    key={stage}
+                    type="button"
+                    onClick={() => {
+                      setActiveStageTab(stage);
+                      if (stage === "DRAFTED_FOR_VALIDATION") setReadySubTab("cards");
+                    }}
+                    className="group inline-flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition sm:flex-none"
+                    style={
+                      active
+                        ? {
+                            background: isCastingManager ? LICORICE : "#0f172a",
+                            color: "#fff",
+                          }
+                        : {
+                            background: "transparent",
+                            color: isCastingManager ? LICORICE : "#334155",
+                          }
+                    }
+                  >
+                    <span
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                      style={{
+                        background: active ? "rgba(255,255,255,0.12)" : "#f1f5f9",
+                        color: active ? "#fff" : "#64748b",
+                      }}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-semibold leading-tight tracking-tight">
+                        {stageLabelForRole(stage, role)}
+                      </span>
+                      <span
+                        className="block text-[11px] leading-tight"
+                        style={{ opacity: active ? 0.72 : 0.55 }}
                       >
-                        {updatingId === m.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Clock className="h-3.5 w-3.5" />
-                        )}
-                        Planifier
-                      </button>
-                    </div>
-                  </li>
+                        {STAGE_HINT[stage]}
+                      </span>
+                    </span>
+                    <span
+                      className="ml-auto rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
+                      style={{
+                        background: active ? "rgba(255,255,255,0.14)" : "#f1f5f9",
+                        color: active ? "#fff" : "#475569",
+                      }}
+                    >
+                      {count}
+                    </span>
+                  </button>
                 );
               })}
-            </ul>
-          )}
-        </section>
-      ) : (
-      <section className={`grid grid-cols-1 gap-3 ${isCastingManager ? "lg:grid-cols-2" : "lg:grid-cols-3"}`}>
-        {visibleStages.map((stage) => (
+          </div>
+
           <div
-            key={stage}
-            className={`min-w-0 rounded-xl border p-3 ${isCastingManager ? "min-h-[300px] max-h-[calc(100vh-220px)] flex flex-col" : "bg-white border-gray-200"}`}
-            style={
-              isCastingManager
-                ? {
-                    backgroundColor: OLD_LACE,
-                    borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
-                  }
-                : undefined
-            }
+            className="mt-2 flex flex-wrap gap-1.5 border-t pt-2"
+            style={{ borderColor: "#f1f5f9" }}
           >
-            <div
-              className={isCastingManager ? "px-1 pb-2 border-b flex items-center justify-between" : ""}
+            <button
+              type="button"
+              onClick={() => setActiveStageTab("AWAITING_ENRICH")}
+              className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-left transition"
               style={
-                isCastingManager
-                  ? { borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)` }
-                  : undefined
+                activeStageTab === "AWAITING_ENRICH"
+                  ? {
+                      background: isCastingManager ? LICORICE : "#0f172a",
+                      color: "#fff",
+                    }
+                  : {
+                      background: "#f8fafc",
+                      color: isCastingManager ? LICORICE : "#334155",
+                      border: "1px solid #e2e8f0",
+                    }
               }
             >
-              <h2
-                className={isCastingManager ? "text-lg font-semibold" : "text-sm font-semibold text-gray-900"}
-                style={isCastingManager ? { color: LICORICE, fontFamily: "Spectral, serif" } : undefined}
+              <ScanSearch className="h-3.5 w-3.5 shrink-0 opacity-80" />
+              <span className="text-[12px] font-semibold">Enrichissement</span>
+              <span
+                className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
+                style={{
+                  background:
+                    activeStageTab === "AWAITING_ENRICH"
+                      ? "rgba(255,255,255,0.14)"
+                      : "#e2e8f0",
+                }}
               >
-                {isCastingManager ? stageLabelForRole(stage, role) : `${stageLabelForRole(stage, role)} (${grouped[stage].length})`}
-              </h2>
-              {isCastingManager ? (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-white">{grouped[stage].length}</span>
-              ) : null}
+                {awaitingEnrichMissions.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveStageTab("BLOCKED")}
+              className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-left transition"
+              style={
+                activeStageTab === "BLOCKED"
+                  ? {
+                      background: isCastingManager ? LICORICE : "#0f172a",
+                      color: "#fff",
+                    }
+                  : {
+                      background: "#f8fafc",
+                      color: isCastingManager ? LICORICE : "#334155",
+                      border: "1px solid #e2e8f0",
+                    }
+              }
+            >
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0 opacity-80" />
+              <span className="text-[12px] font-semibold">Déjà contactées</span>
+              <span className="text-[11px] opacity-60">
+                {blockedBrandClusters.length} · 20 j
+              </span>
+              <span
+                className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
+                style={{
+                  background:
+                    activeStageTab === "BLOCKED" ? "rgba(255,255,255,0.14)" : "#e2e8f0",
+                }}
+              >
+                {blockedBrandClusters.length}
+              </span>
+            </button>
+            {visibleStages.includes("LOST") && (
+              <button
+                type="button"
+                onClick={() => setActiveStageTab("LOST")}
+                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-left transition"
+                style={
+                  activeStageTab === "LOST"
+                    ? {
+                        background: isCastingManager ? LICORICE : "#0f172a",
+                        color: "#fff",
+                      }
+                    : {
+                        background: "#f8fafc",
+                        color: isCastingManager ? LICORICE : "#334155",
+                        border: "1px solid #e2e8f0",
+                      }
+                }
+              >
+                <XCircle className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                <span className="text-[12px] font-semibold">Perdu</span>
+                <span
+                  className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
+                  style={{
+                    background:
+                      activeStageTab === "LOST" ? "rgba(255,255,255,0.14)" : "#e2e8f0",
+                  }}
+                >
+                  {stageCounts.LOST || 0}
+                </span>
+              </button>
+            )}
+          </div>
+        </nav>
+
+        {activeStageTab === "AWAITING_ENRICH" ? (
+        <div
+          className="min-w-0 rounded-2xl border bg-white p-4 md:p-5"
+          style={
+            isCastingManager
+              ? {
+                  borderColor: `color-mix(in srgb, ${OLD_ROSE} 22%, transparent)`,
+                }
+              : { borderColor: "#e2e8f0" }
+          }
+        >
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
+                style={{ background: "#f1f5f9", color: "#475569" }}
+              >
+                <ScanSearch className="h-5 w-5" />
+              </span>
+              <div>
+                <h2
+                  className="text-xl font-semibold tracking-tight"
+                  style={
+                    isCastingManager
+                      ? { color: LICORICE, fontFamily: "Spectral, serif" }
+                      : { color: "#0f172a" }
+                  }
+                >
+                  Enrichissement
+                </h2>
+                <p
+                  className="text-sm"
+                  style={{ color: isCastingManager ? OLD_ROSE : "#64748b" }}
+                >
+                  Contacts CRM à compléter — hors parcours jusqu&apos;à validation
+                </p>
+              </div>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href="/enrichissement?tab=attente"
+                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition hover:bg-slate-50"
+                style={{
+                  borderColor: "#e2e8f0",
+                  color: "#334155",
+                }}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                File CRM
+              </Link>
+              <span
+                className="rounded-md px-2.5 py-1 text-sm font-semibold tabular-nums"
+                style={{ background: "#f1f5f9", color: "#0f172a" }}
+              >
+                {awaitingEnrichMissions.length}
+              </span>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {awaitingEnrichMissions.map((m) => (
+              <article
+                key={m.id}
+                className="min-w-0 overflow-hidden rounded-xl border bg-white p-4 shadow-sm"
+                style={
+                  isCastingManager
+                    ? {
+                        borderColor: `color-mix(in srgb, ${OLD_ROSE} 22%, transparent)`,
+                        borderLeft: `3px solid ${LICORICE}`,
+                      }
+                    : {
+                        borderColor: "#e2e8f0",
+                        borderLeft: "3px solid #0f172a",
+                      }
+                }
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <p
+                      className="text-sm font-semibold"
+                      style={isCastingManager ? { color: LICORICE } : { color: "#0f172a" }}
+                    >
+                      {m.creatorName} → {brandDisplayName(m)}
+                    </p>
+                    <p
+                      className="text-xs"
+                      style={isCastingManager ? { color: OLD_ROSE } : { color: "#64748b" }}
+                    >
+                      {m.talentName || "Talent non renseigné"}
+                      {m.contactsCompletionRequestedAt
+                        ? ` · demandé le ${new Date(
+                            m.contactsCompletionRequestedAt
+                          ).toLocaleDateString("fr-FR", {
+                            day: "numeric",
+                            month: "short",
+                          })}`
+                        : ""}
+                    </p>
+                    {m.draftEmailSubject ? (
+                      <p
+                        className="truncate text-xs opacity-80"
+                        title={m.draftEmailSubject}
+                        style={isCastingManager ? { color: OLD_ROSE } : { color: "#64748b" }}
+                      >
+                        {m.draftEmailSubject}
+                      </p>
+                    ) : null}
+                  </div>
+                  <span
+                    className="rounded-md px-2 py-0.5 text-[11px] font-semibold"
+                    style={{ background: "#f1f5f9", color: "#475569" }}
+                  >
+                    En file
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {m.marqueId ? (
+                    <Link
+                      href={`/marques/${m.marqueId}`}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800"
+                    >
+                      Fiche CRM
+                    </Link>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={updatingId === m.id}
+                    onClick={() => void resolveEnrichissement(m.id)}
+                    className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                    style={{ background: isCastingManager ? LICORICE : "#0f172a" }}
+                  >
+                    {updatingId === m.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
+                    Contacts prêts
+                  </button>
+                  <button
+                    type="button"
+                    disabled={updatingId === m.id}
+                    onClick={() => void deleteMission(m)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Supprimer
+                  </button>
+                </div>
+              </article>
+            ))}
+            {awaitingEnrichMissions.length === 0 && (
+              <p
+                className="col-span-full py-14 text-center text-sm"
+                style={{ color: isCastingManager ? OLD_ROSE : "#64748b" }}
+              >
+                Aucune marque en enrichissement. Utilise « Enrichir » depuis Rédigé
+                pour y envoyer une carte.
+              </p>
+            )}
+          </div>
+        </div>
+        ) : activeStageTab !== "BLOCKED" ? (
+        <div
+          className="min-w-0 rounded-2xl border bg-white p-4 md:p-5"
+          style={
+            isCastingManager
+              ? {
+                  borderColor: `color-mix(in srgb, ${OLD_ROSE} 22%, transparent)`,
+                }
+              : { borderColor: "#e2e8f0" }
+          }
+        >
+          {visibleStages
+            .filter((stage) => stage === activeStageTab)
+            .map((stage) => (
+          <div key={stage} className="min-w-0">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
+                  style={{ background: "#f1f5f9", color: "#475569" }}
+                >
+                  <StageIcon className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2
+                    className="text-xl font-semibold tracking-tight"
+                    style={
+                      isCastingManager
+                        ? { color: LICORICE, fontFamily: "Spectral, serif" }
+                        : { color: "#0f172a" }
+                    }
+                  >
+                    {stageLabelForRole(stage, role)}
+                  </h2>
+                  <p
+                    className="text-sm"
+                    style={{ color: isCastingManager ? OLD_ROSE : "#64748b" }}
+                  >
+                    {STAGE_HINT[stage]} · {missionsForStage(stage).length} carte
+                    {missionsForStage(stage).length === 1 ? "" : "s"}
+                  </p>
+                </div>
+              </div>
+              <span
+                className="rounded-full px-3 py-1 text-sm font-semibold"
+                style={{
+                  background: isCastingManager ? OLD_LACE : "#f1f5f9",
+                  color: isCastingManager ? LICORICE : "#0f172a",
+                }}
+              >
+                {missionsForStage(stage).length}
+              </span>
+            </div>
+
+            {stage === "DRAFTED_FOR_VALIDATION" && canUseReadyTab && (
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <div
+                  className="flex flex-wrap gap-1 rounded-xl border p-1"
+                  style={{ borderColor: "#e2e8f0", background: "#f8fafc" }}
+                >
+                  {(
+                    [
+                      {
+                        id: "cards" as const,
+                        label: "Cartes",
+                        Icon: Sparkles,
+                        count: missionsForStage(stage).length,
+                      },
+                      {
+                        id: "contacts" as const,
+                        label: "Contacts en base",
+                        Icon: Database,
+                        count: readyLoading && readySubTab !== "contacts" ? "…" : readyItems.length,
+                      },
+                      {
+                        id: "enrich" as const,
+                        label: "Sans contact",
+                        Icon: UserPlus,
+                        count: readyLoading && readySubTab !== "enrich" ? "…" : enrichItems.length,
+                      },
+                    ] as const
+                  ).map((tab) => {
+                    const active = readySubTab === tab.id;
+                    const Icon = tab.Icon;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => {
+                          setReadySubTab(tab.id);
+                          if (tab.id !== "cards") void loadReadyToSend();
+                        }}
+                        className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition"
+                        style={
+                          active
+                            ? {
+                                background: isCastingManager ? LICORICE : "#0f172a",
+                                color: "#fff",
+                              }
+                            : {
+                                background: "transparent",
+                                color: isCastingManager ? LICORICE : "#334155",
+                              }
+                        }
+                      >
+                        <Icon className="h-4 w-4 opacity-80" />
+                        {tab.label}
+                        <span
+                          className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
+                          style={{
+                            background: active ? "rgba(255,255,255,0.16)" : "#e2e8f0",
+                            color: active ? "#fff" : "#475569",
+                          }}
+                        >
+                          {tab.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {(readySubTab === "contacts" || readySubTab === "enrich") && (
+                  <button
+                    type="button"
+                    onClick={() => void loadReadyToSend()}
+                    disabled={readyLoading || bulkScheduling}
+                    className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50"
+                    style={{ borderColor: "#e2e8f0" }}
+                  >
+                    {readyLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    Relancer l&apos;analyse
+                  </button>
+                )}
+              </div>
+            )}
+
+            {stage === "DRAFTED_FOR_VALIDATION" &&
+              canUseReadyTab &&
+              readySubTab === "contacts" && (
+              <div className="mb-3 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleBulkAll}
+                    disabled={readyItems.length === 0 || bulkScheduling}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-50"
+                  >
+                    {bulkSelectedMissionIds.size === readyItems.length && readyItems.length > 0
+                      ? "Tout désélectionner"
+                      : "Tout sélectionner"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void planifierBulkReady()}
+                    disabled={bulkSelectedMissionIds.size === 0 || bulkScheduling}
+                    className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {bulkScheduling ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Clock className="h-3.5 w-3.5" />
+                    )}
+                    Planifier la sélection ({bulkSelectedMissionIds.size})
+                  </button>
+                </div>
+                {readyLoading && readyItems.length === 0 ? (
+                  <div className="flex items-center gap-2 py-8 text-sm text-gray-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Chargement…
+                  </div>
+                ) : readyItems.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-gray-500">
+                    Aucune mission rédigée avec un contact email disponible pour ce filtre.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100 bg-white">
+                    {readyItems.map((item) => {
+                      const m = item.mission;
+                      const selectedEmails = selectedEmailsByMission[m.id] || [];
+                      const hasCooldown = item.availableContacts.some((c) => c.blockedByCooldown);
+                      const isBusy = updatingId === m.id || bulkScheduling;
+                      return (
+                        <li
+                          key={m.id}
+                          className="grid gap-3 p-3 sm:grid-cols-[auto_1fr_auto] sm:items-start"
+                        >
+                          <label className="flex items-start pt-1">
+                            <input
+                              type="checkbox"
+                              checked={bulkSelectedMissionIds.has(m.id)}
+                              onChange={() => toggleBulkMission(m.id)}
+                              disabled={isBusy}
+                              className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                            />
+                          </label>
+                          <div className="min-w-0 space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-gray-900">
+                                {m.creatorName || m.talentName || "Talent"} → {brandDisplayName(m)}
+                              </span>
+                              {item.alreadyAttachedCount > 0 && (
+                                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                                  {item.alreadyAttachedCount} déjà attaché
+                                  {item.alreadyAttachedCount > 1 ? "s" : ""}
+                                </span>
+                              )}
+                              {hasCooldown && (
+                                <span
+                                  className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800"
+                                  title={`Au moins un contact a reçu un mail (autre mission) dans les ${readyCooldownDays} derniers jours`}
+                                >
+                                  Cooldown {readyCooldownDays}j
+                                </span>
+                              )}
+                            </div>
+                            {m.draftEmailSubject && (
+                              <p
+                                className="truncate text-sm text-gray-500"
+                                title={m.draftEmailSubject}
+                              >
+                                Sujet : {m.draftEmailSubject}
+                              </p>
+                            )}
+                            <div className="flex flex-col gap-1.5">
+                              {item.availableContacts.map((c) => {
+                                const checked = selectedEmails.includes(c.email);
+                                return (
+                                  <label
+                                    key={c.id}
+                                    className="flex cursor-pointer items-start gap-2 rounded-md border border-transparent px-1 py-0.5 hover:border-gray-200 hover:bg-gray-50"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleReadyContact(m.id, c.email)}
+                                      disabled={isBusy}
+                                      className="mt-1 h-3.5 w-3.5 rounded border-gray-300"
+                                    />
+                                    <span className="text-sm text-gray-800">
+                                      <span className="font-medium">
+                                        {c.firstname}
+                                        {c.lastname ? ` ${c.lastname}` : ""}
+                                      </span>
+                                      <span className="text-gray-500"> · {c.email}</span>
+                                      {c.role ? (
+                                        <span className="text-gray-400"> · {c.role}</span>
+                                      ) : null}
+                                      {c.principal ? (
+                                        <span className="ml-1 text-xs text-emerald-700">
+                                          (principal)
+                                        </span>
+                                      ) : null}
+                                      {c.blockedByCooldown ? (
+                                        <span className="ml-1 text-xs text-amber-700">
+                                          (cooldown)
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
+                            <button
+                              type="button"
+                              disabled={isBusy || selectedEmails.length === 0}
+                              onClick={() => void planifierReadyItem(item)}
+                              className="inline-flex items-center justify-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 disabled:opacity-50"
+                            >
+                              {updatingId === m.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Clock className="h-3.5 w-3.5" />
+                              )}
+                              Planifier
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => void queueForEnrichissement(m.id)}
+                              className="inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition hover:bg-slate-50 disabled:opacity-50"
+                              style={{
+                                borderColor: "#e2e8f0",
+                                background: "#fff",
+                                color: "#0f172a",
+                              }}
+                              title="Bascule dans l’onglet Enrichissement du pipeline"
+                            >
+                              <ScanSearch className="h-3.5 w-3.5" />
+                              Enrichir
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {stage === "DRAFTED_FOR_VALIDATION" &&
+              canUseReadyTab &&
+              readySubTab === "enrich" && (
+              <div className="mb-3 space-y-3">
+                {readyLoading && enrichItems.length === 0 ? (
+                  <div className="flex items-center gap-2 py-8 text-sm text-gray-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Chargement…
+                  </div>
+                ) : enrichItems.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-gray-500">
+                    Aucune marque à enrichir — toutes les rédigées ont déjà un contact en base (ou
+                    sont bloquées 20 j).
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-gray-100 rounded-lg border border-amber-100 bg-white">
+                    {enrichItems.map((item) => {
+                      const m = item.mission;
+                      return (
+                        <li
+                          key={m.id}
+                          className="flex flex-wrap items-center justify-between gap-3 p-3"
+                        >
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-gray-900">
+                                {m.creatorName || m.talentName || "Talent"} →{" "}
+                                {brandDisplayName(m)}
+                              </span>
+                              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+                                {item.reason === "no_marque"
+                                  ? "Pas de fiche CRM"
+                                  : "Aucun email en fiche"}
+                              </span>
+                            </div>
+                            {m.draftEmailSubject && (
+                              <p
+                                className="truncate text-sm text-gray-500"
+                                title={m.draftEmailSubject}
+                              >
+                                Sujet : {m.draftEmailSubject}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={updatingId === m.id}
+                            onClick={() => void queueForEnrichissement(m.id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition hover:bg-slate-50 disabled:opacity-50"
+                            style={{
+                              borderColor: "#e2e8f0",
+                              background: "#fff",
+                              color: "#0f172a",
+                            }}
+                          >
+                            {updatingId === m.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <ScanSearch className="h-3.5 w-3.5" />
+                            )}
+                            Enrichir
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {!(
+              stage === "DRAFTED_FOR_VALIDATION" &&
+              canUseReadyTab &&
+              readySubTab !== "cards"
+            ) && (
+            <>
             {stage === "SENT" && sentReminderCount > 0 && (
-              <p className="mt-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1">
+              <p className="mb-3 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                 {sentReminderCount} relance{sentReminderCount > 1 ? "s" : ""} à faire (3 jours ouvrés sans réponse)
               </p>
             )}
-            <div className={isCastingManager ? "mt-3 space-y-3 overflow-y-auto" : "mt-2 space-y-2"}>
-              {grouped[stage].map((m) => (
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              {missionsForStage(stage).map((m) => (
                 (() => {
                   const reminderDue = manualReminderDue(m) && !ackedReminderIds.has(m.id);
                   return (
                 <article
                   key={m.id}
+                  id={`mission-card-${m.id}`}
                   className={
                     isCastingManager
-                      ? "min-w-0 overflow-hidden bg-white rounded-xl border shadow-sm p-3"
-                      : "min-w-0 overflow-hidden rounded-lg border border-gray-200 p-2"
+                      ? "min-w-0 overflow-hidden bg-white rounded-2xl border shadow-sm p-4 transition hover:-translate-y-0.5 hover:shadow-md"
+                      : "min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                   }
                   style={
                     isCastingManager
                       ? {
                           borderColor: `color-mix(in srgb, ${OLD_ROSE} 30%, transparent)`,
-                          borderLeft: `4px solid ${columnAccentColor(stage)}`,
+                          borderLeft: `4px solid ${columnAccentColor(stage, isCastingManager)}`,
                         }
                       : undefined
                   }
@@ -1907,6 +2883,25 @@ export function ProspectingPipelineClient() {
                           </button>
                         )
                       )}
+                    {(role === "ADMIN" ||
+                      role === "HEAD_OF" ||
+                      role === "STRATEGY_PLANNER" ||
+                      role === "CASTING_MANAGER") &&
+                      stage !== "SENT" &&
+                      stage !== "RESPONSE_RECEIVED" &&
+                      stage !== "IN_NEGOTIATION" &&
+                      stage !== "WON" && (
+                        <button
+                          type="button"
+                          disabled={updatingId === m.id}
+                          onClick={() => void deleteMission(m)}
+                          className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                          title="Supprimer définitivement cette carte"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Supprimer
+                        </button>
+                      )}
                     {(role === "ADMIN" || role === "HEAD_OF") && (
                       <>
                         {stage !== "WON" && (
@@ -1937,7 +2932,7 @@ export function ProspectingPipelineClient() {
                       <div className="grid min-w-0 gap-2 rounded-md border border-dashed border-gray-300 bg-gray-50 p-2">
                         <div className="flex flex-col gap-2">
                           <span className="text-xs font-medium text-gray-600">
-                            Pas les contacts ? Cherche la marque dans l&apos;app et HubSpot
+                            Pas les contacts ? Cherche la marque dans la base interne
                           </span>
                           <button
                             type="button"
@@ -2033,8 +3028,8 @@ export function ProspectingPipelineClient() {
                           !contactSearchByMission[m.id]?.loading &&
                           (contactSearchByMission[m.id]?.results.length ?? 0) === 0 && (
                             <p className="text-xs text-gray-500">
-                              Aucun contact trouvé pour « {brandDisplayName(m)} » dans l&apos;app ni
-                              dans HubSpot. Saisis-les manuellement ci-dessous.
+                              Aucun contact trouvé pour « {brandDisplayName(m)} » dans la base
+                              interne. Saisis-les manuellement ci-dessous.
                             </p>
                           )}
                         {(contactSearchByMission[m.id]?.results.length ?? 0) > 0 && (
@@ -2058,14 +3053,8 @@ export function ProspectingPipelineClient() {
                                           sc.email ||
                                           "Contact sans nom"}
                                       </span>
-                                      <span
-                                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                                          sc.source === "hubspot"
-                                            ? "bg-orange-50 text-orange-600"
-                                            : "bg-indigo-50 text-indigo-600"
-                                        }`}
-                                      >
-                                        {sc.source === "hubspot" ? "HubSpot" : "App"}
+                                      <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">
+                                        App
                                       </span>
                                       {!scEmail && (
                                         <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
@@ -2205,21 +3194,195 @@ export function ProspectingPipelineClient() {
                   );
                 })()
               ))}
-              {grouped[stage].length === 0 && (
+              {missionsForStage(stage).length === 0 && (
                 <p
-                  className={`text-xs ${isCastingManager ? "text-center py-8 opacity-70" : "text-gray-500"}`}
+                  className={`text-sm ${isCastingManager ? "text-center py-16 opacity-70" : "text-center py-16 text-gray-500"}`}
                   style={isCastingManager ? { color: OLD_ROSE } : undefined}
                 >
-                  Aucune carte.
+                  Rien ici pour l&apos;instant — change d&apos;onglet ou rafraîchis.
                 </p>
               )}
             </div>
+            </>
+            )}
           </div>
         ))}
+        </div>
+        ) : (
+        <div
+          className="min-w-0 rounded-2xl border bg-white p-4 md:p-5"
+          style={
+            isCastingManager
+              ? {
+                  borderColor: `color-mix(in srgb, ${OLD_ROSE} 22%, transparent)`,
+                }
+              : { borderColor: "#e2e8f0" }
+          }
+        >
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
+                style={{ background: "#f1f5f9", color: "#475569" }}
+              >
+                <ShieldAlert className="h-5 w-5" />
+              </span>
+              <div>
+                <h2
+                  className="text-xl font-semibold tracking-tight"
+                  style={
+                    isCastingManager
+                      ? { color: LICORICE, fontFamily: "Spectral, serif" }
+                      : { color: "#0f172a" }
+                  }
+                >
+                  Déjà contactées
+                </h2>
+                <p
+                  className="text-sm"
+                  style={{ color: isCastingManager ? OLD_ROSE : "#64748b" }}
+                >
+                  1 vague / marque / 20 j — déblocage automatique
+                </p>
+              </div>
+            </div>
+            <span
+              className="rounded-md px-2.5 py-1 text-sm font-semibold tabular-nums"
+              style={{ background: "#f1f5f9", color: "#0f172a" }}
+            >
+              {blockedBrandClusters.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {blockedBrandClusters.map((cluster) => {
+              const sentTalents = cluster.talents.filter((t) => t.sentAt);
+              const waitingTalents = cluster.talents.filter((t) => !t.sentAt);
+              const sentNames = [
+                ...new Set(sentTalents.map((t) => t.name).filter(Boolean)),
+              ];
+              return (
+                <article
+                  key={cluster.key}
+                  className={
+                    isCastingManager
+                      ? "min-w-0 overflow-hidden bg-white rounded-xl border shadow-sm p-3"
+                      : "min-w-0 overflow-hidden rounded-lg border border-amber-200 bg-amber-50/40 p-2"
+                  }
+                  style={
+                    isCastingManager
+                      ? {
+                          borderColor: `color-mix(in srgb, ${OLD_ROSE} 30%, transparent)`,
+                          borderLeft: "4px solid #F59E0B",
+                        }
+                      : undefined
+                  }
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p
+                        className="text-sm font-semibold min-w-0 truncate"
+                        style={isCastingManager ? { color: LICORICE } : { color: "#111827" }}
+                        title={cluster.brandLabel}
+                      >
+                        {cluster.brandLabel}
+                      </p>
+                      <p
+                        className="mt-0.5 text-[11px] font-medium truncate"
+                        style={isCastingManager ? { color: "#B45309" } : { color: "#92400E" }}
+                        title={sentNames.join(", ")}
+                      >
+                        Déjà contactée pour : {sentNames.join(", ") || "—"}
+                      </p>
+                      {cluster.variants.length > 1 && (
+                        <p
+                          className="mt-0.5 text-[11px] truncate opacity-70"
+                          title={cluster.variants.join(" · ")}
+                          style={isCastingManager ? { color: OLD_ROSE } : { color: "#92400E" }}
+                        >
+                          aussi :{" "}
+                          {cluster.variants
+                            .filter((v) => v !== cluster.brandLabel)
+                            .slice(0, 3)
+                            .join(" · ")}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      className="shrink-0 inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900"
+                      title={`Dernier envoi le ${cluster.lastSentAt.toLocaleDateString("fr-FR")}`}
+                    >
+                      Bloqué {cluster.daysLeft} j
+                    </span>
+                  </div>
+                  {sentTalents.length > 0 && (
+                    <div className="mt-2">
+                      <p
+                        className="text-[11px] font-medium uppercase tracking-wide"
+                        style={isCastingManager ? { color: OLD_ROSE } : { color: "#92400E" }}
+                      >
+                        Envoyé
+                      </p>
+                      <ul className="mt-1 space-y-0.5">
+                        {sentTalents.map((t) => (
+                          <li
+                            key={t.missionId}
+                            className="text-xs"
+                            style={isCastingManager ? { color: LICORICE } : { color: "#374151" }}
+                          >
+                            {t.name}
+                            {t.sentAt ? (
+                              <span className="opacity-60">
+                                {" "}
+                                · {new Date(t.sentAt).toLocaleDateString("fr-FR")}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {waitingTalents.length > 0 && (
+                    <div className="mt-2">
+                      <p
+                        className="text-[11px] font-medium uppercase tracking-wide"
+                        style={isCastingManager ? { color: OLD_ROSE } : { color: "#92400E" }}
+                      >
+                        Autres talents bloqués ({waitingTalents.length})
+                      </p>
+                      <ul className="mt-1 space-y-0.5">
+                        {waitingTalents.map((t) => (
+                          <li
+                            key={t.missionId}
+                            className="text-xs"
+                            style={isCastingManager ? { color: LICORICE, opacity: 0.85 } : { color: "#6B7280" }}
+                          >
+                            {t.name}
+                            <span className="opacity-60">
+                              {" "}
+                              · {STAGE_LABEL[t.stage] || t.stage}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+            {blockedBrandClusters.length === 0 && (
+              <p
+                className={`text-sm ${isCastingManager ? "text-center py-16 opacity-70" : "text-center py-16 text-gray-500"}`}
+                style={isCastingManager ? { color: OLD_ROSE } : undefined}
+              >
+                Aucune marque bloquée — tout est jouable.
+              </p>
+            )}
+          </div>
+        </div>
+        )}
       </section>
-      )}
 
-      {loading && pipelineView === "pipeline" && (
+      {loading && (
         <div className="inline-flex items-center gap-2 text-sm text-gray-500">
           <Loader2 className="h-4 w-4 animate-spin" />
           Chargement...

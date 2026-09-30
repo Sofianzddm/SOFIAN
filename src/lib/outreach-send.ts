@@ -30,9 +30,11 @@ import {
 import {
   applyCastingTemplateVars,
   buildOutreachRelanceTemplate,
-  CASTING_COOLDOWN_DAYS,
   LEYNA_FROM_EMAIL,
 } from "@/lib/casting-auto-send";
+import {
+  evaluateEmailSendGuard,
+} from "@/lib/contact-cooldown";
 import {
   findContactIdByEmail,
   markContactContactedFromApp,
@@ -119,26 +121,20 @@ function isValidEmail(value: string | undefined | null): boolean {
 }
 
 /**
- * Cooldown anti-spam croisé avec le pipeline talent : si l'email a reçu un
- * mail via contact_missions dans les CASTING_COOLDOWN_DAYS derniers jours,
- * on bloque pour éviter le double contact.
+ * Plafond 1 mail / mois sur la ligne outreach clients.
  */
-async function isEmailBlockedByPipelineCooldown(email: string): Promise<boolean> {
-  const since = new Date(Date.now() - CASTING_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
-  const rows = await prisma.$queryRaw<Array<{ sentMessageIds: unknown }>>`
-    SELECT "sentMessageIds"
-    FROM "contact_missions"
-    WHERE "sentAt" >= ${since}
-      AND "sentMessageIds" IS NOT NULL
-  `;
-  const lowered = email.toLowerCase();
-  for (const row of rows) {
-    if (!row.sentMessageIds || typeof row.sentMessageIds !== "object") continue;
-    for (const key of Object.keys(row.sentMessageIds as Record<string, unknown>)) {
-      if (key.toLowerCase() === lowered) return true;
-    }
-  }
-  return false;
+async function isEmailBlockedByPipelineCooldown(email: string): Promise<{
+  blocked: boolean;
+  message?: string;
+  canForce?: boolean;
+}> {
+  const guard = await evaluateEmailSendGuard(email, { line: "outreach" });
+  if (guard.allowed) return { blocked: false };
+  return {
+    blocked: true,
+    message: guard.message,
+    canForce: guard.canForce,
+  };
 }
 
 /**
@@ -251,20 +247,29 @@ export async function executeOutreachSend(
 
   const fromEmail = outreachFromEmail(target);
 
-  // Garde-fous « déjà contacté » : sauf si l'utilisateur force l'envoi, on ne
-  // bloque ni ne replanifie automatiquement — on remonte une demande de
-  // confirmation (« Envoyer quand même » ou « Mettre en attente »).
+  // Opt-out : jamais bypassable.
+  const optOutGuard = await evaluateEmailSendGuard(target.email, {
+    force: true,
+  });
+  if (!optOutGuard.allowed) {
+    return { ok: false, error: optOutGuard.message };
+  }
+
+  // Plafond 1/mois outreach — bypass via force (projet urgent).
   if (!input.force) {
-    if (await isEmailBlockedByPipelineCooldown(target.email)) {
+    const pipelineGuard = await isEmailBlockedByPipelineCooldown(target.email);
+    if (pipelineGuard.blocked) {
       return {
         ok: false,
-        needsConfirmation: true,
-        error: `${target.email} a déjà reçu un mail (pipeline talent) dans les ${CASTING_COOLDOWN_DAYS} derniers jours.`,
+        needsConfirmation: pipelineGuard.canForce !== false,
+        error:
+          pipelineGuard.message ||
+          `${target.email} a déjà reçu un mail outreach ce mois-ci (max 1/mois).`,
       };
     }
 
     // Garde-fou boîte expéditrice : déjà contacté < 45j via un autre canal
-    // (séquence HubSpot, mail manuel…).
+    // (séquence HubSpot, mail manuel…) — confirmation possible.
     const externalContact = await detectRecentExternalContact(
       fromEmail,
       target.id,
@@ -476,12 +481,20 @@ export async function executeOutreachSchedule(
 
   const fromEmail = outreachFromEmail(target);
 
+  const optOutGuard = await evaluateEmailSendGuard(target.email, { force: true });
+  if (!optOutGuard.allowed) {
+    return { ok: false, error: optOutGuard.message };
+  }
+
   if (!input.force) {
-    if (await isEmailBlockedByPipelineCooldown(target.email)) {
+    const pipelineGuard = await isEmailBlockedByPipelineCooldown(target.email);
+    if (pipelineGuard.blocked) {
       return {
         ok: false,
-        needsConfirmation: true,
-        error: `${target.email} a déjà reçu un mail (pipeline talent) dans les ${CASTING_COOLDOWN_DAYS} derniers jours.`,
+        needsConfirmation: pipelineGuard.canForce !== false,
+        error:
+          pipelineGuard.message ||
+          `${target.email} a déjà reçu un mail outreach ce mois-ci (max 1/mois).`,
       };
     }
 
