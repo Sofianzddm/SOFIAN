@@ -563,9 +563,12 @@ export default function FacturesPage() {
   const [relanceToast, setRelanceToast] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
   const handleSendRelance = useCallback(
-    async (docId: string, level: 1 | 2 | 3) => {
+    async (docId: string, level: 1 | 2 | 3, clientEmail: string) => {
       const ordinal = level === 1 ? "1ère" : level === 2 ? "2ème" : "3ème";
-      if (!window.confirm(`Envoyer la ${ordinal} relance par email depuis comptabilite@glowupagence.fr ?`)) {
+      const email = clientEmail.trim();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setRelanceToast({ kind: "error", message: "Indique un mail client valide." });
+        setTimeout(() => setRelanceToast(null), 6000);
         return;
       }
       setRelanceLoadingId(docId);
@@ -573,7 +576,7 @@ export default function FacturesPage() {
         const r = await fetch(`/api/documents/${docId}/relance`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ level }),
+          body: JSON.stringify({ level, clientEmail: email }),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -581,7 +584,7 @@ export default function FacturesPage() {
         } else {
           setRelanceToast({
             kind: "success",
-            message: `${ordinal} relance envoyée à ${data.sentTo ?? "le client"}`,
+            message: `${ordinal} relance envoyée à ${data.sentTo ?? email}`,
           });
           await fetchFactures();
         }
@@ -1988,11 +1991,17 @@ function RelancesTab({
   perPage: number;
   onPageChange: (p: number) => void;
   onPerPageChange: (p: number) => void;
-  onSendRelance: (id: string, level: 1 | 2 | 3) => void;
+  onSendRelance: (id: string, level: 1 | 2 | 3, clientEmail: string) => void;
   loadingId: string | null;
   statutFilter: string;
 }) {
   const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
+  const [draft, setDraft] = useState<{
+    docId: string;
+    level: 1 | 2 | 3;
+    clientLabel: string;
+    email: string;
+  } | null>(null);
 
   if (items.length === 0) {
     return (
@@ -2131,7 +2140,14 @@ function RelancesTab({
                     {nextLevel ? (
                       <button
                         type="button"
-                        onClick={() => onSendRelance(doc.id, nextLevel)}
+                        onClick={() =>
+                          setDraft({
+                            docId: doc.id,
+                            level: nextLevel,
+                            clientLabel: marqueNom,
+                            email: nextEmail || "",
+                          })
+                        }
                         disabled={isLoading}
                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
                           nextLevel === 1
@@ -2143,7 +2159,7 @@ function RelancesTab({
                         title={
                           nextEmail
                             ? `Envoyer à ${nextEmail} depuis comptabilite@glowupagence.fr`
-                            : "Envoyer depuis comptabilite@glowupagence.fr"
+                            : "Indiquer le mail du client puis envoyer"
                         }
                       >
                         {isLoading ? (
@@ -2208,6 +2224,65 @@ function RelancesTab({
           </button>
         </div>
       </div>
+
+      {draft && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => (loadingId ? null : setDraft(null))}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold text-[#1A1110]">
+              {draft.level === 1 ? "1ère" : draft.level === 2 ? "2ème" : "3ème"} relance —{" "}
+              {draft.clientLabel}
+            </h3>
+            <p className="mt-1 text-xs text-gray-500">Depuis comptabilite@glowupagence.fr</p>
+            <label className="mt-4 block text-xs font-medium text-gray-600">
+              Mail du client
+              <input
+                type="email"
+                autoFocus
+                value={draft.email}
+                onChange={(e) =>
+                  setDraft((prev) => (prev ? { ...prev, email: e.target.value } : prev))
+                }
+                placeholder="contact@marque.com"
+                disabled={!!loadingId}
+                className="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50"
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={!!loadingId}
+                onClick={() => setDraft(null)}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={!!loadingId || !draft.email.trim()}
+                onClick={() => {
+                  const payload = draft;
+                  setDraft(null);
+                  void onSendRelance(payload.docId, payload.level, payload.email);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#1A1110] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {loadingId === draft.docId ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Mail className="h-3.5 w-3.5" />
+                )}
+                Envoyer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

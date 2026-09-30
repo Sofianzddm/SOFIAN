@@ -112,6 +112,16 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const forcedLevel: number | undefined = body?.level;
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const rawOverride =
+      typeof body?.clientEmail === "string"
+        ? body.clientEmail.trim()
+        : typeof body?.to === "string"
+          ? body.to.trim()
+          : "";
+    if (rawOverride && !EMAIL_RE.test(rawOverride)) {
+      return NextResponse.json({ error: "Adresse email client invalide" }, { status: 400 });
+    }
 
     const document = await prisma.document.findUnique({
       where: { id },
@@ -173,13 +183,26 @@ export async function POST(
       );
     }
 
-    const { to, destinataireNom } = resolveRelanceDestinataire(document);
+    // Si un mail client est fourni à l'envoi, on le persiste pour les prochaines relances.
+    if (rawOverride) {
+      await prisma.document.update({
+        where: { id },
+        data: { clientEmail: rawOverride },
+      });
+      (document as { clientEmail: string | null }).clientEmail = rawOverride;
+    }
+
+    const resolved = resolveRelanceDestinataire(document);
+    const to = rawOverride || resolved.to;
+    const destinataireNom = rawOverride
+      ? nomForEmail(document, rawOverride) || resolved.destinataireNom
+      : resolved.destinataireNom;
 
     if (!to || !to.includes("@")) {
       return NextResponse.json(
         {
           error:
-            "Aucune adresse email destinataire n'est renseignée (client ou contact marque). Ajoutez un contact à la marque puis recommencez.",
+            "Aucune adresse email destinataire n'est renseignée. Indique le mail du client puis recommence.",
         },
         { status: 400 }
       );

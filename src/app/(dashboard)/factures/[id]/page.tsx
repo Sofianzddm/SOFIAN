@@ -282,6 +282,8 @@ export default function FactureDetailPage() {
   const [reconcileTransactions, setReconcileTransactions] = useState<ReconcileTransaction[]>([]);
   const [relanceLoading, setRelanceLoading] = useState(false);
   const [relanceToast, setRelanceToast] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [relanceEmail, setRelanceEmail] = useState("");
+  const [relanceEmailSaving, setRelanceEmailSaving] = useState(false);
   const [relancePreview, setRelancePreview] = useState<{
     level: 1 | 2 | 3;
     subject: string;
@@ -322,6 +324,7 @@ export default function FactureDetailPage() {
       }
       const data = await r.json();
       setDoc(data);
+      setRelanceEmail(String(data?.clientEmail || "").trim());
     } catch {
       setError("Erreur réseau");
     } finally {
@@ -683,11 +686,59 @@ export default function FactureDetailPage() {
     }
   }, [id, commentContent, fetchDoc]);
 
+  const saveRelanceEmail = useCallback(async () => {
+    if (!id) return false;
+    const email = relanceEmail.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setRelanceToast({ kind: "error", message: "Adresse email client invalide" });
+      setTimeout(() => setRelanceToast(null), 6000);
+      return false;
+    }
+    setRelanceEmailSaving(true);
+    try {
+      const r = await fetch(`/api/documents/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientEmail: email || null }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setRelanceToast({ kind: "error", message: data.error || "Impossible d'enregistrer l'email" });
+        setTimeout(() => setRelanceToast(null), 6000);
+        return false;
+      }
+      setDoc((prev) => (prev ? { ...prev, clientEmail: email || null } : prev));
+      return true;
+    } catch (e) {
+      setRelanceToast({
+        kind: "error",
+        message: e instanceof Error ? e.message : "Erreur réseau",
+      });
+      setTimeout(() => setRelanceToast(null), 6000);
+      return false;
+    } finally {
+      setRelanceEmailSaving(false);
+    }
+  }, [id, relanceEmail]);
+
   const handleSendRelance = useCallback(
     async (level: 1 | 2 | 3) => {
       if (!id) return;
       const ordinal = level === 1 ? "1ère" : level === 2 ? "2ème" : "3ème";
-      if (!window.confirm(`Envoyer la ${ordinal} relance par email depuis comptabilite@glowupagence.fr ?`)) {
+      const email = relanceEmail.trim();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setRelanceToast({
+          kind: "error",
+          message: "Indique le mail du client avant d'envoyer la relance.",
+        });
+        setTimeout(() => setRelanceToast(null), 6000);
+        return;
+      }
+      if (
+        !window.confirm(
+          `Envoyer la ${ordinal} relance à ${email} depuis comptabilite@glowupagence.fr ?`
+        )
+      ) {
         return;
       }
       setRelanceLoading(true);
@@ -695,7 +746,7 @@ export default function FactureDetailPage() {
         const r = await fetch(`/api/documents/${id}/relance`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ level }),
+          body: JSON.stringify({ level, clientEmail: email }),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -703,8 +754,9 @@ export default function FactureDetailPage() {
         } else {
           setRelanceToast({
             kind: "success",
-            message: `${ordinal} relance envoyée à ${data.sentTo ?? "le client"}`,
+            message: `${ordinal} relance envoyée à ${data.sentTo ?? email}`,
           });
+          setDoc((prev) => (prev ? { ...prev, clientEmail: email } : prev));
           await fetchDoc();
         }
       } catch (e) {
@@ -714,7 +766,7 @@ export default function FactureDetailPage() {
         setTimeout(() => setRelanceToast(null), 6000);
       }
     },
-    [id, fetchDoc]
+    [id, fetchDoc, relanceEmail]
   );
 
   const handlePreviewRelance = useCallback(
@@ -1481,7 +1533,7 @@ export default function FactureDetailPage() {
                   <button
                     type="button"
                     onClick={() => handleSendRelance(nextRelanceLevel)}
-                    disabled={relanceLoading}
+                    disabled={relanceLoading || relanceEmailSaving}
                     className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 ${
                       nextRelanceLevel === 1
                         ? "bg-amber-500 hover:bg-amber-600"
@@ -1504,6 +1556,41 @@ export default function FactureDetailPage() {
                     {joursRetard} j de retard
                   </span>
                 ) : null}
+              </div>
+              <div className="px-6 py-3 border-b border-gray-100 bg-gray-50/60">
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  Mail du client (destinataire des relances)
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="email"
+                    value={relanceEmail}
+                    onChange={(e) => setRelanceEmail(e.target.value)}
+                    placeholder="contact@marque.com"
+                    disabled={relanceLoading || relanceEmailSaving || isCancelled || doc.statut === "PAYE"}
+                    className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-[#1A1110] placeholder:text-gray-400 disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveRelanceEmail()}
+                    disabled={
+                      relanceLoading ||
+                      relanceEmailSaving ||
+                      isCancelled ||
+                      doc.statut === "PAYE" ||
+                      relanceEmail.trim() === String(doc.clientEmail || "").trim()
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {relanceEmailSaving ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : null}
+                    Enregistrer
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[11px] text-gray-500">
+                  Obligatoire pour envoyer une relance. Sera aussi utilisé pour les prochaines.
+                </p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
