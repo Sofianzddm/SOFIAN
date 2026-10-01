@@ -79,6 +79,21 @@ export async function GET(
         livrables: {
           orderBy: { createdAt: "asc" },
         },
+        cycles: {
+          orderBy: { numero: "asc" },
+          select: {
+            id: true,
+            numero: true,
+            description: true,
+            montantBrut: true,
+            commissionEuros: true,
+            montantNet: true,
+            statut: true,
+            factureTalentUrl: true,
+            factureTalentRecueAt: true,
+            paidAt: true,
+          },
+        },
         documents: {
           select: {
             id: true,

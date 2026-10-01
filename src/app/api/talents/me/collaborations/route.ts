@@ -55,36 +55,63 @@ export async function GET(request: NextRequest) {
         livrables: {
           orderBy: { createdAt: "asc" },
         },
+        cycles: {
+          orderBy: { numero: "asc" },
+          select: {
+            id: true,
+            numero: true,
+            description: true,
+            montantNet: true,
+            factureTalentUrl: true,
+            factureTalentRecueAt: true,
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
 
     // Formater les données pour le frontend
-    const formatted = collaborations.map(c => ({
-      id: c.id,
-      reference: c.reference,
-      marque: c.marque.nom,
-      marqueId: c.marque.id,
-      secteur: c.marque.secteur,
-      montant: Number(c.montantNet),
-      montantBrut: Number(c.montantBrut),
-      commission: Number(c.commissionEuros),
-      statut: c.statut,
-      source: c.source,
-      datePublication: c.datePublication,
-      lienPublication: c.lienPublication,
-      factureTalentUrl: c.factureTalentUrl,
-      factureTalentRecueAt: c.factureTalentRecueAt,
-      factureValidee: c.factureValidee,
-      paidAt: c.paidAt,
-      createdAt: c.createdAt,
-      livrables: c.livrables.map(l => ({
-        typeContenu: l.typeContenu,
-        quantite: l.quantite,
-        prixUnitaire: Number(l.prixUnitaire),
-        description: l.description,
-      })),
-    }));
+    const formatted = collaborations.map(c => {
+      const cycles = c.cycles.map((cy) => ({
+        id: cy.id,
+        numero: cy.numero,
+        description: cy.description,
+        montantNet: Number(cy.montantNet),
+        factureTalentUrl: cy.factureTalentUrl,
+        factureTalentRecueAt: cy.factureTalentRecueAt,
+      }));
+      const hasCycles = cycles.length > 0;
+      const pendingCycles = cycles.filter((cy) => !cy.factureTalentUrl);
+      return {
+        id: c.id,
+        reference: c.reference,
+        marque: c.marque.nom,
+        marqueId: c.marque.id,
+        secteur: c.marque.secteur,
+        montant: Number(c.montantNet),
+        montantBrut: Number(c.montantBrut),
+        commission: Number(c.commissionEuros),
+        statut: c.statut,
+        source: c.source,
+        isLongTerme: c.isLongTerme,
+        datePublication: c.datePublication,
+        lienPublication: c.lienPublication,
+        factureTalentUrl: c.factureTalentUrl,
+        factureTalentRecueAt: c.factureTalentRecueAt,
+        factureValidee: c.factureValidee,
+        paidAt: c.paidAt,
+        createdAt: c.createdAt,
+        cycles,
+        // Multi-factures : en attente tant qu'un cycle n'a pas sa facture
+        needsInvoice: hasCycles ? pendingCycles.length > 0 : !c.factureTalentUrl,
+        livrables: c.livrables.map(l => ({
+          typeContenu: l.typeContenu,
+          quantite: l.quantite,
+          prixUnitaire: Number(l.prixUnitaire),
+          description: l.description,
+        })),
+      };
+    });
 
     return NextResponse.json(formatted);
   } catch (error) {

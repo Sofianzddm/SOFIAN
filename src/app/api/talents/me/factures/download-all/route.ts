@@ -57,18 +57,49 @@ export async function GET(request: NextRequest) {
       const collaborations = await prisma.collaboration.findMany({
         where: {
           talentId: talent.id,
-          factureTalentUrl: { not: null },
           ...talentPortalPublishedWhere,
+          OR: [
+            { factureTalentUrl: { not: null } },
+            { cycles: { some: { factureTalentUrl: { not: null } } } },
+          ],
         },
-        include: { marque: { select: { nom: true } } },
+        include: {
+          marque: { select: { nom: true } },
+          cycles: {
+            where: { factureTalentUrl: { not: null } },
+            orderBy: { numero: "asc" },
+            select: {
+              id: true,
+              numero: true,
+              description: true,
+              factureTalentUrl: true,
+              factureTalentRecueAt: true,
+            },
+          },
+        },
         orderBy: { factureTalentRecueAt: "desc" },
       });
-      rows = collaborations.map((c) => ({
-        id: c.id,
-        marque: c.marque?.nom || "collab",
-        url: c.factureTalentUrl,
-        date: c.factureTalentRecueAt ?? c.createdAt ?? null,
-      }));
+      rows = [];
+      for (const c of collaborations) {
+        const marque = c.marque?.nom || "collab";
+        if (c.cycles.length > 0) {
+          for (const cy of c.cycles) {
+            rows.push({
+              id: cy.id,
+              marque: `${marque} — ${cy.description || `Cycle ${cy.numero}`}`,
+              url: cy.factureTalentUrl,
+              date: cy.factureTalentRecueAt ?? c.createdAt ?? null,
+            });
+          }
+        } else if (c.factureTalentUrl) {
+          rows.push({
+            id: c.id,
+            marque,
+            url: c.factureTalentUrl,
+            date: c.factureTalentRecueAt ?? c.createdAt ?? null,
+          });
+        }
+      }
     }
 
     // Application des filtres

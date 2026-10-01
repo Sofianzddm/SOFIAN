@@ -60,7 +60,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Aucun profil talent trouvé" }, { status: 404 });
     }
 
-    // Collabs publiées depuis le lancement du portail (indépendamment du statut courant)
     const collaborations = await prisma.collaboration.findMany({
       where: {
         talentId: talent.id,
@@ -69,6 +68,14 @@ export async function GET(request: NextRequest) {
       include: {
         marque: {
           select: { nom: true },
+        },
+        cycles: {
+          select: {
+            id: true,
+            description: true,
+            montantNet: true,
+            factureTalentUrl: true,
+          },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -90,9 +97,14 @@ export async function GET(request: NextRequest) {
         statut: c.statut,
       }));
 
-    // ⚠️ FACTURES EN ATTENTE : collabs publiées sans facture uploadée
+    // ⚠️ FACTURES EN ATTENTE : collabs publiées sans facture (ou cycle manquant)
     const facturesAttente = collaborations
-      .filter(c => !c.factureTalentUrl)
+      .filter((c) => {
+        if (c.cycles.length > 0) {
+          return c.cycles.some((cy) => !cy.factureTalentUrl);
+        }
+        return !c.factureTalentUrl;
+      })
       .map(c => ({
         id: c.id,
         reference: c.reference,

@@ -53,6 +53,7 @@ export default function TalentCollaborationsPage() {
   const [showFilters, setShowFilters] = useState(false);
 
   const [uploadingCollabId, setUploadingCollabId] = useState<string | null>(null);
+  const [uploadingCycleId, setUploadingCycleId] = useState<string | null>(null);
   const [facturePreviewUrl, setFacturePreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -66,8 +67,18 @@ export default function TalentCollaborationsPage() {
   useEffect(() => {
     if (!uploadParam || collaborations.length === 0) return;
     const target = collaborations.find((c) => c.id === uploadParam);
-    if (target && !target.factureTalentUrl) {
+    if (!target) return;
+    if (target.cycles?.length > 0) {
+      const pending = target.cycles.find((cy: { factureTalentUrl?: string | null }) => !cy.factureTalentUrl);
+      if (pending) {
+        setUploadingCollabId(target.id);
+        setUploadingCycleId(pending.id);
+      }
+      return;
+    }
+    if (!target.factureTalentUrl) {
       setUploadingCollabId(target.id);
+      setUploadingCycleId(null);
     }
   }, [uploadParam, collaborations]);
 
@@ -98,12 +109,16 @@ export default function TalentCollaborationsPage() {
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
+      if (uploadingCycleId) {
+        formData.append("cycleId", uploadingCycleId);
+      }
       const res = await fetch(`/api/collaborations/${uploadingCollabId}/upload-facture-talent`, {
         method: "POST",
         body: formData,
       });
       if (res.ok) {
         setUploadingCollabId(null);
+        setUploadingCycleId(null);
         setSelectedFile(null);
         fetchCollaborations();
       } else {
@@ -117,6 +132,20 @@ export default function TalentCollaborationsPage() {
       setUploading(false);
     }
   }
+
+  const uploadingCollab = collaborations.find((c) => c.id === uploadingCollabId);
+  const uploadingCycle = uploadingCollab?.cycles?.find(
+    (cy: { id: string }) => cy.id === uploadingCycleId
+  );
+  const uploadModalTitle = uploadingCycle
+    ? `Envoyer ta facture — ${uploadingCycle.description || `Cycle ${uploadingCycle.numero}`}`
+    : "Envoyer ta facture";
+  const uploadModalAmount =
+    uploadingCycle != null
+      ? Number(uploadingCycle.montantNet)
+      : uploadingCollab != null
+        ? Number(uploadingCollab.montant)
+        : null;
 
   const filteredCollabs = collaborations.filter((collab) => {
     const matchSearch =
@@ -254,7 +283,13 @@ export default function TalentCollaborationsPage() {
         <div className="space-y-3">
           {sortedCollabs.map((collab, idx) => {
             const status = getStatusConfig(collab.statut);
-            const needsInvoice = !collab.factureTalentUrl;
+            const hasCycles = Array.isArray(collab.cycles) && collab.cycles.length > 0;
+            const needsInvoice =
+              typeof collab.needsInvoice === "boolean"
+                ? collab.needsInvoice
+                : hasCycles
+                  ? collab.cycles.some((cy: { factureTalentUrl?: string | null }) => !cy.factureTalentUrl)
+                  : !collab.factureTalentUrl;
             const isExpanded = expandedCollab === collab.id;
             const currentDate = new Date(collab.datePublication || collab.createdAt);
             const currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
@@ -369,76 +404,173 @@ export default function TalentCollaborationsPage() {
                       </div>
                     )}
 
-                    {/* Action facture */}
-                    {needsInvoice && (
-                      <div
-                        className="mt-4 flex flex-col gap-4 rounded-lg bg-amber-50/80 p-4 ring-1 ring-amber-200/60 sm:flex-row sm:items-center sm:justify-between"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100">
-                            <Upload className="h-4 w-4 text-amber-600" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-amber-900">Facture requise</p>
-                            <p className="text-sm text-amber-700">Envoie ta facture pour être payé</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            if (isDemo) return;
-                            setUploadingCollabId(collab.id);
-                          }}
-                          disabled={isDemo}
-                          className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {isDemo
-                            ? "Upload désactivé (démo)"
-                            : "Envoyer ma facture"}
-                        </button>
+                    {/* Action facture — multi-cycles ou classique */}
+                    {hasCycles ? (
+                      <div className="mt-4 space-y-2" onClick={(e) => e.stopPropagation()}>
+                        <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+                          Factures à envoyer
+                        </h4>
+                        {collab.cycles.map(
+                          (cy: {
+                            id: string;
+                            numero: number;
+                            description?: string | null;
+                            montantNet: number;
+                            factureTalentUrl?: string | null;
+                          }) => {
+                            const cyDone = !!cy.factureTalentUrl;
+                            return (
+                              <div
+                                key={cy.id}
+                                className={`flex flex-col gap-3 rounded-lg p-4 ring-1 sm:flex-row sm:items-center sm:justify-between ${
+                                  cyDone
+                                    ? "bg-emerald-50/80 ring-emerald-200/60"
+                                    : "bg-amber-50/80 ring-amber-200/60"
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div
+                                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                                      cyDone ? "bg-emerald-100" : "bg-amber-100"
+                                    }`}
+                                  >
+                                    {cyDone ? (
+                                      <FileText className="h-4 w-4 text-emerald-600" />
+                                    ) : (
+                                      <Upload className="h-4 w-4 text-amber-600" />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p
+                                      className={`font-medium ${
+                                        cyDone ? "text-emerald-900" : "text-amber-900"
+                                      }`}
+                                    >
+                                      {cy.description || `Cycle ${cy.numero}`}
+                                    </p>
+                                    <p
+                                      className={`text-sm ${
+                                        cyDone ? "text-emerald-700" : "text-amber-700"
+                                      }`}
+                                    >
+                                      {formatMoney(Number(cy.montantNet))} HT
+                                      {cyDone ? " · envoyée" : " · à envoyer"}
+                                    </p>
+                                  </div>
+                                </div>
+                                {cyDone ? (
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => setFacturePreviewUrl(cy.factureTalentUrl!)}
+                                      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-100/80 rounded-lg hover:bg-emerald-100"
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                      Voir
+                                    </button>
+                                    <a
+                                      href={downloadHref(
+                                        cy.factureTalentUrl!,
+                                        `facture-${collab.reference || "talent"}-c${cy.numero}.pdf`
+                                      )}
+                                      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-100/80 rounded-lg hover:bg-emerald-100"
+                                    >
+                                      <Download className="h-4 w-4" />
+                                      Télécharger
+                                    </a>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      if (isDemo) return;
+                                      setUploadingCollabId(collab.id);
+                                      setUploadingCycleId(cy.id);
+                                    }}
+                                    disabled={isDemo}
+                                    className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    {isDemo ? "Upload désactivé (démo)" : "Envoyer cette facture"}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          }
+                        )}
                       </div>
-                    )}
-
-                    {collab.factureTalentUrl && (
-                      <div
-                        className="mt-4 flex items-center justify-between gap-3 rounded-lg bg-emerald-50/80 p-4 ring-1 ring-emerald-200/60"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
-                            <FileText className="h-4 w-4 text-emerald-600" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-medium text-emerald-900">Facture envoyée</p>
-                            <p className="text-sm text-emerald-700">
-                              {collab.factureValidee ? "Validée et enregistrée" : "En attente de validation"}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setFacturePreviewUrl(collab.factureTalentUrl);
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-100/80 rounded-lg hover:bg-emerald-100 transition-colors"
-                            title="Voir la facture"
-                          >
-                            <Eye className="h-4 w-4" />
-                            Voir
-                          </button>
-                          <a
-                            href={downloadHref(collab.factureTalentUrl, `facture-${collab.reference || collab.marque || "talent"}.pdf`)}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-100/80 rounded-lg hover:bg-emerald-100 transition-colors"
+                    ) : (
+                      <>
+                        {needsInvoice && (
+                          <div
+                            className="mt-4 flex flex-col gap-4 rounded-lg bg-amber-50/80 p-4 ring-1 ring-amber-200/60 sm:flex-row sm:items-center sm:justify-between"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <Download className="h-4 w-4" />
-                            Télécharger
-                          </a>
-                        </div>
-                      </div>
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100">
+                                <Upload className="h-4 w-4 text-amber-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-amber-900">Facture requise</p>
+                                <p className="text-sm text-amber-700">Envoie ta facture pour être payé</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                if (isDemo) return;
+                                setUploadingCollabId(collab.id);
+                                setUploadingCycleId(null);
+                              }}
+                              disabled={isDemo}
+                              className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {isDemo
+                                ? "Upload désactivé (démo)"
+                                : "Envoyer ma facture"}
+                            </button>
+                          </div>
+                        )}
+
+                        {collab.factureTalentUrl && (
+                          <div
+                            className="mt-4 flex items-center justify-between gap-3 rounded-lg bg-emerald-50/80 p-4 ring-1 ring-emerald-200/60"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+                                <FileText className="h-4 w-4 text-emerald-600" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-emerald-900">Facture envoyée</p>
+                                <p className="text-sm text-emerald-700">
+                                  {collab.factureValidee ? "Validée et enregistrée" : "En attente de validation"}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setFacturePreviewUrl(collab.factureTalentUrl);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-100/80 rounded-lg hover:bg-emerald-100 transition-colors"
+                                title="Voir la facture"
+                              >
+                                <Eye className="h-4 w-4" />
+                                Voir
+                              </button>
+                              <a
+                                href={downloadHref(collab.factureTalentUrl, `facture-${collab.reference || collab.marque || "talent"}.pdf`)}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-100/80 rounded-lg hover:bg-emerald-100 transition-colors"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Download className="h-4 w-4" />
+                                Télécharger
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                     </div>
                   )}
@@ -488,10 +620,11 @@ export default function TalentCollaborationsPage() {
           <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">
             <div className="p-6">
               <div className="mb-5 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-900">Envoyer ta facture</h3>
+                <h3 className="text-lg font-semibold text-slate-900">{uploadModalTitle}</h3>
                 <button
                   onClick={() => {
                     setUploadingCollabId(null);
+                    setUploadingCycleId(null);
                     setSelectedFile(null);
                   }}
                   className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
@@ -500,6 +633,12 @@ export default function TalentCollaborationsPage() {
                 </button>
               </div>
 
+              {uploadModalAmount != null && (
+                <p className="mb-3 text-sm font-medium text-slate-700">
+                  Montant à facturer :{" "}
+                  <span className="tabular-nums">{formatMoney(uploadModalAmount)}</span> HT
+                </p>
+              )}
               <p className="mb-4 text-sm text-slate-500">PDF, JPG ou PNG — max 10 Mo</p>
 
               <div
@@ -540,6 +679,7 @@ export default function TalentCollaborationsPage() {
                 <button
                   onClick={() => {
                     setUploadingCollabId(null);
+                    setUploadingCycleId(null);
                     setSelectedFile(null);
                   }}
                   disabled={uploading}

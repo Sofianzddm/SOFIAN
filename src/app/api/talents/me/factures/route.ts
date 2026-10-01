@@ -63,32 +63,73 @@ export async function GET(request: NextRequest) {
     const collaborations = await prisma.collaboration.findMany({
       where: {
         talentId: talent.id,
-        factureTalentUrl: { not: null },
         ...talentPortalPublishedWhere,
+        OR: [
+          { factureTalentUrl: { not: null } },
+          { cycles: { some: { factureTalentUrl: { not: null } } } },
+        ],
       },
       include: {
         marque: {
           select: { nom: true },
         },
+        cycles: {
+          where: { factureTalentUrl: { not: null } },
+          orderBy: { numero: "asc" },
+          select: {
+            id: true,
+            numero: true,
+            description: true,
+            montantNet: true,
+            factureTalentUrl: true,
+            factureTalentRecueAt: true,
+            paidAt: true,
+          },
+        },
       },
       orderBy: { factureTalentRecueAt: "desc" },
     });
 
-    const formatted = collaborations.map((collab) => {
-      let statutTalent = "FACTURE_RECUE";
-      if (collab.paidAt) {
-        statutTalent = "PAYE";
-      }
+    const formatted: Array<{
+      id: string;
+      reference: string;
+      marque: string;
+      dateEmission: Date | string | null;
+      montant: number;
+      statut: string;
+      pdfUrl: string | null;
+    }> = [];
 
-      return {
-        id: collab.id,
-        reference: `Facture ${collab.marque?.nom || "collab"}`.trim(),
-        marque: collab.marque?.nom || "",
-        dateEmission: collab.factureTalentRecueAt || collab.createdAt,
-        montant: Number(collab.montantNet ?? 0),
-        statut: statutTalent,
-        pdfUrl: collab.factureTalentUrl, // Lien direct vers SA facture uploadée
-      };
+    for (const collab of collaborations) {
+      if (collab.cycles.length > 0) {
+        for (const cy of collab.cycles) {
+          formatted.push({
+            id: cy.id,
+            reference: `Facture ${collab.marque?.nom || "collab"} — ${cy.description || `Cycle ${cy.numero}`}`.trim(),
+            marque: collab.marque?.nom || "",
+            dateEmission: cy.factureTalentRecueAt || collab.createdAt,
+            montant: Number(cy.montantNet ?? 0),
+            statut: cy.paidAt || collab.paidAt ? "PAYE" : "FACTURE_RECUE",
+            pdfUrl: cy.factureTalentUrl,
+          });
+        }
+      } else if (collab.factureTalentUrl) {
+        formatted.push({
+          id: collab.id,
+          reference: `Facture ${collab.marque?.nom || "collab"}`.trim(),
+          marque: collab.marque?.nom || "",
+          dateEmission: collab.factureTalentRecueAt || collab.createdAt,
+          montant: Number(collab.montantNet ?? 0),
+          statut: collab.paidAt ? "PAYE" : "FACTURE_RECUE",
+          pdfUrl: collab.factureTalentUrl,
+        });
+      }
+    }
+
+    formatted.sort((a, b) => {
+      const da = new Date(a.dateEmission || 0).getTime();
+      const db = new Date(b.dateEmission || 0).getTime();
+      return db - da;
     });
 
     return NextResponse.json(formatted);
