@@ -14,8 +14,13 @@ export type CartoParsedRow = {
   linkedinUrl: string;
   email: string;
   note: string;
+  telephone: string;
   marquesGerees: string;
   marche: string;
+  /** Nom d’hôtel / établissement (import bulk prestataires). */
+  hotel: string;
+  /** Ville de l’établissement (import bulk). */
+  ville: string;
   source: "CARTO" | "AO";
 };
 
@@ -43,6 +48,28 @@ function mapHeader(cells: string[]): Record<string, number> | null {
     if (!c) return;
     if (c === "prenom" || c === "firstname" || c === "first name") {
       cols.prenom = idx;
+    } else if (
+      c === "hotel" ||
+      c === "hotels" ||
+      c.startsWith("hotel") ||
+      c.includes("etablissement") ||
+      c === "prestataire" ||
+      c === "maison" ||
+      c === "enseigne" ||
+      c === "nom hotel" ||
+      c === "nom de l hotel" ||
+      c === "nom de l'hotel" ||
+      c === "nom etablissement" ||
+      c === "traiteur" ||
+      c === "fleuriste" ||
+      c === "decorateur" ||
+      c === "studio" ||
+      c === "institut" ||
+      c === "societe" ||
+      c === "société" ||
+      c === "transporteur"
+    ) {
+      if (cols.hotel === undefined) cols.hotel = idx;
     } else if (
       c === "nom" ||
       c.startsWith("nom ") ||
@@ -72,20 +99,34 @@ function mapHeader(cells: string[]): Record<string, number> | null {
       cols.email = idx;
     } else if (c.includes("role") || c === "poste" || c === "titre") {
       cols.poste = idx;
+    } else if (
+      c === "telephone" ||
+      c === "tel" ||
+      c === "phone" ||
+      c === "mobile" ||
+      c.includes("telephone")
+    ) {
+      cols.telephone = idx;
     } else if (c.includes("equipe") || c.includes("perim")) {
       cols.perimetre = idx;
     } else if (c.includes("marque")) {
       cols.marquesGerees = idx;
+    } else if (c === "ville" || c === "city" || c === "town") {
+      cols.ville = idx;
     } else if (c.includes("marche") || c === "market") {
       cols.marche = idx;
     } else if (c.startsWith("local")) {
       cols.localisation = idx;
     } else if (c === "note" || c === "notes" || c === "commentaire" || c === "comment") {
       cols.note = idx;
+    } else if (c === "lieu" || c === "restaurant") {
+      if (cols.hotel === undefined) cols.hotel = idx;
     }
   });
-  if (cols.nom === undefined && cols.prenom === undefined) return null;
-  if (Object.keys(cols).length < 2) return null;
+  if (cols.nom === undefined && cols.prenom === undefined && cols.hotel === undefined) {
+    return null;
+  }
+  if (Object.keys(cols).length < 2 && cols.hotel === undefined) return null;
   return cols;
 }
 
@@ -114,7 +155,7 @@ export function parseCartoText(text: string): {
       rows: [],
       suggestedCompany: "",
       error:
-        "Impossible de trouver la ligne d’en-tête (colonnes « Nom » ou « Prénom » / « Nom »). Colle le tableau avec ses titres de colonnes.",
+        "Impossible de trouver la ligne d’en-tête (colonnes « Hôtel », « Nom » ou « Prénom »). Colle le tableau avec ses titres de colonnes.",
     };
   }
 
@@ -149,6 +190,7 @@ export function parseCartoText(text: string): {
       }
       const email = cell(cells, "email");
       const poste = cell(cells, "poste");
+      const telephone = cell(cells, "telephone");
       const perimetre = cell(cells, "perimetre");
       const localisation = cell(cells, "localisation");
       const linkedinUrl = cell(cells, "linkedinUrl");
@@ -156,8 +198,21 @@ export function parseCartoText(text: string): {
       const marquesGerees = cell(cells, "marquesGerees");
       const marche = cell(cells, "marche");
       const priorite = cell(cells, "priorite");
-      if (!prenom && !nom && !email && !poste && !linkedinUrl && !perimetre) continue;
+      const hotel = cell(cells, "hotel") || marquesGerees;
+      const ville = cell(cells, "ville") || localisation;
+      if (
+        !prenom &&
+        !nom &&
+        !email &&
+        !poste &&
+        !linkedinUrl &&
+        !perimetre &&
+        !hotel
+      ) {
+        continue;
+      }
       const key = [
+        hotel.toLowerCase(),
         prenom.toLowerCase(),
         nom.toLowerCase(),
         email.toLowerCase(),
@@ -175,8 +230,11 @@ export function parseCartoText(text: string): {
         linkedinUrl,
         email,
         note,
+        telephone,
         marquesGerees,
         marche,
+        hotel,
+        ville,
         source: "CARTO",
       });
     }
@@ -185,6 +243,6 @@ export function parseCartoText(text: string): {
   return {
     rows,
     suggestedCompany,
-    error: rows.length === 0 ? "Aucun contact trouvé sous la ligne d’en-tête." : null,
+    error: rows.length === 0 ? "Aucune ligne trouvée sous la ligne d’en-tête." : null,
   };
 }

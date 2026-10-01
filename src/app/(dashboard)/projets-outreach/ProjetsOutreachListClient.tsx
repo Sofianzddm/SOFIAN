@@ -36,6 +36,10 @@ type CampaignRow = {
   answeredCount: number;
   budgetRange: string | null;
   objective: string | null;
+  necessitePrestataires?: boolean;
+  prestataireCount?: number;
+  prestataireConfirmes?: number;
+  prestataireMine?: number;
 };
 
 type TalentOption = { id: string; name: string };
@@ -725,6 +729,19 @@ export function ProjetsOutreachListClient() {
                             {c.title}
                           </span>
                           <StatusBadge status={c.status} />
+                          {c.necessitePrestataires ? (
+                            <span
+                              className="po-badge"
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                background: "#EEEAFB",
+                                color: "#5B3F9E",
+                              }}
+                            >
+                              Prestas · {c.prestataireCount ?? 0}
+                            </span>
+                          ) : null}
                           {c.mode === "MULTI" ? (
                             <span
                               className="po-badge"
@@ -765,6 +782,15 @@ export function ProjetsOutreachListClient() {
                             <span>
                               <b className="font-bold text-[var(--po-ink)]">{c.missionCount}</b>{" "}
                               marques
+                            </span>
+                            <span>
+                              <b className="font-bold text-[var(--po-ink)]">
+                                {c.prestataireCount ?? 0}
+                              </b>{" "}
+                              presta
+                              {(c.prestataireMine || 0) > 0
+                                ? ` · ${c.prestataireMine} à moi`
+                                : ""}
                             </span>
                             <span>
                               <b className="font-bold text-[var(--po-ink)]">{c.sentCount}</b>{" "}
