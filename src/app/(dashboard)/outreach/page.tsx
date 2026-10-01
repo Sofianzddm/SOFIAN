@@ -1135,8 +1135,9 @@ export default function OutreachPage() {
             flash("error", failed.map((f) => `${f.email} : ${f.error}`).join(" | "));
           }
 
-          // Clients déjà contactés (pipeline talent ou hors app) : on laisse
-          // l'utilisateur choisir — envoyer quand même, ou mettre en attente.
+          // Clients déjà contactés hors app (HubSpot / manuel) ou plafond
+          // ligne outreach : choix — envoyer quand même, ou mettre en attente.
+          // Pipeline / projet n'entrent pas ici (lignes séparées).
           if (needsConfirmation.length > 0) {
             const fmtDate = (iso?: string) =>
               iso

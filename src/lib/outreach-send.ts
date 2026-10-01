@@ -33,6 +33,7 @@ import {
   LEYNA_FROM_EMAIL,
 } from "@/lib/casting-auto-send";
 import {
+  collectCastingGmailIdsForEmail,
   evaluateEmailSendGuard,
 } from "@/lib/contact-cooldown";
 import {
@@ -85,9 +86,11 @@ export type OutreachSendResult =
       ok: false;
       error: string;
       /**
-       * Vrai si le client a déjà été contacté (pipeline talent ou hors app) et
-       * qu'une confirmation utilisateur est requise : envoyer quand même
-       * (option `force`) ou mettre en attente (executeOutreachReschedule).
+       * Vrai si le client a déjà été contacté hors app (HubSpot / manuel) ou
+       * a déjà reçu un mail sur la ligne outreach ce mois-ci, et qu'une
+       * confirmation est requise : envoyer quand même (`force`) ou mettre
+       * en attente (executeOutreachReschedule). Les envois pipeline / projet
+       * n'entrent PAS ici (lignes séparées).
        */
       needsConfirmation?: boolean;
       /** Date du contact déjà détecté, si connue (ISO). */
@@ -121,9 +124,9 @@ function isValidEmail(value: string | undefined | null): boolean {
 }
 
 /**
- * Plafond 1 mail / mois sur la ligne outreach clients.
+ * Plafond 1 mail / mois sur la ligne outreach clients (indépendant pipeline / projet).
  */
-async function isEmailBlockedByPipelineCooldown(email: string): Promise<{
+async function isEmailBlockedByOutreachLineCap(email: string): Promise<{
   blocked: boolean;
   message?: string;
   canForce?: boolean;
@@ -138,15 +141,17 @@ async function isEmailBlockedByPipelineCooldown(email: string): Promise<{
 }
 
 /**
- * Garde-fou : vérifie dans la boîte expéditrice (messages envoyés) si ce client
- * a déjà été contacté il y a moins de 45 jours — peu importe le canal
- * (séquence HubSpot, mail manuel, autre module). Les mails envoyés par le
- * cycle outreach de ce client lui-même (threads de ses touches) sont ignorés,
- * sinon un recontact anticipé volontaire serait bloqué.
- * Fail-open : si la recherche Gmail échoue techniquement, on n'empêche pas l'envoi.
+ * Garde-fou « hors app » : vérifie dans la boîte expéditrice si ce client a
+ * déjà reçu un mail < 45j qui n'est PAS issu de l'app (HubSpot, envoi manuel…).
+ *
+ * Ignorés volontairement (lignes séparées) :
+ *  - threads du cycle outreach de ce target
+ *  - envois pipeline indiv / projets MULTI (ContactMission)
+ *
+ * Fail-open : si Gmail échoue techniquement, on n'empêche pas l'envoi.
  */
 type RecentExternalContact = {
-  /** Un mail externe (hors cycle de ce target) a été trouvé < 45j. */
+  /** Un mail vraiment hors app a été trouvé < 45j. */
   contacted: boolean;
   /** Date du mail externe le plus récent, si Gmail l'a renvoyée. */
   lastDate: Date | null;
@@ -167,11 +172,24 @@ async function detectRecentExternalContact(
 
     const ownTouches = await prisma.outreachTouch.findMany({
       where: { targetId, threadId: { not: null } },
-      select: { threadId: true },
+      select: { threadId: true, messageId: true },
     });
-    const ownThreadIds = new Set(ownTouches.map((t) => t.threadId as string));
+    const knownAppIds = new Set<string>();
+    for (const t of ownTouches) {
+      if (t.threadId) knownAppIds.add(t.threadId);
+      if (t.messageId) knownAppIds.add(t.messageId);
+    }
 
-    const external = sent.filter((m) => !ownThreadIds.has(m.threadId));
+    // Pipeline + projets : même boîte Leyna, mais ligne distincte → pas un blocage outreach.
+    const castingIds = await collectCastingGmailIdsForEmail(
+      email,
+      OUTREACH_RECONTACT_DAYS
+    );
+    for (const id of castingIds) knownAppIds.add(id);
+
+    const external = sent.filter(
+      (m) => !knownAppIds.has(m.threadId) && !knownAppIds.has(m.id)
+    );
     if (external.length === 0) return { contacted: false, lastDate: null };
 
     const timestamps = external
@@ -224,8 +242,9 @@ export async function executeOutreachSend(
     bodyHtml: string;
     sentById?: string | null;
     /**
-     * Force l'envoi malgré un contact récent déjà détecté (pipeline talent ou
-     * hors app). Activé quand l'utilisateur choisit « Envoyer quand même ».
+     * Force l'envoi malgré un contact récent hors app (HubSpot / manuel) ou
+     * le plafond 1/mois de la ligne outreach. Les envois pipeline / projet
+     * ne nécessitent pas ce force (lignes séparées).
      */
     force?: boolean;
   }
@@ -257,13 +276,13 @@ export async function executeOutreachSend(
 
   // Plafond 1/mois outreach — bypass via force (projet urgent).
   if (!input.force) {
-    const pipelineGuard = await isEmailBlockedByPipelineCooldown(target.email);
-    if (pipelineGuard.blocked) {
+    const outreachCap = await isEmailBlockedByOutreachLineCap(target.email);
+    if (outreachCap.blocked) {
       return {
         ok: false,
-        needsConfirmation: pipelineGuard.canForce !== false,
+        needsConfirmation: outreachCap.canForce !== false,
         error:
-          pipelineGuard.message ||
+          outreachCap.message ||
           `${target.email} a déjà reçu un mail outreach ce mois-ci (max 1/mois).`,
       };
     }
@@ -487,13 +506,13 @@ export async function executeOutreachSchedule(
   }
 
   if (!input.force) {
-    const pipelineGuard = await isEmailBlockedByPipelineCooldown(target.email);
-    if (pipelineGuard.blocked) {
+    const outreachCap = await isEmailBlockedByOutreachLineCap(target.email);
+    if (outreachCap.blocked) {
       return {
         ok: false,
-        needsConfirmation: pipelineGuard.canForce !== false,
+        needsConfirmation: outreachCap.canForce !== false,
         error:
-          pipelineGuard.message ||
+          outreachCap.message ||
           `${target.email} a déjà reçu un mail outreach ce mois-ci (max 1/mois).`,
       };
     }

@@ -1233,10 +1233,12 @@ export async function bridgeInboundOpportunityAfterSend(
 }
 
 /**
- * Après un envoi pipeline casting / projets : si le contact n'est pas encore
- * dans un cycle outreach, l'enrôler en WAITING J+45. S'il est déjà suivi
- * (already-tracked), on recalcule quand même le compteur J+45 pour éviter
- * qu'un mail outreach parte juste après le pitch casting.
+ * Après un envoi pipeline casting / projets MULTI : si le contact n'est pas
+ * encore dans un cycle outreach, l'enrôler en « À contacter » (visibilité CRM).
+ *
+ * Les 3 lignes (indiv / projet / outreach) sont indépendantes :
+ * un pitch casting ne doit NI bloquer un envoi outreach, NI pousser une cible
+ * déjà suivie en WAITING J+45. Déjà suivi → no-op (`already-tracked`).
  */
 export async function enrollIfMissingAfterPipelineSend(input: {
   email: string;
@@ -1250,7 +1252,7 @@ export async function enrollIfMissingAfterPipelineSend(input: {
   sourceLabel?: string;
 }): Promise<
   | BridgeResult
-  | { ok: true; action: "already-tracked" | "skipped-partner" | "rescheduled" }
+  | { ok: true; action: "already-tracked" | "skipped-partner" }
 > {
   const email = normalizeEmail(input.email);
   if (!email || !isValidEmail(email)) {
@@ -1261,50 +1263,10 @@ export async function enrollIfMissingAfterPipelineSend(input: {
   const sourceLabel = input.sourceLabel || "Mail pipeline casting envoyé";
   const resolution = await resolveOutreachPipeline(email);
 
+  // Déjà dans un cycle outreach (clients / agences / Benelux) : on ne touche
+  // surtout pas au statut ni au compteur — ligne outreach indépendante.
   if (resolution.kind === "existing-target") {
-    if (resolution.target.status === "STOPPED") {
-      return { ok: true, action: "already-tracked" };
-    }
-    const next = addRecontactDelay(sentAt, OUTREACH_RECONTACT_DAYS);
-    const reason =
-      `${sourceLabel} le ${formatFrDate(sentAt)} : ` +
-      `recontact planifié au ${formatFrDate(next)} (J+${OUTREACH_RECONTACT_DAYS}).`;
-    const base = {
-      status: "WAITING" as const,
-      lastSentAt: sentAt,
-      nextRecontactAt: next,
-      autoRescheduleReason: reason,
-      autoRescheduledAt: new Date(),
-    };
-    if (resolution.pipeline === "client") {
-      await prisma.outreachTarget.update({
-        where: { id: resolution.target.id },
-        data: {
-          ...base,
-          scheduledSendAt: null,
-          scheduledSubject: null,
-          scheduledBodyHtml: null,
-          scheduledById: null,
-        },
-      });
-    } else if (resolution.pipeline === "agency") {
-      await prisma.agencyOutreachTarget.update({
-        where: { id: resolution.target.id },
-        data: {
-          ...base,
-          scheduledSendAt: null,
-          scheduledSubject: null,
-          scheduledBodyHtml: null,
-          scheduledById: null,
-        },
-      });
-    } else {
-      await prisma.beneluxOutreachTarget.update({
-        where: { id: resolution.target.id },
-        data: base,
-      });
-    }
-    return { ok: true, action: "rescheduled" };
+    return { ok: true, action: "already-tracked" };
   }
 
   if (resolution.kind === "known-agency") {
@@ -1322,7 +1284,8 @@ export async function enrollIfMissingAfterPipelineSend(input: {
     createdById: input.createdById,
     sourceLabel: input.sourceLabel || "pipeline casting",
     reasonLabel: sourceLabel,
-    enrollmentMode: "outbound",
+    // TO_CONTACT : le pitch casting n'ouvre pas le compteur outreach 45j.
+    enrollmentMode: "default",
   });
 }
 

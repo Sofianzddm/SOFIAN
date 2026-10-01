@@ -799,8 +799,8 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       console.error("mirrorCondensationSend:", mirrorErr);
     }
 
-    // Enrôlement outreach 45j pour chaque contact réellement contacté
-    // et pas encore suivi (hors partners / agences).
+    // Enrôlement CRM outreach si le contact n'y est pas encore.
+    // Ne modifie PAS une cible déjà suivie (lignes indépendantes).
     const createdById = String(mission.createdById || "").trim();
     if (createdById) {
       const sentAt =

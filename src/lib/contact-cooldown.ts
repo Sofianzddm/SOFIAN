@@ -1,12 +1,13 @@
 /**
- * Garde-fou anti-harcèlement — 3 lignes d'envoi client.
+ * Garde-fou anti-harcèlement — 3 lignes d'envoi client, strictement séparées.
  *
  * Règle métier (validée) :
  *  - 1 mail initial / ligne / email
- *    · indiv : 20 j
- *    · projet / outreach : 30 j
- *  - Lignes : `projet` (campagne MULTI) · `indiv` (SOLO / pipeline talent)
- *    · `outreach` (cycle clients 45 j)
+ *    · indiv : 20 j (pipeline talent SOLO)
+ *    · projet : 30 j (campagne MULTI)
+ *    · outreach : 30 j (cycle clients 45 j)
+ *  - Pas de cooldown cross-ligne : un envoi pipeline/projet ne bloque PAS
+ *    l'outreach clients (et inversement). Chaque ligne a son plafond.
  *  - Relances du même fil = hors compteur
  *  - Au-delà → bloqué, bypass « projet urgent » (force + motif) possible
  *  - Opt-out → toujours bloqué (pas de bypass)
@@ -484,6 +485,55 @@ export async function filterEmailsBySendGuard(
 /** Motif urgent : au moins 5 caractères utiles. */
 export function isValidForceReason(value: unknown): value is string {
   return typeof value === "string" && value.trim().length >= 5;
+}
+
+/**
+ * IDs Gmail (message + thread) déjà émis par l'app pour cet email
+ * (pipeline indiv + projets MULTI). Sert à exclure ces envois du garde-fou
+ * « hors app » de l'outreach clients : les 3 lignes sont indépendantes.
+ */
+export async function collectCastingGmailIdsForEmail(
+  email: string,
+  days: number
+): Promise<Set<string>> {
+  const normalized = normalizeEmail(email);
+  const ids = new Set<string>();
+  if (!normalized || !isValidEmail(normalized) || days <= 0) return ids;
+
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const missions = await prisma.contactMission.findMany({
+    where: {
+      OR: [
+        { sentAt: { gte: since } },
+        { relanceSentAt: { gte: since } },
+        { relance2SentAt: { gte: since } },
+      ],
+    },
+    select: {
+      sentMessageIds: true,
+      relanceMessageIds: true,
+      relance2MessageIds: true,
+    },
+  });
+
+  const absorb = (raw: unknown) => {
+    if (!raw || typeof raw !== "object") return;
+    for (const [key, record] of Object.entries(
+      raw as Record<string, { messageId?: string; threadId?: string } | null>
+    )) {
+      if (normalizeEmail(key) !== normalized || !record) continue;
+      if (record.messageId) ids.add(record.messageId);
+      if (record.threadId) ids.add(record.threadId);
+    }
+  };
+
+  for (const m of missions) {
+    absorb(m.sentMessageIds);
+    absorb(m.relanceMessageIds);
+    absorb(m.relance2MessageIds);
+  }
+
+  return ids;
 }
 
 export { CHANNEL_LABEL, LINE_LABEL };
