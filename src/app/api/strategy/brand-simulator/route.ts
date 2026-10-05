@@ -267,14 +267,14 @@ function buildMatchPrompt(args: {
     )
     .join("\n");
 
-  return `Tu es un strategy planner influence FR/EU. À partir de l'analyse créateur, propose une liste MEGA PERTINENTE de marques à pitcher.
+  return `Tu es un strategy planner influence FR/EU ultra exigeant. Ta mission : TROUVER LES MEILLEURES MARQUES AU MONDE qui fitent GRAVE avec ce créateur — pas te limiter à un catalogue interne.
 
 ═══ CRÉATEUR ═══
 - Nom : ${name}
 - Niches CRM : ${(args.talent.niches || []).join(", ") || "—"}
 - Collabs connues : ${uniqueCollabLabels(args.talent).join(", ") || "—"}
 
-═══ ANALYSE PROFIL ═══
+═══ ANALYSE PROFIL (source de vérité) ═══
 - Qui : ${args.profile.whoTheyAre}
 - Ce qu'il/elle fait : ${args.profile.whatTheyDo}
 - Analyse : ${args.profile.profileAnalysis}
@@ -282,21 +282,35 @@ function buildMatchPrompt(args: {
 - Preuves : ${args.profile.proofPoints}
 - Univers marques suggéré : ${args.profile.brandUniverseHints || "—"}
 
-═══ DÉJÀ CONTACTÉ(S) RÉCEMMENT (à éviter ou baisser le score) ═══
+═══ DÉJÀ CONTACTÉ(S) RÉCEMMENT (à éviter sauf fit exceptionnel) ═══
 ${args.contactedLabels.length ? args.contactedLabels.join(", ") : "(aucun)"}
 
-═══ CATALOGUE CRM (candidates — priorise celles-ci si le fit est réel) ═══
-${catalogue || "(catalogue vide)"}
+═══ RECHERCHE OBLIGATOIRE (outils web + X) ═══
+Tu DOIS chercher activement des marques pertinentes. Exemples de recherches à lancer :
+1) marques / brands qui collabent avec des créateurs "${args.profile.contentThemes || args.talent.niches.join(", ") || "similaires"}"
+2) "${name}" collab marque OR partnership OR sponsored
+3) best brand fits for [thèmes du créateur] influencers France / Europe 2024 2025
+4) marques actives en influence sur les thèmes du créateur (pas seulement les géants évidents)
+Utilise aussi X pour voir quelles marques recrutent ce type de profils.
+
+═══ CATALOGUE CRM (aide secondaire UNIQUEMENT) ═══
+Ce n'est PAS une liste à laquelle tu dois te limiter. C'est juste pour rattacher un id si une marque que TU as choisie y figure déjà.
+${catalogue || "(vide)"}
 
 ═══ MISSION ═══
-Renvoie exactement ${args.limit} marques TRIÉES du meilleur fit au moins bon.
-- Priorité ABSOLUE à la pertinence réelle (contenu × univers marque), pas à la notoriété seule.
-- Préfère les marques du catalogue CRM quand le fit est solide (renseigne marqueId = id entre crochets).
-- Tu PEUX aussi proposer 2–4 marques hors CRM ultra pertinentes (marqueId = null, inCrm = false) si elles collent mieux.
-- Évite les marques déjà contactées sauf fit exceptionnel (score ≤ 60 et mentionne-le dans whyFit).
-- whyFit : 1-2 phrases concrètes (contenu du créateur × marque).
-- suggestedAngle : angle pitch court (1 phrase).
-- fitScore : 0–100 (sois exigeant : 90+ = excellent, 75–89 = très bon, 60–74 = correct).
+Renvoie exactement ${args.limit} marques TRIÉES du MEILLEUR fit au moins bon.
+
+Règles STRICTES :
+1) Priorité ABSOLUE : pertinence réelle contenu × univers marque. Fit "grave" seulement.
+2) NE TE LIMITE PAS au catalogue CRM. La majorité des suggestions PEUT (et DOIT souvent) venir de ta recherche web/X.
+3) Inclus un mix : marques premium / mid / challengers FR-EU qui font vraiment de l'influence — pas 12 géants génériques.
+4) Si une marque choisie est dans le catalogue CRM → marqueId = id entre crochets, inCrm = true. Sinon marqueId = null, inCrm = false.
+5) Évite les collabs déjà connues du créateur (sauf angle clairement nouveau).
+6) Évite les déjà contactés (sauf fit exceptionnel : score ≤ 65 + le dire dans whyFit).
+7) whyFit : 1-2 phrases concrètes (quoi dans le contenu × quoi dans la marque).
+8) suggestedAngle : angle pitch court et actionnable.
+9) fitScore 0–100, exigeant : 90+ = excellent match, 75–89 = très fort, <70 = seulement si vraiment utile.
+10) INTERDIT de remplir avec des marques CRM "parce qu'elles sont là" si le fit est moyen.
 
 Réponds UNIQUEMENT en JSON strict :
 {
@@ -304,15 +318,75 @@ Réponds UNIQUEMENT en JSON strict :
     {
       "marqueId": "id_crm_ou_null",
       "nom": "Nom marque",
-      "secteur": "Beauté|Mode|...",
+      "secteur": "Beauté|Mode|Food|Tech|Sport|Lifestyle|Luxe|Automobile|Finance|Santé|Voyage|Entertainment",
       "fitScore": 88,
       "whyFit": "...",
       "suggestedAngle": "...",
-      "inCrm": true
+      "inCrm": false
     }
   ]
 }
 `;
+}
+
+async function resolveBrandsAgainstCrm(
+  brands: BrandSimulatorBrand[]
+): Promise<BrandSimulatorBrand[]> {
+  if (brands.length === 0) return brands;
+  const names = brands.map((b) => b.nom).filter(Boolean);
+  const crmRows = await prisma.marque.findMany({
+    where: {
+      OR: [
+        ...names.map((n) => ({
+          nom: { equals: n, mode: "insensitive" as const },
+        })),
+        {
+          aliases: {
+            some: {
+              OR: names.map((n) => ({
+                label: { equals: n, mode: "insensitive" as const },
+              })),
+            },
+          },
+        },
+      ],
+    },
+    select: {
+      id: true,
+      nom: true,
+      secteur: true,
+      aliases: { select: { label: true }, take: 8 },
+    },
+    take: 80,
+  });
+
+  const byKey = new Map<string, { id: string; nom: string; secteur: string | null }>();
+  for (const m of crmRows) {
+    byKey.set(m.nom.trim().toLowerCase(), {
+      id: m.id,
+      nom: m.nom,
+      secteur: m.secteur,
+    });
+    for (const a of m.aliases || []) {
+      const lab = String(a.label || "").trim().toLowerCase();
+      if (lab) {
+        byKey.set(lab, { id: m.id, nom: m.nom, secteur: m.secteur });
+      }
+    }
+  }
+
+  return brands.map((b) => {
+    if (b.marqueId) return b;
+    const hit = byKey.get(b.nom.trim().toLowerCase());
+    if (!hit) return b;
+    return {
+      ...b,
+      marqueId: hit.id,
+      nom: hit.nom,
+      secteur: hit.secteur || b.secteur,
+      inCrm: true,
+    };
+  });
 }
 
 function parseBrands(
@@ -341,7 +415,7 @@ function parseBrands(
         ? null
         : asStr(r.marqueId) || null;
     let secteur = asStr(r.secteur) || null;
-    let inCrm = r.inCrm === true;
+    let inCrm = false;
 
     if (marqueId && byId.has(marqueId)) {
       const c = byId.get(marqueId)!;
@@ -356,6 +430,7 @@ function parseBrands(
         secteur = hit.secteur || secteur;
         inCrm = true;
       } else {
+        // Hors candidats préfiltrés : on laissera resolveBrandsAgainstCrm rattacher.
         marqueId = null;
         inCrm = false;
       }
@@ -467,7 +542,10 @@ export async function POST(request: NextRequest) {
           }
         );
         brands = parseBrands(text, candidates, contactedKeys, limit);
-        if (brands.length > 0) break;
+        if (brands.length > 0) {
+          brands = await resolveBrandsAgainstCrm(brands);
+          break;
+        }
         throw new Error("empty brands");
       } catch (e) {
         lastError = e;
