@@ -42,6 +42,7 @@ type BrandRow = {
   suggestedAngle: string;
   inCrm: boolean;
   alreadyContacted: boolean;
+  alreadyWorkedWith?: boolean;
 };
 
 type SimResult = {
@@ -54,7 +55,14 @@ type SimResult = {
   };
   profile: Profile;
   brands: BrandRow[];
-  meta?: { candidateCount?: number; secteurs?: string[]; contactedCount?: number };
+  pastBrands?: string[];
+  meta?: {
+    candidateCount?: number;
+    secteurs?: string[];
+    contactedCount?: number;
+    pastBrandCount?: number;
+    brandCount?: number;
+  };
 };
 
 function scoreColor(score: number): string {
@@ -142,7 +150,7 @@ export function BrandSimulatorClient() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ talentId, limit: 12 }),
+        body: JSON.stringify({ talentId, limit: 50 }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -307,6 +315,23 @@ export function BrandSimulatorClient() {
                 {result.profile.brandUniverseHints}
               </p>
             )}
+            {Array.isArray(result.pastBrands) && result.pastBrands.length > 0 && (
+              <div className="mt-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-400">
+                  Déjà bossé avec
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {result.pastBrands.map((b) => (
+                    <span
+                      key={b}
+                      className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-[11px] text-stone-700"
+                    >
+                      {b}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             {result.profile.proofPoints && (
               <p className="mt-2 text-xs text-stone-500">
                 Preuves : {result.profile.proofPoints}
@@ -315,9 +340,11 @@ export function BrandSimulatorClient() {
             {result.profile.sourcesUsed && (
               <p className="mt-1 text-[11px] text-stone-400">
                 Sources : {result.profile.sourcesUsed}
-                {result.meta?.candidateCount
-                  ? ` · ${result.meta.candidateCount} marques CRM scorées`
-                  : ""}
+                {result.meta?.brandCount
+                  ? ` · ${result.meta.brandCount} marques`
+                  : result.meta?.candidateCount
+                    ? ` · ${result.meta.candidateCount} marques CRM scorées`
+                    : ""}
               </p>
             )}
           </section>
@@ -363,6 +390,11 @@ export function BrandSimulatorClient() {
                         {!b.inCrm && (
                           <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] text-violet-700">
                             Hors CRM
+                          </span>
+                        )}
+                        {b.alreadyWorkedWith && (
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800">
+                            Déjà collab
                           </span>
                         )}
                         {b.alreadyContacted && (

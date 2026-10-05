@@ -349,9 +349,7 @@ export async function proxy(request: NextRequest) {
     pathname === "/strategy/projet-individuel-talent/pipeline" ||
     pathname.startsWith("/strategy/projet-individuel-talent/pipeline/") ||
     pathname === "/strategy/projet-individuel-talent/mails-envoyes" ||
-    pathname.startsWith("/strategy/projet-individuel-talent/mails-envoyes/") ||
-    pathname === "/strategy/projet-individuel-talent/simulateur-marque" ||
-    pathname.startsWith("/strategy/projet-individuel-talent/simulateur-marque/");
+    pathname.startsWith("/strategy/projet-individuel-talent/mails-envoyes/");
 
   // Autres rôles : bloquer /strategy/* (sauf ADMIN et exception pipeline)
   if (

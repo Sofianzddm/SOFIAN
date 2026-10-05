@@ -17,13 +17,7 @@ import {
 
 export const maxDuration = 300;
 
-const ALLOWED_ROLES = [
-  "CASTING_MANAGER",
-  "STRATEGY_PLANNER",
-  "ADMIN",
-  "HEAD_OF",
-  "HEAD_OF_SALES",
-] as const;
+const ALLOWED_ROLES = ["ADMIN"] as const;
 
 function isAllowed(role: string | undefined): boolean {
   return role !== undefined && (ALLOWED_ROLES as readonly string[]).includes(role);
@@ -48,6 +42,7 @@ export type BrandSimulatorBrand = {
   suggestedAngle: string;
   inCrm: boolean;
   alreadyContacted: boolean;
+  alreadyWorkedWith: boolean;
 };
 
 type CandidateMarque = {
@@ -123,15 +118,16 @@ Tu DOIS utiliser les outils de recherche pour investiguer le créateur. Cherche 
 ${handle ? `3) @${handle} contenu / collabs` : ""}
 ${tt ? `4) TikTok ${tt}` : ""}
 Objectif : comprendre son univers, positionnement, formats, ton, collabs visibles, audience probable.
+Cherche aussi explicitement les marques / collabs avec lesquelles ce créateur a déjà travaillé (posts sponsorisés, tags marques, articles).
 
 ═══ CE QUE TU DOIS PRODUIRE ═══
 1) whoTheyAre — Qui c'est (identité, positionnement, vibe).
 2) whatTheyDo — CE QU'IL FAIT concrètement (formats, sujets, ton).
 3) profileAnalysis — Esthétique, audience probable, forces, angle distinctif.
 4) contentThemes — Thèmes récurrents.
-5) proofPoints — Preuves factuelles courtes (séparées par « ; »).
+5) proofPoints — Preuves factuelles courtes (séparées par « ; »), y compris collabs marques si trouvées.
 6) sourcesUsed — Ex. « CRM ; Instagram scrapé ; web ; X ».
-7) brandUniverseHints — 1-2 phrases : quels UNIVERS de marques colleraient naturellement (secteurs + types de marques), sans lister 20 noms.
+7) brandUniverseHints — 1-2 phrases : quels UNIVERS de marques colleraient naturellement, en t'appuyant aussi sur les marques déjà bossées.
 
 Règles : n'invente rien ; français ; concret ; 3-5 phrases max par champ narratif.
 
@@ -255,7 +251,9 @@ function buildMatchPrompt(args: {
   profile: BrandSimulatorProfile;
   candidates: CandidateMarque[];
   contactedLabels: string[];
+  pastBrands: string[];
   limit: number;
+  excludeNames?: string[];
 }): string {
   const name = `${args.talent.prenom} ${args.talent.nom}`.trim();
   const catalogue = args.candidates
@@ -266,13 +264,25 @@ function buildMatchPrompt(args: {
         }`
     )
     .join("\n");
+  const remaining = args.limit;
+  const excludeBlock =
+    args.excludeNames && args.excludeNames.length > 0
+      ? `\n═══ DÉJÀ LISTÉES (NE PAS LES RÉPÉTER) ═══\n${args.excludeNames.join(", ")}\n`
+      : "";
 
-  return `Tu es un strategy planner influence FR/EU ultra exigeant. Ta mission : TROUVER LES MEILLEURES MARQUES AU MONDE qui fitent GRAVE avec ce créateur — pas te limiter à un catalogue interne.
+  return `Tu es un strategy planner influence FR/EU ultra exigeant. Ta mission : TROUVER LES MEILLEURES MARQUES qui fitent GRAVE avec ce créateur — pas te limiter à un catalogue interne.
 
 ═══ CRÉATEUR ═══
 - Nom : ${name}
 - Niches CRM : ${(args.talent.niches || []).join(", ") || "—"}
-- Collabs connues : ${uniqueCollabLabels(args.talent).join(", ") || "—"}
+
+═══ MARQUES AVEC QUI IL/ELLE A DÉJÀ BOSSÉ (signal FORT — à analyser) ═══
+${args.pastBrands.length ? args.pastBrands.join(", ") : "(aucune collab connue en CRM)"}
+Ces marques révèlent son univers commercial réel. Tu DOIS :
+1) les prendre comme preuve de fit (même catégorie / positionnement / adjacent),
+2) chercher des marques SIMILAIRES ou COMPLÉMENTAIRES (même étage, concurrents, adjacents),
+3) chercher aussi sur le web/X d'autres collabs passées non listées ici,
+4) tu PEUX inclure certaines de ces marques déjà bossées UNIQUEMENT s'il y a un angle de re-pitch clair (nouveau produit, nouvelle campagne, nouveaux formats) — marque-les mentally comme déjà bossées dans whyFit.
 
 ═══ ANALYSE PROFIL (source de vérité) ═══
 - Qui : ${args.profile.whoTheyAre}
@@ -282,35 +292,35 @@ function buildMatchPrompt(args: {
 - Preuves : ${args.profile.proofPoints}
 - Univers marques suggéré : ${args.profile.brandUniverseHints || "—"}
 
-═══ DÉJÀ CONTACTÉ(S) RÉCEMMENT (à éviter sauf fit exceptionnel) ═══
+═══ DÉJÀ CONTACTÉ(S) CASTING RÉCEMMENT (à éviter sauf fit exceptionnel) ═══
 ${args.contactedLabels.length ? args.contactedLabels.join(", ") : "(aucun)"}
-
+${excludeBlock}
 ═══ RECHERCHE OBLIGATOIRE (outils web + X) ═══
-Tu DOIS chercher activement des marques pertinentes. Exemples de recherches à lancer :
-1) marques / brands qui collabent avec des créateurs "${args.profile.contentThemes || args.talent.niches.join(", ") || "similaires"}"
-2) "${name}" collab marque OR partnership OR sponsored
-3) best brand fits for [thèmes du créateur] influencers France / Europe 2024 2025
-4) marques actives en influence sur les thèmes du créateur (pas seulement les géants évidents)
-Utilise aussi X pour voir quelles marques recrutent ce type de profils.
+Tu DOIS chercher activement. Lance au minimum :
+1) "${name}" collab OR partnership OR sponsored OR "en collab avec" marque
+2) marques / brands qui collabent avec des créateurs "${args.profile.contentThemes || args.talent.niches.join(", ") || "similaires"}"
+3) concurrents / adjacents des marques déjà bossées : ${args.pastBrands.slice(0, 8).join(", ") || "—"}
+4) best brand fits for [thèmes] influencers France / Europe 2024 2025
+5) X : quelles marques recrutent ce type de profils
 
 ═══ CATALOGUE CRM (aide secondaire UNIQUEMENT) ═══
-Ce n'est PAS une liste à laquelle tu dois te limiter. C'est juste pour rattacher un id si une marque que TU as choisie y figure déjà.
+Pas une liste à laquelle te limiter — juste pour rattacher un id si la marque y figure.
 ${catalogue || "(vide)"}
 
 ═══ MISSION ═══
-Renvoie exactement ${args.limit} marques TRIÉES du MEILLEUR fit au moins bon.
+Renvoie EXACTEMENT ${remaining} marques TRIÉES du MEILLEUR fit au moins bon.
+${args.excludeNames?.length ? `Ce sont des marques EN PLUS (complément), sans doublon.` : ""}
 
 Règles STRICTES :
 1) Priorité ABSOLUE : pertinence réelle contenu × univers marque. Fit "grave" seulement.
-2) NE TE LIMITE PAS au catalogue CRM. La majorité des suggestions PEUT (et DOIT souvent) venir de ta recherche web/X.
-3) Inclus un mix : marques premium / mid / challengers FR-EU qui font vraiment de l'influence — pas 12 géants génériques.
-4) Si une marque choisie est dans le catalogue CRM → marqueId = id entre crochets, inCrm = true. Sinon marqueId = null, inCrm = false.
-5) Évite les collabs déjà connues du créateur (sauf angle clairement nouveau).
-6) Évite les déjà contactés (sauf fit exceptionnel : score ≤ 65 + le dire dans whyFit).
-7) whyFit : 1-2 phrases concrètes (quoi dans le contenu × quoi dans la marque).
-8) suggestedAngle : angle pitch court et actionnable.
-9) fitScore 0–100, exigeant : 90+ = excellent match, 75–89 = très fort, <70 = seulement si vraiment utile.
-10) INTERDIT de remplir avec des marques CRM "parce qu'elles sont là" si le fit est moyen.
+2) NE TE LIMITE PAS au CRM. La majorité DOIT venir de ta recherche web/X + adjacents des collabs passées.
+3) Mix : premium / mid / challengers FR-EU actifs en influence — pas que des géants évidents.
+4) Si dans le catalogue CRM → marqueId = id entre crochets, inCrm = true. Sinon marqueId = null, inCrm = false.
+5) alreadyWorkedWith = true si c'est une marque déjà collabée (CRM ou trouvée web).
+6) whyFit : 1-2 phrases concrètes. Si déjà bossé, expliquer le re-pitch.
+7) suggestedAngle : angle pitch court et actionnable.
+8) fitScore 0–100, exigeant : 90+ excellent, 75–89 très fort.
+9) INTERDIT de filler CRM moyen juste pour atteindre ${remaining}.
 
 Réponds UNIQUEMENT en JSON strict :
 {
@@ -322,7 +332,8 @@ Réponds UNIQUEMENT en JSON strict :
       "fitScore": 88,
       "whyFit": "...",
       "suggestedAngle": "...",
-      "inCrm": false
+      "inCrm": false,
+      "alreadyWorkedWith": false
     }
   ]
 }
@@ -393,6 +404,7 @@ function parseBrands(
   raw: string,
   candidates: CandidateMarque[],
   contactedKeys: Set<string>,
+  pastBrandKeys: Set<string>,
   limit: number
 ): BrandSimulatorBrand[] {
   const o = tryParseJsonObject(raw);
@@ -430,7 +442,6 @@ function parseBrands(
         secteur = hit.secteur || secteur;
         inCrm = true;
       } else {
-        // Hors candidats préfiltrés : on laissera resolveBrandsAgainstCrm rattacher.
         marqueId = null;
         inCrm = false;
       }
@@ -444,6 +455,9 @@ function parseBrands(
     if (!Number.isFinite(fitScore)) fitScore = 50;
     fitScore = Math.max(0, Math.min(100, Math.round(fitScore)));
 
+    const alreadyWorkedWith =
+      r.alreadyWorkedWith === true || pastBrandKeys.has(key);
+
     out.push({
       marqueId,
       nom,
@@ -453,11 +467,62 @@ function parseBrands(
       suggestedAngle: asStr(r.suggestedAngle),
       inCrm,
       alreadyContacted: contactedKeys.has(key),
+      alreadyWorkedWith,
     });
     if (out.length >= limit) break;
   }
 
   return out.sort((a, b) => b.fitScore - a.fitScore);
+}
+
+async function enrichTalentPastBrands(talent: CrmTalent): Promise<string[]> {
+  const fromCrm = uniqueCollabLabels(talent, 40);
+  const moreCollabs = await prisma.collaboration.findMany({
+    where: { talentId: talent.id },
+    select: { marque: { select: { nom: true } } },
+    orderBy: { createdAt: "desc" },
+    take: 40,
+  });
+  const names = [
+    ...fromCrm,
+    ...moreCollabs.map((c) => String(c.marque?.nom || "").trim()),
+  ].filter(Boolean);
+  return Array.from(new Set(names));
+}
+
+async function runBrandMatchPass(args: {
+  talent: CrmTalent;
+  profile: BrandSimulatorProfile;
+  candidates: CandidateMarque[];
+  contactedLabels: string[];
+  contactedKeys: Set<string>;
+  pastBrands: string[];
+  pastBrandKeys: Set<string>;
+  limit: number;
+  excludeNames?: string[];
+}): Promise<BrandSimulatorBrand[]> {
+  const text = await xaiResponse(
+    buildMatchPrompt({
+      talent: args.talent,
+      profile: args.profile,
+      candidates: args.candidates,
+      contactedLabels: args.contactedLabels,
+      pastBrands: args.pastBrands,
+      limit: args.limit,
+      excludeNames: args.excludeNames,
+    }),
+    {
+      tools: [...TALENT_RESEARCH_TOOLS],
+      timeoutMs: 150_000,
+    }
+  );
+  return parseBrands(
+    text,
+    args.candidates,
+    args.contactedKeys,
+    args.pastBrandKeys,
+    args.limit
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -484,8 +549,8 @@ export async function POST(request: NextRequest) {
       typeof body?.talentId === "string" ? body.talentId.trim() : "";
     const limitRaw = Number(body?.limit);
     const limit = Number.isFinite(limitRaw)
-      ? Math.max(5, Math.min(20, Math.round(limitRaw)))
-      : 12;
+      ? Math.max(50, Math.min(60, Math.round(limitRaw)))
+      : 50;
 
     if (!talentId) {
       return NextResponse.json({ error: "talentId requis." }, { status: 400 });
@@ -495,6 +560,14 @@ export async function POST(request: NextRequest) {
     if (!talent) {
       return NextResponse.json({ error: "Talent introuvable." }, { status: 404 });
     }
+
+    const pastBrands = await enrichTalentPastBrands(talent);
+    const pastBrandKeys = new Set(pastBrands.map((n) => n.toLowerCase()));
+    // Enrichir la fiche talent pour les prompts (collabs + selectedClients).
+    talent.collaborations = [
+      ...pastBrands.map((marqueNom) => ({ marqueNom })),
+      ...talent.collaborations,
+    ];
 
     // Historique contacts casting indiv (90 j) pour flagger.
     const since = new Date();
@@ -526,33 +599,70 @@ export async function POST(request: NextRequest) {
 
     let brands: BrandSimulatorBrand[] = [];
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+
+    try {
+      brands = await runBrandMatchPass({
+        talent,
+        profile,
+        candidates,
+        contactedLabels,
+        contactedKeys,
+        pastBrands,
+        pastBrandKeys,
+        limit,
+      });
+    } catch (e) {
+      lastError = e;
+      console.warn(
+        "brand-simulator match pass 1:",
+        e instanceof Error ? e.message : e
+      );
+    }
+
+    // 2e vague si on n'atteint pas 50 (modèles qui tronquent souvent).
+    if (brands.length > 0 && brands.length < limit) {
       try {
-        const text = await xaiResponse(
-          buildMatchPrompt({
-            talent,
-            profile,
-            candidates,
-            contactedLabels,
-            limit,
-          }),
-          {
-            tools: [...TALENT_RESEARCH_TOOLS],
-            timeoutMs: 120_000,
-          }
-        );
-        brands = parseBrands(text, candidates, contactedKeys, limit);
-        if (brands.length > 0) {
-          brands = await resolveBrandsAgainstCrm(brands);
-          break;
+        const more = await runBrandMatchPass({
+          talent,
+          profile,
+          candidates,
+          contactedLabels,
+          contactedKeys,
+          pastBrands,
+          pastBrandKeys,
+          limit: limit - brands.length,
+          excludeNames: brands.map((b) => b.nom),
+        });
+        const seen = new Set(brands.map((b) => b.nom.toLowerCase()));
+        for (const b of more) {
+          if (seen.has(b.nom.toLowerCase())) continue;
+          brands.push(b);
+          seen.add(b.nom.toLowerCase());
+          if (brands.length >= limit) break;
         }
-        throw new Error("empty brands");
       } catch (e) {
-        lastError = e;
         console.warn(
-          `brand-simulator match tentative ${attempt}:`,
+          "brand-simulator match pass 2:",
           e instanceof Error ? e.message : e
         );
+      }
+    }
+
+    if (brands.length === 0) {
+      // Retry complet une fois
+      try {
+        brands = await runBrandMatchPass({
+          talent,
+          profile,
+          candidates,
+          contactedLabels,
+          contactedKeys,
+          pastBrands,
+          pastBrandKeys,
+          limit,
+        });
+      } catch (e) {
+        lastError = e;
       }
     }
 
@@ -570,10 +680,21 @@ export async function POST(request: NextRequest) {
             photo: null,
           },
           brands: [],
+          pastBrands,
         },
         { status: 502 }
       );
     }
+
+    brands = await resolveBrandsAgainstCrm(brands);
+    brands = brands
+      .map((b) => ({
+        ...b,
+        alreadyWorkedWith:
+          b.alreadyWorkedWith || pastBrandKeys.has(b.nom.toLowerCase()),
+      }))
+      .sort((a, b) => b.fitScore - a.fitScore)
+      .slice(0, limit);
 
     const photoRow = await prisma.talent.findUnique({
       where: { id: talent.id },
@@ -590,11 +711,14 @@ export async function POST(request: NextRequest) {
         igNote: ig.note,
       },
       profile,
+      pastBrands,
       brands,
       meta: {
         candidateCount: candidates.length,
         secteurs: nichesToSecteurs(talent.niches),
         contactedCount: contactedLabels.length,
+        pastBrandCount: pastBrands.length,
+        brandCount: brands.length,
       },
     });
   } catch (e) {

@@ -120,7 +120,13 @@ const menuItems = [
     label: "Projets outreach talent",
     href: "/projets-outreach",
     icon: Compass,
-    roles: ["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"],
+    roles: ["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN", "TM", "CM"],
+  },
+  {
+    label: "CRM Hôtels / Prestas",
+    href: "/prestataires",
+    icon: Briefcase,
+    roles: ["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN", "TM", "CM", "HEAD_OF"],
   },
   {
     label: "Inbound 📬",
@@ -604,12 +610,6 @@ export function Sidebar({
             href: "/strategy/projet-individuel-talent",
             icon: Mail,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
-          } as (typeof menuItems)[number],
-          {
-            label: "Simulateur marque",
-            href: "/strategy/projet-individuel-talent/simulateur-marque",
-            icon: Sparkles,
-            roles: ["STRATEGY_PLANNER", "ADMIN", "CASTING_MANAGER"],
           } as (typeof menuItems)[number],
           {
             label: "Projets outreach talent",

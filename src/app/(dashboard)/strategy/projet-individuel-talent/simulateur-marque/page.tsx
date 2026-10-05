@@ -8,13 +8,7 @@ export default async function BrandSimulatorPage() {
   if (!session?.user) redirect("/login");
 
   const role = (session.user as { role?: string }).role ?? "";
-  if (
-    role !== "STRATEGY_PLANNER" &&
-    role !== "ADMIN" &&
-    role !== "HEAD_OF" &&
-    role !== "HEAD_OF_SALES" &&
-    role !== "CASTING_MANAGER"
-  ) {
+  if (role !== "ADMIN") {
     redirect("/dashboard");
   }
 
