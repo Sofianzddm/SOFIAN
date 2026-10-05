@@ -393,6 +393,7 @@ export function CastingMissionsClient() {
         open={composerOpen}
         contact={composerContact}
         brandColumn={composerColumn}
+        enableTalentResearch
         lockedTalentIds={
           composerContact?.missionBrief?.condensationBriefs &&
           composerContact.missionBrief.condensationBriefs.length >= 2

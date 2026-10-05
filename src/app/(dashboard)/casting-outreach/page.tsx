@@ -630,6 +630,7 @@ export default function CastingOutreachPage() {
         open={composerOpen}
         contact={activeBrand}
         brandColumn={activeBrandColumn}
+        enableTalentResearch
         onClose={() => {
           setComposerOpen(false);
           setActiveBrand(null);

@@ -2372,6 +2372,7 @@ export default function OutreachPage() {
         contact={composerContact}
         brandColumn={"todo"}
         useHubspot={false}
+        enableTalentResearch
         market={
           composerGroup?.targets[0]?.pipeline === "BENELUX"
             ? "BENELUX"

@@ -120,3 +120,155 @@ export async function fetchInstagramPhotos(
 
   return photos;
 }
+
+export interface InstagramCaptionItem {
+  caption: string;
+  timestamp?: string;
+  type?: string;
+}
+
+export interface InstagramProfileSnapshot {
+  handle: string;
+  biography?: string;
+  fullName?: string;
+  followersCount?: number;
+  postsCount?: number;
+  captions: InstagramCaptionItem[];
+}
+
+/**
+ * Snapshot profil Instagram + dernières captions (posts + reels).
+ * Utilisé pour analyser « qui est / ce que fait » un créateur.
+ */
+export async function fetchInstagramProfileSnapshot(
+  handle: string,
+  count: number = 16,
+  options?: { timeoutMs?: number }
+): Promise<InstagramProfileSnapshot> {
+  const token = process.env.APIFY_TOKEN;
+  if (!token) {
+    throw new Error("APIFY_TOKEN manquant dans les variables d'environnement");
+  }
+
+  const cleanHandle = normalizeInstagramHandle(handle);
+  if (!cleanHandle) {
+    throw new Error("Handle Instagram vide");
+  }
+
+  const resultsLimit = Math.min(Math.max(count, 10), 30);
+  const timeoutMs =
+    typeof options?.timeoutMs === "number" && options.timeoutMs > 0
+      ? options.timeoutMs
+      : 50_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${APIFY_ENDPOINT}?token=${token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        directUrls: [`https://www.instagram.com/${cleanHandle}/`],
+        resultsType: "posts",
+        resultsLimit,
+        addParentData: true,
+      }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error(
+        `Délai dépassé Instagram (${Math.round(timeoutMs / 1000)} s).`
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Erreur Apify (${response.status}) : ${text.slice(0, 200)}`);
+  }
+
+  const items = (await response.json()) as Array<{
+    type?: string;
+    caption?: string;
+    timestamp?: string;
+    biography?: string;
+    bio?: string;
+    fullName?: string;
+    fullname?: string;
+    followersCount?: number;
+    followers?: number;
+    postsCount?: number;
+    ownerUsername?: string;
+    username?: string;
+    // Parfois les métas profil sont dans un sous-objet parent
+    parent?: Record<string, unknown>;
+  }>;
+
+  const first = items[0];
+  const parent =
+    first?.parent && typeof first.parent === "object" ? first.parent : null;
+
+  const biography = String(
+    first?.biography ||
+      first?.bio ||
+      parent?.biography ||
+      parent?.bio ||
+      ""
+  ).trim();
+  const fullName = String(
+    first?.fullName || first?.fullname || parent?.fullName || parent?.fullname || ""
+  ).trim();
+  const followersRaw =
+    first?.followersCount ??
+    first?.followers ??
+    parent?.followersCount ??
+    parent?.followers;
+  const postsRaw = first?.postsCount ?? parent?.postsCount;
+  const followersCount =
+    typeof followersRaw === "number" && Number.isFinite(followersRaw)
+      ? followersRaw
+      : undefined;
+  const postsCount =
+    typeof postsRaw === "number" && Number.isFinite(postsRaw)
+      ? postsRaw
+      : undefined;
+
+  const captions: InstagramCaptionItem[] = [];
+  for (const it of items) {
+    const caption = String(it.caption || "").trim();
+    if (!caption) continue;
+    captions.push({
+      caption: caption.length > 450 ? `${caption.slice(0, 450)}…` : caption,
+      timestamp: it.timestamp,
+      type: it.type,
+    });
+    if (captions.length >= count) break;
+  }
+
+  return {
+    handle: cleanHandle,
+    ...(biography ? { biography } : {}),
+    ...(fullName ? { fullName } : {}),
+    ...(followersCount !== undefined ? { followersCount } : {}),
+    ...(postsCount !== undefined ? { postsCount } : {}),
+    captions,
+  };
+}
+
+/**
+ * Dernières captions Instagram (posts + reels), pour analyser « ce que poste »
+ * un créateur. Échoue proprement si APIFY_TOKEN absente / handle invalide.
+ */
+export async function fetchInstagramRecentCaptions(
+  handle: string,
+  count: number = 12,
+  options?: { timeoutMs?: number }
+): Promise<InstagramCaptionItem[]> {
+  const snap = await fetchInstagramProfileSnapshot(handle, count, options);
+  return snap.captions;
+}

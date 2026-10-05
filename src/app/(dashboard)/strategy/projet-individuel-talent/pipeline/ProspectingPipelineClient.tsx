@@ -446,6 +446,7 @@ export function ProspectingPipelineClient() {
   const [success, setSuccess] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerContact, setComposerContact] = useState<any>(null);
+  const [composerTalentId, setComposerTalentId] = useState<string | null>(null);
   const [contactFormByMission, setContactFormByMission] = useState<
     Record<string, { open: boolean; contacts: ContactDraft[] }>
   >({});
@@ -1518,6 +1519,7 @@ export function ProspectingPipelineClient() {
           clientContacts: Array.isArray(m.clientContacts) ? m.clientContacts : [],
         },
       });
+      setComposerTalentId(m.talentId || null);
       setComposerOpen(true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -3422,9 +3424,12 @@ export function ProspectingPipelineClient() {
         useHubspot={false}
         readyMode="queue"
         readyLabel="Prêt à envoyer"
+        enableTalentResearch
+        lockedTalentId={composerTalentId}
         onClose={() => {
           setComposerOpen(false);
           setComposerContact(null);
+          setComposerTalentId(null);
         }}
         onSaved={async (
           status: "pret" | "en_cours" | "reset",

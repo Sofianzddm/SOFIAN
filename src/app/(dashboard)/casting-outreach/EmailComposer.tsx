@@ -71,6 +71,18 @@ export type Talent = {
   instagram?: string | null;
 };
 
+export type TalentResearchItem = {
+  talentId?: string;
+  name: string;
+  whoTheyAre: string;
+  whatTheyDo?: string;
+  profileAnalysis?: string;
+  contentThemes: string;
+  whyRelevant: string;
+  proofPoints: string;
+  sourcesUsed?: string;
+};
+
 export interface EmailComposerProps {
   subject: string;
   onSubjectChange: (v: string) => void;
@@ -80,6 +92,9 @@ export interface EmailComposerProps {
   brandResearch: BrandResearch | null;
   onBrandResearch: () => void;
   isResearching: boolean;
+  /** Pipeline indiv : exige talent sélectionné puis analyse créateur + marque. */
+  enableTalentResearch?: boolean;
+  talentResearch?: TalentResearchItem[] | null;
   talentsSelected: Talent[];
   isGenerating: boolean;
   onGenerate: () => void;
@@ -120,6 +135,8 @@ export default function EmailComposer({
   brandResearch,
   onBrandResearch,
   isResearching,
+  enableTalentResearch = false,
+  talentResearch = null,
   talentsSelected,
   isGenerating,
   onGenerate,
@@ -147,6 +164,33 @@ export default function EmailComposer({
   const [tone, setTone] = useState<"tu" | "vous">("vous");
   const [isRewritingTone, setIsRewritingTone] = useState(false);
   const [researchOpen, setResearchOpen] = useState(false);
+  const [talentResearchOpen, setTalentResearchOpen] = useState(true);
+  const researchReady =
+    Boolean(brandResearch) &&
+    (!enableTalentResearch || (Array.isArray(talentResearch) && talentResearch.length > 0));
+  const researchBlockedReason = enableTalentResearch
+    ? talentsSelected.length === 0
+      ? "Sélectionne d’abord les créateurs à gauche"
+      : !brandResearch || !talentResearch?.length
+        ? "Lance d’abord l’analyse marque + créateurs sélectionnés"
+        : null
+    : !brandResearch
+      ? "D’abord « Par recherche » pour analyser la marque"
+      : talentsSelected.length === 0
+        ? "Sélectionne au moins un talent à gauche"
+        : null;
+  const researchButtonLabel =
+    enableTalentResearch && talentsSelected.length > 1
+      ? `Par recherche (marque + ${talentsSelected.length} créateurs)`
+      : enableTalentResearch
+        ? "Par recherche (marque + créateur)"
+        : "Par recherche";
+  const researchLoadingLabel =
+    enableTalentResearch && talentsSelected.length > 1
+      ? `Analyse marque + ${talentsSelected.length} créateurs…`
+      : enableTalentResearch
+        ? "Analyse marque + créateur…"
+        : "Analyse…";
 
   const talentTokensFromSelection = useMemo<
     { token: string; label: string; node?: Record<string, unknown> }[]
@@ -326,22 +370,32 @@ export default function EmailComposer({
 
   return (
     <div className={`flex flex-col gap-2 ${fillHeight ? "h-full min-h-0" : ""}`}>
-      {/* Recherche marque — une ligne, détail repliable */}
+      {/* 1) Sélection créateurs → 2) Analyse marque + créateurs → 3) Rédiger */}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
         <button
           type="button"
           onClick={onBrandResearch}
-          disabled={isResearching}
+          disabled={
+            isResearching ||
+            (enableTalentResearch && talentsSelected.length === 0)
+          }
           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-opacity disabled:opacity-60"
           style={{ borderColor: OLD_ROSE, color: LICORICE }}
+          title={
+            enableTalentResearch && talentsSelected.length === 0
+              ? "Sélectionne d’abord les créateurs à gauche"
+              : enableTalentResearch
+                ? "Analyse la marque et les créateurs sélectionnés"
+                : "Analyse de la marque"
+          }
         >
           {isResearching ? (
             <>
               <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-              Analyse…
+              {researchLoadingLabel}
             </>
           ) : (
-            <>Par recherche</>
+            <>{researchButtonLabel}</>
           )}
         </button>
         {brandResearch && (
@@ -351,9 +405,27 @@ export default function EmailComposer({
             className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg hover:bg-black/5"
             style={{ color: OLD_ROSE }}
           >
-            Recherche OK
+            Marque OK
             {researchOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
+        )}
+        {enableTalentResearch && talentResearch && talentResearch.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setTalentResearchOpen((v) => !v)}
+            className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg hover:bg-black/5"
+            style={{ color: OLD_ROSE }}
+          >
+            {talentResearch.length > 1
+              ? `${talentResearch.length} créateurs analysés`
+              : "Créateur analysé"}
+            {talentResearchOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+        )}
+        {enableTalentResearch && talentsSelected.length === 0 && (
+          <span className="text-[11px]" style={{ color: OLD_ROSE }}>
+            Sélectionne d’abord les créateurs
+          </span>
         )}
         {researchTargetLabel && (
           <span className="text-[11px] truncate" style={{ color: OLD_ROSE }}>
@@ -386,6 +458,7 @@ export default function EmailComposer({
           className="rounded-lg border px-3 py-2 space-y-1.5 text-xs shrink-0 max-h-36 overflow-y-auto"
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, color: LICORICE }}
         >
+          <p className="font-semibold opacity-70">Marque</p>
           <p>{brandResearch.recentCampaigns}</p>
           <p>{brandResearch.newProducts}</p>
           {brandResearch.availabilityFrEu?.trim() ? (
@@ -398,6 +471,65 @@ export default function EmailComposer({
           <p>{brandResearch.influenceStrategy}</p>
         </div>
       )}
+      {enableTalentResearch &&
+        talentResearch &&
+        talentResearch.length > 0 &&
+        talentResearchOpen && (
+          <div
+            className="rounded-lg border px-3 py-2 space-y-2 text-xs shrink-0 max-h-56 overflow-y-auto"
+            style={{
+              borderColor: `color-mix(in srgb, ${TEA_GREEN} 55%, transparent)`,
+              backgroundColor: `color-mix(in srgb, ${TEA_GREEN} 12%, white)`,
+              color: LICORICE,
+            }}
+          >
+            <p className="font-semibold opacity-70">Créateur — profil analysé</p>
+            {talentResearch.map((r, i) => (
+              <div key={r.talentId || `${r.name}-${i}`} className="space-y-1 border-t border-black/5 pt-1.5 first:border-0 first:pt-0">
+                <p className="font-semibold">{r.name}</p>
+                {r.whoTheyAre?.trim() ? (
+                  <p>
+                    <span className="font-semibold">Qui : </span>
+                    {r.whoTheyAre}
+                  </p>
+                ) : null}
+                {r.whatTheyDo?.trim() ? (
+                  <p>
+                    <span className="font-semibold">Ce qu’il/elle fait : </span>
+                    {r.whatTheyDo}
+                  </p>
+                ) : null}
+                {r.profileAnalysis?.trim() ? (
+                  <p>
+                    <span className="font-semibold">Analyse profil : </span>
+                    {r.profileAnalysis}
+                  </p>
+                ) : null}
+                {r.contentThemes?.trim() ? (
+                  <p>
+                    <span className="font-semibold">Thèmes : </span>
+                    {r.contentThemes}
+                  </p>
+                ) : null}
+                {r.whyRelevant?.trim() ? (
+                  <p>
+                    <span className="font-semibold">Fit marque : </span>
+                    {r.whyRelevant}
+                  </p>
+                ) : null}
+                {r.proofPoints?.trim() ? (
+                  <p className="opacity-80">
+                    <span className="font-semibold">Preuves : </span>
+                    {r.proofPoints}
+                  </p>
+                ) : null}
+                {r.sourcesUsed?.trim() ? (
+                  <p className="opacity-60 text-[10px]">Sources : {r.sourcesUsed}</p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
 
       {previewMode === "edit" && (
         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -613,19 +745,16 @@ export default function EmailComposer({
               <button
                 type="button"
                 onClick={onGenerate}
-                disabled={isGenerating}
+                disabled={isGenerating || !researchReady || talentsSelected.length === 0}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-50 ${
-                  !brandResearch || talentsSelected.length === 0 ? "opacity-60" : ""
+                  !researchReady || talentsSelected.length === 0 ? "opacity-60" : ""
                 }`}
                 style={{ backgroundColor: OLD_ROSE, color: "white" }}
                 title={
-                  !brandResearch
-                    ? "D’abord « Par recherche » pour analyser la marque"
-                    : talentsSelected.length === 0
-                      ? "Sélectionne au moins un talent à gauche"
-                      : talentsSelected.length > 1
-                        ? `Rédiger le mail condensé (${talentsSelected.length} talents)`
-                        : "Rédiger le mail"
+                  researchBlockedReason ||
+                  (talentsSelected.length > 1
+                    ? `Rédiger le mail condensé (${talentsSelected.length} talents)`
+                    : "Rédiger le mail")
                 }
               >
                 {isGenerating ? (

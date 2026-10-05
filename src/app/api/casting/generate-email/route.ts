@@ -62,6 +62,21 @@ export interface GenerateEmailBody {
   };
   talents: TalentPayload[];
   /**
+   * Analyse créateur (pipeline indiv) : qui est le talent + pourquoi le fit.
+   * Absent hors pipeline → comportement casting inchangé.
+   */
+  talentResearch?: Array<{
+    talentId?: string;
+    name: string;
+    whoTheyAre: string;
+    whatTheyDo?: string;
+    profileAnalysis?: string;
+    contentThemes: string;
+    whyRelevant: string;
+    proofPoints: string;
+    sourcesUsed?: string;
+  }> | null;
+  /**
    * Quand fourni, l'IA utilise directement ces valeurs à la place des jetons
    * HubSpot {{ contact.firstname }} / {{ contact.company }}. Utile pour les
    * envois Gmail directs (inbound, demandes-entrantes) où les jetons HubSpot
@@ -570,6 +585,53 @@ PROJECT PROHIBITIONS (absolute):
       })
       .join("\n\n");
 
+    const talentResearchList = Array.isArray(body.talentResearch)
+      ? body.talentResearch.filter(
+          (r) =>
+            r &&
+            (String(r.whoTheyAre || "").trim() ||
+              String(r.whatTheyDo || "").trim() ||
+              String(r.profileAnalysis || "").trim() ||
+              String(r.whyRelevant || "").trim() ||
+              String(r.contentThemes || "").trim())
+        )
+      : [];
+    const hasTalentResearch = talentResearchList.length > 0;
+    const talentResearchBlockEn = hasTalentResearch
+      ? `
+CREATOR RESEARCH (MANDATORY — use this to pitch WHO the talent is, WHAT they do, and WHY they fit; do not invent beyond it):
+${talentResearchList
+  .map(
+    (r, i) => `Talent ${i + 1} — ${String(r.name || "").trim() || "Creator"}
+- Who they are: ${String(r.whoTheyAre || "").trim() || "—"}
+- What they do / content: ${String(r.whatTheyDo || r.contentThemes || "").trim() || "—"}
+- Profile analysis: ${String(r.profileAnalysis || "").trim() || "—"}
+- Content themes: ${String(r.contentThemes || "").trim() || "—"}
+- Why relevant for this brand: ${String(r.whyRelevant || "").trim() || "—"}
+- Proof points: ${String(r.proofPoints || "").trim() || "—"}`
+  )
+  .join("\n\n")}
+When presenting the talent, lean on this research (concrete activity / themes / fit), not generic niche labels.
+`
+      : "";
+    const talentResearchBlockFr = hasTalentResearch
+      ? `
+RECHERCHE CRÉATEUR (OBLIGATOIRE — s'en servir pour dire QUI est le talent, CE QU'IL FAIT, et POURQUOI le fit ; n'invente rien au-delà) :
+${talentResearchList
+  .map(
+    (r, i) => `Talent ${i + 1} — ${String(r.name || "").trim() || "Créateur"}
+- Qui c'est : ${String(r.whoTheyAre || "").trim() || "—"}
+- Ce qu'il/elle fait / contenu : ${String(r.whatTheyDo || r.contentThemes || "").trim() || "—"}
+- Analyse de profil : ${String(r.profileAnalysis || "").trim() || "—"}
+- Thèmes de contenu : ${String(r.contentThemes || "").trim() || "—"}
+- Pourquoi pertinent pour cette marque : ${String(r.whyRelevant || "").trim() || "—"}
+- Preuves : ${String(r.proofPoints || "").trim() || "—"}`
+  )
+  .join("\n\n")}
+Quand tu présentes le talent, appuie-toi sur cette recherche (activité concrète / thèmes / fit), pas sur des niches génériques.
+`
+      : "";
+
     const beneluxContextEn = isBenelux
       ? `\nBENELUX MARKET CONTEXT (MANDATORY): You are writing to a brand based in the Benelux. You MUST state naturally, early in the email (right after the opening hook), that Glow Up Agence is a French agency now expanding into the Benelux, working with Benelux creators. Phrase it simply and vary it every time (e.g. "We are a French agency expanding across the Benelux, with Benelux creators."). Keep it to one sentence, do not turn it into a heavy sales argument.\n`
       : "";
@@ -590,6 +652,7 @@ Market availability (France first, then Europe): ${availabilityFrEu || "—"}
 Positioning: ${brandPositioning}
 Current influence strategy of the brand (profile types, formats, tone of their collaborations): ${influenceStrategy || "—"}
 Available talents: ${talentsString} (the variable already contains complete HTML links in the form <a><strong>Firstname Lastname</strong></a>; keep them as-is, do NOT remove the bold or the link)
+${talentResearchBlockEn}
 ${beneluxContextEn}
 ${projectOrCondensationEn}
 ${
@@ -713,6 +776,7 @@ Disponibilité marché (France d'abord, sinon Europe) : ${availabilityFrEu || "�
 Positionnement : ${brandPositioning}
 Stratégie d'influence actuelle de la marque (types de profils, formats, tonalité de leurs collaborations) : ${influenceStrategy || "—"}
 Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme <a><strong>Prénom Nom</strong></a> ; conserve-les tels quels, NE retire jamais le gras ni le lien)
+${talentResearchBlockFr}
 ${beneluxContextFr}
 ${projectOrCondensationFr}
 ${

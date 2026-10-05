@@ -287,6 +287,11 @@ export interface CastingComposerProps {
   /** Condensation : plusieurs talents verrouillés pour Grok. */
   lockedTalentIds?: string[] | null;
   /**
+   * Pipeline indiv uniquement : recherche créateur (CRM + IG + web) avant rédaction.
+   * Hors pipeline → comportement casting inchangé (recherche marque seule).
+   */
+  enableTalentResearch?: boolean;
+  /**
    * `modal` (défaut) : overlay plein écran.
    * `inline` : panneau intégré dans la page (projets outreach / Rédaction).
    */
@@ -330,6 +335,7 @@ export default function CastingComposer({
   allowSchedule = false,
   lockedTalentId = null,
   lockedTalentIds = null,
+  enableTalentResearch = false,
   variant = "modal",
   onClose,
   onSaved,
@@ -446,6 +452,19 @@ export default function CastingComposer({
   const [bodyTick, setBodyTick] = useState(0);
   const subjectInputRef = useRef<HTMLInputElement>(null);
   const [brandResearch, setBrandResearch] = useState<BrandResearchState | null>(null);
+  const [talentResearch, setTalentResearch] = useState<
+    Array<{
+      talentId: string;
+      name: string;
+      whoTheyAre: string;
+      whatTheyDo?: string;
+      profileAnalysis?: string;
+      contentThemes: string;
+      whyRelevant: string;
+      proofPoints: string;
+      sourcesUsed?: string;
+    }> | null
+  >(null);
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
@@ -693,6 +712,7 @@ export default function CastingComposer({
       )
     );
     setBrandResearch(null);
+    setTalentResearch(null);
     // Client EN (fiche CRM / mission) → anglais d'emblée.
     setEmailLanguage(resolveClientEmailLanguage(contact) || defaultLanguage);
     setSendMode("now");
@@ -789,27 +809,98 @@ export default function CastingComposer({
       onError("Nom de marque manquant pour la recherche.");
       return;
     }
+    const selectedForResearch =
+      effectiveLockedTalentIds.length > 1
+        ? effectiveLockedTalentIds
+            .map((id) => talents.find((t) => t.id === id))
+            .filter((t): t is PresskitTalent => Boolean(t))
+        : talents.filter((t) => selectedIds.has(t.id));
+    if (enableTalentResearch && selectedForResearch.length === 0) {
+      onError("Sélectionne d’abord les créateurs, puis lance l’analyse marque + créateurs.");
+      return;
+    }
+    const talentsToResearch = selectedForResearch.slice(0, 8);
     setIsResearching(true);
     try {
-      const res = await fetch("/api/casting/brand-research", {
+      const brandPromise = fetch("/api/casting/brand-research", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandName: researchBrandName }),
+      }).then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            typeof data.error === "string" ? data.error : "Recherche marque impossible."
+          );
+        }
+        return data as BrandResearchState;
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          typeof data.error === "string" ? data.error : "Recherche impossible."
-        );
+
+      const talentPromise =
+        enableTalentResearch && talentsToResearch.length > 0
+          ? fetch("/api/casting/talent-research", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                brandName: researchBrandName,
+                talentIds: talentsToResearch.map((t) => t.id),
+                strategyReason: contact?.missionBrief?.strategyReason || "",
+                recommendedAngle: contact?.missionBrief?.recommendedAngle || "",
+              }),
+            }).then(async (res) => {
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                throw new Error(
+                  typeof data.error === "string"
+                    ? data.error
+                    : "Recherche créateur impossible."
+                );
+              }
+              return Array.isArray(data.talents) ? data.talents : [];
+            })
+          : Promise.resolve(null);
+
+      const [brandSettled, talentSettled] = await Promise.allSettled([
+        brandPromise,
+        talentPromise,
+      ]);
+
+      if (brandSettled.status !== "fulfilled") {
+        throw brandSettled.reason instanceof Error
+          ? brandSettled.reason
+          : new Error("Recherche marque impossible.");
       }
-      setBrandResearch(data as BrandResearchState);
+      setBrandResearch(brandSettled.value);
+
+      if (enableTalentResearch) {
+        if (talentSettled.status === "fulfilled") {
+          setTalentResearch(talentSettled.value);
+        } else {
+          setTalentResearch(null);
+          const msg =
+            talentSettled.reason instanceof Error
+              ? talentSettled.reason.message
+              : "Recherche créateur impossible.";
+          onError(`Marque OK, mais créateur : ${msg}`);
+        }
+      }
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
       setIsResearching(false);
     }
-  }, [researchBrandName, onError]);
+  }, [
+    researchBrandName,
+    onError,
+    enableTalentResearch,
+    talents,
+    selectedIds,
+    effectiveLockedTalentIds,
+    contact?.missionBrief?.strategyReason,
+    contact?.missionBrief?.recommendedAngle,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -914,12 +1005,33 @@ export default function CastingComposer({
     return selected;
   }, [talents, selectedIds, effectiveLockedTalentIds]);
 
+  const selectedTalentKey = useMemo(
+    () =>
+      selectedTalents
+        .map((t) => t.id)
+        .sort()
+        .join(","),
+    [selectedTalents]
+  );
+
+  // Si on change de talent, l'ancienne analyse créateur n'est plus valide.
+  useEffect(() => {
+    if (!enableTalentResearch) return;
+    setTalentResearch(null);
+  }, [selectedTalentKey, enableTalentResearch]);
+
   const runGenerateEmail = useCallback(async () => {
     if (!contact) return;
     if (!brandResearch) {
       onError(
-        "Lance d'abord l'analyse de la marque (bouton « Par recherche » en haut)."
+        enableTalentResearch
+          ? "Lance d’abord l’analyse marque + créateurs sélectionnés."
+          : "Lance d'abord l'analyse de la marque (bouton « Par recherche » en haut)."
       );
+      return;
+    }
+    if (enableTalentResearch && (!talentResearch || talentResearch.length === 0)) {
+      onError("Lance d’abord l’analyse des créateurs sélectionnés (même bouton recherche).");
       return;
     }
     if (selectedTalents.length === 0) {
@@ -965,6 +1077,9 @@ export default function CastingComposer({
           brandName: researchBrandName || contact.company,
           brandResearch,
           talents: talentsPayload,
+          ...(enableTalentResearch && talentResearch
+            ? { talentResearch }
+            : {}),
           // Uniquement si missionBrief (projets-outreach / pipeline talent).
           // Outreach Clients passe missionBrief: null → pas de projectBrief → prompt inchangé.
           ...(contact.missionBrief
@@ -1047,6 +1162,8 @@ export default function CastingComposer({
   }, [
     contact,
     brandResearch,
+    talentResearch,
+    enableTalentResearch,
     selectedTalents,
     selectedRecipientIds,
     emailLanguage,
@@ -1958,6 +2075,8 @@ export default function CastingComposer({
                   brandResearch={brandResearch}
                   onBrandResearch={runBrandResearch}
                   isResearching={isResearching}
+                  enableTalentResearch={enableTalentResearch}
+                  talentResearch={talentResearch}
                   talentsSelected={selectedTalents}
                   isGenerating={isGenerating}
                   onGenerate={runGenerateEmail}
