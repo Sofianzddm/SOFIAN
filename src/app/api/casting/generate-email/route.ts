@@ -599,7 +599,7 @@ PROJECT PROHIBITIONS (absolute):
     const hasTalentResearch = talentResearchList.length > 0;
     const talentResearchBlockEn = hasTalentResearch
       ? `
-CREATOR RESEARCH (MANDATORY — use this to pitch WHO the talent is, WHAT they do, and WHY they fit; do not invent beyond it):
+CREATOR RESEARCH (MANDATORY — this is the source of truth for WHY each creator is pitched):
 ${talentResearchList
   .map(
     (r, i) => `Talent ${i + 1} — ${String(r.name || "").trim() || "Creator"}
@@ -611,12 +611,12 @@ ${talentResearchList
 - Proof points: ${String(r.proofPoints || "").trim() || "—"}`
   )
   .join("\n\n")}
-When presenting the talent, lean on this research (concrete activity / themes / fit), not generic niche labels.
+CRITICAL: for EACH talent in the email, the reason MUST come from this research (what they actually do + why they fit ${brandName}). Forbidden: generic niche labels alone ("lifestyle", "beauty", "fashion") with no concrete explanation.
 `
       : "";
     const talentResearchBlockFr = hasTalentResearch
       ? `
-RECHERCHE CRÉATEUR (OBLIGATOIRE — s'en servir pour dire QUI est le talent, CE QU'IL FAIT, et POURQUOI le fit ; n'invente rien au-delà) :
+RECHERCHE CRÉATEUR (OBLIGATOIRE — c'est la source de vérité pour POURQUOI chaque créateur est pitché) :
 ${talentResearchList
   .map(
     (r, i) => `Talent ${i + 1} — ${String(r.name || "").trim() || "Créateur"}
@@ -628,9 +628,47 @@ ${talentResearchList
 - Preuves : ${String(r.proofPoints || "").trim() || "—"}`
   )
   .join("\n\n")}
-Quand tu présentes le talent, appuie-toi sur cette recherche (activité concrète / thèmes / fit), pas sur des niches génériques.
+CRITIQUE : pour CHAQUE talent dans le mail, la raison DOIT venir de cette recherche (ce qu'il/elle fait vraiment + pourquoi ça colle à ${brandName}). Interdit : se contenter d'une niche générique (« lifestyle », « beauté », « mode ») sans explication concrète.
 `
       : "";
+
+    const rosterTalentListEn = hasTalentResearch
+      ? `- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "at our agency we have several creators who could be a fit:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, at our agency we have several creators who could be a fit:". Keep it measured and natural, 1-2 sentences max.
+- List the talents in a clear, airy bullet format — ONE full sentence per talent:
+  <a href="..."><strong>Firstname Lastname</strong></a> — [what they actually do from CREATOR RESEARCH] + [why that fits how ${brandName} already works with creators, from brand research].
+  Example shape (do NOT copy verbatim): "Julie — she creates hiking and ski content outdoors and has worked with Rossignol; that outdoor / lived-in angle could fit the types of creator partnerships you already run."
+  Rules for each sentence:
+  - Real sentence (subject + verb), natural, scannable.
+  - Fit MUST cross CREATOR RESEARCH × brand research (influenceStrategy / recentCampaigns / brandPositioning) — what the brand ACTUALLY does with creators.
+  - FORBIDDEN: inventing a campaign format the brand may not run (e.g. "costume teaser for a series drop", "unboxing", "haul", "GRWM for your launch") unless clearly supported by brand research.
+  - Prefer sober fit ("could fit the lifestyle / entertainment creators you already work with") over invented creative briefs.
+  - Never invent collabs; no follower counts; no TikTok/Instagram/Category stats block.
+  - 1 sentence per talent (max 2), no marketing fluff.
+- A short sentence after the list that simply states what these profiles can bring — without stacking qualities. Keep it factual and vary the wording every time.`
+      : `- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "at our agency we have several creators who could be a fit:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, at our agency we have several creators who could be a fit:". Keep it measured and natural, 1-2 sentences max.
+- List the talents in a clear, airy bullet format:
+  Firstname Lastname (TikTok followers count - Instagram followers count - Category) -> short reason (10-15 words max), concrete and relevant, not a marketing line
+  You MUST include the creator's TikTok followers count as provided in "Available talents" (never omit it when provided), in addition to the Instagram followers count.
+- A short sentence after the list that simply states what these profiles can bring — without stacking qualities. Keep it factual and vary the wording every time (avoid a canned "awareness + credibility + lived-in content" line).`;
+
+    const rosterTalentListFr = hasTalentResearch
+      ? `- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reste sobre et naturel, 1 à 2 phrases max.
+- Lister les talents en format clair et aéré avec des tirets — UNE vraie phrase par talent :
+  <a href="..."><strong>Prénom Nom</strong></a> — [ce qu'il/elle fait vraiment issu de la RECHERCHE CRÉATEUR] + [pourquoi ça colle à la façon dont ${brandName} travaille DÉJÀ avec les créateurs, d'après la recherche marque].
+  Forme type (à NE PAS recopier) : « Julie — elle crée du contenu randonnée / ski outdoor et a déjà collabé avec Rossignol ; cet angle outdoor vécu peut coller aux partenariats créateurs que vous menez déjà. »
+  Règles pour chaque phrase :
+  - Vraie phrase (sujet + verbe), naturelle, scannable.
+  - Le FIT doit croiser RECHERCHE CRÉATEUR × recherche marque (influenceStrategy / recentCampaigns / brandPositioning) — ce que la marque FAIT vraiment en influence.
+  - INTERDIT d'inventer un format de campagne que la marque ne fait pas forcément (ex. « teaser costume pour une sortie de série », « unboxing », « haul », « GRWM pour votre lancement ») sauf si ce format est clairement supporté par la recherche marque.
+  - Préférer un fit sobre (« pourrait coller aux profils lifestyle / entertainment avec lesquels vous travaillez déjà ») plutôt qu'un brief créatif inventé.
+  - N'invente aucune collab ; pas d'abonnés ; pas de bloc TikTok / Instagram / Catégorie.
+  - 1 phrase par talent (2 max), sans bla-bla marketing.
+- Une courte phrase après la liste qui dit, simplement, ce que ces profils peuvent apporter — sans empiler les qualités. Reste factuel et varie la formulation à chaque mail.`
+      : `- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reste sobre et naturel, 1 à 2 phrases max.
+- Lister les talents en format clair et aéré avec des tirets :
+  Prénom Nom (nombre d’abonnés TikTok – nombre d’abonnés Instagram – Catégorie) → raison courte (10-15 mots max), concrète et pertinente, pas une formule marketing
+  Tu DOIS reprendre le nombre d’abonnés TikTok du créateur tel qu’indiqué dans "Talents disponibles" (ne jamais l’omettre quand il est fourni), en plus du nombre d’abonnés Instagram.
+- Une courte phrase après la liste qui dit, simplement, ce que ces profils peuvent apporter — sans empiler les qualités. Reste factuel et varie la formulation à chaque mail (évite la phrase toute faite type "notoriété + crédibilité + contenu vécu").`;
 
     const beneluxContextEn = isBenelux
       ? `\nBENELUX MARKET CONTEXT (MANDATORY): You are writing to a brand based in the Benelux. You MUST state naturally, early in the email (right after the opening hook), that Glow Up Agence is a French agency now expanding into the Benelux, working with Benelux creators. Phrase it simply and vary it every time (e.g. "We are a French agency expanding across the Benelux, with Benelux creators."). Keep it to one sentence, do not turn it into a heavy sales argument.\n`
@@ -684,11 +722,7 @@ ${
 - Present each talent inside their project section (not a casting bullet list of interchangeable profiles).`
       : `- Transition: go straight to THIS project and its talent(s) — do NOT use the casting "several creators who could be a fit" roster transition.
 - Present the talent(s) for this project (Instagram links), not a casting bullet roster.`
-    : `- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "at our agency we have several creators who could be a fit:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, at our agency we have several creators who could be a fit:". Keep it measured and natural, 1-2 sentences max.
-- List the talents in a clear, airy bullet format:
-  Firstname Lastname (TikTok followers count - Instagram followers count - Category) -> short reason (10-15 words max), concrete and relevant, not a marketing line
-  You MUST include the creator's TikTok followers count as provided in "Available talents" (never omit it when provided), in addition to the Instagram followers count.
-- A short sentence after the list that simply states what these profiles can bring — without stacking qualities. Keep it factual and vary the wording every time (avoid a canned "awareness + credibility + lived-in content" line).`
+    : rosterTalentListEn
 }
 - Propose the collaboration in a professional, composed way (e.g. "We would be glad to explore a collaboration with you." or "If this is of interest, we would be happy to discuss it.").
 ${
@@ -808,11 +842,7 @@ ${
 - Présente chaque talent dans la section de SON projet (pas une liste casting de profils interchangeables).`
       : `- Transition : enchaîne directement sur CE projet et son/ses talent(s) — INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre ».
 - Présente le(s) talent(s) de ce projet (liens Instagram), pas un roster casting à puces.`
-    : `- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reste sobre et naturel, 1 à 2 phrases max.
-- Lister les talents en format clair et aéré avec des tirets :
-  Prénom Nom (nombre d’abonnés TikTok – nombre d’abonnés Instagram – Catégorie) → raison courte (10-15 mots max), concrète et pertinente, pas une formule marketing
-  Tu DOIS reprendre le nombre d’abonnés TikTok du créateur tel qu’indiqué dans "Talents disponibles" (ne jamais l’omettre quand il est fourni), en plus du nombre d’abonnés Instagram.
-- Une courte phrase après la liste qui dit, simplement, ce que ces profils peuvent apporter — sans empiler les qualités. Reste factuel et varie la formulation à chaque mail (évite la phrase toute faite type "notoriété + crédibilité + contenu vécu").`
+    : rosterTalentListFr
 }
 - Proposer la collaboration de façon professionnelle et posée (ex. "Nous serions ravis d'envisager une collaboration avec vous." ou "Si cela vous intéresse, nous serions heureux d'en échanger.").
 ${

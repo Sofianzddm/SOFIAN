@@ -1100,6 +1100,8 @@ export function ProspectingPipelineClient() {
             );
           }
           await loadMissions();
+          setUpdatingId(null);
+          await maybeForceBlockedAfterSchedule(m, sendData, false);
         } else {
           setSuccess(
             `${cleaned.length} contact(s) enregistré(s). Envoi auto en attente : ${
@@ -1170,6 +1172,9 @@ export function ProspectingPipelineClient() {
       ]);
       setSuccess(`Envoi programmé dans 30s vers ${brandDisplayName(m)} (boîte Leyna).`);
       await loadMissions();
+      // Si une partie des contacts est bloquée cooldown, proposer le bypass tout de suite.
+      setUpdatingId(null);
+      await maybeForceBlockedAfterSchedule(m, data, force);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
@@ -1185,7 +1190,14 @@ export function ProspectingPipelineClient() {
   async function attachAndScheduleReadyItem(
     item: ReadyItem,
     options: { force?: boolean; silent?: boolean; forceReason?: string } = {}
-  ): Promise<{ ok: boolean; canForce?: boolean; error?: string }> {
+  ): Promise<{
+    ok: boolean;
+    canForce?: boolean;
+    canForceMore?: boolean;
+    blockedContacts?: Array<{ email?: string; message?: string }>;
+    reachableContacts?: number;
+    error?: string;
+  }> {
     const emails = selectedEmailsByMission[item.mission.id] || [];
     const contacts = item.availableContacts.filter((c) => emails.includes(c.email));
     if (contacts.length === 0) {
@@ -1272,7 +1284,17 @@ export function ProspectingPipelineClient() {
         `${n} contact(s) — envoi programmé dans 30s vers ${brandDisplayName(m)} (boîte Leyna).`
       );
     }
-    return { ok: true };
+    return {
+      ok: true,
+      canForceMore: sendData.canForceMore === true && options.force !== true,
+      blockedContacts: Array.isArray(sendData.blockedContacts)
+        ? sendData.blockedContacts
+        : [],
+      reachableContacts:
+        typeof sendData.reachableContacts === "number"
+          ? sendData.reachableContacts
+          : contacts.length,
+    };
   }
 
   function askUrgentForceReason(label: string, detail?: string): string | null {
@@ -1291,6 +1313,35 @@ export function ProspectingPipelineClient() {
       return null;
     }
     return reason.trim();
+  }
+
+  /** Après un schedule partiel : certains contacts partent, d'autres sont bloqués cooldown. */
+  async function maybeForceBlockedAfterSchedule(
+    m: Mission,
+    data: {
+      canForceMore?: boolean;
+      blockedContacts?: Array<{ email?: string; message?: string }>;
+      reachableContacts?: number;
+    },
+    alreadyForced: boolean
+  ): Promise<void> {
+    if (alreadyForced) return;
+    if (!data?.canForceMore) return;
+    const blocked = Array.isArray(data.blockedContacts) ? data.blockedContacts : [];
+    if (blocked.length === 0) return;
+    const blockedList = blocked
+      .map((b) => b.email || b.message || "")
+      .filter(Boolean)
+      .slice(0, 8)
+      .join("\n");
+    const reachable =
+      typeof data.reachableContacts === "number" ? data.reachableContacts : 0;
+    const reason = askUrgentForceReason(
+      `${m.creatorName} → ${brandDisplayName(m)}`,
+      `${reachable} contact(s) vont partir.\n${blocked.length} bloqué(s) par le plafond 20 j :\n${blockedList}\n\nForcer aussi l'envoi aux contacts bloqués ?`
+    );
+    if (!reason) return;
+    await scheduleSend(m, true, reason);
   }
 
   async function planifierReadyItem(item: ReadyItem) {
@@ -1319,6 +1370,18 @@ export function ProspectingPipelineClient() {
         setError(result.error || "Planification impossible.");
         await loadReadyToSend();
         return;
+      }
+      if (result.canForceMore) {
+        setUpdatingId(null);
+        await maybeForceBlockedAfterSchedule(
+          item.mission,
+          {
+            canForceMore: true,
+            blockedContacts: result.blockedContacts,
+            reachableContacts: result.reachableContacts,
+          },
+          false
+        );
       }
       await Promise.all([loadMissions(), loadReadyToSend()]);
     } catch (e) {
@@ -1363,6 +1426,18 @@ export function ProspectingPipelineClient() {
           }
         }
         if (result.ok) {
+          if (result.canForceMore) {
+            setUpdatingId(null);
+            await maybeForceBlockedAfterSchedule(
+              item.mission,
+              {
+                canForceMore: true,
+                blockedContacts: result.blockedContacts,
+                reachableContacts: result.reachableContacts,
+              },
+              false
+            );
+          }
           okCount += 1;
         } else {
           failCount += 1;
@@ -2681,9 +2756,25 @@ export function ProspectingPipelineClient() {
                     </p>
                   )}
                   {m.sendError && (
-                    <p className="mt-1 text-[11px] text-red-600" title={m.sendError}>
-                      Erreur d'envoi (partielle) — voir détails
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <p className="text-[11px] text-red-600" title={m.sendError}>
+                        Erreur d'envoi (partielle) — voir détails
+                      </p>
+                      <button
+                        type="button"
+                        disabled={updatingId === m.id}
+                        onClick={() => {
+                          const reason = askUrgentForceReason(
+                            `${m.creatorName} → ${brandDisplayName(m)}`,
+                            `${m.sendError}\n\nForcer l'envoi aux contacts encore bloqués ?`
+                          );
+                          if (reason) void scheduleSend(m, true, reason);
+                        }}
+                        className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        Forcer l'envoi
+                      </button>
+                    </div>
                   )}
                   {m.status === "RELANCED" && !m.relanceSentAt && (
                     <p className="mt-1 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">

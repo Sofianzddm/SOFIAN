@@ -189,7 +189,12 @@ export async function findEmailsBlockedByCooldown(
 }
 
 export type ScheduleSendPreflight =
-  | { ok: true; contacts: CastingContact[] }
+  | {
+      ok: true;
+      contacts: CastingContact[];
+      /** Contacts nouveaux mais bloqués cooldown/plafond (sans force). */
+      blockedContacts?: Array<{ email: string; message: string }>;
+    }
   | { ok: false; error: string; canForce?: boolean };
 
 /**
@@ -325,7 +330,14 @@ export async function preflightCastingSend(
       canForce: !optOutOnly,
     };
   }
-  return { ok: true, contacts: reachable };
+  return {
+    ok: true,
+    contacts: reachable,
+    blockedContacts: blocked.map((b) => ({
+      email: b.email,
+      message: b.guard.message,
+    })),
+  };
 }
 
 /** Talent(s) lies a la mission pour mettre a jour les liens du brouillon a l'envoi. */

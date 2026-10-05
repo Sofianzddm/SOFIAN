@@ -119,6 +119,8 @@ export async function POST(
       scheduledSendAt: scheduledSendAt.toISOString(),
       delayMs: CASTING_SEND_DELAY_MS,
       reachableContacts: preflight.contacts.length,
+      blockedContacts: preflight.blockedContacts || [],
+      canForceMore: (preflight.blockedContacts || []).length > 0 && !force,
     });
   } catch (error) {
     console.error("POST /api/strategy/contact-missions/[id]/schedule-send:", error);
