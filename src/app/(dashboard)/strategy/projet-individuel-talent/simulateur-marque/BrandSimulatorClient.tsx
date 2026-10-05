@@ -231,7 +231,7 @@ export function BrandSimulatorClient() {
             )}
             {running
               ? phase === "match"
-                ? "Matching marques…"
+                ? "Recherche marques…"
                 : "Analyse créateur…"
               : "Analyser & matcher"}
           </button>
@@ -279,7 +279,7 @@ export function BrandSimulatorClient() {
           <Loader2 className="h-8 w-8 animate-spin text-glowup-rose" />
           <p className="font-medium text-glowup-licorice">
             {phase === "match"
-              ? "Sélection des marques les plus pertinentes…"
+              ? "Recherche web / X des meilleures marques qui fitent…"
               : "Recherche web / IG — qui est ce créateur ?"}
           </p>
           <p className="text-xs">Ça peut prendre 30–90 secondes.</p>
