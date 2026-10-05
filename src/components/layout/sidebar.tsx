@@ -606,6 +606,12 @@ export function Sidebar({
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
+            label: "Simulateur marque",
+            href: "/strategy/projet-individuel-talent/simulateur-marque",
+            icon: Sparkles,
+            roles: ["STRATEGY_PLANNER", "ADMIN", "CASTING_MANAGER"],
+          } as (typeof menuItems)[number],
+          {
             label: "Projets outreach talent",
             href: "/projets-outreach",
             icon: Compass,
