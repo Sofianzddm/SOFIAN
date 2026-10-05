@@ -21,17 +21,9 @@ import {
   canSend,
   canTransitionTo,
   bypassesWaveCastingGate,
-  canManagePrestatairesOnCampaign,
-  canEditPrestataireLine,
-  needsPrestataires,
-  formatResponsableValue,
-  PRESTATAIRE_CATEGORIES,
-  PRESTATAIRE_CATEGORIE_LABEL,
   type CampaignStatus,
-  type PrestataireCategorie,
 } from "@/lib/projets-outreach";
 import { businessDaysAfter } from "@/lib/business-days";
-import { MesPrestatairesPanel } from "../MesPrestatairesPanel";
 import "../po.css";
 import {
   KpiCard,
@@ -43,14 +35,7 @@ import {
   initialOf,
 } from "../PoUi";
 
-type TabId =
-  | "brief"
-  | "prestas"
-  | "marques"
-  | "redaction"
-  | "envois"
-  | "suivi"
-  | "a-completer";
+type TabId = "brief" | "marques" | "redaction" | "envois" | "suivi" | "a-completer";
 
 type Mission = {
   id: string;
@@ -171,21 +156,6 @@ function deriveClientLanguage(
   return en >= contacts.length / 2 ? "EN" : "FR";
 }
 
-type Prestataire = {
-  id: string;
-  nom: string;
-  categorie: PrestataireCategorie | string;
-  statut?: string;
-  notes?: string | null;
-  contactInfo?: string | null;
-  prestataireCrmId?: string | null;
-  responsableId: string | null;
-  responsableTalentId?: string | null;
-  responsableKind?: "USER" | "TALENT";
-  responsableName: string;
-  responsableRole?: string | null;
-};
-
 type Campaign = {
   id: string;
   title: string;
@@ -201,10 +171,6 @@ type Campaign = {
   dos: string | null;
   donts: string | null;
   angles: string | null;
-  necessitePrestataires: boolean;
-  lieu: string | null;
-  ownerTmId?: string | null;
-  createdById?: string;
   talent: { id: string; name: string; photo: string | null; instagram: string | null };
   talents?: Array<{
     id: string;
@@ -237,14 +203,12 @@ type Campaign = {
     actorName: string;
   }>;
   missions: Mission[];
-  prestataires?: Prestataire[];
 };
 
 type MarqueHit = { id: string; nom: string; ville: string; contactCount: number };
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "brief", label: "Brief" },
-  { id: "prestas", label: "Prospection presta" },
   { id: "marques", label: "Marques" },
   { id: "redaction", label: "Rédaction" },
   { id: "envois", label: "Envois" },
@@ -290,7 +254,6 @@ function activityDotColor(type: string, index: number) {
 export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) {
   const { data: session } = useSession();
   const role = (session?.user as { role?: string } | undefined)?.role ?? "";
-  const userId = (session?.user as { id?: string } | undefined)?.id ?? "";
   const isAdmin = role === "ADMIN";
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
@@ -299,22 +262,6 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const t = new URLSearchParams(window.location.search).get("tab");
-    if (
-      t === "brief" ||
-      t === "prestas" ||
-      t === "marques" ||
-      t === "redaction" ||
-      t === "envois" ||
-      t === "suivi" ||
-      t === "a-completer"
-    ) {
-      setTab(t);
-    }
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -557,9 +504,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
         </div>
 
         <div className="po-tabs" style={{ borderBottom: "1px solid #EEEEF0" }}>
-          {TABS.filter(
-            (t) => t.id !== "prestas" || Boolean(campaign.necessitePrestataires)
-          ).map((t) => (
+          {TABS.map((t) => (
             <button
               key={t.id}
               type="button"
@@ -569,11 +514,6 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
               {t.label}
               {t.id === "marques" ? (
                 <span className="po-tab-badge">{campaign.missions.length}</span>
-              ) : null}
-              {t.id === "prestas" ? (
-                <span className="po-tab-badge">
-                  {(campaign.prestataires || []).length}
-                </span>
               ) : null}
             </button>
           ))}
@@ -656,38 +596,10 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           <BriefTab
             campaign={campaign}
             canEdit={canEditBrief(role)}
-            role={role}
-            userId={userId}
             onSaved={load}
             setError={setError}
             setSuccess={setSuccess}
           />
-        )}
-        {tab === "prestas" && campaign.necessitePrestataires && (
-          <div>
-            <p
-              style={{
-                margin: "0 0 8px",
-                fontSize: 13,
-                color: "var(--po-muted)",
-              }}
-            >
-              {canManagePrestatairesOnCampaign(role, userId, {
-                ownerTmId: campaign.ownerTmId,
-                createdById: campaign.createdById,
-              })
-                ? "Tous les prestas du projet — statut, canal, relances. Ajoute depuis le CRM."
-                : "Tes prestas assignés sur ce projet — statut, canal, relances."}
-            </p>
-            <MesPrestatairesPanel
-              campaignId={campaign.id}
-              showProjectLink={false}
-              scopeAll={canManagePrestatairesOnCampaign(role, userId, {
-                ownerTmId: campaign.ownerTmId,
-                createdById: campaign.createdById,
-              })}
-            />
-          </div>
         )}
         {tab === "marques" && (
           <MarquesTab
@@ -737,16 +649,12 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
 function BriefTab({
   campaign,
   canEdit,
-  role,
-  userId,
   onSaved,
   setError,
   setSuccess,
 }: {
   campaign: Campaign;
   canEdit: boolean;
-  role: string;
-  userId: string;
   onSaved: () => Promise<void>;
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
@@ -762,8 +670,6 @@ function BriefTab({
       angles: campaign.angles || "",
       dos: campaign.dos || "",
       donts: campaign.donts || "",
-      lieu: campaign.lieu || "",
-      necessitePrestataires: Boolean(campaign.necessitePrestataires),
     }),
     [campaign]
   );
@@ -785,27 +691,11 @@ function BriefTab({
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: form.title,
-          description: form.description,
-          objective: form.objective,
-          deliverables: form.deliverables,
-          budgetRange: form.budgetRange,
-          timeline: form.timeline,
-          angles: form.angles,
-          dos: form.dos,
-          donts: form.donts,
-          lieu: form.lieu,
-          necessitePrestataires: form.necessitePrestataires,
-        }),
+        body: JSON.stringify(form),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Sauvegarde impossible.");
-      setSuccess(
-        form.necessitePrestataires && !campaign.necessitePrestataires
-          ? "Prestataires activés sur ce projet."
-          : "Brief enregistré."
-      );
+      setSuccess("Brief enregistré.");
       await onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -816,188 +706,123 @@ function BriefTab({
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <form
-          onSubmit={onSubmit}
-          className="po-card"
-          style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}
-        >
-          <label
+      <form
+        onSubmit={onSubmit}
+        className="po-card"
+        style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}
+      >
+        <Field label="Titre">
+          <input
+            disabled={!canEdit}
+            value={form.title}
+            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+            className="po-input"
+          />
+        </Field>
+        <Field label="Description">
+          <textarea
+            disabled={!canEdit}
+            rows={3}
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            className="po-textarea"
+          />
+        </Field>
+        <Field label="Objectif">
+          <textarea
+            disabled={!canEdit}
+            rows={3}
+            value={form.objective}
+            onChange={(e) => setForm((f) => ({ ...f, objective: e.target.value }))}
+            className="po-textarea"
+          />
+        </Field>
+        <div className="grid gap-3.5 md:grid-cols-2">
+          <Field label="Livrables">
+            <textarea
+              disabled={!canEdit}
+              rows={2}
+              value={form.deliverables}
+              onChange={(e) => setForm((f) => ({ ...f, deliverables: e.target.value }))}
+              className="po-textarea"
+              placeholder="Stories, posts, réels…"
+            />
+          </Field>
+          <Field label="Angles">
+            <textarea
+              disabled={!canEdit}
+              rows={2}
+              value={form.angles}
+              onChange={(e) => setForm((f) => ({ ...f, angles: e.target.value }))}
+              className="po-textarea"
+              placeholder="Solaire, lifestyle, plage…"
+            />
+          </Field>
+          <Field label="Budget">
+            <input
+              disabled={!canEdit}
+              value={form.budgetRange}
+              onChange={(e) => setForm((f) => ({ ...f, budgetRange: e.target.value }))}
+              className="po-input"
+              placeholder="€"
+            />
+          </Field>
+          <Field label="Timeline">
+            <input
+              disabled={!canEdit}
+              value={form.timeline}
+              onChange={(e) => setForm((f) => ({ ...f, timeline: e.target.value }))}
+              className="po-input"
+              placeholder="16–19 sept."
+            />
+          </Field>
+          <Field label="Do's">
+            <textarea
+              disabled={!canEdit}
+              rows={2}
+              value={form.dos}
+              onChange={(e) => setForm((f) => ({ ...f, dos: e.target.value }))}
+              className="po-textarea"
+              placeholder="À faire"
+            />
+          </Field>
+          <Field label="Don'ts">
+            <textarea
+              disabled={!canEdit}
+              rows={2}
+              value={form.donts}
+              onChange={(e) => setForm((f) => ({ ...f, donts: e.target.value }))}
+              className="po-textarea"
+              placeholder="À éviter"
+            />
+          </Field>
+        </div>
+
+        {canEdit && (
+          <div
             style={{
               display: "flex",
-              alignItems: "flex-start",
+              justifyContent: "flex-end",
               gap: 10,
-              fontSize: 13.5,
-              fontWeight: 650,
-              color: "var(--po-ink)",
-              cursor: canEdit ? "pointer" : "default",
-              border: form.necessitePrestataires
-                ? "1px solid #D4C4F7"
-                : "1px solid #F4F4F5",
-              background: form.necessitePrestataires ? "#F4F0FC" : "#FAFAFA",
-              borderRadius: 12,
-              padding: 14,
+              paddingTop: 16,
+              marginTop: 4,
+              borderTop: "1px solid #F4F4F5",
             }}
           >
-            <input
-              type="checkbox"
-              disabled={!canEdit}
-              checked={form.necessitePrestataires}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  necessitePrestataires: e.target.checked,
-                }))
-              }
-              style={{ marginTop: 2 }}
-            />
-            <span>
-              Ce projet nécessite des prestataires
-              <span
-                style={{
-                  display: "block",
-                  fontWeight: 500,
-                  fontSize: 12.5,
-                  color: "var(--po-muted)",
-                  marginTop: 2,
-                }}
-              >
-                Coche pour assigner qui s’occupe de chaque presta (hôtel, traiteur…).
-              </span>
-            </span>
-          </label>
-
-          <Field label="Titre">
-            <input
-              disabled={!canEdit}
-              value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-              className="po-input"
-            />
-          </Field>
-          <Field label="Description">
-            <textarea
-              disabled={!canEdit}
-              rows={3}
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              className="po-textarea"
-            />
-          </Field>
-          <Field label="Objectif">
-            <textarea
-              disabled={!canEdit}
-              rows={3}
-              value={form.objective}
-              onChange={(e) => setForm((f) => ({ ...f, objective: e.target.value }))}
-              className="po-textarea"
-            />
-          </Field>
-          <div className="grid gap-3.5 md:grid-cols-2">
-            <Field label="Lieu">
-              <input
-                disabled={!canEdit}
-                value={form.lieu}
-                onChange={(e) => setForm((f) => ({ ...f, lieu: e.target.value }))}
-                className="po-input"
-                placeholder="Paris, villa…"
-              />
-            </Field>
-            <Field label="Timeline">
-              <input
-                disabled={!canEdit}
-                value={form.timeline}
-                onChange={(e) => setForm((f) => ({ ...f, timeline: e.target.value }))}
-                className="po-input"
-                placeholder="16–19 sept."
-              />
-            </Field>
-            <Field label="Livrables">
-              <textarea
-                disabled={!canEdit}
-                rows={2}
-                value={form.deliverables}
-                onChange={(e) => setForm((f) => ({ ...f, deliverables: e.target.value }))}
-                className="po-textarea"
-                placeholder="Stories, posts, réels…"
-              />
-            </Field>
-            <Field label="Angles">
-              <textarea
-                disabled={!canEdit}
-                rows={2}
-                value={form.angles}
-                onChange={(e) => setForm((f) => ({ ...f, angles: e.target.value }))}
-                className="po-textarea"
-                placeholder="Solaire, lifestyle, plage…"
-              />
-            </Field>
-            <Field label="Budget">
-              <input
-                disabled={!canEdit}
-                value={form.budgetRange}
-                onChange={(e) => setForm((f) => ({ ...f, budgetRange: e.target.value }))}
-                className="po-input"
-                placeholder="€"
-              />
-            </Field>
-            <Field label="Do's">
-              <textarea
-                disabled={!canEdit}
-                rows={2}
-                value={form.dos}
-                onChange={(e) => setForm((f) => ({ ...f, dos: e.target.value }))}
-                className="po-textarea"
-                placeholder="À faire"
-              />
-            </Field>
-            <Field label="Don'ts">
-              <textarea
-                disabled={!canEdit}
-                rows={2}
-                value={form.donts}
-                onChange={(e) => setForm((f) => ({ ...f, donts: e.target.value }))}
-                className="po-textarea"
-                placeholder="À éviter"
-              />
-            </Field>
-          </div>
-
-          {canEdit && (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: 10,
-                paddingTop: 16,
-                marginTop: 4,
-                borderTop: "1px solid #F4F4F5",
-              }}
+            <button
+              type="button"
+              className="po-btn po-btn-secondary"
+              onClick={() => setForm(blankForm())}
             >
-              <button
-                type="button"
-                className="po-btn po-btn-secondary"
-                onClick={() => setForm(blankForm())}
-              >
-                Annuler
-              </button>
-              <button type="submit" disabled={saving} className="po-btn po-btn-primary">
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Enregistrer le brief
-              </button>
-            </div>
-          )}
-        </form>
-
-        <PrestatairesBlock
-          campaign={campaign}
-          role={role}
-          userId={userId}
-          onChanged={onSaved}
-          setError={setError}
-          setSuccess={setSuccess}
-        />
-      </div>
+              Annuler
+            </button>
+            <button type="submit" disabled={saving} className="po-btn po-btn-primary">
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Enregistrer le brief
+            </button>
+          </div>
+        )}
+      </form>
 
       <aside className="po-card" style={{ padding: 20 }}>
         <div className="flex items-baseline justify-between gap-2" style={{ marginBottom: 14 }}>
@@ -1073,301 +898,6 @@ function BriefTab({
           </ul>
         )}
       </aside>
-    </div>
-  );
-}
-
-type AssignableUser = { id: string; firstName: string; lastName: string; role: string };
-
-function PrestatairesBlock({
-  campaign,
-  role,
-  userId,
-  onChanged,
-  setError,
-  setSuccess,
-}: {
-  campaign: Campaign;
-  role: string;
-  userId: string;
-  onChanged: () => Promise<void>;
-  setError: (v: string | null) => void;
-  setSuccess: (v: string | null) => void;
-}) {
-  const prestasOk = needsPrestataires(campaign);
-  const canManage = canManagePrestatairesOnCampaign(role, userId, {
-    ownerTmId: campaign.ownerTmId,
-    createdById: campaign.createdById,
-  });
-  const rows = campaign.prestataires || [];
-
-  const [users, setUsers] = useState<AssignableUser[]>([]);
-  const [saving, setSaving] = useState(false);
-  const projectTalents = useMemo(() => {
-    if (campaign.talents && campaign.talents.length > 0) return campaign.talents;
-    return [
-      {
-        id: campaign.talent.id,
-        name: campaign.talent.name,
-        photo: campaign.talent.photo,
-      },
-    ];
-  }, [campaign.talent, campaign.talents]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/users/mentionable", { credentials: "include" });
-        const data = await res.json().catch(() => []);
-        if (!cancelled && Array.isArray(data)) setUsers(data);
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function patchRow(id: string, patch: Record<string, string>) {
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        `/api/projets-outreach/${campaign.id}/prestataires/${id}`,
-        {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Mise à jour impossible.");
-      await onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function removeRow(id: string) {
-    if (!canManage) return;
-    if (!window.confirm("Retirer ce prestataire ?")) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        `/api/projets-outreach/${campaign.id}/prestataires/${id}`,
-        { method: "DELETE", credentials: "include" }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Suppression impossible.");
-      setSuccess("Prestataire retiré.");
-      await onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="po-card" style={{ padding: 24 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 14,
-        }}
-      >
-        <div>
-          <h3
-            style={{
-              margin: 0,
-              fontSize: 14,
-              fontWeight: 700,
-              color: "var(--po-ink)",
-            }}
-          >
-            Prestataires
-          </h3>
-          <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--po-muted)" }}>
-            Qui s’occupe de quoi — talent du projet ou équipe interne.
-          </p>
-        </div>
-        <span style={{ fontSize: 12, color: "var(--po-muted)" }}>
-          {rows.length} presta{rows.length > 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {!prestasOk ? (
-        <p style={{ margin: 0, fontSize: 13, color: "var(--po-muted)" }}>
-          Coche « Ce projet nécessite des prestataires » ci-dessus pour assigner
-          qui s’occupe de quoi.
-        </p>
-      ) : (
-        <>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ textAlign: "left", color: "var(--po-muted)", fontSize: 11.5 }}>
-                  <th style={{ padding: "6px 8px", fontWeight: 600 }}>Nom</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 600 }}>Catégorie</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 600 }}>Responsable</th>
-                  {canManage ? <th style={{ padding: "6px 8px", fontWeight: 600 }} /> : null}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={canManage ? 4 : 3}
-                      style={{ padding: "14px 8px", color: "var(--po-muted)" }}
-                    >
-                      Aucun prestataire pour l’instant.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((p) => {
-                    const canEditLine = canEditPrestataireLine(
-                      role,
-                      userId,
-                      {
-                        ownerTmId: campaign.ownerTmId,
-                        createdById: campaign.createdById,
-                      },
-                      p.responsableId
-                    );
-                    return (
-                      <tr key={p.id} style={{ borderTop: "1px solid var(--po-sep-soft)" }}>
-                        <td style={{ padding: "8px" }}>
-                          {canEditLine ? (
-                            <input
-                              className="po-input"
-                              defaultValue={p.nom}
-                              disabled={saving}
-                              onBlur={(e) => {
-                                const v = e.target.value.trim();
-                                if (v && v !== p.nom) void patchRow(p.id, { nom: v });
-                              }}
-                            />
-                          ) : p.prestataireCrmId ? (
-                            <Link
-                              href={`/prestataires/${p.prestataireCrmId}`}
-                              className="underline-offset-2 hover:underline"
-                              style={{ color: "var(--po-ink)", fontWeight: 600 }}
-                            >
-                              {p.nom}
-                            </Link>
-                          ) : (
-                            p.nom
-                          )}
-                        </td>
-                        <td style={{ padding: "8px" }}>
-                          {canEditLine ? (
-                            <select
-                              className="po-input"
-                              value={p.categorie}
-                              disabled={saving}
-                              onChange={(e) =>
-                                void patchRow(p.id, { categorie: e.target.value })
-                              }
-                            >
-                              {PRESTATAIRE_CATEGORIES.map((c) => (
-                                <option key={c} value={c}>
-                                  {PRESTATAIRE_CATEGORIE_LABEL[c]}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            PRESTATAIRE_CATEGORIE_LABEL[
-                              p.categorie as PrestataireCategorie
-                            ] || p.categorie
-                          )}
-                        </td>
-                        <td style={{ padding: "8px" }}>
-                          {canManage ? (
-                            <select
-                              className="po-input"
-                              value={formatResponsableValue({
-                                responsableId: p.responsableId,
-                                responsableTalentId: p.responsableTalentId,
-                              })}
-                              disabled={saving}
-                              onChange={(e) =>
-                                void patchRow(p.id, { responsable: e.target.value })
-                              }
-                            >
-                              <optgroup label="Talent du projet">
-                                {projectTalents.map((t) => (
-                                  <option key={`talent:${t.id}`} value={`talent:${t.id}`}>
-                                    {t.name} (talent)
-                                  </option>
-                                ))}
-                              </optgroup>
-                              <optgroup label="Équipe interne">
-                                {users.map((u) => (
-                                  <option key={`user:${u.id}`} value={`user:${u.id}`}>
-                                    {u.firstName} {u.lastName} ({u.role})
-                                  </option>
-                                ))}
-                              </optgroup>
-                            </select>
-                          ) : (
-                            <>
-                              {p.responsableName}
-                              {p.responsableKind === "TALENT" ? " · talent" : ""}
-                            </>
-                          )}
-                        </td>
-                        {canManage ? (
-                          <td style={{ padding: "8px" }}>
-                            <button
-                              type="button"
-                              className="po-btn po-btn-secondary"
-                              disabled={saving}
-                              onClick={() => void removeRow(p.id)}
-                              style={{ fontSize: 12, padding: "4px 8px" }}
-                            >
-                              Retirer
-                            </button>
-                          </td>
-                        ) : null}
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {canManage ? (
-            <div
-              style={{
-                marginTop: 16,
-                paddingTop: 16,
-                borderTop: "1px solid #F4F4F5",
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 10,
-              }}
-            >
-              <Link
-                href={`/prestataires?projet=${campaign.id}`}
-                className="po-btn po-btn-primary"
-                style={{ textDecoration: "none" }}
-              >
-                CRM → type → ville → ajouter
-              </Link>
-            </div>
-          ) : null}
-        </>
-      )}
     </div>
   );
 }
@@ -3111,11 +2641,7 @@ function EnvoisTab({
     (campaign.wave?.status === "COLLECTING" ||
       campaign.wave?.status === "REVIEWING_CONDENSATIONS");
 
-  async function scheduleAndSend(
-    missionId: string,
-    force = false,
-    forceReason?: string
-  ) {
+  async function scheduleAndSend(missionId: string, force = false) {
     if (!canSendMails) return;
     if (waveBlocks) {
       setError(
@@ -3134,10 +2660,7 @@ function EnvoisTab({
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            force,
-            ...(force && forceReason ? { forceReason } : {}),
-          }),
+          body: JSON.stringify({ force }),
         }
       );
       const scheduleData = await scheduleRes.json().catch(() => ({}));
@@ -3146,20 +2669,13 @@ function EnvoisTab({
           const confirmed = window.confirm(
             `${brandLabel}\n\n${
               scheduleData.error ||
-              "Ces contacts ont déjà reçu un mail récemment (cooldown 20 j / plafond 3/30 j)."
-            }\n\nProjet urgent — envoyer quand même ? (un motif sera demandé)`
+              "Ces contacts ont déjà reçu un mail récemment (cooldown 20 j)."
+            }\n\nEnvoyer quand même ?`
           );
-          if (!confirmed) return;
-          const reason = window.prompt(
-            "Motif du projet urgent (obligatoire, min. 5 caractères) :",
-            ""
-          );
-          if (!reason || reason.trim().length < 5) {
-            setError("Envoi annulé : motif urgent trop court ou vide.");
-            return;
+          if (confirmed) {
+            setBusyId(null);
+            await scheduleAndSend(missionId, true);
           }
-          setBusyId(null);
-          await scheduleAndSend(missionId, true, reason.trim());
           return;
         }
         throw new Error(scheduleData.error || "Planification impossible.");

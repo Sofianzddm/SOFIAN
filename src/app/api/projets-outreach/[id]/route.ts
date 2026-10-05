@@ -5,7 +5,7 @@ import {
   canEditBrief,
   canManageBrands,
   canSend,
-  canAccessProjetsOutreach,
+  isProjetsOutreachRole,
 } from "@/lib/projets-outreach";
 import {
   isForbiddenCastingRecipient,
@@ -70,38 +70,20 @@ async function loadCampaign(id: string) {
           marque: { select: { id: true, nom: true } },
         },
       },
-      prestataires: {
-        orderBy: [{ ordre: "asc" }, { createdAt: "asc" }],
-        include: {
-          responsable: { select: { id: true, prenom: true, nom: true, role: true } },
-          responsableTalent: { select: { id: true, prenom: true, nom: true } },
-        },
-      },
     },
   });
 }
 
 function canViewCampaign(
   role: string,
-  userId: string,
-  campaign: {
+  _userId: string,
+  _campaign: {
     createdById: string;
     ownerTmId: string | null;
     talent: { managerId: string | null };
-    prestataires?: Array<{ responsableId: string | null }>;
   }
 ): boolean {
-  if (!canAccessProjetsOutreach(role)) return false;
-  if (isCoreOutreachRole(role)) return true;
-  if (campaign.ownerTmId === userId) return true;
-  if (campaign.talent.managerId === userId) return true;
-  if (campaign.createdById === userId) return true;
-  if (campaign.prestataires?.some((p) => p.responsableId === userId)) return true;
-  return false;
-}
-
-function isCoreOutreachRole(role: string): boolean {
-  return ["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"].includes(role);
+  return isProjetsOutreachRole(role);
 }
 
 function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign>>>) {
@@ -154,8 +136,6 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
     assets: c.assets,
     startsAt: c.startsAt,
     endsAt: c.endsAt,
-    necessitePrestataires: c.necessitePrestataires,
-    lieu: c.lieu,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     talentId: c.talentId,
@@ -245,33 +225,6 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       sendError: m.sendError,
       createdAt: m.createdAt,
     })),
-    prestataires: c.prestataires.map((p) => {
-      const isTalent = Boolean(p.responsableTalentId && p.responsableTalent);
-      return {
-        id: p.id,
-        nom: p.nom,
-        categorie: p.categorie,
-        statut: p.statut,
-        notes: p.notes,
-        contactInfo: p.contactInfo,
-        ordre: p.ordre,
-        canal: p.canal,
-        dernierContactAt: p.dernierContactAt,
-        prochaineRelanceAt: p.prochaineRelanceAt,
-        prestataireCrmId: p.prestataireCrmId,
-        responsableId: p.responsableId,
-        responsableTalentId: p.responsableTalentId,
-        responsableKind: isTalent ? ("TALENT" as const) : ("USER" as const),
-        responsableName: isTalent
-          ? `${p.responsableTalent!.prenom} ${p.responsableTalent!.nom}`.trim()
-          : p.responsable
-            ? `${p.responsable.prenom} ${p.responsable.nom}`.trim()
-            : "—",
-        responsableRole: isTalent ? "TALENT" : p.responsable?.role || null,
-        createdAt: p.createdAt,
-        updatedAt: p.updatedAt,
-      };
-    }),
   };
 }
 
@@ -462,10 +415,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       if (body.donts !== undefined) data.donts = String(body.donts || "").trim() || null;
       if (body.angles !== undefined) data.angles = String(body.angles || "").trim() || null;
       if (body.assets !== undefined) data.assets = body.assets;
-      if (body.lieu !== undefined) data.lieu = String(body.lieu || "").trim() || null;
-      if (body.necessitePrestataires !== undefined) {
-        data.necessitePrestataires = Boolean(body.necessitePrestataires);
-      }
       if (body.ownerTmId !== undefined) {
         data.ownerTmId = String(body.ownerTmId || "").trim() || null;
       }
@@ -495,16 +444,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       data,
     });
 
-    const prestasJustEnabled =
-      data.necessitePrestataires === true && !existing.necessitePrestataires;
     await prisma.prospectingCampaignEvent.create({
       data: {
         campaignId,
         actorId: session.user.id,
-        type: prestasJustEnabled ? "PRESTATAIRES_ENABLED" : "BRIEF_UPDATED",
-        message: prestasJustEnabled
-          ? "Projet marqué comme nécessitant des prestataires"
-          : "Brief / infos projet mises à jour",
+        type: "BRIEF_UPDATED",
+        message: "Brief / infos projet mises à jour",
         payload: { fields: Object.keys(data) },
       },
     });
