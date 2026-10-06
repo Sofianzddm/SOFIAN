@@ -10,7 +10,10 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { isNomCampagneGateAllowedPath } from "@/lib/nom-campagne-gate-paths";
+import {
+  isNomCampagneGateAllowedPath,
+  isNomCampagneGateEnabled,
+} from "@/lib/nom-campagne-gate-paths";
 
 type PendingItem = {
   id: string;
@@ -63,7 +66,7 @@ export function NomCampagneGateProvider({
   }, [status, pathname]);
 
   const role = effectiveRole || "";
-  const shouldGate = GATE_ROLES.has(role);
+  const shouldGate = isNomCampagneGateEnabled() && GATE_ROLES.has(role);
 
   const [loading, setLoading] = useState(true);
   const [locked, setLocked] = useState(false);
@@ -108,9 +111,11 @@ export function NomCampagneGateProvider({
     void refresh();
   }, [status, pathname, shouldGate, effectiveRole, refresh]);
 
-  // Fail-closed tant que le rôle TM/HoS n'est pas encore résolu
+  // Fail-closed tant que le rôle TM/HoS n'est pas encore résolu (si gate actif)
   const awaitingRole =
-    status === "authenticated" && effectiveRole === null;
+    isNomCampagneGateEnabled() &&
+    status === "authenticated" &&
+    effectiveRole === null;
   const effectivelyLocked =
     awaitingRole || (shouldGate && (loading || locked));
 

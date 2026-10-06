@@ -4,7 +4,10 @@ import {
   listPendingNomCampagne,
   NOM_MARQUE_LOCK_COOKIE,
 } from "@/lib/nom-campagne-gate";
-import { NOM_CAMPAGNE_GATE_ROLES } from "@/lib/nom-campagne-gate-paths";
+import {
+  isNomCampagneGateEnabled,
+  NOM_CAMPAGNE_GATE_ROLES,
+} from "@/lib/nom-campagne-gate-paths";
 
 function withLockCookie(res: NextResponse, locked: boolean): NextResponse {
   if (locked) {
@@ -34,6 +37,16 @@ export async function GET(request: NextRequest) {
     const session = await getAppSession(request);
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    if (!isNomCampagneGateEnabled()) {
+      const res = NextResponse.json({
+        count: 0,
+        items: [],
+        firstId: null,
+        locked: false,
+      });
+      return withLockCookie(res, false);
     }
 
     const role = session.user.role || "";

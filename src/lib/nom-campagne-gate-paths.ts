@@ -3,6 +3,14 @@
  * Pas d'import Prisma — utilisable dans layout / sidebar / client components.
  */
 
+/**
+ * Rattrapage marques masqué pour tous (module conservé).
+ * Réactiver : retourner `true`.
+ */
+export function isNomCampagneGateEnabled(): boolean {
+  return false;
+}
+
 export const NOM_CAMPAGNE_GATE_ROLES = ["TM", "HEAD_OF_SALES"] as const;
 
 export function normalizeLabel(s: string): string {

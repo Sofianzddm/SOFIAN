@@ -5,6 +5,7 @@ import {
   isDecisionCenterEmail,
   isDecisionCenterEnabled,
 } from "@/lib/decision-center/constants";
+import { isNomCampagneGateEnabled } from "@/lib/nom-campagne-gate-paths";
 import { canViewAllTalentCollabs } from "@/lib/collab-viewer-access";
 import { isMarqueCrmReadOnly } from "@/lib/marque-crm-access";
 
@@ -150,9 +151,29 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // Rattrapage marques masqué : redirige l’URL directe, retire le cookie de verrou.
+  if (
+    !isNomCampagneGateEnabled() &&
+    pathname === "/collaborations/rattrapage-marques"
+  ) {
+    const res = withNoIndex(
+      NextResponse.redirect(new URL("/dashboard", request.url))
+    );
+    res.cookies.set("glowup_nm_lock", "", {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    });
+    return res;
+  }
+
   // Verrou CRM « noms de marque » (TM / HoS) : cookie HttpOnly posé par
   // /api/collaborations/pending-nom-campagne. Empêche le bypass par URL directe.
-  if (effectiveRole === "TM" || effectiveRole === "HEAD_OF_SALES") {
+  if (
+    isNomCampagneGateEnabled() &&
+    (effectiveRole === "TM" || effectiveRole === "HEAD_OF_SALES")
+  ) {
     const locked = request.cookies.get("glowup_nm_lock")?.value === "1";
     if (locked) {
       const allowed =

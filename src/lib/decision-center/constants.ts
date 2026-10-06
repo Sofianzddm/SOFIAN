@@ -5,9 +5,12 @@
 
 export const DECISION_CENTER_FEATURE_FLAG = "decision_center_v1";
 
-/** Désactiver rapidement : DECISION_CENTER_ENABLED=false */
+/**
+ * Decision Center masqué pour tous (module conservé).
+ * Réactiver : remettre `process.env.DECISION_CENTER_ENABLED !== "false"`.
+ */
 export function isDecisionCenterEnabled(): boolean {
-  return process.env.DECISION_CENTER_ENABLED !== "false";
+  return false;
 }
 
 export const DECISION_CENTER_ALLOWED_EMAILS = [

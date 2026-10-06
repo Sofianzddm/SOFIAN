@@ -1,8 +1,15 @@
 import prisma from "@/lib/prisma";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
-import { NOM_CAMPAGNE_GATE_ROLES } from "@/lib/nom-campagne-gate-paths";
+import {
+  isNomCampagneGateEnabled,
+  NOM_CAMPAGNE_GATE_ROLES,
+} from "@/lib/nom-campagne-gate-paths";
 
-export { NOM_CAMPAGNE_GATE_ROLES, normalizeLabel } from "@/lib/nom-campagne-gate-paths";
+export {
+  isNomCampagneGateEnabled,
+  NOM_CAMPAGNE_GATE_ROLES,
+  normalizeLabel,
+} from "@/lib/nom-campagne-gate-paths";
 
 export const NOM_MARQUE_LOCK_COOKIE = "glowup_nm_lock";
 
@@ -45,6 +52,7 @@ export async function listPendingNomCampagne(user: {
   id: string;
   role?: string;
 }): Promise<PendingNomCampagneItem[]> {
+  if (!isNomCampagneGateEnabled()) return [];
   const scope = await scopeWhereForUser(user);
   if (scope === null) return [];
 
@@ -83,6 +91,7 @@ export async function countPendingNomCampagne(user: {
   id: string;
   role?: string;
 }): Promise<number> {
+  if (!isNomCampagneGateEnabled()) return 0;
   const scope = await scopeWhereForUser(user);
   if (scope === null) return 0;
   return prisma.collaboration.count({
@@ -98,6 +107,7 @@ export async function assertNomMarqueGateCleared(user: {
   id: string;
   role?: string;
 }): Promise<{ ok: true } | { ok: false; count: number }> {
+  if (!isNomCampagneGateEnabled()) return { ok: true };
   const role = user.role || "";
   if (
     !NOM_CAMPAGNE_GATE_ROLES.includes(

@@ -40,7 +40,10 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { canAccessFashionWeek } from "@/lib/fw-access";
-import { isDecisionCenterEmail } from "@/lib/decision-center/constants";
+import {
+  isDecisionCenterEmail,
+  isDecisionCenterEnabled,
+} from "@/lib/decision-center/constants";
 
 // Définition des accès par rôle
 const menuItems = [
@@ -381,7 +384,8 @@ export function Sidebar({
   const userRole = effectiveRole ?? (session?.user as { role?: string })?.role ?? "TALENT";
   const userEmail = (session?.user as { email?: string } | undefined)?.email ?? "";
   const showFashionWeek = canAccessFashionWeek(userRole, userEmail);
-  const showDecisionCenter = isDecisionCenterEmail(userEmail);
+  const showDecisionCenter =
+    isDecisionCenterEnabled() && isDecisionCenterEmail(userEmail);
 
   const fashionWeekItem = {
     label: "Fashion Week",
