@@ -133,7 +133,7 @@ const menuItems = [
     label: "CRM Hôtels / Prestas",
     href: "/prestataires",
     icon: Briefcase,
-    roles: ["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN", "TM", "CM", "HEAD_OF"],
+    roles: [],
   },
   {
     label: "Inbound 📬",

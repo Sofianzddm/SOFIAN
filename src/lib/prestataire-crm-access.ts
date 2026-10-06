@@ -1,16 +1,12 @@
-import { canAccessProjetsOutreach } from "@/lib/projets-outreach";
+/**
+ * Accès CRM Prestataires — volontairement fermé pour tout le monde.
+ * (Réouvrir en restaurant les rôles autorisés.)
+ */
 
-export function canAccessPrestataireCrm(role: string | undefined | null): boolean {
-  return canAccessProjetsOutreach(role);
+export function canAccessPrestataireCrm(_role?: string | null): boolean {
+  return false;
 }
 
-export function canWritePrestataireCrm(role: string | undefined | null): boolean {
-  return (
-    role === "ADMIN" ||
-    role === "STRATEGY_PLANNER" ||
-    role === "HEAD_OF" ||
-    role === "HEAD_OF_SALES" ||
-    role === "TM" ||
-    role === "CM"
-  );
+export function canWritePrestataireCrm(_role?: string | null): boolean {
+  return false;
 }
