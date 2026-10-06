@@ -202,7 +202,8 @@ export const authOptions: NextAuthOptions = {
             select: { actif: true },
           });
           if (!dbUser?.actif) {
-            return { error: "CompteDesactive" };
+            (token as { error?: string }).error = "CompteDesactive";
+            return token;
           }
         } catch (err) {
           console.error("[auth] Erreur contrôle actif JWT:", err);
