@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAppSession } from "@/lib/getAppSession";
+import { requireMailerAccess } from "@/lib/requireMailerAccess";
 
 /**
  * GET → recherche de contacts pour le rédacteur de mails (/admin/mailer).
@@ -8,15 +8,11 @@ import { getAppSession } from "@/lib/getAppSession";
  *   - ?market=BENELUX : contacts de l'annuaire BENELUX (benelux_contacts).
  *   - ?q=... (>= 2 car.) : filtre sur prénom, nom, email ou nom d'entreprise.
  * Renvoie jusqu'à 15 résultats { id, name, email, poste, company, market }.
- * Réservé à l'ADMIN (comme la page mailer).
  */
 export async function GET(request: NextRequest) {
   try {
-    const session = await getAppSession(request);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
-    if (session.user.role !== "ADMIN") {
+    const session = await requireMailerAccess(request);
+    if (!session) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 

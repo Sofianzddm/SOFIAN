@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
+import { isMailerRole } from "@/lib/requireMailerAccess";
 import { prisma } from "@/lib/prisma";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -10,8 +11,8 @@ export async function GET(request: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
-  if (session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Accès réservé à l'admin." }, { status: 403 });
+  if (!isMailerRole(session.user.role)) {
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
 
   const code = request.nextUrl.searchParams.get("code")?.trim();
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Échec connexion Gmail." }, { status: 500 });
   }
 
-  // Identifie la boîte réellement autorisée côté Google (plus de hardcode Leyna).
+  // Identifie la boîte réellement autorisée côté Google.
   const profileResponse = await fetch(GMAIL_PROFILE_URL, {
     headers: { Authorization: `Bearer ${tokenJson.access_token}` },
   });
@@ -66,14 +67,44 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Liaison automatique au user plateforme dont l'email correspond (si pas
-  // déjà lié à une autre boîte).
-  const matchingUser = await prisma.user.findFirst({
-    where: { email: { equals: connectedEmail, mode: "insensitive" } },
-    select: { id: true, gmailToken: { select: { id: true } } },
-  });
-  const autoLinkUserId =
-    matchingUser && !matchingUser.gmailToken ? matchingUser.id : undefined;
+  const isAdmin = session.user.role === "ADMIN";
+
+  // Salarié : la boîte doit correspondre à son email plateforme (évite de
+  // connecter la boîte d'un collègue / de Leyna par erreur).
+  if (!isAdmin) {
+    const userEmail = (session.user.email || "").trim().toLowerCase();
+    if (userEmail && connectedEmail !== userEmail) {
+      return NextResponse.redirect(
+        new URL(
+          `/admin/mailer?gmail_error=${encodeURIComponent(
+            `Connecte ta propre boîte (${userEmail}), pas ${connectedEmail}.`
+          )}`,
+          request.url
+        )
+      );
+    }
+  }
+
+  // Liaison user → boîte.
+  // Admin : auto-link si un user plateforme a le même email et n'a pas déjà de boîte.
+  // Salarié : toujours lié à lui-même (1 boîte / user).
+  let linkUserId: string | undefined;
+  if (isAdmin) {
+    const matchingUser = await prisma.user.findFirst({
+      where: { email: { equals: connectedEmail, mode: "insensitive" } },
+      select: { id: true, gmailToken: { select: { id: true } } },
+    });
+    if (matchingUser && !matchingUser.gmailToken) {
+      linkUserId = matchingUser.id;
+    }
+  } else {
+    // Libère une éventuelle ancienne liaison de ce user avant de relier.
+    await prisma.gmailToken.updateMany({
+      where: { userId: session.user.id, email: { not: connectedEmail } },
+      data: { userId: null },
+    });
+    linkUserId = session.user.id;
+  }
 
   await prisma.gmailToken.upsert({
     where: { email: connectedEmail },
@@ -82,16 +113,19 @@ export async function GET(request: NextRequest) {
       accessToken: tokenJson.access_token,
       refreshToken: tokenJson.refresh_token,
       expiresAt: new Date(Date.now() + tokenJson.expires_in * 1000),
-      ...(autoLinkUserId ? { userId: autoLinkUserId } : {}),
+      ...(linkUserId ? { userId: linkUserId } : {}),
     },
     update: {
       accessToken: tokenJson.access_token,
       refreshToken: tokenJson.refresh_token,
       expiresAt: new Date(Date.now() + tokenJson.expires_in * 1000),
+      ...(linkUserId ? { userId: linkUserId } : {}),
     },
   });
 
-  return NextResponse.redirect(
-    new URL(`/settings/gmail?connected=${encodeURIComponent(connectedEmail)}`, request.url)
-  );
+  const redirectPath = isAdmin
+    ? `/settings/gmail?connected=${encodeURIComponent(connectedEmail)}`
+    : `/admin/mailer?connected=${encodeURIComponent(connectedEmail)}`;
+
+  return NextResponse.redirect(new URL(redirectPath, request.url));
 }

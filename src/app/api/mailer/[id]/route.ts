@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/requireAdmin";
+import { requireMailerAccess } from "@/lib/requireMailerAccess";
+import { resolveProspectionActor } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
+
+async function canAccessMail(
+  session: NonNullable<Awaited<ReturnType<typeof requireMailerAccess>>>,
+  createdById: string
+): Promise<boolean> {
+  const { userId, role } = await resolveProspectionActor(session);
+  return role === "ADMIN" || createdById === userId;
+}
 
 /**
  * Détail / édition / suppression d'un mail admin.
@@ -34,9 +43,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAdmin(request);
+  const session = await requireMailerAccess(request);
   if (!session) {
-    return NextResponse.json({ error: "Accès réservé à l'admin." }, { status: 403 });
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
   const { id } = await params;
   const mail = await prisma.adminMail.findUnique({
@@ -46,6 +55,9 @@ export async function GET(
   if (!mail) {
     return NextResponse.json({ error: "Mail introuvable." }, { status: 404 });
   }
+  if (!(await canAccessMail(session, mail.createdById))) {
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
+  }
   return NextResponse.json({ mail });
 }
 
@@ -53,15 +65,18 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAdmin(request);
+  const session = await requireMailerAccess(request);
   if (!session) {
-    return NextResponse.json({ error: "Accès réservé à l'admin." }, { status: 403 });
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
   const { id } = await params;
 
   const existing = await prisma.adminMail.findUnique({ where: { id } });
   if (!existing) {
     return NextResponse.json({ error: "Mail introuvable." }, { status: 404 });
+  }
+  if (!(await canAccessMail(session, existing.createdById))) {
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
 
   const json = await request.json().catch(() => null);
@@ -144,14 +159,17 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAdmin(request);
+  const session = await requireMailerAccess(request);
   if (!session) {
-    return NextResponse.json({ error: "Accès réservé à l'admin." }, { status: 403 });
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
   const { id } = await params;
   const existing = await prisma.adminMail.findUnique({ where: { id } });
   if (!existing) {
     return NextResponse.json({ error: "Mail introuvable." }, { status: 404 });
+  }
+  if (!(await canAccessMail(session, existing.createdById))) {
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
   await prisma.adminMail.delete({ where: { id } });
   return NextResponse.json({ ok: true });

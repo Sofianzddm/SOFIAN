@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/requireAdmin";
+import { requireMailerAccess } from "@/lib/requireMailerAccess";
+import { resolveProspectionActor } from "@/lib/getAppSession";
+import { prisma } from "@/lib/prisma";
 import { addFollowupToMails } from "@/lib/admin-mailer";
 
 /**
@@ -25,9 +27,9 @@ const Input = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const session = await requireAdmin(request);
+  const session = await requireMailerAccess(request);
   if (!session) {
-    return NextResponse.json({ error: "Accès réservé à l'admin." }, { status: 403 });
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
 
   const json = await request.json().catch(() => null);
@@ -39,7 +41,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await addFollowupToMails(parsed.data);
+  const { userId, role } = await resolveProspectionActor(session);
+  let mailIds = parsed.data.mailIds;
+  if (role !== "ADMIN") {
+    const owned = await prisma.adminMail.findMany({
+      where: { id: { in: mailIds }, createdById: userId },
+      select: { id: true },
+    });
+    mailIds = owned.map((m) => m.id);
+    if (mailIds.length === 0) {
+      return NextResponse.json({ error: "Aucun mail accessible." }, { status: 403 });
+    }
+  }
+
+  const result = await addFollowupToMails({ ...parsed.data, mailIds });
 
   if (result.ok === 0) {
     return NextResponse.json(

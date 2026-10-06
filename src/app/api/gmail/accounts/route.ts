@@ -20,7 +20,16 @@ export async function GET(request: NextRequest) {
     const role = session.user.role || "";
     // STRATEGY_PLANNER : lecture seule pour afficher le nom de la boîte
     // d'envoi de ses projets (Ski Trip → Ines).
-    if (role !== "ADMIN" && role !== "CASTING_MANAGER" && role !== "STRATEGY_PLANNER") {
+    // Rôles mailer : sélecteur d'expéditeur dans le rédacteur (CSV / solo).
+    const canListBoxes =
+      role === "ADMIN" ||
+      role === "CASTING_MANAGER" ||
+      role === "STRATEGY_PLANNER" ||
+      role === "HEAD_OF_SALES" ||
+      role === "HEAD_OF" ||
+      role === "HEAD_OF_INFLUENCE" ||
+      role === "TM";
+    if (!canListBoxes) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -37,7 +46,20 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const accounts = tokens.map((t) => ({
+    // ADMIN / CASTING_MANAGER / STRATEGY_PLANNER : toutes les boîtes.
+    // Autres rôles mailer (TM, Head…) : uniquement leur boîte liée.
+    const canSeeAll =
+      role === "ADMIN" || role === "CASTING_MANAGER" || role === "STRATEGY_PLANNER";
+    const myEmail = (session.user.email || "").trim().toLowerCase();
+    const visible = canSeeAll
+      ? tokens
+      : tokens.filter(
+          (t) =>
+            t.userId === session.user.id ||
+            t.email.toLowerCase() === myEmail
+        );
+
+    const accounts = visible.map((t) => ({
       id: t.id,
       email: t.email,
       displayName: t.displayName,

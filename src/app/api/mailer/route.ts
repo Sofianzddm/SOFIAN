@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/requireAdmin";
+import { requireMailerAccess } from "@/lib/requireMailerAccess";
 import { resolveProspectionActor } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 import { executeMailSend } from "@/lib/admin-mailer";
 
 /**
  * Rédacteur de mails admin.
- *  GET  → liste des mails rédigés par l'admin (avec relances)
+ *  GET  → liste des mails (admin = tous ; salarié = les siens)
  *  POST → crée un mail : brouillon, programmé, ou envoyé immédiatement
  */
 
@@ -24,8 +24,8 @@ const RecipientInput = z.object({
 
 const CreateMailInput = z.object({
   fromEmail: z.string().trim().email("Boîte expéditrice invalide"),
-  /** Nouveau format : plusieurs destinataires. */
-  recipients: z.array(RecipientInput).min(1).max(50).optional(),
+  /** Nouveau format : plusieurs destinataires (import CSV style Streak inclus). */
+  recipients: z.array(RecipientInput).min(1).optional(),
   /** "solo" = un mail séparé par destinataire ; "group" = un seul mail commun. */
   sendMode: z.enum(["solo", "group"]).default("solo"),
   /** Ancien format (compat) : un seul destinataire. */
@@ -40,12 +40,14 @@ const CreateMailInput = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const session = await requireAdmin(request);
+  const session = await requireMailerAccess(request);
   if (!session) {
-    return NextResponse.json({ error: "Accès réservé à l'admin." }, { status: 403 });
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
 
+  const { userId, role } = await resolveProspectionActor(session);
   const mails = await prisma.adminMail.findMany({
+    where: role === "ADMIN" ? undefined : { createdById: userId },
     orderBy: { createdAt: "desc" },
     take: 200,
     include: { followups: { orderBy: { order: "asc" } } },
@@ -55,9 +57,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await requireAdmin(request);
+  const session = await requireMailerAccess(request);
   if (!session) {
-    return NextResponse.json({ error: "Accès réservé à l'admin." }, { status: 403 });
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
 
   const json = await request.json().catch(() => null);
@@ -95,13 +97,28 @@ export async function POST(request: NextRequest) {
   // La boîte expéditrice doit être une boîte Gmail connectée.
   const box = await prisma.gmailToken.findUnique({
     where: { email: data.fromEmail.toLowerCase() },
-    select: { email: true },
+    select: { email: true, userId: true },
   });
   if (!box) {
     return NextResponse.json(
       { error: "Cette boîte n'est pas connectée. Connecte-la d'abord." },
       { status: 400 }
     );
+  }
+
+  const { userId, role } = await resolveProspectionActor(session);
+  // Salarié : uniquement depuis sa propre boîte liée.
+  if (role !== "ADMIN") {
+    const userEmail = (session.user.email || "").trim().toLowerCase();
+    const ownsBox =
+      box.userId === userId ||
+      box.email.toLowerCase() === userEmail;
+    if (!ownsBox) {
+      return NextResponse.json(
+        { error: "Tu ne peux envoyer que depuis ta propre boîte mail." },
+        { status: 403 }
+      );
+    }
   }
 
   let scheduledAt: Date | null = null;
@@ -123,8 +140,6 @@ export async function POST(request: NextRequest) {
 
   const status =
     data.action === "schedule" ? "SCHEDULED" : data.action === "send" ? "DRAFT" : "DRAFT";
-
-  const { userId } = await resolveProspectionActor(session);
 
   // En mode groupé : un seul AdminMail dont toEmail contient tous les
   // destinataires (séparés par des virgules). En mode solo : un AdminMail par

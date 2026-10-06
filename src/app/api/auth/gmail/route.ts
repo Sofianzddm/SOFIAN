@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
+import { isMailerRole } from "@/lib/requireMailerAccess";
 
 export async function GET(request: NextRequest) {
   const session = await getAppSession(request);
   if (!session?.user) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
-  if (session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Accès réservé à l'admin." }, { status: 403 });
+  if (!isMailerRole(session.user.role)) {
+    return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
@@ -32,7 +33,10 @@ export async function GET(request: NextRequest) {
   authUrl.searchParams.set("prompt", "consent select_account");
 
   // Pré-sélectionne le compte Google visé (ex: ?email=ines@glowupagence.fr)
-  const emailHint = request.nextUrl.searchParams.get("email")?.trim();
+  const emailHint =
+    request.nextUrl.searchParams.get("email")?.trim() ||
+    (session.user.role !== "ADMIN" ? session.user.email?.trim() : "") ||
+    "";
   if (emailHint) {
     authUrl.searchParams.set("login_hint", emailHint);
   }

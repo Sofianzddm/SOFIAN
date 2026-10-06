@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import {
   Mail,
@@ -25,8 +25,19 @@ import {
   Search,
   UserPlus,
   MessageSquarePlus,
+  FileSpreadsheet,
+  Upload,
 } from "lucide-react";
 import RichEmailEditor from "@/components/email/RichEmailEditor";
+import {
+  parseMailerRecipientsFile,
+} from "@/lib/parse-mailer-recipients";
+import {
+  PRESTATAIRE_CATEGORIES,
+  PRESTATAIRE_CATEGORIE_LABEL,
+  PRESTATAIRE_VILLES,
+  type PrestataireCategorie,
+} from "@/lib/projets-outreach";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -189,6 +200,19 @@ export default function MailerClient() {
   const [contactResults, setContactResults] = useState<ContactResult[]>([]);
   const [searchingContacts, setSearchingContacts] = useState(false);
 
+  // ─── Import CSV / Excel (style Streak) ───
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [csvDragOver, setCsvDragOver] = useState(false);
+  /** null = pas encore choisi (obligatoire avant import). */
+  const [importIsPrestataire, setImportIsPrestataire] = useState<boolean | null>(
+    null
+  );
+  const [importCategorie, setImportCategorie] = useState<PrestataireCategorie | "">(
+    ""
+  );
+  const [importVille, setImportVille] = useState("");
+
   const loadAccounts = useCallback(async () => {
     try {
       const res = await fetch("/api/gmail/accounts", { credentials: "include" });
@@ -197,11 +221,14 @@ export default function MailerClient() {
       };
       const list = json.accounts || [];
       setAccounts(list);
-      // Présélectionne s.zeddam@glowupagence.fr si connectée, sinon 1re boîte.
+      // Admin : préfère s.zeddam@… ; salarié : sa (seule) boîte.
       const preferred = list.find(
         (a) => a.email.toLowerCase() === DEFAULT_FROM_EMAIL
       );
-      setFromEmail((prev) => prev || preferred?.email || list[0]?.email || "");
+      setFromEmail((prev) => {
+        if (prev && list.some((a) => a.email === prev)) return prev;
+        return preferred?.email || list[0]?.email || "";
+      });
     } catch {
       setAccounts([]);
     }
@@ -235,6 +262,30 @@ export default function MailerClient() {
     loadMails();
     loadTemplates();
   }, [loadAccounts, loadMails, loadTemplates]);
+
+  // Retour OAuth : succès / erreur de connexion de boîte.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const gmailError = params.get("gmail_error");
+    if (!connected && !gmailError) return;
+    if (connected) {
+      toast.success(`Boîte ${connected} connectée ✓`);
+      void loadAccounts();
+    }
+    if (gmailError) {
+      toast.error(gmailError, { duration: 8000 });
+    }
+    params.delete("connected");
+    params.delete("gmail_error");
+    const next = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      next ? `${window.location.pathname}?${next}` : window.location.pathname
+    );
+  }, [loadAccounts]);
 
   const resetComposer = useCallback(() => {
     setRecipients([{ uid: newUid(), email: "", name: "" }]);
@@ -294,6 +345,145 @@ export default function MailerClient() {
       }
       return [...prev, entry];
     });
+  };
+
+  const assertImportChoices = (): boolean => {
+    if (importIsPrestataire === null) {
+      toast.error("Indique d'abord si c'est un import prestataire ou non.");
+      return false;
+    }
+    if (importIsPrestataire) {
+      if (!importCategorie) {
+        toast.error("Choisis le type de prestataire.");
+        return false;
+      }
+      if (!importVille.trim()) {
+        toast.error("Choisis la ville.");
+        return false;
+      }
+    }
+    return true;
+  };
+
+  /**
+   * Import CSV / Excel → remplit la liste de destinataires (mail merge Streak).
+   * Si prestataire : crée 1 fiche CRM Prestataire par nom de boîte (jamais Marque).
+   */
+  const importRecipientsFile = async (file: File) => {
+    if (!assertImportChoices()) return;
+    setImportingCsv(true);
+    try {
+      const result = await parseMailerRecipientsFile(file);
+      if (result.error && result.rows.length === 0) {
+        toast.error(result.error);
+        return;
+      }
+      const incoming = result.rows;
+
+      if (importIsPrestataire && importCategorie) {
+        const withHotel = incoming.filter((r) => r.hotel.trim());
+        if (withHotel.length === 0) {
+          toast.error(
+            result.hotelColumn
+              ? `Colonne « ${result.hotelColumn} » trouvée mais vide. Remplis le nom de boîte.`
+              : "Impossible de détecter le nom de boîte. Ajoute une colonne Hôtel / Établissement / Société / Nom de boîte…"
+          );
+          return;
+        }
+        if (result.hotelColumn) {
+          toast.info(`Colonne boîte détectée : « ${result.hotelColumn} »`, {
+            duration: 4000,
+          });
+        }
+        const missing = incoming.length - withHotel.length;
+        const res = await fetch("/api/mailer/import-prestataires", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            categorie: importCategorie,
+            ville: importVille.trim(),
+            rows: withHotel.map((r) => ({
+              email: r.email,
+              name: r.name || null,
+              hotel: r.hotel.trim(),
+            })),
+          }),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          hotels?: number;
+          created?: number;
+          merged?: number;
+        };
+        if (!res.ok) {
+          toast.error(json.error || "Erreur lors de la création des fiches prestataire.");
+          return;
+        }
+        const created = json.created || 0;
+        const reused = json.merged || 0;
+        const catLabel = PRESTATAIRE_CATEGORIE_LABEL[importCategorie];
+        toast.success(
+          [
+            `${catLabel} · ${importVille.trim()}`,
+            `${json.hotels || 0} établissement${(json.hotels || 0) > 1 ? "s" : ""}`,
+            created > 0
+              ? `${created} fiche${created > 1 ? "s" : ""} créée${created > 1 ? "s" : ""}`
+              : null,
+            reused > 0
+              ? `${reused} fusionnée${reused > 1 ? "s" : ""}`
+              : null,
+            missing > 0
+              ? `${missing} ligne${missing > 1 ? "s" : ""} sans boîte ignorée${missing > 1 ? "s" : ""}`
+              : null,
+            `→ Prestataires · ${catLabel} · filtre ville « ${importVille.trim()} »`,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          { duration: 8000 }
+        );
+      }
+
+      const existingEmails = new Set(
+        recipients.map((r) => r.email.trim().toLowerCase()).filter(Boolean)
+      );
+      const kept = recipients.filter((r) => r.email.trim());
+      const toAdd: RecipientDraft[] = [];
+      let ignoredDupes = 0;
+      for (const row of incoming) {
+        if (existingEmails.has(row.email)) {
+          ignoredDupes += 1;
+          continue;
+        }
+        existingEmails.add(row.email);
+        toAdd.push({ uid: newUid(), email: row.email, name: row.name });
+      }
+      if (toAdd.length === 0) {
+        if (!importIsPrestataire) {
+          toast.info("Tous les contacts du fichier sont déjà dans la liste.");
+        }
+        return;
+      }
+      setRecipients([...kept, ...toAdd]);
+      setSendMode("solo");
+      const parts = [
+        `${toAdd.length} destinataire${toAdd.length > 1 ? "s" : ""} importé${toAdd.length > 1 ? "s" : ""}`,
+      ];
+      const ignored = ignoredDupes + result.skipped;
+      if (ignored > 0) {
+        parts.push(
+          `${ignored} ignoré${ignored > 1 ? "s" : ""} (doublons / sans email)`
+        );
+      }
+      toast.success(parts.join(" · "));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Impossible de lire le fichier."
+      );
+    } finally {
+      setImportingCsv(false);
+      if (csvInputRef.current) csvInputRef.current.value = "";
+    }
   };
 
   function loadTemplate(t: Template) {
@@ -722,9 +912,9 @@ export default function MailerClient() {
               href="/api/auth/gmail"
               className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium"
               style={{ borderColor: OLD_ROSE, color: LICORICE }}
-              title="Connecter une boîte Gmail"
+              title="Connecter ta boîte Gmail"
             >
-              <Mail className="h-4 w-4" /> Connecter une boîte
+              <Mail className="h-4 w-4" /> Connecter ma boîte
             </a>
             <button
               type="button"
@@ -870,15 +1060,241 @@ export default function MailerClient() {
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                 <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Destinataires
+                  {validRecipients.length > 0 && (
+                    <span className="ml-1.5 font-normal normal-case tracking-normal text-slate-400">
+                      ({validRecipients.length})
+                    </span>
+                  )}
                 </span>
-                <button
-                  type="button"
-                  onClick={addRecipient}
-                  className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium"
-                  style={{ borderColor: OLD_ROSE, color: LICORICE }}
-                >
-                  <Plus className="h-3.5 w-3.5" /> Ajouter un destinataire
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!assertImportChoices()) return;
+                      csvInputRef.current?.click();
+                    }}
+                    disabled={importingCsv}
+                    className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+                    style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                    title="Importer une liste CSV / Excel (style Streak)"
+                  >
+                    {importingCsv ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                    )}
+                    Importer CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addRecipient}
+                    className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium"
+                    style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Ajouter un destinataire
+                  </button>
+                </div>
+              </div>
+
+              <input
+                ref={csvInputRef}
+                type="file"
+                accept=".csv,.tsv,.txt,.xlsx,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void importRecipientsFile(file);
+                }}
+              />
+
+              {/* Zone drop CSV / Excel */}
+              <div
+                className="mb-3 rounded-xl border border-dashed p-4 transition-colors"
+                style={{
+                  borderColor: csvDragOver
+                    ? TEA_GREEN
+                    : `color-mix(in srgb, ${OLD_ROSE} 40%, transparent)`,
+                  backgroundColor: csvDragOver ? "#F4FBE8" : "#FBF8F4",
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setCsvDragOver(true);
+                }}
+                onDragLeave={() => setCsvDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setCsvDragOver(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) void importRecipientsFile(file);
+                }}
+              >
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <Upload
+                    className="h-5 w-5"
+                    style={{ color: csvDragOver ? LICORICE : OLD_ROSE }}
+                  />
+                  <p className="text-sm font-medium" style={{ color: LICORICE }}>
+                    Dépose un CSV ou Excel pour envoyer à la liste
+                  </p>
+
+                  {/* Choix obligatoire : prestataire (type + ville) ou non */}
+                  <div
+                    className="w-full max-w-md rounded-lg border bg-white p-3 text-left"
+                    style={{
+                      borderColor: `color-mix(in srgb, ${OLD_ROSE} 30%, transparent)`,
+                    }}
+                  >
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Prestataire ?
+                      <span className="ml-1 font-normal normal-case tracking-normal text-red-500">
+                        (obligatoire)
+                      </span>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImportIsPrestataire(false);
+                          setImportCategorie("");
+                          setImportVille("");
+                        }}
+                        className="rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                        style={
+                          importIsPrestataire === false
+                            ? {
+                                backgroundColor: TEA_GREEN,
+                                color: LICORICE,
+                                borderColor: TEA_GREEN,
+                              }
+                            : {
+                                borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                                color: "#64748B",
+                              }
+                        }
+                      >
+                        Non — liste simple
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setImportIsPrestataire(true)}
+                        className="rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                        style={
+                          importIsPrestataire === true
+                            ? {
+                                backgroundColor: TEA_GREEN,
+                                color: LICORICE,
+                                borderColor: TEA_GREEN,
+                              }
+                            : {
+                                borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                                color: "#64748B",
+                              }
+                        }
+                      >
+                        Oui — crée les fiches prestataire
+                      </button>
+                    </div>
+
+                    {importIsPrestataire === true && (
+                      <div className="mt-3 space-y-2">
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Type de prestataire
+                          </span>
+                          <select
+                            value={importCategorie}
+                            onChange={(e) =>
+                              setImportCategorie(
+                                e.target.value as PrestataireCategorie | ""
+                              )
+                            }
+                            className="w-full rounded-lg border px-2.5 py-1.5 text-sm"
+                            style={{
+                              borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                            }}
+                          >
+                            <option value="">Choisir…</option>
+                            {PRESTATAIRE_CATEGORIES.map((c) => (
+                              <option key={c} value={c}>
+                                {PRESTATAIRE_CATEGORIE_LABEL[c]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Ville
+                          </span>
+                          <input
+                            list="mailer-import-villes"
+                            value={importVille}
+                            onChange={(e) => setImportVille(e.target.value)}
+                            placeholder="Paris, Lyon…"
+                            className="w-full rounded-lg border px-2.5 py-1.5 text-sm"
+                            style={{
+                              borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                            }}
+                          />
+                          <datalist id="mailer-import-villes">
+                            {PRESTATAIRE_VILLES.map((v) => (
+                              <option key={v} value={v} />
+                            ))}
+                          </datalist>
+                        </label>
+                        <p className="text-[11px] leading-snug text-slate-500">
+                          Le nom de boîte est{" "}
+                          <span className="font-semibold text-slate-600">
+                            capté automatiquement
+                          </span>
+                          . Visible dans{" "}
+                          <span className="font-semibold text-slate-600">
+                            Prestataires
+                          </span>{" "}
+                          (filtre ville). Même nom ={" "}
+                          <span className="font-semibold text-slate-600">
+                            1 seule fiche
+                          </span>
+                          .
+                        </p>
+                      </div>
+                    )}
+                    {importIsPrestataire === null && (
+                      <p className="mt-2 text-[11px] text-amber-700">
+                        Choisis Non ou Oui avant de déposer le fichier.
+                      </p>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-slate-500">
+                    Colonnes :{" "}
+                    <span className="font-medium text-slate-600">Email</span>
+                    {" · "}
+                    <span className="font-medium text-slate-600">Prénom</span>
+                    {" / "}
+                    <span className="font-medium text-slate-600">Nom</span>
+                    {importIsPrestataire ? (
+                      <>
+                        {" · "}
+                        <span className="font-medium text-slate-600">
+                          Nom de boîte (auto)
+                        </span>
+                      </>
+                    ) : null}
+                    .
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!assertImportChoices()) return;
+                      csvInputRef.current?.click();
+                    }}
+                    disabled={importingCsv}
+                    className="mt-1 text-xs font-semibold underline-offset-2 hover:underline disabled:opacity-50"
+                    style={{ color: OLD_ROSE }}
+                  >
+                    {importingCsv ? "Import en cours…" : "Choisir un fichier"}
+                  </button>
+                </div>
               </div>
 
               {/* Recherche dans le CRM (clients FR / BENELUX) */}
@@ -1007,8 +1423,12 @@ export default function MailerClient() {
                 ))}
               </div>
               <p className="mt-1.5 text-xs text-slate-400">
-                Astuce : colle plusieurs adresses d&apos;un coup (séparées par virgules ou
-                retours à la ligne) pour créer les lignes automatiquement.
+                Astuce : importe un CSV/Excel, ou colle plusieurs adresses d&apos;un coup
+                (virgules / retours à la ligne). En mode solo,{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] text-slate-600">
+                  {"{{prenom}}"}
+                </code>{" "}
+                personnalise chaque mail.
               </p>
 
               {/* Mode d'envoi */}

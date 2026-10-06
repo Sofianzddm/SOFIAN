@@ -63,7 +63,14 @@ const menuItems = [
     label: "Rédacteur de mails",
     href: "/admin/mailer",
     icon: Mail,
-    roles: ["ADMIN"],
+    roles: [
+      "ADMIN",
+      "CASTING_MANAGER",
+      "HEAD_OF_SALES",
+      "HEAD_OF",
+      "HEAD_OF_INFLUENCE",
+      "TM",
+    ],
   },
   {
     label: "Casting Outreach",
