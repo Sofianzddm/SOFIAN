@@ -13,6 +13,19 @@ import {
   sessionTokenCookieName,
   useSecureAuthCookies,
 } from "@/lib/nextAuthCookies";
+import {
+  LOGIN_ERROR_ARRET_MALADIE,
+  inactiveLoginMessage,
+  isReactivationLockedEmail,
+} from "@/lib/account-access-lock";
+
+async function findUserByEmail(email: string) {
+  return prisma.user.findFirst({
+    where: {
+      email: { equals: email.trim(), mode: "insensitive" },
+    },
+  });
+}
 
 async function findActiveUserByEmail(email: string) {
   return prisma.user.findFirst({
@@ -61,7 +74,7 @@ export const authOptions: NextAuthOptions = {
 
         let user;
         try {
-          user = await findActiveUserByEmail(email);
+          user = await findUserByEmail(email);
         } catch (err) {
           // Une panne d'accès base ne doit jamais remonter un message vide
           // (sinon NextAuth affiche littéralement "undefined" côté login).
@@ -71,6 +84,14 @@ export const authOptions: NextAuthOptions = {
 
         if (!user) {
           throw new Error("Compte inexistant ou désactivé");
+        }
+
+        if (!user.actif) {
+          // Code court pour l’URL ; le login page le traduit en message lisible.
+          if (isReactivationLockedEmail(user.email)) {
+            throw new Error(LOGIN_ERROR_ARRET_MALADIE);
+          }
+          throw new Error(inactiveLoginMessage(user.email));
         }
 
         // Vérifier que l'utilisateur a un mot de passe défini
@@ -118,8 +139,17 @@ export const authOptions: NextAuthOptions = {
       if (account?.provider === "google") {
         if (!user.email) return false;
         try {
-          const dbUser = await findActiveUserByEmail(user.email);
-          return Boolean(dbUser);
+          const dbUser = await findUserByEmail(user.email);
+          if (!dbUser) return false;
+          if (!dbUser.actif) {
+            if (isReactivationLockedEmail(dbUser.email)) {
+              return `/login?error=${encodeURIComponent(LOGIN_ERROR_ARRET_MALADIE)}`;
+            }
+            return `/login?error=${encodeURIComponent(
+              inactiveLoginMessage(dbUser.email)
+            )}`;
+          }
+          return true;
         } catch (err) {
           console.error("[auth] Erreur Google signIn:", err);
           return false;
@@ -161,9 +191,32 @@ export const authOptions: NextAuthOptions = {
         delete (token as any).adminName;
       }
 
+      // Invalider le JWT si le compte réel a été désactivé (arrêt maladie, etc.)
+      const realUserId = (token.sub ?? (token as { id?: string }).id) as
+        | string
+        | undefined;
+      if (realUserId) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: realUserId },
+            select: { actif: true },
+          });
+          if (!dbUser?.actif) {
+            return { error: "CompteDesactive" };
+          }
+        } catch (err) {
+          console.error("[auth] Erreur contrôle actif JWT:", err);
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
+      if ((token as { error?: string }).error === "CompteDesactive") {
+        // Session vide → client traité comme non authentifié
+        return { ...session, user: undefined as unknown as typeof session.user };
+      }
+
       if (!session.user) return session;
 
       const t = token as any;

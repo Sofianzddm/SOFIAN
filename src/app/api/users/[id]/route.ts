@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { canChangeUserActif } from "@/lib/account-access-lock";
 
 // GET - Détail d'un utilisateur
 export async function GET(
@@ -103,7 +104,21 @@ export async function PUT(
     // Seuls les ADMIN peuvent modifier le rôle, l'état actif, la liaison Talent et le mot de passe
     if (isAdmin) {
       if (data.role !== undefined) updateData.role = data.role;
-      if (data.actif !== undefined) updateData.actif = data.actif;
+      if (data.actif !== undefined) {
+        const target = await prisma.user.findUnique({
+          where: { id },
+          select: { email: true },
+        });
+        const gate = canChangeUserActif({
+          actorEmail: session.user.email,
+          targetEmail: target?.email,
+          nextActif: Boolean(data.actif),
+        });
+        if (!gate.ok) {
+          return NextResponse.json({ error: gate.error }, { status: 403 });
+        }
+        updateData.actif = data.actif;
+      }
       if (data.password && data.password.trim().length >= 6) {
         updateData.password = await bcrypt.hash(data.password, 10);
       } else if (data.password && data.password.trim().length > 0) {
@@ -176,6 +191,23 @@ export async function PATCH(
       return NextResponse.json({ 
         error: "Vous ne pouvez pas désactiver votre propre compte" 
       }, { status: 400 });
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id },
+      select: { email: true },
+    });
+    if (!target) {
+      return NextResponse.json({ error: "Utilisateur non trouvé" }, { status: 404 });
+    }
+
+    const gate = canChangeUserActif({
+      actorEmail: session.user.email,
+      targetEmail: target.email,
+      nextActif: Boolean(actif),
+    });
+    if (!gate.ok) {
+      return NextResponse.json({ error: gate.error }, { status: 403 });
     }
 
     const user = await prisma.user.update({

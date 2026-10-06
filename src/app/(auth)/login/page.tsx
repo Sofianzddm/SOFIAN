@@ -8,6 +8,10 @@ import {
   type GlowUpLoginCredentials,
 } from "@/components/auth/GlowUpLogin";
 import { resolvePostLoginPath, sanitizeInternalCallbackUrl } from "@/lib/auth-redirect";
+import {
+  LOGIN_ERROR_ARRET_MALADIE,
+  LOGIN_MESSAGE_ARRET_MALADIE,
+} from "@/lib/account-access-lock";
 
 /**
  * Traduit le code d'erreur NextAuth en message clair. NextAuth peut renvoyer
@@ -18,6 +22,9 @@ import { resolvePostLoginPath, sanitizeInternalCallbackUrl } from "@/lib/auth-re
 function messageErreurConnexion(code?: string | null): string {
   if (!code || code === "undefined" || code === "null") {
     return "Identifiants incorrects. Vérifiez votre email et votre mot de passe.";
+  }
+  if (code === LOGIN_ERROR_ARRET_MALADIE) {
+    return LOGIN_MESSAGE_ARRET_MALADIE;
   }
   if (code === "CredentialsSignin") {
     return "Email ou mot de passe incorrect.";

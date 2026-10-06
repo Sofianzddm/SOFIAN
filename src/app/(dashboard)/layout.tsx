@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -44,6 +44,12 @@ export default function DashboardLayout({
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
+      return;
+    }
+    // Compte désactivé côté JWT → session sans user → déconnexion propre
+    if (status === "authenticated" && !session?.user?.id) {
+      void signOut({ callbackUrl: "/login" });
+      return;
     }
     if (status === "authenticated" && session?.user?.role === "TALENT") {
       router.push("/talent/dashboard");

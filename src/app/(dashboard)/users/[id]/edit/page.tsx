@@ -5,6 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { ArrowLeft, Save, Loader2, UserCog } from "lucide-react";
+import {
+  isReactivationLockedEmail,
+  isSofianAdminEmail,
+} from "@/lib/account-access-lock";
 
 interface User {
   id: string;
@@ -56,6 +60,11 @@ export default function EditUserPage() {
 
   const isAdmin = session?.user?.role === "ADMIN";
   const isOwnProfile = session?.user?.id === params.id;
+  const isSofianAdmin = isSofianAdminEmail(session?.user?.email);
+  const reactivationLocked =
+    isReactivationLockedEmail(user?.email || formData.email) &&
+    !formData.actif &&
+    !isSofianAdmin;
 
   useEffect(() => {
     fetchUser();
@@ -342,21 +351,28 @@ export default function EditUserPage() {
 
             {!isOwnProfile && (
               <div>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label
+                  className={`flex items-center gap-2 ${
+                    reactivationLocked ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+                  }`}
+                >
                   <input
                     type="checkbox"
                     checked={formData.actif}
+                    disabled={reactivationLocked}
                     onChange={(e) =>
                       setFormData({ ...formData, actif: e.target.checked })
                     }
-                    className="rounded text-glowup-rose focus:ring-glowup-rose"
+                    className="rounded text-glowup-rose focus:ring-glowup-rose disabled:opacity-50"
                   />
                   <span className="text-sm font-medium text-gray-700">
                     Compte actif
                   </span>
                 </label>
                 <p className="text-gray-500 text-sm mt-1">
-                  Un compte inactif ne peut pas se connecter
+                  {reactivationLocked
+                    ? "Suspension arrêt maladie — seul Sofian peut réactiver ce compte."
+                    : "Un compte inactif ne peut pas se connecter"}
                 </p>
               </div>
             )}

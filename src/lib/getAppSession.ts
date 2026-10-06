@@ -80,11 +80,30 @@ export async function resolveProspectionActor(session: AppSession): Promise<{
  * 2) Si absent (cas rares serverless), getToken sur la requête + variantes __Secure- / cookie non préfixé.
  * 3) Cookie httpOnly d’impersonation admin (fenêtre courte après POST /impersonate).
  */
+async function isUserActif(userId: string | undefined | null): Promise<boolean> {
+  if (!userId) return false;
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { actif: true },
+  });
+  return Boolean(row?.actif);
+}
+
 export async function getAppSession(request: NextRequest): Promise<AppSession | null> {
   const debug = process.env.PROSPECTION_DEBUG === "1";
 
   const fromNextAuth = await getServerSession(authOptions);
   if (fromNextAuth?.user) {
+    // Compte désactivé → aucune session effective (même si le JWT n’a pas encore expiré)
+    const realId =
+      (fromNextAuth.user as { adminId?: string }).adminId ||
+      fromNextAuth.user.id;
+    if (!(await isUserActif(realId))) {
+      if (debug) {
+        console.warn("[prospection] getAppSession source=inactive_user");
+      }
+      return null;
+    }
     if (debug) {
       console.info("[prospection] getAppSession source=nextauth_server");
     }
@@ -93,6 +112,15 @@ export async function getAppSession(request: NextRequest): Promise<AppSession | 
 
   const token = await getTokenFromRequestFlexible(request);
   if (token) {
+    const realId = (token.sub ?? (token as { id?: string }).id) as
+      | string
+      | undefined;
+    if (!(await isUserActif(realId))) {
+      if (debug) {
+        console.warn("[prospection] getAppSession source=inactive_user");
+      }
+      return null;
+    }
     if (debug) {
       console.info("[prospection] getAppSession source=jwt_token");
     }

@@ -10,6 +10,10 @@ import {
   SESSION_REMEMBER_LABEL,
   SESSION_SHORT_LABEL,
 } from "@/lib/nextAuthCookies";
+import {
+  LOGIN_ERROR_ARRET_MALADIE,
+  LOGIN_MESSAGE_ARRET_MALADIE,
+} from "@/lib/account-access-lock";
 
 type View = "login" | "forgot" | "sent" | "done" | "no_profile";
 
@@ -81,7 +85,11 @@ export function LoginScreen() {
         redirect: false,
       });
       if (result?.error) {
-        setError(result.error);
+        setError(
+          result.error === LOGIN_ERROR_ARRET_MALADIE
+            ? LOGIN_MESSAGE_ARRET_MALADIE
+            : result.error
+        );
         setLoading(false);
         return;
       }

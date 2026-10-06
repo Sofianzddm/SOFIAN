@@ -17,6 +17,11 @@ import {
   Loader2,
   UserCircle,
 } from "lucide-react";
+import {
+  canChangeUserActif,
+  isReactivationLockedEmail,
+  isSofianAdminEmail,
+} from "@/lib/account-access-lock";
 
 interface User {
   id: string;
@@ -69,6 +74,7 @@ export default function UsersPage() {
   const [showInactive, setShowInactive] = useState(false);
 
   const isAdmin = session?.user?.role === "ADMIN";
+  const isSofianAdmin = isSofianAdminEmail(session?.user?.email);
 
   useEffect(() => {
     fetchUsers();
@@ -92,15 +98,25 @@ export default function UsersPage() {
     }
   }
 
-  async function toggleUserStatus(userId: string, currentStatus: boolean) {
-    const action = currentStatus ? "désactiver" : "réactiver";
+  async function toggleUserStatus(user: User) {
+    const nextActif = !user.actif;
+    const action = user.actif ? "désactiver" : "réactiver";
+    const gate = canChangeUserActif({
+      actorEmail: session?.user?.email,
+      targetEmail: user.email,
+      nextActif,
+    });
+    if (!gate.ok) {
+      alert(`❌ ${gate.error}`);
+      return;
+    }
     if (!confirm(`Voulez-vous vraiment ${action} cet utilisateur ?`)) return;
 
     try {
-      const res = await fetch(`/api/users/${userId}`, {
+      const res = await fetch(`/api/users/${user.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actif: !currentStatus }),
+        body: JSON.stringify({ actif: nextActif }),
       });
 
       if (res.ok) {
@@ -384,16 +400,26 @@ export default function UsersPage() {
                         <Pencil className="w-4 h-4" />
                       </Link>
 
-                      {/* Désactiver/Réactiver - ADMIN uniquement */}
-                      {isAdmin && user.id !== session?.user?.id && (
+                      {/* Désactiver/Réactiver - ADMIN uniquement (réactivation Manon = Sofian seul) */}
+                      {isAdmin &&
+                        user.id !== session?.user?.id &&
+                        (user.actif ||
+                          !isReactivationLockedEmail(user.email) ||
+                          isSofianAdmin) && (
                         <button
-                          onClick={() => toggleUserStatus(user.id, user.actif)}
+                          onClick={() => toggleUserStatus(user)}
                           className={`p-2 rounded-lg transition-colors ${
                             user.actif
                               ? "text-gray-400 hover:text-orange-600 hover:bg-orange-50"
                               : "text-gray-400 hover:text-green-600 hover:bg-green-50"
                           }`}
-                          title={user.actif ? "Désactiver" : "Réactiver"}
+                          title={
+                            user.actif
+                              ? "Désactiver"
+                              : isReactivationLockedEmail(user.email)
+                                ? "Réactiver (Sofian uniquement)"
+                                : "Réactiver"
+                          }
                         >
                           {user.actif ? (
                             <UserX className="w-4 h-4" />
@@ -402,6 +428,17 @@ export default function UsersPage() {
                           )}
                         </button>
                       )}
+                      {isAdmin &&
+                        !user.actif &&
+                        isReactivationLockedEmail(user.email) &&
+                        !isSofianAdmin && (
+                          <span
+                            className="px-2 py-1 text-[10px] font-medium text-amber-700 bg-amber-50 rounded-md"
+                            title="Suspension arrêt maladie — seul Sofian peut réactiver"
+                          >
+                            Sofian seul
+                          </span>
+                        )}
 
                       {/* Supprimer - ADMIN uniquement */}
                       {isAdmin && user.id !== session?.user?.id && (
