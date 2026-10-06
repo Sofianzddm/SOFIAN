@@ -214,11 +214,24 @@ export default function AdminPrimesPage() {
       });
 
       // Prime de Leyna : taux moyen unique appliqué à chaque campagne.
+      // Formules Excel pour que totaux / primes se recalculent si on supprime une ligne.
       const SEUIL = 35000;
       const TAUX_BAS = 0.03;
       const TAUX_HAUT = 0.035;
+      const n = hosCollabs.length;
+      const firstDataRow = 4;
+      const lastDataRow = firstDataRow + n - 1;
+      const totalRowNum = lastDataRow + 1;
+      const caRow = totalRowNum + 2;
+      const partBasseRow = caRow + 1;
+      const partHauteRow = caRow + 2;
+      const tauxRow = caRow + 3;
+      const primeTotaleRow = caRow + 4;
+
       const totalCA = hosCollabs.reduce((s, c) => s + c.montantBrut, 0);
-      const primeTotale = Math.min(totalCA, SEUIL) * TAUX_BAS + Math.max(totalCA - SEUIL, 0) * TAUX_HAUT;
+      const partBasse = Math.min(totalCA, SEUIL) * TAUX_BAS;
+      const partHaute = Math.max(totalCA - SEUIL, 0) * TAUX_HAUT;
+      const primeTotale = partBasse + partHaute;
       const tauxMoyen = totalCA > 0 ? primeTotale / totalCA : 0;
 
       let totMontant = 0;
@@ -229,6 +242,7 @@ export default function AdminPrimesPage() {
       let totReste = 0;
 
       hosCollabs.forEach((c, i) => {
+        const rowNum = firstDataRow + i;
         const prime = Math.round(c.montantBrut * tauxMoyen * 100) / 100;
         const debut = Math.round(prime * 0.5 * 100) / 100;
         const fin = Math.round((prime - debut) * 100) / 100;
@@ -245,12 +259,24 @@ export default function AdminPrimesPage() {
           nom: `${capitalized} ${hosAnnee} - ${c.marque} X ${c.talent}`,
           montant: c.montantBrut,
           marge: c.margeTotale,
-          prime,
           etat: STATUT_LABELS[c.statut] ?? c.statut,
-          debut,
-          fin,
-          reste,
         });
+        row.getCell(4).value = {
+          formula: `ROUND(B${rowNum}*$B$${tauxRow},2)`,
+          result: prime,
+        };
+        row.getCell(6).value = {
+          formula: `ROUND(D${rowNum}*0.5,2)`,
+          result: debut,
+        };
+        row.getCell(7).value = {
+          formula: `ROUND(D${rowNum}-F${rowNum},2)`,
+          result: fin,
+        };
+        row.getCell(8).value = c.encaisse
+          ? 0
+          : { formula: `G${rowNum}`, result: reste };
+
         row.height = 20;
         const fill = i % 2 === 0 ? C_WHITE : C_LACE_ALT;
         row.eachCell((cell, col) => {
@@ -258,48 +284,98 @@ export default function AdminPrimesPage() {
           cell.font = { name: "Calibri", size: 10, color: { argb: C_LICORICE } };
           cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
           cell.alignment = { vertical: "middle", horizontal: col === 1 ? "left" : col === 5 ? "center" : "right" };
+          if ([2, 3, 4, 6, 7, 8].includes(col)) cell.numFmt = EUR_FMT;
         });
-        // Reste à payer : rouge si dû, vert si soldé
         const resteCell = row.getCell(8);
         resteCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: reste > 0 ? C_RED : C_GREEN } };
       });
 
-      // --- Ligne TOTAL ---
-      const totalRow = ws.addRow({
-        nom: `TOTAL — ${hosCollabs.length} campagne(s)`,
-        montant: totMontant,
-        marge: totMarge,
-        prime: totPrime,
-        debut: totDebut,
-        fin: totFin,
-        reste: totReste,
-      });
+      // --- Ligne TOTAL (SUM : s’ajuste si une ligne data est supprimée) ---
+      const totalRow = ws.addRow([]);
+      totalRow.getCell(1).value = {
+        formula: `"TOTAL — "&COUNTA(A${firstDataRow}:A${lastDataRow})&" campagne(s)"`,
+        result: `TOTAL — ${n} campagne(s)`,
+      };
+      totalRow.getCell(2).value = {
+        formula: `SUM(B${firstDataRow}:B${lastDataRow})`,
+        result: totMontant,
+      };
+      totalRow.getCell(3).value = {
+        formula: `SUM(C${firstDataRow}:C${lastDataRow})`,
+        result: totMarge,
+      };
+      totalRow.getCell(4).value = {
+        formula: `SUM(D${firstDataRow}:D${lastDataRow})`,
+        result: totPrime,
+      };
+      totalRow.getCell(6).value = {
+        formula: `SUM(F${firstDataRow}:F${lastDataRow})`,
+        result: totDebut,
+      };
+      totalRow.getCell(7).value = {
+        formula: `SUM(G${firstDataRow}:G${lastDataRow})`,
+        result: totFin,
+      };
+      totalRow.getCell(8).value = {
+        formula: `SUM(H${firstDataRow}:H${lastDataRow})`,
+        result: totReste,
+      };
       totalRow.height = 24;
       totalRow.eachCell((cell, col) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C_TEA_GREEN } };
         cell.font = { name: "Calibri", bold: true, size: 11, color: { argb: C_LICORICE } };
         cell.border = softBorder;
         cell.alignment = { vertical: "middle", horizontal: col === 1 ? "left" : col === 5 ? "center" : "right" };
+        if ([2, 3, 4, 6, 7, 8].includes(col)) cell.numFmt = EUR_FMT;
       });
 
-      // --- Récap ---
+      // --- Récap (formules branchées sur le TOTAL C.A.) ---
       ws.addRow({});
-      const partBasse = Math.min(totalCA, SEUIL) * TAUX_BAS;
-      const partHaute = Math.max(totalCA - SEUIL, 0) * TAUX_HAUT;
       const recap = [
-        { label: "C.A du mois", value: hosPrime?.ca ?? totMontant, fmt: EUR_FMT, kind: "eur" },
-        { label: "3% du C.A (0 à 35 000 €)", value: partBasse, fmt: EUR_FMT, kind: "eur" },
-        { label: "3,5% du C.A au-dessus de 35 000 €", value: partHaute, fmt: EUR_FMT, kind: "eur" },
-        { label: "Taux moyen appliqué", value: tauxMoyen * 100, fmt: '0.0000"%"', kind: "pct" },
-        { label: "MARGE BÉNÉFICIAIRE (prime totale)", value: hosPrime?.total ?? primeTotale, fmt: EUR_FMT, kind: "prime" },
+        {
+          label: "C.A du mois",
+          formula: `B${totalRowNum}`,
+          result: totMontant,
+          fmt: EUR_FMT,
+          kind: "eur" as const,
+        },
+        {
+          label: "3% du C.A (0 à 35 000 €)",
+          formula: `MIN(B${caRow},${SEUIL})*${TAUX_BAS}`,
+          result: partBasse,
+          fmt: EUR_FMT,
+          kind: "eur" as const,
+        },
+        {
+          label: "3,5% du C.A au-dessus de 35 000 €",
+          formula: `MAX(B${caRow}-${SEUIL},0)*${TAUX_HAUT}`,
+          result: partHaute,
+          fmt: EUR_FMT,
+          kind: "eur" as const,
+        },
+        {
+          label: "Taux moyen appliqué",
+          formula: `IF(B${caRow}=0,0,B${primeTotaleRow}/B${caRow})`,
+          result: tauxMoyen,
+          fmt: "0.00%",
+          kind: "pct" as const,
+        },
+        {
+          label: "MARGE BÉNÉFICIAIRE (prime totale)",
+          formula: `B${partBasseRow}+B${partHauteRow}`,
+          result: primeTotale,
+          fmt: EUR_FMT,
+          kind: "prime" as const,
+        },
       ];
       recap.forEach((r) => {
-        const row = ws.addRow({ nom: r.label, montant: r.value });
+        const row = ws.addRow({ nom: r.label });
         const labelCell = row.getCell(1);
         const valueCell = row.getCell(2);
         const isPrime = r.kind === "prime";
         labelCell.font = { name: "Calibri", bold: true, size: 11, color: { argb: C_LICORICE } };
         labelCell.alignment = { vertical: "middle", horizontal: "left" };
+        valueCell.value = { formula: r.formula, result: r.result };
         valueCell.numFmt = r.fmt;
         valueCell.font = { name: "Calibri", bold: true, size: isPrime ? 13 : 11, color: { argb: isPrime ? C_GREEN : C_LICORICE } };
         valueCell.alignment = { vertical: "middle", horizontal: "left" };
