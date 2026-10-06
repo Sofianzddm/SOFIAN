@@ -70,6 +70,7 @@ const menuItems = [
       "HEAD_OF",
       "HEAD_OF_INFLUENCE",
       "TM",
+      "CM",
     ],
   },
   {

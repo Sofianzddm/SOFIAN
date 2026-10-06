@@ -9,6 +9,7 @@ export const MAILER_ROLES = [
   "HEAD_OF",
   "HEAD_OF_INFLUENCE",
   "TM",
+  "CM",
 ] as const;
 
 export type MailerRole = (typeof MAILER_ROLES)[number];

@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 import { clearGmailFromNameCache, clearGmailSignatureCache } from "@/lib/gmail";
+import { isMailerRole } from "@/lib/requireMailerAccess";
 
 /**
  * Gestion des boîtes Gmail connectées à la plateforme.
  *  GET    → liste des boîtes (ADMIN : tout + liste users pour liaison ;
- *           CASTING_MANAGER : liste simple pour le sélecteur d'expéditeur)
+ *           rôles mailer / STRATEGY_PLANNER : liste pour sélecteur)
  *  PATCH  → lier/délier un utilisateur, changer le nom d'expéditeur (ADMIN)
  *  DELETE → déconnecter une boîte (ADMIN)
  */
@@ -20,16 +21,8 @@ export async function GET(request: NextRequest) {
     const role = session.user.role || "";
     // STRATEGY_PLANNER : lecture seule pour afficher le nom de la boîte
     // d'envoi de ses projets (Ski Trip → Ines).
-    // Rôles mailer : sélecteur d'expéditeur dans le rédacteur (CSV / solo).
-    const canListBoxes =
-      role === "ADMIN" ||
-      role === "CASTING_MANAGER" ||
-      role === "STRATEGY_PLANNER" ||
-      role === "HEAD_OF_SALES" ||
-      role === "HEAD_OF" ||
-      role === "HEAD_OF_INFLUENCE" ||
-      role === "TM";
-    if (!canListBoxes) {
+    // Rôles mailer (dont CM / Account Manager) : sélecteur d'expéditeur.
+    if (!isMailerRole(role) && role !== "STRATEGY_PLANNER") {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
