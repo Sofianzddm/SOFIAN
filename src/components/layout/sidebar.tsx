@@ -634,11 +634,19 @@ export function Sidebar({
         ]
       : menuItems
           .filter((item) => item.roles.includes(userRole))
-          .flatMap((item) =>
-            showFashionWeek && item.href === "/cannes-2026"
-              ? [item, fashionWeekItem]
-              : [item]
-          )
+          .flatMap((item) => {
+            // Account Manager : dashboard + rédacteur dans leur espace /account-manager
+            if (userRole === "CM" && item.href === "/dashboard") {
+              return [{ ...item, href: "/account-manager" }];
+            }
+            if (userRole === "CM" && item.href === "/admin/mailer") {
+              return [{ ...item, href: "/account-manager/mailer" }];
+            }
+            if (showFashionWeek && item.href === "/cannes-2026") {
+              return [item, fashionWeekItem];
+            }
+            return [item];
+          })
           .concat(
             (userRole === "TM" || userRole === "HEAD_OF_INFLUENCE") && hasAbsence
               ? [

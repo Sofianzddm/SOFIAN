@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Handshake, Loader2, AlertTriangle, Users, Building2,
   TrendingUp, CheckCircle, Clock, Euro, Gift, ChevronRight,
-  Filter, Search, Calendar, Package,
+  Filter, Search, Calendar, Package, Mail,
 } from "lucide-react";
 
 export default function AccountManagerDashboard() {
@@ -165,7 +165,26 @@ export default function AccountManagerDashboard() {
       </div>
 
       {/* Navigation rapide */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Link
+          href="/account-manager/mailer"
+          className="group relative overflow-hidden bg-gradient-to-br from-glowup-licorice to-gray-800 rounded-2xl p-6 text-white hover:shadow-2xl transition-all"
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-500" />
+          <div className="relative flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <Mail className="w-8 h-8" />
+                <h3 className="text-2xl font-bold">Rédacteur de mails</h3>
+              </div>
+              <p className="text-white/80">
+                Envoyer une campagne (CSV / liste)
+              </p>
+            </div>
+            <ChevronRight className="w-8 h-8 group-hover:translate-x-2 transition-transform" />
+          </div>
+        </Link>
+
         <Link
           href="/gifts"
           className="group relative overflow-hidden bg-gradient-to-br from-purple-600 to-pink-600 rounded-2xl p-6 text-white hover:shadow-2xl transition-all"
