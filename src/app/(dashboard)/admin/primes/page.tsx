@@ -330,11 +330,18 @@ export default function AdminPrimesPage() {
     if (isAdmin) void loadHeadOfSales(hosMois, hosAnnee);
   }, [isAdmin, hosMois, hosAnnee]);
 
-  const pendingCount = useMemo(() => primes.filter((p) => p.statut === "SOUMIS").length, [primes]);
+  const visiblePrimes = useMemo(
+    () => primes.filter((p) => p.statut !== "BROUILLON"),
+    [primes]
+  );
+  const pendingCount = useMemo(
+    () => visiblePrimes.filter((p) => p.statut === "SOUMIS").length,
+    [visiblePrimes]
+  );
   const filtered = useMemo(() => {
-    if (tab === "TOUTES") return primes;
-    return primes.filter((p) => p.statut === tab);
-  }, [primes, tab]);
+    if (tab === "TOUTES") return visiblePrimes;
+    return visiblePrimes.filter((p) => p.statut === tab);
+  }, [visiblePrimes, tab]);
 
   const decide = async (
     id: string,

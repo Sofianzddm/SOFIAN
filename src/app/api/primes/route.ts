@@ -127,6 +127,7 @@ export async function GET(request: NextRequest) {
     if (primeDelegate) {
       if (session.user.role === "ADMIN") {
         const rows = await primeDelegate.findMany({
+          where: { statut: { in: ["SOUMIS", "VALIDE", "REFUSE"] } },
           include: { user: { select: { id: true, prenom: true, nom: true, email: true } } },
           orderBy: [{ annee: "desc" }, { mois: "desc" }],
         });
@@ -149,6 +150,7 @@ export async function GET(request: NextRequest) {
           json_build_object('id', u."id", 'prenom', u."prenom", 'nom', u."nom", 'email', u."email") AS "user"
         FROM "PrimeSalaire" p
         JOIN "users" u ON u."id" = p."userId"
+        WHERE p."statut" IN ('SOUMIS'::"PrimeStatut", 'VALIDE'::"PrimeStatut", 'REFUSE'::"PrimeStatut")
         ORDER BY p."annee" DESC, p."mois" DESC
       `) as Array<Record<string, unknown>>;
       return NextResponse.json({ primes: rows });
