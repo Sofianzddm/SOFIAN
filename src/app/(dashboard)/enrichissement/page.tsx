@@ -1616,9 +1616,11 @@ export default function EnrichissementPage() {
                           </div>
                           <p className="text-xs text-gray-500">
                             Demandé depuis : {item.sourceLabel}
-                            {item.emailableCount > 0
+                            {item.emailableCount >= 2
                               ? ` · ${item.emailableCount} email(s) déjà en fiche (déblocage auto possible)`
-                              : " · aucun email en fiche"}
+                              : item.emailableCount === 1
+                                ? " · 1 email en fiche (il en faut 2 pour débloquer auto)"
+                                : " · aucun email en fiche"}
                           </p>
                           <ul className="space-y-0.5">
                             {item.contexts.map((ctx) => (

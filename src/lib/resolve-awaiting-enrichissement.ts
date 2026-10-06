@@ -21,6 +21,9 @@ export type ResolveAwaitingResult = {
   notifiedTo?: string[];
 };
 
+/** Seuil auto-déblocage : au moins 2 emails utilisables sur la fiche marque. */
+export const MIN_EMAILABLE_CONTACTS_TO_RESOLVE = 2;
+
 function hasEmailableContact(
   contacts: Array<{ email: string | null; emailSuggested?: string | null }>
 ): { ok: boolean; count: number } {
@@ -28,7 +31,7 @@ function hasEmailableContact(
     const email = (c.email || c.emailSuggested || "").trim();
     return email.includes("@");
   }).length;
-  return { ok: count > 0, count };
+  return { ok: count >= MIN_EMAILABLE_CONTACTS_TO_RESOLVE, count };
 }
 
 export function formatAwaitingSourcesLabel(

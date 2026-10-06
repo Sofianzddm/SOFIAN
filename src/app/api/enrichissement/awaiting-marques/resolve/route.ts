@@ -37,8 +37,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            result.emailableCount === 0
-              ? "Ajoute au moins un email sur la fiche avant de valider."
+            result.emailableCount < 2
+              ? `Il faut au moins 2 emails utilisables sur la fiche (actuellement ${result.emailableCount}).`
               : "Aucune demande en attente pour cette marque.",
           emailableCount: result.emailableCount,
         },

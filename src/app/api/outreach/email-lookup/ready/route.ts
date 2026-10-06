@@ -134,6 +134,8 @@ export async function POST(request: NextRequest) {
     const crossMarketEmails = new Set<string>();
     /** Ids avec email valide — seuls candidats à l'enrôlement. */
     const enrollableIds: string[] = [];
+    /** Emails déjà suivis ailleurs — on ignore et on continue le reste. */
+    const skippedAlreadyTracked: string[] = [];
 
     for (const row of rows) {
       const id = String(row.id || "").trim();
@@ -162,21 +164,19 @@ export async function POST(request: NextRequest) {
 
       const bothMarkets = row.bothMarkets === true;
 
-      const guardConflict = async (isAo: boolean): Promise<NextResponse | null> => {
-        if (isAo) return null;
-        if (bothMarkets) crossMarketEmails.add(email);
+      const isAlreadyTracked = async (isAo: boolean): Promise<boolean> => {
+        if (isAo) return false;
         const conflict = await findCrossPipelineConflict(email, ownPipeline, {
           allowClientBeneluxSibling: bothMarkets,
         });
         if (conflict) {
-          return NextResponse.json(
-            {
-              error: `${email} est déjà suivi dans ${conflict.label} (${conflict.company}).`,
-            },
-            { status: 409 }
+          skippedAlreadyTracked.push(
+            `${email} (déjà suivi dans ${conflict.label} — ${conflict.company})`
           );
+          return true;
         }
-        return null;
+        if (bothMarkets) crossMarketEmails.add(email);
+        return false;
       };
 
       if (market === "FW") {
@@ -218,8 +218,7 @@ export async function POST(request: NextRequest) {
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
-        const blocked = await guardConflict(false);
-        if (blocked) return blocked;
+        if (await isAlreadyTracked(false)) continue;
         const written = await writeAgencyContactEmail(id, marqueId, email);
         if (written.blockedAsTalent) continue;
       } else if (market === "BENELUX") {
@@ -230,8 +229,7 @@ export async function POST(request: NextRequest) {
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
-        const blocked = await guardConflict(contact.source === "AO");
-        if (blocked) return blocked;
+        if (await isAlreadyTracked(contact.source === "AO")) continue;
         const written = await writeBeneluxContactEmail(id, marqueId, email);
         if (written.blockedAsTalent) continue;
       } else {
@@ -242,8 +240,7 @@ export async function POST(request: NextRequest) {
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
-        const blocked = await guardConflict(contact.source === "AO");
-        if (blocked) return blocked;
+        if (await isAlreadyTracked(contact.source === "AO")) continue;
         const written = await writeMarqueContactEmail(id, marqueId, email);
         if (written.blockedAsTalent) continue;
       }
@@ -251,17 +248,26 @@ export async function POST(request: NextRequest) {
       enrollableIds.push(id);
     }
 
+    const skippedNote =
+      skippedAlreadyTracked.length > 0
+        ? ` · ${skippedAlreadyTracked.length} ignoré(s) (déjà suivi)`
+        : "";
+
     if (market === "FW") {
       await refreshFwClientStatut(marqueId);
       return NextResponse.json({
         ok: true,
         saved: saved.length,
         notFound: notFoundCount,
+        skippedAlreadyTracked: skippedAlreadyTracked.length,
+        skippedDetails: skippedAlreadyTracked,
         enrolled: saved.length,
         message:
           saved.length > 0
-            ? `${saved.length} email(s) notés — maison prête dans Fashion Week.`
-            : `${notFoundCount} contact(s) marqués sans email.`,
+            ? `${saved.length} email(s) notés — maison prête dans Fashion Week.${skippedNote}`
+            : skippedAlreadyTracked.length > 0
+              ? `Aucun nouvel email : ${skippedAlreadyTracked.length} déjà suivi(s).`
+              : `${notFoundCount} contact(s) marqués sans email.`,
       });
     }
 
@@ -282,13 +288,17 @@ export async function POST(request: NextRequest) {
         ok: true,
         saved: saved.length,
         notFound: notFoundCount,
+        skippedAlreadyTracked: skippedAlreadyTracked.length,
+        skippedDetails: skippedAlreadyTracked,
         enrolled: enroll.enrolled,
         message:
           enroll.enrolled > 0
-            ? `${enroll.enrolled} contact(s) envoyés dans « À contacter » agences.`
+            ? `${enroll.enrolled} contact(s) envoyés dans « À contacter » agences.${skippedNote}`
             : saved.length > 0
-              ? `${saved.length} email(s) enregistrés.`
-              : `${notFoundCount} contact(s) marqués sans email.`,
+              ? `${saved.length} email(s) enregistrés.${skippedNote}`
+              : skippedAlreadyTracked.length > 0
+                ? `Aucun nouvel envoi : ${skippedAlreadyTracked.length} déjà suivi(s).`
+                : `${notFoundCount} contact(s) marqués sans email.`,
       });
     }
 
@@ -322,15 +332,19 @@ export async function POST(request: NextRequest) {
     const suffix = market === "BENELUX" ? " BENELUX" : "";
     const message =
       enroll.enrolled > 0
-        ? `${enroll.enrolled} contact(s) envoyés dans « À contacter »${suffix}.${awaitingNote}`
+        ? `${enroll.enrolled} contact(s) envoyés dans « À contacter »${suffix}.${skippedNote}${awaitingNote}`
         : saved.length > 0
-          ? `${saved.length} email(s) enregistrés${suffix}.${awaitingNote}`
-          : `${notFoundCount} contact(s) marqués sans email${suffix}.`;
+          ? `${saved.length} email(s) enregistrés${suffix}.${skippedNote}${awaitingNote}`
+          : skippedAlreadyTracked.length > 0
+            ? `Aucun nouvel envoi${suffix} : ${skippedAlreadyTracked.length} déjà suivi(s).`
+            : `${notFoundCount} contact(s) marqués sans email${suffix}.`;
 
     return NextResponse.json({
       ok: true,
       saved: saved.length,
       notFound: notFoundCount,
+      skippedAlreadyTracked: skippedAlreadyTracked.length,
+      skippedDetails: skippedAlreadyTracked,
       enrolled: enroll.enrolled,
       message,
     });
