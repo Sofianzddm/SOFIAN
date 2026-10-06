@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import {
   CAMPAIGN_STATUSES,
+  canAccessProjetsOutreach,
   canCreateCampaign,
   DEFAULT_SENDER_EMAIL,
   isProjetsOutreachRole,
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
   try {
     const session = await getAppSession(request);
     if (!session?.user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    if (!isProjetsOutreachRole(session.user.role)) {
+    if (!canAccessProjetsOutreach(session.user.role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -45,6 +46,9 @@ export async function GET(request: NextRequest) {
       .trim()
       .toUpperCase();
     const mineParam = String(request.nextUrl.searchParams.get("mine") || "")
+      .trim()
+      .toLowerCase();
+    const myPrestasParam = String(request.nextUrl.searchParams.get("myPrestas") || "")
       .trim()
       .toLowerCase();
     const activeParam = String(request.nextUrl.searchParams.get("active") || "").trim();
@@ -60,9 +64,19 @@ export async function GET(request: NextRequest) {
 
     const role = session.user.role;
     const userId = session.user.id;
+    const isCore = isProjetsOutreachRole(role);
 
     if (mineParam === "1" || mineParam === "true") {
       where.AND = [{ OR: [{ createdById: userId }, { ownerTmId: userId }] }];
+    } else if (myPrestasParam === "1" || myPrestasParam === "true") {
+      where.prestataires = { some: { responsableId: userId } };
+    } else if (!isCore) {
+      // TM / CM : uniquement projets où ils sont owner, manager talent, ou responsable presta
+      where.OR = [
+        { ownerTmId: userId },
+        { talent: { managerId: userId } },
+        { prestataires: { some: { responsableId: userId } } },
+      ];
     }
 
     const campaigns = await prisma.talentProspectingCampaign.findMany({
@@ -80,7 +94,10 @@ export async function GET(request: NextRequest) {
         },
         createdBy: { select: { id: true, prenom: true, nom: true, role: true } },
         ownerTm: { select: { id: true, prenom: true, nom: true } },
-        _count: { select: { contactMissions: true } },
+        _count: { select: { contactMissions: true, prestataires: true } },
+        prestataires: {
+          select: { id: true, responsableId: true, statut: true },
+        },
       },
       take: 200,
     });
@@ -141,6 +158,8 @@ export async function GET(request: NextRequest) {
                 },
               ];
         const talentNames = talents.map((t) => t.name).filter(Boolean);
+        const prestaMine = c.prestataires.filter((p) => p.responsableId === userId).length;
+        const prestaConfirmes = c.prestataires.filter((p) => p.statut === "CONFIRME").length;
         return {
           id: c.id,
           title: c.title,
@@ -171,6 +190,11 @@ export async function GET(request: NextRequest) {
           byStage: stats.byStage,
           objective: c.objective,
           budgetRange: c.budgetRange,
+          necessitePrestataires: c.necessitePrestataires,
+          lieu: c.lieu,
+          prestataireCount: c._count.prestataires,
+          prestataireConfirmes: prestaConfirmes,
+          prestataireMine: prestaMine,
         };
       }),
     });

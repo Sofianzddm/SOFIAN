@@ -79,6 +79,8 @@ type SentMessageRecord = {
   messageId?: string;
   threadId?: string;
   error?: string;
+  /** Exclut ce destinataire des relances auto/manuel (ex. contact AO envoyé par erreur). */
+  skipRelance?: boolean;
   openCount?: number;
   openedAt?: string;
   lastOpenAt?: string;
@@ -1335,10 +1337,18 @@ export async function buildCastingRelanceDraft(
 
   const recipients: CastingRelanceRecipient[] = [];
   const skipped: CastingRelanceSkipped[] = [];
+  const activeContactEmails = new Set(
+    parseCastingContacts(mission.clientContacts).map((c) =>
+      (c.email || "").toLowerCase()
+    )
+  );
   for (const [email, record] of Object.entries(sentByEmail)) {
     if (!record?.threadId || record.error) continue;
+    const emailKey = email.toLowerCase();
+    // AO / contacts retirés de la carte / skipRelance : pas de relance.
+    if (record.skipRelance || !activeContactEmails.has(emailKey)) continue;
     const contact = parseCastingContacts(mission.clientContacts).find(
-      (c) => (c.email || "").toLowerCase() === email.toLowerCase()
+      (c) => (c.email || "").toLowerCase() === emailKey
     );
     const firstname = contact?.firstname || "";
     const lastname = contact?.lastname || "";
@@ -1608,10 +1618,17 @@ export async function executeCastingRelance(
   const repliedDetected: string[] = [];
 
   const recipientBlocklist = await loadCastingRecipientBlocklist();
+  const activeContactEmails = new Set(
+    parseCastingContacts(mission.clientContacts).map((c) =>
+      (c.email || "").toLowerCase()
+    )
+  );
 
   for (const [email, record] of Object.entries(sentByEmail)) {
     if (!record?.threadId || record.error) continue;
     const emailKey = email.trim().toLowerCase();
+    // AO / contacts retirés de la carte / skipRelance : pas de relance.
+    if (record.skipRelance || !activeContactEmails.has(emailKey)) continue;
     if (included && !included.has(emailKey)) continue;
     if (excluded.has(emailKey)) {
       skippedReplied += 1;
