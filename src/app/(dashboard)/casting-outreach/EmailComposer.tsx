@@ -92,8 +92,14 @@ export interface EmailComposerProps {
   brandResearch: BrandResearch | null;
   onBrandResearch: () => void;
   isResearching: boolean;
-  /** Pipeline indiv : exige talent sélectionné puis analyse créateur + marque. */
+  /**
+   * Pipeline / casting / outreach clients :
+   * 1) Analyser la marque → 2) Sélectionner les créateurs →
+   * 3) Analyser les créateurs → 4) Rédiger.
+   */
   enableTalentResearch?: boolean;
+  onTalentResearch?: () => void;
+  isResearchingTalent?: boolean;
   talentResearch?: TalentResearchItem[] | null;
   talentsSelected: Talent[];
   isGenerating: boolean;
@@ -136,6 +142,8 @@ export default function EmailComposer({
   onBrandResearch,
   isResearching,
   enableTalentResearch = false,
+  onTalentResearch,
+  isResearchingTalent = false,
   talentResearch = null,
   talentsSelected,
   isGenerating,
@@ -169,29 +177,40 @@ export default function EmailComposer({
     Boolean(brandResearch) &&
     (!enableTalentResearch || (Array.isArray(talentResearch) && talentResearch.length > 0));
   const researchBlockedReason = enableTalentResearch
-    ? talentsSelected.length === 0
-      ? "Sélectionne d’abord les créateurs à gauche"
-      : !brandResearch || !talentResearch?.length
-        ? "Lance d’abord l’analyse marque + créateurs sélectionnés"
-        : null
+    ? !brandResearch
+      ? "Analyse d’abord la marque"
+      : talentsSelected.length === 0
+        ? "Sélectionne ensuite les créateurs à gauche"
+        : !talentResearch?.length
+          ? "Analyse ensuite les créateurs sélectionnés"
+          : null
     : !brandResearch
       ? "D’abord « Par recherche » pour analyser la marque"
       : talentsSelected.length === 0
         ? "Sélectionne au moins un talent à gauche"
         : null;
-  const researchButtonLabel =
-    enableTalentResearch && talentsSelected.length > 1
-      ? `Par recherche (marque + ${talentsSelected.length} créateurs)`
-      : enableTalentResearch
-        ? "Par recherche (marque + créateur)"
-        : "Par recherche";
-  const researchLoadingLabel =
-    enableTalentResearch && talentsSelected.length > 1
-      ? `Analyse marque + ${talentsSelected.length} créateurs…`
-      : enableTalentResearch
-        ? "Analyse marque + créateur…"
-        : "Analyse…";
-
+  const talentResearchButtonLabel =
+    talentsSelected.length > 1
+      ? `Analyser ${talentsSelected.length} créateurs`
+      : "Analyser le créateur";
+  const talentResearchLoadingLabel =
+    talentsSelected.length > 1
+      ? `Analyse de ${talentsSelected.length} créateurs…`
+      : "Analyse créateur…";
+  const talentResearchHint = !brandResearch
+    ? "Analyse d’abord la marque"
+    : talentsSelected.length === 0
+      ? "Sélectionne ensuite les créateurs à gauche"
+      : "Analyse les créateurs sélectionnés";
+  const stepHint = enableTalentResearch
+    ? !brandResearch
+      ? "1/4 — Analyse la marque"
+      : talentsSelected.length === 0
+        ? "2/4 — Sélectionne les créateurs"
+        : !talentResearch?.length
+          ? "3/4 — Analyse les créateurs"
+          : "4/4 — Tu peux rédiger"
+    : null;
   const talentTokensFromSelection = useMemo<
     { token: string; label: string; node?: Record<string, unknown> }[]
   >(() => {
@@ -370,34 +389,49 @@ export default function EmailComposer({
 
   return (
     <div className={`flex flex-col gap-2 ${fillHeight ? "h-full min-h-0" : ""}`}>
-      {/* 1) Sélection créateurs → 2) Analyse marque + créateurs → 3) Rédiger */}
+      {/* 1) Marque → 2) Sélection créateurs → 3) Analyse créateurs → 4) Rédiger */}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
         <button
           type="button"
           onClick={onBrandResearch}
-          disabled={
-            isResearching ||
-            (enableTalentResearch && talentsSelected.length === 0)
-          }
+          disabled={isResearching || isResearchingTalent}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-opacity disabled:opacity-60"
           style={{ borderColor: OLD_ROSE, color: LICORICE }}
-          title={
-            enableTalentResearch && talentsSelected.length === 0
-              ? "Sélectionne d’abord les créateurs à gauche"
-              : enableTalentResearch
-                ? "Analyse la marque et les créateurs sélectionnés"
-                : "Analyse de la marque"
-          }
+          title="Analyse de la marque"
         >
           {isResearching ? (
             <>
               <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-              {researchLoadingLabel}
+              Analyse marque…
             </>
           ) : (
-            <>{researchButtonLabel}</>
+            <>{enableTalentResearch ? "Analyser la marque" : "Par recherche"}</>
           )}
         </button>
+        {enableTalentResearch && onTalentResearch && (
+          <button
+            type="button"
+            onClick={onTalentResearch}
+            disabled={
+              isResearching ||
+              isResearchingTalent ||
+              !brandResearch ||
+              talentsSelected.length === 0
+            }
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-opacity disabled:opacity-60"
+            style={{ borderColor: OLD_ROSE, color: LICORICE }}
+            title={talentResearchHint}
+          >
+            {isResearchingTalent ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                {talentResearchLoadingLabel}
+              </>
+            ) : (
+              <>{talentResearchButtonLabel}</>
+            )}
+          </button>
+        )}
         {brandResearch && (
           <button
             type="button"
@@ -422,9 +456,9 @@ export default function EmailComposer({
             {talentResearchOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
         )}
-        {enableTalentResearch && talentsSelected.length === 0 && (
+        {stepHint && (
           <span className="text-[11px]" style={{ color: OLD_ROSE }}>
-            Sélectionne d’abord les créateurs
+            {stepHint}
           </span>
         )}
         {researchTargetLabel && (

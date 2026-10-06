@@ -466,6 +466,7 @@ export default function CastingComposer({
     }> | null
   >(null);
   const [isResearching, setIsResearching] = useState(false);
+  const [isResearchingTalent, setIsResearchingTalent] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
   // Programmation d'envoi (mode "at") — heure de Paris.
@@ -809,99 +810,90 @@ export default function CastingComposer({
       onError("Nom de marque manquant pour la recherche.");
       return;
     }
+    setIsResearching(true);
+    try {
+      const res = await fetch("/api/casting/brand-research", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandName: researchBrandName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Recherche marque impossible."
+        );
+      }
+      setBrandResearch(data as BrandResearchState);
+      // Nouvelle analyse marque → l'ancien fit créateurs n'est plus valide.
+      if (enableTalentResearch) setTalentResearch(null);
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : "Erreur réseau.");
+    } finally {
+      setIsResearching(false);
+    }
+  }, [researchBrandName, onError, enableTalentResearch]);
+
+  const runTalentResearch = useCallback(async () => {
+    if (!enableTalentResearch) return;
+    if (!researchBrandName.trim()) {
+      onError("Nom de marque manquant pour la recherche.");
+      return;
+    }
+    if (!brandResearch) {
+      onError("Analyse d’abord la marque, puis sélectionne les créateurs.");
+      return;
+    }
     const selectedForResearch =
       effectiveLockedTalentIds.length > 1
         ? effectiveLockedTalentIds
             .map((id) => talents.find((t) => t.id === id))
             .filter((t): t is PresskitTalent => Boolean(t))
         : talents.filter((t) => selectedIds.has(t.id));
-    if (enableTalentResearch && selectedForResearch.length === 0) {
-      onError("Sélectionne d’abord les créateurs, puis lance l’analyse marque + créateurs.");
+    if (selectedForResearch.length === 0) {
+      onError("Sélectionne les créateurs à gauche, puis lance leur analyse.");
       return;
     }
     const talentsToResearch = selectedForResearch.slice(0, 8);
-    setIsResearching(true);
+    setIsResearchingTalent(true);
     try {
-      const brandPromise = fetch("/api/casting/brand-research", {
+      const res = await fetch("/api/casting/talent-research", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandName: researchBrandName }),
-      }).then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(
-            typeof data.error === "string" ? data.error : "Recherche marque impossible."
-          );
-        }
-        return data as BrandResearchState;
+        body: JSON.stringify({
+          brandName: researchBrandName,
+          talentIds: talentsToResearch.map((t) => t.id),
+          strategyReason: contact?.missionBrief?.strategyReason || "",
+          recommendedAngle: contact?.missionBrief?.recommendedAngle || "",
+        }),
       });
-
-      const talentPromise =
-        enableTalentResearch && talentsToResearch.length > 0
-          ? fetch("/api/casting/talent-research", {
-              method: "POST",
-              credentials: "include",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                brandName: researchBrandName,
-                talentIds: talentsToResearch.map((t) => t.id),
-                strategyReason: contact?.missionBrief?.strategyReason || "",
-                recommendedAngle: contact?.missionBrief?.recommendedAngle || "",
-              }),
-            }).then(async (res) => {
-              const data = await res.json().catch(() => ({}));
-              if (!res.ok) {
-                throw new Error(
-                  typeof data.error === "string"
-                    ? data.error
-                    : "Recherche créateur impossible."
-                );
-              }
-              return Array.isArray(data.talents) ? data.talents : [];
-            })
-          : Promise.resolve(null);
-
-      const [brandSettled, talentSettled] = await Promise.allSettled([
-        brandPromise,
-        talentPromise,
-      ]);
-
-      if (brandSettled.status !== "fulfilled") {
-        throw brandSettled.reason instanceof Error
-          ? brandSettled.reason
-          : new Error("Recherche marque impossible.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Recherche créateur impossible."
+        );
       }
-      setBrandResearch(brandSettled.value);
-
-      if (enableTalentResearch) {
-        if (talentSettled.status === "fulfilled") {
-          setTalentResearch(talentSettled.value);
-        } else {
-          setTalentResearch(null);
-          const msg =
-            talentSettled.reason instanceof Error
-              ? talentSettled.reason.message
-              : "Recherche créateur impossible.";
-          onError(`Marque OK, mais créateur : ${msg}`);
-        }
-      }
+      setTalentResearch(Array.isArray(data.talents) ? data.talents : []);
     } catch (e: unknown) {
+      setTalentResearch(null);
       onError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
-      setIsResearching(false);
+      setIsResearchingTalent(false);
     }
   }, [
-    researchBrandName,
-    onError,
     enableTalentResearch,
+    researchBrandName,
+    brandResearch,
+    onError,
     talents,
     selectedIds,
     effectiveLockedTalentIds,
     contact?.missionBrief?.strategyReason,
     contact?.missionBrief?.recommendedAngle,
   ]);
-
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -1023,21 +1015,15 @@ export default function CastingComposer({
   const runGenerateEmail = useCallback(async () => {
     if (!contact) return;
     if (!brandResearch) {
-      onError(
-        enableTalentResearch
-          ? "Lance d’abord l’analyse marque + créateurs sélectionnés."
-          : "Lance d'abord l'analyse de la marque (bouton « Par recherche » en haut)."
-      );
-      return;
-    }
-    if (enableTalentResearch && (!talentResearch || talentResearch.length === 0)) {
-      onError("Lance d’abord l’analyse des créateurs sélectionnés (même bouton recherche).");
+      onError("Analyse d’abord la marque (bouton « Analyser la marque »).");
       return;
     }
     if (selectedTalents.length === 0) {
-      onError(
-        "Sélectionne au moins un talent dans la colonne de gauche."
-      );
+      onError("Sélectionne au moins un talent dans la colonne de gauche.");
+      return;
+    }
+    if (enableTalentResearch && (!talentResearch || talentResearch.length === 0)) {
+      onError("Analyse ensuite les créateurs sélectionnés, puis rédige.");
       return;
     }
     setIsGenerating(true);
@@ -2076,6 +2062,8 @@ export default function CastingComposer({
                   onBrandResearch={runBrandResearch}
                   isResearching={isResearching}
                   enableTalentResearch={enableTalentResearch}
+                  onTalentResearch={runTalentResearch}
+                  isResearchingTalent={isResearchingTalent}
                   talentResearch={talentResearch}
                   talentsSelected={selectedTalents}
                   isGenerating={isGenerating}
