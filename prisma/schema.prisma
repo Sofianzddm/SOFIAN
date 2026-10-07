@@ -568,8 +568,43 @@ model Talent {
   activationReportTalents ActivationReportTalent[]
   eventPhotoTags          EventPhotoTalent[]
   contrats                TalentContrat[]
+  performancesMensuelles  TalentPerformanceMensuelle[]
 
   @@map("talents")
+}
+
+// ============================================
+// PERFORMANCES MENSUELLES TALENT (saisie manuelle TM)
+// ============================================
+
+model TalentPerformanceMensuelle {
+  id       String @id @default(cuid())
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  annee Int // 2026
+  mois  Int // 1..12
+
+  // Instagram Reels
+  igMoyenneVuesReels Int?
+  igMoyenneLikes     Int?
+  igMeilleurReelUrl  String?
+  igMeilleurReelVues Int?
+
+  // TikTok
+  ttMoyenneVues        Int?
+  ttMoyenneLikes       Int?
+  ttMeilleurTiktokUrl  String?
+  ttMeilleurTiktokVues Int?
+
+  notes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([talentId, annee, mois])
+  @@index([talentId])
+  @@map("talent_performances_mensuelles")
 }
 
 // ============================================

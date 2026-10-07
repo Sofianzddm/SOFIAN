@@ -44,6 +44,7 @@ import { formatPercent } from "@/lib/format";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 import KitPhotosManager from "@/components/talent/KitPhotosManager";
 import ContratsTalentBloc from "@/components/talent/ContratsTalentBloc";
+import PerformanceMensuelleBloc from "@/components/talent/PerformanceMensuelleBloc";
 import { talentSlug } from "@/lib/talent-slug";
 import { isTmAssigneOuRelai } from "@/lib/contratMarqueAccess";
 import DelegationBanner from "@/components/delegation/DelegationBanner";
@@ -1496,6 +1497,9 @@ export default function TalentDetailPage() {
             </div>
           </div>
         )}
+
+        {/* Performance mensuelle (saisie TM) */}
+        <PerformanceMensuelleBloc talentId={talent.id} canEdit={canEditBio} />
 
         {/* Contact & Manager Section */}
         <div className="grid lg:grid-cols-2 gap-6">
