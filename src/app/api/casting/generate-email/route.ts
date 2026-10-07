@@ -60,6 +60,20 @@ function stripDuplicateGreeting(htmlOrText: string): string {
   return out;
 }
 
+/** Retire le jeton / ligne {{ owner.firstname }} souvent collé après Cordialement. */
+function stripOwnerFirstnameToken(htmlOrText: string): string {
+  let out = htmlOrText;
+  out = out.replace(/\{\{\s*owner\.firstname\s*\}\}/gi, "");
+  // Ligne HTML dédiée au token (éventuellement déjà vidé)
+  out = out.replace(/<p[^>]*>\s*<\/p>\s*(?=(?:<\/?(?:div|body|html)|$))/gi, "");
+  // Nettoyage espaces / sauts superflus après Cordialement / Best regards
+  out = out.replace(
+    /((?:Cordialement|Best regards)\s*,?)\s*(?:<br\s*\/?>|\n)+\s*(?:<p[^>]*>\s*<\/p>\s*)*/gi,
+    "$1\n"
+  );
+  return out;
+}
+
 export interface TalentPayload {
   name: string;
   niche: string;
@@ -519,7 +533,7 @@ INTERDITS :
 - Ne pas présenter ça comme des projets séparés / indépendants.
 - Pas de transition roster casting générique.
 - Destinataire = ${brandName} uniquement — jamais une autre marque / concurrent comme partenaire du projet.
-- Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement + {{ owner.firstname }}.
+- Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement, (sans prénom / sans variable owner).
 - INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook.
 - INTERDIT absolu : « paid », « payé », « rémunéré », « collaboration paid ». Parle d’une collaboration / d’un projet.
 `
@@ -543,7 +557,7 @@ INTERDITS :
 - Ne pas fusionner les briefs en un pitch flou sans distinguer qui est qui.
 - Pas de transition « plusieurs créateurs du roster » / sélection casting hors des projets listés.
 - Destinataire = ${brandName} uniquement — jamais une autre marque / concurrent comme partenaire du projet.
-- Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement + {{ owner.firstname }}.
+- Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement, (sans prénom / sans variable owner).
 - INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook, « découvrir nos autres talents ».
 - INTERDIT absolu : les mots « paid », « payé », « rémunéré », « collaboration paid », « collab paid ». Parle d’une collaboration / d’un projet, sans qualifier le modèle économique.
 `
@@ -570,7 +584,7 @@ PROHIBITIONS:
 - Do not frame this as separate independent projects.
 - No generic casting roster transition.
 - Recipient = ${brandName} only — never another brand / competitor as the project partner.
-- Greeting (Hi + I hope…) once only; close with Best regards + {{ owner.firstname }}.
+- Greeting (Hi + I hope…) once only; close with Best regards, (no first name / no owner variable).
 - Absolute ban: talentbook / roster / catalog links.
 - Absolute ban: "paid", "paid collab". Speak of a collaboration / project.
 `
@@ -594,7 +608,7 @@ PROHIBITIONS:
 - Do not blur briefs into one vague pitch without saying who is who.
 - No generic "several creators from our roster" / casting selection outside the listed projects.
 - Recipient = ${brandName} only — never another brand / competitor as the project partner.
-- Greeting (Hi + I hope…) once only; close with Best regards + {{ owner.firstname }}.
+- Greeting (Hi + I hope…) once only; close with Best regards, (no first name / no owner variable).
 - Absolute ban: talentbook, roster, catalog, talent book link, app.glowupagence.fr/talentbook, "discover our other talents".
 - Absolute ban: the words "paid", "paid collab", "paid collaboration". Speak of a collaboration / project without naming the commercial model.
 `
@@ -644,7 +658,7 @@ INTERDITS PROJET (absolus) :
 - INTERDIT : talentbook, book de talents, roster, catalogue talents, lien https://app.glowupagence.fr/talentbook, « voir nos autres profils ».
 - INTERDIT : « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Même si l'objectif du brief dit Paid, écris seulement « collaboration » / « projet » / « opportunité » — jamais le modèle économique.
 - INTERDIT : répéter le salut (« Bonjour… » / « J'espère que vous allez bien ? ») — une seule fois en tête.
-- INTERDIT : clôturer par « Belle journée, » — utiliser exactement la clôture indiquée plus bas (Cordialement + prénom).
+- INTERDIT : clôturer par « Belle journée, » — utiliser exactement la clôture indiquée plus bas (Cordialement, sans prénom).
 `
       : "";
     const projectBriefBlockEn = !isCondensation && projectBrief
@@ -691,7 +705,7 @@ PROJECT PROHIBITIONS (absolute):
 - FORBIDDEN: talentbook, talent book, roster catalog, https://app.glowupagence.fr/talentbook, "see our other profiles".
 - FORBIDDEN: "paid", "paid collab", "paid collaboration". Even if the brief objective says Paid, write only "collaboration" / "project" / "opportunity" — never the commercial model.
 - FORBIDDEN: repeating the greeting ("Hi…" / "I hope you are doing well?") — exactly once at the top.
-- FORBIDDEN: closing with a casual "Have a nice day," — use exactly the closing specified below (Best regards + first name).
+- FORBIDDEN: closing with a casual "Have a nice day," — use exactly the closing specified below (Best regards, no first name).
 `
       : "";
 
@@ -1123,9 +1137,9 @@ ${
 
 ${
   isProjectMail
-    ? `Exact closing (MANDATORY — two lines, nothing else after):
+    ? `Exact closing (MANDATORY — one line only, nothing after):
 Best regards,
-{{ owner.firstname }}`
+FORBIDDEN: {{ owner.firstname }}, first name, or any signature name after the closing.`
     : `Exact closing: "Best regards,"`
 }
 
@@ -1254,9 +1268,9 @@ ${
 
 ${
   isProjectMail
-    ? `Clôture exacte (OBLIGATOIRE — deux lignes, rien après) :
+    ? `Clôture exacte (OBLIGATOIRE — une seule ligne, rien après) :
 Cordialement,
-{{ owner.firstname }}
+INTERDIT : {{ owner.firstname }}, prénom, ou toute signature nominative après la clôture.
 INTERDIT de clôturer par « Belle journée, » ou toute variante.`
     : `Clôture exacte : "Belle journée,"`
 }
@@ -1365,6 +1379,7 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
         parsed.body = stripTalentbookFromHtml(parsed.body);
       }
       parsed.body = stripDuplicateGreeting(parsed.body);
+      parsed.body = stripOwnerFirstnameToken(parsed.body);
 
       parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
 
