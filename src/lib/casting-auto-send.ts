@@ -870,31 +870,33 @@ export function buildDefaultRelanceTemplate(
 
   if (language === "en") {
     const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
-    const projectPart = project ? ` for the project <strong>${project}</strong>` : "";
-    const proposalLine = talent
-      ? `my message about a collaboration between <strong>${talent}</strong> and ${brandPart}${projectPart}`
-      : `my collaboration proposal for ${brandPart}${projectPart}`;
+    const talentPart = talent ? `<strong>${talent}</strong>` : null;
+    const projectPart = project ? ` (project <strong>${project}</strong>)` : "";
 
     return [
       `<p>Hi {{contact.firstname}},</p>`,
       `<p>I hope you're doing well 😊</p>`,
-      `<p>I just wanted to bring ${proposalLine} back to the top of your inbox — I'd love to hear your first impressions, even in one line.</p>`,
-      `<p>Is this something that could be of interest on your side?</p>`,
+      talentPart
+        ? `<p>I'm following up on the collaboration I suggested between ${talentPart} and ${brandPart}${projectPart} — a profile that can really bring your next activations to life, with content that feels native and performs.</p>`
+        : `<p>I'm following up on my collaboration proposal for ${brandPart}${projectPart} — an activation designed to bring your next campaigns to life with creators who convert.</p>`,
+      `<p>Availability moves fast on our side: if the timing works for you, I can lock everything in quickly (media kit, estimates, content angles).</p>`,
+      `<p>Would you be interested in ${talent ? "this creator" : "these creators"}, or could you let me know <strong>what your next campaigns would be</strong>?</p>`,
       `<p>Best regards,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
     ].join("");
   }
 
   const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
-  const projectPart = project ? ` dans le cadre du projet <strong>${project}</strong>` : "";
-  const proposalLine = talent
-    ? `mon message concernant une collaboration entre <strong>${talent}</strong> et ${brandPart}${projectPart}`
-    : `ma proposition de collaboration pour ${brandPart}${projectPart}`;
+  const talentPart = talent ? `<strong>${talent}</strong>` : null;
+  const projectPart = project ? ` (projet <strong>${project}</strong>)` : "";
 
   return [
     `<p>Bonjour {{contact.firstname}},</p>`,
     `<p>J'espère que vous allez bien 😊</p>`,
-    `<p>Je me permets de faire remonter ${proposalLine} — je serais ravie d'avoir votre premier retour, même en une ligne.</p>`,
-    `<p>Est-ce un sujet qui pourrait vous intéresser de votre côté ?</p>`,
+    talentPart
+      ? `<p>Je reviens vers vous au sujet de la collaboration entre ${talentPart} et ${brandPart}${projectPart} — un profil qui peut vraiment faire vivre vos prochaines activations, avec un contenu natif et performant.</p>`
+      : `<p>Je reviens vers vous au sujet de ma proposition de collaboration pour ${brandPart}${projectPart} — une activation pensée pour faire vivre vos prochaines campagnes avec des créateurs qui convertissent.</p>`,
+    `<p>Les disponibilités bougent vite de notre côté : si le timing vous convient, je peux tout verrouiller rapidement (media kit, estimations, angles de contenus).</p>`,
+    `<p>Seriez-vous intéressé par ${talent ? "ce créateur" : "ces créateurs"}, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?</p>`,
     `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
   ].join("");
 }
@@ -969,11 +971,12 @@ export function buildCondensationRelanceTemplate(
     return [
       `<p>Hi {{contact.firstname}},</p>`,
       `<p>I hope you're doing well 😊</p>`,
-      `<p>I just wanted to bring back our joint proposal for ${brandPart}, with ${talentsHtml} — I'd love a first reaction, even in one line.</p>`,
+      `<p>I'm following up on our multi-talent proposal for ${brandPart}, with ${talentsHtml} — several strong angles to activate your brand with content that feels native and converts.</p>`,
       projectsHtml
-        ? `<p>Projects concerned:<br />${projectsHtml}</p>`
+        ? `<p>Projects on the table:<br />${projectsHtml}</p>`
         : "",
-      `<p>Would any of these projects be of interest on your side?</p>`,
+      `<p>We can move fast: media kits, performance estimates and tailored content ideas ready to send as soon as you give us the green light.</p>`,
+      `<p>Would you be interested in these creators, or could you let me know <strong>what your next campaigns would be</strong>?</p>`,
       `<p>Best regards,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
     ]
       .filter(Boolean)
@@ -984,11 +987,12 @@ export function buildCondensationRelanceTemplate(
   return [
     `<p>Bonjour {{contact.firstname}},</p>`,
     `<p>J'espère que vous allez bien 😊</p>`,
-    `<p>Je me permets de faire remonter notre proposition commune pour ${brandPart}, avec ${talentsHtml} — je serais ravie d'avoir votre premier retour, même en une ligne.</p>`,
+    `<p>Je reviens vers vous sur notre proposition multi-talents pour ${brandPart}, avec ${talentsHtml} — plusieurs angles forts pour activer votre marque avec du contenu natif et qui convertit.</p>`,
     projectsHtml
-      ? `<p>Projets concernés :<br />${projectsHtml}</p>`
+      ? `<p>Projets sur la table :<br />${projectsHtml}</p>`
       : "",
-    `<p>L'un de ces projets pourrait-il vous intéresser de votre côté ?</p>`,
+    `<p>On peut avancer vite : media kits, estimations de performance et idées de contenus sur mesure prêts à partir dès votre feu vert.</p>`,
+    `<p>Seriez-vous intéressé par ces créateurs, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?</p>`,
     `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
   ]
     .filter(Boolean)
@@ -1020,8 +1024,8 @@ export function buildCondensationRelance2Template(
   if (language === "en") {
     const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
     const intro = firstSentAt
-      ? `I wanted to circle back one last time on my message from ${formatRelanceDate(firstSentAt, "en")}, in which I presented ${talentsHtml} and their projects for a collaboration with ${brandPart}.`
-      : `I wanted to circle back one last time on my previous message presenting ${talentsHtml} and their projects for a collaboration with ${brandPart}.`;
+      ? `One last follow-up on my message from ${formatRelanceDate(firstSentAt, "en")} — I presented ${talentsHtml} and their projects for a high-impact collaboration with ${brandPart}.`
+      : `One last follow-up on my previous message — I presented ${talentsHtml} and their projects for a high-impact collaboration with ${brandPart}.`;
 
     return [
       `Hi {{contact.firstname}},`,
@@ -1029,15 +1033,17 @@ export function buildCondensationRelance2Template(
       `I hope you're doing well 😊`,
       `<br /><br />`,
       intro,
-      projectsHtml ? `<br /><br />Projects concerned:<br />${projectsHtml}` : "",
+      projectsHtml ? `<br /><br />Projects on the table:<br />${projectsHtml}` : "",
       `<br /><br />`,
-      `To help you decide, I can send you right away:`,
+      `To make the decision effortless, I can send you right away:`,
       `<br />`,
       `→ the ${n} creators' full media kits<br />`,
       `→ audience &amp; engagement stats for each<br />`,
-      `→ a few content ideas tailored to ${brandPart}`,
+      `→ content ideas tailored to ${brandPart}`,
       `<br /><br />`,
-      `Would you have 10-15 minutes for a quick call this week or next? I'm very flexible on timing.`,
+      `These profiles are ready to activate — you'd get native content, clear reach estimates, and a setup we can launch quickly.`,
+      `<br /><br />`,
+      `Would you be interested in these creators, or could you let me know <strong>what your next campaigns would be</strong>?`,
       `<br /><br />`,
       `And if this isn't the right moment or the right contact, just let me know — happy to follow up later.`,
       `<br /><br />`,
@@ -1047,8 +1053,8 @@ export function buildCondensationRelance2Template(
 
   const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
   const intro = firstSentAt
-    ? `Je me permets de revenir vers vous une dernière fois suite à mon message du ${formatRelanceDate(firstSentAt, "fr")}, dans lequel je vous présentais ${talentsHtml} et leurs projets pour une collaboration avec ${brandPart}.`
-    : `Je me permets de revenir vers vous une dernière fois suite à mon précédent message, dans lequel je vous présentais ${talentsHtml} et leurs projets pour une collaboration avec ${brandPart}.`;
+    ? `Un dernier suivi suite à mon message du ${formatRelanceDate(firstSentAt, "fr")} — je vous présentais ${talentsHtml} et leurs projets pour une collaboration à fort impact avec ${brandPart}.`
+    : `Un dernier suivi suite à mon précédent message — je vous présentais ${talentsHtml} et leurs projets pour une collaboration à fort impact avec ${brandPart}.`;
 
   return [
     `Bonjour {{contact.firstname}},`,
@@ -1056,15 +1062,17 @@ export function buildCondensationRelance2Template(
     `J'espère que vous allez bien 😊`,
     `<br /><br />`,
     intro,
-    projectsHtml ? `<br /><br />Projets concernés :<br />${projectsHtml}` : "",
+    projectsHtml ? `<br /><br />Projets sur la table :<br />${projectsHtml}` : "",
     `<br /><br />`,
-    `Pour vous aider à vous projeter, je peux vous envoyer immédiatement :`,
+    `Pour vous faciliter la décision, je peux vous envoyer immédiatement :`,
     `<br />`,
     `→ les media kits complets des ${n} profils<br />`,
     `→ leurs statistiques d'audience &amp; d'engagement<br />`,
-    `→ quelques idées de contenus pensées pour ${brandPart}`,
+    `→ des idées de contenus pensées pour ${brandPart}`,
     `<br /><br />`,
-    `Auriez-vous 10-15 minutes pour un rapide call cette semaine ou la semaine prochaine ? Je reste très flexible sur les créneaux.`,
+    `Ces profils sont prêts à activer — contenu natif, estimations de reach claires, et un set-up qu'on peut lancer rapidement.`,
+    `<br /><br />`,
+    `Seriez-vous intéressé par ces créateurs, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?`,
     `<br /><br />`,
     `Et si ce n'est pas le bon moment ou que je ne m'adresse pas à la bonne personne, dites-le-moi simplement — je reviendrai vers vous plus tard.`,
     `<br /><br />`,
@@ -1084,7 +1092,7 @@ function formatRelanceDate(date: Date, language: "fr" | "en"): string {
 /**
  * Modèle de relance J+3 du module Outreach (cycle client) : relance « valeur
  * ajoutée » qui rappelle la proposition initiale (date du premier mail), propose
- * des éléments concrets (media kits, reach…) et demande un court call.
+ * des éléments concrets (media kits, reach…) et demande l'intérêt / les prochaines campagnes.
  */
 export function buildOutreachRelanceTemplate(
   targetBrand: string,
@@ -1096,8 +1104,8 @@ export function buildOutreachRelanceTemplate(
   if (language === "en") {
     const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
     const intro = firstSentAt
-      ? `I'm following up on my message from ${formatRelanceDate(firstSentAt, "en")}, in which I suggested a multi-talent activation for ${brandPart}.`
-      : `I'm following up on my previous message, in which I suggested a multi-talent activation for ${brandPart}.`;
+      ? `I'm following up on my message from ${formatRelanceDate(firstSentAt, "en")} — I suggested a multi-talent activation for ${brandPart}, with complementary profiles to bring your next campaigns to life.`
+      : `I'm following up on my previous message — I suggested a multi-talent activation for ${brandPart}, with complementary profiles to bring your next campaigns to life.`;
 
     return [
       `Hi {{contact.firstname}},`,
@@ -1106,15 +1114,15 @@ export function buildOutreachRelanceTemplate(
       `<br /><br />`,
       intro,
       `<br /><br />`,
-      `I can send you right away:`,
+      `To help you project the results, I can send you right away:`,
       `<br />`,
       `→ the creators' full media kits<br />`,
       `→ reach &amp; engagement estimates<br />`,
-      `→ a few content ideas tailored to your activations`,
+      `→ content ideas tailored to your activations`,
       `<br /><br />`,
-      `Would you be available for a quick 10-15 min call this week? I'm very flexible on timing.`,
+      `It's a ready-to-go package — several profiles, one clear pitch, and a fast launch if the timing works.`,
       `<br /><br />`,
-      `Feel free to let me know what works best for you!`,
+      `Would you be interested in these creators, or could you let me know <strong>what your next campaigns would be</strong>?`,
       `<br /><br />`,
       `Have a great day,<br /><strong>Leyna</strong><br />Glow Up Agence`,
     ].join("");
@@ -1122,8 +1130,8 @@ export function buildOutreachRelanceTemplate(
 
   const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
   const intro = firstSentAt
-    ? `Je reviens vers vous suite à mon message du ${formatRelanceDate(firstSentAt, "fr")}, dans lequel je vous proposais une activation multi-talents pour ${brandPart}.`
-    : `Je reviens vers vous suite à mon précédent message, dans lequel je vous proposais une activation multi-talents pour ${brandPart}.`;
+    ? `Je reviens vers vous suite à mon message du ${formatRelanceDate(firstSentAt, "fr")} — je vous proposais une activation multi-talents pour ${brandPart}, avec des profils complémentaires pour faire vivre vos prochaines campagnes.`
+    : `Je reviens vers vous suite à mon précédent message — je vous proposais une activation multi-talents pour ${brandPart}, avec des profils complémentaires pour faire vivre vos prochaines campagnes.`;
 
   return [
     `Bonjour {{contact.firstname}},`,
@@ -1132,15 +1140,15 @@ export function buildOutreachRelanceTemplate(
     `<br /><br />`,
     intro,
     `<br /><br />`,
-    `Je peux vous envoyer immédiatement :`,
+    `Pour vous aider à vous projeter sur les résultats, je peux vous envoyer immédiatement :`,
     `<br />`,
     `→ les media kits complets des créatrices<br />`,
     `→ les estimations de reach &amp; engagement<br />`,
-    `→ quelques idées de contenus adaptés à vos activations`,
+    `→ des idées de contenus adaptés à vos activations`,
     `<br /><br />`,
-    `Seriez-vous disponible pour un petit call de 10-15 minutes cette semaine ? Je reste très flexible sur les créneaux.`,
+    `C'est un package prêt à activer — plusieurs profils, un pitch clair, et un lancement rapide si le timing vous convient.`,
     `<br /><br />`,
-    `N'hésitez pas à me dire ce qui vous arrange le mieux !`,
+    `Seriez-vous intéressé par ces créateurs, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?`,
     `<br /><br />`,
     `Belle journée à vous,<br /><strong>Leyna</strong><br />Glow Up Agence`,
   ].join("");
@@ -1150,7 +1158,8 @@ export function buildOutreachRelanceTemplate(
  * Modèle de la relance 2 (J+10 ouvrés après la relance J+3) : relance « valeur
  * ajoutée » à la manière du module Outreach, personnalisée pour UN talent.
  * Rappelle la proposition initiale (date du premier mail), propose des éléments
- * concrets (media kit du talent, stats, idées de contenus) et un court call.
+ * concrets (media kit du talent, stats, idées de contenus) et demande l'intérêt /
+ * les prochaines campagnes.
  */
 export function buildCastingRelance2Template(
   targetBrand: string,
@@ -1168,8 +1177,8 @@ export function buildCastingRelance2Template(
     const talentPart = talent ? `<strong>${talent}</strong>` : `our creator`;
     const projectPart = project ? ` (project <strong>${project}</strong>)` : "";
     const intro = firstSentAt
-      ? `I wanted to circle back one last time on my message from ${formatRelanceDate(firstSentAt, "en")}, in which I suggested a collaboration between ${talentPart} and ${brandPart}${projectPart}.`
-      : `I wanted to circle back one last time on my previous message about a collaboration between ${talentPart} and ${brandPart}${projectPart}.`;
+      ? `One last follow-up on my message from ${formatRelanceDate(firstSentAt, "en")} — I suggested a collaboration between ${talentPart} and ${brandPart}${projectPart}.`
+      : `One last follow-up on my previous message — I suggested a collaboration between ${talentPart} and ${brandPart}${projectPart}.`;
 
     return [
       `Hi {{contact.firstname}},`,
@@ -1178,13 +1187,15 @@ export function buildCastingRelance2Template(
       `<br /><br />`,
       intro,
       `<br /><br />`,
-      `I still believe there's a really nice fit between ${talentPart} and ${brandPart} — to make it concrete, I can send you right away:`,
+      `The fit between ${talentPart} and ${brandPart} is genuinely strong — authentic content, an audience that matches, and a format that can deliver real impact for your next campaign.`,
+      `<br /><br />`,
+      `To make it concrete, I can send you right away:`,
       `<br />`,
       `→ ${talent ? `${talent}'s` : "the creator's"} full media kit<br />`,
       `→ audience &amp; engagement stats<br />`,
-      `→ a few content ideas tailored to ${brandPart}`,
+      `→ content ideas tailored to ${brandPart}`,
       `<br /><br />`,
-      `Would you have 10-15 minutes for a quick call this week or next? I'm very flexible on timing.`,
+      `Would you be interested in this creator, or could you let me know <strong>what your next campaigns would be</strong>?`,
       `<br /><br />`,
       `And if this isn't the right moment or the right contact on your side, just let me know — I'll be happy to reach out at a better time.`,
       `<br /><br />`,
@@ -1196,8 +1207,8 @@ export function buildCastingRelance2Template(
   const talentPart = talent ? `<strong>${talent}</strong>` : `notre talent`;
   const projectPart = project ? ` (projet <strong>${project}</strong>)` : "";
   const intro = firstSentAt
-    ? `Je me permets de revenir vers vous une dernière fois suite à mon message du ${formatRelanceDate(firstSentAt, "fr")}, dans lequel je vous proposais une collaboration entre ${talentPart} et ${brandPart}${projectPart}.`
-    : `Je me permets de revenir vers vous une dernière fois suite à mon précédent message, dans lequel je vous proposais une collaboration entre ${talentPart} et ${brandPart}${projectPart}.`;
+    ? `Un dernier suivi suite à mon message du ${formatRelanceDate(firstSentAt, "fr")} — je vous proposais une collaboration entre ${talentPart} et ${brandPart}${projectPart}.`
+    : `Un dernier suivi suite à mon précédent message — je vous proposais une collaboration entre ${talentPart} et ${brandPart}${projectPart}.`;
 
   return [
     `Bonjour {{contact.firstname}},`,
@@ -1206,13 +1217,15 @@ export function buildCastingRelance2Template(
     `<br /><br />`,
     intro,
     `<br /><br />`,
-    `Je reste convaincue qu'il y a un très beau fit entre ${talentPart} et ${brandPart} — pour vous aider à vous projeter, je peux vous envoyer immédiatement :`,
+    `Le fit entre ${talentPart} et ${brandPart} est vraiment solide — contenu authentique, audience alignée, et un format capable de générer un vrai impact sur votre prochaine campagne.`,
+    `<br /><br />`,
+    `Pour concrétiser, je peux vous envoyer immédiatement :`,
     `<br />`,
     `→ le media kit complet de ${talent || "la créatrice"}<br />`,
     `→ ses statistiques d'audience &amp; d'engagement<br />`,
-    `→ quelques idées de contenus pensées pour ${brandPart}`,
+    `→ des idées de contenus pensées pour ${brandPart}`,
     `<br /><br />`,
-    `Auriez-vous 10-15 minutes pour un rapide call cette semaine ou la semaine prochaine ? Je reste très flexible sur les créneaux.`,
+    `Seriez-vous intéressé par ce créateur, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?`,
     `<br /><br />`,
     `Et si ce n'est pas le bon moment ou que je ne m'adresse pas à la bonne personne chez vous, dites-le-moi simplement — je reviendrai vers vous à un moment plus opportun.`,
     `<br /><br />`,

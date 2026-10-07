@@ -35,6 +35,25 @@ function stripTalentbookFromHtml(html: string): string {
   return out.trim();
 }
 
+/**
+ * Filet anti double salut (« Bonjour… / J'espère… » répété deux fois en tête).
+ * Garde la première occurrence, retire les doublons immédiats.
+ */
+function stripDuplicateGreeting(htmlOrText: string): string {
+  let out = htmlOrText;
+  // Texte / markdown : bloc salut répété à la suite
+  out = out.replace(
+    /((?:Bonjour|Hi|Hello)[^\n<]*[\s\S]*?(?:J'espère que vous allez bien\s*\?|I hope you are doing well\s*\?))\s*\1/gi,
+    "$1"
+  );
+  // HTML : <p>Bonjour…</p><p>J'espère…</p> répété
+  out = out.replace(
+    /((?:<p[^>]*>\s*)?(?:Bonjour|Hi|Hello)[\s\S]*?(?:J'espère que vous allez bien\s*\?|I hope you are doing well\s*\?)(?:\s*<\/p>)?)\s*\1/gi,
+    "$1"
+  );
+  return out;
+}
+
 export interface TalentPayload {
   name: string;
   niche: string;
@@ -341,6 +360,8 @@ Règles projet commun :
 INTERDITS :
 - Ne pas présenter ça comme des projets séparés / indépendants.
 - Pas de transition roster casting générique.
+- Destinataire = ${brandName} uniquement — jamais une autre marque / concurrent comme partenaire du projet.
+- Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement + {{ owner.firstname }}.
 - INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook.
 - INTERDIT absolu : « paid », « payé », « rémunéré », « collaboration paid ». Parle d’une collaboration / d’un projet.
 `
@@ -363,6 +384,8 @@ INTERDITS :
 - Ne pas écrire un mail mono-talent qui ignore les autres projets.
 - Ne pas fusionner les briefs en un pitch flou sans distinguer qui est qui.
 - Pas de transition « plusieurs créateurs du roster » / sélection casting hors des projets listés.
+- Destinataire = ${brandName} uniquement — jamais une autre marque / concurrent comme partenaire du projet.
+- Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement + {{ owner.firstname }}.
 - INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook, « découvrir nos autres talents ».
 - INTERDIT absolu : les mots « paid », « payé », « rémunéré », « collaboration paid », « collab paid ». Parle d’une collaboration / d’un projet, sans qualifier le modèle économique.
 `
@@ -388,6 +411,8 @@ Shared project rules:
 PROHIBITIONS:
 - Do not frame this as separate independent projects.
 - No generic casting roster transition.
+- Recipient = ${brandName} only — never another brand / competitor as the project partner.
+- Greeting (Hi + I hope…) once only; close with Best regards + {{ owner.firstname }}.
 - Absolute ban: talentbook / roster / catalog links.
 - Absolute ban: "paid", "paid collab". Speak of a collaboration / project.
 `
@@ -410,6 +435,8 @@ PROHIBITIONS:
 - Do not write a single-talent email that ignores the other projects.
 - Do not blur briefs into one vague pitch without saying who is who.
 - No generic "several creators from our roster" / casting selection outside the listed projects.
+- Recipient = ${brandName} only — never another brand / competitor as the project partner.
+- Greeting (Hi + I hope…) once only; close with Best regards + {{ owner.firstname }}.
 - Absolute ban: talentbook, roster, catalog, talent book link, app.glowupagence.fr/talentbook, "discover our other talents".
 - Absolute ban: the words "paid", "paid collab", "paid collaboration". Speak of a collaboration / project without naming the commercial model.
 `
@@ -438,11 +465,14 @@ ${[
   .join("\n")}
 
 Règles projet :
-- Le mail doit vendre CE projet (opportunité / placement / collab) à la marque, pas un roster générique.
+- Le mail doit vendre CE projet (opportunité / placement / collab) à la marque destinataire UNIQUEMENT (« ${brandName} »), pas un roster générique.
+- MARQUE UNIQUE : tu écris à ${brandName}. N'écris JAMAIS qu'on développe / pitch le projet avec une autre marque, compagnie ou concurrent (ex. une autre compagnie aérienne). Même si la recherche ou le brief cite d'autres acteurs, le destinataire = ${brandName} seulement.
 - Appuie-toi sur la raison strategy, l'objectif, les livrables et l'angle pour construire le pitch.
 - Respecte strictement les Don'ts ; mets en avant les Do's si utiles.
 - Les talents listés dans "Talents disponibles" sont le cœur du projet : présente-les dans ce cadre.
 - Tu peux citer 1 élément concret issu de la recherche marque si ça renforce le fit avec le projet.
+- Si une RECHERCHE CRÉATEUR est fournie, le fit projet de chaque talent DOIT en venir (qui c'est / ce qu'il fait / whyRelevant) croisé avec le brief projet.
+- LONGUEUR : mail COURT et scannable — accroche 1–2 phrases, talent + projet 1–2 courts paragraphes, CTA 1 phrase. Vise ~150–220 mots. Pas de pavé.
 - Ne dilue pas le message avec une proposition de roster / talentbook hors projet : AUCUNE mention du book, du catalogue, du roster complet, ni de lien talentbook.
 
 INTERDITS PROJET (absolus) :
@@ -455,6 +485,8 @@ INTERDITS PROJET (absolus) :
 - N'invente pas de handles Instagram : utilise uniquement ceux présents dans le brief / objectif.
 - INTERDIT : talentbook, book de talents, roster, catalogue talents, lien https://app.glowupagence.fr/talentbook, « voir nos autres profils ».
 - INTERDIT : « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Même si l'objectif du brief dit Paid, écris seulement « collaboration » / « projet » / « opportunité » — jamais le modèle économique.
+- INTERDIT : répéter le salut (« Bonjour… » / « J'espère que vous allez bien ? ») — une seule fois en tête.
+- INTERDIT : clôturer par « Belle journée, » — utiliser exactement la clôture indiquée plus bas (Cordialement + prénom).
 `
       : "";
     const projectBriefBlockEn = !isCondensation && projectBrief
@@ -480,11 +512,14 @@ ${[
   .join("\n")}
 
 Project rules:
-- Sell THIS project (opportunity / placement / collab) to the brand, not a generic roster.
+- Sell THIS project (opportunity / placement / collab) to the recipient brand ONLY ("${brandName}"), not a generic roster.
+- SINGLE BRAND: you are writing to ${brandName}. NEVER write that we are developing / pitching the project with another brand, company or competitor (e.g. another airline). Even if research or the brief mentions other players, the recipient is ${brandName} only.
 - Build the pitch from the strategy reason, objective, deliverables and angle.
 - Strictly respect Don'ts; use Do's when helpful.
 - Talents in "Available talents" are the core of the project — present them in that frame.
 - You may cite 1 concrete brand-research detail if it strengthens the project fit.
+- When CREATOR RESEARCH is provided, the project fit for each talent MUST come from it (who they are / what they do / whyRelevant) crossed with the project brief.
+- LENGTH: keep it SHORT and scannable — hook 1–2 sentences, talent + project 1–2 short paragraphs, CTA 1 sentence. Aim for ~150–220 words. No walls of text.
 - Don't dilute with an off-project roster / talentbook pitch: NEVER mention the talent book, catalog, full roster, or any talentbook link.
 
 PROJECT PROHIBITIONS (absolute):
@@ -497,6 +532,8 @@ PROJECT PROHIBITIONS (absolute):
 - Do not invent Instagram handles: only use those present in the brief / objective.
 - FORBIDDEN: talentbook, talent book, roster catalog, https://app.glowupagence.fr/talentbook, "see our other profiles".
 - FORBIDDEN: "paid", "paid collab", "paid collaboration". Even if the brief objective says Paid, write only "collaboration" / "project" / "opportunity" — never the commercial model.
+- FORBIDDEN: repeating the greeting ("Hi…" / "I hope you are doing well?") — exactly once at the top.
+- FORBIDDEN: closing with a casual "Have a nice day," — use exactly the closing specified below (Best regards + first name).
 `
       : "";
 
@@ -599,7 +636,7 @@ PROJECT PROHIBITIONS (absolute):
     const hasTalentResearch = talentResearchList.length > 0;
     const talentResearchBlockEn = hasTalentResearch
       ? `
-CREATOR RESEARCH (MANDATORY — this is the source of truth for WHY each creator is pitched):
+CREATOR RESEARCH (MANDATORY — this is the source of truth for WHY each creator is pitched${isProjectMail ? " for THIS project" : ""}):
 ${talentResearchList
   .map(
     (r, i) => `Talent ${i + 1} — ${String(r.name || "").trim() || "Creator"}
@@ -607,16 +644,16 @@ ${talentResearchList
 - What they do / content: ${String(r.whatTheyDo || r.contentThemes || "").trim() || "—"}
 - Profile analysis: ${String(r.profileAnalysis || "").trim() || "—"}
 - Content themes: ${String(r.contentThemes || "").trim() || "—"}
-- Why relevant for this brand: ${String(r.whyRelevant || "").trim() || "—"}
+- Why relevant for this ${isProjectMail ? "project × brand" : "brand"}: ${String(r.whyRelevant || "").trim() || "—"}
 - Proof points: ${String(r.proofPoints || "").trim() || "—"}`
   )
   .join("\n\n")}
-CRITICAL: for EACH talent in the email, the reason MUST come from this research (what they actually do + why they fit ${brandName}). Forbidden: generic niche labels alone ("lifestyle", "beauty", "fashion") with no concrete explanation.
+CRITICAL: for EACH talent in the email, the reason MUST come from this research (what they actually do + why they fit ${isProjectMail ? `this project with ${brandName}` : brandName}). Forbidden: generic niche labels alone ("lifestyle", "beauty", "fashion") with no concrete explanation.
 `
       : "";
     const talentResearchBlockFr = hasTalentResearch
       ? `
-RECHERCHE CRÉATEUR (OBLIGATOIRE — c'est la source de vérité pour POURQUOI chaque créateur est pitché) :
+RECHERCHE CRÉATEUR (OBLIGATOIRE — c'est la source de vérité pour POURQUOI chaque créateur est pitché${isProjectMail ? " pour CE projet" : ""}) :
 ${talentResearchList
   .map(
     (r, i) => `Talent ${i + 1} — ${String(r.name || "").trim() || "Créateur"}
@@ -624,11 +661,11 @@ ${talentResearchList
 - Ce qu'il/elle fait / contenu : ${String(r.whatTheyDo || r.contentThemes || "").trim() || "—"}
 - Analyse de profil : ${String(r.profileAnalysis || "").trim() || "—"}
 - Thèmes de contenu : ${String(r.contentThemes || "").trim() || "—"}
-- Pourquoi pertinent pour cette marque : ${String(r.whyRelevant || "").trim() || "—"}
+- Pourquoi pertinent pour ${isProjectMail ? "ce projet × cette marque" : "cette marque"} : ${String(r.whyRelevant || "").trim() || "—"}
 - Preuves : ${String(r.proofPoints || "").trim() || "—"}`
   )
   .join("\n\n")}
-CRITIQUE : pour CHAQUE talent dans le mail, la raison DOIT venir de cette recherche (ce qu'il/elle fait vraiment + pourquoi ça colle à ${brandName}). Interdit : se contenter d'une niche générique (« lifestyle », « beauté », « mode ») sans explication concrète.
+CRITIQUE : pour CHAQUE talent dans le mail, la raison DOIT venir de cette recherche (ce qu'il/elle fait vraiment + pourquoi ça colle ${isProjectMail ? `à CE projet auprès de ${brandName}` : `à ${brandName}`}). Interdit : se contenter d'une niche générique (« lifestyle », « beauté », « mode ») sans explication concrète.
 `
       : "";
 
@@ -706,6 +743,7 @@ ${
 STRUCTURE (a logical flow, not a rigid template — vary the wording on every email):
 - MUST start with: "Hi ${firstNameToken},"
 - MUST add right after, on a new line, this EXACT sentence without modifying it: "I hope you are doing well?"
+- The greeting pair (Hi + I hope…) appears EXACTLY ONCE at the top — never repeat it later in the body.
 - Open with a concrete, professional hook, not flattery: start from something specific and verifiable (a launch, a product, a recent direction ${brandNameToken} is taking). E.g. "I noticed you recently launched [product] / that you've been expanding your collaborations around [profile types]." A composed observation, not a casual remark.
 - Mention the strongest new launch ONCE ONLY, in a SHORT, spoken form, never the full commercial name. A human writing fast says "your Baby Rose lip serum" or "the SPF plumper", not "Plumping Lip Serum SPF30 + Peptides tinted 'Baby Rose'". Keep just enough to identify it (1 to 3 words, the line/shade name).
   FORBIDDEN: re-describing features already contained in the product's name ("X with its peptides and sun protection" when "Peptides" and "SPF" are already in X). If an info is in the name, do not repeat it.
@@ -732,8 +770,8 @@ ${
     : `- MUST add one sentence that includes a CLICKABLE link to our full roster, in this exact HTML format: <a href="${talentbookUrl}">${talentbookUrl}</a>
 - The email MUST end, right before the closing, with two sentences that convey these two ideas (rephrase them naturally, vary the wording every time, do NOT copy them verbatim):
   1) an offer to quickly send their complete media kits, a moodboard and tailored performance estimates;
-  2) a proposal for a short 10-15 minute call next week to introduce our agency and our creators.
-For reference (do NOT reuse as-is): "I would be delighted to quickly send you their complete media kits, a moodboard, and tailored performance estimates. Would you be available for a 10-15 minute call next week to introduce our agency and our creators?"`
+  2) ask whether they would be interested in these creators, or invite them to share what their next campaigns would be (so we can propose relevant profiles). The phrase about next campaigns MUST be bold, e.g. <strong>what your next campaigns would be</strong>.
+For reference (do NOT reuse as-is): "I can quickly send you their complete media kits, a moodboard, and tailored performance estimates. Would you be interested in these creators, or could you let me know <strong>what your next campaigns would be</strong>?"`
 }
 
 ${
@@ -764,10 +802,16 @@ ${
       : ""
 }
 
-Exact closing: "Best regards,"
+${
+  isProjectMail
+    ? `Exact closing (MANDATORY — two lines, nothing else after):
+Best regards,
+{{ owner.firstname }}`
+    : `Exact closing: "Best regards,"`
+}
 
 FORMATTING:
-- Use bold only for the brand name and hero products (sparingly).
+- Use bold sparingly: brand name, hero products, and the CTA phrase about next campaigns (<strong>what your next campaigns would be</strong>).
 - Keep talent bullets well-spaced and easy to scan.
 - The email body must contain \\n for line breaks.
 
@@ -826,6 +870,7 @@ ${
 STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à chaque mail) :
 - Commencer OBLIGATOIREMENT par : "Bonjour ${firstNameToken},"
 - Ajouter OBLIGATOIREMENT juste après, sur une nouvelle ligne, cette phrase EXACTE sans la modifier : "J'espère que vous allez bien ?"
+- Le couple de salut (Bonjour + J'espère…) apparaît EXACTEMENT UNE FOIS en tête — ne le répète JAMAIS plus bas dans le corps.
 - Enchaîner sur une accroche concrète et professionnelle, pas une flatterie : pars d'un élément précis et vérifiable (un lancement, un produit, une orientation récente de ${brandNameToken}). Ex. "J'ai vu que vous aviez lancé [produit] récemment / que vous développiez vos collaborations autour de [type de profils]." Une observation posée, pas une remarque familière.
 - Citer la nouveauté la plus forte UNE SEULE FOIS, en VERSION COURTE et parlée, jamais le nom commercial complet. Un humain qui écrit vite dit "votre sérum lèvres Baby Rose" ou "le repulpant SPF", pas "Sérum Lèvres Repulpant SPF30 + Peptides teinté 'Baby Rose'". Garde juste ce qui permet de l'identifier (1 à 3 mots, le nom de gamme/coloris).
   INTERDIT : re-décrire des caractéristiques déjà contenues dans le nom du produit ("X avec ses peptides et sa protection solaire" alors que "Peptides" et "SPF" sont déjà dans X). Si une info est dans le nom, ne la répète pas.
@@ -851,9 +896,9 @@ ${
 - Terminer par une CTA courte pour échanger sur le(s) projet(s) ou un court call — jamais les médias kits d'un roster complet.`
     : `- Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="${talentbookUrl}">${talentbookUrl}</a>
 - Terminer OBLIGATOIREMENT le mail, juste avant la clôture, par deux phrases qui portent ces deux idées (reformule-les naturellement, varie la tournure à chaque mail, ne les recopie PAS à l'identique) :
-  1) proposer d'envoyer rapidement leurs médias kits complets, un moodboard et des estimations de performance sur mesure ;
-  2) proposer un court appel de 10-15 minutes la semaine prochaine pour présenter notre agence et nos talents.
-Pour référence (à NE PAS reprendre tel quel) : « Je serais ravie de vous envoyer rapidement leurs médias kits complets, un moodboard ainsi que des estimations de performance sur mesure. Seriez-vous disponible pour un appel de 10-15 minutes la semaine prochaine pour vous présenter notre agence et nos talents ? »`
+  1) proposer d'envoyer rapidement leurs media kits complets, un moodboard et des estimations de performance sur mesure ;
+  2) demander s'ils seraient intéressés par ces créateurs, ou les inviter à indiquer quelles seraient leurs prochaines campagnes (pour pouvoir proposer des profils pertinents). La partie sur les prochaines campagnes DOIT être en gras, ex. <strong>quelles seraient vos prochaines campagnes</strong>.
+Pour référence (à NE PAS reprendre tel quel) : « Je peux vous transmettre rapidement leurs media kits complets, un moodboard ainsi que des estimations de performance sur mesure. Seriez-vous intéressé par ces créateurs, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ? »`
 }
 
 ${
@@ -884,10 +929,17 @@ ${
       : ""
 }
 
-Clôture exacte : "Belle journée,"
+${
+  isProjectMail
+    ? `Clôture exacte (OBLIGATOIRE — deux lignes, rien après) :
+Cordialement,
+{{ owner.firstname }}
+INTERDIT de clôturer par « Belle journée, » ou toute variante.`
+    : `Clôture exacte : "Belle journée,"`
+}
 
 FORMATAGE :
-- Utilise le gras uniquement pour le nom de la marque et les produits phares (avec parcimonie).
+- Utilise le gras avec parcimonie : nom de la marque, produits phares, et la phrase CTA sur les prochaines campagnes (<strong>quelles seraient vos prochaines campagnes</strong>).
 - Aère bien la liste des talents avec des tirets.
 - Le body du mail doit contenir des \\n pour les sauts de ligne.
 
@@ -985,6 +1037,7 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
       if (isProjectMail) {
         parsed.body = stripTalentbookFromHtml(parsed.body);
       }
+      parsed.body = stripDuplicateGreeting(parsed.body);
 
       parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
 

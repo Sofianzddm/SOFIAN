@@ -206,8 +206,8 @@ function buildFwRelanceBody(input: {
       return [
         `<p>${hello}</p>`,
         `<p>I'm following up on the Fashion Week invitations in ${ville}${agencyBit}.</p>`,
-        `<p>The lists are locking in now — would you be able to confirm whether invitations might be possible on your side?</p>`,
-        `<p>Even a very short reply would help me a lot.</p>`,
+        `<p>Seats are locking in fast — our creators are ready and would love to be there. A confirmation now would really help us secure the right profiles.</p>`,
+        `<p>Would invitations still be possible on your side? Even a short yes/no works.</p>`,
         `<p>Best,<br/><strong>Inès</strong><br/>Glow Up Agence</p>`,
       ].join("");
     }
@@ -220,8 +220,8 @@ function buildFwRelanceBody(input: {
     return [
       `<p>${hello}</p>`,
       `<p>I'm following up on ${showLine}.</p>`,
-      `<p>The lists are locking in now — would you be able to confirm whether an invitation might be possible on your side?</p>`,
-      `<p>Even a very short reply would help me a lot.</p>`,
+      `<p>Lists are closing soon — our creator is ready and would love to be there. Confirming now would help us lock everything in.</p>`,
+      `<p>Would an invitation still be possible on your side? Even a short yes/no works.</p>`,
       `<p>Best,<br/><strong>Inès</strong><br/>Glow Up Agence</p>`,
     ].join("");
   }
@@ -231,9 +231,9 @@ function buildFwRelanceBody(input: {
     const agencyBit = maison ? ` via <strong>${maison}</strong>` : "";
     return [
       `<p>${hello}</p>`,
-      `<p>Je me permets de faire remonter les invitations Fashion Week à ${ville}${agencyBit}.</p>`,
-      `<p>Les listes se figent en ce moment — pourriez-vous me confirmer si des invitations seraient possibles de votre côté ?</p>`,
-      `<p>Un retour même très court m'aiderait beaucoup.</p>`,
+      `<p>Je reviens vers vous au sujet des invitations Fashion Week à ${ville}${agencyBit}.</p>`,
+      `<p>Les places se figent vite — nos créateurs sont prêts et seraient ravis d'y être. Une confirmation maintenant nous aiderait vraiment à sécuriser les bons profils.</p>`,
+      `<p>Des invitations seraient-elles encore possibles de votre côté ? Un simple oui/non suffit.</p>`,
       `<p>Belle journée,<br/><strong>Inès</strong><br/>Glow Up Agence</p>`,
     ].join("");
   }
@@ -246,9 +246,9 @@ function buildFwRelanceBody(input: {
 
   return [
     `<p>${hello}</p>`,
-    `<p>Je me permets de faire remonter ${showLine}.</p>`,
-    `<p>Les listes se figent en ce moment — pourriez-vous me confirmer si une invitation serait possible de votre côté ?</p>`,
-    `<p>Un retour même très court m'aiderait beaucoup.</p>`,
+    `<p>Je reviens vers vous au sujet de ${showLine}.</p>`,
+    `<p>Les listes ferment bientôt — notre créateur·rice est prêt·e et serait ravi·e d'y être. Confirmer maintenant nous permettrait de tout verrouiller.</p>`,
+    `<p>Une invitation serait-elle encore possible de votre côté ? Un simple oui/non suffit.</p>`,
     `<p>Belle journée,<br/><strong>Inès</strong><br/>Glow Up Agence</p>`,
   ].join("");
 }
