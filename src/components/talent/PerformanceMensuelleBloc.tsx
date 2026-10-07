@@ -423,9 +423,12 @@ export default function PerformanceMensuelleBloc({
               value={form.notes}
               onChange={(e) => setField("notes", e.target.value)}
               rows={2}
-              placeholder="Contexte, tendances, remarques…"
+              placeholder="Ex. elle pète les scores TikTok en ce moment, très viral sur GRWM…"
               className="w-full px-3 py-2 rounded-xl border border-violet-200 bg-white text-sm text-glowup-licorice focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none"
             />
+            <p className="mt-1 text-[11px] text-violet-500">
+              Ces notes aident la rédaction des mails marques (casting / outreach).
+            </p>
           </div>
 
           <div className="flex justify-end gap-2">

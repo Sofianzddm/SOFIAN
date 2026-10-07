@@ -72,6 +72,8 @@ export interface TalentPayload {
   ttMeilleurTiktokVues?: number | null;
   /** Peak vues stories (TalentStats.storyViews30d / 7d) */
   storyViewsMax?: number | null;
+  /** Notes TM du dernier mois de perfs (observations profil / momentum) */
+  perfNotes?: string | null;
 }
 
 export interface GenerateEmailBody {
@@ -254,6 +256,7 @@ export async function POST(request: NextRequest) {
         igMeilleurReelVues: number | null;
         ttMoyenneVues: number | null;
         ttMeilleurTiktokVues: number | null;
+        notes: string | null;
       }
     >();
     const storyViewsByTalentId = new Map<string, number>();
@@ -269,6 +272,7 @@ export async function POST(request: NextRequest) {
               igMeilleurReelVues: true,
               ttMoyenneVues: true,
               ttMeilleurTiktokVues: true,
+              notes: true,
             },
           }),
           prisma.talentStats.findMany({
@@ -287,6 +291,7 @@ export async function POST(request: NextRequest) {
               igMeilleurReelVues: row.igMeilleurReelVues,
               ttMoyenneVues: row.ttMoyenneVues,
               ttMeilleurTiktokVues: row.ttMeilleurTiktokVues,
+              notes: row.notes,
             });
           }
         }
@@ -311,6 +316,7 @@ export async function POST(request: NextRequest) {
         ttMoyenneVues: fromDb?.ttMoyenneVues ?? t.ttMoyenneVues ?? null,
         ttMeilleurTiktokVues: fromDb?.ttMeilleurTiktokVues ?? t.ttMeilleurTiktokVues ?? null,
         storyViewsMax: storyFromDb ?? t.storyViewsMax ?? null,
+        perfNotes: fromDb?.notes?.trim() || t.perfNotes || null,
       };
     });
     // Remplacer la liste pour le reste du handler (prompt + filets).
@@ -709,15 +715,24 @@ PROJECT PROHIBITIONS (absolute):
             ? ` | REACH ${reach.priority.toUpperCase()}: ${reach.en}`
             : ` | PORTÉE ${reach.priority === "must" ? "OBLIGATOIRE" : "OPTIONNELLE"}: ${reach.fr}`
           : "";
+        const notesRaw = typeof t.perfNotes === "string" ? t.perfNotes.trim() : "";
+        const notesLabel = notesRaw
+          ? language === "en"
+            ? ` | TM NOTES: ${notesRaw}`
+            : ` | NOTES TM: ${notesRaw}`
+          : "";
         if (instagramUrl) {
-          return `- <a href='${instagramUrl}'><strong>${t.name}</strong></a> (${stats} – ${t.niche}${eng})${reachLabel}`;
+          return `- <a href='${instagramUrl}'><strong>${t.name}</strong></a> (${stats} – ${t.niche}${eng})${reachLabel}${notesLabel}`;
         }
-        return `- <strong>${t.name}</strong> (${stats} – ${t.niche}${eng})${reachLabel}`;
+        return `- <strong>${t.name}</strong> (${stats} – ${t.niche}${eng})${reachLabel}${notesLabel}`;
       })
       .join("\n\n");
 
     const hasMustReach = body.talents.some(
       (t) => buildTalentPerfReachHighlight(t)?.priority === "must"
+    );
+    const hasPerfNotes = body.talents.some(
+      (t) => typeof t.perfNotes === "string" && t.perfNotes.trim().length > 0
     );
     const reachRuleEn = hasMustReach
       ? `\nREACH / VIEWS (MANDATORY when labeled REACH MUST): if a talent has "REACH MUST: …" in Available talents (e.g. best TikTok with millions of views, or story peaks like 193k views), you MUST naturally mention that reach proof in their sentence (e.g. "her TikToks regularly hit millions of views" / "her stories reach up to 193k views"). Do NOT invent view counts. "REACH NICE" may be mentioned briefly if it fits.\n`
@@ -725,6 +740,12 @@ PROJECT PROHIBITIONS (absolute):
     const reachRuleFr = hasMustReach
       ? `\nPORTÉE / VUES (OBLIGATOIRE si marqué PORTÉE OBLIGATOIRE) : si un talent a « PORTÉE OBLIGATOIRE: … » dans Talents disponibles (ex. meilleur TikTok à plusieurs millions de vues, ou peak stories type 193k vues), tu DOIS mentionner naturellement cette preuve de portée dans sa phrase (ex. « ses TikToks font régulièrement plusieurs millions de vues » / « ses stories montent jusqu'à 193k vues »). N'invente aucun chiffre. « PORTÉE OPTIONNELLE » peut être citée brièvement si ça renforce le pitch.\n`
       : `\nPORTÉE / VUES : si un talent a « PORTÉE OPTIONNELLE: … » dans Talents disponibles, tu peux citer brièvement les vues moyennes / meilleur contenu / peak stories si ça renforce le pitch. N'invente aucun chiffre.\n`;
+    const notesRuleEn = hasPerfNotes
+      ? `\nTM NOTES (IMPORTANT): when a talent has "TM NOTES: …", these are internal observations from the talent manager about current momentum / profile (e.g. "crushing views lately", "viral on TikTok"). Use them to sharpen the pitch naturally — do NOT quote them verbatim as "notes", do NOT invent facts beyond them, and keep it sales-ready (1 short clause max).\n`
+      : "";
+    const notesRuleFr = hasPerfNotes
+      ? `\nNOTES TM (IMPORTANT) : quand un talent a « NOTES TM: … », ce sont des observations internes du talent manager sur le momentum / profil actuel (ex. « elle pète les scores en ce moment », « très viral sur TikTok »). Utilise-les pour renforcer naturellement le pitch — ne les cite PAS mot pour mot comme « notes », n'invente rien au-delà, et reste vendeur (1 courte proposition max).\n`
+      : "";
 
     const talentResearchList = Array.isArray(body.talentResearch)
       ? body.talentResearch.filter(
@@ -837,6 +858,7 @@ Current influence strategy of the brand (profile types, formats, tone of their c
 Available talents: ${talentsString} (the variable already contains complete HTML links in the form <a><strong>Firstname Lastname</strong></a>; keep them as-is, do NOT remove the bold or the link)
 ${talentResearchBlockEn}
 ${reachRuleEn}
+${notesRuleEn}
 ${beneluxContextEn}
 ${projectOrCondensationEn}
 ${
@@ -905,6 +927,7 @@ ${
 - Present the talent(s) + the project(s) only — no casting roster.
 - Each talent's full name MUST appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a>.
 - If the brief cites companions, one sentence "She will be accompanied by…" with clean Instagram links.
+- CREATOR RESEARCH (mandatory when provided): the pitch MUST use concrete facts from whoTheyAre / whatTheyDo / whyRelevant, AND weave in 1–2 proof points (named past collabs, giveaways, concrete formats) when available in "Proof points". Do NOT dump follower counts or engagement %. Never invent a collab not listed in the research.
 - FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook).
 - FORBIDDEN: the words "paid", "paid collab", "paid collaboration". Say "collaboration" / "project" only.
 - CTA: propose discussing the project / a short call — never media kits for a full roster.`
@@ -965,6 +988,7 @@ Stratégie d'influence actuelle de la marque (types de profils, formats, tonalit
 Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme <a><strong>Prénom Nom</strong></a> ; conserve-les tels quels, NE retire jamais le gras ni le lien)
 ${talentResearchBlockFr}
 ${reachRuleFr}
+${notesRuleFr}
 ${beneluxContextFr}
 ${projectOrCondensationFr}
 ${
@@ -1033,6 +1057,7 @@ ${
 - Présente le(s) talent(s) + le(s) projet(s) uniquement — pas de roster casting.
 - Chaque nom de talent DOIT apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a>.
 - Si le brief cite des accompagnatrices, une phrase « Elle sera accompagnée de … » avec liens Instagram propres.
+- RECHERCHE CRÉATEUR (obligatoire si fournie) : le pitch DOIT s'appuyer sur des faits concrets de qui c'est / ce qu'il·elle fait / whyRelevant, ET intégrer 1–2 preuves (collabs nommées, giveaways, formats concrets) quand elles figurent dans « Preuves ». PAS de dump d'abonnés ni de % d'engagement. N'invente aucune collab absente de la recherche.
 - INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook).
 - INTERDIT : les mots « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Dis seulement « collaboration » / « projet ».
 - CTA : proposer d’échanger sur le projet / un court call — jamais les médias kits d’un roster complet.`
