@@ -6,7 +6,11 @@ import { upgradeTalentLinksInHtml } from "@/lib/talent-email-links";
 import { plainTextToEmailHtml } from "@/lib/email-body-html";
 import { ensureBrandInSubject } from "@/lib/email-subject";
 import prisma from "@/lib/prisma";
-import { buildTalentPerfReachHighlight } from "@/lib/talent-perf-reach";
+import {
+  buildReachFromResearchText,
+  buildTalentPerfReachHighlight,
+  mergeReachHighlights,
+} from "@/lib/talent-perf-reach";
 
 export const maxDuration = 120;
 
@@ -693,6 +697,35 @@ PROJECT PROHIBITIONS (absolute):
       return String(Math.round(n));
     }
 
+    const researchListForReach = Array.isArray(body.talentResearch)
+      ? body.talentResearch
+      : [];
+
+    function resolveReachForTalent(t: TalentPayload) {
+      const crmReach = buildTalentPerfReachHighlight(t);
+      const name = String(t.name || "").trim().toLowerCase();
+      const research = researchListForReach.find((r) => {
+        const rn = String(r.name || "").trim().toLowerCase();
+        if (!rn || !name) return false;
+        return rn === name || rn.includes(name) || name.includes(rn);
+      });
+      const researchBlob = research
+        ? [
+            research.proofPoints,
+            research.profileAnalysis,
+            research.whatTheyDo,
+            research.whyRelevant,
+          ]
+            .map((x) => String(x || ""))
+            .join("\n")
+        : "";
+      const researchReach = buildReachFromResearchText(researchBlob, {
+        ttFollowers: t.ttFollowers,
+        platformHint: "tiktok",
+      });
+      return mergeReachHighlights(researchReach, crmReach);
+    }
+
     const talentsString = body.talents
       .map((t) => {
         const instagramUrl = getInstagramProfileUrl(t.instagram);
@@ -709,7 +742,7 @@ PROJECT PROHIBITIONS (absolute):
           typeof t.engagementRate === "number" && !Number.isNaN(t.engagementRate)
             ? `, ${t.engagementRate}% engagement`
             : "";
-        const reach = buildTalentPerfReachHighlight(t);
+        const reach = resolveReachForTalent(t);
         const reachLabel = reach
           ? language === "en"
             ? ` | REACH ${reach.priority.toUpperCase()}: ${reach.en}`
@@ -729,17 +762,17 @@ PROJECT PROHIBITIONS (absolute):
       .join("\n\n");
 
     const hasMustReach = body.talents.some(
-      (t) => buildTalentPerfReachHighlight(t)?.priority === "must"
+      (t) => resolveReachForTalent(t)?.priority === "must"
     );
     const hasPerfNotes = body.talents.some(
       (t) => typeof t.perfNotes === "string" && t.perfNotes.trim().length > 0
     );
     const reachRuleEn = hasMustReach
-      ? `\nREACH / VIEWS (MANDATORY when labeled REACH MUST): if a talent has "REACH MUST: …" in Available talents (e.g. best TikTok with millions of views, or story peaks like 193k views), you MUST naturally mention that reach proof in their sentence (e.g. "her TikToks regularly hit millions of views" / "her stories reach up to 193k views"). Do NOT invent view counts. "REACH NICE" may be mentioned briefly if it fits.\n`
-      : `\nREACH / VIEWS: if a talent has "REACH NICE: …" in Available talents, you may briefly mention real view averages / best content / story peaks when it strengthens the pitch. Never invent numbers.\n`;
+      ? `\nREACH / VIEWS (MANDATORY when labeled REACH MUST): only REACH MUST numbers are truly impressive vs follower size — especially multi-million TikTok hits. You MUST mention that viral proof naturally (e.g. "her TikToks regularly hit millions of views, up to ~10M"). Prefer TikTok millions over a mediocre Reel that is ≤ Instagram followers. Do NOT invent counts. Do NOT sell ordinary views as wow. REACH NICE may be brief.\n`
+      : `\nREACH / VIEWS: if labeled REACH NICE, you may briefly mention it. Never invent numbers. Never sell a view count ≤ follower count as exceptional. If CREATOR RESEARCH cites multi-million TikTok views, that IS the reach proof to use.\n`;
     const reachRuleFr = hasMustReach
-      ? `\nPORTÉE / VUES (OBLIGATOIRE si marqué PORTÉE OBLIGATOIRE) : si un talent a « PORTÉE OBLIGATOIRE: … » dans Talents disponibles (ex. meilleur TikTok à plusieurs millions de vues, ou peak stories type 193k vues), tu DOIS mentionner naturellement cette preuve de portée dans sa phrase (ex. « ses TikToks font régulièrement plusieurs millions de vues » / « ses stories montent jusqu'à 193k vues »). N'invente aucun chiffre. « PORTÉE OPTIONNELLE » peut être citée brièvement si ça renforce le pitch.\n`
-      : `\nPORTÉE / VUES : si un talent a « PORTÉE OPTIONNELLE: … » dans Talents disponibles, tu peux citer brièvement les vues moyennes / meilleur contenu / peak stories si ça renforce le pitch. N'invente aucun chiffre.\n`;
+      ? `\nPORTÉE / VUES (OBLIGATOIRE si marqué PORTÉE OBLIGATOIRE) : seuls ces chiffres sont vraiment impressionnants vs la taille du compte — surtout les hits TikTok à plusieurs millions. Tu DOIS citer cette preuve virale naturellement (ex. « ses TikToks montent régulièrement à plusieurs millions de vues, jusqu'à ~10M »). Préfère les millions TikTok à un Reel médiocre ≤ abonnés IG. N'invente aucun chiffre. Ne vends pas des vues « normales » comme un waouh.\n`
+      : `\nPORTÉE / VUES : si « PORTÉE OPTIONNELLE », tu peux citer brièvement. N'invente aucun chiffre. Ne vends jamais un volume ≤ abonnés comme exceptionnel. Si la RECHERCHE CRÉATEUR cite des millions de vues TikTok, C'EST la preuve de portée à utiliser.\n`;
     const notesRuleEn = hasPerfNotes
       ? `\nTM NOTES (IMPORTANT): when a talent has "TM NOTES: …", these are internal observations from the talent manager about current momentum / profile (e.g. "crushing views lately", "viral on TikTok"). Use them to sharpen the pitch naturally — do NOT quote them verbatim as "notes", do NOT invent facts beyond them, and keep it sales-ready (1 short clause max).\n`
       : "";
@@ -774,6 +807,7 @@ ${talentResearchList
   )
   .join("\n\n")}
 CRITICAL: for EACH talent in the email, the reason MUST come from this research (what they actually do + why they fit ${isProjectMail ? `this project with ${brandName}` : brandName}). Forbidden: generic niche labels alone ("lifestyle", "beauty", "fashion") with no concrete explanation.
+VIRAL REACH: if proof points / profile analysis mention multi-million TikTok views (or views clearly >> followers), you MUST weave that into the pitch. Never lead with a weak Reel (~follower-sized views) when research shows millions on TikTok.
 `
       : "";
     const talentResearchBlockFr = hasTalentResearch
@@ -791,6 +825,7 @@ ${talentResearchList
   )
   .join("\n\n")}
 CRITIQUE : pour CHAQUE talent dans le mail, la raison DOIT venir de cette recherche (ce qu'il/elle fait vraiment + pourquoi ça colle ${isProjectMail ? `à CE projet auprès de ${brandName}` : `à ${brandName}`}). Interdit : se contenter d'une niche générique (« lifestyle », « beauté », « mode ») sans explication concrète.
+PORTÉE VIRALE : si les preuves / l'analyse citent des millions de vues TikTok (ou des vues clairement >> abonnés), tu DOIS l'intégrer dans le pitch. Ne mets jamais en avant un Reel faible (~niveau abonnés IG) quand la recherche montre des millions sur TikTok.
 `
       : "";
 

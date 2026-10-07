@@ -195,6 +195,8 @@ export function formatTalentStatsBits(talent: CrmTalent, ig: IgBundle): string {
   ].filter(Boolean);
 
   const reach = buildTalentPerfReachHighlight({
+    igFollowers: talent.igFollowers,
+    ttFollowers: talent.ttFollowers,
     igMoyenneVuesReels: talent.igMoyenneVuesReels,
     igMeilleurReelVues: talent.igMeilleurReelVues,
     ttMoyenneVues: talent.ttMoyenneVues,
@@ -203,35 +205,24 @@ export function formatTalentStatsBits(talent: CrmTalent, ig: IgBundle): string {
   });
   if (reach) {
     statsBits.push(
-      `Portée CRM (${reach.priority === "must" ? "forte" : "notable"}) : ${reach.fr}`
+      `Portée CRM (${reach.priority === "must" ? "forte vs abonnés" : "notable vs abonnés"}) : ${reach.fr}`
     );
-  } else {
-    // Même hors seuil « vendeur », exposer les chiffres bruts s'ils existent
-    if (talent.ttMeilleurTiktokVues && talent.ttMeilleurTiktokVues > 0) {
-      statsBits.push(
-        `meilleur TikTok ${talent.ttMeilleurTiktokVues.toLocaleString("fr-FR")} vues`
-      );
-    }
-    if (talent.ttMoyenneVues && talent.ttMoyenneVues > 0) {
-      statsBits.push(
-        `moy. TikTok ${talent.ttMoyenneVues.toLocaleString("fr-FR")} vues`
-      );
-    }
-    if (talent.igMeilleurReelVues && talent.igMeilleurReelVues > 0) {
-      statsBits.push(
-        `meilleur Reel ${talent.igMeilleurReelVues.toLocaleString("fr-FR")} vues`
-      );
-    }
-    if (talent.igMoyenneVuesReels && talent.igMoyenneVuesReels > 0) {
-      statsBits.push(
-        `moy. Reels ${talent.igMoyenneVuesReels.toLocaleString("fr-FR")} vues`
-      );
-    }
-    if (talent.storyViewsMax && talent.storyViewsMax > 0) {
-      statsBits.push(
-        `peak stories ${talent.storyViewsMax.toLocaleString("fr-FR")} vues`
-      );
-    }
+  }
+  // Chiffres bruts toujours visibles pour le contexte (même si pas "waouh" relatif)
+  if (talent.ttMeilleurTiktokVues && talent.ttMeilleurTiktokVues > 0 && !reach?.fr.includes("TikTok")) {
+    statsBits.push(
+      `meilleur TikTok ${talent.ttMeilleurTiktokVues.toLocaleString("fr-FR")} vues`
+    );
+  }
+  if (talent.igMeilleurReelVues && talent.igMeilleurReelVues > 0 && !reach?.fr.includes("Reel")) {
+    statsBits.push(
+      `meilleur Reel ${talent.igMeilleurReelVues.toLocaleString("fr-FR")} vues (contexte CRM)`
+    );
+  }
+  if (talent.storyViewsMax && talent.storyViewsMax > 0 && !reach?.fr.includes("story")) {
+    statsBits.push(
+      `peak stories ${talent.storyViewsMax.toLocaleString("fr-FR")} vues (contexte CRM)`
+    );
   }
   if (talent.perfNotes) {
     statsBits.push(`Notes TM : ${talent.perfNotes}`);

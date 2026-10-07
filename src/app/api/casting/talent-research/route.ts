@@ -175,13 +175,13 @@ Objectif : comprendre son univers et ce qui justifie de le pitcher sur CE brief 
 3) profileAnalysis — Analyse du profil : esthétique, audience, forces, angle distinctif.
 4) contentThemes — Thèmes récurrents, listés clairement.
 5) whyRelevant — Pourquoi CE créateur + CE projet collent à ${args.brandName} maintenant (contenu × brief × marque). Appuie-toi sur raison strategy / angle / livrables.
-6) proofPoints — Preuves factuelles courtes (séparées par « ; »). Si « Stats CRM » contient une Portée (vues Reels / TikTok / stories) ou des Notes TM, tu DOIS les reprendre ici avec les chiffres exacts.
+6) proofPoints — Preuves factuelles courtes (séparées par « ; »). Si « Stats CRM » contient une Portée marquée « forte vs abonnés », tu DOIS la reprendre avec les chiffres exacts. Les Notes TM aussi.
 7) sourcesUsed — Ex. « CRM ; Instagram scrapé ; web ; X ; brief projet ».
 
 Règles strictes :
 - N'invente RIEN. Si une info manque, dis-le.
 - Priorise les faits observables + le brief projet sur les niches CRM génériques.
-- Les chiffres de portée CRM (vues) sont une source de vérité : intègre-les dans profileAnalysis et/ou proofPoints quand ils sont fournis (ex. « meilleur Reel 123k vues », « jusqu'à 193k vues en story »).
+- Portée RELATIVE aux abonnés : 120k vues pour 30k abonnés = waouh ; 100k vues pour 500k abonnés = pas waouh. N'insiste sur les vues CRM que si elles sont marquées « forte/notable vs abonnés », ou si tu as des hits viraux clairement au-dessus du compte (ex. millions TT). Ne vends pas un Reel à 123k pour un compte IG 150k comme un exploit.
 - Écris en français, concret, utile pour rédiger un mail de pitch PROJET.
 - 3 à 5 phrases max par champ narratif (whoTheyAre / whatTheyDo / profileAnalysis / whyRelevant).
 
@@ -221,13 +221,13 @@ Objectif de la recherche : comprendre son univers, son positionnement public, le
 3) profileAnalysis — Analyse du profil : esthétique, audience probable, forces, angle distinctif. Appuie-toi sur bio IG + captions + web.
 4) contentThemes — Thèmes récurrents, listés clairement.
 5) whyRelevant — Pourquoi ce créateur colle à ${args.brandName} maintenant (contenu × marque).
-6) proofPoints — Preuves factuelles courtes (séparées par « ; »). Si « Stats CRM » contient une Portée (vues Reels / TikTok / stories) ou des Notes TM, tu DOIS les reprendre ici avec les chiffres exacts.
+6) proofPoints — Preuves factuelles courtes (séparées par « ; »). Si « Stats CRM » contient une Portée marquée « forte vs abonnés », tu DOIS la reprendre avec les chiffres exacts. Les Notes TM aussi.
 7) sourcesUsed — Ex. « CRM ; Instagram scrapé ; web ; X ».
 
 Règles strictes :
 - N'invente RIEN. Si une info manque, dis-le.
 - Priorise les faits observables (posts, bio, collabs, presse) sur les niches CRM génériques.
-- Les chiffres de portée CRM (vues) sont une source de vérité : intègre-les dans profileAnalysis et/ou proofPoints quand ils sont fournis (ex. « meilleur Reel 123k vues », « jusqu'à 193k vues en story »).
+- Portée RELATIVE aux abonnés : 120k vues pour 30k abonnés = waouh ; 100k vues pour 500k abonnés = pas waouh. N'insiste sur les vues CRM que si elles sont marquées « forte/notable vs abonnés », ou si tu as des hits viraux clairement au-dessus du compte (ex. millions TT). Ne vends pas un Reel à 123k pour un compte IG 150k comme un exploit.
 - Écris en français, concret, utile pour rédiger un mail de casting.
 - 3 à 5 phrases max par champ narratif (whoTheyAre / whatTheyDo / profileAnalysis / whyRelevant).
 
