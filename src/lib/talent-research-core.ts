@@ -54,6 +54,8 @@ export type CrmTalent = {
   ttMeilleurTiktokUrl: string | null;
   perfNotes: string | null;
   perfMoisLabel: string | null;
+  /** Notes internes fiche profil talent */
+  notesInternes: string | null;
 };
 
 export type IgBundle = {
@@ -85,6 +87,7 @@ export async function loadCrmTalent(talentId: string): Promise<CrmTalent | null>
       pays: true,
       ville: true,
       selectedClients: true,
+      notesInternes: true,
       moyenneVuesStory: true,
       moyenneVuesSnap: true,
       stats: {
@@ -192,6 +195,7 @@ export async function loadCrmTalent(talentId: string): Promise<CrmTalent | null>
     ttMeilleurTiktokUrl: perf?.ttMeilleurTiktokUrl ?? null,
     perfNotes: perf?.notes?.trim() || null,
     perfMoisLabel,
+    notesInternes: t.notesInternes?.trim() || null,
   };
 }
 
@@ -335,6 +339,9 @@ export function formatTalentStatsBits(talent: CrmTalent, ig: IgBundle): string {
   if (talent.perfNotes) {
     statsBits.push(`Notes TM : ${talent.perfNotes}`);
   }
+  if (talent.notesInternes) {
+    statsBits.push(`Notes internes : ${talent.notesInternes}`);
+  }
 
   return statsBits.length ? statsBits.join(" · ") : "—";
 }
@@ -407,7 +414,8 @@ export function formatCrmContentPerformanceBlock(talent: CrmTalent): string {
       .filter(Boolean)
       .join(" · ") || null
   );
-  push("Notes TM", talent.perfNotes);
+  push("Notes TM (perfs mensuelles)", talent.perfNotes);
+  push("Notes internes (fiche profil)", talent.notesInternes);
 
   const reach = buildTalentPerfReachHighlight({
     igFollowers: talent.igFollowers,

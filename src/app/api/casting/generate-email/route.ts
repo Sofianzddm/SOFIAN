@@ -92,6 +92,8 @@ export interface TalentPayload {
   storyViewsMax?: number | null;
   /** Notes TM du dernier mois de perfs (observations profil / momentum) */
   perfNotes?: string | null;
+  /** Notes internes fiche profil talent */
+  notesInternes?: string | null;
   /** Évolution abonnés / engagement CRM (%) */
   igFollowersEvol?: number | null;
   ttFollowersEvol?: number | null;
@@ -287,6 +289,7 @@ export async function POST(request: NextRequest) {
       ttMoyenneLikes: number | null;
       ttMeilleurTiktokVues: number | null;
       notes: string | null;
+      notesInternes: string | null;
       storyViews30d: number | null;
       storyViews7d: number | null;
       storyViewsMax: number | null;
@@ -322,6 +325,7 @@ export async function POST(request: NextRequest) {
               id: true,
               moyenneVuesStory: true,
               moyenneVuesSnap: true,
+              notesInternes: true,
               stats: {
                 select: {
                   storyViews30d: true,
@@ -352,6 +356,7 @@ export async function POST(request: NextRequest) {
             ttMoyenneLikes: perf?.ttMoyenneLikes ?? null,
             ttMeilleurTiktokVues: perf?.ttMeilleurTiktokVues ?? null,
             notes: perf?.notes ?? null,
+            notesInternes: talent.notesInternes?.trim() || null,
             storyViews30d: s?.storyViews30d ?? null,
             storyViews7d: s?.storyViews7d ?? null,
             storyViewsMax: peak > 0 ? peak : null,
@@ -391,6 +396,7 @@ export async function POST(request: NextRequest) {
         moyenneVuesStory: snap?.moyenneVuesStory ?? t.moyenneVuesStory ?? null,
         moyenneVuesSnap: snap?.moyenneVuesSnap ?? t.moyenneVuesSnap ?? null,
         perfNotes: snap?.notes?.trim() || t.perfNotes || null,
+        notesInternes: snap?.notesInternes || t.notesInternes || null,
         igFollowersEvol: snap?.igFollowersEvol ?? t.igFollowersEvol ?? null,
         ttFollowersEvol: snap?.ttFollowersEvol ?? t.ttFollowersEvol ?? null,
         igEngagementEvol: snap?.igEngagementEvol ?? t.igEngagementEvol ?? null,
@@ -823,11 +829,23 @@ PROJECT PROHIBITIONS (absolute):
             : ` | PORTÉE ${reach.priority === "must" ? "OBLIGATOIRE" : "OPTIONNELLE"}: ${reach.fr}`
           : "";
         const notesRaw = typeof t.perfNotes === "string" ? t.perfNotes.trim() : "";
-        const notesLabel = notesRaw
-          ? language === "en"
-            ? ` | TM NOTES: ${notesRaw}`
-            : ` | NOTES TM: ${notesRaw}`
-          : "";
+        const notesInternesRaw =
+          typeof t.notesInternes === "string" ? t.notesInternes.trim() : "";
+        const notesLabel = [
+          notesRaw
+            ? language === "en"
+              ? `TM NOTES: ${notesRaw}`
+              : `NOTES TM: ${notesRaw}`
+            : "",
+          notesInternesRaw
+            ? language === "en"
+              ? `INTERNAL NOTES: ${notesInternesRaw}`
+              : `NOTES INTERNES: ${notesInternesRaw}`
+            : "",
+        ]
+          .filter(Boolean)
+          .map((s) => ` | ${s}`)
+          .join("");
         const ttEvol =
           typeof t.ttFollowersEvol === "number" ? t.ttFollowersEvol : null;
         const igEvol =
@@ -909,7 +927,9 @@ PROJECT PROHIBITIONS (absolute):
       (t) => resolveReachForTalent(t)?.priority === "must"
     );
     const hasPerfNotes = body.talents.some(
-      (t) => typeof t.perfNotes === "string" && t.perfNotes.trim().length > 0
+      (t) =>
+        (typeof t.perfNotes === "string" && t.perfNotes.trim().length > 0) ||
+        (typeof t.notesInternes === "string" && t.notesInternes.trim().length > 0)
     );
     const reachRuleEn = hasMustReach
       ? `\nREACH / VIEWS (MANDATORY when labeled REACH MUST): you MUST cite the viral proof with the EXACT peak using "up to …" (e.g. if labeled "hits TikTok up to 10.9M views" → write something like "her TikToks regularly hit millions of views, up to ~10.9M"). Forbidden: vague "millions of views" alone when a peak number is provided. Prefer TikTok peaks over a mediocre Reel ≤ IG followers. Do NOT invent counts. REACH NICE may be brief.\n`
@@ -923,21 +943,21 @@ PROJECT PROHIBITIONS (absolute):
       return tt >= 5 || ig >= 5;
     });
     const notesRuleEn = hasPerfNotes
-      ? `\nTM NOTES (IMPORTANT): when a talent has "TM NOTES: …", these are internal observations from the talent manager about current momentum / profile (e.g. "crushing views lately", "viral on TikTok"). Use them to sharpen the pitch naturally — do NOT quote them verbatim as "notes", do NOT invent facts beyond them, and keep it sales-ready (1 short clause max).\n`
+      ? `\nTM / INTERNAL NOTES (IMPORTANT): when a talent has "TM NOTES: …" or "INTERNAL NOTES: …", these are talent-manager observations (perf month or profile fiche) about current momentum / angle. Use them to sharpen the pitch naturally — do NOT quote them verbatim as "notes", do NOT invent facts beyond them, and keep it sales-ready (1 short clause max).\n`
       : "";
     const notesRuleFr = hasPerfNotes
-      ? `\nNOTES TM (IMPORTANT) : quand un talent a « NOTES TM: … », ce sont des observations internes du talent manager sur le momentum / profil actuel (ex. « elle pète les scores en ce moment », « très viral sur TikTok »). Utilise-les pour renforcer naturellement le pitch — ne les cite PAS mot pour mot comme « notes », n'invente rien au-delà, et reste vendeur (1 courte proposition max).\n`
+      ? `\nNOTES TM / INTERNES (IMPORTANT) : quand un talent a « NOTES TM: … » ou « NOTES INTERNES: … », ce sont des observations du talent manager (perfs mensuelles ou fiche profil) sur le momentum / angle actuel. Utilise-les pour renforcer naturellement le pitch — ne les cite PAS mot pour mot comme « notes », n'invente rien au-delà, et reste vendeur (1 courte proposition max).\n`
       : "";
     const momentumRuleEn = hasMustReach || hasMomentum || hasPerfNotes
       ? `\nCONTENT HEAT / MOMENTUM (PRIORITY = content, not vanity followers):
-- Use ALL available signals: REACH MUST, CRM CONTENT (best/avg TikTok, Reels, stories, Snap), CREATOR RESEARCH peaks, TM NOTES, follower MOMENTUM.
+- Use ALL available signals: REACH MUST, CRM CONTENT (best/avg TikTok, Reels, stories, Snap), CREATOR RESEARCH peaks, TM NOTES / INTERNAL NOTES, follower MOMENTUM.
 - Prioritize what is truly crushing vs account size: especially TikToks, then Reels/posts, then stories.
 - You MAY add one short natural clause, e.g. "her TikToks are performing especially well right now, up to ~10.9M", "she's on a strong run with Reels".
 - Follower growth is secondary. Vary wording; never invent; never sell mediocre views as heat.\n`
       : `\nCONTENT HEAT / MOMENTUM: if CRM CONTENT / CREATOR RESEARCH shows content crushing it (TikToks / Reels / posts / stories), you may add one short natural clause. Prefer content performance over follower growth. Never invent.\n`;
     const momentumRuleFr = hasMustReach || hasMomentum || hasPerfNotes
       ? `\nPERF CONTENU / MOMENTUM (PRIORITÉ = le contenu, pas les abonnés) :
-- Utilise TOUTES les données dispo : PORTÉE OBLIGATOIRE, CONTENU CRM (best/moy. TikTok, Reels, stories, Snap), RECHERCHE CRÉATEUR (pics web), NOTES TM, MOMENTUM abonnés.
+- Utilise TOUTES les données dispo : PORTÉE OBLIGATOIRE, CONTENU CRM (best/moy. TikTok, Reels, stories, Snap), RECHERCHE CRÉATEUR (pics web), NOTES TM / NOTES INTERNES, MOMENTUM abonnés.
 - Priorise ce qui cartonne vraiment vs la taille du compte : surtout TikToks, puis Reels/posts, puis stories.
 - Tu PEUX ajouter une courte proposition naturelle, ex. « ses TikToks performent particulièrement bien en ce moment, jusqu'à ~10,9M », « elle est sur une très bonne dynamique Reels ».
 - La croissance d'abonnés est secondaire. Varie ; n'invente rien ; ne vends pas des vues médiocres.\n`
