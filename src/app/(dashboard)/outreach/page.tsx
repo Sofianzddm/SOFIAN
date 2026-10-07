@@ -201,13 +201,16 @@ async function sendBulkStreaming(
     /** Mode « at » : heure murale de Paris (valeur d'un input datetime-local). */
     scheduledAt?: string;
     force?: boolean;
+    /** Pipeline d'origine (FR / BENELUX) — obligatoire en vue FR+BE. */
+    pipeline?: Market;
   },
   onProgress: (p: { done: number; total: number; label: string }) => void
 ): Promise<BulkSendResult> {
-  const res = await fetch(outreachApi("/send-bulk"), {
+  const { pipeline, ...body } = payload;
+  const res = await fetch(outreachApiForPipeline(pipeline, "/send-bulk"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, stream: true }),
+    body: JSON.stringify({ ...body, stream: true }),
   });
 
   const contentType = res.headers.get("Content-Type") || "";
@@ -821,11 +824,14 @@ export default function OutreachPage() {
       if (!window.confirm(confirmMsg)) return;
       setActionBusy(target.id);
       try {
-        const res = await fetch(outreachApi(`/targets/${target.id}`), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
-        });
+        const res = await fetch(
+          outreachApiForPipeline(target.pipeline, `/targets/${target.id}`),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          }
+        );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
         flash("success", action === "stop" ? "Client sorti du cycle." : "Client remis dans le cycle.");
@@ -879,7 +885,10 @@ export default function OutreachPage() {
         return;
       setActionBusy(target.id);
       try {
-        const res = await fetch(outreachApi(`/targets/${target.id}`), { method: "DELETE" });
+        const res = await fetch(
+          outreachApiForPipeline(target.pipeline, `/targets/${target.id}`),
+          { method: "DELETE" }
+        );
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "Erreur");
@@ -920,7 +929,11 @@ export default function OutreachPage() {
         return;
       setActionBusy(group.marqueId);
       try {
-        const res = await fetch(outreachApi(`/marques/${group.marqueId}`), { method: "DELETE" });
+        const pipeline = group.targets[0]?.pipeline;
+        const res = await fetch(
+          outreachApiForPipeline(pipeline, `/marques/${group.marqueId}`),
+          { method: "DELETE" }
+        );
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "Erreur");
@@ -1072,6 +1085,7 @@ export default function OutreachPage() {
             });
           }
 
+          const sendPipeline = group.targets[0]?.pipeline;
           let data: BulkSendResult;
           try {
             data = await sendBulkStreaming(
@@ -1081,6 +1095,7 @@ export default function OutreachPage() {
                 bodyHtml: bodyToSend,
                 sourceLanguage,
                 mode: sendMode,
+                pipeline: sendPipeline,
                 ...(sendMode === "at" && scheduledAt ? { scheduledAt } : {}),
               },
               (p) => {
@@ -1182,6 +1197,7 @@ export default function OutreachPage() {
                     bodyHtml: bodyToSend,
                     sourceLanguage,
                     force: true,
+                    pipeline: sendPipeline,
                   },
                   (p) => {
                     if (showForceProgress) setSendProgress(p);
@@ -1207,11 +1223,14 @@ export default function OutreachPage() {
                 );
               }
             } else {
-              const resWait = await fetch(outreachApi("/reschedule-bulk"), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ targetIds: confirmIds }),
-              });
+              const resWait = await fetch(
+                outreachApiForPipeline(sendPipeline, "/reschedule-bulk"),
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ targetIds: confirmIds }),
+                }
+              );
               const waitData = await resWait.json();
               if (!resWait.ok) throw new Error(waitData.error || "Erreur");
               flash(
@@ -1285,11 +1304,14 @@ export default function OutreachPage() {
         return;
       setActionBusy(target.id);
       try {
-        const res = await fetch(outreachApi(`/targets/${target.id}/relance-now`), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        });
+        const res = await fetch(
+          outreachApiForPipeline(target.pipeline, `/targets/${target.id}/relance-now`),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          }
+        );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
         flash("success", "Relance envoyée.");
@@ -1308,11 +1330,14 @@ export default function OutreachPage() {
       const action = pause ? "pause-relance" : "resume-relance";
       setActionBusy(target.id);
       try {
-        const res = await fetch(outreachApi(`/targets/${target.id}`), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
-        });
+        const res = await fetch(
+          outreachApiForPipeline(target.pipeline, `/targets/${target.id}`),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          }
+        );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
         flash("success", pause ? "Relance auto mise en pause." : "Relance auto réactivée.");
@@ -1359,6 +1384,7 @@ export default function OutreachPage() {
             bodyHtml,
             sourceLanguage: target.language === "en" ? "en" : "fr",
             force: true,
+            pipeline: target.pipeline,
           },
           () => {}
         );
@@ -3172,21 +3198,24 @@ function EditClientModal({
     if (!canSubmit) return;
     setSaving(true);
     try {
-      const res = await fetch(outreachApi(`/targets/${target.id}`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "edit",
-          firstname,
-          lastname,
-          email,
-          company,
-          language,
-          // Sans le droit de choisir, on n'envoie pas le champ : la boîte
-          // configurée par l'admin est conservée telle quelle.
-          ...(allowSenderChoice ? { fromEmail: fromEmail || null } : {}),
-        }),
-      });
+      const res = await fetch(
+        outreachApiForPipeline(target.pipeline, `/targets/${target.id}`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "edit",
+            firstname,
+            lastname,
+            email,
+            company,
+            language,
+            // Sans le droit de choisir, on n'envoie pas le champ : la boîte
+            // configurée par l'admin est conservée telle quelle.
+            ...(allowSenderChoice ? { fromEmail: fromEmail || null } : {}),
+          }),
+        }
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
       onSaved();
