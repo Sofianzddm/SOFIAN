@@ -768,11 +768,11 @@ PROJECT PROHIBITIONS (absolute):
       (t) => typeof t.perfNotes === "string" && t.perfNotes.trim().length > 0
     );
     const reachRuleEn = hasMustReach
-      ? `\nREACH / VIEWS (MANDATORY when labeled REACH MUST): only REACH MUST numbers are truly impressive vs follower size — especially multi-million TikTok hits. You MUST mention that viral proof naturally (e.g. "her TikToks regularly hit millions of views, up to ~10M"). Prefer TikTok millions over a mediocre Reel that is ≤ Instagram followers. Do NOT invent counts. Do NOT sell ordinary views as wow. REACH NICE may be brief.\n`
-      : `\nREACH / VIEWS: if labeled REACH NICE, you may briefly mention it. Never invent numbers. Never sell a view count ≤ follower count as exceptional. If CREATOR RESEARCH cites multi-million TikTok views, that IS the reach proof to use.\n`;
+      ? `\nREACH / VIEWS (MANDATORY when labeled REACH MUST): you MUST cite the viral proof with the EXACT peak using "up to …" (e.g. if labeled "hits TikTok up to 10.9M views" → write something like "her TikToks regularly hit millions of views, up to ~10.9M"). Forbidden: vague "millions of views" alone when a peak number is provided. Prefer TikTok peaks over a mediocre Reel ≤ IG followers. Do NOT invent counts. REACH NICE may be brief.\n`
+      : `\nREACH / VIEWS: if labeled REACH NICE, mention briefly with "up to …" when a number is given. Never invent numbers. Never sell a view count ≤ follower count as exceptional. If CREATOR RESEARCH cites a peak (e.g. 10.9M), use "up to …".\n`;
     const reachRuleFr = hasMustReach
-      ? `\nPORTÉE / VUES (OBLIGATOIRE si marqué PORTÉE OBLIGATOIRE) : seuls ces chiffres sont vraiment impressionnants vs la taille du compte — surtout les hits TikTok à plusieurs millions. Tu DOIS citer cette preuve virale naturellement (ex. « ses TikToks montent régulièrement à plusieurs millions de vues, jusqu'à ~10M »). Préfère les millions TikTok à un Reel médiocre ≤ abonnés IG. N'invente aucun chiffre. Ne vends pas des vues « normales » comme un waouh.\n`
-      : `\nPORTÉE / VUES : si « PORTÉE OPTIONNELLE », tu peux citer brièvement. N'invente aucun chiffre. Ne vends jamais un volume ≤ abonnés comme exceptionnel. Si la RECHERCHE CRÉATEUR cite des millions de vues TikTok, C'EST la preuve de portée à utiliser.\n`;
+      ? `\nPORTÉE / VUES (OBLIGATOIRE si marqué PORTÉE OBLIGATOIRE) : tu DOIS citer la preuve virale avec le pic EXACT en formulant « jusqu'à … » (ex. si marqué « hits TikTok jusqu'à 10,9M vues » → « ses TikToks montent régulièrement à plusieurs millions de vues, jusqu'à ~10,9M »). Interdit : se contenter de « plusieurs millions de vues » sans le plafond quand un chiffre est fourni. Préfère les pics TikTok à un Reel médiocre ≤ abonnés IG. N'invente aucun chiffre.\n`
+      : `\nPORTÉE / VUES : si « PORTÉE OPTIONNELLE », cite brièvement avec « jusqu'à … » quand un chiffre est donné. N'invente aucun chiffre. Ne vends jamais un volume ≤ abonnés comme exceptionnel. Si la RECHERCHE CRÉATEUR cite un pic (ex. 10,9M), utilise « jusqu'à … ».\n`;
     const notesRuleEn = hasPerfNotes
       ? `\nTM NOTES (IMPORTANT): when a talent has "TM NOTES: …", these are internal observations from the talent manager about current momentum / profile (e.g. "crushing views lately", "viral on TikTok"). Use them to sharpen the pitch naturally — do NOT quote them verbatim as "notes", do NOT invent facts beyond them, and keep it sales-ready (1 short clause max).\n`
       : "";
@@ -807,7 +807,7 @@ ${talentResearchList
   )
   .join("\n\n")}
 CRITICAL: for EACH talent in the email, the reason MUST come from this research (what they actually do + why they fit ${isProjectMail ? `this project with ${brandName}` : brandName}). Forbidden: generic niche labels alone ("lifestyle", "beauty", "fashion") with no concrete explanation.
-VIRAL REACH: if proof points / profile analysis mention multi-million TikTok views (or views clearly >> followers), you MUST weave that into the pitch. Never lead with a weak Reel (~follower-sized views) when research shows millions on TikTok.
+VIRAL REACH: if proof points / profile analysis (or REACH MUST) mention a TikTok peak (e.g. 10.9M), you MUST weave it in with "up to …" (e.g. "up to ~10.9M views"). Never lead with a weak Reel (~follower-sized views) when research shows millions on TikTok.
 `
       : "";
     const talentResearchBlockFr = hasTalentResearch
@@ -825,7 +825,7 @@ ${talentResearchList
   )
   .join("\n\n")}
 CRITIQUE : pour CHAQUE talent dans le mail, la raison DOIT venir de cette recherche (ce qu'il/elle fait vraiment + pourquoi ça colle ${isProjectMail ? `à CE projet auprès de ${brandName}` : `à ${brandName}`}). Interdit : se contenter d'une niche générique (« lifestyle », « beauté », « mode ») sans explication concrète.
-PORTÉE VIRALE : si les preuves / l'analyse citent des millions de vues TikTok (ou des vues clairement >> abonnés), tu DOIS l'intégrer dans le pitch. Ne mets jamais en avant un Reel faible (~niveau abonnés IG) quand la recherche montre des millions sur TikTok.
+PORTÉE VIRALE : si les preuves / l'analyse (ou PORTÉE OBLIGATOIRE) citent un pic TikTok (ex. 10,9M), tu DOIS l'intégrer avec « jusqu'à … » (ex. « jusqu'à ~10,9M de vues »). Ne mets jamais en avant un Reel faible (~niveau abonnés IG) quand la recherche montre des millions sur TikTok.
 `
       : "";
 
