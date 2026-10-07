@@ -92,7 +92,7 @@ function talentCrmBlock(args: {
   talent: CrmTalent;
   ig: IgBundle;
   name: string;
-  handle: string;
+  handle: string | null;
   igUrl: string;
   tt: string;
   yt: string;
