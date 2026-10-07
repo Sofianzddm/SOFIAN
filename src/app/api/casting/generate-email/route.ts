@@ -531,7 +531,7 @@ Règles projet commun :
 - Après l'accroche marque, enchaîne avec une transition du type : « Nous avons actuellement un projet (${sharedTitle}) pour lequel ${talentCountLabelFr} pourraient coller » (reformule naturellement).
 - Puis présente CHAQUE talent séparément (section nette) : qui, pourquoi le fit avec ce projet / la marque — 3 à 5 phrases max par talent.
 - Reste concret et sobre : explique bien, SANS en faire trop.
-- Termine par une CTA unique (intérêt pour un, plusieurs, ou un court call).
+- Termine OBLIGATOIREMENT par une CTA question (1 phrase), juste avant Cordialement — ex. « Le projet serait-il intéressant pour vous ? » / « Seriez-vous partants pour en échanger ? » (varie, ne recopie pas toujours la même).
 - Cite TOUS les talents fournis.
 - Une seule marque destinataire.
 
@@ -554,7 +554,7 @@ Règles condensation (structure attendue) :
 - Après l'accroche marque, enchaîne avec une transition claire du type : « Nous avons actuellement ${projectCountLabelFr} pour lesquels nos talents pourraient coller » (reformule naturellement, même idée).
 - Puis explique CHAQUE projet séparément (section nette par talent/projet) : qui est le talent (lien Instagram), en quoi le projet colle à la marque, livrables / angle utiles — 3 à 5 phrases max par projet.
 - Reste concret et sobre : explique bien, SANS en faire trop (pas de catalogue, pas d'empilement d'arguments, pas de média kits d'agence).
-- Termine par une CTA unique (intérêt pour l'un, plusieurs, ou un court call).
+- Termine OBLIGATOIREMENT par une CTA question (1 phrase), juste avant Cordialement — ex. « Un de ces projets serait-il intéressant pour vous ? » / « Seriez-vous partants pour en discuter ? » (varie).
 - Les talents listés dans "Talents disponibles" correspondent à ces projets — cite-les tous.
 - Une seule marque destinataire : ne propose pas d'autres marques.
 
@@ -582,7 +582,7 @@ Shared project rules:
 - After the brand hook, transition like: "We currently have a project (${sharedTitle}) where ${condensationBriefs.length} of our talents could be a strong fit" (rephrase naturally).
 - Then present EACH talent separately (clear section): who, why they fit this project / brand — 3 to 5 sentences max per talent.
 - Be concrete and measured — no overdoing it.
-- End with a single CTA.
+- End MANDATORILY with a one-sentence question CTA right before Best regards — e.g. "Would this project be of interest to you?" / "Would you be open to a quick chat?" (vary wording).
 - Mention ALL provided talents.
 - One recipient brand only.
 
@@ -605,7 +605,7 @@ Condensation rules (expected structure):
 - After the brand hook, transition with something like: "We currently have ${condensationBriefs.length} projects where our talents could be a strong fit" (rephrase naturally, same idea).
 - Then explain EACH project separately (clear section per talent/project): who the talent is (Instagram link), why the project fits the brand, useful deliverables/angle — 3 to 5 sentences max per project.
 - Be concrete and measured: explain well WITHOUT overdoing it (no catalog, no stacked arguments, no agency media-kit dump).
-- End with a single CTA (interest in one, several, or a short call).
+- End MANDATORILY with a one-sentence question CTA right before Best regards — e.g. "Would one of these projects be of interest?" / "Would you be open to discussing?" (vary wording).
 - Talents in "Available talents" map to these projects — mention them all.
 - One recipient brand only.
 
@@ -1118,7 +1118,7 @@ ${
 ${
   isProjectMail
     ? `- FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook). Do NOT pitch a full agency roster.
-- End with a short CTA to discuss the project(s) or a brief call — never media kits for a full roster.`
+- CTA MANDATORY: the last sentence of the body, immediately before "Best regards,", MUST be a short question CTA about interest in the project(s) — e.g. "Would this project be of interest to you?" / "Would you be open to a quick call on this?" Vary the wording; never end without a CTA question. Never media kits for a full roster.`
     : `- MUST add one sentence that includes a CLICKABLE link to our full roster, in this exact HTML format: <a href="${talentbookUrl}">${talentbookUrl}</a>
 - The email MUST end, right before the closing, with two sentences that convey these two ideas (rephrase them naturally, vary the wording every time, do NOT copy them verbatim):
   1) an offer to quickly send their complete media kits, a moodboard and tailored performance estimates;
@@ -1134,14 +1134,14 @@ ${
 - After brand hook: one shared project ("${sharedTitle}") with ${condensationBriefs.length} talents who could fit — then each talent separately, measured.
 - Each talent name as Instagram HTML link.
 - FORBIDDEN: talentbook / roster / catalog; FORBIDDEN "paid".
-- CTA: discuss the project / short call.`
+- CTA MANDATORY: last body sentence before Best regards = question CTA (e.g. "Would this project be of interest to you?").`
       : `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
 - FORBIDDEN to use the casting transition "several creators who could be a fit" / roster selection.
 - After the brand hook, state clearly that you currently have ${condensationBriefs.length} projects where your talents could fit, then explain EACH project separately (talent + fit + useful deliverables/angle), measured — not too long.
 - Each talent's full name MUST appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a>.
 - FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook).
 - FORBIDDEN: the words "paid", "paid collab", "paid collaboration". Say "collaboration" / "project" only.
-- CTA: discuss interest in one or several projects / a short call — never media kits for a full roster.`
+- CTA MANDATORY: last body sentence before Best regards = question CTA (e.g. "Would one of these projects be of interest to you?"). Never media kits for a full roster.`
     : projectBrief
       ? `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
 - FORBIDDEN to use the "several creators who could be a fit" transition (or variants).
@@ -1151,7 +1151,7 @@ ${
 - CREATOR RESEARCH (mandatory when provided): the pitch MUST use concrete facts from whoTheyAre / whatTheyDo / whyRelevant, AND weave in 1–2 proof points (named past collabs, giveaways, concrete formats) when available in "Proof points". Do NOT dump follower counts or engagement %. Never invent a collab not listed in the research.
 - FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook).
 - FORBIDDEN: the words "paid", "paid collab", "paid collaboration". Say "collaboration" / "project" only.
-- CTA: propose discussing the project / a short call — never media kits for a full roster.`
+- CTA MANDATORY: last body sentence before Best regards = question CTA (e.g. "Would this project be of interest to you?"). Never media kits for a full roster.`
       : ""
 }
 
@@ -1249,7 +1249,7 @@ ${
 ${
   isProjectMail
     ? `- INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook). Ne propose PAS le roster complet de l'agence.
-- Terminer par une CTA courte pour échanger sur le(s) projet(s) ou un court call — jamais les médias kits d'un roster complet.`
+- CTA OBLIGATOIRE : la dernière phrase du corps, juste avant « Cordialement, », DOIT être une question CTA courte sur l'intérêt pour le(s) projet(s) — ex. « Le projet serait-il intéressant pour vous ? » / « Seriez-vous partants pour en échanger rapidement ? » / « Cela pourrait-il vous intéresser ? ». Varie la tournure à chaque mail ; INTERDIT de terminer sans CTA question. Jamais les médias kits d'un roster complet.`
     : `- Ajouter OBLIGATOIREMENT une phrase qui inclut un lien CLIQUABLE vers notre roster complet, sous cette forme HTML : <a href="${talentbookUrl}">${talentbookUrl}</a>
 - Terminer OBLIGATOIREMENT le mail, juste avant la clôture, par deux phrases qui portent ces deux idées (reformule-les naturellement, varie la tournure à chaque mail, ne les recopie PAS à l'identique) :
   1) proposer d'envoyer rapidement leurs media kits complets, un moodboard et des estimations de performance sur mesure ;
@@ -1265,14 +1265,14 @@ ${
 - Après accroche : UN projet partagé (« ${sharedTitle} ») avec ${talentCountLabelFr} qui pourraient coller — puis chaque talent à part, mesuré.
 - Nom de chaque talent en lien Instagram HTML.
 - INTERDIT talentbook / roster / catalogue ; INTERDIT « paid ».
-- CTA : échanger sur le projet / court call.`
+- CTA OBLIGATOIRE : dernière phrase avant Cordialement = question (ex. « Le projet serait-il intéressant pour vous ? »).`
       : `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
 - INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre » / sélection roster.
 - Après l'accroche marque, dis clairement que vous avez actuellement ${projectCountLabelFr} pour lesquels vos talents pourraient coller, puis explique CHAQUE projet séparément (talent + fit + livrables/angle utiles), de façon mesurée — sans en faire trop.
 - Chaque nom de talent DOIT apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a>.
 - INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook).
 - INTERDIT : les mots « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Dis seulement « collaboration » / « projet ».
-- CTA : intérêt pour un ou plusieurs projets / un court call — jamais les médias kits d'un roster complet.`
+- CTA OBLIGATOIRE : dernière phrase avant Cordialement = question (ex. « Un de ces projets serait-il intéressant pour vous ? »). Jamais les médias kits d'un roster complet.`
     : projectBrief
       ? `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
 - INTERDIT d'utiliser la transition « plusieurs créateurs qui peuvent correspondre » (ou variante).
@@ -1282,7 +1282,7 @@ ${
 - RECHERCHE CRÉATEUR (obligatoire si fournie) : le pitch DOIT s'appuyer sur des faits concrets de qui c'est / ce qu'il·elle fait / whyRelevant, ET intégrer 1–2 preuves (collabs nommées, giveaways, formats concrets) quand elles figurent dans « Preuves ». PAS de dump d'abonnés ni de % d'engagement. N'invente aucune collab absente de la recherche.
 - INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook).
 - INTERDIT : les mots « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Dis seulement « collaboration » / « projet ».
-- CTA : proposer d’échanger sur le projet / un court call — jamais les médias kits d’un roster complet.`
+- CTA OBLIGATOIRE : dernière phrase avant Cordialement = question (ex. « Le projet serait-il intéressant pour vous ? »). Jamais les médias kits d’un roster complet.`
       : ""
 }
 
