@@ -182,6 +182,7 @@ Règles strictes :
 - N'invente RIEN. Si une info manque, dis-le.
 - Priorise les faits observables + le brief projet sur les niches CRM génériques.
 - Portée RELATIVE aux abonnés : 120k vues pour 30k abonnés = waouh ; 100k vues pour 500k abonnés = pas waouh. N'insiste sur les vues CRM que si elles sont marquées « forte/notable vs abonnés », ou si tu as des hits viraux clairement au-dessus du compte (ex. millions TT). Ne vends pas un Reel à 123k pour un compte IG 150k comme un exploit.
+- Momentum : si Stats CRM indiquent une croissance abonnés (Momentum TT/IG) ou des Notes TM de type « en ce moment elle pète les scores », mentionne-le dans profileAnalysis et/ou proofPoints (ex. « en forte croissance en ce moment »).
 - Écris en français, concret, utile pour rédiger un mail de pitch PROJET.
 - 3 à 5 phrases max par champ narratif (whoTheyAre / whatTheyDo / profileAnalysis / whyRelevant).
 
@@ -228,6 +229,7 @@ Règles strictes :
 - N'invente RIEN. Si une info manque, dis-le.
 - Priorise les faits observables (posts, bio, collabs, presse) sur les niches CRM génériques.
 - Portée RELATIVE aux abonnés : 120k vues pour 30k abonnés = waouh ; 100k vues pour 500k abonnés = pas waouh. N'insiste sur les vues CRM que si elles sont marquées « forte/notable vs abonnés », ou si tu as des hits viraux clairement au-dessus du compte (ex. millions TT). Ne vends pas un Reel à 123k pour un compte IG 150k comme un exploit.
+- Momentum : si Stats CRM indiquent une croissance abonnés (Momentum TT/IG) ou des Notes TM de type « en ce moment elle pète les scores », mentionne-le dans profileAnalysis et/ou proofPoints (ex. « en forte croissance en ce moment »).
 - Écris en français, concret, utile pour rédiger un mail de casting.
 - 3 à 5 phrases max par champ narratif (whoTheyAre / whatTheyDo / profileAnalysis / whyRelevant).
 

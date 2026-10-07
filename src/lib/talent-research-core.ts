@@ -31,6 +31,9 @@ export type CrmTalent = {
   igEngagement: number;
   ttFollowers: number;
   ttEngagement: number;
+  /** Évolution abonnés CRM (%), si saisie */
+  igFollowersEvol: number | null;
+  ttFollowersEvol: number | null;
   /** Peak stories (TalentStats) */
   storyViewsMax: number | null;
   /** Dernier mois de perfs mensuelles */
@@ -74,8 +77,10 @@ export async function loadCrmTalent(talentId: string): Promise<CrmTalent | null>
         select: {
           igFollowers: true,
           igEngagement: true,
+          igFollowersEvol: true,
           ttFollowers: true,
           ttEngagement: true,
+          ttFollowersEvol: true,
           storyViews30d: true,
           storyViews7d: true,
         },
@@ -123,8 +128,12 @@ export async function loadCrmTalent(talentId: string): Promise<CrmTalent | null>
       .filter((c) => c.marqueNom),
     igFollowers: Number(t.stats?.igFollowers || 0),
     igEngagement: Number(t.stats?.igEngagement || 0),
+    igFollowersEvol:
+      t.stats?.igFollowersEvol != null ? Number(t.stats.igFollowersEvol) : null,
     ttFollowers: Number(t.stats?.ttFollowers || 0),
     ttEngagement: Number(t.stats?.ttEngagement || 0),
+    ttFollowersEvol:
+      t.stats?.ttFollowersEvol != null ? Number(t.stats.ttFollowersEvol) : null,
     storyViewsMax: storyPeak > 0 ? storyPeak : null,
     igMoyenneVuesReels: perf?.igMoyenneVuesReels ?? null,
     igMeilleurReelVues: perf?.igMeilleurReelVues ?? null,
@@ -206,6 +215,19 @@ export function formatTalentStatsBits(talent: CrmTalent, ig: IgBundle): string {
   if (reach) {
     statsBits.push(
       `Portée CRM (${reach.priority === "must" ? "forte vs abonnés" : "notable vs abonnés"}) : ${reach.fr}`
+    );
+  }
+  // Momentum croissance (seuils : ≥5% notable, ≥15% forte)
+  const igEvol = talent.igFollowersEvol;
+  const ttEvol = talent.ttFollowersEvol;
+  if (typeof ttEvol === "number" && ttEvol >= 5) {
+    statsBits.push(
+      `Momentum TT : ${ttEvol >= 15 ? "forte croissance" : "en croissance"} (+${ttEvol.toFixed(1).replace(/\.0$/, "")}%)`
+    );
+  }
+  if (typeof igEvol === "number" && igEvol >= 5) {
+    statsBits.push(
+      `Momentum IG : ${igEvol >= 15 ? "forte croissance" : "en croissance"} (+${igEvol.toFixed(1).replace(/\.0$/, "")}%)`
     );
   }
   // Chiffres bruts toujours visibles pour le contexte (même si pas "waouh" relatif)

@@ -78,6 +78,9 @@ export interface TalentPayload {
   storyViewsMax?: number | null;
   /** Notes TM du dernier mois de perfs (observations profil / momentum) */
   perfNotes?: string | null;
+  /** Évolution abonnés CRM (%) */
+  igFollowersEvol?: number | null;
+  ttFollowersEvol?: number | null;
 }
 
 export interface GenerateEmailBody {
@@ -264,6 +267,10 @@ export async function POST(request: NextRequest) {
       }
     >();
     const storyViewsByTalentId = new Map<string, number>();
+    const evolByTalentId = new Map<
+      string,
+      { igFollowersEvol: number | null; ttFollowersEvol: number | null }
+    >();
     if (talentIds.length > 0) {
       try {
         const [rows, statsRows] = await Promise.all([
@@ -285,6 +292,8 @@ export async function POST(request: NextRequest) {
               talentId: true,
               storyViews30d: true,
               storyViews7d: true,
+              igFollowersEvol: true,
+              ttFollowersEvol: true,
             },
           }),
         ]);
@@ -302,6 +311,12 @@ export async function POST(request: NextRequest) {
         for (const s of statsRows) {
           const peak = Math.max(s.storyViews30d ?? 0, s.storyViews7d ?? 0);
           if (peak > 0) storyViewsByTalentId.set(s.talentId, peak);
+          evolByTalentId.set(s.talentId, {
+            igFollowersEvol:
+              s.igFollowersEvol != null ? Number(s.igFollowersEvol) : null,
+            ttFollowersEvol:
+              s.ttFollowersEvol != null ? Number(s.ttFollowersEvol) : null,
+          });
         }
       } catch (err) {
         console.error("Enrichissement perfs / stories (generate-email):", err);
@@ -313,6 +328,8 @@ export async function POST(request: NextRequest) {
         typeof t.talentId === "string" ? latestPerfByTalentId.get(t.talentId) : undefined;
       const storyFromDb =
         typeof t.talentId === "string" ? storyViewsByTalentId.get(t.talentId) : undefined;
+      const evolFromDb =
+        typeof t.talentId === "string" ? evolByTalentId.get(t.talentId) : undefined;
       return {
         ...t,
         igMoyenneVuesReels: fromDb?.igMoyenneVuesReels ?? t.igMoyenneVuesReels ?? null,
@@ -321,6 +338,8 @@ export async function POST(request: NextRequest) {
         ttMeilleurTiktokVues: fromDb?.ttMeilleurTiktokVues ?? t.ttMeilleurTiktokVues ?? null,
         storyViewsMax: storyFromDb ?? t.storyViewsMax ?? null,
         perfNotes: fromDb?.notes?.trim() || t.perfNotes || null,
+        igFollowersEvol: evolFromDb?.igFollowersEvol ?? t.igFollowersEvol ?? null,
+        ttFollowersEvol: evolFromDb?.ttFollowersEvol ?? t.ttFollowersEvol ?? null,
       };
     });
     // Remplacer la liste pour le reste du handler (prompt + filets).
@@ -754,10 +773,34 @@ PROJECT PROHIBITIONS (absolute):
             ? ` | TM NOTES: ${notesRaw}`
             : ` | NOTES TM: ${notesRaw}`
           : "";
-        if (instagramUrl) {
-          return `- <a href='${instagramUrl}'><strong>${t.name}</strong></a> (${stats} – ${t.niche}${eng})${reachLabel}${notesLabel}`;
+        const ttEvol =
+          typeof t.ttFollowersEvol === "number" ? t.ttFollowersEvol : null;
+        const igEvol =
+          typeof t.igFollowersEvol === "number" ? t.igFollowersEvol : null;
+        const momentumParts: string[] = [];
+        if (ttEvol != null && ttEvol >= 5) {
+          momentumParts.push(
+            language === "en"
+              ? `TT ${ttEvol >= 15 ? "strong growth" : "growing"} +${ttEvol.toFixed(1).replace(/\.0$/, "")}%`
+              : `TT ${ttEvol >= 15 ? "forte croissance" : "en croissance"} +${ttEvol.toFixed(1).replace(/\.0$/, "")}%`
+          );
         }
-        return `- <strong>${t.name}</strong> (${stats} – ${t.niche}${eng})${reachLabel}${notesLabel}`;
+        if (igEvol != null && igEvol >= 5) {
+          momentumParts.push(
+            language === "en"
+              ? `IG ${igEvol >= 15 ? "strong growth" : "growing"} +${igEvol.toFixed(1).replace(/\.0$/, "")}%`
+              : `IG ${igEvol >= 15 ? "forte croissance" : "en croissance"} +${igEvol.toFixed(1).replace(/\.0$/, "")}%`
+          );
+        }
+        const momentumLabel = momentumParts.length
+          ? language === "en"
+            ? ` | MOMENTUM: ${momentumParts.join(" · ")}`
+            : ` | MOMENTUM: ${momentumParts.join(" · ")}`
+          : "";
+        if (instagramUrl) {
+          return `- <a href='${instagramUrl}'><strong>${t.name}</strong></a> (${stats} – ${t.niche}${eng})${reachLabel}${momentumLabel}${notesLabel}`;
+        }
+        return `- <strong>${t.name}</strong> (${stats} – ${t.niche}${eng})${reachLabel}${momentumLabel}${notesLabel}`;
       })
       .join("\n\n");
 
@@ -773,12 +816,23 @@ PROJECT PROHIBITIONS (absolute):
     const reachRuleFr = hasMustReach
       ? `\nPORTÉE / VUES (OBLIGATOIRE si marqué PORTÉE OBLIGATOIRE) : tu DOIS citer la preuve virale avec le pic EXACT en formulant « jusqu'à … » (ex. si marqué « hits TikTok jusqu'à 10,9M vues » → « ses TikToks montent régulièrement à plusieurs millions de vues, jusqu'à ~10,9M »). Interdit : se contenter de « plusieurs millions de vues » sans le plafond quand un chiffre est fourni. Préfère les pics TikTok à un Reel médiocre ≤ abonnés IG. N'invente aucun chiffre.\n`
       : `\nPORTÉE / VUES : si « PORTÉE OPTIONNELLE », cite brièvement avec « jusqu'à … » quand un chiffre est donné. N'invente aucun chiffre. Ne vends jamais un volume ≤ abonnés comme exceptionnel. Si la RECHERCHE CRÉATEUR cite un pic (ex. 10,9M), utilise « jusqu'à … ».\n`;
+    const hasMomentum = body.talents.some((t) => {
+      const tt = typeof t.ttFollowersEvol === "number" ? t.ttFollowersEvol : 0;
+      const ig = typeof t.igFollowersEvol === "number" ? t.igFollowersEvol : 0;
+      return tt >= 5 || ig >= 5;
+    });
     const notesRuleEn = hasPerfNotes
       ? `\nTM NOTES (IMPORTANT): when a talent has "TM NOTES: …", these are internal observations from the talent manager about current momentum / profile (e.g. "crushing views lately", "viral on TikTok"). Use them to sharpen the pitch naturally — do NOT quote them verbatim as "notes", do NOT invent facts beyond them, and keep it sales-ready (1 short clause max).\n`
       : "";
     const notesRuleFr = hasPerfNotes
       ? `\nNOTES TM (IMPORTANT) : quand un talent a « NOTES TM: … », ce sont des observations internes du talent manager sur le momentum / profil actuel (ex. « elle pète les scores en ce moment », « très viral sur TikTok »). Utilise-les pour renforcer naturellement le pitch — ne les cite PAS mot pour mot comme « notes », n'invente rien au-delà, et reste vendeur (1 courte proposition max).\n`
       : "";
+    const momentumRuleEn = hasMomentum || hasPerfNotes
+      ? `\nMOMENTUM / GROWTH: if a talent has "MOMENTUM: …" (follower growth %) and/or TM NOTES / creator research showing current heat (strong growth, crushing scores, viral lately), you MAY add one short natural clause like "she's currently growing fast" / "particularly strong right now on TikTok" — vary the wording, never invent growth, never quote "% growth" robotically unless useful.\n`
+      : `\nMOMENTUM / GROWTH: only if CREATOR RESEARCH clearly implies current heat (viral lately, exploding on TikTok), you may add one short natural clause. Never invent growth.\n`;
+    const momentumRuleFr = hasMomentum || hasPerfNotes
+      ? `\nMOMENTUM / CROISSANCE : si un talent a « MOMENTUM: … » (évolution abonnés %) et/ou NOTES TM / recherche créateur qui montrent une dynamique actuelle (forte croissance, pète les scores, très viral en ce moment), tu PEUX ajouter une courte proposition naturelle du type « elle est en ce moment en forte croissance » / « particulièrement forte en ce moment sur TikTok » — varie la formulation, n'invente aucune croissance, ne colle pas un « +X % » robotique sauf si utile.\n`
+      : `\nMOMENTUM / CROISSANCE : seulement si la RECHERCHE CRÉATEUR implique clairement une dynamique actuelle (viral en ce moment, explosion TikTok), tu peux ajouter une courte proposition naturelle. N'invente aucune croissance.\n`;
 
     const talentResearchList = Array.isArray(body.talentResearch)
       ? body.talentResearch.filter(
@@ -894,6 +948,7 @@ Available talents: ${talentsString} (the variable already contains complete HTML
 ${talentResearchBlockEn}
 ${reachRuleEn}
 ${notesRuleEn}
+${momentumRuleEn}
 ${beneluxContextEn}
 ${projectOrCondensationEn}
 ${
@@ -1024,6 +1079,7 @@ Talents disponibles : ${talentsString} (la variable contient déjà les liens HT
 ${talentResearchBlockFr}
 ${reachRuleFr}
 ${notesRuleFr}
+${momentumRuleFr}
 ${beneluxContextFr}
 ${projectOrCondensationFr}
 ${
