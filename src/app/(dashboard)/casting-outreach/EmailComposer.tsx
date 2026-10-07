@@ -93,11 +93,13 @@ export interface EmailComposerProps {
   onBrandResearch: () => void;
   isResearching: boolean;
   /**
-   * Pipeline / casting / outreach clients :
+   * Pipeline / casting / outreach clients / projets :
    * 1) Analyser la marque → 2) Sélectionner les créateurs →
    * 3) Analyser les créateurs → 4) Rédiger.
    */
   enableTalentResearch?: boolean;
+  /** Projets-outreach : libellés / hints orientés brief projet. */
+  projectResearchMode?: boolean;
   onTalentResearch?: () => void;
   isResearchingTalent?: boolean;
   talentResearch?: TalentResearchItem[] | null;
@@ -142,6 +144,7 @@ export default function EmailComposer({
   onBrandResearch,
   isResearching,
   enableTalentResearch = false,
+  projectResearchMode = false,
   onTalentResearch,
   isResearchingTalent = false,
   talentResearch = null,
@@ -191,8 +194,12 @@ export default function EmailComposer({
         : null;
   const talentResearchButtonLabel =
     talentsSelected.length > 1
-      ? `Analyser ${talentsSelected.length} créateurs`
-      : "Analyser le créateur";
+      ? projectResearchMode
+        ? `Analyser ${talentsSelected.length} talents (projet)`
+        : `Analyser ${talentsSelected.length} créateurs`
+      : projectResearchMode
+        ? "Analyser le talent (projet)"
+        : "Analyser le créateur";
   const talentResearchLoadingLabel =
     talentsSelected.length > 1
       ? `Analyse de ${talentsSelected.length} créateurs…`
@@ -201,14 +208,20 @@ export default function EmailComposer({
     ? "Analyse d’abord la marque"
     : talentsSelected.length === 0
       ? "Sélectionne ensuite les créateurs à gauche"
-      : "Analyse les créateurs sélectionnés";
+      : projectResearchMode
+        ? "Analyse le fit talent × projet × marque"
+        : "Analyse les créateurs sélectionnés";
   const stepHint = enableTalentResearch
     ? !brandResearch
-      ? "1/4 — Analyse la marque"
+      ? projectResearchMode
+        ? "1/4 — Analyse la marque (projet)"
+        : "1/4 — Analyse la marque"
       : talentsSelected.length === 0
         ? "2/4 — Sélectionne les créateurs"
         : !talentResearch?.length
-          ? "3/4 — Analyse les créateurs"
+          ? projectResearchMode
+            ? "3/4 — Analyse les talents pour le projet"
+            : "3/4 — Analyse les créateurs"
           : "4/4 — Tu peux rédiger"
     : null;
   const talentTokensFromSelection = useMemo<
@@ -266,6 +279,15 @@ export default function EmailComposer({
       return;
     }
     editor?.chain().focus().insertContent(token).run();
+  };
+
+  /** Colle un extrait d'analyse créateur dans le corps du mail. */
+  const insertPlainIntoBody = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || !editor) return;
+    setLastField("body");
+    setPreviewMode("edit");
+    editor.chain().focus().insertContent(trimmed).run();
   };
 
   const setLink = () => {
@@ -397,7 +419,11 @@ export default function EmailComposer({
           disabled={isResearching || isResearchingTalent}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-opacity disabled:opacity-60"
           style={{ borderColor: OLD_ROSE, color: LICORICE }}
-          title="Analyse de la marque"
+          title={
+            projectResearchMode
+              ? "Analyse marque orientée brief projet"
+              : "Analyse de la marque"
+          }
         >
           {isResearching ? (
             <>
@@ -405,7 +431,13 @@ export default function EmailComposer({
               Analyse marque…
             </>
           ) : (
-            <>{enableTalentResearch ? "Analyser la marque" : "Par recherche"}</>
+            <>
+              {enableTalentResearch
+                ? projectResearchMode
+                  ? "Analyser la marque (projet)"
+                  : "Analyser la marque"
+                : "Par recherche"}
+            </>
           )}
         </button>
         {enableTalentResearch && onTalentResearch && (
@@ -518,50 +550,60 @@ export default function EmailComposer({
             }}
           >
             <p className="font-semibold opacity-70">Créateur — profil analysé</p>
-            {talentResearch.map((r, i) => (
-              <div key={r.talentId || `${r.name}-${i}`} className="space-y-1 border-t border-black/5 pt-1.5 first:border-0 first:pt-0">
-                <p className="font-semibold">{r.name}</p>
-                {r.whoTheyAre?.trim() ? (
-                  <p>
-                    <span className="font-semibold">Qui : </span>
-                    {r.whoTheyAre}
-                  </p>
-                ) : null}
-                {r.whatTheyDo?.trim() ? (
-                  <p>
-                    <span className="font-semibold">Ce qu’il/elle fait : </span>
-                    {r.whatTheyDo}
-                  </p>
-                ) : null}
-                {r.profileAnalysis?.trim() ? (
-                  <p>
-                    <span className="font-semibold">Analyse profil : </span>
-                    {r.profileAnalysis}
-                  </p>
-                ) : null}
-                {r.contentThemes?.trim() ? (
-                  <p>
-                    <span className="font-semibold">Thèmes : </span>
-                    {r.contentThemes}
-                  </p>
-                ) : null}
-                {r.whyRelevant?.trim() ? (
-                  <p>
-                    <span className="font-semibold">Fit marque : </span>
-                    {r.whyRelevant}
-                  </p>
-                ) : null}
-                {r.proofPoints?.trim() ? (
-                  <p className="opacity-80">
-                    <span className="font-semibold">Preuves : </span>
-                    {r.proofPoints}
-                  </p>
-                ) : null}
-                {r.sourcesUsed?.trim() ? (
-                  <p className="opacity-60 text-[10px]">Sources : {r.sourcesUsed}</p>
-                ) : null}
-              </div>
-            ))}
+            {talentResearch.map((r, i) => {
+              const fields: { label: string; text: string; muted?: boolean }[] = [
+                { label: "Qui", text: r.whoTheyAre || "" },
+                { label: "Ce qu’il/elle fait", text: r.whatTheyDo || "" },
+                { label: "Analyse profil", text: r.profileAnalysis || "" },
+                { label: "Thèmes", text: r.contentThemes || "" },
+                { label: "Fit marque", text: r.whyRelevant || "" },
+                { label: "Preuves", text: r.proofPoints || "", muted: true },
+              ].filter((f) => f.text.trim());
+              const allText = fields.map((f) => `${f.label} : ${f.text.trim()}`).join("\n\n");
+              return (
+                <div
+                  key={r.talentId || `${r.name}-${i}`}
+                  className="space-y-1 border-t border-black/5 pt-1.5 first:border-0 first:pt-0"
+                >
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="font-semibold">{r.name}</p>
+                    {allText ? (
+                      <button
+                        type="button"
+                        onClick={() => insertPlainIntoBody(allText)}
+                        className="inline-flex items-center rounded-md border border-slate-200 bg-white/90 px-1.5 py-0.5 text-[10px] hover:bg-white"
+                        style={{ color: LICORICE }}
+                        title="Insérer toute l’analyse dans le mail"
+                      >
+                        ↳ Insérer
+                      </button>
+                    ) : null}
+                  </div>
+                  {fields.map((f) => (
+                    <div key={f.label} className={f.muted ? "opacity-80" : undefined}>
+                      <div className="flex flex-wrap items-start gap-1.5">
+                        <p className="min-w-0 flex-1">
+                          <span className="font-semibold">{f.label} : </span>
+                          {f.text}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => insertPlainIntoBody(f.text)}
+                          className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white/90 px-1.5 py-0.5 text-[10px] hover:bg-white"
+                          style={{ color: LICORICE }}
+                          title={`Insérer « ${f.label} » dans le mail`}
+                        >
+                          ↳ Insérer
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {r.sourcesUsed?.trim() ? (
+                    <p className="opacity-60 text-[10px]">Sources : {r.sourcesUsed}</p>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         )}
 
