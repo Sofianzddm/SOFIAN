@@ -3,6 +3,13 @@ import { getAppSession } from "@/lib/getAppSession";
 import { xaiResponse } from "@/lib/xai";
 import { normalizeInstagramHandle } from "@/lib/social-links";
 import {
+  formatProjectBriefForPrompt,
+  parseProjectBrief,
+  parseProjectBriefs,
+  pickBriefForTalent,
+  type ProjectResearchBrief,
+} from "@/lib/project-research-brief";
+import {
   TALENT_RESEARCH_TOOLS,
   asStr,
   formatTalentStatsBits,
@@ -81,38 +88,28 @@ function tryParseTalentJson(
   throw new Error("parse");
 }
 
-function buildPrompt(args: {
-  brandName: string;
-  strategyReason?: string;
-  recommendedAngle?: string;
+function talentCrmBlock(args: {
   talent: CrmTalent;
   ig: IgBundle;
+  name: string;
+  handle: string;
+  igUrl: string;
+  tt: string;
+  yt: string;
+  uniqueCollabs: string[];
 }): string {
-  const name = `${args.talent.prenom} ${args.talent.nom}`.trim();
-  const handle = normalizeInstagramHandle(args.talent.instagram || "");
-  const igUrl = handle ? `https://www.instagram.com/${handle}/` : "";
-  const tt = String(args.talent.tiktok || "").trim();
-  const yt = String(args.talent.youtube || "").trim();
-  const uniqueCollabs = uniqueCollabLabels(args.talent);
-
-  return `Tu es un expert casting / influence. Ta mission : ALLER CHERCHER qui est ce créateur, analyser son profil public, et expliquer concrètement CE QU'IL FAIT — puis le fit avec la marque.
-
-MARQUE CIBLE : ${args.brandName}
-${args.strategyReason?.trim() ? `Raison strategy (interne) : ${args.strategyReason.trim()}` : ""}
-${args.recommendedAngle?.trim() ? `Angle recommandé (interne) : ${args.recommendedAngle.trim()}` : ""}
-
-═══ CRÉATEUR — FICHE CRM GLOW UP ═══
-- Nom : ${name}
+  return `═══ CRÉATEUR — FICHE CRM GLOW UP ═══
+- Nom : ${args.name}
 - Niches CRM : ${(args.talent.niches || []).join(", ") || "—"}
 - Ville / pays : ${[args.talent.ville, args.talent.pays].filter(Boolean).join(", ") || "—"}
 - Stats CRM : ${formatTalentStatsBits(args.talent, args.ig)}
-- Instagram : ${handle ? `@${handle} — ${igUrl}` : "—"}
-- TikTok : ${tt || "—"}
-- YouTube : ${yt || "—"}
+- Instagram : ${args.handle ? `@${args.handle} — ${args.igUrl}` : "—"}
+- TikTok : ${args.tt || "—"}
+- YouTube : ${args.yt || "—"}
 - Présentation CRM : ${args.talent.presentation?.trim() || "—"}
 - Présentation EN : ${args.talent.presentationEn?.trim() || "—"}
 - Bio CRM : ${args.talent.bio?.trim() || "—"}
-- Collabs / clients connus : ${uniqueCollabs.length ? uniqueCollabs.join(", ") : "—"}
+- Collabs / clients connus : ${args.uniqueCollabs.length ? args.uniqueCollabs.join(", ") : "—"}
 
 ═══ INSTAGRAM RÉCUPÉRÉ (${args.ig.note}) ═══
 - Nom affiché IG : ${args.ig.fullName || "—"}
@@ -122,7 +119,92 @@ ${
   args.ig.captions.length
     ? args.ig.captions.map((c, i) => `${i + 1}. ${c}`).join("\n")
     : "(aucune caption — tu DOIS compenser via recherche web/X sur le profil)"
+}`;
 }
+
+function buildPrompt(args: {
+  brandName: string;
+  strategyReason?: string;
+  recommendedAngle?: string;
+  projectBrief?: ProjectResearchBrief | null;
+  talent: CrmTalent;
+  ig: IgBundle;
+}): string {
+  const name = `${args.talent.prenom} ${args.talent.nom}`.trim();
+  const handle = normalizeInstagramHandle(args.talent.instagram || "");
+  const igUrl = handle ? `https://www.instagram.com/${handle}/` : "";
+  const tt = String(args.talent.tiktok || "").trim();
+  const yt = String(args.talent.youtube || "").trim();
+  const uniqueCollabs = uniqueCollabLabels(args.talent);
+  const crm = talentCrmBlock({
+    talent: args.talent,
+    ig: args.ig,
+    name,
+    handle,
+    igUrl,
+    tt,
+    yt,
+    uniqueCollabs,
+  });
+
+  const projectBrief = args.projectBrief;
+  const isProject = Boolean(projectBrief);
+
+  if (isProject && projectBrief) {
+    return `Tu es un expert casting / influence. Ta mission : ALLER CHERCHER qui est ce créateur, analyser son profil public, et expliquer concrètement CE QU'IL FAIT — puis le fit avec **CE PROJET** auprès de la marque (pas un casting roster ouvert).
+
+MARQUE CIBLE : ${args.brandName}
+(Respecte l'orthographe exacte de cette marque — ne la confonds pas avec un homonyme à sonorité proche.)
+
+═══ BRIEF PROJET (source de vérité pour le pitch) ═══
+${formatProjectBriefForPrompt(projectBrief)}
+
+${crm}
+
+═══ RECHERCHE OBLIGATOIRE (outils web + X) ═══
+Tu DOIS utiliser les outils de recherche pour investiguer le créateur. Cherche au minimum :
+1) ${igUrl || `Instagram de ${name}`}
+2) "${name}" influenceur / créateur / Instagram
+${handle ? `3) @${handle} contenu / collabs` : ""}
+${tt ? `4) TikTok ${tt}` : ""}
+Objectif : comprendre son univers et ce qui justifie de le pitcher sur CE brief projet à ${args.brandName}.
+
+═══ CE QUE TU DOIS PRODUIRE ═══
+1) whoTheyAre — Qui c'est (identité, positionnement, vibe). Pas une bio marketing creuse.
+2) whatTheyDo — CE QU'IL FAIT concrètement : types de posts, sujets, formats, ton.
+3) profileAnalysis — Analyse du profil : esthétique, audience, forces, angle distinctif.
+4) contentThemes — Thèmes récurrents, listés clairement.
+5) whyRelevant — Pourquoi CE créateur + CE projet collent à ${args.brandName} maintenant (contenu × brief × marque). Appuie-toi sur raison strategy / angle / livrables.
+6) proofPoints — Preuves factuelles courtes (séparées par « ; »).
+7) sourcesUsed — Ex. « CRM ; Instagram scrapé ; web ; X ; brief projet ».
+
+Règles strictes :
+- N'invente RIEN. Si une info manque, dis-le.
+- Priorise les faits observables + le brief projet sur les niches CRM génériques.
+- Écris en français, concret, utile pour rédiger un mail de pitch PROJET.
+- 3 à 5 phrases max par champ narratif (whoTheyAre / whatTheyDo / profileAnalysis / whyRelevant).
+
+Réponds UNIQUEMENT en JSON strict :
+{
+  "whoTheyAre": "...",
+  "whatTheyDo": "...",
+  "profileAnalysis": "...",
+  "contentThemes": "...",
+  "whyRelevant": "...",
+  "proofPoints": "...",
+  "sourcesUsed": "..."
+}
+`;
+  }
+
+  return `Tu es un expert casting / influence. Ta mission : ALLER CHERCHER qui est ce créateur, analyser son profil public, et expliquer concrètement CE QU'IL FAIT — puis le fit avec la marque.
+
+MARQUE CIBLE : ${args.brandName}
+(Respecte l'orthographe exacte de cette marque — ne la confonds pas avec un homonyme à sonorité proche.)
+${args.strategyReason?.trim() ? `Raison strategy (interne) : ${args.strategyReason.trim()}` : ""}
+${args.recommendedAngle?.trim() ? `Angle recommandé (interne) : ${args.recommendedAngle.trim()}` : ""}
+
+${crm}
 
 ═══ RECHERCHE OBLIGATOIRE (outils web + X) ═══
 Tu DOIS utiliser les outils de recherche pour investiguer le créateur. Cherche au minimum :
@@ -164,6 +246,7 @@ async function researchOneTalent(args: {
   brandName: string;
   strategyReason?: string;
   recommendedAngle?: string;
+  projectBrief?: ProjectResearchBrief | null;
   talent: CrmTalent;
 }): Promise<TalentResearchItem> {
   const name = `${args.talent.prenom} ${args.talent.nom}`.trim();
@@ -178,6 +261,7 @@ async function researchOneTalent(args: {
           brandName: args.brandName,
           strategyReason: args.strategyReason,
           recommendedAngle: args.recommendedAngle,
+          projectBrief: args.projectBrief,
           talent: args.talent,
           ig,
         }),
@@ -235,6 +319,9 @@ export async function POST(request: NextRequest) {
       typeof body?.recommendedAngle === "string"
         ? body.recommendedAngle.trim()
         : "";
+    const projectBriefs = parseProjectBriefs(body?.projectBriefs);
+    const projectBrief =
+      projectBriefs.length >= 2 ? null : parseProjectBrief(body?.projectBrief);
     const rawIds = Array.isArray(body?.talentIds) ? body.talentIds : [];
     const talentIds = rawIds
       .map((id: unknown) => String(id || "").trim())
@@ -261,14 +348,32 @@ export async function POST(request: NextRequest) {
     }
 
     const settled = await Promise.allSettled(
-      crmList.map((talent) =>
-        researchOneTalent({
+      crmList.map((talent) => {
+        const briefForTalent = pickBriefForTalent(talent.id, {
+          projectBrief,
+          projectBriefs,
+        });
+        // Solo sans projectBrief structuré : on reconstruit depuis strategyReason.
+        const fallbackBrief: ProjectResearchBrief | null =
+          !briefForTalent && (strategyReason || recommendedAngle)
+            ? {
+                strategyReason: strategyReason || null,
+                recommendedAngle: recommendedAngle || null,
+                targetBrand: brandName,
+              }
+            : null;
+        // Ne bascule en mode projet que si un vrai brief projet a été fourni.
+        const useProjectMode = Boolean(projectBrief || projectBriefs.length > 0);
+        return researchOneTalent({
           brandName,
           strategyReason: strategyReason || undefined,
           recommendedAngle: recommendedAngle || undefined,
+          projectBrief: useProjectMode
+            ? briefForTalent || fallbackBrief
+            : null,
           talent,
-        })
-      )
+        });
+      })
     );
 
     const talents: TalentResearchItem[] = [];
