@@ -1530,6 +1530,8 @@ function MarquesTab({
   const [crm, setCrm] = useState<MarqueHit[]>([]);
   const [crmLoading, setCrmLoading] = useState(false);
   const [filter, setFilter] = useState("");
+  const [searchHits, setSearchHits] = useState<MarqueHit[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [manualBrand, setManualBrand] = useState("");
   const [reason, setReason] = useState("");
   const [angle, setAngle] = useState("");
@@ -1560,6 +1562,7 @@ function MarquesTab({
     [campaign.missions]
   );
 
+  // Catalogue partiel (cap API 2000) pour parcourir sans saisie.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1581,15 +1584,50 @@ function MarquesTab({
     };
   }, []);
 
+  // Dès 2 caractères : vraie recherche serveur (sinon Transavia etc. hors cap 2000).
+  useEffect(() => {
+    const q = filter.trim();
+    if (q.length < 2) {
+      setSearchHits(null);
+      setSearchLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const res = await fetch(
+          `/api/marques/search?q=${encodeURIComponent(q)}`,
+          { credentials: "include" }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) {
+          setSearchHits(Array.isArray(data.marques) ? data.marques : []);
+        }
+      } catch {
+        if (!cancelled) setSearchHits([]);
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [filter]);
+
   const filteredCrm = useMemo(() => {
     const q = filter.trim().toLowerCase();
+    if (q.length >= 2) return searchHits ?? [];
     if (!q) return crm;
     return crm.filter(
       (m) =>
         m.nom.toLowerCase().includes(q) ||
         (m.ville || "").toLowerCase().includes(q)
     );
-  }, [crm, filter]);
+  }, [crm, filter, searchHits]);
+
+  const listLoading = filter.trim().length >= 2 ? searchLoading : crmLoading;
 
   async function postBrand(item: {
     targetBrand: string;
@@ -1985,17 +2023,19 @@ function MarquesTab({
               background: "var(--po-surface)",
             }}
           >
-            {crmLoading ? (
+            {listLoading ? (
               <div
                 className="flex items-center gap-2"
                 style={{ padding: 16, fontSize: 13, color: "var(--po-muted)" }}
               >
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Chargement du CRM…
+                {filter.trim().length >= 2 ? "Recherche…" : "Chargement du CRM…"}
               </div>
             ) : filteredCrm.length === 0 ? (
               <div className="po-empty" style={{ border: "none", padding: 24 }}>
-                {crm.length === 0
+                {filter.trim().length >= 2
+                  ? `Aucune marque pour « ${filter.trim()} ».`
+                  : crm.length === 0
                   ? "Aucune marque dans le CRM."
                   : "Aucun résultat pour ce filtre."}
               </div>
