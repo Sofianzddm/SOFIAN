@@ -97,6 +97,8 @@ export function ContactMissionsClient() {
   const [crm, setCrm] = useState<MarqueHit[]>([]);
   const [crmLoading, setCrmLoading] = useState(false);
   const [crmFilter, setCrmFilter] = useState("");
+  const [searchHits, setSearchHits] = useState<MarqueHit[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [manualBrand, setManualBrand] = useState("");
   const [brandHistory, setBrandHistory] = useState<BrandHistoryHit[]>([]);
   const [recontactDays, setRecontactDays] = useState(20);
@@ -130,13 +132,50 @@ export function ContactMissionsClient() {
 
   const filteredCrm = useMemo(() => {
     const q = crmFilter.trim().toLowerCase();
+    if (q.length >= 2) return searchHits ?? [];
     if (!q) return crm;
     return crm.filter(
       (m) =>
         m.nom.toLowerCase().includes(q) ||
         (m.ville || "").toLowerCase().includes(q)
     );
-  }, [crm, crmFilter]);
+  }, [crm, crmFilter, searchHits]);
+
+  const listLoading = crmFilter.trim().length >= 2 ? searchLoading : crmLoading;
+
+  // Dès 2 caractères : recherche serveur (catalogue local plafonné à 2000).
+  useEffect(() => {
+    const q = crmFilter.trim();
+    if (q.length < 2) {
+      setSearchHits(null);
+      setSearchLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const res = await fetch(
+          `/api/marques/search?q=${encodeURIComponent(q)}`,
+          { credentials: "include" }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) {
+          setSearchHits(
+            Array.isArray(data.marques) ? (data.marques as MarqueHit[]) : []
+          );
+        }
+      } catch {
+        if (!cancelled) setSearchHits([]);
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [crmFilter]);
 
   async function loadTalents() {
     const res = await fetch("/api/talents?presskit=true", { credentials: "include" });
@@ -540,14 +579,16 @@ export function ContactMissionsClient() {
           </div>
 
           <div className="max-h-[360px] overflow-auto rounded-xl border border-gray-200 bg-gray-50">
-            {crmLoading ? (
+            {listLoading ? (
               <div className="flex items-center gap-2 p-4 text-sm text-gray-500">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Chargement du CRM…
+                {crmFilter.trim().length >= 2 ? "Recherche…" : "Chargement du CRM…"}
               </div>
             ) : filteredCrm.length === 0 ? (
               <div className="p-6 text-center text-sm text-gray-500">
-                {crm.length === 0
+                {crmFilter.trim().length >= 2
+                  ? `Aucune marque pour « ${crmFilter.trim()} ».`
+                  : crm.length === 0
                   ? "Aucune marque dans le CRM."
                   : "Aucun résultat pour ce filtre."}
               </div>
