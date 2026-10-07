@@ -12,6 +12,7 @@ import {
 import {
   TALENT_RESEARCH_TOOLS,
   asStr,
+  formatCrmContentPerformanceBlock,
   formatTalentStatsBits,
   loadCrmTalent,
   loadIgBundle,
@@ -110,6 +111,10 @@ function talentCrmBlock(args: {
 - Présentation EN : ${args.talent.presentationEn?.trim() || "—"}
 - Bio CRM : ${args.talent.bio?.trim() || "—"}
 - Collabs / clients connus : ${args.uniqueCollabs.length ? args.uniqueCollabs.join(", ") : "—"}
+
+═══ PERF CONTENU CRM (TOUTES les données saisies — source de vérité interne) ═══
+${formatCrmContentPerformanceBlock(args.talent)}
+Règle : priorise TikToks / Reels / posts / stories qui performent vs la taille du compte. Utilise ces chiffres + la recherche web pour qualifier la dynamique « en ce moment ».
 
 ═══ INSTAGRAM RÉCUPÉRÉ (${args.ig.note}) ═══
 - Nom affiché IG : ${args.ig.fullName || "—"}

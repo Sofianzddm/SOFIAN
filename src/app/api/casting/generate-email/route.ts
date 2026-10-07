@@ -78,9 +78,18 @@ export interface TalentPayload {
   storyViewsMax?: number | null;
   /** Notes TM du dernier mois de perfs (observations profil / momentum) */
   perfNotes?: string | null;
-  /** Évolution abonnés CRM (%) */
+  /** Évolution abonnés / engagement CRM (%) */
   igFollowersEvol?: number | null;
   ttFollowersEvol?: number | null;
+  igEngagementEvol?: number | null;
+  ttEngagementEvol?: number | null;
+  igMoyenneLikes?: number | null;
+  ttMoyenneLikes?: number | null;
+  storyViews30d?: number | null;
+  storyViews7d?: number | null;
+  storyLinkClicks30d?: number | null;
+  moyenneVuesStory?: number | null;
+  moyenneVuesSnap?: number | null;
 }
 
 export interface GenerateEmailBody {
@@ -256,66 +265,93 @@ export async function POST(request: NextRequest) {
           .filter((id) => id.length > 0)
       )
     );
-    const latestPerfByTalentId = new Map<
-      string,
-      {
-        igMoyenneVuesReels: number | null;
-        igMeilleurReelVues: number | null;
-        ttMoyenneVues: number | null;
-        ttMeilleurTiktokVues: number | null;
-        notes: string | null;
-      }
-    >();
-    const storyViewsByTalentId = new Map<string, number>();
-    const evolByTalentId = new Map<
-      string,
-      { igFollowersEvol: number | null; ttFollowersEvol: number | null }
-    >();
+    type CrmSnap = {
+      igMoyenneVuesReels: number | null;
+      igMoyenneLikes: number | null;
+      igMeilleurReelVues: number | null;
+      ttMoyenneVues: number | null;
+      ttMoyenneLikes: number | null;
+      ttMeilleurTiktokVues: number | null;
+      notes: string | null;
+      storyViews30d: number | null;
+      storyViews7d: number | null;
+      storyViewsMax: number | null;
+      storyLinkClicks30d: number | null;
+      moyenneVuesStory: number | null;
+      moyenneVuesSnap: number | null;
+      igFollowersEvol: number | null;
+      ttFollowersEvol: number | null;
+      igEngagementEvol: number | null;
+      ttEngagementEvol: number | null;
+    };
+    const crmSnapByTalentId = new Map<string, CrmSnap>();
     if (talentIds.length > 0) {
       try {
-        const [rows, statsRows] = await Promise.all([
+        const [rows, talentRows] = await Promise.all([
           prisma.talentPerformanceMensuelle.findMany({
             where: { talentId: { in: talentIds } },
             orderBy: [{ annee: "desc" }, { mois: "desc" }],
             select: {
               talentId: true,
               igMoyenneVuesReels: true,
+              igMoyenneLikes: true,
               igMeilleurReelVues: true,
               ttMoyenneVues: true,
+              ttMoyenneLikes: true,
               ttMeilleurTiktokVues: true,
               notes: true,
             },
           }),
-          prisma.talentStats.findMany({
-            where: { talentId: { in: talentIds } },
+          prisma.talent.findMany({
+            where: { id: { in: talentIds } },
             select: {
-              talentId: true,
-              storyViews30d: true,
-              storyViews7d: true,
-              igFollowersEvol: true,
-              ttFollowersEvol: true,
+              id: true,
+              moyenneVuesStory: true,
+              moyenneVuesSnap: true,
+              stats: {
+                select: {
+                  storyViews30d: true,
+                  storyViews7d: true,
+                  storyLinkClicks30d: true,
+                  igFollowersEvol: true,
+                  ttFollowersEvol: true,
+                  igEngagementEvol: true,
+                  ttEngagementEvol: true,
+                },
+              },
             },
           }),
         ]);
+        const latestPerf = new Map<string, (typeof rows)[number]>();
         for (const row of rows) {
-          if (!latestPerfByTalentId.has(row.talentId)) {
-            latestPerfByTalentId.set(row.talentId, {
-              igMoyenneVuesReels: row.igMoyenneVuesReels,
-              igMeilleurReelVues: row.igMeilleurReelVues,
-              ttMoyenneVues: row.ttMoyenneVues,
-              ttMeilleurTiktokVues: row.ttMeilleurTiktokVues,
-              notes: row.notes,
-            });
-          }
+          if (!latestPerf.has(row.talentId)) latestPerf.set(row.talentId, row);
         }
-        for (const s of statsRows) {
-          const peak = Math.max(s.storyViews30d ?? 0, s.storyViews7d ?? 0);
-          if (peak > 0) storyViewsByTalentId.set(s.talentId, peak);
-          evolByTalentId.set(s.talentId, {
+        for (const talent of talentRows) {
+          const perf = latestPerf.get(talent.id);
+          const s = talent.stats;
+          const peak = Math.max(s?.storyViews30d ?? 0, s?.storyViews7d ?? 0);
+          crmSnapByTalentId.set(talent.id, {
+            igMoyenneVuesReels: perf?.igMoyenneVuesReels ?? null,
+            igMoyenneLikes: perf?.igMoyenneLikes ?? null,
+            igMeilleurReelVues: perf?.igMeilleurReelVues ?? null,
+            ttMoyenneVues: perf?.ttMoyenneVues ?? null,
+            ttMoyenneLikes: perf?.ttMoyenneLikes ?? null,
+            ttMeilleurTiktokVues: perf?.ttMeilleurTiktokVues ?? null,
+            notes: perf?.notes ?? null,
+            storyViews30d: s?.storyViews30d ?? null,
+            storyViews7d: s?.storyViews7d ?? null,
+            storyViewsMax: peak > 0 ? peak : null,
+            storyLinkClicks30d: s?.storyLinkClicks30d ?? null,
+            moyenneVuesStory: talent.moyenneVuesStory ?? null,
+            moyenneVuesSnap: talent.moyenneVuesSnap ?? null,
             igFollowersEvol:
-              s.igFollowersEvol != null ? Number(s.igFollowersEvol) : null,
+              s?.igFollowersEvol != null ? Number(s.igFollowersEvol) : null,
             ttFollowersEvol:
-              s.ttFollowersEvol != null ? Number(s.ttFollowersEvol) : null,
+              s?.ttFollowersEvol != null ? Number(s.ttFollowersEvol) : null,
+            igEngagementEvol:
+              s?.igEngagementEvol != null ? Number(s.igEngagementEvol) : null,
+            ttEngagementEvol:
+              s?.ttEngagementEvol != null ? Number(s.ttEngagementEvol) : null,
           });
         }
       } catch (err) {
@@ -324,22 +360,27 @@ export async function POST(request: NextRequest) {
     }
 
     const enrichedTalents: TalentPayload[] = body.talents.map((t) => {
-      const fromDb =
-        typeof t.talentId === "string" ? latestPerfByTalentId.get(t.talentId) : undefined;
-      const storyFromDb =
-        typeof t.talentId === "string" ? storyViewsByTalentId.get(t.talentId) : undefined;
-      const evolFromDb =
-        typeof t.talentId === "string" ? evolByTalentId.get(t.talentId) : undefined;
+      const snap =
+        typeof t.talentId === "string" ? crmSnapByTalentId.get(t.talentId) : undefined;
       return {
         ...t,
-        igMoyenneVuesReels: fromDb?.igMoyenneVuesReels ?? t.igMoyenneVuesReels ?? null,
-        igMeilleurReelVues: fromDb?.igMeilleurReelVues ?? t.igMeilleurReelVues ?? null,
-        ttMoyenneVues: fromDb?.ttMoyenneVues ?? t.ttMoyenneVues ?? null,
-        ttMeilleurTiktokVues: fromDb?.ttMeilleurTiktokVues ?? t.ttMeilleurTiktokVues ?? null,
-        storyViewsMax: storyFromDb ?? t.storyViewsMax ?? null,
-        perfNotes: fromDb?.notes?.trim() || t.perfNotes || null,
-        igFollowersEvol: evolFromDb?.igFollowersEvol ?? t.igFollowersEvol ?? null,
-        ttFollowersEvol: evolFromDb?.ttFollowersEvol ?? t.ttFollowersEvol ?? null,
+        igMoyenneVuesReels: snap?.igMoyenneVuesReels ?? t.igMoyenneVuesReels ?? null,
+        igMoyenneLikes: snap?.igMoyenneLikes ?? t.igMoyenneLikes ?? null,
+        igMeilleurReelVues: snap?.igMeilleurReelVues ?? t.igMeilleurReelVues ?? null,
+        ttMoyenneVues: snap?.ttMoyenneVues ?? t.ttMoyenneVues ?? null,
+        ttMoyenneLikes: snap?.ttMoyenneLikes ?? t.ttMoyenneLikes ?? null,
+        ttMeilleurTiktokVues: snap?.ttMeilleurTiktokVues ?? t.ttMeilleurTiktokVues ?? null,
+        storyViewsMax: snap?.storyViewsMax ?? t.storyViewsMax ?? null,
+        storyViews30d: snap?.storyViews30d ?? t.storyViews30d ?? null,
+        storyViews7d: snap?.storyViews7d ?? t.storyViews7d ?? null,
+        storyLinkClicks30d: snap?.storyLinkClicks30d ?? t.storyLinkClicks30d ?? null,
+        moyenneVuesStory: snap?.moyenneVuesStory ?? t.moyenneVuesStory ?? null,
+        moyenneVuesSnap: snap?.moyenneVuesSnap ?? t.moyenneVuesSnap ?? null,
+        perfNotes: snap?.notes?.trim() || t.perfNotes || null,
+        igFollowersEvol: snap?.igFollowersEvol ?? t.igFollowersEvol ?? null,
+        ttFollowersEvol: snap?.ttFollowersEvol ?? t.ttFollowersEvol ?? null,
+        igEngagementEvol: snap?.igEngagementEvol ?? t.igEngagementEvol ?? null,
+        ttEngagementEvol: snap?.ttEngagementEvol ?? t.ttEngagementEvol ?? null,
       };
     });
     // Remplacer la liste pour le reste du handler (prompt + filets).
@@ -793,14 +834,60 @@ PROJECT PROHIBITIONS (absolute):
           );
         }
         const momentumLabel = momentumParts.length
+          ? ` | MOMENTUM: ${momentumParts.join(" · ")}`
+          : "";
+        const crmContentBits: string[] = [];
+        if (t.ttMeilleurTiktokVues)
+          crmContentBits.push(
+            language === "en"
+              ? `best TT ${formatFollowersCompact(t.ttMeilleurTiktokVues)} views`
+              : `best TT ${formatFollowersCompact(t.ttMeilleurTiktokVues)} vues`
+          );
+        if (t.ttMoyenneVues)
+          crmContentBits.push(
+            language === "en"
+              ? `avg TT ${formatFollowersCompact(t.ttMoyenneVues)}`
+              : `moy. TT ${formatFollowersCompact(t.ttMoyenneVues)}`
+          );
+        if (t.igMeilleurReelVues)
+          crmContentBits.push(
+            language === "en"
+              ? `best Reel ${formatFollowersCompact(t.igMeilleurReelVues)}`
+              : `best Reel ${formatFollowersCompact(t.igMeilleurReelVues)}`
+          );
+        if (t.igMoyenneVuesReels)
+          crmContentBits.push(
+            language === "en"
+              ? `avg Reels ${formatFollowersCompact(t.igMoyenneVuesReels)}`
+              : `moy. Reels ${formatFollowersCompact(t.igMoyenneVuesReels)}`
+          );
+        if (t.storyViewsMax)
+          crmContentBits.push(
+            language === "en"
+              ? `stories peak ${formatFollowersCompact(t.storyViewsMax)}`
+              : `peak stories ${formatFollowersCompact(t.storyViewsMax)}`
+          );
+        if (t.moyenneVuesStory)
+          crmContentBits.push(
+            language === "en"
+              ? `avg story ${formatFollowersCompact(t.moyenneVuesStory)}`
+              : `moy. story ${formatFollowersCompact(t.moyenneVuesStory)}`
+          );
+        if (t.moyenneVuesSnap)
+          crmContentBits.push(
+            language === "en"
+              ? `avg Snap ${formatFollowersCompact(t.moyenneVuesSnap)}`
+              : `moy. Snap ${formatFollowersCompact(t.moyenneVuesSnap)}`
+          );
+        const crmContentLabel = crmContentBits.length
           ? language === "en"
-            ? ` | MOMENTUM: ${momentumParts.join(" · ")}`
-            : ` | MOMENTUM: ${momentumParts.join(" · ")}`
+            ? ` | CRM CONTENT: ${crmContentBits.join(" · ")}`
+            : ` | CONTENU CRM: ${crmContentBits.join(" · ")}`
           : "";
         if (instagramUrl) {
-          return `- <a href='${instagramUrl}'><strong>${t.name}</strong></a> (${stats} – ${t.niche}${eng})${reachLabel}${momentumLabel}${notesLabel}`;
+          return `- <a href='${instagramUrl}'><strong>${t.name}</strong></a> (${stats} – ${t.niche}${eng})${reachLabel}${crmContentLabel}${momentumLabel}${notesLabel}`;
         }
-        return `- <strong>${t.name}</strong> (${stats} – ${t.niche}${eng})${reachLabel}${momentumLabel}${notesLabel}`;
+        return `- <strong>${t.name}</strong> (${stats} – ${t.niche}${eng})${reachLabel}${crmContentLabel}${momentumLabel}${notesLabel}`;
       })
       .join("\n\n");
 
@@ -829,18 +916,18 @@ PROJECT PROHIBITIONS (absolute):
       : "";
     const momentumRuleEn = hasMustReach || hasMomentum || hasPerfNotes
       ? `\nCONTENT HEAT / MOMENTUM (PRIORITY = content, not vanity followers):
-- Prefer signals about CONTENT that is crushing it RIGHT NOW: TikToks, Reels, or posts with exceptional views vs the account size (REACH MUST, research peaks like "up to 10.9M TikTok views", TM notes like "crushing scores on TikTok").
-- You MAY add one short natural clause, e.g. "her TikToks are performing especially well right now", "she's on a strong run with Reels", "her posts are hitting hard lately".
-- Follower growth % (MOMENTUM label) is secondary — only mention if useful, never lead with it when content heat is the real story.
-- Vary wording; never invent; never sell mediocre views as heat.\n`
-      : `\nCONTENT HEAT / MOMENTUM: only if CREATOR RESEARCH clearly shows content crushing it lately (viral TikToks / Reels / posts), you may add one short natural clause. Prefer content performance over follower growth. Never invent.\n`;
+- Use ALL available signals: REACH MUST, CRM CONTENT (best/avg TikTok, Reels, stories, Snap), CREATOR RESEARCH peaks, TM NOTES, follower MOMENTUM.
+- Prioritize what is truly crushing vs account size: especially TikToks, then Reels/posts, then stories.
+- You MAY add one short natural clause, e.g. "her TikToks are performing especially well right now, up to ~10.9M", "she's on a strong run with Reels".
+- Follower growth is secondary. Vary wording; never invent; never sell mediocre views as heat.\n`
+      : `\nCONTENT HEAT / MOMENTUM: if CRM CONTENT / CREATOR RESEARCH shows content crushing it (TikToks / Reels / posts / stories), you may add one short natural clause. Prefer content performance over follower growth. Never invent.\n`;
     const momentumRuleFr = hasMustReach || hasMomentum || hasPerfNotes
       ? `\nPERF CONTENU / MOMENTUM (PRIORITÉ = le contenu, pas les abonnés) :
-- Priorise les signaux de CONTENU qui cartonne EN CE MOMENT : TikToks, Reels ou posts avec des vues exceptionnelles vs la taille du compte (PORTÉE OBLIGATOIRE, pics analyse type « jusqu'à 10,9M vues TikTok », notes TM type « elle pète les scores sur TikTok »).
-- Tu PEUX ajouter une courte proposition naturelle, ex. « ses TikToks performent particulièrement bien en ce moment », « elle est sur une très bonne dynamique Reels », « ses posts cartonnent en ce moment ».
-- La croissance d'abonnés (label MOMENTUM) est secondaire — ne la mets en avant que si utile, jamais devant une vraie perf contenu.
-- Varie la formulation ; n'invente rien ; ne vends pas des vues médiocres comme un waouh.\n`
-      : `\nPERF CONTENU / MOMENTUM : seulement si la RECHERCHE CRÉATEUR montre clairement du contenu qui cartonne en ce moment (TikToks / Reels / posts viraux), tu peux ajouter une courte proposition naturelle. Préfère la perf contenu à la croissance d'abonnés. N'invente rien.\n`;
+- Utilise TOUTES les données dispo : PORTÉE OBLIGATOIRE, CONTENU CRM (best/moy. TikTok, Reels, stories, Snap), RECHERCHE CRÉATEUR (pics web), NOTES TM, MOMENTUM abonnés.
+- Priorise ce qui cartonne vraiment vs la taille du compte : surtout TikToks, puis Reels/posts, puis stories.
+- Tu PEUX ajouter une courte proposition naturelle, ex. « ses TikToks performent particulièrement bien en ce moment, jusqu'à ~10,9M », « elle est sur une très bonne dynamique Reels ».
+- La croissance d'abonnés est secondaire. Varie ; n'invente rien ; ne vends pas des vues médiocres.\n`
+      : `\nPERF CONTENU / MOMENTUM : si CONTENU CRM / RECHERCHE CRÉATEUR montre du contenu qui cartonne (TikToks / Reels / posts / stories), tu peux ajouter une courte proposition naturelle. Préfère la perf contenu à la croissance d'abonnés. N'invente rien.\n`;
 
     const talentResearchList = Array.isArray(body.talentResearch)
       ? body.talentResearch.filter(
