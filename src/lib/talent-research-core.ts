@@ -5,6 +5,7 @@
 import prisma from "@/lib/prisma";
 import { fetchInstagramProfileSnapshot } from "@/lib/instagram-import";
 import { normalizeInstagramHandle } from "@/lib/social-links";
+import { buildTalentPerfReachHighlight } from "@/lib/talent-perf-reach";
 
 export const TALENT_RESEARCH_TOOLS = [
   { type: "web_search" },
@@ -30,6 +31,14 @@ export type CrmTalent = {
   igEngagement: number;
   ttFollowers: number;
   ttEngagement: number;
+  /** Peak stories (TalentStats) */
+  storyViewsMax: number | null;
+  /** Dernier mois de perfs mensuelles */
+  igMoyenneVuesReels: number | null;
+  igMeilleurReelVues: number | null;
+  ttMoyenneVues: number | null;
+  ttMeilleurTiktokVues: number | null;
+  perfNotes: string | null;
 };
 
 export type IgBundle = {
@@ -67,6 +76,19 @@ export async function loadCrmTalent(talentId: string): Promise<CrmTalent | null>
           igEngagement: true,
           ttFollowers: true,
           ttEngagement: true,
+          storyViews30d: true,
+          storyViews7d: true,
+        },
+      },
+      performancesMensuelles: {
+        orderBy: [{ annee: "desc" }, { mois: "desc" }],
+        take: 1,
+        select: {
+          igMoyenneVuesReels: true,
+          igMeilleurReelVues: true,
+          ttMoyenneVues: true,
+          ttMeilleurTiktokVues: true,
+          notes: true,
         },
       },
       collaborations: {
@@ -77,6 +99,11 @@ export async function loadCrmTalent(talentId: string): Promise<CrmTalent | null>
     },
   });
   if (!t) return null;
+  const perf = t.performancesMensuelles[0] ?? null;
+  const storyPeak = Math.max(
+    t.stats?.storyViews30d ?? 0,
+    t.stats?.storyViews7d ?? 0
+  );
   return {
     id: t.id,
     prenom: t.prenom,
@@ -98,6 +125,12 @@ export async function loadCrmTalent(talentId: string): Promise<CrmTalent | null>
     igEngagement: Number(t.stats?.igEngagement || 0),
     ttFollowers: Number(t.stats?.ttFollowers || 0),
     ttEngagement: Number(t.stats?.ttEngagement || 0),
+    storyViewsMax: storyPeak > 0 ? storyPeak : null,
+    igMoyenneVuesReels: perf?.igMoyenneVuesReels ?? null,
+    igMeilleurReelVues: perf?.igMeilleurReelVues ?? null,
+    ttMoyenneVues: perf?.ttMoyenneVues ?? null,
+    ttMeilleurTiktokVues: perf?.ttMeilleurTiktokVues ?? null,
+    perfNotes: perf?.notes?.trim() || null,
   };
 }
 
@@ -160,6 +193,50 @@ export function formatTalentStatsBits(talent: CrmTalent, ig: IgBundle): string {
       ? `followers IG scrapés ${ig.followersCount.toLocaleString("fr-FR")}`
       : null,
   ].filter(Boolean);
+
+  const reach = buildTalentPerfReachHighlight({
+    igMoyenneVuesReels: talent.igMoyenneVuesReels,
+    igMeilleurReelVues: talent.igMeilleurReelVues,
+    ttMoyenneVues: talent.ttMoyenneVues,
+    ttMeilleurTiktokVues: talent.ttMeilleurTiktokVues,
+    storyViewsMax: talent.storyViewsMax,
+  });
+  if (reach) {
+    statsBits.push(
+      `Portée CRM (${reach.priority === "must" ? "forte" : "notable"}) : ${reach.fr}`
+    );
+  } else {
+    // Même hors seuil « vendeur », exposer les chiffres bruts s'ils existent
+    if (talent.ttMeilleurTiktokVues && talent.ttMeilleurTiktokVues > 0) {
+      statsBits.push(
+        `meilleur TikTok ${talent.ttMeilleurTiktokVues.toLocaleString("fr-FR")} vues`
+      );
+    }
+    if (talent.ttMoyenneVues && talent.ttMoyenneVues > 0) {
+      statsBits.push(
+        `moy. TikTok ${talent.ttMoyenneVues.toLocaleString("fr-FR")} vues`
+      );
+    }
+    if (talent.igMeilleurReelVues && talent.igMeilleurReelVues > 0) {
+      statsBits.push(
+        `meilleur Reel ${talent.igMeilleurReelVues.toLocaleString("fr-FR")} vues`
+      );
+    }
+    if (talent.igMoyenneVuesReels && talent.igMoyenneVuesReels > 0) {
+      statsBits.push(
+        `moy. Reels ${talent.igMoyenneVuesReels.toLocaleString("fr-FR")} vues`
+      );
+    }
+    if (talent.storyViewsMax && talent.storyViewsMax > 0) {
+      statsBits.push(
+        `peak stories ${talent.storyViewsMax.toLocaleString("fr-FR")} vues`
+      );
+    }
+  }
+  if (talent.perfNotes) {
+    statsBits.push(`Notes TM : ${talent.perfNotes}`);
+  }
+
   return statsBits.length ? statsBits.join(" · ") : "—";
 }
 
