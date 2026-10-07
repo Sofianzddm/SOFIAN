@@ -827,12 +827,20 @@ PROJECT PROHIBITIONS (absolute):
     const notesRuleFr = hasPerfNotes
       ? `\nNOTES TM (IMPORTANT) : quand un talent a « NOTES TM: … », ce sont des observations internes du talent manager sur le momentum / profil actuel (ex. « elle pète les scores en ce moment », « très viral sur TikTok »). Utilise-les pour renforcer naturellement le pitch — ne les cite PAS mot pour mot comme « notes », n'invente rien au-delà, et reste vendeur (1 courte proposition max).\n`
       : "";
-    const momentumRuleEn = hasMomentum || hasPerfNotes
-      ? `\nMOMENTUM / GROWTH: if a talent has "MOMENTUM: …" (follower growth %) and/or TM NOTES / creator research showing current heat (strong growth, crushing scores, viral lately), you MAY add one short natural clause like "she's currently growing fast" / "particularly strong right now on TikTok" — vary the wording, never invent growth, never quote "% growth" robotically unless useful.\n`
-      : `\nMOMENTUM / GROWTH: only if CREATOR RESEARCH clearly implies current heat (viral lately, exploding on TikTok), you may add one short natural clause. Never invent growth.\n`;
-    const momentumRuleFr = hasMomentum || hasPerfNotes
-      ? `\nMOMENTUM / CROISSANCE : si un talent a « MOMENTUM: … » (évolution abonnés %) et/ou NOTES TM / recherche créateur qui montrent une dynamique actuelle (forte croissance, pète les scores, très viral en ce moment), tu PEUX ajouter une courte proposition naturelle du type « elle est en ce moment en forte croissance » / « particulièrement forte en ce moment sur TikTok » — varie la formulation, n'invente aucune croissance, ne colle pas un « +X % » robotique sauf si utile.\n`
-      : `\nMOMENTUM / CROISSANCE : seulement si la RECHERCHE CRÉATEUR implique clairement une dynamique actuelle (viral en ce moment, explosion TikTok), tu peux ajouter une courte proposition naturelle. N'invente aucune croissance.\n`;
+    const momentumRuleEn = hasMustReach || hasMomentum || hasPerfNotes
+      ? `\nCONTENT HEAT / MOMENTUM (PRIORITY = content, not vanity followers):
+- Prefer signals about CONTENT that is crushing it RIGHT NOW: TikToks, Reels, or posts with exceptional views vs the account size (REACH MUST, research peaks like "up to 10.9M TikTok views", TM notes like "crushing scores on TikTok").
+- You MAY add one short natural clause, e.g. "her TikToks are performing especially well right now", "she's on a strong run with Reels", "her posts are hitting hard lately".
+- Follower growth % (MOMENTUM label) is secondary — only mention if useful, never lead with it when content heat is the real story.
+- Vary wording; never invent; never sell mediocre views as heat.\n`
+      : `\nCONTENT HEAT / MOMENTUM: only if CREATOR RESEARCH clearly shows content crushing it lately (viral TikToks / Reels / posts), you may add one short natural clause. Prefer content performance over follower growth. Never invent.\n`;
+    const momentumRuleFr = hasMustReach || hasMomentum || hasPerfNotes
+      ? `\nPERF CONTENU / MOMENTUM (PRIORITÉ = le contenu, pas les abonnés) :
+- Priorise les signaux de CONTENU qui cartonne EN CE MOMENT : TikToks, Reels ou posts avec des vues exceptionnelles vs la taille du compte (PORTÉE OBLIGATOIRE, pics analyse type « jusqu'à 10,9M vues TikTok », notes TM type « elle pète les scores sur TikTok »).
+- Tu PEUX ajouter une courte proposition naturelle, ex. « ses TikToks performent particulièrement bien en ce moment », « elle est sur une très bonne dynamique Reels », « ses posts cartonnent en ce moment ».
+- La croissance d'abonnés (label MOMENTUM) est secondaire — ne la mets en avant que si utile, jamais devant une vraie perf contenu.
+- Varie la formulation ; n'invente rien ; ne vends pas des vues médiocres comme un waouh.\n`
+      : `\nPERF CONTENU / MOMENTUM : seulement si la RECHERCHE CRÉATEUR montre clairement du contenu qui cartonne en ce moment (TikToks / Reels / posts viraux), tu peux ajouter une courte proposition naturelle. Préfère la perf contenu à la croissance d'abonnés. N'invente rien.\n`;
 
     const talentResearchList = Array.isArray(body.talentResearch)
       ? body.talentResearch.filter(
@@ -862,6 +870,7 @@ ${talentResearchList
   .join("\n\n")}
 CRITICAL: for EACH talent in the email, the reason MUST come from this research (what they actually do + why they fit ${isProjectMail ? `this project with ${brandName}` : brandName}). Forbidden: generic niche labels alone ("lifestyle", "beauty", "fashion") with no concrete explanation.
 VIRAL REACH: if proof points / profile analysis (or REACH MUST) mention a TikTok peak (e.g. 10.9M), you MUST weave it in with "up to …" (e.g. "up to ~10.9M views"). Never lead with a weak Reel (~follower-sized views) when research shows millions on TikTok.
+CONTENT HEAT: if TikToks / Reels / posts are clearly crushing it right now, you may add a short clause like "her TikToks are performing especially well right now" (vary). Prioritize content heat over follower growth.
 `
       : "";
     const talentResearchBlockFr = hasTalentResearch
@@ -880,6 +889,7 @@ ${talentResearchList
   .join("\n\n")}
 CRITIQUE : pour CHAQUE talent dans le mail, la raison DOIT venir de cette recherche (ce qu'il/elle fait vraiment + pourquoi ça colle ${isProjectMail ? `à CE projet auprès de ${brandName}` : `à ${brandName}`}). Interdit : se contenter d'une niche générique (« lifestyle », « beauté », « mode ») sans explication concrète.
 PORTÉE VIRALE : si les preuves / l'analyse (ou PORTÉE OBLIGATOIRE) citent un pic TikTok (ex. 10,9M), tu DOIS l'intégrer avec « jusqu'à … » (ex. « jusqu'à ~10,9M de vues »). Ne mets jamais en avant un Reel faible (~niveau abonnés IG) quand la recherche montre des millions sur TikTok.
+DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce moment, tu peux glisser une courte formule du type « ses TikToks performent particulièrement bien en ce moment » (varie). Priorité au contenu qui cartonne, pas à la croissance d'abonnés.
 `
       : "";
 
