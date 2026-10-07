@@ -287,8 +287,9 @@ export interface CastingComposerProps {
   /** Condensation : plusieurs talents verrouillés pour Grok. */
   lockedTalentIds?: string[] | null;
   /**
-   * Pipeline indiv uniquement : recherche créateur (CRM + IG + web) avant rédaction.
-   * Hors pipeline → comportement casting inchangé (recherche marque seule).
+   * Active le pipeline analyse marque → analyse créateur(s) → rédaction.
+   * Sur projets-outreach (missionBrief), c’est aussi activé automatiquement
+   * avec des prompts adaptés au brief projet.
    */
   enableTalentResearch?: boolean;
   /**
@@ -355,6 +356,9 @@ export default function CastingComposer({
   const isCondensation = Boolean(
     condensationBriefs && condensationBriefs.length >= 2
   );
+  /** Projets-outreach : même UX analyse marque + talent, prompts orientés brief. */
+  const isProjectMode = Boolean(contact?.missionBrief);
+  const effectiveTalentResearch = enableTalentResearch || isProjectMode;
 
   /** Briefs dans le même ordre que les talents verrouillés (talent_1 = projet 1). */
   const orderedCondensationBriefs = useMemo(() => {
@@ -805,6 +809,56 @@ export default function CastingComposer({
     setSendPreviewLoading(false);
   }, []);
 
+  /** Payload brief projet pour les APIs brand/talent-research. */
+  const projectResearchPayload = useMemo(() => {
+    const mb = contact?.missionBrief;
+    if (!mb) return null;
+    if (isCondensation && orderedCondensationBriefs.length >= 2) {
+      return {
+        sharedProject: Boolean(mb.sharedProject),
+        projectBriefs: orderedCondensationBriefs.map((b) => ({
+          talentId: b.talentId || null,
+          projectTitle: b.projectTitle || null,
+          projectDescription: b.projectDescription || null,
+          creatorName: b.creatorName || null,
+          targetBrand: b.targetBrand || mb.targetBrand || null,
+          strategyReason: b.strategyReason || null,
+          recommendedAngle: b.recommendedAngle || null,
+          objective: b.objective || null,
+          deliverables: b.deliverables || null,
+          angles: b.angles || null,
+          timeline: b.timeline || null,
+          budgetRange: b.budgetRange || null,
+          dos: b.dos || null,
+          donts: b.donts || null,
+        })),
+      };
+    }
+    return {
+      projectBrief: {
+        talentId: effectiveLockedTalentIds[0] || null,
+        projectTitle: mb.projectTitle || mb.campaignName || null,
+        projectDescription: mb.projectDescription || null,
+        creatorName: mb.creatorName,
+        targetBrand: mb.targetBrand,
+        strategyReason: mb.strategyReason,
+        recommendedAngle: mb.recommendedAngle || null,
+        objective: mb.objective || null,
+        deliverables: mb.deliverables || null,
+        angles: mb.angles || null,
+        timeline: mb.timeline || null,
+        budgetRange: mb.budgetRange || null,
+        dos: mb.dos || null,
+        donts: mb.donts || null,
+      },
+    };
+  }, [
+    contact?.missionBrief,
+    isCondensation,
+    orderedCondensationBriefs,
+    effectiveLockedTalentIds,
+  ]);
+
   const runBrandResearch = useCallback(async () => {
     if (!researchBrandName.trim()) {
       onError("Nom de marque manquant pour la recherche.");
@@ -816,7 +870,10 @@ export default function CastingComposer({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandName: researchBrandName }),
+        body: JSON.stringify({
+          brandName: researchBrandName,
+          ...(projectResearchPayload || {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -826,16 +883,21 @@ export default function CastingComposer({
       }
       setBrandResearch(data as BrandResearchState);
       // Nouvelle analyse marque → l'ancien fit créateurs n'est plus valide.
-      if (enableTalentResearch) setTalentResearch(null);
+      if (effectiveTalentResearch) setTalentResearch(null);
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
       setIsResearching(false);
     }
-  }, [researchBrandName, onError, enableTalentResearch]);
+  }, [
+    researchBrandName,
+    onError,
+    effectiveTalentResearch,
+    projectResearchPayload,
+  ]);
 
   const runTalentResearch = useCallback(async () => {
-    if (!enableTalentResearch) return;
+    if (!effectiveTalentResearch) return;
     if (!researchBrandName.trim()) {
       onError("Nom de marque manquant pour la recherche.");
       return;
@@ -845,7 +907,7 @@ export default function CastingComposer({
       return;
     }
     const selectedForResearch =
-      effectiveLockedTalentIds.length > 1
+      effectiveLockedTalentIds.length > 0
         ? effectiveLockedTalentIds
             .map((id) => talents.find((t) => t.id === id))
             .filter((t): t is PresskitTalent => Boolean(t))
@@ -866,6 +928,7 @@ export default function CastingComposer({
           talentIds: talentsToResearch.map((t) => t.id),
           strategyReason: contact?.missionBrief?.strategyReason || "",
           recommendedAngle: contact?.missionBrief?.recommendedAngle || "",
+          ...(projectResearchPayload || {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -884,7 +947,7 @@ export default function CastingComposer({
       setIsResearchingTalent(false);
     }
   }, [
-    enableTalentResearch,
+    effectiveTalentResearch,
     researchBrandName,
     brandResearch,
     onError,
@@ -893,6 +956,7 @@ export default function CastingComposer({
     effectiveLockedTalentIds,
     contact?.missionBrief?.strategyReason,
     contact?.missionBrief?.recommendedAngle,
+    projectResearchPayload,
   ]);
   useEffect(() => {
     if (!open) return;
@@ -1008,9 +1072,9 @@ export default function CastingComposer({
 
   // Si on change de talent, l'ancienne analyse créateur n'est plus valide.
   useEffect(() => {
-    if (!enableTalentResearch) return;
+    if (!effectiveTalentResearch) return;
     setTalentResearch(null);
-  }, [selectedTalentKey, enableTalentResearch]);
+  }, [selectedTalentKey, effectiveTalentResearch]);
 
   const runGenerateEmail = useCallback(async () => {
     if (!contact) return;
@@ -1022,7 +1086,7 @@ export default function CastingComposer({
       onError("Sélectionne au moins un talent dans la colonne de gauche.");
       return;
     }
-    if (enableTalentResearch && (!talentResearch || talentResearch.length === 0)) {
+    if (effectiveTalentResearch && (!talentResearch || talentResearch.length === 0)) {
       onError("Analyse ensuite les créateurs sélectionnés, puis rédige.");
       return;
     }
@@ -1037,6 +1101,7 @@ export default function CastingComposer({
               ? t.ttEngagement
               : undefined;
         return {
+          talentId: t.id,
           name: `${t.prenom} ${t.nom}`.trim(),
           niche: (t.niches || []).join(", ") || "—",
           followers,
@@ -1063,7 +1128,7 @@ export default function CastingComposer({
           brandName: researchBrandName || contact.company,
           brandResearch,
           talents: talentsPayload,
-          ...(enableTalentResearch && talentResearch
+          ...(effectiveTalentResearch && talentResearch
             ? { talentResearch }
             : {}),
           // Uniquement si missionBrief (projets-outreach / pipeline talent).
@@ -1149,7 +1214,7 @@ export default function CastingComposer({
     contact,
     brandResearch,
     talentResearch,
-    enableTalentResearch,
+    effectiveTalentResearch,
     selectedTalents,
     selectedRecipientIds,
     emailLanguage,
@@ -2061,7 +2126,8 @@ export default function CastingComposer({
                   brandResearch={brandResearch}
                   onBrandResearch={runBrandResearch}
                   isResearching={isResearching}
-                  enableTalentResearch={enableTalentResearch}
+                  enableTalentResearch={effectiveTalentResearch}
+                  projectResearchMode={isProjectMode}
                   onTalentResearch={runTalentResearch}
                   isResearchingTalent={isResearchingTalent}
                   talentResearch={talentResearch}

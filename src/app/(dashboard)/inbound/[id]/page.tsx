@@ -743,6 +743,7 @@ export default function InboundDetailPage() {
             const followers = Math.max(t.igFollowers || 0, t.ttFollowers || 0);
             const eng = t.igEngagement > 0 ? t.igEngagement : t.ttEngagement > 0 ? t.ttEngagement : undefined;
             return {
+              talentId: t.id,
               name: `${t.prenom} ${t.nom}`.trim(),
               niche: (t.niches || []).join(", ") || "—",
               followers,

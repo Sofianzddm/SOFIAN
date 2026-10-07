@@ -5,6 +5,8 @@ import { getInstagramProfileUrl } from "@/lib/social-links";
 import { upgradeTalentLinksInHtml } from "@/lib/talent-email-links";
 import { plainTextToEmailHtml } from "@/lib/email-body-html";
 import { ensureBrandInSubject } from "@/lib/email-subject";
+import prisma from "@/lib/prisma";
+import { buildTalentPerfReachHighlight } from "@/lib/talent-perf-reach";
 
 export const maxDuration = 120;
 
@@ -62,6 +64,14 @@ export interface TalentPayload {
   ttFollowers?: number;
   engagementRate?: number;
   instagram: string | null;
+  /** Id CRM — permet d'enrichir avec les perfs mensuelles côté serveur */
+  talentId?: string;
+  igMoyenneVuesReels?: number | null;
+  igMeilleurReelVues?: number | null;
+  ttMoyenneVues?: number | null;
+  ttMeilleurTiktokVues?: number | null;
+  /** Peak vues stories (TalentStats.storyViews30d / 7d) */
+  storyViewsMax?: number | null;
 }
 
 export interface GenerateEmailBody {
@@ -228,6 +238,84 @@ export async function POST(request: NextRequest) {
     const talentbookUrl = isBenelux
       ? "https://app.glowupagence.fr/talentbook/be"
       : "https://app.glowupagence.fr/talentbook";
+
+    // Enrichir avec perfs mensuelles (Reels/TikTok) + peak stories (TalentStats).
+    const talentIds = Array.from(
+      new Set(
+        body.talents
+          .map((t) => (typeof t.talentId === "string" ? t.talentId.trim() : ""))
+          .filter((id) => id.length > 0)
+      )
+    );
+    const latestPerfByTalentId = new Map<
+      string,
+      {
+        igMoyenneVuesReels: number | null;
+        igMeilleurReelVues: number | null;
+        ttMoyenneVues: number | null;
+        ttMeilleurTiktokVues: number | null;
+      }
+    >();
+    const storyViewsByTalentId = new Map<string, number>();
+    if (talentIds.length > 0) {
+      try {
+        const [rows, statsRows] = await Promise.all([
+          prisma.talentPerformanceMensuelle.findMany({
+            where: { talentId: { in: talentIds } },
+            orderBy: [{ annee: "desc" }, { mois: "desc" }],
+            select: {
+              talentId: true,
+              igMoyenneVuesReels: true,
+              igMeilleurReelVues: true,
+              ttMoyenneVues: true,
+              ttMeilleurTiktokVues: true,
+            },
+          }),
+          prisma.talentStats.findMany({
+            where: { talentId: { in: talentIds } },
+            select: {
+              talentId: true,
+              storyViews30d: true,
+              storyViews7d: true,
+            },
+          }),
+        ]);
+        for (const row of rows) {
+          if (!latestPerfByTalentId.has(row.talentId)) {
+            latestPerfByTalentId.set(row.talentId, {
+              igMoyenneVuesReels: row.igMoyenneVuesReels,
+              igMeilleurReelVues: row.igMeilleurReelVues,
+              ttMoyenneVues: row.ttMoyenneVues,
+              ttMeilleurTiktokVues: row.ttMeilleurTiktokVues,
+            });
+          }
+        }
+        for (const s of statsRows) {
+          const peak = Math.max(s.storyViews30d ?? 0, s.storyViews7d ?? 0);
+          if (peak > 0) storyViewsByTalentId.set(s.talentId, peak);
+        }
+      } catch (err) {
+        console.error("Enrichissement perfs / stories (generate-email):", err);
+      }
+    }
+
+    const enrichedTalents: TalentPayload[] = body.talents.map((t) => {
+      const fromDb =
+        typeof t.talentId === "string" ? latestPerfByTalentId.get(t.talentId) : undefined;
+      const storyFromDb =
+        typeof t.talentId === "string" ? storyViewsByTalentId.get(t.talentId) : undefined;
+      return {
+        ...t,
+        igMoyenneVuesReels: fromDb?.igMoyenneVuesReels ?? t.igMoyenneVuesReels ?? null,
+        igMeilleurReelVues: fromDb?.igMeilleurReelVues ?? t.igMeilleurReelVues ?? null,
+        ttMoyenneVues: fromDb?.ttMoyenneVues ?? t.ttMoyenneVues ?? null,
+        ttMeilleurTiktokVues: fromDb?.ttMeilleurTiktokVues ?? t.ttMeilleurTiktokVues ?? null,
+        storyViewsMax: storyFromDb ?? t.storyViewsMax ?? null,
+      };
+    });
+    // Remplacer la liste pour le reste du handler (prompt + filets).
+    body.talents = enrichedTalents;
+
     const { newProducts, brandPositioning, influenceStrategy } = body.brandResearch;
     const availabilityFrEu =
       typeof body.brandResearch.availabilityFrEu === "string"
@@ -615,12 +703,28 @@ PROJECT PROHIBITIONS (absolute):
           typeof t.engagementRate === "number" && !Number.isNaN(t.engagementRate)
             ? `, ${t.engagementRate}% engagement`
             : "";
+        const reach = buildTalentPerfReachHighlight(t);
+        const reachLabel = reach
+          ? language === "en"
+            ? ` | REACH ${reach.priority.toUpperCase()}: ${reach.en}`
+            : ` | PORTÉE ${reach.priority === "must" ? "OBLIGATOIRE" : "OPTIONNELLE"}: ${reach.fr}`
+          : "";
         if (instagramUrl) {
-          return `- <a href='${instagramUrl}'><strong>${t.name}</strong></a> (${stats} – ${t.niche}${eng})`;
+          return `- <a href='${instagramUrl}'><strong>${t.name}</strong></a> (${stats} – ${t.niche}${eng})${reachLabel}`;
         }
-        return `- <strong>${t.name}</strong> (${stats} – ${t.niche}${eng})`;
+        return `- <strong>${t.name}</strong> (${stats} – ${t.niche}${eng})${reachLabel}`;
       })
       .join("\n\n");
+
+    const hasMustReach = body.talents.some(
+      (t) => buildTalentPerfReachHighlight(t)?.priority === "must"
+    );
+    const reachRuleEn = hasMustReach
+      ? `\nREACH / VIEWS (MANDATORY when labeled REACH MUST): if a talent has "REACH MUST: …" in Available talents (e.g. best TikTok with millions of views, or story peaks like 193k views), you MUST naturally mention that reach proof in their sentence (e.g. "her TikToks regularly hit millions of views" / "her stories reach up to 193k views"). Do NOT invent view counts. "REACH NICE" may be mentioned briefly if it fits.\n`
+      : `\nREACH / VIEWS: if a talent has "REACH NICE: …" in Available talents, you may briefly mention real view averages / best content / story peaks when it strengthens the pitch. Never invent numbers.\n`;
+    const reachRuleFr = hasMustReach
+      ? `\nPORTÉE / VUES (OBLIGATOIRE si marqué PORTÉE OBLIGATOIRE) : si un talent a « PORTÉE OBLIGATOIRE: … » dans Talents disponibles (ex. meilleur TikTok à plusieurs millions de vues, ou peak stories type 193k vues), tu DOIS mentionner naturellement cette preuve de portée dans sa phrase (ex. « ses TikToks font régulièrement plusieurs millions de vues » / « ses stories montent jusqu'à 193k vues »). N'invente aucun chiffre. « PORTÉE OPTIONNELLE » peut être citée brièvement si ça renforce le pitch.\n`
+      : `\nPORTÉE / VUES : si un talent a « PORTÉE OPTIONNELLE: … » dans Talents disponibles, tu peux citer brièvement les vues moyennes / meilleur contenu / peak stories si ça renforce le pitch. N'invente aucun chiffre.\n`;
 
     const talentResearchList = Array.isArray(body.talentResearch)
       ? body.talentResearch.filter(
@@ -680,12 +784,14 @@ CRITIQUE : pour CHAQUE talent dans le mail, la raison DOIT venir de cette recher
   - FORBIDDEN: inventing a campaign format the brand may not run (e.g. "costume teaser for a series drop", "unboxing", "haul", "GRWM for your launch") unless clearly supported by brand research.
   - Prefer sober fit ("could fit the lifestyle / entertainment creators you already work with") over invented creative briefs.
   - Never invent collabs; no follower counts; no TikTok/Instagram/Category stats block.
+  - Exception: if "REACH MUST" is present for that talent, weave in the real view/reach proof (e.g. millions of TikTok views) in the same sentence — never invent numbers.
   - 1 sentence per talent (max 2), no marketing fluff.
 - A short sentence after the list that simply states what these profiles can bring — without stacking qualities. Keep it factual and vary the wording every time.`
       : `- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "at our agency we have several creators who could be a fit:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, at our agency we have several creators who could be a fit:". Keep it measured and natural, 1-2 sentences max.
 - List the talents in a clear, airy bullet format:
   Firstname Lastname (TikTok followers count - Instagram followers count - Category) -> short reason (10-15 words max), concrete and relevant, not a marketing line
   You MUST include the creator's TikTok followers count as provided in "Available talents" (never omit it when provided), in addition to the Instagram followers count.
+  If "REACH MUST" is present, also mention that reach proof (views) in the same bullet.
 - A short sentence after the list that simply states what these profiles can bring — without stacking qualities. Keep it factual and vary the wording every time (avoid a canned "awareness + credibility + lived-in content" line).`;
 
     const rosterTalentListFr = hasTalentResearch
@@ -699,12 +805,14 @@ CRITIQUE : pour CHAQUE talent dans le mail, la raison DOIT venir de cette recher
   - INTERDIT d'inventer un format de campagne que la marque ne fait pas forcément (ex. « teaser costume pour une sortie de série », « unboxing », « haul », « GRWM pour votre lancement ») sauf si ce format est clairement supporté par la recherche marque.
   - Préférer un fit sobre (« pourrait coller aux profils lifestyle / entertainment avec lesquels vous travaillez déjà ») plutôt qu'un brief créatif inventé.
   - N'invente aucune collab ; pas d'abonnés ; pas de bloc TikTok / Instagram / Catégorie.
+  - Exception : si « PORTÉE OBLIGATOIRE » est présente pour ce talent, intègre la preuve de vues/portée réelle (ex. millions de vues TikTok) dans la même phrase — n'invente aucun chiffre.
   - 1 phrase par talent (2 max), sans bla-bla marketing.
 - Une courte phrase après la liste qui dit, simplement, ce que ces profils peuvent apporter — sans empiler les qualités. Reste factuel et varie la formulation à chaque mail.`
       : `- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reste sobre et naturel, 1 à 2 phrases max.
 - Lister les talents en format clair et aéré avec des tirets :
   Prénom Nom (nombre d’abonnés TikTok – nombre d’abonnés Instagram – Catégorie) → raison courte (10-15 mots max), concrète et pertinente, pas une formule marketing
   Tu DOIS reprendre le nombre d’abonnés TikTok du créateur tel qu’indiqué dans "Talents disponibles" (ne jamais l’omettre quand il est fourni), en plus du nombre d’abonnés Instagram.
+  Si « PORTÉE OBLIGATOIRE » est présente, cite aussi cette preuve de portée (vues) dans le même tiret.
 - Une courte phrase après la liste qui dit, simplement, ce que ces profils peuvent apporter — sans empiler les qualités. Reste factuel et varie la formulation à chaque mail (évite la phrase toute faite type "notoriété + crédibilité + contenu vécu").`;
 
     const beneluxContextEn = isBenelux
@@ -728,6 +836,7 @@ Positioning: ${brandPositioning}
 Current influence strategy of the brand (profile types, formats, tone of their collaborations): ${influenceStrategy || "—"}
 Available talents: ${talentsString} (the variable already contains complete HTML links in the form <a><strong>Firstname Lastname</strong></a>; keep them as-is, do NOT remove the bold or the link)
 ${talentResearchBlockEn}
+${reachRuleEn}
 ${beneluxContextEn}
 ${projectOrCondensationEn}
 ${
@@ -855,6 +964,7 @@ Positionnement : ${brandPositioning}
 Stratégie d'influence actuelle de la marque (types de profils, formats, tonalité de leurs collaborations) : ${influenceStrategy || "—"}
 Talents disponibles : ${talentsString} (la variable contient déjà les liens HTML complets sous la forme <a><strong>Prénom Nom</strong></a> ; conserve-les tels quels, NE retire jamais le gras ni le lien)
 ${talentResearchBlockFr}
+${reachRuleFr}
 ${beneluxContextFr}
 ${projectOrCondensationFr}
 ${
@@ -1005,6 +1115,10 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
             if (ig > 0) statsParts.push(`${formatFollowersCompact(ig)} Insta`);
             if (statsParts.length === 0 && typeof t.followers === "number" && t.followers > 0) {
               statsParts.push(`${formatFollowersCompact(t.followers)} audience`);
+            }
+            const reach = buildTalentPerfReachHighlight(t);
+            if (reach) {
+              statsParts.push(language === "en" ? reach.en : reach.fr);
             }
             const stats = statsParts.join(", ");
             const niche = t.niche || "créateur";

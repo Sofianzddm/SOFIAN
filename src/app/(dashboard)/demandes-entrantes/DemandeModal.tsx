@@ -563,6 +563,7 @@ export default function DemandeModal({
                   ? t.ttEngagement
                   : undefined;
             return {
+              talentId: t.id,
               name: `${t.prenom} ${t.nom}`.trim(),
               niche: (t.niches || []).join(", ") || "—",
               followers,
