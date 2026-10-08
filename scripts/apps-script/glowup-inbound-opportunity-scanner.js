@@ -845,3 +845,45 @@ function stopCatchUpAndRestoreScan() {
   installTrigger();
   Logger.log('🛑 Rattrapage stoppé, scan 5 min rétabli');
 }
+
+/**
+ * Rattrapage one-shot des boîtes nouvellement branchées (email Talent corrigé).
+ * Lancer UNE fois dans Apps Script → Exécuter catchUpFixedMailboxes.
+ * Fenêtre : 21 jours.
+ */
+function catchUpFixedMailboxes() {
+  var emails = [
+    'tatiana@glowupagence.fr',
+    'alix@glowupagence.fr',
+    'marie@glowupagence.fr',
+    'lolydaa@glowupagence.fr',
+  ];
+  var since = Date.now() - 21 * 24 * 60 * 60 * 1000;
+  var prevWindow = CONFIG.scanWindowMinutes;
+  var prevMax = CONFIG.maxMailsPerInbox;
+  CONFIG.scanWindowMinutes = 21 * 24 * 60;
+  CONFIG.maxMailsPerInbox = 120;
+
+  Logger.log('⏪ Rattrapage ciblé 21j — ' + emails.length + ' boîtes depuis ' + new Date(since).toISOString());
+
+  emails.forEach(function (email) {
+    Logger.log('📥 ' + email);
+    try {
+      scanInboxForTalent({
+        email: email,
+        prenom: email.split('@')[0].split('.')[0],
+        nom: email.split('@')[0].split('.')[1] || '',
+      }, since);
+    } catch (e) {
+      if (isUnreachableMailboxError(e)) {
+        Logger.log('⏭️ Skip ' + email + ' : boîte introuvable / inactive');
+      } else {
+        Logger.log('❌ ' + email + ' : ' + e.toString());
+      }
+    }
+  });
+
+  CONFIG.scanWindowMinutes = prevWindow;
+  CONFIG.maxMailsPerInbox = prevMax;
+  Logger.log('✅ Rattrapage ciblé terminé');
+}

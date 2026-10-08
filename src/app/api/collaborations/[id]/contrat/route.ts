@@ -3,6 +3,7 @@ import React from "react";
 import { NextRequest, NextResponse } from "next/server";
 import { render } from "@react-email/render";
 import { Resend } from "resend";
+import { Prisma } from "@prisma/client";
 import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { ContratTalentEmail } from "@/lib/emails/ContratTalent";
@@ -287,7 +288,7 @@ export async function POST(
         contratDocusealTemplateId: null,
         contratFichierUrl: null,
         contratTitre: null,
-        contratSignataires: null,
+        contratSignataires: Prisma.JsonNull,
       },
     });
 

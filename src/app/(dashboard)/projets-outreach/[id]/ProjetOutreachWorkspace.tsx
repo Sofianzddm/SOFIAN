@@ -2921,6 +2921,7 @@ function RedactionTab({
             brandColumn="todo"
             useHubspot={false}
             allowSchedule={false}
+            enableTalentResearch
             lockedTalentId={
               composerContact?.missionBrief?.condensationBriefs &&
               composerContact.missionBrief.condensationBriefs.length >= 2

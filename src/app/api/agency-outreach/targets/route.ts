@@ -186,28 +186,42 @@ export async function POST(request: NextRequest) {
 
       const existing = await prisma.agencyOutreachTarget.findUnique({
         where: { email: contact.email.toLowerCase() },
-        select: { id: true, company: true },
+        select: { id: true, company: true, status: true },
       });
       if (existing) {
+        // Déjà dans le cycle agences : si stoppé, on le réactive ; sinon 409.
+        if (existing.status === "STOPPED") {
+          const updated = await prisma.agencyOutreachTarget.update({
+            where: { id: existing.id },
+            data: {
+              status: "TO_CONTACT",
+              stoppedAt: null,
+              stoppedById: null,
+              partnerId: contact.partnerId,
+              agencyContactId: contact.id,
+              firstname: contact.prenom,
+              lastname: contact.nom,
+              company: contact.partner.name,
+              partnerSlug: contact.partner.slug,
+              language: contact.language === "en" ? "en" : language,
+              market,
+              fromEmail,
+            },
+          });
+          return NextResponse.json({ target: updated, resumed: true }, { status: 200 });
+        }
         return NextResponse.json(
           { error: `Ce contact est déjà suivi (${existing.company}).` },
           { status: 409 }
         );
       }
 
-      // Anti double-prospection : jamais le même email dans deux pipelines.
-      const conflict = await findCrossPipelineConflict(
+      // Présence dans Outreach Clients / Benelux : on ajoute quand même
+      // (choix explicite côté Prospection Agences).
+      const crossConflict = await findCrossPipelineConflict(
         contact.email.toLowerCase(),
         "agency"
       );
-      if (conflict) {
-        return NextResponse.json(
-          {
-            error: `Ce contact est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
-          },
-          { status: 409 }
-        );
-      }
 
       const target = await prisma.agencyOutreachTarget.create({
         data: {
@@ -224,7 +238,17 @@ export async function POST(request: NextRequest) {
           createdById: session.user.id,
         },
       });
-      return NextResponse.json({ target }, { status: 201 });
+      return NextResponse.json(
+        {
+          target,
+          ...(crossConflict
+            ? {
+                warning: `Aussi suivi dans ${crossConflict.label} (${crossConflict.company}) — ajouté quand même.`,
+              }
+            : {}),
+        },
+        { status: 201 }
+      );
     }
 
     // Mode 2 : création d'un contact agence + ajout au cycle.
@@ -271,25 +295,56 @@ export async function POST(request: NextRequest) {
 
     const existing = await prisma.agencyOutreachTarget.findUnique({
       where: { email },
-      select: { id: true, company: true },
+      select: { id: true, company: true, status: true },
     });
     if (existing) {
+      if (existing.status === "STOPPED") {
+        // Crée/maj le contact agence puis réactive la cible.
+        const contact = await prisma.agencyContact.upsert({
+          where: { partnerId_email: { partnerId: partner.id, email } },
+          update: {
+            prenom,
+            nom: nom || null,
+            poste: poste || null,
+            language,
+          },
+          create: {
+            partnerId: partner.id,
+            prenom,
+            nom: nom || null,
+            email,
+            poste: poste || null,
+            language,
+            createdById: session.user.id,
+          },
+        });
+        const updated = await prisma.agencyOutreachTarget.update({
+          where: { id: existing.id },
+          data: {
+            status: "TO_CONTACT",
+            stoppedAt: null,
+            stoppedById: null,
+            partnerId: partner.id,
+            agencyContactId: contact.id,
+            firstname: prenom,
+            lastname: nom || null,
+            company: partner.name,
+            partnerSlug: partner.slug,
+            language,
+            market,
+            fromEmail,
+          },
+        });
+        return NextResponse.json({ target: updated, resumed: true }, { status: 200 });
+      }
       return NextResponse.json(
         { error: `Ce contact est déjà suivi (${existing.company}).` },
         { status: 409 }
       );
     }
 
-    // Anti double-prospection : jamais le même email dans deux pipelines.
-    const conflict = await findCrossPipelineConflict(email, "agency");
-    if (conflict) {
-      return NextResponse.json(
-        {
-          error: `Ce contact est déjà suivi dans le module ${conflict.label} (${conflict.company}).`,
-        },
-        { status: 409 }
-      );
-    }
+    // Présence dans Outreach Clients / Benelux : on ajoute quand même.
+    const crossConflict = await findCrossPipelineConflict(email, "agency");
 
     // Crée (ou récupère) le contact agence, dédoublonné par (partnerId, email).
     const contact = await prisma.agencyContact.upsert({
@@ -327,7 +382,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ target }, { status: 201 });
+    return NextResponse.json(
+      {
+        target,
+        ...(crossConflict
+          ? {
+              warning: `Aussi suivi dans ${crossConflict.label} (${crossConflict.company}) — ajouté quand même.`,
+            }
+          : {}),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("POST /api/agency-outreach/targets:", error);
     return NextResponse.json(
