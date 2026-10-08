@@ -39,6 +39,8 @@ import {
   FileSignature,
   RefreshCw,
   Languages,
+  UserRound,
+  UserMinus,
 } from "lucide-react";
 import { MentionTextarea, renderCommentWithMentions, type MentionableUser } from "@/components/MentionTextarea";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
@@ -123,8 +125,14 @@ interface CollabDetail {
   contratMarqueSigneAt?: string | null;
   contratMarqueMode?: string | null;
   accountManagerId?: string | null;
+  dateAssignationAM?: string | null;
   isPrivate?: boolean;
-  accountManager?: { role?: string | null } | null;
+  accountManager?: {
+    id?: string;
+    prenom?: string | null;
+    nom?: string | null;
+    role?: string | null;
+  } | null;
   contactKind?: string | null;
   contactAgence?: string | null;
   nomMarqueVerifieAt?: string | null;
@@ -388,6 +396,11 @@ export default function CollabDetailPage() {
   const [nomMarqueDraft, setNomMarqueDraft] = useState("");
   const [nomMarqueConfirm, setNomMarqueConfirm] = useState("");
   const [savingNomMarque, setSavingNomMarque] = useState(false);
+  const [accountManagers, setAccountManagers] = useState<
+    Array<{ id: string; prenom: string; nom: string; email: string }>
+  >([]);
+  const [selectedAmId, setSelectedAmId] = useState("");
+  const [assigningAm, setAssigningAm] = useState(false);
 
   useEffect(() => { if (params.id) fetchCollab(); }, [params.id]);
 
@@ -437,6 +450,36 @@ export default function CollabDetailPage() {
     };
     if (params.id) fetchMentionable();
   }, [params.id]);
+
+  useEffect(() => {
+    const canFetchAm =
+      effectiveRole === "ADMIN" || effectiveRole === "HEAD_OF_SALES";
+    if (!canFetchAm) return;
+    const fetchAms = async () => {
+      try {
+        const r = await fetch("/api/users?role=CM");
+        if (!r.ok) return;
+        const data = await r.json();
+        if (Array.isArray(data)) {
+          setAccountManagers(
+            data.map((u: { id: string; prenom: string; nom: string; email: string }) => ({
+              id: u.id,
+              prenom: u.prenom,
+              nom: u.nom,
+              email: u.email,
+            }))
+          );
+        }
+      } catch {
+        // ignore
+      }
+    };
+    fetchAms();
+  }, [effectiveRole]);
+
+  useEffect(() => {
+    setSelectedAmId(collab?.accountManagerId || "");
+  }, [collab?.accountManagerId]);
 
   const pendingSignatureDocs = (collab?.documents || []).filter(
     (d) => d.type === "DEVIS" && d.signatureStatus === "PENDING"
@@ -602,6 +645,51 @@ export default function CollabDetailPage() {
       }
     } finally {
       setSavingCollabDate(false);
+    }
+  };
+
+  const assignAccountManager = async () => {
+    if (!collab?.id || !selectedAmId) return;
+    setAssigningAm(true);
+    try {
+      const res = await fetch(`/api/collaborations/${collab.id}/assigner-am`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountManagerId: selectedAmId }),
+      });
+      if (res.ok) {
+        await fetchCollab();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "Impossible d'assigner l'Account Manager");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l'assignation");
+    } finally {
+      setAssigningAm(false);
+    }
+  };
+
+  const removeAccountManager = async () => {
+    if (!collab?.id || !collab.accountManagerId) return;
+    if (!confirm("Retirer l'Account Manager de cette collaboration ?")) return;
+    setAssigningAm(true);
+    try {
+      const res = await fetch(`/api/collaborations/${collab.id}/assigner-am`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        await fetchCollab();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "Impossible de retirer l'Account Manager");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors du retrait");
+    } finally {
+      setAssigningAm(false);
     }
   };
 
@@ -1270,6 +1358,7 @@ export default function CollabDetailPage() {
   const canSeeContratBloc = ["ADMIN", "TM", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const canGenerateContrat = !isViewOnly && ["ADMIN", "TM"].includes(roleForUi);
   const canEditCollabDate = !isViewOnly && (roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES" || roleForUi === "CM");
+  const canAssignAm = !isViewOnly && (roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES");
   const canCorrigerMarque = !isViewOnly && ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(roleForUi);
   const contactAgenceAffiche = (
     collab.contactAgence ||
@@ -2522,6 +2611,83 @@ export default function CollabDetailPage() {
                       </button>
                     )}
                   </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Account Manager — assignation Sales / Admin */}
+          {(canAssignAm || collab.accountManager) && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden border-l-4 border-l-violet-400/50">
+              <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-violet-50/50 to-white">
+                <h3 className="font-semibold text-glowup-licorice text-sm uppercase tracking-wider flex items-center gap-2">
+                  <UserRound className="w-4 h-4 text-violet-600" />
+                  Account Manager
+                </h3>
+              </div>
+              <div className="p-4 space-y-3">
+                {collab.accountManager ? (
+                  <div>
+                    <p className="font-semibold text-glowup-licorice">
+                      {collab.accountManager.prenom} {collab.accountManager.nom}
+                    </p>
+                    {collab.dateAssignationAM && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Assigné le{" "}
+                        {new Date(collab.dateAssignationAM).toLocaleDateString("fr-FR")}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                    Aucun Account Manager assigné — il ne verra pas cette collab.
+                  </p>
+                )}
+
+                {canAssignAm && (
+                  <div className="space-y-2 pt-1">
+                    <select
+                      value={selectedAmId}
+                      onChange={(e) => setSelectedAmId(e.target.value)}
+                      disabled={assigningAm}
+                      className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-glowup-licorice bg-white focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-300 disabled:opacity-50"
+                    >
+                      <option value="">Choisir un AM…</option>
+                      {accountManagers.map((am) => (
+                        <option key={am.id} value={am.id}>
+                          {am.prenom} {am.nom}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={assignAccountManager}
+                      disabled={
+                        assigningAm ||
+                        !selectedAmId ||
+                        selectedAmId === collab.accountManagerId
+                      }
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 text-white rounded-xl text-sm font-semibold hover:bg-violet-700 transition-colors disabled:opacity-50"
+                    >
+                      {assigningAm ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <UserRound className="w-4 h-4" />
+                      )}
+                      {collab.accountManagerId ? "Changer l'AM" : "Assigner l'AM"}
+                    </button>
+                    {collab.accountManagerId && (
+                      <button
+                        type="button"
+                        onClick={removeAccountManager}
+                        disabled={assigningAm}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
+                      >
+                        <UserMinus className="w-4 h-4" />
+                        Retirer l'AM
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
