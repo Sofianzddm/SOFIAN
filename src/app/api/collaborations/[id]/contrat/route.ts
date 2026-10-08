@@ -283,6 +283,11 @@ export async function POST(
         contratEnvoyeAt: sentAt,
         contratTalentSigneAt: null,
         contratSigneAt: null,
+        // Reset du flux upload libre (template DocuSeal classique = Talent + Agence)
+        contratDocusealTemplateId: null,
+        contratFichierUrl: null,
+        contratTitre: null,
+        contratSignataires: null,
       },
     });
 

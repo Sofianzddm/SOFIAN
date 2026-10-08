@@ -45,6 +45,7 @@ import {
 import { MentionTextarea, renderCommentWithMentions, type MentionableUser } from "@/components/MentionTextarea";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
 import ContratMarqueBloc from "@/components/collaboration/ContratMarqueBloc";
+import ContratUploadModal from "@/components/collaboration/ContratUploadModal";
 import DelegationBanner from "@/components/delegation/DelegationBanner";
 import { DEVISES, formatMontant, type DeviseCode } from "@/lib/devises";
 
@@ -118,6 +119,10 @@ interface CollabDetail {
   contratEnvoyeAt?: string | null;
   contratTalentSigneAt?: string | null;
   contratSigneAt?: string | null;
+  contratDocusealTemplateId?: number | null;
+  contratFichierUrl?: string | null;
+  contratTitre?: string | null;
+  contratSignataires?: Array<{ name?: string; email?: string; role?: string }> | null;
   contratMarquePdfUrl?: string | null;
   contratMarqueStatut?: string | null;
   contratMarqueEnvoyeJuristeAt?: string | null;
@@ -380,6 +385,7 @@ export default function CollabDetailPage() {
   const [effectiveUserName, setEffectiveUserName] = useState<string | null>(null);
   const [contratSending, setContratSending] = useState(false);
   const [showContratPreviewModal, setShowContratPreviewModal] = useState(false);
+  const [showContratUploadModal, setShowContratUploadModal] = useState(false);
   const [contratPreviewForm, setContratPreviewForm] = useState({
     talent_nom: "",
     societe_nom: "",
@@ -2274,20 +2280,72 @@ export default function CollabDetailPage() {
                   const talentSigneLabel = formatContratDateFr(collab.contratTalentSigneAt);
                   const signeCompletLabel = formatContratDateFr(collab.contratSigneAt);
 
+                  if (statut === "BROUILLON" && collab.contratDocusealTemplateId) {
+                    return (
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-sm font-medium text-glowup-licorice">
+                            {collab.contratTitre || "Contrat uploadé"} — brouillon
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Placez les champs de signature puis envoyez aux destinataires.
+                          </p>
+                        </div>
+                        {canGenerateContrat ? (
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                router.push(`/collaborations/${collab.id}/contrat/builder`)
+                              }
+                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                            >
+                              <FileSignature className="w-4 h-4" />
+                              Continuer : placer les champs
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowContratUploadModal(true)}
+                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            >
+                              <Upload className="w-4 h-4" />
+                              Remplacer le PDF
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500">
+                            L&apos;envoi du contrat est réservé aux TM et administrateurs.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+
                   if (statut === "NON_ENVOYE") {
                     return (
                       <div className="space-y-4">
                         <p className="text-sm text-gray-500">Aucun contrat envoyé pour le moment.</p>
                         {canGenerateContrat ? (
-                          <button
-                            type="button"
-                            onClick={openContratPreviewModal}
-                            disabled={contratSending}
-                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                          >
-                            <FileText className="w-4 h-4" />
-                            Générer le contrat
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={openContratPreviewModal}
+                              disabled={contratSending}
+                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                            >
+                              <FileText className="w-4 h-4" />
+                              Générer le contrat
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowContratUploadModal(true)}
+                              disabled={contratSending}
+                              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-medium hover:bg-indigo-100 disabled:opacity-50"
+                            >
+                              <Upload className="w-4 h-4" />
+                              Uploader un contrat
+                            </button>
+                          </div>
                         ) : (
                           <p className="text-sm text-gray-500">
                             L&apos;envoi du contrat est réservé aux TM et administrateurs.
@@ -2334,14 +2392,24 @@ export default function CollabDetailPage() {
                           </div>
                         </div>
                         {canGenerateContrat && (
-                          <button
-                            type="button"
-                            onClick={openContratPreviewModal}
-                            disabled={contratSending}
-                            className="text-xs font-medium text-gray-500 hover:text-glowup-licorice transition-colors disabled:opacity-50"
-                          >
-                            Renvoyer le lien
-                          </button>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={openContratPreviewModal}
+                              disabled={contratSending}
+                              className="text-xs font-medium text-gray-500 hover:text-glowup-licorice transition-colors disabled:opacity-50"
+                            >
+                              Renvoyer le lien
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowContratUploadModal(true)}
+                              disabled={contratSending}
+                              className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors disabled:opacity-50"
+                            >
+                              Uploader un autre contrat
+                            </button>
+                          </div>
                         )}
                       </div>
                     );
@@ -2395,14 +2463,24 @@ export default function CollabDetailPage() {
                           </a>
                         )}
                         {canGenerateContrat && (
-                          <button
-                            type="button"
-                            onClick={openContratPreviewModal}
-                            disabled={contratSending}
-                            className="block text-xs font-medium text-gray-500 hover:text-glowup-licorice transition-colors disabled:opacity-50"
-                          >
-                            Renvoyer le lien
-                          </button>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={openContratPreviewModal}
+                              disabled={contratSending}
+                              className="text-xs font-medium text-gray-500 hover:text-glowup-licorice transition-colors disabled:opacity-50"
+                            >
+                              Renvoyer le lien
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowContratUploadModal(true)}
+                              disabled={contratSending}
+                              className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors disabled:opacity-50"
+                            >
+                              Uploader un autre contrat
+                            </button>
+                          </div>
                         )}
                       </div>
                     );
@@ -2872,6 +2950,28 @@ export default function CollabDetailPage() {
             </div>
           </div>
         </div>
+      )}
+      {showContratUploadModal && collab && (
+        <ContratUploadModal
+          key={`${collab.id}-upload-${collab.talent.email}`}
+          collaborationId={collab.id}
+          open={showContratUploadModal}
+          onClose={() => setShowContratUploadModal(false)}
+          defaultTitre={
+            collab.contratTitre ||
+            `Contrat ${collab.talent.prenom} ${collab.talent.nom} x ${collab.marque.nom}`
+          }
+          defaultSignataires={[
+            {
+              name: `${collab.talent.prenom} ${collab.talent.nom}`.trim(),
+              email: collab.talent.email || "",
+            },
+            {
+              name: "Glow Up Agence",
+              email: "contrat@glowupagence.fr",
+            },
+          ]}
+        />
       )}
       {showContratPreviewModal && collab && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">

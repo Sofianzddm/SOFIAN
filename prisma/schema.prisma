@@ -1510,6 +1510,12 @@ model Collaboration {
   contratEnvoyeAt      DateTime?
   contratTalentSigneAt DateTime?
   contratSigneAt       DateTime?
+  // Upload PDF libre (même pipeline DocuSeal que les contrats fiche talent)
+  contratDocusealTemplateId Int?
+  contratFichierUrl         String?
+  contratTitre              String?
+  // [{ name, email, role }] — signataires pour l'upload libre
+  contratSignataires        Json?
 
   contratMarquePdfUrl                   String?
   contratMarqueStatut                   String    @default("AUCUN")

@@ -233,13 +233,27 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
           const hasCompletedAt = !!(s.completed_at && String(s.completed_at).trim());
           return hasCompletedAt || s.status === "completed";
         }).length;
+        // Upload libre : N signataires stockés ; template classique = 2 (Talent + Agence)
+        const storedSigners = Array.isArray(collabContrat.contratSignataires)
+          ? collabContrat.contratSignataires.length
+          : 0;
+        const totalSignataires =
+          storedSigners > 0
+            ? storedSigners
+            : submitters.length > 0
+              ? submitters.length
+              : 2;
         const current = collabContrat.contratStatut;
         let nextStatut = current;
-        if (completedCount >= 2) nextStatut = "SIGNE";
-        else if (completedCount === 1) nextStatut = "EN_ATTENTE_AGENCE";
-        else {
-          if (current === "EN_ATTENTE_TALENT") nextStatut = "EN_ATTENTE_AGENCE";
-          else if (current === "EN_ATTENTE_AGENCE") nextStatut = "SIGNE";
+        if (completedCount >= totalSignataires) nextStatut = "SIGNE";
+        else if (completedCount >= 1) {
+          nextStatut =
+            totalSignataires <= 1 ? "SIGNE" : "EN_ATTENTE_AGENCE";
+        } else {
+          if (current === "EN_ATTENTE_TALENT") {
+            nextStatut =
+              totalSignataires <= 1 ? "SIGNE" : "EN_ATTENTE_AGENCE";
+          } else if (current === "EN_ATTENTE_AGENCE") nextStatut = "SIGNE";
         }
         const now = new Date();
         await prisma.collaboration.update({
