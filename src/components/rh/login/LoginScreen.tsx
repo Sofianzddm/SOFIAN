@@ -515,14 +515,6 @@ export function LoginScreen() {
               >
                 Renvoyer le code
               </button>
-              <button
-                type="button"
-                className="border-0 bg-transparent cursor-pointer text-[12.5px]"
-                style={{ color: "#5F6978" }}
-                onClick={() => window.location.assign("/rh/espace")}
-              >
-                Continuer vers mon espace salarié →
-              </button>
             </div>
           )}
 
