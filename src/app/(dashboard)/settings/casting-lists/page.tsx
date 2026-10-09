@@ -244,7 +244,46 @@ export default function CastingListsSettingsPage() {
           </p>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="md:hidden divide-y" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 18%, transparent)` }}>
+          {rows.map((l) => {
+            const busy = savingId === l.id;
+            return (
+              <article key={l.id} className="px-4 py-4 space-y-3">
+                <div className="min-w-0">
+                  <p className="font-medium" style={{ color: LICORICE }}>{l.name}</p>
+                  <p className="text-xs opacity-60 mt-0.5" style={{ color: LICORICE }}>{l.id}</p>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm" style={{ color: LICORICE }}>
+                    {l.contactCount != null ? `${l.contactCount} contact${l.contactCount > 1 ? "s" : ""}` : "—"}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void toggle(l.id, l.name, !l.isActive)}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-colors disabled:opacity-50"
+                    style={{
+                      borderColor: l.isActive ? TEA_GREEN : `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`,
+                      backgroundColor: l.isActive ? "rgba(200, 242, 133, 0.18)" : "white",
+                      color: LICORICE,
+                    }}
+                    title={l.isActive ? "Désactiver" : "Activer"}
+                  >
+                    {busy && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <span className="text-xs font-medium">{l.isActive ? "Actif" : "Inactif"}</span>
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+          {rows.length === 0 && (
+            <div className="px-5 py-10 text-center text-sm opacity-70" style={{ color: OLD_ROSE }}>
+              Aucune liste chargée.
+            </div>
+          )}
+        </div>
+
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left" style={{ color: OLD_ROSE }}>

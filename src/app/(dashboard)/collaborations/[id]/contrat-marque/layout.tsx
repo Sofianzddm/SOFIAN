@@ -8,7 +8,7 @@ export default function ContratMarqueReviewLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed bottom-0 left-64 right-0 top-16 z-20 flex min-h-0 flex-col overflow-y-auto bg-[#fafafa]">
+    <div className="fixed inset-0 top-16 z-20 flex min-h-0 flex-col overflow-y-auto bg-[#fafafa] lg:inset-auto lg:bottom-0 lg:left-64 lg:right-0">
       {children}
     </div>
   );

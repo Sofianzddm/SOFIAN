@@ -120,7 +120,7 @@ export default function AdminPage() {
             <input className="input" value={selected.title} onChange={(e) => setSelected({ ...selected, title: e.target.value })} />
             <textarea className="input min-h-24" value={selected.description} onChange={(e) => setSelected({ ...selected, description: e.target.value })} />
             <textarea className="input min-h-20" value={selected.autonomyRule} onChange={(e) => setSelected({ ...selected, autonomyRule: e.target.value })} />
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <select className="input" value={selected.ownerRole} onChange={(e) => setSelected({ ...selected, ownerRole: e.target.value })}>
                 {DC_ROLES.map((r) => <option key={r} value={r}>{DC_ROLE_LABELS[r]}</option>)}
               </select>

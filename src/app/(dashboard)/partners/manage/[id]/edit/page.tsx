@@ -274,7 +274,7 @@ export default function EditPartnerPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto">
       <Link href={`/partners/manage/${params.id}`} className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6">
         <ArrowLeft className="w-4 h-4" />
         Retour au détail
@@ -393,7 +393,7 @@ export default function EditPartnerPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Nom du contact</label>
             <input
@@ -477,7 +477,7 @@ export default function EditPartnerPage() {
             Sélectionner les talents ({selectedTalents.length} sélectionnés)
           </label>
           <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {talents.map((talent) => {
                 const isSelected = selectedTalents.includes(talent.id);
                 return (
@@ -764,7 +764,7 @@ function TalentTarifForm({
 
   return (
     <div className="p-6 bg-gray-50 border-t">
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 gap-3 mb-6 sm:grid-cols-3">
         {tarifFields.map((field) => {
           const value = localOverrides[field.key];
           const defaultValue = defaultTarifs[field.key];

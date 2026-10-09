@@ -1227,8 +1227,8 @@ export default function FactureDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-6">
           {/* Colonne gauche */}
           <div className="space-y-6">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <p className="text-xs text-gray-500 uppercase font-medium mb-0.5">Date d&apos;émission</p>
                   <p className="font-semibold text-[#1A1110] flex items-center gap-1.5">
@@ -1646,7 +1646,7 @@ export default function FactureDetailPage() {
           )}
 
           {/* Conditions particulières */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
             <h2 className="text-lg font-semibold text-[#1A1110] mb-4">Conditions particulières</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>

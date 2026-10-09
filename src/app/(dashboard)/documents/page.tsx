@@ -343,7 +343,73 @@ export default function DocumentsPage() {
             </p>
           </div>
         ) : (
-          <table className="w-full">
+          <>
+          <div className="md:hidden space-y-3 p-4">
+            {sortedDocs.map((doc) => {
+              const typeConfig = TYPE_CONFIG[doc.type];
+              const statutConfig = STATUT_CONFIG[doc.statut] || STATUT_CONFIG.BROUILLON;
+              const isAnnule = doc.statut === "ANNULE";
+              const TypeIcon = typeConfig.icon;
+              return (
+                <div
+                  key={doc.id}
+                  className={`rounded-xl border border-gray-200 bg-white p-4 ${isAnnule ? "opacity-50" : ""}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className={`font-mono text-sm font-medium ${isAnnule ? "line-through text-gray-400" : "text-glowup-licorice"}`}>
+                        {doc.reference}
+                      </span>
+                      {doc.collaboration && (
+                        <p className="mt-1 text-sm font-medium text-glowup-licorice truncate">
+                          {doc.collaboration.marque.nom}
+                        </p>
+                      )}
+                      {doc.collaboration && (
+                        <p className="text-xs text-gray-500 truncate">
+                          {doc.collaboration.talent.prenom} {doc.collaboration.talent.nom}
+                        </p>
+                      )}
+                    </div>
+                    <span className={`shrink-0 text-xs font-medium px-2 py-1 rounded-lg ${statutConfig.color}`}>
+                      {statutConfig.label}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border ${typeConfig.color}`}>
+                      <TypeIcon className="w-3 h-3" />
+                      {typeConfig.label}
+                    </span>
+                    <span className="text-gray-500 text-xs">{formatDate(doc.createdAt)}</span>
+                    <span className={`ml-auto font-semibold ${doc.type === "AVOIR" ? "text-orange-600" : "text-glowup-licorice"}`}>
+                      {doc.type === "AVOIR" ? "-" : ""}{formatMoney(doc.montantHT)}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3">
+                    {doc.collaboration && (
+                      <Link
+                        href={`/collaborations/${doc.collaboration.id}`}
+                        className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-glowup-licorice bg-gray-50 rounded-lg"
+                      >
+                        <Eye className="w-4 h-4" />
+                        Collab
+                      </Link>
+                    )}
+                    <a
+                      href={`/api/documents/${doc.id}/pdf`}
+                      target="_blank"
+                      className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-glowup-rose bg-glowup-lace rounded-lg"
+                    >
+                      <Download className="w-4 h-4" />
+                      PDF
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="px-6 py-4 text-left">
@@ -490,6 +556,8 @@ export default function DocumentsPage() {
               })}
             </tbody>
           </table>
+          </div>
+          </>
         )}
       </div>
 

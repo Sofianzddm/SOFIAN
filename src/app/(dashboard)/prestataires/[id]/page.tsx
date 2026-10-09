@@ -280,7 +280,7 @@ export default function PrestataireDetailPage() {
 
   if (!p) {
     return (
-      <div className="p-8 text-sm text-red-600" style={{ backgroundColor: "#FAF9F7" }}>
+      <div className="p-4 sm:p-8 text-sm text-red-600" style={{ backgroundColor: "#FAF9F7" }}>
         {error || "Fiche introuvable."}
       </div>
     );
@@ -1054,7 +1054,7 @@ function AddToProjectBlock({
       <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">
         Ajouter au projet
         <select
-          className="mt-1.5 block min-w-[240px] rounded-lg border-0 bg-[#FAF9F7] px-3 py-2 text-[13px] font-medium ring-1 ring-black/[0.06] outline-none"
+          className="mt-1.5 block w-full min-w-0 sm:min-w-[240px] rounded-lg border-0 bg-[#FAF9F7] px-3 py-2 text-[13px] font-medium ring-1 ring-black/[0.06] outline-none"
           style={{ color: INK }}
           value={campaignId}
           onChange={(e) => setCampaignId(e.target.value)}

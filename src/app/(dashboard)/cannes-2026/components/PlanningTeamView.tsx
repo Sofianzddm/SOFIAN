@@ -507,6 +507,7 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
   const [plannerPickPresenceId, setPlannerPickPresenceId] = useState<string | null>(null);
   const festivalWeeks = useMemo(() => getCannesFestivalMondayWeeks(), []);
   const [officialWeekIndex, setOfficialWeekIndex] = useState(0);
+  const [officialMobileDayKey, setOfficialMobileDayKey] = useState<string | null>(null);
   const [officialHiddenByDay, setOfficialHiddenByDay] = useState<Record<string, true>>({});
   const [officialStateHydrated, setOfficialStateHydrated] = useState(false);
 
@@ -643,6 +644,15 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
     const weekStart = festivalWeeks[officialWeekIndex] ?? festivalWeeks[0];
     return weekStart ? eachUtcDayFromMonday(weekStart) : [];
   }, [festivalWeeks, officialWeekIndex]);
+
+  useEffect(() => {
+    if (officialWeekDays.length === 0) {
+      setOfficialMobileDayKey(null);
+      return;
+    }
+    const keys = officialWeekDays.map((d) => utcDayKey(d));
+    setOfficialMobileDayKey((prev) => (prev && keys.includes(prev) ? prev : keys[0]!));
+  }, [officialWeekDays]);
 
   const toggleOfficialPerson = useCallback((presenceId: string, dayKey: string) => {
     const key = `${presenceId}:${dayKey}`;
@@ -957,8 +967,8 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
               le PDF (les talents ne sont pas pris en compte ici).
             </p>
           </div>
-          <div className="grid gap-2 md:grid-cols-7">
-            {officialWeekDays.map((day) => {
+          {(() => {
+            const renderOfficialDay = (day: Date, opts?: { compactHeader?: boolean }) => {
               const dayKey = utcDayKey(day);
               const inFestival = day >= CANNES_2026_START && day <= CANNES_2026_END;
               const available = rows.filter((p) => {
@@ -974,12 +984,16 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
                   key={dayKey}
                   className={`rounded-lg border p-2 ${inFestival ? "border-[#E5E0D8] bg-[#FBF5F2]" : "border-[#EFEAE3] bg-white"}`}
                 >
-                  <p className="text-xs font-semibold text-[#1A1110]">
-                    {day.toLocaleDateString("fr-FR", { weekday: "long" })}
-                  </p>
-                  <p className="mb-2 text-[11px] text-[#1A1110]/60">
-                    {day.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
-                  </p>
+                  {!opts?.compactHeader && (
+                    <>
+                      <p className="text-xs font-semibold text-[#1A1110]">
+                        {day.toLocaleDateString("fr-FR", { weekday: "long" })}
+                      </p>
+                      <p className="mb-2 text-[11px] text-[#1A1110]/60">
+                        {day.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                      </p>
+                    </>
+                  )}
                   <p className="mb-2 text-[11px] text-[#1A1110]/70">
                     <strong>{available.length}</strong> collaborateur(s) retenu(s) pour le plan officiel / PDF.
                   </p>
@@ -1018,8 +1032,56 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
                   </div>
                 </div>
               );
-            })}
-          </div>
+            };
+
+            const mobileDay =
+              officialWeekDays.find((d) => utcDayKey(d) === officialMobileDayKey) ??
+              officialWeekDays[0];
+
+            return (
+              <>
+                <div className="md:hidden">
+                  <div
+                    className="flex gap-1.5 overflow-x-auto pb-2"
+                    style={{ scrollbarWidth: "none" }}
+                  >
+                    {officialWeekDays.map((day) => {
+                      const dayKey = utcDayKey(day);
+                      const active = dayKey === (officialMobileDayKey ?? utcDayKey(officialWeekDays[0]!));
+                      const count = rows.filter((p) => {
+                        const st = cellState(p, day);
+                        return st.disponible && !officialHiddenByDay[`${p.id}:${dayKey}`];
+                      }).length;
+                      return (
+                        <button
+                          key={dayKey}
+                          type="button"
+                          onClick={() => setOfficialMobileDayKey(dayKey)}
+                          className={`shrink-0 rounded-xl border px-3 py-2 text-center transition ${
+                            active
+                              ? "border-[#1A1110] bg-[#1A1110] text-[#F5EBE0]"
+                              : "border-[#E5E0D8] bg-white text-[#1A1110]"
+                          }`}
+                        >
+                          <div className="text-[10px] uppercase tracking-wider">
+                            {day.toLocaleDateString("fr-FR", { weekday: "short" })}
+                          </div>
+                          <div className="font-[Spectral] text-lg leading-tight">
+                            {day.getUTCDate()}
+                          </div>
+                          <div className="text-[10px] opacity-70">{count} collab</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {mobileDay ? renderOfficialDay(mobileDay, { compactHeader: true }) : null}
+                </div>
+                <div className="hidden gap-2 md:grid md:grid-cols-7">
+                  {officialWeekDays.map((day) => renderOfficialDay(day))}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -1076,63 +1138,91 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
                   {new Date(p.arrivalDate).toLocaleDateString("fr-FR")} -{" "}
                   {new Date(p.departureDate).toLocaleDateString("fr-FR")} · {p.hotel || "Hotel non renseigne"}
                 </p>
-                <div className="mt-2 grid grid-cols-12 gap-1">
-                  {CANNES_2026_DAYS.map((d) => (
-                    <div
-                      key={utcDayKey(d)}
-                      title={utcDayKey(d)}
-                      className={`h-2 rounded ${cellSurfaceClass(cellState(p, d))}`}
-                    />
-                  ))}
+                <div className="mt-2 overflow-x-auto">
+                  <div className="min-w-[280px]">
+                    <div className="mb-0.5 grid grid-cols-12 gap-1">
+                      {CANNES_2026_DAYS.map((d) => (
+                        <span
+                          key={`lbl-${utcDayKey(d)}`}
+                          className="text-center text-[8px] uppercase leading-none text-[#1A1110]/40"
+                        >
+                          {d.toLocaleDateString("fr-FR", { weekday: "narrow" })}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-12 gap-1">
+                      {CANNES_2026_DAYS.map((d) => (
+                        <div
+                          key={utcDayKey(d)}
+                          title={utcDayKey(d)}
+                          className={`h-2 rounded ${cellSurfaceClass(cellState(p, d))}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </button>
             );
           }
 
           const dayStrip = (
-            <div className="mt-2 grid grid-cols-12 gap-1">
-              {CANNES_2026_DAYS.map((d) => {
-                const st = cellState(p, d);
-                const { onPresenceWindow } = st;
-                const dayKey = utcDayKey(d);
-                const isHover =
-                  hoverDrop?.presenceId === p.id && hoverDrop.dayKey === dayKey && draggingId === p.id;
-                const invalidHover = isHover && draggingId === p.id && !onPresenceWindow && isAdmin;
-                const busy = tableBusyKey === `${p.id}:${dayKey}`;
-                const cls = cellSurfaceClass(st);
-                return (
-                  <div
-                    key={dayKey}
-                    role="button"
-                    aria-label={`${label} ${dayKey}`}
-                    onDragOver={(e) => {
-                      if (draggingId !== p.id) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "copy";
-                      setHoverDrop({ presenceId: p.id, dayKey });
-                    }}
-                    onDragLeave={(e) => {
-                      const next = e.relatedTarget as Node | null;
-                      if (!next || !e.currentTarget.contains(next)) {
-                        setHoverDrop((h) => (h?.presenceId === p.id && h.dayKey === dayKey ? null : h));
-                      }
-                    }}
-                    onDrop={(e) => onDropCell(e, p, d)}
-                    title={dayKey}
-                    className={`relative min-h-[12px] rounded transition ${cls} ${
-                      draggingId === p.id ? "ring-1 ring-offset-1" : ""
-                    } ${invalidHover ? "ring-2 ring-red-600 ring-offset-1" : ""} ${
-                      isHover && !invalidHover ? "ring-2 ring-[#1A1110]/35 ring-offset-1" : ""
-                    } ${busy ? "opacity-60" : ""}`}
-                  >
-                    {busy ? (
-                      <span className="absolute inset-0 flex items-center justify-center text-[8px] font-semibold text-[#1A1110]/50">
-                        …
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              })}
+            <div className="mt-2 overflow-x-auto">
+              <div className="min-w-[280px]">
+                <div className="mb-0.5 grid grid-cols-12 gap-1">
+                  {CANNES_2026_DAYS.map((d) => (
+                    <span
+                      key={`lbl-${utcDayKey(d)}`}
+                      className="text-center text-[8px] uppercase leading-none text-[#1A1110]/40"
+                    >
+                      {d.toLocaleDateString("fr-FR", { weekday: "narrow" })}
+                    </span>
+                  ))}
+                </div>
+                <div className="grid grid-cols-12 gap-1">
+                  {CANNES_2026_DAYS.map((d) => {
+                    const st = cellState(p, d);
+                    const { onPresenceWindow } = st;
+                    const dayKey = utcDayKey(d);
+                    const isHover =
+                      hoverDrop?.presenceId === p.id && hoverDrop.dayKey === dayKey && draggingId === p.id;
+                    const invalidHover = isHover && draggingId === p.id && !onPresenceWindow && isAdmin;
+                    const busy = tableBusyKey === `${p.id}:${dayKey}`;
+                    const cls = cellSurfaceClass(st);
+                    return (
+                      <div
+                        key={dayKey}
+                        role="button"
+                        aria-label={`${label} ${dayKey}`}
+                        onDragOver={(e) => {
+                          if (draggingId !== p.id) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "copy";
+                          setHoverDrop({ presenceId: p.id, dayKey });
+                        }}
+                        onDragLeave={(e) => {
+                          const next = e.relatedTarget as Node | null;
+                          if (!next || !e.currentTarget.contains(next)) {
+                            setHoverDrop((h) => (h?.presenceId === p.id && h.dayKey === dayKey ? null : h));
+                          }
+                        }}
+                        onDrop={(e) => onDropCell(e, p, d)}
+                        title={dayKey}
+                        className={`relative min-h-[12px] rounded transition ${cls} ${
+                          draggingId === p.id ? "ring-1 ring-offset-1" : ""
+                        } ${invalidHover ? "ring-2 ring-red-600 ring-offset-1" : ""} ${
+                          isHover && !invalidHover ? "ring-2 ring-[#1A1110]/35 ring-offset-1" : ""
+                        } ${busy ? "opacity-60" : ""}`}
+                      >
+                        {busy ? (
+                          <span className="absolute inset-0 flex items-center justify-center text-[8px] font-semibold text-[#1A1110]/50">
+                            …
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           );
 
@@ -1189,7 +1279,12 @@ export default function PlanningTeamView({ presences, events, isAdmin }: Props) 
         </div>
       </div>
 
-      <div className="mt-8 border-t border-[#E5E0D8] pt-6">
+      <p className="mt-6 text-xs text-[#1A1110]/55 md:hidden">
+        Sur mobile, utilise la liste des collaborateurs ci-dessus. Le kanban glisser-déposer est disponible à partir
+        de la taille tablette.
+      </p>
+
+      <div className="mt-8 hidden border-t border-[#E5E0D8] pt-6 md:block">
         <h3 className="mb-3 text-sm font-semibold text-[#1A1110]">Kanban</h3>
         {isAdmin && (
           <p className="mb-4 text-xs text-[#1A1110]/60">

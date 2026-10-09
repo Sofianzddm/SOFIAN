@@ -241,7 +241,7 @@ export default function GiftDetailPage() {
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 rounded-2xl p-8 text-white">
+      <div className="relative overflow-hidden bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 rounded-2xl p-4 sm:p-8 text-white">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
         
         <div className="relative">
@@ -252,7 +252,7 @@ export default function GiftDetailPage() {
             <ArrowLeft className="w-4 h-4" />
             Retour aux demandes
           </Link>
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-center gap-4">
               <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm">
                 <Gift className="w-8 h-8" />
@@ -303,7 +303,7 @@ export default function GiftDetailPage() {
 
           {/* Vue lecture seule pour TM : statut + timeline simple */}
           {!isAM && isTM && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
               <h2 className="text-lg font-bold text-glowup-licorice mb-4 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-purple-600" />
                 Suivi de la demande
@@ -397,8 +397,8 @@ export default function GiftDetailPage() {
           )}
 
           {/* Détails de la demande */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-            <div className="flex items-center justify-between mb-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
               <h2 className="text-xl font-bold text-glowup-licorice flex items-center gap-2">
                 <Package className="w-5 h-5 text-purple-600" />
                 Détails de la demande
@@ -636,8 +636,8 @@ export default function GiftDetailPage() {
 
           {/* Informations de réservation (AM/ADMIN) */}
           {isAM && isHotelAcceptedOrBeyond && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-              <div className="flex items-center justify-between mb-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
                 <h2 className="text-xl font-bold text-glowup-licorice flex items-center gap-2">
                   <span className="text-lg">🏨</span>
                   Informations de réservation
@@ -1017,7 +1017,7 @@ export default function GiftDetailPage() {
               demande.horaireCheckOut ||
               (Array.isArray(demande.contreparties) &&
                 demande.contreparties.length > 0)) && (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
                 <h2 className="text-xl font-bold text-glowup-licorice mb-4 flex items-center gap-2">
                   <span className="text-lg">🏨</span>
                   Informations de réservation
@@ -1138,7 +1138,7 @@ export default function GiftDetailPage() {
             )}
 
           {/* Commentaires */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 md:p-10 space-y-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8 md:p-10 space-y-6">
             <h2 className="text-xl font-bold text-glowup-licorice mb-6 flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-purple-600" />
               Discussion ({demande.commentaires?.length || 0})
@@ -1198,7 +1198,7 @@ export default function GiftDetailPage() {
         {/* Sidebar */}
         <div className="space-y-6">
           {/* Talent */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
             <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
               <User className="w-5 h-5 text-purple-600" />
               Talent
@@ -1246,7 +1246,7 @@ export default function GiftDetailPage() {
           </div>
 
           {/* TM */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
             <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
               <User className="w-5 h-5 text-blue-600" />
               Talent Manager
@@ -1274,7 +1274,7 @@ export default function GiftDetailPage() {
 
           {/* Account Manager */}
           {demande.accountManager && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
               <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
                 <User className="w-5 h-5 text-emerald-600" />
                 Account Manager
@@ -1303,7 +1303,7 @@ export default function GiftDetailPage() {
 
           {/* Marque */}
           {demande.marque && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
               <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-orange-600" />
                 Marque
@@ -1335,7 +1335,7 @@ export default function GiftDetailPage() {
           )}
 
           {/* Timeline */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
             <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
               <Clock className="w-5 h-5 text-gray-600" />
               Timeline
@@ -1400,7 +1400,7 @@ function WorkflowPanel({ demande, onUpdate, onPrendreEnCharge }: any) {
   const workflow = getWorkflowSteps(demande.statut, demande.typeGift);
   
   return (
-    <div className="bg-white rounded-2xl shadow-sm border-2 border-purple-200 p-8">
+    <div className="bg-white rounded-2xl shadow-sm border-2 border-purple-200 p-4 sm:p-8">
       <h2 className="text-xl font-bold text-glowup-licorice mb-6 flex items-center gap-2">
         <TrendingUp className="w-5 h-5 text-purple-600" />
         Workflow de suivi

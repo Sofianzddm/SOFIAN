@@ -92,11 +92,11 @@ export default function GiftsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-glowup-licorice via-gray-900 to-glowup-licorice rounded-2xl p-8 text-white">
+      <div className="relative overflow-hidden bg-gradient-to-br from-glowup-licorice via-gray-900 to-glowup-licorice rounded-2xl p-4 sm:p-8 text-white">
         <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-pink-500/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
         
-        <div className="relative flex items-start justify-between">
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-3 mb-2">
               <div className="p-3 bg-purple-500/20 rounded-xl backdrop-blur-sm">
@@ -123,7 +123,7 @@ export default function GiftsPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           label="Total"
           value={stats.total}
@@ -157,7 +157,7 @@ export default function GiftsPage() {
       </div>
 
       {/* Filtres et recherche */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
         <div className="flex flex-col md:flex-row gap-4">
           {/* Recherche */}
           <div className="flex-1 relative">
@@ -299,7 +299,7 @@ function DemandeCard({ demande, isAM }: any) {
   return (
     <Link
       href={`/gifts/${demande.id}`}
-      className="group block bg-white rounded-2xl shadow-sm border-2 border-gray-100 hover:border-purple-300 hover:shadow-lg transition-all p-6"
+      className="group block bg-white rounded-2xl shadow-sm border-2 border-gray-100 hover:border-purple-300 hover:shadow-lg transition-all p-4 sm:p-6"
     >
       <div className="flex items-start gap-6">
         {/* Badge priorité + statut */}
@@ -331,7 +331,7 @@ function DemandeCard({ demande, isAM }: any) {
           </div>
 
           {/* Infos principales */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-gray-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 pt-4 border-t border-gray-100">
             {/* Talent */}
             <div className="flex items-center gap-2">
               <User className="w-4 h-4 text-gray-400" />

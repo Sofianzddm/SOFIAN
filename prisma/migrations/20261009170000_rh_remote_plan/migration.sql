@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "RhRequestType" ADD VALUE IF NOT EXISTS 'REMOTE_PLAN';

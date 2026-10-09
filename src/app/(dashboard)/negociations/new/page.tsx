@@ -577,8 +577,8 @@ export default function NewNegociationPage() {
             <div className="space-y-6">
               {livrables.map((livrable) => (
                 <div key={livrable.id} className="flex items-start gap-3 p-4 pb-6 bg-gray-50 rounded-lg">
-                  <div className="flex-1 grid grid-cols-12 gap-3">
-                    <div className="col-span-3">
+                  <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-12">
+                    <div className="sm:col-span-3">
                       <label className="block text-xs text-gray-500 mb-1">Type *</label>
                       <input
                         type="text"
@@ -594,7 +594,7 @@ export default function NewNegociationPage() {
                         ))}
                       </datalist>
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Qté</label>
                       <input
                         type="number"
@@ -604,7 +604,7 @@ export default function NewNegociationPage() {
                         className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm text-center"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Notre prix €</label>
                       <div
                         className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-gray-100 text-gray-700 font-medium"
@@ -618,7 +618,7 @@ export default function NewNegociationPage() {
                       </div>
                       <p className="text-[10px] text-gray-400 mt-0.5">Grille DB</p>
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Prix marque € HT</label>
                       <input
                         type="number"
@@ -629,7 +629,7 @@ export default function NewNegociationPage() {
                         className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Prix souhaité € HT</label>
                       {(() => {
                         const notrePrix = getTarifRecommande(livrable.typeContenu);

@@ -22,6 +22,7 @@ export function MobileScreen() {
               initials={me?.employee.initials || "??"}
               color={me?.employee.avatarColor || EMP_COLORS.accent}
               size={34}
+              src={me?.employee.avatarUrl}
             />
             <div>
               <div className="text-[14px] font-semibold">{me?.employee.prenom || "—"}</div>

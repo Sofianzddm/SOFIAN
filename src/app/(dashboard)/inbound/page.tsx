@@ -147,16 +147,19 @@ export default function InboundPage() {
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
-        <Filter className="h-4 w-4 text-slate-500" />
-        <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)} className="rounded border border-slate-300 px-2 py-1 text-sm">
+      <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center rounded-xl border border-slate-200 bg-white p-3 sm:p-3">
+        <div className="flex items-center gap-2 shrink-0">
+          <Filter className="h-4 w-4 text-slate-500" />
+          <span className="text-xs font-medium text-slate-600 sm:hidden">Filtres</span>
+        </div>
+        <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as any)} className="w-full sm:w-auto rounded border border-slate-300 px-2 py-1.5 text-sm">
           <option value="ALL">Toutes priorites</option>
           <option value="LOW">LOW</option>
           <option value="MEDIUM">MEDIUM</option>
           <option value="HIGH">HIGH</option>
           <option value="URGENT">URGENT</option>
         </select>
-        <select value={talentFilter} onChange={(e) => setTalentFilter(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm">
+        <select value={talentFilter} onChange={(e) => setTalentFilter(e.target.value)} className="w-full sm:w-auto rounded border border-slate-300 px-2 py-1.5 text-sm">
           <option value="ALL">Tous les talents</option>
           {talents.map((t) => (
             <option key={t.id} value={t.id}>{t.name}</option>
@@ -165,7 +168,7 @@ export default function InboundPage() {
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value as InboundCategory | "ALL")}
-          className="rounded border border-slate-300 px-2 py-1 text-sm"
+          className="w-full sm:w-auto rounded border border-slate-300 px-2 py-1.5 text-sm"
         >
           <option value="ALL">Toutes catégories</option>
           {(Object.keys(INBOUND_CATEGORY_LABELS) as InboundCategory[]).map((c) => (
@@ -177,7 +180,7 @@ export default function InboundPage() {
         <button
           type="button"
           onClick={() => setCategoryFilter((prev) => (prev === "COLLAB_PAID" ? "ALL" : "COLLAB_PAID"))}
-          className={`rounded-lg px-3 py-1 text-xs font-medium ${
+          className={`w-full sm:w-auto rounded-lg px-3 py-1.5 text-xs font-medium ${
             categoryFilter === "COLLAB_PAID"
               ? "bg-[#C8F285] text-[#1A1110]"
               : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -187,8 +190,66 @@ export default function InboundPage() {
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full min-w-[980px] text-sm">
+      <div className="md:hidden space-y-3">
+        {filtered.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+            Aucune opportunite.
+          </div>
+        ) : (
+          filtered.map((o) => (
+            <article
+              key={o.id}
+              className="rounded-xl border border-slate-200 bg-white p-4 space-y-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-900 truncate">
+                    {o.extractedBrand || o.senderDomain}
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {o.senderName || o.senderEmail}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full bg-[#C8F285]/50 px-2 py-1 text-xs text-[#1A1110]">
+                  {o.priority}
+                </span>
+              </div>
+              <p className="text-sm text-slate-700 line-clamp-2">{o.subject}</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span>{relativeDate(o.receivedAt)}</span>
+                <span className="text-slate-300">·</span>
+                <span className="truncate">{o.talentName}</span>
+                <span className="rounded-full bg-[#F5EBE0] px-2 py-0.5 text-[#1A1110]">
+                  {inboundCategoryLabel(o.category)}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+                <Link
+                  href={`/inbound/${o.id}`}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  Voir
+                </Link>
+                {o.status !== "CONVERTED" ? (
+                  <button
+                    type="button"
+                    disabled={deletingId === o.id}
+                    onClick={() => void removeOpportunity(o.id)}
+                    className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-100 disabled:opacity-60"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Supprimer
+                  </button>
+                ) : null}
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
               <th className="px-4 py-3 text-left">Recu par</th>

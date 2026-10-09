@@ -166,7 +166,7 @@ export default function DemandesEntrantesPage() {
         </div>
       )}
 
-      <header className="flex items-center justify-between gap-4">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1
             className="text-3xl font-semibold tracking-tight"

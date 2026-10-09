@@ -953,8 +953,106 @@ export default function PipelineMailsEnvoyesPage() {
         </div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full min-w-[1024px] text-sm">
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <div className="flex justify-center rounded-xl border border-slate-200 bg-white py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-[#C08B8B]" />
+          </div>
+        ) : (data?.mails.length ?? 0) === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+            Aucun mail envoyé sur cette période.
+          </div>
+        ) : (
+          data!.mails.map((m) => (
+            <article
+              key={m.id}
+              className="rounded-xl border border-slate-200 bg-white p-4 space-y-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-900 truncate">{m.targetBrand}</p>
+                  <p className="text-xs text-slate-500">
+                    {m.recipients.length} contact{m.recipients.length > 1 ? "s" : ""}
+                    {m.recipients[0]?.email ? ` · ${m.recipients[0].email}` : ""}
+                  </p>
+                </div>
+                {m.sentAt ? (
+                  <span className="shrink-0 text-xs text-slate-500">{relativeDate(m.sentAt)}</span>
+                ) : null}
+              </div>
+              <p className="text-sm text-slate-700 line-clamp-2">{m.subject || "—"}</p>
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-full bg-slate-200">
+                  {m.talentPhoto ? (
+                    <Image src={m.talentPhoto} alt="" fill className="object-cover" sizes="24px" />
+                  ) : null}
+                </div>
+                <span className="truncate">{m.talentName}</span>
+              </div>
+              <RelanceStatus
+                id={m.id}
+                sentAt={m.sentAt}
+                relanceSentAt={m.relanceSentAt}
+                replied={m.replied}
+                relanceCancelledAt={m.relanceCancelledAt}
+                relance2SentAt={m.relance2SentAt}
+              />
+              <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setOpenMail(m)}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  Voir le mail
+                </button>
+                {canManageRelance && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={previewLoadingId === m.id}
+                      onClick={() => void openRelancePreview(m)}
+                      className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                    >
+                      {previewLoadingId === m.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Send className="h-3.5 w-3.5" />
+                      )}
+                      {m.relanceSentAt ? "Relancer encore" : "Relancer maintenant"}
+                    </button>
+                    {(!m.relanceSentAt || !m.relance2SentAt) &&
+                      (m.relanceCancelledAt ? (
+                        <button
+                          type="button"
+                          disabled={togglingId === m.id}
+                          onClick={() => void toggleRelance(m, "resume")}
+                          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700 disabled:opacity-50"
+                        >
+                          <BellRing className="h-3.5 w-3.5" />
+                          Réactiver auto
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={togglingId === m.id}
+                          onClick={() => void toggleRelance(m, "cancel")}
+                          className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700 disabled:opacity-50"
+                        >
+                          <BellOff className="h-3.5 w-3.5" />
+                          Stopper auto
+                        </button>
+                      ))}
+                  </>
+                )}
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
               <th className="px-4 py-3 text-left">Envoyé</th>

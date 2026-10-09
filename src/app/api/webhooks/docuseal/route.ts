@@ -98,6 +98,8 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
             );
           } else if (await handleTalentContratCompleted(submissionId, body)) {
             // Contrat talent (fiche talent) marqué SIGNE
+          } else if (await handleRhTimesheetCompleted(submissionId, body)) {
+            // Feuille de temps RH → SIGNED
           } else {
             console.log(
               "Document non trouvé pour submission:",
@@ -286,6 +288,8 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
         }
       } else if (await handleTalentContratFormCompleted(submissionId, body)) {
         // Contrat talent (fiche talent) : statut avancé
+      } else if (await handleRhTimesheetCompleted(submissionId, body)) {
+        // Feuille de temps RH (1 signataire) → SIGNED
       } else {
         console.log(
           "DocuSeal webhook: document non trouvé pour submissionId",
@@ -358,6 +362,34 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
 // ============================================
 
 /** submission.completed → contrat talent SIGNE (+ PDF signé). Renvoie true si un contrat a matché. */
+async function handleRhTimesheetCompleted(
+  submissionId: string,
+  body: DocuSealPayload
+): Promise<boolean> {
+  const { completeTimesheetFromDocuSeal } = await import(
+    "@/lib/rh/timesheet-docuseal"
+  );
+  const signedPdfUrl =
+    body.data?.documents?.[0]?.url ??
+    body.document_url?.trim() ??
+    body.documents?.[0]?.url?.trim() ??
+    null;
+  const signerName =
+    body.data?.submitters?.find((s) => s.role === "Collaborateur")?.name ||
+    body.data?.submitters?.[0]?.name ||
+    null;
+  const updated = await completeTimesheetFromDocuSeal({
+    submissionId,
+    signedPdfUrl,
+    signatureName: signerName,
+  });
+  if (updated) {
+    console.log("RH timesheet DocuSeal → SIGNED", updated.id, submissionId);
+    return true;
+  }
+  return false;
+}
+
 async function handleTalentContratCompleted(
   submissionId: string,
   body: DocuSealPayload

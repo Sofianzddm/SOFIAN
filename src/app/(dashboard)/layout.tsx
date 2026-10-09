@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import {
+  SidebarNavProvider,
+  useSidebarNav,
+} from "@/components/layout/sidebar-nav-context";
 import { Loader2 } from "lucide-react";
 import {
   NomCampagneGateProvider,
@@ -13,21 +17,26 @@ import {
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const { locked, loading: gateLoading, count } = useNomCampagneGate();
+  const { collapsed } = useSidebarNav();
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen overflow-x-hidden bg-gray-50">
       <Sidebar crmLocked={locked} pendingNomCampagne={count} />
 
-      <div className="pl-64 transition-all duration-300">
+      <div
+        className={`min-w-0 transition-all duration-300 ${
+          collapsed ? "lg:pl-20" : "lg:pl-64"
+        }`}
+      >
         <Header />
         {locked && !gateLoading && (
-          <div className="mx-6 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <div className="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:mx-6">
             CRM verrouillé : {count} nom{count > 1 ? "s" : ""} de marque à
             confirmer (saisie en double). Tu peux uniquement ouvrir les fiches
             collab concernées.
           </div>
         )}
-        <main className="p-6">{children}</main>
+        <main className="p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );
@@ -79,7 +88,9 @@ export default function DashboardLayout({
 
   return (
     <NomCampagneGateProvider>
-      <DashboardShell>{children}</DashboardShell>
+      <SidebarNavProvider>
+        <DashboardShell>{children}</DashboardShell>
+      </SidebarNavProvider>
     </NomCampagneGateProvider>
   );
 }

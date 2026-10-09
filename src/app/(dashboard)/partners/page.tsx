@@ -66,8 +66,8 @@ export default function PartnersPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold mb-2">🏢 Partenaires</h1>
           <p className="text-gray-600">Gérez les Talent Books pour vos agences partenaires</p>
@@ -99,7 +99,70 @@ export default function PartnersPage() {
         </div>
       ) : (
         <div className="bg-white rounded-lg border overflow-hidden">
-          <table className="w-full">
+          <div className="md:hidden space-y-3 p-4">
+            {partners.map((partner) => (
+              <div key={partner.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                <div className="flex items-center gap-3">
+                  {partner.logo ? (
+                    <div className="w-11 h-11 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0">
+                      <img src={partner.logo} alt={partner.name} className="max-w-full max-h-full object-contain" />
+                    </div>
+                  ) : (
+                    <div className="w-11 h-11 rounded-lg bg-gray-200 flex items-center justify-center shrink-0">
+                      <Building2 className="w-5 h-5 text-gray-400" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">{partner.name}</p>
+                    <p className="text-xs text-gray-500">/{partner.slug}</p>
+                  </div>
+                  <span
+                    className={`shrink-0 px-2 py-1 rounded-full text-xs font-medium ${
+                      partner.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    {partner.isActive ? "Actif" : "Inactif"}
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs text-gray-600">
+                  <div><span className="block font-semibold text-gray-900">{partner.talentsCount}</span>talents</div>
+                  <div><span className="block font-semibold text-gray-900">{partner.totalViews}</span>vues</div>
+                  <div><span className="block font-semibold text-gray-900 truncate">{formatDate(partner.lastVisit)}</span>visite</div>
+                </div>
+                <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3">
+                  <Link
+                    href={`/partners/manage/${partner.id}`}
+                    className="flex-1 text-center py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg"
+                  >
+                    Voir
+                  </Link>
+                  <Link
+                    href={`/partners/manage/${partner.id}/edit`}
+                    className="p-2 text-gray-600 hover:bg-gray-50 rounded-lg"
+                    title="Éditer"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Link>
+                  <button
+                    onClick={() => copyLink(partner.slug)}
+                    className="p-2 text-gray-600 hover:bg-gray-50 rounded-lg"
+                    title="Copier le lien"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => deletePartner(partner.id)}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                    title="Supprimer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Partenaire</th>
@@ -180,6 +243,7 @@ export default function PartnersPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

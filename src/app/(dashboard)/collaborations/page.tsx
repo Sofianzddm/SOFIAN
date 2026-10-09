@@ -507,7 +507,64 @@ export default function CollaborationsPage() {
             )}
           </div>
         ) : (
-          <table className="w-full">
+          <>
+          <div className="md:hidden space-y-3 p-4">
+            {filteredCollabs.map((collab) => {
+              const statutInfo = getStatutInfo(collab.statut);
+              return (
+                <div key={collab.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono text-sm font-medium text-glowup-licorice">{collab.reference}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                          collab.source === "INBOUND" ? "bg-blue-50 text-blue-600" : "bg-green-50 text-green-600"
+                        }`}>
+                          {collab.source === "INBOUND" ? "IN" : "OUT"}
+                        </span>
+                        {collab.isPrivate && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                            <Lock className="w-2.5 h-2.5" />
+                            Privée
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-sm font-medium text-glowup-licorice truncate">
+                        {collab.talent.prenom} {collab.talent.nom.charAt(0)}. · {collab.marque.nom}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                        <Package className="w-3 h-3" />
+                        {getLivrablesLabel(collab.livrables)}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border ${statutInfo.color}`}>
+                      <statutInfo.icon className="w-3 h-3" />
+                      {statutInfo.label}
+                    </span>
+                  </div>
+                  {(showBrutColumn || showCommissionColumn) && (
+                    <div className="mt-2 flex flex-wrap gap-3 text-sm">
+                      {showBrutColumn && (
+                        <span><span className="text-gray-500">{isViewOnly ? "Tarif" : "Brut"} : </span>
+                        <span className="font-semibold text-glowup-licorice">{formatMoney(collab.montantBrut)}</span></span>
+                      )}
+                      {showCommissionColumn && (
+                        <span className="text-glowup-rose font-medium">{formatMoney(collab.commissionEuros)} ({collab.commissionPercent}%)</span>
+                      )}
+                    </div>
+                  )}
+                  <Link
+                    href={`/collaborations/${collab.id}`}
+                    className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-glowup-licorice hover:text-glowup-rose"
+                  >
+                    Voir la collab <ArrowRight className="w-4 h-4" />
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
+          <table className="w-full min-w-[720px]">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase">Ref</th>
@@ -602,6 +659,8 @@ export default function CollaborationsPage() {
               })}
             </tbody>
           </table>
+          </div>
+          </>
         )}
       </div>
     </div>

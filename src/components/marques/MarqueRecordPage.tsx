@@ -1701,8 +1701,8 @@ export default function MarqueRecordPage({
           </div>
         )}
         {/* ====================== Topbar ====================== */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm min-w-0">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 text-sm min-w-0 flex-wrap">
             {readOnly ? (
               <button
                 type="button"
@@ -2203,7 +2203,7 @@ export default function MarqueRecordPage({
         )}
 
         {/* ====================== Stat cards ====================== */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {STATS.map((stat) => (
             <div
               key={stat.label}
@@ -2486,15 +2486,18 @@ export default function MarqueRecordPage({
           {/* ---------- Zone principale ---------- */}
           <main className="min-w-0 space-y-4">
             {/* Tabs segmentés */}
-            <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)]">
+            <div
+              className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl bg-white p-1 shadow-[0_1px_2px_rgba(16,12,10,0.04)] ring-1 ring-black/[0.06]"
+              style={{ scrollbarWidth: "none" }}
+            >
               {TABS.map((tab) => {
                 const active = activeTab === tab.id;
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[13px] font-medium transition-all ${
-                      active ? "text-white shadow-sm" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+                    className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-[13px] font-medium transition-all ${
+                      active ? "text-white shadow-sm" : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                     }`}
                     style={active ? { backgroundColor: INK } : undefined}
                   >

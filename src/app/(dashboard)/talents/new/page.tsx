@@ -554,8 +554,8 @@ export default function NewTalentPage() {
     <div className="min-h-screen bg-gray-50/50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
               <Link
                 href="/talents"
@@ -608,7 +608,7 @@ export default function NewTalentPage() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Form */}
           <div className="lg:col-span-2 space-y-6">
@@ -626,7 +626,7 @@ export default function NewTalentPage() {
             {currentStep === 1 && (
               <div className="space-y-6 animate-fade-in">
                 {/* Photo + Infos de base */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-glowup-rose/10 rounded-lg">
                       <User className="w-5 h-5 text-glowup-rose" />
@@ -775,7 +775,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Niches */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-purple-50 rounded-lg">
                       <Sparkles className="w-5 h-5 text-purple-500" />
@@ -803,7 +803,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Apparence (attributs physiques demandés par les marques beauté) */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-pink-50 rounded-lg">
                       <Sparkles className="w-5 h-5 text-pink-500" />
@@ -946,7 +946,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Profil / Lifestyle (matching & gifting marques) */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-emerald-50 rounded-lg">
                       <Sparkles className="w-5 h-5 text-emerald-500" />
@@ -1047,7 +1047,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Présentation */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-amber-50 rounded-lg">
                       <AtSign className="w-5 h-5 text-amber-500" />
@@ -1080,7 +1080,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Contact Urgence */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-red-50 rounded-lg">
                       <AlertCircle className="w-5 h-5 text-red-500" />
@@ -1139,7 +1139,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Commission */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-emerald-50 rounded-lg">
                       <Euro className="w-5 h-5 text-emerald-500" />
@@ -1194,7 +1194,7 @@ export default function NewTalentPage() {
             {currentStep === 2 && (
               <div className="space-y-6 animate-fade-in">
                 {/* Adresse */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-blue-50 rounded-lg">
                       <MapPin className="w-5 h-5 text-blue-500" />
@@ -1277,7 +1277,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Infos légales */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-purple-50 rounded-lg">
                       <Building2 className="w-5 h-5 text-purple-500" />
@@ -1346,7 +1346,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Coordonnées bancaires */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-emerald-50 rounded-lg">
                       <Landmark className="w-5 h-5 text-emerald-500" />
@@ -1412,7 +1412,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Notes internes */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-gray-100 rounded-lg">
                       <AtSign className="w-5 h-5 text-gray-500" />
@@ -1438,7 +1438,7 @@ export default function NewTalentPage() {
             {currentStep === 3 && (
               <div className="space-y-6 animate-fade-in">
                 {/* Instagram */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg">
                       <Instagram className="w-5 h-5 text-white" />
@@ -1468,7 +1468,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* TikTok */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-black rounded-lg">
                       <Music2 className="w-5 h-5 text-white" />
@@ -1498,7 +1498,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* YouTube */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-red-500 rounded-lg">
                       <Youtube className="w-5 h-5 text-white" />
@@ -1538,7 +1538,7 @@ export default function NewTalentPage() {
               <div className="space-y-6 animate-fade-in">
                 {/* Instagram Stats */}
                 {formData.instagram && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                     <div className="flex items-center gap-3 mb-6">
                       <div className="p-2 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg">
                         <Instagram className="w-5 h-5 text-white" />
@@ -1549,7 +1549,7 @@ export default function NewTalentPage() {
                     </div>
 
                     {/* Followers & Engagement */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                       <div className="bg-gray-50 rounded-xl p-4">
                         <label className="block text-xs text-gray-500 mb-1">
                           Followers *
@@ -1617,7 +1617,7 @@ export default function NewTalentPage() {
                     </div>
 
                     {/* Démographie */}
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                       <div>
                         <label className="block text-sm text-gray-600 mb-1.5">
                           👩 Femmes (%)
@@ -1664,7 +1664,7 @@ export default function NewTalentPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-3">
                         Tranches d'âge
                       </label>
-                      <div className="grid grid-cols-5 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
                         {[
                           { name: "igAge13_17", label: "13-17" },
                           { name: "igAge18_24", label: "18-24" },
@@ -1693,7 +1693,7 @@ export default function NewTalentPage() {
 
                 {/* TikTok Stats */}
                 {formData.tiktok && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                     <div className="flex items-center gap-3 mb-6">
                       <div className="p-2 bg-black rounded-lg">
                         <Music2 className="w-5 h-5 text-white" />
@@ -1704,7 +1704,7 @@ export default function NewTalentPage() {
                     </div>
 
                     {/* Followers & Engagement */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                       <div className="bg-gray-50 rounded-xl p-4">
                         <label className="block text-xs text-gray-500 mb-1">
                           Followers *
@@ -1772,7 +1772,7 @@ export default function NewTalentPage() {
                     </div>
 
                     {/* Démographie TikTok */}
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                       <div>
                         <label className="block text-sm text-gray-600 mb-1.5">
                           👩 Femmes (%)
@@ -1819,7 +1819,7 @@ export default function NewTalentPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-3">
                         Tranches d'âge
                       </label>
-                      <div className="grid grid-cols-5 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
                         {[
                           { name: "ttAge13_17", label: "13-17" },
                           { name: "ttAge18_24", label: "18-24" },
@@ -1847,7 +1847,7 @@ export default function NewTalentPage() {
                 )}
 
                 {/* YouTube Stats */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-red-500 rounded-lg">
                       <Youtube className="w-5 h-5 text-white" />
@@ -1857,7 +1857,7 @@ export default function NewTalentPage() {
                     </h2>
                     <span className="text-xs text-gray-400 ml-auto">Optionnel</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="bg-gray-50 rounded-xl p-4">
                       <label className="block text-xs text-gray-500 mb-1">
                         Abonnés
@@ -1930,7 +1930,7 @@ export default function NewTalentPage() {
 
                 {/* Instagram Tarifs */}
                 {formData.instagram && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                     <div className="flex items-center gap-3 mb-6">
                       <div className="p-2 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg">
                         <Instagram className="w-5 h-5 text-white" />
@@ -1939,7 +1939,7 @@ export default function NewTalentPage() {
                         Tarifs Instagram
                       </h2>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                       {[
                         { name: "tarifStory", label: "Story *", required: true },
                         { name: "tarifStoryConcours", label: "Story Concours" },
@@ -1987,7 +1987,7 @@ export default function NewTalentPage() {
 
                 {/* TikTok Tarifs */}
                 {formData.tiktok && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                     <div className="flex items-center gap-3 mb-6">
                       <div className="p-2 bg-black rounded-lg">
                         <Music2 className="w-5 h-5 text-white" />
@@ -1996,7 +1996,7 @@ export default function NewTalentPage() {
                         Tarifs TikTok
                       </h2>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                       <div>
                         <div className="flex items-center gap-2 mb-1.5">
                           <label className="block text-sm text-gray-600">Vidéo TikTok *</label>
@@ -2033,7 +2033,7 @@ export default function NewTalentPage() {
                 <div className="bg-white rounded-2xl shadow-sm border border-amber-100 p-6">
                   <p className="text-xs font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded w-fit mb-4">Interne uniquement</p>
                   <h2 className="text-lg font-semibold text-glowup-licorice mb-4">Snapchat (non affichés sur le book)</h2>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm text-gray-600 mb-1.5">Snapchat Story</label>
                       <div className="relative">
@@ -2052,7 +2052,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* YouTube Tarifs */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-red-500 rounded-lg">
                       <Youtube className="w-5 h-5 text-white" />
@@ -2062,7 +2062,7 @@ export default function NewTalentPage() {
                     </h2>
                     <span className="text-xs text-gray-400 ml-auto">Optionnel</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm text-gray-600 mb-1.5">
                         Vidéo YouTube
@@ -2103,7 +2103,7 @@ export default function NewTalentPage() {
                 </div>
 
                 {/* Autres */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-orange-100 rounded-lg">
                       <Euro className="w-5 h-5 text-orange-500" />
@@ -2112,7 +2112,7 @@ export default function NewTalentPage() {
                       Autres prestations
                     </h2>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm text-gray-600 mb-1.5">
                         Event
@@ -2287,7 +2287,7 @@ export default function NewTalentPage() {
                   )}
 
                   {/* Stats preview */}
-                  <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-gray-100">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 pt-4 border-t border-gray-100">
                     {formData.igFollowers && (
                       <div className="flex items-center gap-2">
                         <Instagram className="w-4 h-4 text-pink-500" />

@@ -1117,9 +1117,9 @@ export default function NewCollaborationPage() {
                   key={livrable.id}
                   className="flex items-start gap-3 p-4 bg-gray-50 rounded-lg"
                 >
-                  <div className="flex-1 grid grid-cols-12 gap-3">
+                  <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-12">
                     {/* Type préréglé + libellé libre */}
-                    <div className="col-span-4 space-y-2">
+                    <div className="space-y-2 sm:col-span-4">
                       <div>
                         <label className="block text-xs text-gray-500 mb-1">Type (préréglé)</label>
                         <select
@@ -1146,7 +1146,7 @@ export default function NewCollaborationPage() {
                     </div>
 
                     {/* Quantité */}
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Qté</label>
                       <input
                         type="number"
@@ -1158,7 +1158,7 @@ export default function NewCollaborationPage() {
                     </div>
 
                     {/* Prix unitaire */}
-                    <div className="col-span-3">
+                    <div className="sm:col-span-3">
                       <label className="block text-xs text-gray-500 mb-1">Prix unit. € HT *</label>
                       <input
                         type="number"
@@ -1172,7 +1172,7 @@ export default function NewCollaborationPage() {
                     </div>
 
                     {/* Total ligne */}
-                    <div className="col-span-3">
+                    <div className="sm:col-span-3">
                       <label className="block text-xs text-gray-500 mb-1">Total</label>
                       <div className="px-3 py-2 bg-white rounded-lg border border-gray-200 text-sm font-semibold text-glowup-licorice">
                         {formatMoney((parseFloat(livrable.prixUnitaire) || 0) * livrable.quantite)}

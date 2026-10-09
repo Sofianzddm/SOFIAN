@@ -425,11 +425,11 @@ export function ContactMissionsClient() {
   const manualPrior = findHistoryForBrand(brandHistory, { nom: manualBrand });
 
   return (
-    <main className="mx-auto w-full max-w-[1400px] space-y-6 p-6 md:p-8">
-      <section className="rounded-2xl border border-gray-200 bg-white p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Stratégies de contact talents</h1>
+    <main className="mx-auto w-full max-w-[1400px] space-y-6 p-4 md:p-8">
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold text-gray-900 sm:text-2xl">Stratégies de contact talents</h1>
             <p className="mt-1 text-sm text-gray-500">
               Campagne de prospection talent : choisis d&apos;abord dans le CRM, saisie libre seulement
               si la marque n&apos;existe pas. Recontact bloqué {recontactDays} j après envoi pour le
@@ -439,7 +439,7 @@ export function ContactMissionsClient() {
           <button
             type="button"
             onClick={() => void refresh()}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="inline-flex w-fit shrink-0 items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             <RefreshCw className="h-4 w-4" />
             Rafraîchir
@@ -447,7 +447,7 @@ export function ContactMissionsClient() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 space-y-4">
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900">Campagnes</h2>
           <a href="/strategy/projet-individuel-talent/pipeline" className="text-xs text-gray-600 underline">

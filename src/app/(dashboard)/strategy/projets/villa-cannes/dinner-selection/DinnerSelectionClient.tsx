@@ -94,6 +94,14 @@ const STATUS_LABEL: Record<Candidate["status"], string> = {
   rejected: "Refusés",
 };
 
+const BOARD_STATUSES: Candidate["status"][] = [
+  "proposed",
+  "approved",
+  "contacted",
+  "creator_approved",
+  "rejected",
+];
+
 export function DinnerSelectionClient() {
   const isEventFinished = (dateValue?: string | null): boolean => {
     if (!dateValue) return false;
@@ -138,6 +146,7 @@ export function DinnerSelectionClient() {
     city: "",
     eventDate: "",
   });
+  const [boardMobileStatus, setBoardMobileStatus] = useState<Candidate["status"]>("proposed");
   const [addForm, setAddForm] = useState({
     talentId: "",
     fullName: "",
@@ -700,12 +709,140 @@ export function DinnerSelectionClient() {
     }
   };
 
+  const renderKanbanColumn = (status: Candidate["status"]) => (
+    <div key={status} className="rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900">{STATUS_LABEL[status]}</h3>
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+          {grouped[status].length}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {loadingDetail ? (
+          <p className="text-sm text-gray-500">Chargement...</p>
+        ) : grouped[status].length === 0 ? (
+          <p className="text-sm text-gray-400">Aucun créateur</p>
+        ) : (
+          grouped[status].map((c) => (
+            <article key={c.id} className="rounded-xl border border-gray-200 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCandidate(c)}
+                  className="text-left text-sm font-medium text-gray-900 underline decoration-transparent hover:decoration-gray-400"
+                >
+                  {c.fullName}
+                </button>
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-700">
+                  {c.source === "client" ? "Ajout cliente" : "Planner"}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500">
+                {c.manualHandle ? `@${c.manualHandle.replace(/^@+/, "")}` : "Sans handle"}
+                {typeof c.followers === "number"
+                  ? ` - ${new Intl.NumberFormat("fr-FR").format(c.followers)} followers`
+                  : ""}
+                {typeof c.engagementRate === "number" ? ` - ${c.engagementRate}% engagement` : ""}
+              </p>
+              {(c.creatorEmail || c.instagramUrl) && (
+                <p className="text-xs text-gray-500">
+                  {c.creatorEmail ? `${c.creatorEmail}` : ""}
+                  {c.creatorEmail && c.instagramUrl ? " - " : ""}
+                  {c.instagramUrl ? (
+                    <a
+                      href={c.instagramUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-gray-700"
+                    >
+                      Profil Instagram
+                    </a>
+                  ) : null}
+                </p>
+              )}
+              {c.notePlanner ? <p className="text-xs text-gray-600">{c.notePlanner}</p> : null}
+              {c.rejectionReason ? (
+                <p className="text-xs text-red-600">Refuse - Motif: {c.rejectionReason}</p>
+              ) : null}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => openMissionModal(c)}
+                  className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700"
+                >
+                  Mission casting
+                </button>
+                {c.status !== "contacted" ? (
+                  <button
+                    type="button"
+                    onClick={() => void moveCandidate(c.id, "contacted")}
+                    className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700"
+                  >
+                    Contacté
+                  </button>
+                ) : null}
+                {c.status !== "creator_approved" ? (
+                  <button
+                    type="button"
+                    onClick={() => void moveCandidate(c.id, "creator_approved")}
+                    className="rounded-md border border-purple-200 bg-purple-50 px-2 py-1 text-xs text-purple-700"
+                  >
+                    Validé créateur
+                  </button>
+                ) : null}
+                {c.status !== "approved" ? (
+                  <button
+                    type="button"
+                    onClick={() => void moveCandidate(c.id, "approved")}
+                    className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    Valider
+                  </button>
+                ) : null}
+                {c.status !== "rejected" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const reason = window.prompt("Motif du refus", c.rejectionReason || "") || "";
+                      void moveCandidate(c.id, "rejected", reason);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Refuser
+                  </button>
+                ) : null}
+                {c.status !== "proposed" ? (
+                  <button
+                    type="button"
+                    onClick={() => void moveCandidate(c.id, "proposed")}
+                    className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700"
+                  >
+                    Remettre propose
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void deleteCandidate(c.id)}
+                  className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                >
+                  Supprimer
+                </button>
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <main className="mx-auto w-full max-w-[1500px] p-6 md:p-8 space-y-6">
-      <section className="rounded-2xl border border-gray-200 bg-white p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">Sélection de créateurs – dîner</h1>
+    <main className="mx-auto w-full max-w-[1500px] space-y-6 p-4 md:p-8">
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-gray-900 sm:text-xl">Sélection de créateurs – dîner</h1>
             <p className="text-sm text-gray-500">
               Le planner propose, la cliente valide dans un board kanban.
             </p>
@@ -840,7 +977,7 @@ export function DinnerSelectionClient() {
               placeholder="Une URL photo par ligne"
               className="min-h-24 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {newCampaign.eventPhotosText
                 .split("\n")
                 .map((line) => line.trim())
@@ -1046,7 +1183,7 @@ export function DinnerSelectionClient() {
                   placeholder="Une URL photo par ligne"
                   className="min-h-24 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 />
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {editCampaign.eventPhotosText
                     .split("\n")
                     .map((line) => line.trim())
@@ -1272,136 +1409,37 @@ export function DinnerSelectionClient() {
         </div>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        {(
-          ["proposed", "approved", "contacted", "creator_approved", "rejected"] as Candidate["status"][]
-        ).map((status) => (
-          <div key={status} className="rounded-2xl border border-gray-200 bg-white p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">{STATUS_LABEL[status]}</h3>
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                {grouped[status].length}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {loadingDetail ? (
-                <p className="text-sm text-gray-500">Chargement...</p>
-              ) : grouped[status].length === 0 ? (
-                <p className="text-sm text-gray-400">Aucun créateur</p>
-              ) : (
-                grouped[status].map((c) => (
-                  <article key={c.id} className="rounded-xl border border-gray-200 p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCandidate(c)}
-                        className="text-left text-sm font-medium text-gray-900 underline decoration-transparent hover:decoration-gray-400"
-                      >
-                        {c.fullName}
-                      </button>
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-700">
-                        {c.source === "client" ? "Ajout cliente" : "Planner"}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500">
-                      {c.manualHandle ? `@${c.manualHandle.replace(/^@+/, "")}` : "Sans handle"}
-                      {typeof c.followers === "number"
-                        ? ` - ${new Intl.NumberFormat("fr-FR").format(c.followers)} followers`
-                        : ""}
-                      {typeof c.engagementRate === "number" ? ` - ${c.engagementRate}% engagement` : ""}
-                    </p>
-                    {(c.creatorEmail || c.instagramUrl) && (
-                      <p className="text-xs text-gray-500">
-                        {c.creatorEmail ? `${c.creatorEmail}` : ""}
-                        {c.creatorEmail && c.instagramUrl ? " - " : ""}
-                        {c.instagramUrl ? (
-                          <a
-                            href={c.instagramUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="underline hover:text-gray-700"
-                          >
-                            Profil Instagram
-                          </a>
-                        ) : null}
-                      </p>
-                    )}
-                    {c.notePlanner ? <p className="text-xs text-gray-600">{c.notePlanner}</p> : null}
-                    {c.rejectionReason ? (
-                      <p className="text-xs text-red-600">Refuse - Motif: {c.rejectionReason}</p>
-                    ) : null}
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => openMissionModal(c)}
-                        className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700"
-                      >
-                        Mission casting
-                      </button>
-                      {c.status !== "contacted" ? (
-                        <button
-                          type="button"
-                          onClick={() => void moveCandidate(c.id, "contacted")}
-                          className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700"
-                        >
-                          Contacté
-                        </button>
-                      ) : null}
-                      {c.status !== "creator_approved" ? (
-                        <button
-                          type="button"
-                          onClick={() => void moveCandidate(c.id, "creator_approved")}
-                          className="rounded-md border border-purple-200 bg-purple-50 px-2 py-1 text-xs text-purple-700"
-                        >
-                          Validé créateur
-                        </button>
-                      ) : null}
-                      {c.status !== "approved" ? (
-                        <button
-                          type="button"
-                          onClick={() => void moveCandidate(c.id, "approved")}
-                          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                          Valider
-                        </button>
-                      ) : null}
-                      {c.status !== "rejected" ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const reason = window.prompt("Motif du refus", c.rejectionReason || "") || "";
-                            void moveCandidate(c.id, "rejected", reason);
-                          }}
-                          className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                          Refuser
-                        </button>
-                      ) : null}
-                      {c.status !== "proposed" ? (
-                        <button
-                          type="button"
-                          onClick={() => void moveCandidate(c.id, "proposed")}
-                          className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700"
-                        >
-                          Remettre propose
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void deleteCandidate(c.id)}
-                        className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-                      >
-                        Supprimer
-                      </button>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
+      <section className="space-y-3">
+        <div className="md:hidden space-y-3">
+          <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1">
+            {BOARD_STATUSES.map((status) => {
+              const active = boardMobileStatus === status;
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setBoardMobileStatus(status)}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    active
+                      ? "border-[#C08B8B] bg-[#C08B8B]/10 text-gray-900"
+                      : "border-gray-200 bg-white text-gray-600"
+                  }`}
+                >
+                  {STATUS_LABEL[status]}
+                  <span className="ml-1 tabular-nums text-gray-500">({grouped[status].length})</span>
+                </button>
+              );
+            })}
           </div>
-        ))}
+          <p className="text-xs text-gray-500">
+            Étape « {STATUS_LABEL[boardMobileStatus]} » · {grouped[boardMobileStatus].length}{" "}
+            créateur{grouped[boardMobileStatus].length > 1 ? "s" : ""}
+          </p>
+          {renderKanbanColumn(boardMobileStatus)}
+        </div>
+        <div className="hidden md:grid md:grid-cols-3 md:gap-4">
+          {BOARD_STATUSES.map((status) => renderKanbanColumn(status))}
+        </div>
       </section>
 
       {missions.length > 0 ? (

@@ -3,15 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  CheckCircle2,
   FileSpreadsheet,
   FileText,
   History,
+  Loader2,
   MessageSquare,
   Paperclip,
   Plus,
+  ScanLine,
   Send,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   RhBadge,
   RhButton,
@@ -36,12 +40,45 @@ type Line = {
   receiptUrl: string | null;
   receiptName: string | null;
   missingReceipt: boolean;
+  justification: string | null;
   comment: string | null;
+  talentIds: string[];
+  ocrVerified: boolean;
+  analyseIA: unknown;
   isMileage: boolean;
   km: number | null;
   status: string;
   warning: boolean;
 };
+
+type TalentOpt = { id: string; label: string; handle: string | null };
+
+type OcrAnalyse = {
+  fournisseur: string | null;
+  montantTTC: number | null;
+  montantTVA: number | null;
+  tauxTVA: number | null;
+  date: string | null;
+  categorie: string | null;
+  natureRh: string | null;
+  analyseLe: string;
+};
+
+const emptyForm = () => ({
+  date: new Date().toISOString().slice(0, 10),
+  category: "Admin",
+  label: "",
+  amount: "",
+  vatRate: "20",
+  justification: "",
+  isMileage: false,
+  km: "",
+  receiptUrl: "",
+  receiptName: "",
+  ocrVerified: false,
+  analyseIA: null as OcrAnalyse | null,
+  talentIds: [] as string[],
+});
 
 type Summary = {
   horsKm: number;
@@ -120,18 +157,14 @@ export function ExpensesScreen() {
   const [receiptLine, setReceiptLine] = useState<Line | null>(null);
   const [commentLine, setCommentLine] = useState<Line | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "table">("list");
-  const [form, setForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    category: "Admin",
-    label: "",
-    amount: "",
-    vatRate: "20",
-    comment: "",
-    isMileage: false,
-    km: "",
-    receiptUrl: "",
-    receiptName: "",
-  });
+  const [form, setForm] = useState(emptyForm);
+  const [scanning, setScanning] = useState(false);
+  const [talentQ, setTalentQ] = useState("");
+  const [talentOpts, setTalentOpts] = useState<TalentOpt[]>([]);
+  const [selectedTalentLabels, setSelectedTalentLabels] = useState<
+    Record<string, string>
+  >({});
+  const [detailTalentLabels, setDetailTalentLabels] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     const [expRes, trRes] = await Promise.all([
@@ -179,29 +212,141 @@ export function ExpensesScreen() {
       setActiveId(data.report.id);
       await load();
       setMsg("Note créée");
+      toast.success("Note de frais créée");
       setShowAdd(true);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erreur");
+      const err = e instanceof Error ? e.message : "Erreur";
+      setMsg(err);
+      toast.error(err);
     } finally {
       setBusy(false);
     }
   }
 
+  useEffect(() => {
+    if (!showAdd) return;
+    let cancelled = false;
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/rh/talents${talentQ ? `?q=${encodeURIComponent(talentQ)}` : ""}`
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        setTalentOpts(data.talents || []);
+      } catch {
+        /* ignore */
+      }
+    }, talentQ ? 220 : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [showAdd, talentQ]);
+
+  useEffect(() => {
+    if (!commentLine?.talentIds?.length) {
+      setDetailTalentLabels([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/rh/talents?ids=${commentLine.talentIds.join(",")}`
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        setDetailTalentLabels(
+          (data.talents || []).map((t: TalentOpt) => t.label)
+        );
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [commentLine]);
+
   async function uploadReceipt(file: File) {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch("/api/rh/expenses/receipt", {
-      method: "POST",
-      body: fd,
+    setScanning(true);
+    setMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/rh/expenses/receipt", {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload impossible");
+      const analyse = (data.analyse || null) as OcrAnalyse | null;
+      setForm((f) => ({
+        ...f,
+        receiptUrl: data.url,
+        receiptName: data.name,
+        ocrVerified: false,
+        analyseIA: analyse,
+        date: analyse?.date || f.date,
+        amount:
+          analyse?.montantTTC != null ? String(analyse.montantTTC) : f.amount,
+        vatRate:
+          analyse?.tauxTVA != null ? String(analyse.tauxTVA) : f.vatRate,
+        category: analyse?.natureRh || f.category,
+        label:
+          analyse?.fournisseur
+            ? `Ticket ${analyse.fournisseur}`
+            : f.label || data.name?.replace(/\.[^.]+$/, "") || f.label,
+      }));
+      if (analyse) {
+        toast.success("Ticket scanné — vérifie les montants");
+      } else {
+        toast.message("Ticket uploadé — saisis / vérifie les infos à la main");
+      }
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function toggleTalent(t: TalentOpt) {
+    setForm((f) => {
+      const on = f.talentIds.includes(t.id);
+      return {
+        ...f,
+        talentIds: on
+          ? f.talentIds.filter((id) => id !== t.id)
+          : [...f.talentIds, t.id],
+      };
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Upload impossible");
-    setForm((f) => ({ ...f, receiptUrl: data.url, receiptName: data.name }));
+    setSelectedTalentLabels((prev) => {
+      if (prev[t.id]) {
+        const next = { ...prev };
+        delete next[t.id];
+        return next;
+      }
+      return { ...prev, [t.id]: t.label };
+    });
   }
 
   async function addLine() {
     if (!active || active.status !== "DRAFT") {
       setMsg("Ouvre ou crée une note brouillon");
+      return;
+    }
+    if ((form.justification || "").trim().length < 20) {
+      const err =
+        "Explique pourquoi cette dépense (min. 20 caractères) : contexte, avec qui, objectif.";
+      setMsg(err);
+      toast.error(err);
+      return;
+    }
+    if (!form.isMileage && !form.receiptUrl) {
+      toast.error("Scanne d’abord ton ticket");
+      return;
+    }
+    if (!form.isMileage && !form.ocrVerified) {
+      toast.error("Coche « J’ai vérifié le scan » avant d’enregistrer");
       return;
     }
     setBusy(true);
@@ -218,7 +363,10 @@ export function ExpensesScreen() {
           label: form.label || form.category,
           amount: Number(form.amount) || 0,
           vatRate: form.isMileage ? 0 : Number(form.vatRate) || 0,
-          comment: form.comment || undefined,
+          justification: form.justification.trim(),
+          talentIds: form.talentIds,
+          analyseIA: form.analyseIA,
+          ocrVerified: form.isMileage || form.ocrVerified,
           isMileage: form.isMileage,
           km: form.isMileage ? Number(form.km) || 0 : undefined,
           fiscalHp: vehicle?.fiscalHorsepower,
@@ -229,23 +377,17 @@ export function ExpensesScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
-      setForm({
-        date: new Date().toISOString().slice(0, 10),
-        category: "Admin",
-        label: "",
-        amount: "",
-        vatRate: "20",
-        comment: "",
-        isMileage: false,
-        km: "",
-        receiptUrl: "",
-        receiptName: "",
-      });
+      setForm(emptyForm());
+      setSelectedTalentLabels({});
+      setTalentQ("");
       setShowAdd(false);
       await load();
       setMsg("Dépense ajoutée");
+      toast.success("Dépense ajoutée");
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erreur");
+      const err = e instanceof Error ? e.message : "Erreur";
+      setMsg(err);
+      toast.error(err);
     } finally {
       setBusy(false);
     }
@@ -263,10 +405,87 @@ export function ExpensesScreen() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
       setMsg("Note soumise pour approbation");
+      toast.success("Note envoyée pour validation");
       await load();
       await refresh();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erreur");
+      const err = e instanceof Error ? e.message : "Erreur";
+      setMsg(err);
+      toast.error(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeLine(lineId: string) {
+    if (!confirm("Supprimer cette ligne ?")) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/rh/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "deleteLine", lineId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      toast.success("Ligne supprimée");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeReport() {
+    if (!active || active.status !== "DRAFT") return;
+    if (!confirm("Supprimer cette note de frais brouillon ?")) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/rh/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "deleteReport", reportId: active.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      toast.success("Note supprimée");
+      setActiveId(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveVehicle() {
+    const label = prompt("Libellé véhicule", "Véhicule perso") || "Véhicule perso";
+    const hp = Number(prompt("CV fiscaux", String(vehicle?.fiscalHorsepower || 5)) || 5);
+    const insurance = prompt(
+      "Expiration assurance (YYYY-MM-DD)",
+      vehicle?.insuranceExpiresOn?.slice(0, 10) || ""
+    );
+    setBusy(true);
+    try {
+      const res = await fetch("/api/rh/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "upsertVehicle",
+          label,
+          fiscalHorsepower: hp,
+          insuranceExpiresOn: insurance || null,
+          carteGriseExpiresOn: insurance || null,
+          licenseExpiresOn: insurance || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      toast.success("Véhicule enregistré");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBusy(false);
     }
@@ -281,11 +500,13 @@ export function ExpensesScreen() {
   return (
     <div className="rh-screen">
       <RhPageHero
-        eyebrow={`NDF · ${me?.employee.matricule || "—"}`}
-        title="Situation et notes de frais"
+        eyebrow="Mes frais"
+        title="Notes de frais"
+        subtitle="Scanne ton ticket, vérifie le scan, justifie la dépense (et les talents présents), puis envoie à ton manager."
         actions={
           <>
             <RhButton
+              data-tour="expenses-new"
               variant="secondary"
               disabled={busy}
               onClick={() => void createReport()}
@@ -293,6 +514,7 @@ export function ExpensesScreen() {
               <Plus size={14} /> Nouvelle note
             </RhButton>
             <RhButton
+              data-tour="expenses-submit"
               disabled={busy || !active || active.status !== "DRAFT"}
               onClick={() => void submit()}
             >
@@ -468,9 +690,18 @@ export function ExpensesScreen() {
                   </ToggleBtn>
                 </div>
                 {active.status === "DRAFT" ? (
-                  <RhButton disabled={busy} onClick={() => void submit()}>
-                    Soumettre
-                  </RhButton>
+                  <>
+                    <RhButton disabled={busy} onClick={() => void submit()}>
+                      Soumettre
+                    </RhButton>
+                    <RhButton
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => void removeReport()}
+                    >
+                      Supprimer
+                    </RhButton>
+                  </>
                 ) : null}
               </div>
 
@@ -493,6 +724,7 @@ export function ExpensesScreen() {
                       <th className="text-right font-medium py-2 pr-2">
                         Pris en charge
                       </th>
+                      <th className="w-10" />
                       <th className="w-10" />
                       <th className="w-10" />
                     </tr>
@@ -566,12 +798,13 @@ export function ExpensesScreen() {
                           )}
                         </td>
                         <td className="py-2.5 text-center">
-                          {l.comment ? (
+                          {l.justification || l.comment ? (
                             <button
                               type="button"
                               className="border-0 bg-transparent cursor-pointer p-1"
                               style={{ color: EMP_COLORS.body }}
                               onClick={() => setCommentLine(l)}
+                              title="Justification"
                             >
                               <MessageSquare size={14} />
                             </button>
@@ -580,6 +813,19 @@ export function ExpensesScreen() {
                               <MessageSquare size={14} />
                             </span>
                           )}
+                        </td>
+                        <td className="py-2.5 text-center">
+                          {active.status === "DRAFT" ? (
+                            <button
+                              type="button"
+                              className="border-0 bg-transparent cursor-pointer text-[11px] font-medium"
+                              style={{ color: EMP_COLORS.danger }}
+                              disabled={busy}
+                              onClick={() => void removeLine(l.id)}
+                            >
+                              ×
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
@@ -598,7 +844,7 @@ export function ExpensesScreen() {
                       <td className="py-3 text-right rh-mono font-semibold">
                         {euro(active.summary.reimbursed)}
                       </td>
-                      <td colSpan={2} />
+                      <td colSpan={3} />
                     </tr>
                   </tfoot>
                 </table>
@@ -694,17 +940,14 @@ export function ExpensesScreen() {
       </RhCard>
 
       {showAdd && active ? (
-        <Modal title="Ajouter dépense" onClose={() => setShowAdd(false)}>
-          <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1">
-              <EmpLabel>Date</EmpLabel>
-              <input
-                type="date"
-                className="rh-input"
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-              />
-            </label>
+        <Modal
+          title="Ajouter dépense"
+          onClose={() => {
+            if (!busy && !scanning) setShowAdd(false);
+          }}
+          wide
+        >
+          <div className="flex flex-col gap-4">
             <label
               className="flex items-center gap-2 text-[12.5px]"
               style={{ color: EMP_COLORS.body }}
@@ -720,126 +963,454 @@ export function ExpensesScreen() {
                       ? "Frais kilométriques"
                       : "Admin",
                     vatRate: e.target.checked ? "0" : "20",
+                    ocrVerified: e.target.checked ? true : false,
                   })
                 }
               />
-              Indemnités kilométriques
+              Indemnités kilométriques (pas de ticket)
             </label>
+
             {!form.isMileage ? (
-              <label className="flex flex-col gap-1">
-                <EmpLabel>Nature</EmpLabel>
-                <select
-                  className="rh-input"
-                  value={form.category}
-                  onChange={(e) =>
-                    setForm({ ...form, category: e.target.value })
-                  }
-                >
-                  {NATURES.filter((n) => n !== "Frais kilométriques").map(
-                    (n) => (
-                      <option key={n}>{n}</option>
-                    )
-                  )}
-                </select>
-              </label>
-            ) : null}
-            <label className="flex flex-col gap-1">
-              <EmpLabel>Libellé</EmpLabel>
-              <input
-                className="rh-input"
-                value={form.label}
-                onChange={(e) => setForm({ ...form, label: e.target.value })}
-                placeholder="Ex. ACTION Plan de Campagne"
-              />
-            </label>
-            {form.isMileage ? (
-              <label className="flex flex-col gap-1">
-                <EmpLabel>Distance (km)</EmpLabel>
-                <input
-                  className="rh-input rh-mono"
-                  value={form.km}
-                  onChange={(e) => setForm({ ...form, km: e.target.value })}
-                />
-              </label>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col gap-1">
-                    <EmpLabel>Montant TTC €</EmpLabel>
-                    <input
-                      className="rh-input rh-mono"
-                      value={form.amount}
-                      onChange={(e) =>
-                        setForm({ ...form, amount: e.target.value })
-                      }
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <EmpLabel>Taux TVA %</EmpLabel>
-                    <input
-                      className="rh-input rh-mono"
-                      value={form.vatRate}
-                      onChange={(e) =>
-                        setForm({ ...form, vatRate: e.target.value })
-                      }
-                    />
-                  </label>
+              <div
+                className="rounded-[12px] p-3 flex flex-col gap-2"
+                style={{
+                  background: EMP_COLORS.inset,
+                  border: `1px solid ${EMP_COLORS.borderControl}`,
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <ScanLine size={16} style={{ color: EMP_COLORS.accent }} />
+                  <EmpLabel>1 · Scanne ton ticket</EmpLabel>
                 </div>
-                <label className="flex flex-col gap-1">
-                  <EmpLabel>Justificatif</EmpLabel>
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    className="rh-input"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file)
-                        void uploadReceipt(file).catch((err) =>
-                          setMsg(
-                            err instanceof Error ? err.message : "Upload KO"
-                          )
-                        );
+                <p
+                  className="m-0 text-[12px] leading-[1.45]"
+                  style={{ color: EMP_COLORS.muted }}
+                >
+                  Photo ou PDF du reçu. On lit le ticket automatiquement —
+                  tu dois ensuite vérifier chaque champ.
+                </p>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="rh-input"
+                  disabled={scanning || busy}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file)
+                      void uploadReceipt(file).catch((err) => {
+                        const m =
+                          err instanceof Error ? err.message : "Upload KO";
+                        setMsg(m);
+                        toast.error(m);
+                      });
+                  }}
+                />
+                {scanning ? (
+                  <div
+                    className="flex items-center gap-2 text-[12.5px]"
+                    style={{ color: EMP_COLORS.accent }}
+                  >
+                    <Loader2 size={14} className="animate-spin" />
+                    Scan du ticket en cours…
+                  </div>
+                ) : null}
+                {form.receiptUrl ? (
+                  <div className="flex items-start gap-3 mt-1">
+                    {/\.pdf($|\?)/i.test(form.receiptUrl) ? (
+                      <div
+                        className="rh-mono text-[11px] px-2 py-1 rounded-[8px]"
+                        style={{
+                          background: "#1D2530",
+                          color: EMP_COLORS.body,
+                        }}
+                      >
+                        PDF · {form.receiptName}
+                      </div>
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={form.receiptUrl}
+                        alt="Ticket"
+                        className="rounded-[8px] object-cover"
+                        style={{ width: 72, height: 72 }}
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div
+                        className="text-[12px] font-medium"
+                        style={{ color: EMP_COLORS.text }}
+                      >
+                        {form.receiptName || "Ticket"}
+                      </div>
+                      {form.analyseIA ? (
+                        <div
+                          className="text-[11.5px] mt-1 leading-[1.4]"
+                          style={{ color: EMP_COLORS.muted }}
+                        >
+                          Scan :{" "}
+                          {form.analyseIA.fournisseur || "fournisseur ?"}
+                          {form.analyseIA.montantTTC != null
+                            ? ` · ${form.analyseIA.montantTTC} €`
+                            : ""}
+                          {form.analyseIA.date
+                            ? ` · ${form.analyseIA.date}`
+                            : ""}
+                        </div>
+                      ) : (
+                        <div
+                          className="text-[11.5px] mt-1"
+                          style={{ color: EMP_COLORS.warning }}
+                        >
+                          Scan automatique indisponible — saisis à la main puis
+                          confirme.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {(form.isMileage || form.receiptUrl) && (
+              <>
+                {!form.isMileage ? (
+                  <div
+                    className="rounded-[12px] p-3 flex flex-col gap-3"
+                    style={{
+                      border: `1px solid ${
+                        form.ocrVerified
+                          ? "rgba(70,214,192,.35)"
+                          : EMP_COLORS.accent
+                      }`,
+                      background: form.ocrVerified
+                        ? "rgba(70,214,192,.06)"
+                        : "rgba(229,242,181,.06)",
                     }}
-                  />
-                  {form.receiptName ? (
-                    <span
-                      className="rh-mono text-[10px]"
-                      style={{ color: EMP_COLORS.accent }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2
+                        size={16}
+                        style={{
+                          color: form.ocrVerified
+                            ? EMP_COLORS.success
+                            : EMP_COLORS.accent,
+                        }}
+                      />
+                      <EmpLabel>2 · Vérifie le scan</EmpLabel>
+                    </div>
+                    <p
+                      className="m-0 text-[12px] leading-[1.45]"
+                      style={{ color: EMP_COLORS.muted }}
                     >
-                      {form.receiptName}
-                    </span>
+                      Corrige si besoin. Tu es responsable des montants déclarés.
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1">
+                        <EmpLabel>Date</EmpLabel>
+                        <input
+                          type="date"
+                          className="rh-input"
+                          value={form.date}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              date: e.target.value,
+                              ocrVerified: false,
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <EmpLabel>Nature</EmpLabel>
+                        <select
+                          className="rh-input"
+                          value={form.category}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              category: e.target.value,
+                              ocrVerified: false,
+                            })
+                          }
+                        >
+                          {NATURES.filter(
+                            (n) => n !== "Frais kilométriques"
+                          ).map((n) => (
+                            <option key={n}>{n}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 sm:col-span-2">
+                        <EmpLabel>Libellé</EmpLabel>
+                        <input
+                          className="rh-input"
+                          value={form.label}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              label: e.target.value,
+                              ocrVerified: false,
+                            })
+                          }
+                          placeholder="Ex. Déjeuner client / Uber shooting"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <EmpLabel>Montant TTC €</EmpLabel>
+                        <input
+                          className="rh-input rh-mono"
+                          value={form.amount}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              amount: e.target.value,
+                              ocrVerified: false,
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <EmpLabel>Taux TVA %</EmpLabel>
+                        <input
+                          className="rh-input rh-mono"
+                          value={form.vatRate}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              vatRate: e.target.value,
+                              ocrVerified: false,
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+                    <label
+                      className="flex items-start gap-2 text-[12.5px] leading-[1.4] cursor-pointer"
+                      style={{ color: EMP_COLORS.text }}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={form.ocrVerified}
+                        onChange={(e) =>
+                          setForm({ ...form, ocrVerified: e.target.checked })
+                        }
+                      />
+                      <span>
+                        J’ai vérifié le ticket : date, montant et TVA
+                        correspondent bien au justificatif.
+                      </span>
+                    </label>
+                  </div>
+                ) : (
+                  <>
+                    <label className="flex flex-col gap-1">
+                      <EmpLabel>Date</EmpLabel>
+                      <input
+                        type="date"
+                        className="rh-input"
+                        value={form.date}
+                        onChange={(e) =>
+                          setForm({ ...form, date: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <EmpLabel>Libellé</EmpLabel>
+                      <input
+                        className="rh-input"
+                        value={form.label}
+                        onChange={(e) =>
+                          setForm({ ...form, label: e.target.value })
+                        }
+                        placeholder="Ex. Trajet bureau → tournage"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <EmpLabel>Distance (km)</EmpLabel>
+                      <input
+                        className="rh-input rh-mono"
+                        value={form.km}
+                        onChange={(e) =>
+                          setForm({ ...form, km: e.target.value })
+                        }
+                      />
+                    </label>
+                  </>
+                )}
+
+                <div className="flex flex-col gap-2">
+                  <EmpLabel>
+                    {form.isMileage ? "2" : "3"} · Pourquoi cette dépense ?
+                  </EmpLabel>
+                  <textarea
+                    className="rh-input"
+                    rows={3}
+                    value={form.justification}
+                    onChange={(e) =>
+                      setForm({ ...form, justification: e.target.value })
+                    }
+                    placeholder="Obligatoire — ex. Déjeuner post-réunion avec Léa Dupont (talent) pour préparer le brief marque X…"
+                  />
+                  <div
+                    className="text-[11px]"
+                    style={{
+                      color:
+                        form.justification.trim().length >= 20
+                          ? EMP_COLORS.success
+                          : EMP_COLORS.dim,
+                    }}
+                  >
+                    {form.justification.trim().length}/20 min. — contexte,
+                    objectif, avec qui.
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <EmpLabel>
+                    {form.isMileage ? "3" : "4"} · Talents présents (optionnel)
+                  </EmpLabel>
+                  <p
+                    className="m-0 text-[12px] leading-[1.4]"
+                    style={{ color: EMP_COLORS.muted }}
+                  >
+                    Sélectionne les talents avec qui tu étais (repas, event,
+                    shooting…).
+                  </p>
+                  {form.talentIds.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {form.talentIds.map((id) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className="border-0 cursor-pointer rounded-[8px] px-2.5 py-1 text-[11.5px]"
+                          style={{
+                            background: "rgba(229,242,181,.14)",
+                            color: EMP_COLORS.accent,
+                          }}
+                          onClick={() =>
+                            toggleTalent({
+                              id,
+                              label: selectedTalentLabels[id] || id,
+                              handle: null,
+                            })
+                          }
+                        >
+                          {selectedTalentLabels[id] || id} ×
+                        </button>
+                      ))}
+                    </div>
                   ) : null}
-                </label>
+                  <input
+                    className="rh-input"
+                    value={talentQ}
+                    onChange={(e) => setTalentQ(e.target.value)}
+                    placeholder="Rechercher un talent…"
+                  />
+                  <div
+                    className="max-h-[140px] overflow-auto rounded-[10px] flex flex-col"
+                    style={{
+                      border: `1px solid ${EMP_COLORS.borderControl}`,
+                      background: EMP_COLORS.inset,
+                    }}
+                  >
+                    {talentOpts.map((t) => {
+                      const on = form.talentIds.includes(t.id);
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          className="text-left border-0 cursor-pointer px-3 py-2 text-[12.5px]"
+                          style={{
+                            background: on
+                              ? "rgba(229,242,181,.1)"
+                              : "transparent",
+                            color: EMP_COLORS.text,
+                            borderBottom: "1px solid #15191F",
+                          }}
+                          onClick={() => toggleTalent(t)}
+                        >
+                          {t.label}
+                          {t.handle ? (
+                            <span
+                              className="rh-mono text-[10px] ml-2"
+                              style={{ color: EMP_COLORS.dim }}
+                            >
+                              @{t.handle.replace(/^@/, "")}
+                            </span>
+                          ) : null}
+                          {on ? (
+                            <span
+                              className="float-right text-[11px]"
+                              style={{ color: EMP_COLORS.accent }}
+                            >
+                              ✓
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                    {!talentOpts.length ? (
+                      <div
+                        className="px-3 py-3 text-[12px]"
+                        style={{ color: EMP_COLORS.muted }}
+                      >
+                        Aucun talent trouvé.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                {form.isMileage ? (
+                  vehicle ? (
+                    <div
+                      className="rh-mono text-[10px] flex items-center gap-2"
+                      style={{ color: EMP_COLORS.dim }}
+                    >
+                      Véhicule {vehicle.fiscalHorsepower} CV · {vehicle.yearKm}{" "}
+                      km YTD
+                      <button
+                        type="button"
+                        className="border-0 bg-transparent cursor-pointer text-[11px]"
+                        style={{ color: EMP_COLORS.accent }}
+                        onClick={() => void saveVehicle()}
+                      >
+                        Modifier
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className="text-[11px]"
+                      style={{ color: EMP_COLORS.warning }}
+                    >
+                      Pas de véhicule déclaré —{" "}
+                      <button
+                        type="button"
+                        className="border-0 bg-transparent cursor-pointer underline"
+                        style={{ color: EMP_COLORS.accent }}
+                        onClick={() => void saveVehicle()}
+                      >
+                        déclarer
+                      </button>{" "}
+                      (requis pour les IK).
+                    </div>
+                  )
+                ) : null}
+
+                <RhButton
+                  className="w-full"
+                  disabled={
+                    busy ||
+                    scanning ||
+                    (!form.isMileage && !form.ocrVerified) ||
+                    form.justification.trim().length < 20
+                  }
+                  onClick={() => void addLine()}
+                >
+                  Enregistrer la dépense
+                </RhButton>
               </>
             )}
-            <label className="flex flex-col gap-1">
-              <EmpLabel>Commentaire</EmpLabel>
-              <textarea
-                className="rh-input"
-                rows={2}
-                value={form.comment}
-                onChange={(e) => setForm({ ...form, comment: e.target.value })}
-              />
-            </label>
-            {vehicle ? (
-              <div
-                className="rh-mono text-[10px]"
-                style={{ color: EMP_COLORS.dim }}
-              >
-                Véhicule {vehicle.fiscalHorsepower} CV · {vehicle.yearKm} km YTD
-              </div>
-            ) : form.isMileage ? (
-              <div className="text-[11px]" style={{ color: EMP_COLORS.warning }}>
-                Pas de véhicule déclaré — IK impossibles.
-              </div>
-            ) : null}
-            <RhButton
-              className="w-full"
-              disabled={busy}
-              onClick={() => void addLine()}
-            >
-              Enregistrer la dépense
-            </RhButton>
           </div>
         </Modal>
       ) : null}
@@ -877,13 +1448,48 @@ export function ExpensesScreen() {
       ) : null}
 
       {commentLine ? (
-        <Modal title="Commentaire" onClose={() => setCommentLine(null)}>
-          <p
-            className="m-0 text-[13px] leading-[1.55]"
-            style={{ color: EMP_COLORS.body }}
-          >
-            {commentLine.comment}
-          </p>
+        <Modal title="Justification" onClose={() => setCommentLine(null)}>
+          <div className="flex flex-col gap-3">
+            <p
+              className="m-0 text-[13px] leading-[1.55]"
+              style={{ color: EMP_COLORS.body }}
+            >
+              {commentLine.justification || commentLine.comment || "—"}
+            </p>
+            {detailTalentLabels.length ? (
+              <div>
+                <EmpLabel>Talents présents</EmpLabel>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {detailTalentLabels.map((name) => (
+                    <span
+                      key={name}
+                      className="rounded-[8px] px-2.5 py-1 text-[11.5px]"
+                      style={{
+                        background: "rgba(229,242,181,.12)",
+                        color: EMP_COLORS.accent,
+                      }}
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {!commentLine.isMileage ? (
+              <div
+                className="text-[11.5px]"
+                style={{
+                  color: commentLine.ocrVerified
+                    ? EMP_COLORS.success
+                    : EMP_COLORS.warning,
+                }}
+              >
+                {commentLine.ocrVerified
+                  ? "Scan du ticket vérifié par le collaborateur"
+                  : "Scan non confirmé"}
+              </div>
+            ) : null}
+          </div>
         </Modal>
       ) : null}
     </div>

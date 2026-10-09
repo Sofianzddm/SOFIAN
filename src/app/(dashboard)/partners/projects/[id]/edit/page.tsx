@@ -341,7 +341,7 @@ export default function EditPartnerProjectPage() {
 
   if (loading) {
     return (
-      <div className="p-8 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-8 max-w-4xl mx-auto">
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
         </div>
@@ -351,7 +351,7 @@ export default function EditPartnerProjectPage() {
 
   if (!project) {
     return (
-      <div className="p-8 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-8 max-w-4xl mx-auto">
         <p className="text-gray-600">Projet non trouvé</p>
         <Link href={BASE} className="text-blue-600 hover:underline">
           Retour à la liste
@@ -361,7 +361,7 @@ export default function EditPartnerProjectPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto">
       <Link href={BASE} className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6">
         <ArrowLeft className="w-4 h-4" />
         Retour à la liste
@@ -393,7 +393,7 @@ export default function EditPartnerProjectPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Image de couverture</label>
             <div className="flex flex-col gap-2">
@@ -455,7 +455,7 @@ export default function EditPartnerProjectPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Date</label>
             <input
@@ -597,7 +597,7 @@ export default function EditPartnerProjectPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Ordre d'affichage</label>
             <input
@@ -627,7 +627,7 @@ export default function EditPartnerProjectPage() {
             Sélectionner les talents ({selectedTalents.length} sélectionnés)
           </label>
           <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {talents.map((talent) => {
                 const isSelected = selectedTalents.includes(talent.id);
                 return (

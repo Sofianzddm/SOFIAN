@@ -27,16 +27,16 @@ export const EMP_COLORS = {
   remote: "#7C8CF8",
 } as const;
 
-/** Petit intitulé mono en majuscules. */
+/** Libellé de champ — lisible, pas en criant. */
 export function EmpLabel({
   children,
-  color = EMP_COLORS.dim,
+  color = EMP_COLORS.muted,
 }: {
   children: ReactNode;
   color?: string;
 }) {
   return (
-    <div className="rh-micro" style={{ color }}>
+    <div className="text-[12.5px] font-medium" style={{ color }}>
       {children}
     </div>
   );

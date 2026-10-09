@@ -308,7 +308,98 @@ export default function UsersPage() {
             <p className="text-gray-500">Aucun utilisateur trouvé</p>
           </div>
         ) : (
-          <table className="w-full">
+          <>
+          <div className="md:hidden space-y-3 p-4">
+            {filteredUsers.map((user) => (
+              <div
+                key={user.id}
+                className={`rounded-xl border border-gray-200 bg-white p-4 ${!user.actif ? "opacity-60" : ""}`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-glowup-rose to-purple-600 rounded-full flex items-center justify-center text-white font-bold shrink-0">
+                    {user.prenom[0]}
+                    {user.nom[0]}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-gray-900 truncate">
+                      {user.prenom} {user.nom}
+                    </p>
+                    <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                  </div>
+                  {user.actif ? (
+                    <span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                      <UserCheck className="w-3 h-3" />
+                      Actif
+                    </span>
+                  ) : (
+                    <span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-gray-200 text-gray-600 rounded-full text-xs font-medium">
+                      <UserX className="w-3 h-3" />
+                      Inactif
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
+                      roleColors[user.role] || "bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    {user.role === "ADMIN" && <Shield className="w-3 h-3" />}
+                    {roleLabels[user.role] || user.role}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    Créé le {new Date(user.createdAt).toLocaleDateString("fr-FR")}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+                  {isAdmin && user.id !== session?.user?.id && user.actif && (
+                    <button
+                      onClick={() => impersonateUser(user.id)}
+                      className="p-2 text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg"
+                      title="Se faire passer pour"
+                    >
+                      <UserCircle className="w-4 h-4" />
+                    </button>
+                  )}
+                  <Link
+                    href={`/users/${user.id}/edit`}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    Modifier
+                  </Link>
+                  {isAdmin &&
+                    user.id !== session?.user?.id &&
+                    (user.actif ||
+                      !isReactivationLockedEmail(user.email) ||
+                      isSofianAdmin) && (
+                    <button
+                      onClick={() => toggleUserStatus(user)}
+                      className={`p-2 rounded-lg ${
+                        user.actif
+                          ? "text-gray-400 hover:text-orange-600 hover:bg-orange-50"
+                          : "text-gray-400 hover:text-green-600 hover:bg-green-50"
+                      }`}
+                      title={user.actif ? "Désactiver" : "Réactiver"}
+                    >
+                      {user.actif ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                    </button>
+                  )}
+                  {isAdmin && user.id !== session?.user?.id && (
+                    <button
+                      onClick={() => deleteUser(user.id, `${user.prenom} ${user.nom}`)}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg ml-auto"
+                      title="Supprimer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">
@@ -458,6 +549,8 @@ export default function UsersPage() {
               ))}
             </tbody>
           </table>
+          </div>
+          </>
         )}
       </div>
     </div>

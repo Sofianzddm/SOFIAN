@@ -6,7 +6,6 @@ import {
   CommandPalette,
   RhTabBar,
   RhTopBar,
-  type RhLang,
 } from "@/components/rh/chrome/shell";
 import {
   RhAvatar,
@@ -17,113 +16,61 @@ import {
   RhPageHero,
 } from "@/components/rh/ui/primitives";
 import { RhDataProvider, useRhData } from "@/components/rh/RhDataContext";
-import { CP, LIME, RTT, SICK, TT } from "@/components/rh/mock/shared";
-import { buildThreeMonths, LEAVE_LEGEND } from "@/lib/rh/calendar-ui";
-import { isFrenchHoliday } from "@/lib/rh/holidays";
-
-type PeopleScreen =
-  | "home"
-  | "absences"
-  | "planning"
-  | "remote"
-  | "time"
-  | "expenses"
-  | "team"
-  | "approvals"
-  | "rh"
-  | "manage"
-  | "mobile";
-
-const TABS: { id: PeopleScreen; label: string; count?: number }[] = [
-  { id: "home", label: "Aperçu" },
-  { id: "absences", label: "Absences" },
-  { id: "planning", label: "Planning" },
-  { id: "remote", label: "Présence" },
-  { id: "time", label: "Feuilles de temps" },
-  { id: "expenses", label: "Frais & TR" },
-  { id: "team", label: "Effectif" },
-  { id: "approvals", label: "Inbox" },
-  { id: "rh", label: "RH" },
-  { id: "manage", label: "Admin" },
-];
-
-const ROLE_META: Record<string, string> = {
-  COLLAB: "EMPLOYEE",
-  MANAGER: "MANAGER",
-  HR: "HR ADMIN",
-};
-
-const KIND_COLOR: Record<string, string> = {
+import {
   CP,
-  RTT,
-  RECUP: RTT,
-  SS: SICK,
-  UNPAID: "#8B95A5",
-  SCHOOL: "#B48CF0",
-  AUTHORIZED: "#8ED98A",
+  KIND_COLOR,
+  KIND_LABEL,
+  LIME,
+  ROLE_META,
+  TABS,
   TT,
-  OFFICE: "#8B95A5",
-  TRAVEL: "#F2874E",
-  SITE: "#F0C24E",
-};
-
-type PlanningEmp = {
-  id: string;
-  name: string;
-  initials: string;
-  color: string;
-  department: string;
-  matricule: string;
-  events: Array<{ date: string; kind: string; halfDay: boolean }>;
-};
+  buildTeamAbsences,
+  endOfWeek,
+  formatFr,
+  isoDate,
+  startOfWeek,
+  type EmployeeFiche,
+  type ForceForm,
+  type InboxItem,
+  type PeopleScreen,
+  type PlanningData,
+  type SigItem,
+} from "@/components/rh/people/people-utils";
+import { PlanningGanttScreen } from "@/components/rh/people/screens/PlanningGanttScreen";
+import { ApprovalsInboxScreen } from "@/components/rh/people/screens/ApprovalsInboxScreen";
+import { PayrollScreen } from "@/components/rh/people/screens/PayrollScreen";
+import { ManageAdminScreen } from "@/components/rh/people/screens/ManageAdminScreen";
 
 function PeopleAppInner() {
   const router = useRouter();
   const { me, inbox, employees, loading, error, approve, refuse, refresh } =
     useRhData();
   const [screen, setScreen] = useState<PeopleScreen>("home");
-  const [lang, setLang] = useState<RhLang>("fr");
   const [palette, setPalette] = useState(false);
-  const [sel, setSel] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [planning, setPlanning] = useState<{
-    employees: PlanningEmp[];
-    absentToday: Array<{
-      id: string;
-      name: string;
-      initials: string;
-      color: string;
-      department: string;
-      kind: string;
-    }>;
-    coverage: Array<{
-      dept: string;
-      pct: number;
-      label: string;
-      color: string;
-    }>;
-    from: string;
-    to: string;
-  } | null>(null);
-  const [myCal, setMyCal] = useState<{
-    leaveDays: Array<{ date: string; accountCode: string }>;
-    remoteDates: string[];
-  }>({ leaveDays: [], remoteDates: [] });
+  const [planning, setPlanning] = useState<PlanningData | null>(null);
   const [salaries, setSalaries] = useState<{
     rows: Array<Record<string, unknown>>;
     masseSalariale: number;
   } | null>(null);
-  const [forceForm, setForceForm] = useState({
-    employeeId: "",
-    from: new Date().toISOString().slice(0, 10),
-    to: new Date().toISOString().slice(0, 10),
-    accountCode: "CP",
-  });
   const [msg, setMsg] = useState<string | null>(null);
+  const [msgTone, setMsgTone] = useState<"ok" | "err">("ok");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(
+    null
+  );
+  const [fiche, setFiche] = useState<EmployeeFiche | null>(null);
+  const [ficheLoading, setFicheLoading] = useState(false);
+  const [adjustForm, setAdjustForm] = useState({
+    accountCode: "CP",
+    remaining: "",
+  });
+  const [sigItems, setSigItems] = useState<SigItem[]>([]);
+  const [sigLoading, setSigLoading] = useState(false);
 
   useEffect(() => {
     if (error === "NO_RH_PROFILE") router.replace("/rh/login");
-    if (me?.employee.rhRole === "COLLAB") router.replace("/rh/espace");
+    // Console People réservée aux HR — managers / collabs → espace salarié
+    if (me && me.employee.rhRole !== "HR") router.replace("/rh/espace");
   }, [error, me, router]);
 
   const loadPlanning = useCallback(async () => {
@@ -136,159 +83,359 @@ function PeopleAppInner() {
     if (res.ok) setPlanning(await res.json());
   }, []);
 
-  const loadCal = useCallback(async () => {
-    const start = new Date();
-    start.setDate(1);
-    const end = new Date(start.getFullYear(), start.getMonth() + 3, 0);
-    const res = await fetch(
-      `/api/rh/leave/calendar?from=${start.toISOString()}&to=${end.toISOString()}`
-    );
-    if (res.ok) setMyCal(await res.json());
-  }, []);
-
   const loadSalaries = useCallback(async () => {
     if (me?.employee.rhRole !== "HR") return;
     const res = await fetch("/api/rh/salaries");
     if (res.ok) setSalaries(await res.json());
   }, [me]);
 
+  const loadSignatures = useCallback(async () => {
+    setSigLoading(true);
+    try {
+      const res = await fetch("/api/rh/timesheets/signatures");
+      if (res.ok) {
+        const data = await res.json();
+        setSigItems(data.items || []);
+      }
+    } finally {
+      setSigLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadPlanning();
-    void loadCal();
     void loadSalaries();
-  }, [loadPlanning, loadCal, loadSalaries]);
+  }, [loadPlanning, loadSalaries]);
 
-  const months = useMemo(
-    () => buildThreeMonths(myCal.leaveDays, myCal.remoteDates),
-    [myCal]
-  );
+  useEffect(() => {
+    if (screen === "time") void loadSignatures();
+  }, [screen, loadSignatures]);
 
-  const inboxItems = inbox.map((item, idx) => ({
+  useEffect(() => {
+    if (!selectedEmployeeId) {
+      setFiche(null);
+      return;
+    }
+    let cancelled = false;
+    setFicheLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/rh/employees/${selectedEmployeeId}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Impossible de charger la fiche");
+        if (!cancelled) {
+          setFiche(data as EmployeeFiche);
+          const firstBal = (data.balances as EmployeeFiche["balances"])?.find(
+            (b) => ["CP", "RTT", "RECUP"].includes(b.accountCode)
+          );
+          setAdjustForm({
+            accountCode: firstBal?.accountCode || "CP",
+            remaining: firstBal != null ? String(firstBal.remaining) : "",
+          });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setMsg(e instanceof Error ? e.message : "Erreur de chargement fiche");
+          setMsgTone("err");
+          setSelectedEmployeeId(null);
+        }
+      } finally {
+        if (!cancelled) setFicheLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEmployeeId]);
+
+  const inboxItems: InboxItem[] = inbox.map((item, idx) => ({
     idx,
     id: String(item.id),
     who: (item.employee as { name?: string })?.name || "—",
     initials: (item.employee as { initials?: string })?.initials || "??",
     color: (item.employee as { avatarColor?: string })?.avatarColor || LIME,
+    avatarUrl: (item.employee as { avatarUrl?: string | null })?.avatarUrl || null,
+    employeeId: (item.employee as { id?: string })?.id || "",
     kind: String(item.type),
     title: String(item.title),
     meta: String(item.reference || ""),
-    detail: String(item.comment || item.title),
+    comment: String(item.comment || ""),
+    detailRaw: (item.detail as Record<string, unknown>) || {},
     status: String(item.status),
   }));
 
-  const selected = inboxItems[sel] ?? inboxItems[0];
   const rhRole = me?.employee.rhRole || "MANAGER";
 
-  const ganttDays = useMemo(() => {
-    if (!planning) return [];
-    const start = new Date(planning.from + "T12:00:00");
-    return Array.from({ length: 28 }, (_, i) => {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      return d.toISOString().slice(0, 10);
-    });
-  }, [planning]);
+  const teamAbsences = useMemo(
+    () => buildTeamAbsences(planning?.employees || []),
+    [planning]
+  );
 
-  const byDept = useMemo(() => {
-    const map = new Map<string, PlanningEmp[]>();
-    for (const e of planning?.employees || []) {
-      const list = map.get(e.department) || [];
-      list.push(e);
-      map.set(e.department, list);
-    }
-    return [...map.entries()];
-  }, [planning]);
+  const { thisWeekAbsences, upcomingAbsences } = useMemo(() => {
+    const today = new Date();
+    const w0 = isoDate(startOfWeek(today));
+    const w1 = isoDate(endOfWeek(today));
+    const thisWeek = teamAbsences.filter((a) => a.from <= w1 && a.to >= w0);
+    const upcoming = teamAbsences.filter((a) => a.from > w1);
+    return { thisWeekAbsences: thisWeek, upcomingAbsences: upcoming };
+  }, [teamAbsences]);
 
-  async function forceLeave() {
+  function flash(text: string, tone: "ok" | "err" = "ok") {
+    setMsg(text);
+    setMsgTone(tone);
+  }
+
+  async function handleApprove(id: string, who: string) {
+    if (!window.confirm(`Approuver la demande de ${who} ?`)) return;
     setBusy(true);
-    setMsg(null);
+    flash("");
     try {
-      const res = await fetch("/api/rh/admin/force", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "forceLeave", ...forceForm }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      setMsg(`Écriture ${data.request?.reference} créée`);
-      await loadPlanning();
-      await refresh();
+      await approve(id);
+      flash("Demande approuvée");
+      void loadSignatures();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erreur");
+      flash(e instanceof Error ? e.message : "Erreur d'approbation", "err");
     } finally {
       setBusy(false);
     }
   }
 
+  async function handleRefuse(id: string, who: string) {
+    if (!window.confirm(`Refuser la demande de ${who} ?`)) return;
+    const motif = window.prompt("Motif du refus (optionnel) :") ?? undefined;
+    setBusy(true);
+    flash("");
+    try {
+      await refuse(id, motif?.trim() || undefined);
+      flash("Demande refusée");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Erreur de refus", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleApproveAll() {
+    const n = inboxItems.length;
+    if (!n) return;
+    if (!window.confirm(`Approuver ${n} demande${n > 1 ? "s" : ""} ?`)) return;
+    setBusy(true);
+    flash("");
+    try {
+      for (const item of inboxItems) await approve(item.id);
+      flash(`${n} demande${n > 1 ? "s" : ""} approuvée${n > 1 ? "s" : ""}`);
+      void loadSignatures();
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Erreur lors de l'approbation groupée", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRequestSignature(timesheetId: string, who: string) {
+    if (!window.confirm(`Envoyer la feuille de ${who} en signature électronique ?`))
+      return;
+    setBusy(true);
+    flash("");
+    try {
+      const res = await fetch("/api/rh/timesheets/signatures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "request", timesheetId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      flash(`Signature demandée à ${who}`);
+      await loadSignatures();
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Erreur signature", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMonthlySignatures() {
+    const now = new Date();
+    const month = now.getMonth() === 0 ? 12 : now.getMonth();
+    const year = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+    if (
+      !window.confirm(
+        `Envoyer via DocuSeal les feuilles validées de ${String(month).padStart(2, "0")}/${year} ?\nChaque collab reçoit ~4 semaines en un seul lien de signature.`
+      )
+    )
+      return;
+    setBusy(true);
+    flash("");
+    try {
+      const res = await fetch("/api/rh/timesheets/signatures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "monthly", year, month }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      flash(
+        `${data.packages ?? 0} collab · ${data.weeks ?? 0} feuille(s) envoyée(s) DocuSeal`
+      );
+      await loadSignatures();
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Erreur batch", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function forceLeave(form: ForceForm) {
+    setBusy(true);
+    flash("");
+    try {
+      const res = await fetch("/api/rh/admin/force", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "forceLeave",
+          employeeId: form.employeeId,
+          from: form.from,
+          to: form.minutes !== "" ? form.from : form.to,
+          accountCode: form.accountCode,
+          minutes: form.minutes !== "" ? form.minutes : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      flash(`Écriture ${data.request?.reference} créée`);
+      await loadPlanning();
+      await refresh();
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Erreur", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function adjustBalance() {
+    if (!selectedEmployeeId || !fiche) return;
+    const remaining = Number(adjustForm.remaining);
+    if (Number.isNaN(remaining)) {
+      flash("Solde restant invalide", "err");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Ajuster le solde ${adjustForm.accountCode} de ${fiche.employee.name} à ${remaining} j restants ?`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    flash("");
+    try {
+      const res = await fetch("/api/rh/admin/force", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "adjustBalance",
+          employeeId: selectedEmployeeId,
+          accountCode: adjustForm.accountCode,
+          remaining,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      flash(`Solde ${adjustForm.accountCode} ajusté`);
+      const reload = await fetch(`/api/rh/employees/${selectedEmployeeId}`);
+      if (reload.ok) setFiche((await reload.json()) as EmployeeFiche);
+      await refresh();
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Erreur d'ajustement", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openFiche(employeeId: string) {
+    setSelectedEmployeeId(employeeId);
+  }
+
+  function closeFiche() {
+    setSelectedEmployeeId(null);
+    setFiche(null);
+  }
+
   if (loading && !me) {
     return (
-      <div className="grid min-h-screen place-items-center rh-mono text-[12px]" style={{ background: "#08090C", color: "#8B95A5" }}>
-        Chargement People…
+      <div
+        className="grid min-h-screen place-items-center text-[14px]"
+        style={{ background: "#08090C", color: "#8B95A5" }}
+      >
+        Chargement de l’espace manager…
       </div>
     );
   }
 
+  const visibleTabs = TABS.filter((t) => {
+    if (t.id === "rh" || t.id === "manage") return rhRole === "HR";
+    return true;
+  });
+
   return (
     <div className="min-h-screen" style={{ background: "#08090C" }}>
       <RhTopBar
-        badge="PEOPLE"
-        showOrg
-        showPayrollSync
-        searchPlaceholder="Rechercher…"
-        banner={{ text: "PLATEFORME EMPLOYEUR · GLOW UP RH", tone: "orange" }}
+        badge="Console RH"
+        searchPlaceholder="Aller à Absences, Planning…"
+        banner={{
+          text:
+            inboxItems.length > 0
+              ? `${inboxItems.length} demande${inboxItems.length > 1 ? "s" : ""} à valider`
+              : ROLE_META[rhRole] || rhRole,
+          tone: "orange",
+        }}
+        headerAction={{
+          label: "Mon espace",
+          variant: "ghost",
+          onClick: () => router.push("/rh/espace"),
+        }}
         profile={{
           name: me?.employee.name || "—",
           meta: ROLE_META[rhRole] || rhRole,
           initials: me?.employee.initials || "??",
           color: me?.employee.avatarColor || LIME,
+          avatarUrl: me?.employee.avatarUrl,
         }}
-        lang={lang}
-        onLang={setLang}
         onOpenPalette={() => setPalette(true)}
       />
       <RhTabBar
-        tabs={TABS.map((t) =>
-          t.id === "approvals" ? { ...t, count: inboxItems.length || undefined } : t
+        tabs={visibleTabs.map((t) =>
+          t.id === "approvals"
+            ? { ...t, count: inboxItems.length || undefined }
+            : t
         )}
         active={screen}
         onChange={(id) => setScreen(id as PeopleScreen)}
-        right={
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="rh-mono border-0 cursor-pointer rounded-[7px] px-2.5 py-1.5 text-[10px] font-bold tracking-[0.06em]"
-              style={{
-                background: "#12161C",
-                color: "#8B95A5",
-                border: "1px solid #232932",
-              }}
-              onClick={() => window.location.assign("/rh/espace")}
-            >
-              Mon espace salarié
-            </button>
-            <span className="rh-mono text-[9.5px] font-bold tracking-[0.1em]" style={{ color: "#7E8998" }}>
-              RÔLE · {ROLE_META[rhRole]}
-            </span>
-          </div>
-        }
       />
       <CommandPalette
         open={palette}
         onClose={() => setPalette(false)}
         sections={[
           {
-            title: "NAVIGATION",
-            items: TABS.map((t) => ({
-              key: t.id,
+            title: "Aller à",
+            items: visibleTabs.map((t, i) => ({
+              key: String(i + 1),
               label: t.label,
-              code: `screen.${t.id}`,
+              code: t.id,
             })),
           },
         ]}
+        onSelect={(item) => setScreen(item.code as PeopleScreen)}
       />
 
       {msg ? (
-        <div className="px-[18px] pt-3 text-[12.5px]" style={{ color: LIME }}>{msg}</div>
+        <div
+          className="px-[18px] pt-3 text-[12.5px]"
+          style={{ color: msgTone === "err" ? "#F2604E" : LIME }}
+        >
+          {msg}
+        </div>
       ) : null}
 
       {screen === "home" && (
@@ -296,6 +443,7 @@ function PeopleAppInner() {
           <RhPageHero
             eyebrow="VUE D'ENSEMBLE"
             title="Pilotage RH"
+            subtitle="Vue d'ensemble de votre équipe : absents du jour et couverture par service."
             actions={
               <>
                 <RhButton variant="secondary" onClick={() => setScreen("approvals")}>
@@ -346,96 +494,177 @@ function PeopleAppInner() {
 
       {screen === "absences" && (
         <div className="rh-screen">
-          <RhPageHero eyebrow="ABSENCES" title="Calendrier & soldes" />
-          <RhCard>
-            <RhCardHead
-              title="3 mois"
-              right={
-                <div className="flex gap-2">
-                  {LEAVE_LEGEND.map((l) => (
-                    <span key={l.label} className="flex items-center gap-1 rh-mono text-[9px]" style={{ color: "#7E8998" }}>
-                      <i className="w-2 h-2 rounded-[2px]" style={{ background: l.color }} />
-                      {l.label}
-                    </span>
-                  ))}
-                </div>
-              }
-            />
-            <div className="grid gap-4 p-4" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))" }}>
-              {months.map((m) => (
-                <div key={m.title}>
-                  <div className="rh-mono text-[10px] mb-2" style={{ color: "#7E8998" }}>{m.title}</div>
-                  <div className="grid grid-cols-7 gap-[3px]">
-                    {m.days.map((d, i) => (
-                      <div
-                        key={i}
-                        className="rh-mono aspect-square grid place-items-center rounded-[6px] text-[11px]"
-                        style={{ background: d.bg, color: d.fg, fontWeight: d.fw as never, boxShadow: d.ring }}
-                      >
-                        {d.n}
-                      </div>
-                    ))}
+          <RhPageHero
+            eyebrow="ABSENCES ÉQUIPE"
+            title="Qui est absent ?"
+            subtitle="Absences en cours et à venir de votre périmètre, avec les jours encore posables par collaborateur."
+          />
+          <div className="grid gap-3" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
+            <div className="space-y-3">
+              <RhCard>
+                <RhCardHead
+                  title="Qui est absent cette semaine ?"
+                  badge={
+                    <RhBadge bg="#1D2530" fg="#8B95A5">
+                      {thisWeekAbsences.length}
+                    </RhBadge>
+                  }
+                />
+                {thisWeekAbsences.length === 0 ? (
+                  <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>
+                    Personne n&apos;est absent sur la semaine en cours.
                   </div>
-                </div>
-              ))}
+                ) : (
+                  thisWeekAbsences.map((a) => (
+                    <button
+                      key={a.key}
+                      type="button"
+                      onClick={() => openFiche(a.employeeId)}
+                      className="w-full text-left flex items-center gap-3 px-4 py-[11px] border-0 cursor-pointer"
+                      style={{
+                        background: "transparent",
+                        borderBottom: "1px solid #15191F",
+                      }}
+                    >
+                      <RhAvatar initials={a.initials} color={a.color} size={26} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12.5px] font-medium truncate">{a.name}</div>
+                        <div className="rh-mono text-[9.5px]" style={{ color: "#7E8998" }}>
+                          {a.department} · {formatFr(a.from)}
+                          {a.from !== a.to ? ` → ${formatFr(a.to)}` : ""} · {a.days} j
+                        </div>
+                      </div>
+                      <RhBadge
+                        bg="rgba(70,214,192,.13)"
+                        fg={KIND_COLOR[a.kind] || CP}
+                      >
+                        {KIND_LABEL[a.kind] || a.kind}
+                      </RhBadge>
+                    </button>
+                  ))
+                )}
+              </RhCard>
+
+              <RhCard>
+                <RhCardHead
+                  title="À venir"
+                  badge={
+                    <RhBadge bg="#1D2530" fg="#8B95A5">
+                      {upcomingAbsences.length}
+                    </RhBadge>
+                  }
+                />
+                {upcomingAbsences.length === 0 ? (
+                  <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>
+                    Aucune absence planifiée après cette semaine.
+                  </div>
+                ) : (
+                  upcomingAbsences.map((a) => (
+                    <button
+                      key={a.key}
+                      type="button"
+                      onClick={() => openFiche(a.employeeId)}
+                      className="w-full text-left flex items-center gap-3 px-4 py-[11px] border-0 cursor-pointer"
+                      style={{
+                        background: "transparent",
+                        borderBottom: "1px solid #15191F",
+                      }}
+                    >
+                      <RhAvatar initials={a.initials} color={a.color} size={26} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12.5px] font-medium truncate">{a.name}</div>
+                        <div className="rh-mono text-[9.5px]" style={{ color: "#7E8998" }}>
+                          {formatFr(a.from)}
+                          {a.from !== a.to ? ` → ${formatFr(a.to)}` : ""} · {a.days} j
+                        </div>
+                      </div>
+                      <RhBadge
+                        bg="rgba(70,214,192,.13)"
+                        fg={KIND_COLOR[a.kind] || CP}
+                      >
+                        {KIND_LABEL[a.kind] || a.kind}
+                      </RhBadge>
+                    </button>
+                  ))
+                )}
+              </RhCard>
             </div>
-          </RhCard>
+
+            <RhCard>
+              <RhCardHead title="Soldes posables" />
+              {employees.length === 0 ? (
+                <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>
+                  Aucun collaborateur
+                </div>
+              ) : (
+                employees.map((e) => {
+                  const balances = (Array.isArray(e.balances) ? e.balances : []) as Array<{
+                    accountCode: string;
+                    bookable: number;
+                  }>;
+                  const byCode = ["CP", "RTT", "RECUP"]
+                    .map((code) => {
+                      const sum = balances
+                        .filter((b) => b.accountCode === code)
+                        .reduce((s, b) => s + Number(b.bookable || 0), 0);
+                      return { code, sum };
+                    })
+                    .filter((x) => x.sum > 0);
+                  return (
+                    <button
+                      key={String(e.id)}
+                      type="button"
+                      onClick={() => openFiche(String(e.id))}
+                      className="w-full text-left flex items-center gap-3 px-4 py-[11px] border-0 cursor-pointer"
+                      style={{
+                        background: "transparent",
+                        borderBottom: "1px solid #15191F",
+                      }}
+                    >
+                      <RhAvatar
+                        initials={String(e.initials)}
+                        color={String(e.avatarColor || LIME)}
+                        size={26}
+                        src={e.avatarUrl as string | null | undefined}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12.5px] font-medium truncate">
+                          {String(e.name)}
+                        </div>
+                        <div className="rh-mono text-[9px]" style={{ color: "#5F6978" }}>
+                          {byCode.length
+                            ? byCode
+                                .map((x) => `${x.code} ${x.sum.toFixed(1)}`)
+                                .join(" · ")
+                            : "Aucun jour posable"}
+                        </div>
+                      </div>
+                      <span
+                        className="rh-mono text-[12px] font-bold"
+                        style={{ color: LIME }}
+                      >
+                        {Number(e.bookableSum || 0).toFixed(1)} j
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </RhCard>
+          </div>
         </div>
       )}
 
       {screen === "planning" && (
-        <div className="rh-screen">
-          <RhPageHero eyebrow="PLANNING" title="Gantt équipe" />
-          {byDept.map(([dept, rows]) => (
-            <RhCard key={dept} className="mb-3 overflow-x-auto">
-              <RhCardHead title={dept} badge={<RhBadge bg="#1D2530" fg="#8B95A5">{rows.length}</RhBadge>} />
-              <div className="p-3 min-w-[720px]">
-                <div className="grid gap-1" style={{ gridTemplateColumns: `140px repeat(${ganttDays.length},minmax(0,1fr))` }}>
-                  <div />
-                  {ganttDays.map((d) => (
-                    <div key={d} className="rh-mono text-center text-[9px]" style={{ color: "#5F6978" }}>
-                      {d.slice(8)}
-                    </div>
-                  ))}
-                  {rows.map((r) => (
-                    <div key={r.id} className="contents">
-                      <div className="flex items-center gap-2 pr-2">
-                        <RhAvatar initials={r.initials} color={r.color} size={22} />
-                        <span className="text-[11px] truncate">{r.name.split(" ")[0]}</span>
-                      </div>
-                      {ganttDays.map((d) => {
-                        const ev = r.events.find((e) => e.date === d);
-                        const weekend = new Date(d + "T12:00:00").getDay() % 6 === 0;
-                        const ferie = isFrenchHoliday(d);
-                        return (
-                          <div
-                            key={d}
-                            className="h-6 rounded-[3px]"
-                            style={{
-                              background: ev
-                                ? KIND_COLOR[ev.kind] || LIME
-                                : ferie
-                                  ? "rgba(167,139,250,.35)"
-                                  : weekend
-                                    ? "#12161C"
-                                    : "transparent",
-                              opacity: ev?.halfDay ? 0.55 : 1,
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </RhCard>
-          ))}
-        </div>
+        <PlanningGanttScreen planning={planning} onOpenFiche={openFiche} />
       )}
 
       {screen === "remote" && (
         <div className="rh-screen">
-          <RhPageHero eyebrow="PRÉSENCE" title="Bureau · TT · Déplacement · Site" />
+          <RhPageHero
+            eyebrow="PRÉSENCE"
+            title="Bureau · TT · Déplacement · Site"
+            subtitle="Répartition des modes de présence de l'équipe sur la période chargée."
+          />
           <RhCard>
             {(planning?.employees || []).map((e) => {
               const tt = e.events.filter((x) => x.kind === "TT").length;
@@ -462,24 +691,103 @@ function PeopleAppInner() {
 
       {screen === "time" && (
         <div className="rh-screen">
-          <RhPageHero eyebrow="TEMPS" title="Feuilles en attente" />
+          <RhPageHero
+            eyebrow="TEMPS"
+            title="Feuilles de temps"
+            subtitle="Valider, puis envoyer en signature électronique au collaborateur."
+            actions={
+              me?.employee.rhRole === "HR" ? (
+                <RhButton
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void handleMonthlySignatures()}
+                >
+                  Envoyer le mois (≈4 feuilles / collab)
+                </RhButton>
+              ) : undefined
+            }
+          />
           <RhCard>
+            <RhCardHead title="À valider" />
             {inboxItems.filter((i) => i.kind === "TIMESHEET").length === 0 ? (
               <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>Aucune feuille en attente</div>
             ) : (
               inboxItems
                 .filter((i) => i.kind === "TIMESHEET")
                 .map((i) => (
-                  <div key={i.id} className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid #15191F" }}>
+                  <div key={i.id} className="flex flex-wrap items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid #15191F" }}>
                     <RhAvatar initials={i.initials} color={i.color} size={26} />
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-[140px]">
                       <div className="text-[12.5px] font-medium">{i.who}</div>
                       <div className="rh-mono text-[10px]" style={{ color: "#7E8998" }}>{i.meta} · {i.title}</div>
                     </div>
-                    <RhButton variant="danger" disabled={busy} onClick={() => { setBusy(true); void refuse(i.id).finally(() => setBusy(false)); }}>Refuser</RhButton>
-                    <RhButton disabled={busy} onClick={() => { setBusy(true); void approve(i.id).finally(() => setBusy(false)); }}>Approuver</RhButton>
+                    <RhButton variant="danger" disabled={busy} onClick={() => void handleRefuse(i.id, i.who)}>Refuser</RhButton>
+                    <RhButton disabled={busy} onClick={() => void handleApprove(i.id, i.who)}>Approuver</RhButton>
                   </div>
                 ))
+            )}
+          </RhCard>
+          <RhCard>
+            <RhCardHead
+              title="Signature électronique"
+              right={
+                <RhButton
+                  variant="secondary"
+                  disabled={sigLoading}
+                  onClick={() => void loadSignatures()}
+                >
+                  Actualiser
+                </RhButton>
+              }
+            />
+            {sigLoading && !sigItems.length ? (
+              <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>Chargement…</div>
+            ) : sigItems.length === 0 ? (
+              <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>
+                Aucune feuille validée en attente de signature
+              </div>
+            ) : (
+              sigItems.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex flex-wrap items-center gap-3 px-4 py-3"
+                  style={{ borderBottom: "1px solid #15191F" }}
+                >
+                  <div className="flex-1 min-w-[160px]">
+                    <div className="text-[12.5px] font-medium">{t.name}</div>
+                    <div className="rh-mono text-[10px]" style={{ color: "#7E8998" }}>
+                      S{t.isoWeek} {t.isoYear} · {Math.round(t.totalMinutes / 60)} h
+                      {t.signatureRequestedAt ? " · envoyée" : ""}
+                    </div>
+                  </div>
+                  {(t.pdfUrl || t.signedPdfUrl) && (
+                    <RhButton
+                      variant="secondary"
+                      onClick={() =>
+                        window.open(
+                          t.signedPdfUrl || t.pdfUrl || "",
+                          "_blank",
+                          "noopener"
+                        )
+                      }
+                    >
+                      PDF
+                    </RhButton>
+                  )}
+                  {t.signatureRequestedAt ? (
+                    <RhBadge bg="rgba(70,214,192,.13)" fg="#46D6C0">
+                      DocuSeal · en attente
+                    </RhBadge>
+                  ) : (
+                    <RhButton
+                      disabled={busy}
+                      onClick={() => void handleRequestSignature(t.id, t.name)}
+                    >
+                      Envoyer via DocuSeal
+                    </RhButton>
+                  )}
+                </div>
+              ))
             )}
           </RhCard>
         </div>
@@ -487,7 +795,11 @@ function PeopleAppInner() {
 
       {screen === "expenses" && (
         <div className="rh-screen">
-          <RhPageHero eyebrow="FRAIS" title="Notes de frais" />
+          <RhPageHero
+            eyebrow="FRAIS"
+            title="Notes de frais"
+            subtitle="Notes de frais en attente de validation manager ou RH."
+          />
           <RhCard>
             {inboxItems.filter((i) => i.kind === "EXPENSE").length === 0 ? (
               <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>Aucune note en attente</div>
@@ -501,8 +813,8 @@ function PeopleAppInner() {
                       <div className="text-[12.5px] font-medium">{i.who}</div>
                       <div className="rh-mono text-[10px]" style={{ color: "#7E8998" }}>{i.title}</div>
                     </div>
-                    <RhButton variant="danger" disabled={busy} onClick={() => { setBusy(true); void refuse(i.id).finally(() => setBusy(false)); }}>Refuser</RhButton>
-                    <RhButton disabled={busy} onClick={() => { setBusy(true); void approve(i.id).finally(() => setBusy(false)); }}>Approuver</RhButton>
+                    <RhButton variant="danger" disabled={busy} onClick={() => void handleRefuse(i.id, i.who)}>Refuser</RhButton>
+                    <RhButton disabled={busy} onClick={() => void handleApprove(i.id, i.who)}>Approuver</RhButton>
                   </div>
                 ))
             )}
@@ -512,12 +824,32 @@ function PeopleAppInner() {
 
       {screen === "team" && (
         <div className="rh-screen">
-          <RhPageHero eyebrow="EFFECTIF" title={`${employees.length} collaborateurs`} />
+          <RhPageHero
+            eyebrow="EFFECTIF"
+            title={`${employees.length} collaborateurs`}
+            subtitle="Annuaire de votre périmètre avec le total de jours encore posables."
+          />
           <RhCard>
             {employees.map((e) => (
-              <div key={String(e.id)} className="grid items-center px-4 py-[11px]" style={{ gridTemplateColumns: "1.5fr 1.2fr 110px 90px", borderBottom: "1px solid #15191F" }}>
+              <button
+                key={String(e.id)}
+                type="button"
+                onClick={() => openFiche(String(e.id))}
+                className="w-full grid items-center px-4 py-[11px] border-0 cursor-pointer text-left"
+                style={{
+                  gridTemplateColumns: "1.5fr 1.2fr 110px 90px",
+                  background: "transparent",
+                  borderBottom: "1px solid #15191F",
+                  color: "inherit",
+                }}
+              >
                 <div className="flex items-center gap-2">
-                  <RhAvatar initials={String(e.initials)} color={String(e.avatarColor || LIME)} size={26} />
+                  <RhAvatar
+                    initials={String(e.initials)}
+                    color={String(e.avatarColor || LIME)}
+                    size={26}
+                    src={e.avatarUrl as string | null | undefined}
+                  />
                   <div>
                     <div className="text-[12.5px] font-medium">{String(e.name)}</div>
                     <div className="rh-mono text-[9px]" style={{ color: "#5F6978" }}>{String(e.matricule)}</div>
@@ -526,175 +858,415 @@ function PeopleAppInner() {
                 <span className="text-[12px] truncate" style={{ color: "#B9C2CE" }}>{String(e.jobTitle)}</span>
                 <span className="rh-mono text-[10px]">{String(e.department).slice(0, 14)}</span>
                 <span className="rh-mono text-right text-[12px]">{Number(e.bookableSum || 0).toFixed(1)} j</span>
-              </div>
+              </button>
             ))}
           </RhCard>
         </div>
       )}
 
       {screen === "approvals" && (
-        <div className="rh-screen">
-          <RhPageHero
-            eyebrow="INBOX"
-            title="Validations"
-            actions={
-              <RhButton
-                disabled={busy || !inboxItems.length}
-                onClick={() => {
-                  void (async () => {
-                    setBusy(true);
-                    try {
-                      for (const item of inboxItems) await approve(item.id);
-                    } finally {
-                      setBusy(false);
-                    }
-                  })();
-                }}
-              >
-                Tout approuver
-              </RhButton>
-            }
-          />
-          <div className="rh-layout-inspect-wide">
-            <RhCard>
-              {inboxItems.length === 0 ? (
-                <div className="p-6 text-[12.5px]" style={{ color: "#8B95A5" }}>File vide</div>
-              ) : (
-                inboxItems.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setSel(r.idx)}
-                    className="w-full text-left flex items-center gap-3 px-4 py-[11px] border-0 cursor-pointer"
-                    style={{
-                      background: r.idx === sel ? "#151C23" : "transparent",
-                      borderBottom: "1px solid #15191F",
-                      borderLeft: `2px solid ${r.idx === sel ? LIME : "transparent"}`,
-                    }}
-                  >
-                    <RhAvatar initials={r.initials} color={r.color} size={26} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[12.5px] font-medium truncate">{r.who}</div>
-                      <div className="rh-mono text-[9.5px]" style={{ color: "#7E8998" }}>{r.kind} · {r.meta}</div>
-                    </div>
-                    <span className="rh-mono text-[10px]" style={{ color: "#8B95A5" }}>{r.status}</span>
-                  </button>
-                ))
-              )}
-            </RhCard>
-            {selected ? (
-              <RhCard strong>
-                <div className="flex flex-wrap items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid #1B212A" }}>
-                  <RhAvatar initials={selected.initials} color={selected.color} size={34} />
-                  <div className="flex-1">
-                    <div className="text-[14px] font-semibold">{selected.who}</div>
-                    <div className="rh-mono text-[9.5px]" style={{ color: "#7E8998" }}>{selected.meta}</div>
-                  </div>
-                  <RhButton variant="danger" disabled={busy} onClick={() => { setBusy(true); void refuse(selected.id).finally(() => setBusy(false)); }}>
-                    Refuser
-                  </RhButton>
-                  <RhButton disabled={busy} onClick={() => { setBusy(true); void approve(selected.id).finally(() => setBusy(false)); }}>
-                    Approuver
-                  </RhButton>
-                </div>
-                <div className="p-4 text-[12.5px]" style={{ color: "#B9C2CE" }}>{selected.detail}</div>
-              </RhCard>
-            ) : null}
-          </div>
-        </div>
+        <ApprovalsInboxScreen
+          inboxItems={inboxItems}
+          busy={busy}
+          onApprove={handleApprove}
+          onRefuse={handleRefuse}
+          onApproveAll={handleApproveAll}
+          onOpenFiche={openFiche}
+        />
       )}
 
       {screen === "rh" && (
-        <div className="rh-screen">
-          <RhPageHero
-            eyebrow="RH"
-            title="Paie & dossiers"
-            actions={
-              rhRole === "HR" ? (
-                <RhButton
-                  variant="secondary"
-                  onClick={() => {
-                    window.location.href = "/api/rh/payroll/export";
-                  }}
-                >
-                  Export absences XLSX
-                </RhButton>
-              ) : null
-            }
-          />
-          {rhRole !== "HR" ? (
-            <div className="text-[12.5px]" style={{ color: "#8B95A5" }}>Réservé au rôle HR</div>
-          ) : (
-            <RhCard>
-              <RhCardHead
-                title="Masse salariale"
-                right={
-                  <span className="rh-mono text-[16px]" style={{ color: LIME }}>
-                    {salaries ? `${Math.round(salaries.masseSalariale).toLocaleString("fr-FR")} €` : "…"}
-                  </span>
-                }
-              />
-              {(salaries?.rows || []).map((r) => (
-                <div key={String(r.id)} className="grid items-center px-4 py-[10px]" style={{ gridTemplateColumns: "1.4fr 90px 90px 80px 70px", borderBottom: "1px solid #15191F" }}>
-                  <span className="text-[12px] font-medium truncate">{String(r.name)}</span>
-                  <span className="rh-mono text-[10px]">{String(r.matricule)}</span>
-                  <span className="rh-mono text-right text-[12px]">{r.grossSalary != null ? `${r.grossSalary} €` : "—"}</span>
-                  <span className="rh-mono text-[11px]">{String(r.healthCover)}</span>
-                  <span className="rh-mono text-right text-[11px]" style={{ color: RTT }}>
-                    {Number(r.ot25 || 0) + Number(r.ot50 || 0)} h
-                  </span>
-                </div>
-              ))}
-            </RhCard>
-          )}
-        </div>
+        <PayrollScreen rhRole={rhRole} salaries={salaries} />
       )}
 
       {screen === "manage" && (
-        <div className="rh-screen">
-          <RhPageHero eyebrow="ADMIN" title="Saisie forcée" />
-          {rhRole !== "HR" ? (
-            <div className="text-[12.5px]" style={{ color: "#8B95A5" }}>Réservé HR</div>
-          ) : (
-            <div className="rh-layout-inspect-wide">
-              <RhCard className="p-4 flex flex-col gap-3">
-                <select
-                  className="rh-input"
-                  value={forceForm.employeeId}
-                  onChange={(e) => setForceForm({ ...forceForm, employeeId: e.target.value })}
-                >
-                  <option value="">Choisir un collaborateur</option>
-                  {employees.map((e) => (
-                    <option key={String(e.id)} value={String(e.id)}>
-                      {String(e.name)} · {String(e.matricule)}
-                    </option>
-                  ))}
-                </select>
-                <div className="grid grid-cols-2 gap-2">
-                  <input type="date" className="rh-input" value={forceForm.from} onChange={(e) => setForceForm({ ...forceForm, from: e.target.value })} />
-                  <input type="date" className="rh-input" value={forceForm.to} onChange={(e) => setForceForm({ ...forceForm, to: e.target.value })} />
-                </div>
-                <select
-                  className="rh-input"
-                  value={forceForm.accountCode}
-                  onChange={(e) => setForceForm({ ...forceForm, accountCode: e.target.value })}
-                >
-                  <option value="CP">Congés payés</option>
-                  <option value="RECUP">Récupération</option>
-                  <option value="SS">Maladie</option>
-                  <option value="SCHOOL">École</option>
-                  <option value="AUTHORIZED">Absence autorisée</option>
-                  <option value="UNPAID">Sans solde</option>
-                  <option value="RTT">RTT</option>
-                </select>
-                <RhButton disabled={busy || !forceForm.employeeId} onClick={() => void forceLeave()}>
-                  Enregistrer (tracé)
-                </RhButton>
-              </RhCard>
-            </div>
-          )}
-        </div>
+        <ManageAdminScreen
+          rhRole={rhRole}
+          employees={employees}
+          busy={busy}
+          onForceLeave={forceLeave}
+        />
       )}
+
+      {selectedEmployeeId ? (
+        <div
+          className="fixed inset-0 z-40 flex justify-end"
+          style={{ background: "rgba(0,0,0,.55)" }}
+          onClick={closeFiche}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") closeFiche();
+          }}
+          role="presentation"
+        >
+          <aside
+            className="h-full w-full max-w-[420px] overflow-y-auto"
+            style={{
+              background: "#0C0F14",
+              borderLeft: "1px solid #1B212A",
+              boxShadow: "-12px 0 40px rgba(0,0,0,.4)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Fiche collaborateur"
+          >
+            <div
+              className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3"
+              style={{
+                background: "#0C0F14",
+                borderBottom: "1px solid #1B212A",
+              }}
+            >
+              <div className="text-[11px] font-semibold tracking-wide" style={{ color: "#8B95A5" }}>
+                FICHE COLLABORATEUR
+              </div>
+              <RhButton variant="ghost" onClick={closeFiche}>
+                Fermer
+              </RhButton>
+            </div>
+
+            {ficheLoading || !fiche ? (
+              <div className="p-6 text-[12.5px]" style={{ color: "#8B95A5" }}>
+                Chargement…
+              </div>
+            ) : (
+              <div className="p-4 space-y-5">
+                <div className="flex items-center gap-3">
+                  <RhAvatar
+                    initials={fiche.employee.initials}
+                    color={fiche.employee.avatarColor || LIME}
+                    size={40}
+                    src={fiche.employee.avatarUrl}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[16px] font-semibold truncate">
+                      {fiche.employee.name}
+                    </div>
+                    <div className="text-[12.5px]" style={{ color: "#B9C2CE" }}>
+                      {fiche.employee.jobTitle}
+                    </div>
+                    <div className="rh-mono text-[10px]" style={{ color: "#5F6978" }}>
+                      {fiche.employee.department} · {fiche.employee.matricule}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div
+                    className="mb-2 text-[10px] font-semibold tracking-wide"
+                    style={{ color: "#8B95A5" }}
+                  >
+                    SOLDES POSABLES
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {["CP", "RTT", "RECUP"].map((code) => {
+                      const sum = fiche.balances
+                        .filter((b) => b.accountCode === code)
+                        .reduce((s, b) => s + Number(b.bookable || 0), 0);
+                      return (
+                        <div
+                          key={code}
+                          className="rounded-md px-3 py-2"
+                          style={{ background: "#15191F" }}
+                        >
+                          <div className="rh-mono text-[9px]" style={{ color: "#7E8998" }}>
+                            {code}
+                          </div>
+                          <div
+                            className="rh-mono text-[15px] font-bold"
+                            style={{ color: KIND_COLOR[code] || LIME }}
+                          >
+                            {sum.toFixed(1)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div
+                    className="mb-2 text-[10px] font-semibold tracking-wide"
+                    style={{ color: "#8B95A5" }}
+                  >
+                    DEMANDES RÉCENTES
+                  </div>
+                  {fiche.requests.length === 0 ? (
+                    <div className="text-[12px]" style={{ color: "#8B95A5" }}>
+                      Aucune demande
+                    </div>
+                  ) : (
+                    <div
+                      className="rounded-md overflow-hidden"
+                      style={{ border: "1px solid #1B212A" }}
+                    >
+                      {fiche.requests.slice(0, 8).map((r) => (
+                        <div
+                          key={r.id}
+                          className="px-3 py-2"
+                          style={{ borderBottom: "1px solid #15191F" }}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[12px] font-medium truncate">
+                              {r.title}
+                            </span>
+                            <span
+                              className="rh-mono text-[9.5px] shrink-0"
+                              style={{ color: "#8B95A5" }}
+                            >
+                              {r.status}
+                            </span>
+                          </div>
+                          <div
+                            className="rh-mono text-[9.5px]"
+                            style={{ color: "#5F6978" }}
+                          >
+                            {r.type}
+                            {r.days != null ? ` · ${r.days} j` : ""} ·{" "}
+                            {formatFr(r.createdAt.slice(0, 10))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {rhRole === "HR" && selectedEmployeeId ? (
+                  <div
+                    className="rounded-md p-3 space-y-3"
+                    style={{ background: "#12161C", border: "1px solid #1B212A" }}
+                  >
+                    <div
+                      className="text-[12px] font-semibold"
+                      style={{ color: "#8B95A5" }}
+                    >
+                      Contrat (par collab)
+                    </div>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                        Heures / semaine
+                      </span>
+                      <input
+                        type="number"
+                        className="rh-input"
+                        step={0.5}
+                        defaultValue={fiche.employee.weeklyHours ?? 35}
+                        id="fiche-weeklyHours"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                        Avenant TT
+                      </span>
+                      <select
+                        className="rh-input"
+                        defaultValue={String(fiche.employee.remoteAgreement ?? 0)}
+                        id="fiche-remoteAgreement"
+                      >
+                        <option value="0">0 j</option>
+                        <option value="2">2 j</option>
+                        <option value="3">3 j</option>
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                        Mutuelle
+                      </span>
+                      <select
+                        className="rh-input"
+                        defaultValue={fiche.employee.healthCover || "ENROLLED"}
+                        id="fiche-healthCover"
+                      >
+                        <option value="ENROLLED">Adhérent</option>
+                        <option value="WAIVED">Dispense</option>
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                        Rôle RH
+                      </span>
+                      <select
+                        className="rh-input"
+                        defaultValue={fiche.employee.rhRole || "COLLAB"}
+                        id="fiche-rhRole"
+                      >
+                        <option value="COLLAB">Collaborateur</option>
+                        <option value="MANAGER">Manager</option>
+                        <option value="HR">RH</option>
+                      </select>
+                    </label>
+                    <RhButton
+                      disabled={busy}
+                      onClick={() => {
+                        const weekly = Number(
+                          (document.getElementById("fiche-weeklyHours") as HTMLInputElement)
+                            ?.value
+                        );
+                        const agreement = Number(
+                          (document.getElementById("fiche-remoteAgreement") as HTMLSelectElement)
+                            ?.value
+                        );
+                        const health = (
+                          document.getElementById("fiche-healthCover") as HTMLSelectElement
+                        )?.value;
+                        const role = (
+                          document.getElementById("fiche-rhRole") as HTMLSelectElement
+                        )?.value;
+                        void (async () => {
+                          setBusy(true);
+                          try {
+                            const res = await fetch(
+                              `/api/rh/employees/${selectedEmployeeId}`,
+                              {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  weeklyHours: weekly,
+                                  remoteAgreement: agreement,
+                                  healthCover: health,
+                                  rhRole: role,
+                                }),
+                              }
+                            );
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || "Erreur");
+                            flash("Contrat mis à jour");
+                            const reload = await fetch(
+                              `/api/rh/employees/${selectedEmployeeId}`
+                            );
+                            if (reload.ok) {
+                              setFiche((await reload.json()) as EmployeeFiche);
+                            }
+                          } catch (err) {
+                            flash(
+                              err instanceof Error ? err.message : "Erreur",
+                              "err"
+                            );
+                          } finally {
+                            setBusy(false);
+                          }
+                        })();
+                      }}
+                    >
+                      Enregistrer le contrat
+                    </RhButton>
+                  </div>
+                ) : null}
+
+                {rhRole === "HR" && selectedEmployeeId ? (
+                  <div
+                    className="rounded-md p-3 space-y-3"
+                    style={{ background: "#12161C", border: "1px solid #1B212A" }}
+                  >
+                    <div
+                      className="text-[12px] font-semibold"
+                      style={{ color: "#8B95A5" }}
+                    >
+                      Déposer un document
+                    </div>
+                    <input
+                      type="file"
+                      accept=".pdf,image/*"
+                      className="text-[12px] w-full"
+                      style={{ color: "#B9C2CE" }}
+                      disabled={busy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !selectedEmployeeId) return;
+                        void (async () => {
+                          setBusy(true);
+                          try {
+                            const fd = new FormData();
+                            fd.set("file", file);
+                            fd.set("employeeId", selectedEmployeeId);
+                            fd.set("kind", "OTHER");
+                            fd.set("title", file.name);
+                            const res = await fetch("/api/rh/folder/document", {
+                              method: "POST",
+                              body: fd,
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) {
+                              throw new Error(
+                                typeof data.error === "string"
+                                  ? data.error
+                                  : "Upload impossible"
+                              );
+                            }
+                            flash("Document déposé");
+                            const reload = await fetch(
+                              `/api/rh/employees/${selectedEmployeeId}`
+                            );
+                            if (reload.ok) {
+                              setFiche((await reload.json()) as EmployeeFiche);
+                            }
+                          } catch (err) {
+                            flash(
+                              err instanceof Error ? err.message : "Erreur",
+                              "err"
+                            );
+                          } finally {
+                            setBusy(false);
+                            e.target.value = "";
+                          }
+                        })();
+                      }}
+                    />
+                  </div>
+                ) : null}
+
+                {rhRole === "HR" ? (
+                  <div
+                    className="rounded-md p-3 space-y-3"
+                    style={{ background: "#12161C", border: "1px solid #1B212A" }}
+                  >
+                    <div
+                      className="text-[12px] font-semibold"
+                      style={{ color: "#8B95A5" }}
+                    >
+                      Ajuster un solde
+                    </div>
+                    <select
+                      className="rh-input w-full"
+                      value={adjustForm.accountCode}
+                      onChange={(e) => {
+                        const code = e.target.value;
+                        const bal = fiche.balances.find(
+                          (b) => b.accountCode === code
+                        );
+                        setAdjustForm({
+                          accountCode: code,
+                          remaining:
+                            bal != null ? String(bal.remaining) : adjustForm.remaining,
+                        });
+                      }}
+                    >
+                      <option value="CP">CP</option>
+                      <option value="RTT">RTT</option>
+                      <option value="RECUP">RECUP</option>
+                    </select>
+                    <input
+                      type="number"
+                      step="0.5"
+                      className="rh-input w-full"
+                      placeholder="Remaining"
+                      value={adjustForm.remaining}
+                      onChange={(e) =>
+                        setAdjustForm({ ...adjustForm, remaining: e.target.value })
+                      }
+                    />
+                    <RhButton
+                      disabled={busy || adjustForm.remaining === ""}
+                      onClick={() => void adjustBalance()}
+                    >
+                      Ajuster le solde
+                    </RhButton>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </aside>
+        </div>
+      ) : null}
     </div>
   );
 }

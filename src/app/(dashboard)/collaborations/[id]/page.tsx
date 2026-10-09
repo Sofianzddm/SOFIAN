@@ -1381,7 +1381,7 @@ export default function CollabDetailPage() {
     <div className="min-h-screen bg-gradient-to-b from-gray-50/80 via-white to-gray-50/50">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {/* Navigation */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
           <Link href="/collaborations" className="inline-flex items-center gap-2 text-gray-500 hover:text-glowup-licorice transition-colors group">
             <span className="w-8 h-8 rounded-lg bg-white border border-gray-100 flex items-center justify-center group-hover:border-glowup-rose/30 group-hover:bg-glowup-lace/30 transition-colors">
               <ArrowLeft className="w-4 h-4" />
@@ -1621,7 +1621,7 @@ export default function CollabDetailPage() {
       {/* Si la facture est déjà uploadée */}
       {session?.user?.role === "TALENT" && collab.factureTalentUrl && (
         <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-6 mb-8">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
                 <CheckCircle2 className="w-6 h-6 text-green-600" />
@@ -1815,16 +1815,16 @@ export default function CollabDetailPage() {
       )}
 
 
-        <div className="grid grid-cols-12 gap-8">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-8">
           {/* Main Content */}
-          <div className="col-span-8 space-y-6">
+          <div className="space-y-6 lg:col-span-8">
             {/* Partenaires */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50/60 to-white">
                 <h2 className="font-semibold text-glowup-licorice text-sm uppercase tracking-wider">Partenaires</h2>
               </div>
               <div className="p-6">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Link href={`/talents/${collab.talent.id}`} className="group flex items-center gap-4 p-4 rounded-xl border border-gray-100 hover:border-glowup-rose/30 hover:bg-glowup-lace/20 transition-all">
                     <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 ring-2 ring-white shadow-sm bg-gradient-to-br from-glowup-rose to-glowup-old">
                       {collab.talent.photo ? (
@@ -1976,7 +1976,7 @@ export default function CollabDetailPage() {
               </div>
               <div className="divide-y divide-gray-50">
                 {collab.livrables.map((livrable) => (
-                  <div key={livrable.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
+                  <div key={livrable.id} className="px-4 sm:px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between hover:bg-gray-50/50 transition-colors">
                     <div className="flex items-center gap-4">
                       <div className="w-11 h-11 rounded-xl bg-gray-50 flex items-center justify-center border border-gray-100">
                         <span className="text-base font-bold text-glowup-licorice">{livrable.quantite}</span>
@@ -2018,6 +2018,171 @@ export default function CollabDetailPage() {
                   </div>
                   <h2 className="font-semibold text-glowup-licorice text-sm uppercase tracking-wider">Documents</h2>
                 </div>
+                <div className="md:hidden divide-y divide-gray-100">
+                  {existingDocs.map((doc) => {
+                    const isAnnule = doc.statut === "ANNULE" || doc.avoirRef;
+                    const isAvoir = doc.type === "AVOIR";
+                    return (
+                      <article
+                        key={doc.id}
+                        className={`px-4 py-4 space-y-3 ${isAnnule ? "opacity-40" : ""}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p
+                              className={`font-mono text-sm font-medium truncate ${
+                                isAnnule ? "line-through text-gray-400" : "text-glowup-licorice"
+                              }`}
+                            >
+                              {doc.reference}
+                            </p>
+                            <span
+                              className={`mt-1 inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg ${
+                                isAvoir
+                                  ? "bg-orange-50 text-orange-600"
+                                  : doc.type === "FACTURE"
+                                    ? "bg-emerald-50 text-emerald-600"
+                                    : "bg-blue-50 text-blue-600"
+                              }`}
+                            >
+                              {isAvoir ? "Avoir" : doc.type === "FACTURE" ? "Facture" : "Devis"}
+                            </span>
+                          </div>
+                          <span
+                            className={`shrink-0 font-semibold text-sm ${
+                              isAvoir ? "text-orange-600" : "text-glowup-licorice"
+                            }`}
+                          >
+                            {isAvoir ? "-" : ""}
+                            {formatMontant(doc.montantHT ?? doc.montantTTC, doc.devise)}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {isAnnule ? (
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-red-50 text-red-500">
+                              Annulé
+                            </span>
+                          ) : doc.statut === "PAYE" ? (
+                            isAdmin ? (
+                              <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-green-50 text-green-600">
+                                Payé
+                              </span>
+                            ) : (
+                              <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600">
+                                Facturé
+                              </span>
+                            )
+                          ) : doc.statut === "FACTURE" || doc.statut === "ENVOYE" ? (
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600">
+                              Facturé
+                            </span>
+                          ) : doc.statut === "VALIDE" ? (
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600">
+                              Enregistré
+                            </span>
+                          ) : (
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500">
+                              Brouillon
+                            </span>
+                          )}
+                          {doc.type === "DEVIS" && doc.signatureStatus === "PENDING" && (
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700">
+                              {(doc.signaturesCount ?? 0) > 0
+                                ? `${doc.signaturesCount ?? 0}/${doc.signaturesTotal ?? 2} signé`
+                                : "En attente de signature"}
+                            </span>
+                          )}
+                          {doc.type === "DEVIS" && doc.signatureStatus === "SIGNED" && (
+                            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700">
+                              Signé ✓
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {(doc.statut === "BROUILLON" || doc.statut === "VALIDE" || doc.statut === "ENVOYE") &&
+                            (doc.type === "DEVIS" || doc.type === "FACTURE") && (
+                              <button
+                                onClick={() => openEditModal(doc)}
+                                className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                title="Modifier"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                          {doc.type === "DEVIS" &&
+                            (doc.statut === "VALIDE" || doc.statut === "ENVOYE") &&
+                            !doc.signatureSubmissionId &&
+                            doc.signatureStatus !== "PENDING" &&
+                            doc.signatureStatus !== "SIGNED" && (
+                              <button
+                                type="button"
+                                onClick={() => openSignatureModal(doc)}
+                                className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                title="Envoyer pour signature"
+                              >
+                                <FileSignature className="w-4 h-4" />
+                              </button>
+                            )}
+                          {doc.type === "DEVIS" && doc.signatureStatus === "PENDING" && doc.signatureSubmissionId && (
+                            <button
+                              type="button"
+                              onClick={() => handleCheckSignatureStatus(doc.id)}
+                              disabled={checkingSignatureDocId === doc.id}
+                              className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all"
+                              title="Vérifier le statut de signature"
+                            >
+                              {checkingSignatureDocId === doc.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
+                          {doc.type === "DEVIS" &&
+                            !isAnnule &&
+                            ((doc.signedDocumentUrl && doc.signatureStatus === "SIGNED") || canOuvrirDevisPartiel) && (
+                              <a
+                                href={
+                                  canOuvrirDevisPartiel
+                                    ? `/api/documents/${doc.id}/ouvrir`
+                                    : doc.signedDocumentUrl!
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
+                                title={
+                                  doc.signatureStatus === "SIGNED"
+                                    ? "Voir signé"
+                                    : "Ouvrir le devis (signature en cours)"
+                                }
+                              >
+                                <Eye className="w-4 h-4" />
+                              </a>
+                            )}
+                          <a
+                            href={`/api/documents/${doc.id}/pdf`}
+                            target="_blank"
+                            className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-glowup-rose hover:bg-glowup-lace rounded-xl transition-all"
+                            title="Télécharger PDF"
+                          >
+                            <Download className="w-4 h-4" />
+                          </a>
+                          {!isAnnule && canAnnulerDevisPourRefaire(doc, existingDocs, roleForUi) && (
+                            <button
+                              type="button"
+                              onClick={() => openAnnulerDevisModal(doc)}
+                              className="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                              title="Annuler le devis pour en générer un nouveau"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+                <div className="hidden md:block overflow-x-auto">
                 <table className="w-full">
                 <thead>
                   <tr className="text-xs text-gray-400 uppercase tracking-wider">
@@ -2161,8 +2326,9 @@ export default function CollabDetailPage() {
                   })}
                 </tbody>
               </table>
-            </div>
-          )}
+                </div>
+              </div>
+            )}
 
           {/* Conversation */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -2561,7 +2727,7 @@ export default function CollabDetailPage() {
         </div>
 
         {/* Sidebar */}
-        <div className="col-span-4 space-y-6">
+        <div className="space-y-6 lg:col-span-4">
           {/* Actions */}
           {(nextStatuts.length > 0 || canGenerateDevis || canGenerateFacture || activeDevis || activeFacture || (canUploadSignedDevis && !!activeDevisForManualUpload)) && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden border-l-4 border-l-glowup-rose">
@@ -3161,7 +3327,7 @@ export default function CollabDetailPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Adresse *</label>
                 <input type="text" value={marqueFormData.adresseRue} onChange={(e) => setMarqueFormData(prev => ({ ...prev, adresseRue: e.target.value }))} placeholder="123 Rue de la Paix" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Code postal *</label>
                   <input type="text" value={marqueFormData.codePostal} onChange={(e) => setMarqueFormData(prev => ({ ...prev, codePostal: e.target.value }))} placeholder="75001" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all" />
@@ -3171,7 +3337,7 @@ export default function CollabDetailPage() {
                   <input type="text" value={marqueFormData.ville} onChange={(e) => setMarqueFormData(prev => ({ ...prev, ville: e.target.value }))} placeholder="Paris" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">SIRET</label>
                   <input type="text" value={marqueFormData.siret} onChange={(e) => setMarqueFormData(prev => ({ ...prev, siret: e.target.value }))} placeholder="123 456 789 00012" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-glowup-rose focus:ring-2 focus:ring-glowup-rose/20 transition-all" />
@@ -3782,7 +3948,7 @@ export default function CollabDetailPage() {
                             />
                           </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-4 pl-14">
+                        <div className="grid grid-cols-1 gap-3 pl-0 sm:grid-cols-3 sm:pl-14">
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1.5">
                               Quantité *

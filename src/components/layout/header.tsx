@@ -1,11 +1,12 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, Bell, UserX } from "lucide-react";
+import { LogOut, Bell, UserX, Menu } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SearchBar } from "@/components/SearchBar";
 import { GlowUpLogo } from "@/components/ui/logo";
+import { useSidebarNavOptional } from "@/components/layout/sidebar-nav-context";
 
 interface AuthMe {
   id: string;
@@ -30,6 +31,7 @@ interface NotificationItem {
 export function Header() {
   const { data: session, update } = useSession();
   const router = useRouter();
+  const sidebarNav = useSidebarNavOptional();
   const [countNonLues, setCountNonLues] = useState(0);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -157,12 +159,12 @@ export function Header() {
   return (
     <>
       {isImpersonating && (
-        <div className="h-9 bg-violet-100 text-violet-800 flex items-center justify-center gap-3 text-sm px-4">
-          <UserX className="w-4 h-4" />
+        <div className="flex h-auto min-h-9 flex-wrap items-center justify-center gap-2 bg-violet-100 px-3 py-2 text-center text-xs text-violet-800 sm:gap-3 sm:text-sm">
+          <UserX className="h-4 w-4 shrink-0" />
           <span>
             Connecté en tant que <strong>{authMe?.name}</strong>
             {authMe?.realUser?.name && (
-              <span className="text-violet-600 ml-1">
+              <span className="ml-1 text-violet-600">
                 (admin : {authMe.realUser.name})
               </span>
             )}
@@ -170,22 +172,34 @@ export function Header() {
           <button
             type="button"
             onClick={stopImpersonate}
-            className="underline font-medium hover:no-underline"
+            className="font-medium underline hover:no-underline"
           >
             Arrêter l&apos;impersonation
           </button>
         </div>
       )}
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6">
-      <div className="flex-1 max-w-xl">
-        {session?.user?.role === "TALENT" ? (
-          <GlowUpLogo className="h-7 lg:hidden" />
-        ) : (
-          <SearchBar />
-        )}
+    <header className="flex h-14 items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 sm:h-16 sm:gap-3 sm:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {sidebarNav ? (
+          <button
+            type="button"
+            onClick={sidebarNav.toggleMobile}
+            className="shrink-0 rounded-lg p-2 text-gray-600 transition-colors hover:bg-glowup-rose/10 hover:text-glowup-rose lg:hidden"
+            aria-label="Ouvrir le menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        ) : null}
+        <div className="min-w-0 flex-1 max-w-xl">
+          {session?.user?.role === "TALENT" ? (
+            <GlowUpLogo className="h-7 lg:hidden" />
+          ) : (
+            <SearchBar />
+          )}
+        </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-4">
         <div className="relative" ref={dropdownRef}>
           <button
             type="button"
@@ -285,22 +299,25 @@ export function Header() {
           )}
         </div>
 
-        <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-glowup-rose to-glowup-rose-dark flex items-center justify-center text-white font-semibold text-sm">
+        <div className="flex items-center gap-2 border-l border-gray-200 pl-2 sm:gap-3 sm:pl-4">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-glowup-rose to-glowup-rose-dark text-sm font-semibold text-white sm:h-9 sm:w-9">
             {(authMe?.name ?? session?.user?.name)?.charAt(0) || "U"}
           </div>
-          <div className="hidden sm:block">
-            <p className="text-sm font-medium text-glowup-licorice">
+          <div className="hidden min-w-0 md:block">
+            <p className="truncate text-sm font-medium text-glowup-licorice">
               {authMe?.name ?? session?.user?.name}
             </p>
-            <p className="text-xs text-gray-500">{authMe?.role ?? (session?.user as { role?: string })?.role}</p>
+            <p className="truncate text-xs text-gray-500">
+              {authMe?.role ?? (session?.user as { role?: string })?.role}
+            </p>
           </div>
           <button
+            type="button"
             onClick={handleLogout}
-            className="p-2 text-gray-400 hover:text-glowup-rose hover:bg-glowup-rose/10 rounded-lg transition-colors"
+            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-glowup-rose/10 hover:text-glowup-rose"
             title="Déconnexion"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="h-4 w-4" />
           </button>
         </div>
       </div>

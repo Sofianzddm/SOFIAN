@@ -487,7 +487,7 @@ export default function FacturerPage() {
               {lignes.map((ligne, index) => (
                 <div
                   key={index}
-                  className="grid grid-cols-12 gap-3 items-start p-4 bg-gray-50 rounded-lg"
+                  className="grid grid-cols-1 gap-3 items-start rounded-lg bg-gray-50 p-4 md:grid-cols-12"
                 >
                   {/* Description */}
                   <div className="col-span-12 md:col-span-5">

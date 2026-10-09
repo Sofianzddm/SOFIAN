@@ -167,7 +167,7 @@ export default function NewGiftPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 rounded-2xl p-8 text-white">
+      <div className="relative overflow-hidden bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 rounded-2xl p-4 sm:p-8 text-white">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
         
         <div className="relative">
@@ -206,7 +206,7 @@ export default function NewGiftPage() {
         )}
 
         {/* Informations principales */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
           <h2 className="text-xl font-bold text-glowup-licorice mb-6 flex items-center gap-2">
             <Package className="w-5 h-5 text-purple-600" />
             Informations principales
@@ -537,7 +537,7 @@ export default function NewGiftPage() {
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link
             href="/gifts"
             className="px-6 py-3 border-2 border-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-colors"

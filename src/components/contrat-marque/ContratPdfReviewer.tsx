@@ -796,7 +796,7 @@ export default function ContratPdfReviewer({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#fafafa]">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3">
+      <header className="flex shrink-0 flex-col gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3 min-w-0">
           {showBackToCollab ? (
             <Link
@@ -897,7 +897,7 @@ export default function ContratPdfReviewer({
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 gap-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-0 lg:flex-row">
         <div className="relative flex h-full min-h-0 min-w-0 flex-[1_1_62%] flex-col p-3">
           {showViewerToolbar ? (
             <div className="mb-2 flex w-full min-w-0 shrink-0 flex-col gap-2">
@@ -1259,7 +1259,7 @@ export default function ContratPdfReviewer({
           </p>
         </div>
 
-        <aside className="flex min-h-0 w-full min-w-[min(100%,320px)] flex-[1_1_38%] flex-col border-l border-gray-200 bg-white lg:max-w-[min(100%,520px)]">
+        <aside className="flex min-h-0 w-full min-w-[min(100%,320px)] flex-[1_1_38%] flex-col border-t border-gray-200 bg-white lg:max-w-[min(100%,520px)] lg:border-t-0 lg:border-l">
           <div className="min-h-0 w-full flex-1 overflow-y-auto p-4 space-y-4 box-border">
             <section className="rounded-xl border border-gray-100 bg-gray-50/50">
               <button

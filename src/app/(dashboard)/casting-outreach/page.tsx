@@ -394,7 +394,7 @@ export default function CastingOutreachPage() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1
-            className="text-3xl font-semibold tracking-tight"
+            className="text-2xl sm:text-3xl font-semibold tracking-tight"
             style={{ fontFamily: "Spectral, serif", color: LICORICE }}
           >
             Casting Outreach
@@ -672,7 +672,7 @@ function KanbanColumn({
       style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, backgroundColor: OLD_LACE }}
     >
       <div className="px-4 py-3 border-b shrink-0" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 25%, transparent)` }}>
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
           <h2
             className="text-lg font-semibold flex items-center gap-2"
             style={{ fontFamily: "Spectral, serif", color: LICORICE }}

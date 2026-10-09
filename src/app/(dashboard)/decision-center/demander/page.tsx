@@ -130,7 +130,7 @@ function DemanderInner() {
           <label className="text-sm font-medium">Décision nécessaire</label>
           <input className="input mt-1" value={form.question} onChange={(e) => set("question", e.target.value)} />
         </div>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <label className="text-sm font-medium">Option A</label>
             <input className="input mt-1" value={form.optionA} onChange={(e) => set("optionA", e.target.value)} />
@@ -149,7 +149,7 @@ function DemanderInner() {
           <p className="text-xs text-gray-500">Quelle option recommandes-tu et pourquoi ?</p>
           <textarea className="input mt-1 min-h-24" value={form.recommendation} onChange={(e) => set("recommendation", e.target.value)} />
         </div>
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <label className="text-sm font-medium">Montant</label>
             <input className="input mt-1" value={form.amount} onChange={(e) => set("amount", e.target.value)} />

@@ -14,7 +14,7 @@ const ACCOUNT_MARK: Record<string, string> = {
 export function marksFromLeaveDays(
   year: number,
   month: number, // 0-11
-  leaveDays: Array<{ date: string; accountCode: string }>,
+  leaveDays: Array<{ date: string; accountCode: string; status?: string }>,
   remoteDates: string[] = []
 ): Record<number, string> {
   const marks: Record<number, string> = {};
@@ -25,7 +25,11 @@ export function marksFromLeaveDays(
   for (const d of leaveDays) {
     const dt = new Date(d.date + "T12:00:00");
     if (dt.getFullYear() !== year || dt.getMonth() !== month) continue;
-    marks[dt.getDate()] = ACCOUNT_MARK[d.accountCode] || "sel";
+    if (d.status === "PENDING" || d.status === "PAUSED") {
+      marks[dt.getDate()] = "pending";
+    } else {
+      marks[dt.getDate()] = ACCOUNT_MARK[d.accountCode] || "sel";
+    }
   }
   for (const r of remoteDates) {
     const dt = new Date(r + "T12:00:00");
@@ -45,7 +49,7 @@ export function marksFromLeaveDays(
 }
 
 export function buildThreeMonths(
-  leaveDays: Array<{ date: string; accountCode: string }>,
+  leaveDays: Array<{ date: string; accountCode: string; status?: string }>,
   remoteDates: string[] = [],
   start = new Date()
 ): MonthGrid[] {
@@ -71,6 +75,7 @@ export const LEAVE_LEGEND = [
   { label: "Récup", color: RTT },
   { label: "Télétravail", color: TT },
   { label: "Maladie", color: SICK },
+  { label: "En attente", color: "#F0C24E" },
   { label: "École", color: "#B48CF0" },
   { label: "Autorisée", color: "#8ED98A" },
   { label: "Férié", color: "#C4B5FD" },

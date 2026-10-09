@@ -4,7 +4,11 @@ import { requireRhSessionFromRequest } from "@/lib/rh/auth";
 import {
   addExpenseLine,
   createExpenseReport,
+  deleteExpenseLine,
+  deleteExpenseReport,
   submitExpenseReport,
+  updateExpenseLine,
+  upsertVehicle,
 } from "@/lib/rh/expenses";
 
 const MONTHS_FR = [
@@ -131,11 +135,20 @@ export async function GET(request: NextRequest) {
           receiptUrl: l.receiptUrl,
           receiptName: l.receiptName,
           missingReceipt: l.missingReceipt,
+          justification: l.justification,
           comment: l.comment,
+          talentIds: l.talentIds || [],
+          ocrVerified: l.ocrVerified,
+          analyseIA: l.analyseIA,
           isMileage: l.isMileage,
           km: l.km,
           status: l.status,
-          warning: l.status === "review" || l.missingReceipt || l.status === "missing",
+          warning:
+            l.status === "review" ||
+            l.missingReceipt ||
+            l.status === "missing" ||
+            (!l.isMileage && !l.ocrVerified) ||
+            !(l.justification || l.comment),
         })),
         _idx: idx,
       };
@@ -179,7 +192,11 @@ export async function POST(request: NextRequest) {
         receiptUrl: body.receiptUrl,
         receiptName: body.receiptName,
         missingReceipt: body.missingReceipt,
+        justification: body.justification || body.comment,
         comment: body.comment,
+        talentIds: Array.isArray(body.talentIds) ? body.talentIds : [],
+        analyseIA: body.analyseIA ?? null,
+        ocrVerified: !!body.ocrVerified,
         isCompanyMeal: body.isCompanyMeal,
         isTravelMeal: body.isTravelMeal,
         isMileage: body.isMileage,
@@ -194,6 +211,59 @@ export async function POST(request: NextRequest) {
         employeeId: session.employee.id,
       });
       return NextResponse.json({ report });
+    }
+    if (body.action === "updateLine") {
+      const line = await updateExpenseLine({
+        lineId: body.lineId,
+        employeeId: session.employee.id,
+        patch: {
+          date: body.date ? new Date(body.date) : undefined,
+          category: body.category,
+          label: body.label,
+          amount: body.amount != null ? Number(body.amount) : undefined,
+          vatRate: body.vatRate != null ? Number(body.vatRate) : undefined,
+          justification: body.justification,
+          comment: body.comment,
+          talentIds: Array.isArray(body.talentIds) ? body.talentIds : undefined,
+          analyseIA: body.analyseIA,
+          ocrVerified: body.ocrVerified,
+          receiptUrl: body.receiptUrl,
+          receiptName: body.receiptName,
+          missingReceipt: body.missingReceipt,
+        },
+      });
+      return NextResponse.json({ line });
+    }
+    if (body.action === "deleteLine") {
+      await deleteExpenseLine({
+        lineId: body.lineId,
+        employeeId: session.employee.id,
+      });
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "deleteReport") {
+      await deleteExpenseReport({
+        reportId: body.reportId,
+        employeeId: session.employee.id,
+      });
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "upsertVehicle") {
+      const vehicle = await upsertVehicle({
+        employeeId: session.employee.id,
+        label: String(body.label || "Véhicule"),
+        fiscalHorsepower: Number(body.fiscalHorsepower || 5),
+        carteGriseExpiresOn: body.carteGriseExpiresOn
+          ? new Date(body.carteGriseExpiresOn)
+          : null,
+        insuranceExpiresOn: body.insuranceExpiresOn
+          ? new Date(body.insuranceExpiresOn)
+          : null,
+        licenseExpiresOn: body.licenseExpiresOn
+          ? new Date(body.licenseExpiresOn)
+          : null,
+      });
+      return NextResponse.json({ vehicle });
     }
     return NextResponse.json({ error: "Action inconnue" }, { status: 400 });
   } catch (e) {

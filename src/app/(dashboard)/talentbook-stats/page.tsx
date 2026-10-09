@@ -700,7 +700,7 @@ export default function TalentbookStatsPage() {
                         </div>
 
                         {/* Stats Grid */}
-                        <div className="grid grid-cols-3 gap-3 mb-3">
+                        <div className="grid grid-cols-1 gap-3 mb-3 sm:grid-cols-3">
                           <div className="bg-white rounded-lg p-3 border border-gray-100">
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-lg">👁️</span>
@@ -867,7 +867,7 @@ export default function TalentbookStatsPage() {
                                       </span>
                                     </div>
                                     
-                                    <div className="grid grid-cols-3 gap-2 mb-2">
+                                    <div className="grid grid-cols-1 gap-2 mb-2 sm:grid-cols-3">
                                       <div className="flex items-center gap-1">
                                         <span className="text-xs text-gray-500">⏱️</span>
                                         <span className="text-xs font-medium text-gray-700">

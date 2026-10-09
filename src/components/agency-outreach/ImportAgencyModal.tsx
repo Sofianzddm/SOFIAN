@@ -399,13 +399,13 @@ export function ImportAgencyModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 bg-black/45 overflow-y-auto">
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-start justify-center p-0 sm:p-4 bg-black/45 overflow-y-auto">
       <div
-        className="w-full max-w-2xl rounded-2xl shadow-xl border bg-white my-4"
+        className="w-full max-w-2xl max-h-[100dvh] sm:max-h-none overflow-y-auto rounded-t-2xl sm:rounded-2xl shadow-xl border bg-white sm:my-4"
         style={{ borderColor: "#E8DED0" }}
       >
         <div
-          className="flex items-center justify-between px-5 py-3 border-b"
+          className="flex items-start justify-between gap-2 px-4 sm:px-5 py-3 border-b sticky top-0 bg-white rounded-t-2xl sm:rounded-t-2xl z-10"
           style={{
             borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
             backgroundColor: OLD_LACE,

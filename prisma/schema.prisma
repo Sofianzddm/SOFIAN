@@ -4499,6 +4499,8 @@ enum RhRequestType {
   LEAVE
   UNPAID_LEAVE
   REMOTE_EXCEPTION
+  /// Plan TT hebdo (jours peints) — toujours soumis à validation manager/HR
+  REMOTE_PLAN
   TIMESHEET
   EXPENSE
   PAUSE_AMEND
@@ -4572,6 +4574,8 @@ model RhEmployee {
   hireDate       DateTime
   weeklyHours    Float    @default(35)
   avatarColor    String   @default("#7C8CF8")
+  /// Photo de profil (Cloudinary)
+  avatarUrl      String?
   remoteAgreement Int     @default(0) // 0 | 2 | 3
   remoteAddressLine1 String?
   remoteAddressLine2 String?
@@ -4596,6 +4600,7 @@ model RhEmployee {
   vehicle            RhVehicle?
   documents          RhDocument[]
   contactChanges     RhContactChange[]
+  payslipScans       RhPayslipScan[]
   auditLogs          RhAuditLog[]       @relation("RhAuditActor")
   auditTargets       RhAuditLog[]       @relation("RhAuditTarget")
 
@@ -4606,6 +4611,50 @@ model RhEmployee {
   @@index([rhRole])
   @@index([actif])
   @@map("rh_employees")
+}
+
+enum RhPayslipScanStatus {
+  PENDING_VERIFY
+  APPLIED
+  REJECTED
+}
+
+/// Bulletin de salaire scanné (OCR) → mise à jour soldes CP / RTT
+model RhPayslipScan {
+  id         String              @id @default(cuid())
+  employeeId String
+  employee   RhEmployee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  periodYear Int
+  periodMonth Int
+  matricule  String
+  fileUrl    String
+  fileName   String?
+  /// Ligne machine GLOWUP##BULLETIN##…
+  rawHeader  String?
+  analyseIA  Json?
+  /// Compteurs congés payés (jours)
+  cpAcquis   Float?
+  cpPris     Float?
+  cpSolde    Float?
+  /// Compteurs RTT si présents
+  rttAcquis  Float?
+  rttPris    Float?
+  rttSolde   Float?
+  grossSalary Float?
+  netPay      Float?
+  status     RhPayslipScanStatus @default(PENDING_VERIFY)
+  ocrVerified Boolean            @default(false)
+  appliedAt  DateTime?
+  appliedById String?
+  note       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, periodYear, periodMonth])
+  @@index([periodYear, periodMonth, status])
+  @@index([matricule])
+  @@map("rh_payslip_scans")
 }
 
 model RhLeaveBalance {
@@ -4671,8 +4720,10 @@ model RhLeaveDay {
   date        DateTime       @db.Date
   accountCode RhLeaveAccount
   halfDay     Boolean        @default(false)
-  half        String?        // AM | PM
+  half        String?        // AM | PM | FULL | H (horaire)
   days        Float          @default(1)
+  /// Durée en minutes (récup / absence courte) — 15 à 420 (7 h).
+  minutes     Int?
 
   @@unique([employeeId, date, half])
   @@index([employeeId, date])
@@ -4709,7 +4760,11 @@ model RhWorkDay {
   employee   RhEmployee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   date       DateTime    @db.Date
   place      RhWorkPlace
-  half       String      @default("FULL") // FULL | AM | PM
+  half       String      @default("FULL") // clé unique (toujours FULL en V1)
+  /// Portion travaillée : FULL | AM | PM
+  portion    String      @default("FULL")
+  /// Déplacement : SELF (déj perso → TR) | COMPANY | REIMBURSED (pas de TR)
+  travelMeal String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -4736,7 +4791,20 @@ model RhTimesheet {
   totalMinutes Int               @default(0)
   ot25Minutes  Int               @default(0)
   ot50Minutes  Int               @default(0)
+  /// Demande de signature électronique (après validation manager)
+  signatureRequestedAt DateTime?
   signedAt     DateTime?
+  /// PDF généré à l’envoi en signature (Cloudinary)
+  pdfUrl       String?
+  /// PDF final tamponné après signature collab / DocuSeal
+  signedPdfUrl String?
+  /// Nom saisi / attestation de signature
+  signatureName String?
+  /// DocuSeal — submission id (string)
+  docusealSubmissionId String?
+  /// Lien de signature DocuSeal du collaborateur
+  docusealSigningUrl   String?
+
   days         RhTimesheetDay[]
 
   createdAt DateTime @default(now())
@@ -4744,6 +4812,8 @@ model RhTimesheet {
 
   @@unique([employeeId, isoYear, isoWeek])
   @@index([employeeId, status])
+  @@index([status, signatureRequestedAt])
+  @@index([docusealSubmissionId])
   @@map("rh_timesheets")
 }
 
@@ -4798,7 +4868,15 @@ model RhExpenseLine {
   receiptUrl       String?
   receiptName      String?
   missingReceipt   Boolean         @default(false)
+  /// Motif / pourquoi cette dépense (obligatoire hors IK)
+  justification    String?
   comment          String?
+  /// Talents présents (ex. repas / event avec créateurs)
+  talentIds        String[]        @default([])
+  /// Résultat brut OCR / IA du ticket
+  analyseIA        Json?
+  /// Le collab a confirmé que le scan correspond au ticket
+  ocrVerified      Boolean         @default(false)
   isCompanyMeal    Boolean         @default(false)
   isTravelMeal     Boolean         @default(false)
   isMileage        Boolean         @default(false)
@@ -5187,6 +5265,16 @@ model DcSettings {
   @@map("dc_settings")
 }
 
+model RhSettings {
+  id          String   @id @default("default")
+  data        Json     @default("{}")
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@map("rh_settings")
+}
+
 model RhAuditLog {
   id         String      @id @default(cuid())
   actorId    String?
@@ -5201,4 +5289,18 @@ model RhAuditLog {
   @@index([createdAt])
   @@index([actorId])
   @@map("rh_audit_logs")
+}
+
+/// Challenge OTP pour accès console RH (manager / HR)
+model RhLoginChallenge {
+  id         String    @id @default(cuid())
+  userId     String
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@map("rh_login_challenges")
 }

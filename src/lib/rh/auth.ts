@@ -15,6 +15,7 @@ export type RhEmployeeSession = {
   hireDate: Date;
   weeklyHours: number;
   avatarColor: string;
+  avatarUrl: string | null;
   remoteAgreement: number;
   rhRole: RhRole;
   actif: boolean;
@@ -39,6 +40,7 @@ const employeeSelect = {
   hireDate: true,
   weeklyHours: true,
   avatarColor: true,
+  avatarUrl: true,
   remoteAgreement: true,
   rhRole: true,
   actif: true,
@@ -63,6 +65,7 @@ function mapEmployee(
     hireDate: Date;
     weeklyHours: number;
     avatarColor: string;
+    avatarUrl: string | null;
     remoteAgreement: number;
     rhRole: RhRole;
     actif: boolean;
@@ -84,6 +87,7 @@ function mapEmployee(
     hireDate: row.hireDate,
     weeklyHours: row.weeklyHours,
     avatarColor: row.avatarColor,
+    avatarUrl: row.avatarUrl ?? null,
     remoteAgreement: row.remoteAgreement,
     rhRole: row.rhRole,
     actif: row.actif,
@@ -147,6 +151,8 @@ export async function requireRhManager(
 ): Promise<RhSession | null> {
   const session = await requireRhSessionFromRequest(request);
   if (!session || !isRhManager(session.employee.rhRole)) return null;
+  const { hasRhSecureSession } = await import("@/lib/rh/secure-session");
+  if (!(await hasRhSecureSession(session.app.user.id, request))) return null;
   return session;
 }
 
@@ -155,6 +161,8 @@ export async function requireRhHr(
 ): Promise<RhSession | null> {
   const session = await requireRhSessionFromRequest(request);
   if (!session || !isRhHr(session.employee.rhRole)) return null;
+  const { hasRhSecureSession } = await import("@/lib/rh/secure-session");
+  if (!(await hasRhSecureSession(session.app.user.id, request))) return null;
   return session;
 }
 
@@ -169,6 +177,48 @@ export function initials(e: { prenom: string; nom: string }): string {
 }
 
 export function homePathForRole(role: RhRole): string {
-  if (role === "HR" || role === "MANAGER") return "/rh/people";
+  // Console People / validations = admin RH uniquement (pas les managers N+1)
+  if (role === "HR") return "/rh/people";
   return "/rh/espace";
+}
+
+/** Accès UI + APIs console People (inbox, planning équipe, paie…). */
+export function canAccessRhPeople(role: RhRole): boolean {
+  return role === "HR";
+}
+
+/** Lecture d’un autre profil RH : soi-même, HR, ou N+1 (reports). */
+export async function canViewRhEmployee(
+  viewer: RhEmployeeSession,
+  targetId: string
+): Promise<boolean> {
+  if (viewer.id === targetId) return true;
+  if (viewer.rhRole === "HR") return true;
+  if (viewer.rhRole === "MANAGER") {
+    const target = await prisma.rhEmployee.findUnique({
+      where: { id: targetId },
+      select: { managerId: true },
+    });
+    return target?.managerId === viewer.id;
+  }
+  return false;
+}
+
+/**
+ * Décision (approve/refuse) :
+ * - HR : tout le monde
+ * - MANAGER : uniquement ses reports (jamais soi-même)
+ */
+export async function canDecideRhRequest(
+  viewer: RhEmployeeSession,
+  requestEmployeeId: string
+): Promise<boolean> {
+  if (viewer.rhRole === "HR") return true;
+  if (viewer.rhRole !== "MANAGER") return false;
+  if (requestEmployeeId === viewer.id) return false;
+  const target = await prisma.rhEmployee.findUnique({
+    where: { id: requestEmployeeId },
+    select: { managerId: true },
+  });
+  return target?.managerId === viewer.id;
 }

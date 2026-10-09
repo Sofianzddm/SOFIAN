@@ -164,7 +164,7 @@ export default function NewPartnerPage() {
 
   if (generatedSlug) {
     return (
-      <div className="p-8 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-8 max-w-4xl mx-auto">
         <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
           <h2 className="text-2xl font-bold text-green-800 mb-4">✅ Partenaire créé !</h2>
           <p className="text-gray-700 mb-4">Lien généré :</p>
@@ -188,7 +188,7 @@ export default function NewPartnerPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto">
       <Link href="/partners" className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6">
         <ArrowLeft className="w-4 h-4" />
         Retour à la liste
@@ -278,7 +278,7 @@ export default function NewPartnerPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Nom du contact</label>
             <input

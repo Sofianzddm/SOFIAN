@@ -1194,8 +1194,71 @@ export default function FacturesPage() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div className="md:hidden space-y-3 p-4">
+                {facturesPaginated.map((doc) => {
+                  const isLate =
+                    (doc.statut === "ENVOYE" || doc.statut === "VALIDE") &&
+                    doc.dateEcheance &&
+                    new Date(doc.dateEcheance) < new Date();
+                  const restantDu = doc.statut === "PAYE" ? 0 : Number(doc.montantTTC ?? 0);
+                  const isCancelled = doc.statut === "ANNULE";
+                  const marqueId = doc.collaboration?.marque?.id;
+                  const contact = doc.collaboration?.marqueContact;
+                  const marqueNom = doc.collaboration?.marque?.nom ?? (doc as DocumentInfo & { clientNom?: string }).clientNom ?? "-";
+                  const dateLabel =
+                    doc.dateDocument || doc.dateEmission
+                      ? new Date((doc.dateDocument || doc.dateEmission) as string).toLocaleDateString("fr-FR")
+                      : "-";
+                  return (
+                    <div
+                      key={doc.id}
+                      className={`rounded-xl border border-gray-200 bg-white p-4 ${isCancelled ? "opacity-60" : ""}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        {!isCancelled && (
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(doc.id)}
+                            onChange={() => toggleSelect(doc.id)}
+                            className="mt-1 rounded border-gray-300 shrink-0"
+                          />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          {isCancelled ? (
+                            <span className="font-mono text-sm line-through text-gray-400">{doc.reference}</span>
+                          ) : (
+                            <Link href={`/factures/${doc.id}`} className="font-mono text-sm font-medium text-[#1A1110]">
+                              {doc.reference}
+                            </Link>
+                          )}
+                          <p className="text-xs text-gray-500 mt-0.5">{dateLabel}</p>
+                          <div className="mt-1">
+                            <ClientCell marqueId={marqueId} marqueNom={marqueNom} contact={contact} isCancelled={isCancelled} />
+                          </div>
+                        </div>
+                        <FactureStatutBadge statut={doc.statut} isLate={!!isLate} />
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-sm border-t border-gray-100 pt-3">
+                        <span className="text-gray-500">Restant dû</span>
+                        <span className={`font-semibold ${restantDu > 0 ? "text-red-600" : "text-green-600"}`}>
+                          {formatMoney(restantDu, doc.devise)}
+                        </span>
+                      </div>
+                      {!isCancelled && (
+                        <Link
+                          href={`/factures/${doc.id}`}
+                          className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#1A1110] hover:underline"
+                        >
+                          Ouvrir la facture
+                          <ChevronRight className="w-4 h-4" />
+                        </Link>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full min-w-[720px]">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50/50">
                       <th className="w-10 py-3 px-4">
@@ -1336,7 +1399,7 @@ export default function FacturesPage() {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[720px]">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50/50">
                       <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">
@@ -1419,7 +1482,7 @@ export default function FacturesPage() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[720px]">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/50">
                     <th className="w-10 py-4 px-4">
@@ -2027,7 +2090,7 @@ function RelancesTab({
         Les dates et destinataires des relances déjà envoyées sont visibles ci-dessous.
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full min-w-[720px]">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50">
               <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase">Facture n°</th>

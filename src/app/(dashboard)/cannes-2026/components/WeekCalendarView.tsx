@@ -142,6 +142,7 @@ function earliestHour(hours: string[], fallback: string): string {
 
 export default function WeekCalendarView({ events, presences, isAdmin }: Props) {
   const [weekIndex, setWeekIndex] = useState<0 | 1>(0);
+  const [mobileDayIndex, setMobileDayIndex] = useState(0);
   const [selectedEvent, setSelectedEvent] = useState<CannesEvent | null>(null);
   const [selectedSyntheticEvent, setSelectedSyntheticEvent] = useState<CalendarRenderableEvent | null>(null);
   const [createSlot, setCreateSlot] = useState<{ date: string; time: string } | null>(null);
@@ -155,6 +156,11 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const week = CANNES_WEEKS[weekIndex];
+
+  useEffect(() => {
+    const idx = week.days.findIndex((d) => d.inFestival);
+    setMobileDayIndex(idx >= 0 ? idx : 0);
+  }, [weekIndex, week.days]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 9 * HOUR_HEIGHT;
@@ -423,23 +429,23 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
   };
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[800px] rounded-2xl border border-[#E5E0D8] bg-white">
-        <div className="flex items-center justify-between border-b border-[#E5E0D8] px-6 py-4">
-          <div className="flex items-center gap-3">
+    <div>
+      <div className="overflow-hidden rounded-2xl border border-[#E5E0D8] bg-white">
+        <div className="flex flex-col gap-3 border-b border-[#E5E0D8] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <button
-              onClick={() => setWeekIndex((prev) => (prev === 0 ? 0 : 0))}
+              onClick={() => setWeekIndex(0)}
               disabled={weekIndex === 0}
               className="rounded-full p-2 hover:bg-[#F5EBE0] disabled:opacity-30 disabled:hover:bg-transparent"
               aria-label="Semaine precedente"
             >
               <ChevronLeft size={18} />
             </button>
-            <h2 className="font-[Spectral] text-xl text-[#1A1110]">
+            <h2 className="min-w-0 truncate font-[Spectral] text-lg text-[#1A1110] sm:text-xl">
               {week.label} · {formatDateRange(week.days[0].date, week.days[6].date)}
             </h2>
             <button
-              onClick={() => setWeekIndex((prev) => (prev === 1 ? 1 : 1))}
+              onClick={() => setWeekIndex(1)}
               disabled={weekIndex === 1}
               className="rounded-full p-2 hover:bg-[#F5EBE0] disabled:opacity-30 disabled:hover:bg-transparent"
               aria-label="Semaine suivante"
@@ -447,7 +453,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
               <ChevronRight size={18} />
             </button>
           </div>
-          <div className="flex gap-1 rounded-full bg-[#F5EBE0] p-1">
+          <div className="flex w-fit shrink-0 gap-1 rounded-full bg-[#F5EBE0] p-1">
             {[0, 1].map((i) => (
               <button
                 key={i}
@@ -461,7 +467,7 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
             ))}
           </div>
         </div>
-        <div className="border-b border-[#E5E0D8] px-6 py-3">
+        <div className="border-b border-[#E5E0D8] px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center gap-2">
             {filterButtons.map((filter) => {
               const enabled = filters[filter.key];
@@ -488,6 +494,99 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
           </div>
         </div>
 
+        <div className="border-b border-[#E5E0D8] px-4 py-3 md:hidden">
+          <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+            {week.days.map((day, i) => {
+              const d = new Date(`${day.date}T00:00:00.000Z`);
+              const active = mobileDayIndex === i;
+              const count = eventsByDay.get(day.date)?.length ?? 0;
+              return (
+                <button
+                  key={day.date}
+                  type="button"
+                  onClick={() => setMobileDayIndex(i)}
+                  className={`shrink-0 rounded-xl border px-3 py-2 text-center transition ${
+                    active
+                      ? "border-[#1A1110] bg-[#1A1110] text-[#F5EBE0]"
+                      : day.inFestival
+                        ? "border-[#E5E0D8] bg-white text-[#1A1110]"
+                        : "border-[#E5E0D8] bg-[#FAFAFA] text-[#1A1110]/40"
+                  }`}
+                >
+                  <div className="text-[10px] uppercase tracking-wider">{DAY_NAMES_FR[i]}</div>
+                  <div className="font-[Spectral] text-lg leading-tight">{d.getUTCDate()}</div>
+                  <div className="text-[10px] opacity-70">{count} evt</div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 space-y-2">
+            {(() => {
+              const day = week.days[mobileDayIndex];
+              if (!day) return null;
+              const dayEvents = (eventsByDay.get(day.date) ?? [])
+                .slice()
+                .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+              if (dayEvents.length === 0) {
+                return (
+                  <p className="py-6 text-center text-sm text-[#1A1110]/50">
+                    Aucun événement ce jour
+                  </p>
+                );
+              }
+              return dayEvents.map((ev) => {
+                const colors = TYPE_COLORS[ev.type] ?? TYPE_COLORS.AUTRE;
+                const synth = ev as CalendarRenderableEvent;
+                const isSynthetic = !!synth.syntheticKind;
+                return (
+                  <button
+                    key={ev.id}
+                    type="button"
+                    onClick={() => {
+                      if (isSynthetic) setSelectedSyntheticEvent(synth);
+                      else setSelectedEvent(ev);
+                    }}
+                    className="flex w-full items-start gap-3 rounded-xl border border-[#E5E0D8] p-3 text-left"
+                    style={{ backgroundColor: colors.bg, color: colors.text }}
+                  >
+                    <span className="shrink-0 text-xs font-semibold tabular-nums">
+                      {ev.startTime}
+                      {ev.endTime ? `–${ev.endTime}` : ""}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold leading-tight">{ev.title}</span>
+                      {ev.location ? (
+                        <span className="mt-0.5 block truncate text-[11px] opacity-80">
+                          {ev.location}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                );
+              });
+            })()}
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setCreateSlot({
+                    date: week.days[mobileDayIndex]?.date ?? week.days[0].date,
+                    time: "10:00",
+                  })
+                }
+                className="w-full rounded-xl border border-dashed border-[#C08B8B] px-3 py-2.5 text-sm font-medium text-[#C08B8B]"
+              >
+                + Ajouter un événement
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
+          <p className="px-4 pt-2 text-xs text-[#1A1110]/45">
+            Faites défiler horizontalement pour voir les 7 jours
+          </p>
+          <div className="min-w-[800px]">
         <div className="sticky top-0 z-20 grid grid-cols-[60px_repeat(7,1fr)] border-b border-[#E5E0D8] bg-white">
           <div />
           {week.days.map((day, i) => {
@@ -664,6 +763,9 @@ export default function WeekCalendarView({ events, presences, isAdmin }: Props) 
                 </div>
               );
             })}
+          </div>
+        </div>
+
           </div>
         </div>
       </div>

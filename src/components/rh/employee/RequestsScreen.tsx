@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Ban, Copy, Download, Inbox } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Ban, Copy, Inbox, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { RhButton, RhCard, RhCardHead } from "@/components/rh/ui/primitives";
 import type { EmployeeRequest, RequestStatus } from "@/components/rh/mock/employee";
 import {
@@ -13,12 +14,29 @@ import {
   EmpTh,
   EMP_COLORS,
 } from "@/components/rh/employee/parts";
-import { useRhData } from "@/components/rh/RhDataContext";
 
 const STATUS_TONE: Record<RequestStatus, string> = {
   pending: EMP_COLORS.warning,
   approved: EMP_COLORS.success,
   refused: EMP_COLORS.danger,
+};
+
+type RowItem = EmployeeRequest & {
+  id: string;
+  reviewNote?: string;
+  rawStatus: string;
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  LEAVE: "Absence",
+  UNPAID_LEAVE: "Sans solde",
+  REMOTE_EXCEPTION: "Exception TT",
+  REMOTE_PLAN: "Plan TT",
+  TIMESHEET: "Feuille de temps",
+  EXPENSE: "Note de frais",
+  CONTACT_CHANGE: "Coordonnées",
+  ADDRESS_CHANGE: "Adresse TT",
+  PAUSE_AMEND: "Pause temps",
 };
 
 function mapStatus(raw: string): RequestStatus {
@@ -35,51 +53,143 @@ export function RequestsScreen({
   sel: number;
   onSelect: (index: number) => void;
 }) {
-  const { inbox } = useRhData();
+  const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
+  const [copied, setCopied] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
-  const list: EmployeeRequest[] = useMemo(
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/rh/my-requests", { cache: "no-store" });
+      if (!res.ok) throw new Error("Impossible de charger tes demandes");
+      const data = await res.json();
+      setItems(data.items || []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const list: RowItem[] = useMemo(
     () =>
-      inbox.map((item) => {
-        const status = mapStatus(String(item.status || "PENDING"));
+      items.map((item) => {
+        const rawStatus = String(item.status || "PENDING");
+        const status = mapStatus(rawStatus);
+        const typeKey = String(item.type || "");
+        const reviewNote =
+          typeof item.reviewNote === "string" ? item.reviewNote : undefined;
+        const cancelled = rawStatus === "CANCELLED";
         return {
+          id: String(item.id),
           ref: String(item.reference || item.id),
-          type: String(item.type || ""),
+          type: TYPE_LABEL[typeKey] || typeKey,
           typeColor: EMP_COLORS.accent,
           period: item.dateFrom
-            ? new Date(String(item.dateFrom)).toLocaleDateString("fr-FR")
+            ? [
+                new Date(String(item.dateFrom)).toLocaleDateString("fr-FR"),
+                item.dateTo
+                  ? new Date(String(item.dateTo)).toLocaleDateString("fr-FR")
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" → ")
             : "—",
           duration: item.days != null ? `${item.days} j` : "—",
           submittedAt: item.createdAt
             ? new Date(String(item.createdAt)).toLocaleString("fr-FR")
             : "—",
-          approver: "Manager",
-          status,
-          statusLabel:
-            status === "approved"
+          approver: "Manager / RH",
+          status: cancelled ? ("refused" as const) : status,
+          statusLabel: cancelled
+            ? "ANNULÉE"
+            : status === "approved"
               ? "APPROUVÉE"
               : status === "refused"
                 ? "REFUSÉE"
                 : "EN ATTENTE",
           summary: String(item.comment || item.title || ""),
+          reviewNote,
+          rawStatus,
           flow: [
-            { label: "Demande déposée", meta: "", state: "done" as const },
             {
-              label: "Validation manager",
-              meta: "",
-              state:
-                status === "pending" ? ("current" as const) : ("done" as const),
+              label: "Demande déposée",
+              meta: item.createdAt
+                ? new Date(String(item.createdAt)).toLocaleDateString("fr-FR")
+                : "",
+              state: "done" as const,
             },
             {
-              label: "Clôture",
+              label: cancelled
+                ? "Annulée par toi"
+                : "Validation manager / RH",
+              meta:
+                status === "refused" && reviewNote
+                  ? `Motif : ${reviewNote}`
+                  : "",
+              state:
+                status === "pending" && !cancelled
+                  ? ("current" as const)
+                  : ("done" as const),
+            },
+            {
+              label: cancelled
+                ? "Clôturée"
+                : status === "refused"
+                  ? "Refusée"
+                  : "Clôturée",
               meta: "",
-              state: status === "pending" ? ("todo" as const) : ("done" as const),
+              state:
+                status === "pending" && !cancelled
+                  ? ("todo" as const)
+                  : ("done" as const),
             },
           ],
         };
       }),
-    [inbox]
+    [items]
   );
+
+  async function cancelSelected(id: string) {
+    if (
+      !window.confirm(
+        "Annuler cette demande ? Elle disparaîtra de la file de ton manager."
+      )
+    ) {
+      return;
+    }
+    setCancelling(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch(`/api/rh/requests/${id}/cancel`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Annulation impossible"
+        );
+      }
+      setActionMsg("Demande annulée");
+      toast.success("Demande annulée");
+      await load();
+    } catch (e) {
+      const err = e instanceof Error ? e.message : "Erreur";
+      setActionMsg(err);
+      toast.error(err);
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   const filters = [
     { id: "all", label: "Toutes", count: list.length },
@@ -105,13 +215,42 @@ export function RequestsScreen({
     .filter(({ req }) => filter === "all" || req.status === filter);
   const selected = list[sel] ?? list[0];
 
+  if (loading) {
+    return (
+      <div className="rh-screen">
+        <p className="m-0 text-[12.5px]" style={{ color: EMP_COLORS.muted }}>
+          Chargement de tes demandes…
+        </p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rh-screen">
+        <div className="flex flex-col items-start gap-3">
+          <p className="m-0 text-[12.5px]" style={{ color: EMP_COLORS.danger }}>
+            {error}
+          </p>
+          <RhButton variant="secondary" onClick={() => void load()}>
+            <RefreshCw size={12} /> Réessayer
+          </RhButton>
+        </div>
+      </div>
+    );
+  }
+
   if (list.length === 0) {
     return (
       <div className="rh-screen">
         <div className="flex flex-col items-center gap-[9px] py-[42px]">
           <Inbox size={20} style={{ color: EMP_COLORS.faint }} />
-          <span className="text-[12.5px]" style={{ color: EMP_COLORS.muted }}>
-            Aucune demande pour le moment
+          <span className="text-[13px] font-medium" style={{ color: EMP_COLORS.text }}>
+            Aucune demande pour l’instant
+          </span>
+          <span className="text-[12.5px] text-center max-w-[320px]" style={{ color: EMP_COLORS.muted }}>
+            Quand tu poses une absence, une feuille de temps ou une note de frais,
+            elle apparaît ici avec son statut.
           </span>
         </div>
       </div>
@@ -120,6 +259,22 @@ export function RequestsScreen({
 
   return (
     <div className="rh-screen">
+      <div>
+        <h1
+          className="m-0 text-[26px] font-semibold tracking-[-0.03em]"
+          style={{ color: EMP_COLORS.text }}
+        >
+          Mes demandes
+        </h1>
+        <p
+          className="m-0 mt-2 text-[14px] leading-[1.5] max-w-[520px]"
+          style={{ color: EMP_COLORS.muted }}
+        >
+          Le suivi de ce que tu as envoyé. Pour valider celles de ton équipe,
+          ouvre l’espace manager.
+        </p>
+      </div>
+
       <div className="flex flex-wrap items-center gap-[8px]">
         {filters.map((f) => {
           const on = f.id === filter;
@@ -146,9 +301,13 @@ export function RequestsScreen({
           );
         })}
         <span className="flex-1" />
-        <RhButton variant="secondary" style={{ padding: "7px 12px", fontSize: 12 }}>
-          <Download size={12} />
-          Exporter l&apos;historique
+        <RhButton
+          variant="secondary"
+          style={{ padding: "7px 12px", fontSize: 12 }}
+          onClick={() => void load()}
+        >
+          <RefreshCw size={12} />
+          Actualiser
         </RhButton>
       </div>
 
@@ -220,22 +379,75 @@ export function RequestsScreen({
               <RhCardHead title={selected.type} />
               <div className="flex flex-col gap-[10px] p-[14px]">
                 <EmpLabel>Référence</EmpLabel>
-                <div className="rh-mono text-[12px]" style={{ color: EMP_COLORS.text }}>
+                <div
+                  className="text-[13px] font-medium"
+                  style={{ color: EMP_COLORS.text }}
+                >
                   {selected.ref}
                 </div>
                 <EmpKeyValue label="Statut" value={selected.statusLabel} mono />
                 <EmpKeyValue label="Période" value={selected.period} mono />
-                <p className="m-0 text-[12px]" style={{ color: EMP_COLORS.secondary }}>
-                  {selected.summary}
+                <EmpKeyValue
+                  label="Déposée le"
+                  value={selected.submittedAt}
+                  mono
+                />
+                <p
+                  className="m-0 text-[13px]"
+                  style={{ color: EMP_COLORS.secondary }}
+                >
+                  {selected.summary || "Pas de commentaire."}
                 </p>
+                {selected.reviewNote ? (
+                  <div
+                    className="rounded-[12px] px-3 py-2.5 text-[13px]"
+                    style={{
+                      background: "rgba(242,96,78,.08)",
+                      border: "1px solid rgba(242,96,78,.28)",
+                      color: EMP_COLORS.danger,
+                    }}
+                  >
+                    Motif du refus : {selected.reviewNote}
+                  </div>
+                ) : null}
                 <EmpFlow steps={selected.flow} />
+                {actionMsg ? (
+                  <p
+                    className="m-0 text-[12.5px]"
+                    style={{ color: EMP_COLORS.accent }}
+                  >
+                    {actionMsg}
+                  </p>
+                ) : null}
                 <div className="flex gap-2">
-                  <RhButton variant="secondary" style={{ flex: 1, fontSize: 12 }}>
-                    <Copy size={12} /> Copier
+                  <RhButton
+                    variant="secondary"
+                    style={{ flex: 1, fontSize: 12 }}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(selected.ref);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                  >
+                    <Copy size={12} /> {copied ? "Copié !" : "Copier"}
                   </RhButton>
-                  <RhButton variant="danger" style={{ flex: 1, fontSize: 12 }}>
-                    <Ban size={12} /> Annuler
-                  </RhButton>
+                  {selected.rawStatus === "PENDING" ||
+                  selected.rawStatus === "PAUSED" ||
+                  selected.rawStatus === "DRAFT" ? (
+                    <RhButton
+                      variant="danger"
+                      style={{ flex: 1, fontSize: 12 }}
+                      disabled={cancelling}
+                      onClick={() => void cancelSelected(selected.id)}
+                    >
+                      <Ban size={12} />
+                      {cancelling ? "…" : "Annuler"}
+                    </RhButton>
+                  ) : null}
                 </div>
               </div>
             </RhCard>

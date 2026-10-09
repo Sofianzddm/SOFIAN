@@ -735,7 +735,108 @@ export default function TalentsPage() {
             )}
           </div>
         ) : (
-          <table className="w-full">
+          <>
+          <div className="md:hidden space-y-3 p-4">
+            {filteredTalents.map((talent) => (
+              <div key={talent.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                <Link href={`/talents/${talent.id}`} className="flex items-center gap-3 group">
+                  <div className="w-10 h-10 rounded-full bg-glowup-lace flex items-center justify-center overflow-hidden shrink-0">
+                    {talent.photo ? (
+                      <img src={talent.photo} alt={talent.prenom} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-sm font-semibold text-glowup-rose">
+                        {talent.prenom.charAt(0)}
+                        {talent.nom.charAt(0)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-glowup-licorice group-hover:text-glowup-rose truncate">
+                      {talent.prenom} {talent.nom}
+                    </p>
+                    <p className="text-xs text-gray-500 truncate">{talent.email}</p>
+                    {getDelegationBadge(talent)}
+                  </div>
+                </Link>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                  {talent.instagram && (
+                    <span className="inline-flex items-center gap-1 text-gray-600">
+                      <Instagram className="w-3.5 h-3.5 text-pink-500" />
+                      {formatFollowers(talent.stats?.igFollowers || null)}
+                    </span>
+                  )}
+                  {talent.tiktok && (
+                    <span className="inline-flex items-center gap-1 text-gray-600">
+                      <Music2 className="w-3.5 h-3.5" />
+                      {formatFollowers(talent.stats?.ttFollowers || null)}
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-500 ml-auto">{talent._count.collaborations} collab(s)</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {talent.niches.slice(0, 3).map((niche) => (
+                    <span key={niche} className="px-2 py-0.5 text-xs rounded-full bg-glowup-lace text-glowup-licorice">
+                      {niche}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-2 text-xs text-gray-600">
+                  In {talent.commissionInbound}% · Out {talent.commissionOutbound}%
+                  {role !== "TM" && (
+                    <span className="ml-2">· TM {talent.manager.prenom} {talent.manager.nom.charAt(0)}.</span>
+                  )}
+                </div>
+                <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3">
+                  <Link
+                    href={`/talents/${talent.id}`}
+                    className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-glowup-rose bg-glowup-lace rounded-lg"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Voir
+                  </Link>
+                  {canEditThisTalent(talent) && (
+                    <Link
+                      href={`/talents/${talent.id}/edit`}
+                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
+                      title="Modifier"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Link>
+                  )}
+                  {canArchiveTalent && (
+                    <button
+                      className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg ml-auto"
+                      title="Archiver"
+                      onClick={async () => {
+                        const confirmMessage = `Archiver ${talent.prenom} ${talent.nom} ?\n\nLe talent ne sera plus visible dans le dashboard, les partenaires, le talentbook…\nLes collaborations et négociations existantes seront conservées en historique.`;
+                        if (!confirm(confirmMessage)) return;
+                        try {
+                          const res = await fetch(`/api/talents/${talent.id}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ isArchived: true }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok) {
+                            alert(`❌ ${data.error || "Impossible d'archiver ce talent"}`);
+                            return;
+                          }
+                          alert(`✅ ${talent.prenom} ${talent.nom} a été archivé.`);
+                          fetchTalents();
+                        } catch {
+                          alert("❌ Erreur lors de l'archivage.");
+                        }
+                      }}
+                    >
+                      <Archive className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/50">
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">
@@ -1165,6 +1266,8 @@ export default function TalentsPage() {
               ))}
             </tbody>
           </table>
+          </div>
+          </>
         )}
       </div>
 

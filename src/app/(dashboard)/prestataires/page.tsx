@@ -593,7 +593,7 @@ export default function PrestatairesListPage() {
           <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">
             Ville
             <select
-              className="mt-1.5 block min-w-[200px] rounded-lg border-0 bg-[#FAF9F7] px-3 py-2 text-[13px] font-medium ring-1 ring-black/[0.06] outline-none focus:ring-2 focus:ring-black/10"
+              className="mt-1.5 block w-full min-w-0 sm:min-w-[200px] rounded-lg border-0 bg-[#FAF9F7] px-3 py-2 text-[13px] font-medium ring-1 ring-black/[0.06] outline-none focus:ring-2 focus:ring-black/10"
               style={{ color: INK }}
               value={ville}
               onChange={(e) => setVille(e.target.value)}
@@ -611,7 +611,7 @@ export default function PrestatairesListPage() {
             <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">
               Préciser
               <input
-                className="mt-1.5 block min-w-[180px] rounded-lg border-0 bg-[#FAF9F7] px-3 py-2 text-[13px] font-medium ring-1 ring-black/[0.06] outline-none focus:ring-2 focus:ring-black/10"
+                className="mt-1.5 block w-full min-w-0 sm:min-w-[180px] rounded-lg border-0 bg-[#FAF9F7] px-3 py-2 text-[13px] font-medium ring-1 ring-black/[0.06] outline-none focus:ring-2 focus:ring-black/10"
                 style={{ color: INK }}
                 value={villeCustom}
                 onChange={(e) => setVilleCustom(e.target.value)}
@@ -620,7 +620,7 @@ export default function PrestatairesListPage() {
               />
             </label>
           ) : null}
-          <div className="relative min-w-[180px] flex-1">
+          <div className="relative w-full min-w-0 sm:min-w-[180px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
             <input
               className="w-full rounded-lg border-0 bg-[#FAF9F7] py-2 pl-9 pr-3 text-[13px] ring-1 ring-black/[0.06] outline-none focus:ring-2 focus:ring-black/10 disabled:opacity-40"
@@ -640,7 +640,7 @@ export default function PrestatairesListPage() {
               Projet cible {!selectedProjectId ? "(obligatoire)" : ""}
               <select
                 ref={projectSelectRef}
-                className={`mt-1.5 block min-w-[220px] rounded-lg border-0 bg-[#FAF9F7] px-3 py-2 text-[13px] font-medium outline-none focus:ring-2 focus:ring-black/10 ${
+                className={`mt-1.5 block w-full min-w-0 sm:min-w-[220px] rounded-lg border-0 bg-[#FAF9F7] px-3 py-2 text-[13px] font-medium outline-none focus:ring-2 focus:ring-black/10 ${
                   projectSelectPulse
                     ? "ring-2 ring-red-400"
                     : selectedProjectId

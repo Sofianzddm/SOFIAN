@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import {
   displayName,
   initials,
-  isRhManager,
+  isRhHr,
   requireRhSessionFromRequest,
 } from "@/lib/rh/auth";
 
@@ -11,17 +11,6 @@ export async function GET(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  }
-
-  const { searchParams } = new URL(request.url);
-  const all = searchParams.get("all") === "1";
-
-  let where: { actif: boolean; managerId?: string } = { actif: true };
-  if (!isRhManager(session.employee.rhRole) || (!all && session.employee.rhRole === "MANAGER")) {
-    if (session.employee.rhRole === "COLLAB") {
-      where = { actif: true, managerId: undefined };
-      // collab: only self via separate endpoint; list returns team peers in same dept for coverage
-    }
   }
 
   const employees = await prisma.rhEmployee.findMany({
@@ -33,7 +22,7 @@ export async function GET(request: NextRequest) {
     orderBy: { matricule: "asc" },
   });
 
-  // Scope: HR sees all; manager sees reports + self; collab sees department
+  // Scope: HR sees all; manager sees reports + self; collab sees department peers
   const filtered = employees.filter((e) => {
     if (session.employee.rhRole === "HR") return true;
     if (session.employee.rhRole === "MANAGER") {
@@ -42,24 +31,44 @@ export async function GET(request: NextRequest) {
     return e.department === session.employee.department;
   });
 
+  const showSalary = isRhHr(session.employee.rhRole);
+  // Soldes absences : soi + HR + manager (reports). Collab ne voit pas les soldes des pairs.
+  const canSeeBalances = (targetId: string) => {
+    if (targetId === session.employee.id) return true;
+    if (session.employee.rhRole === "HR") return true;
+    if (session.employee.rhRole === "MANAGER") {
+      const target = filtered.find((e) => e.id === targetId);
+      return target?.managerId === session.employee.id;
+    }
+    return false;
+  };
+
   return NextResponse.json({
-    employees: filtered.map((e) => ({
-      id: e.id,
-      matricule: e.matricule,
-      name: displayName(e.user),
-      initials: initials(e.user),
-      email: e.user.email,
-      jobTitle: e.jobTitle,
-      department: e.department,
-      avatarColor: e.avatarColor,
-      rhRole: e.rhRole,
-      hireDate: e.hireDate.toISOString(),
-      remoteAgreement: e.remoteAgreement,
-      healthCover: e.healthCover,
-      grossSalary: e.grossSalary ? Number(e.grossSalary) : null,
-      variableSalary: e.variableSalary ? Number(e.variableSalary) : null,
-      balances: e.leaveBalances,
-      bookableSum: e.leaveBalances.reduce((s, b) => s + b.bookable, 0),
-    })),
+    employees: filtered.map((e) => {
+      const showBalances = canSeeBalances(e.id);
+      return {
+        id: e.id,
+        matricule: e.matricule,
+        name: displayName(e.user),
+        initials: initials(e.user),
+        email: e.user.email,
+        jobTitle: e.jobTitle,
+        department: e.department,
+        avatarColor: e.avatarColor,
+        avatarUrl: e.avatarUrl,
+        rhRole: e.rhRole,
+        hireDate: e.hireDate.toISOString(),
+        remoteAgreement: e.remoteAgreement,
+        healthCover: e.healthCover,
+        // Salaires : HR uniquement (évite fuite collab / manager)
+        grossSalary: showSalary && e.grossSalary ? Number(e.grossSalary) : null,
+        variableSalary:
+          showSalary && e.variableSalary ? Number(e.variableSalary) : null,
+        balances: showBalances ? e.leaveBalances : [],
+        bookableSum: showBalances
+          ? e.leaveBalances.reduce((s, b) => s + b.bookable, 0)
+          : 0,
+      };
+    }),
   });
 }

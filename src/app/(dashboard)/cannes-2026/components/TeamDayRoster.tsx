@@ -79,7 +79,10 @@ export default function TeamDayRoster({
         <span className="font-medium">événements agenda</span> (soirées, dîners…).
       </p>
 
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      <div
+        className="mt-3 flex gap-1.5 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible md:pb-0"
+        style={{ scrollbarWidth: "none" }}
+      >
         {CANNES_2026_DAYS.map((d) => {
           const ymd = parisDayKey(d);
           const label = d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
@@ -89,12 +92,12 @@ export default function TeamDayRoster({
               key={ymd}
               type="button"
               onClick={() => {
-                const d = CANNES_2026_DAYS.find((x) => parisDayKey(x) === ymd);
+                const day = CANNES_2026_DAYS.find((x) => parisDayKey(x) === ymd);
                 const firstHere =
-                  d != null ? rows.find((p) => cellState(p, d).disponible) ?? null : null;
+                  day != null ? rows.find((p) => cellState(p, day).disponible) ?? null : null;
                 onSelectDay(ymd, firstHere?.id ?? null);
               }}
-              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                 active
                   ? "border-[#1A1110] bg-[#1A1110] text-[#F5EBE0]"
                   : "border-[#E5E0D8] bg-[#FCFAF8] text-[#1A1110]/80 hover:border-[#C08B8B]/50"

@@ -1435,11 +1435,11 @@ export default function EnrichissementPage() {
   }
 
   if (!allowed) {
-    return <div className="p-10 text-center text-gray-500">Accès réservé.</div>;
+    return <div className="p-6 sm:p-10 text-center text-gray-500">Accès réservé.</div>;
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
+    <div className="max-w-2xl mx-auto px-4 py-4 sm:py-8">
       {!active ? (
         <>
           <h1 className="text-2xl font-bold" style={{ color: INK }}>
@@ -1989,7 +1989,7 @@ export default function EnrichissementPage() {
         </>
       ) : (
         <>
-          <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
             <button
               type="button"
               onClick={() => {

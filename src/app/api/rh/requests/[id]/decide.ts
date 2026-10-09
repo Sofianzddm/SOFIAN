@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { isRhManager, requireRhSessionFromRequest } from "@/lib/rh/auth";
+import {
+  canDecideRhRequest,
+  requireRhHr,
+} from "@/lib/rh/auth";
 import { decideLeaveRequest } from "@/lib/rh/leave";
 import { decideTimesheet } from "@/lib/rh/timesheet";
 import { decideExpense } from "@/lib/rh/expenses";
-import { writeRhAudit } from "@/lib/rh/workflow";
+import { isoWeekInfo, writeRhAudit } from "@/lib/rh/workflow";
 import { notifyRhDecision } from "@/lib/rh/notify";
+import { applyRemotePlan, setWorkDay } from "@/lib/rh/office";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -14,9 +18,15 @@ async function decide(
   ctx: Ctx,
   approve: boolean
 ) {
-  const session = await requireRhSessionFromRequest(request);
-  if (!session || !isRhManager(session.employee.rhRole)) {
-    return NextResponse.json({ error: "Interdit" }, { status: 403 });
+  const session = await requireRhHr(request);
+  if (!session) {
+    return NextResponse.json(
+      {
+        error: "Réservé à l’admin RH (connexion sécurisée)",
+        code: "RH_MFA_REQUIRED",
+      },
+      { status: 403 }
+    );
   }
   const { id } = await ctx.params;
   const body = await request.json().catch(() => ({}));
@@ -24,6 +34,16 @@ async function decide(
 
   const req = await prisma.rhRequest.findUnique({ where: { id } });
   if (!req) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+
+  if (!(await canDecideRhRequest(session.employee, req.employeeId))) {
+    return NextResponse.json(
+      {
+        error:
+          "Tu ne peux valider que les demandes de ton équipe (pas les tiennes).",
+      },
+      { status: 403 }
+    );
+  }
 
   try {
     if (req.type === "LEAVE" || req.type === "UNPAID_LEAVE") {
@@ -51,7 +71,13 @@ async function decide(
         approve,
         note,
       });
-    } else if (req.type === "REMOTE_EXCEPTION" || req.type === "CONTACT_CHANGE" || req.type === "ADDRESS_CHANGE") {
+    } else if (
+      req.type === "REMOTE_EXCEPTION" ||
+      req.type === "REMOTE_PLAN" ||
+      req.type === "CONTACT_CHANGE" ||
+      req.type === "ADDRESS_CHANGE" ||
+      req.type === "PAUSE_AMEND"
+    ) {
       await prisma.rhRequest.update({
         where: { id },
         data: {
@@ -61,6 +87,25 @@ async function decide(
           reviewNote: note,
         },
       });
+      if (req.type === "REMOTE_PLAN" && approve) {
+        const payload = req.payload as {
+          dates?: string[];
+        };
+        const dates = (payload.dates || []).map((d) => d.slice(0, 10));
+        const emp = await prisma.rhEmployee.findUnique({
+          where: { id: req.employeeId },
+          select: { remoteAgreement: true },
+        });
+        const agreement =
+          emp?.remoteAgreement === 2 || emp?.remoteAgreement === 3
+            ? emp.remoteAgreement
+            : 0;
+        await applyRemotePlan({
+          employeeId: req.employeeId,
+          dates,
+          agreementDays: agreement as 0 | 2 | 3,
+        });
+      }
       if (req.type === "REMOTE_EXCEPTION" && approve) {
         const payload = req.payload as {
           date?: string;
@@ -69,7 +114,7 @@ async function decide(
           isoWeek?: number;
         };
         if (payload.date && payload.isoYear && payload.isoWeek) {
-          const date = new Date(payload.date);
+          const date = new Date(`${payload.date}T12:00:00`);
           const existing = await prisma.rhRemoteDeclaration.findUnique({
             where: {
               employeeId_isoYear_isoWeek: {
@@ -85,21 +130,23 @@ async function decide(
           }
           const weekStart = existing?.weekStart ?? date;
           const weekEnd = existing?.weekEnd ?? date;
-          await prisma.rhWorkDay.upsert({
-            where: {
-              employeeId_date_half: {
-                employeeId: req.employeeId,
-                date,
-                half: "FULL",
-              },
-            },
-            create: {
-              employeeId: req.employeeId,
-              date,
-              place: "REMOTE",
-              half: "FULL",
-            },
-            update: { place: "REMOTE" },
+          const nextStart = new Date(weekStart);
+          nextStart.setDate(nextStart.getDate() + 7);
+          const nextWeek = isoWeekInfo(nextStart);
+          const emp = await prisma.rhEmployee.findUnique({
+            where: { id: req.employeeId },
+            select: { remoteAgreement: true },
+          });
+          const agreement =
+            emp?.remoteAgreement === 2 || emp?.remoteAgreement === 3
+              ? emp.remoteAgreement
+              : 0;
+          await setWorkDay({
+            employeeId: req.employeeId,
+            date,
+            place: "REMOTE",
+            agreementDays: agreement as 0 | 2 | 3,
+            allowOverEntitlement: true,
           });
           await prisma.rhRemoteDeclaration.upsert({
             where: {
@@ -119,7 +166,7 @@ async function decide(
               exceptional: true,
               exceptionRequestId: req.id,
               compensationWeek: payload.compensateNextWeek
-                ? payload.isoWeek + 1
+                ? nextWeek.isoWeek
                 : null,
             },
             update: {
@@ -127,37 +174,50 @@ async function decide(
               exceptional: true,
               exceptionRequestId: req.id,
               compensationWeek: payload.compensateNextWeek
-                ? payload.isoWeek + 1
+                ? nextWeek.isoWeek
                 : null,
             },
           });
         }
       }
-      if (req.type === "CONTACT_CHANGE" && approve) {
+      if (req.type === "PAUSE_AMEND" && approve) {
+        // Validation manager = OK métier ; pas d'écriture horaires auto
+      }
+      if (
+        (req.type === "CONTACT_CHANGE" || req.type === "ADDRESS_CHANGE") &&
+        approve
+      ) {
         const change = await prisma.rhContactChange.findFirst({
           where: { requestId: id },
         });
-        if (change) {
-          const proposed = change.proposed as Record<string, string>;
-          await prisma.rhEmployee.update({
-            where: { id: change.employeeId },
-            data: {
-              remoteAddressLine1: proposed.addressLine1 ?? undefined,
-              remoteCity: proposed.city ?? undefined,
-              remotePostalCode: proposed.postalCode ?? undefined,
-            },
+        const proposed = (change?.proposed ||
+          (req.payload as Record<string, string>) ||
+          {}) as Record<string, string>;
+        const employeeId = change?.employeeId || req.employeeId;
+        await prisma.rhEmployee.update({
+          where: { id: employeeId },
+          data: {
+            ...(proposed.addressLine1
+              ? { remoteAddressLine1: proposed.addressLine1 }
+              : {}),
+            ...(proposed.city ? { remoteCity: proposed.city } : {}),
+            ...(proposed.postalCode
+              ? { remotePostalCode: proposed.postalCode }
+              : {}),
+          },
+        });
+        if (proposed.telephone) {
+          const emp = await prisma.rhEmployee.findUnique({
+            where: { id: employeeId },
           });
-          if (proposed.telephone) {
-            const emp = await prisma.rhEmployee.findUnique({
-              where: { id: change.employeeId },
+          if (emp) {
+            await prisma.user.update({
+              where: { id: emp.userId },
+              data: { telephone: proposed.telephone },
             });
-            if (emp) {
-              await prisma.user.update({
-                where: { id: emp.userId },
-                data: { telephone: proposed.telephone },
-              });
-            }
           }
+        }
+        if (change) {
           await prisma.rhContactChange.update({
             where: { id: change.id },
             data: { status: "APPROVED", appliedAt: new Date() },

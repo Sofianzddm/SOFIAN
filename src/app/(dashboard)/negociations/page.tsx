@@ -284,7 +284,7 @@ export default function NegociationsPage() {
               <Link
                 key={nego.id}
                 href={`/negociations/${nego.id}`}
-                className={`group flex items-center justify-between gap-4 rounded-xl border bg-white p-5 transition-all hover:shadow-md ${
+                className={`group flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 rounded-xl border bg-white p-4 sm:p-5 transition-all hover:shadow-md ${
                   isSansReponse ? "border-amber-200 ring-1 ring-amber-200/50" : "border-slate-200 ring-1 ring-slate-200/60"
                 }`}
               >

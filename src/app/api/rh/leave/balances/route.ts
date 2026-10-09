@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRhSessionFromRequest } from "@/lib/rh/auth";
+import prisma from "@/lib/prisma";
+import {
+  canViewRhEmployee,
+  requireRhSessionFromRequest,
+} from "@/lib/rh/auth";
 import { getBalancesForEmployee } from "@/lib/rh/leave";
 
 export async function GET(request: NextRequest) {
@@ -9,13 +13,12 @@ export async function GET(request: NextRequest) {
   }
   const { searchParams } = new URL(request.url);
   const employeeId = searchParams.get("employeeId") || session.employee.id;
-  if (
-    employeeId !== session.employee.id &&
-    session.employee.rhRole === "COLLAB"
-  ) {
+
+  if (!(await canViewRhEmployee(session.employee, employeeId))) {
     return NextResponse.json({ error: "Interdit" }, { status: 403 });
   }
-  const emp = await (await import("@/lib/prisma")).default.rhEmployee.findUnique({
+
+  const emp = await prisma.rhEmployee.findUnique({
     where: { id: employeeId },
   });
   if (!emp) return NextResponse.json({ error: "Introuvable" }, { status: 404 });

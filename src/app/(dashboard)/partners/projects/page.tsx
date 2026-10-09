@@ -92,8 +92,8 @@ export default function PartnersProjectsPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold mb-2">Projets</h1>
           <p className="text-gray-600">Gérez les projets de l'agence (portail partenaire)</p>

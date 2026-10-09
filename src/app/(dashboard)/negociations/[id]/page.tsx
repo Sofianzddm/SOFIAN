@@ -743,7 +743,60 @@ export default function NegociationDetailPage() {
                 </button>
               )}
             </div>
-            <table className="w-full">
+            <div className="md:hidden divide-y divide-slate-100 bg-white">
+              {nego.livrables.map((l) => {
+                const notrePrix = getNotrePrix(l.typeContenu, nego.talent.tarifs);
+                const hasFinal = !isEditingContrePropo && (l.prixFinal != null && l.prixFinal > 0);
+                return (
+                  <article key={l.id} className="px-4 py-4 space-y-3 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-medium text-slate-900">{TYPE_LABELS[l.typeContenu] || l.typeContenu}</p>
+                      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-sm font-semibold text-slate-700">
+                        {l.quantite}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-lg bg-slate-50 px-3 py-2">
+                        <p className="text-slate-500">Grille</p>
+                        <p className="mt-0.5 tabular-nums text-slate-700">{notrePrix != null ? formatMoney(notrePrix) : "—"}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-50 px-3 py-2">
+                        <p className="text-slate-500">Marque</p>
+                        <p className="mt-0.5 tabular-nums text-slate-700">{formatMoney(l.prixDemande ?? 0)}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                      <span className="text-xs font-medium text-slate-500">Accord</span>
+                      {isEditingContrePropo ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={draftPrixFinal[l.id] ?? (l.prixFinal != null && l.prixFinal > 0 ? l.prixFinal : "")}
+                            onChange={(e) => setDraftPrixFinal((prev) => ({ ...prev, [l.id]: e.target.value }))}
+                            placeholder="—"
+                            className="w-24 px-2 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-sm font-medium text-slate-900 tabular-nums focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                          />
+                          <span className="text-xs text-slate-400">€</span>
+                        </div>
+                      ) : (l.prixSouhaite != null || l.prixFinal != null) ? (
+                        <span className={`tabular-nums ${hasFinal ? "font-semibold text-blue-700" : "text-slate-700"}`}>
+                          {formatMoney(Number(l.prixFinal ?? l.prixSouhaite ?? 0))}
+                          {hasFinal && <span className="ml-1 text-xs font-normal text-blue-600">(accord)</span>}
+                        </span>
+                      ) : isHeadOf && canEdit ? (
+                        <button type="button" onClick={startContrePropo} className="text-slate-400 hover:text-blue-600 text-xs">saisir</button>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
+            <table className="w-full min-w-[520px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50 text-xs font-medium uppercase tracking-wider text-slate-500">
                   <th className="text-left py-3 px-6">Type</th>
@@ -797,6 +850,7 @@ export default function NegociationDetailPage() {
                 })}
               </tbody>
             </table>
+            </div>
             {isEditingContrePropo && (
               <p className="px-6 py-2 text-xs text-blue-700 bg-blue-50/80 border-t border-blue-100">
                 Renseignez la colonne Accord puis enregistrez.

@@ -473,7 +473,7 @@ export default function SimulateurCessionsClient() {
             )}
 
             {dealMode !== "snapchat" && (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3 backdrop-blur-sm">
                 <label className="mb-1.5 block text-[10px] font-medium uppercase tracking-[0.14em] text-white/40">
                   Format de référence

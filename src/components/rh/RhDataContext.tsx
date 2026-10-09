@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 export type RhMe = {
   employee: {
@@ -21,6 +22,7 @@ export type RhMe = {
     jobTitle: string;
     department: string;
     avatarColor: string;
+    avatarUrl?: string | null;
     rhRole: "COLLAB" | "MANAGER" | "HR";
     hireDate: string;
     weeklyHours: number;
@@ -111,11 +113,18 @@ export function RhDataProvider({
 
   const approve = useCallback(
     async (id: string, note?: string) => {
-      await fetch(`/api/rh/requests/${id}/approve`, {
+      const res = await fetch(`/api/rh/requests/${id}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ note }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Échec de l'approbation"
+        );
+      }
+      toast.success("Demande approuvée");
       await refresh();
     },
     [refresh]
@@ -123,11 +132,18 @@ export function RhDataProvider({
 
   const refuse = useCallback(
     async (id: string, note?: string) => {
-      await fetch(`/api/rh/requests/${id}/refuse`, {
+      const res = await fetch(`/api/rh/requests/${id}/refuse`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ note }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Échec du refus"
+        );
+      }
+      toast.message("Demande refusée");
       await refresh();
     },
     [refresh]

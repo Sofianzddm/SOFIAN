@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
 import { requireRhSessionFromRequest } from "@/lib/rh/auth";
+import { analyzeJustificatif } from "@/lib/depenses-analyse";
+import { mapDepenseCategorieToRhNature } from "@/lib/rh/expenses";
 
 export async function POST(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
@@ -16,9 +18,23 @@ export async function POST(request: NextRequest) {
   if (file.size > 8 * 1024 * 1024) {
     return NextResponse.json({ error: "Fichier trop lourd (max 8 Mo)" }, { status: 400 });
   }
+  const allowed = new Set([
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+  ]);
+  if (file.type && !allowed.has(file.type)) {
+    return NextResponse.json(
+      { error: "Format non accepté (PDF ou image)" },
+      { status: 400 }
+    );
+  }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const base64 = `data:${file.type || "application/octet-stream"};base64,${buffer.toString("base64")}`;
+  const mime = file.type || "application/octet-stream";
+  const base64 = `data:${mime};base64,${buffer.toString("base64")}`;
 
   cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -32,9 +48,35 @@ export async function POST(request: NextRequest) {
       public_id: `rh-${session.employee.id}-${Date.now()}`,
       resource_type: "auto",
     });
+
+    // OCR / IA — ne bloque jamais l’upload
+    let analyse: {
+      fournisseur: string | null;
+      montantTTC: number | null;
+      montantTVA: number | null;
+      tauxTVA: number | null;
+      date: string | null;
+      categorie: string | null;
+      natureRh: string | null;
+      analyseLe: string;
+    } | null = null;
+
+    try {
+      const raw = await analyzeJustificatif(buffer, mime);
+      if (raw) {
+        analyse = {
+          ...raw,
+          natureRh: mapDepenseCategorieToRhNature(raw.categorie),
+        };
+      }
+    } catch (e) {
+      console.warn("RH receipt OCR:", e);
+    }
+
     return NextResponse.json({
       url: uploaded.secure_url,
       name: file.name,
+      analyse,
     });
   } catch (e) {
     console.error("RH receipt upload:", e);

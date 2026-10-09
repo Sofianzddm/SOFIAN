@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireRhSessionFromRequest } from "@/lib/rh/auth";
+import {
+  canViewRhEmployee,
+  requireRhSessionFromRequest,
+} from "@/lib/rh/auth";
 
 export async function GET(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
@@ -14,6 +17,10 @@ export async function GET(request: NextRequest) {
       new Date(from.getFullYear(), from.getMonth() + 3, 0).toISOString()
   );
   const employeeId = searchParams.get("employeeId") || session.employee.id;
+
+  if (!(await canViewRhEmployee(session.employee, employeeId))) {
+    return NextResponse.json({ error: "Interdit" }, { status: 403 });
+  }
 
   const days = await prisma.rhLeaveDay.findMany({
     where: {

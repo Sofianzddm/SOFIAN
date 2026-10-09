@@ -1042,9 +1042,9 @@ export function FashionWeekClient() {
             <div className="space-y-4">
               {contactDrafts.map((row, idx) => (
                 <div key={idx} className="rounded-xl border border-gray-100 bg-gray-50/60 p-3 space-y-2">
-                  <div className="grid grid-cols-12 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
                     <input
-                      className="col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="Prénom"
                       value={row.firstName}
                       onChange={(e) =>
@@ -1054,7 +1054,7 @@ export function FashionWeekClient() {
                       }
                     />
                     <input
-                      className="col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="Nom"
                       value={row.lastName}
                       onChange={(e) =>
@@ -1064,7 +1064,7 @@ export function FashionWeekClient() {
                       }
                     />
                     <input
-                      className="col-span-6 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-6 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="email@maison.com"
                       value={row.email}
                       onChange={(e) =>
@@ -1074,7 +1074,7 @@ export function FashionWeekClient() {
                       }
                     />
                     <input
-                      className="col-span-4 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-4 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="Rôle"
                       value={row.role}
                       onChange={(e) =>
@@ -1084,7 +1084,7 @@ export function FashionWeekClient() {
                       }
                     />
                     <input
-                      className="col-span-4 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-4 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="Équipe / Périmètre"
                       value={row.perimetre}
                       onChange={(e) =>
@@ -1094,7 +1094,7 @@ export function FashionWeekClient() {
                       }
                     />
                     <input
-                      className="col-span-4 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-4 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="Marque(s) gérée(s)"
                       value={row.marquesGerees}
                       onChange={(e) =>
@@ -1104,7 +1104,7 @@ export function FashionWeekClient() {
                       }
                     />
                     <input
-                      className="col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="Marché"
                       value={row.marche}
                       onChange={(e) =>
@@ -1114,7 +1114,7 @@ export function FashionWeekClient() {
                       }
                     />
                     <input
-                      className="col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-3 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="Localisation"
                       value={row.localisation}
                       onChange={(e) =>
@@ -1124,7 +1124,7 @@ export function FashionWeekClient() {
                       }
                     />
                     <input
-                      className="col-span-6 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-6 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="URL LinkedIn"
                       value={row.linkedinUrl}
                       onChange={(e) =>
@@ -1134,7 +1134,7 @@ export function FashionWeekClient() {
                       }
                     />
                     <input
-                      className="col-span-12 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                      className="col-span-1 sm:col-span-12 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
                       placeholder="Note"
                       value={row.note}
                       onChange={(e) =>

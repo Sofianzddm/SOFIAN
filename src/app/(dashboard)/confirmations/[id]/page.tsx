@@ -254,7 +254,7 @@ export default function ConfirmationDetailPage() {
             <Gauge className="h-5 w-5 text-glowup-rose" />
             <h2 className="font-semibold text-slate-900">Fiabilité de {conf.talent?.prenom}</h2>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded-lg bg-slate-50 px-3 py-2">
               <p className="text-xs text-slate-400">Taux de confirmation</p>
               <p className="text-lg font-bold text-slate-800 tabular-nums">

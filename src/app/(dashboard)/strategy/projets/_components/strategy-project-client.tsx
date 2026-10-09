@@ -26,6 +26,8 @@ const pipelineColumns = [
   { key: "PERDUE", label: "Perdue" },
 ] as const;
 
+type PipelineColKey = (typeof pipelineColumns)[number]["key"];
+
 function TabStub({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
@@ -287,6 +289,123 @@ function EmailTrackingBadges({
   );
 }
 
+function PipelineKanbanColumn({
+  col,
+  pipeline,
+  dropTargetStatus,
+  draggingOppId,
+  isAdmin,
+  onDragTarget,
+  onDragLeaveCol,
+  onDrop,
+  onDragEnd,
+  onDragStart,
+  onCardClick,
+  patchOpportunite,
+  openDealModal,
+}: {
+  col: (typeof pipelineColumns)[number];
+  pipeline: Opportunite[];
+  dropTargetStatus: string | null;
+  draggingOppId: string | null;
+  isAdmin: boolean;
+  onDragTarget: (key: string) => void;
+  onDragLeaveCol: (key: string) => void;
+  onDrop: (id: string, key: string) => void | Promise<void>;
+  onDragEnd: () => void;
+  onDragStart: (id: string) => void;
+  onCardClick: (o: Opportunite) => void;
+  patchOpportunite: (id: string, patch: Record<string, unknown>) => void | Promise<void>;
+  openDealModal: (o: Opportunite) => void;
+}) {
+  return (
+    <div
+      className={`rounded-xl border p-3 bg-gray-50/40 transition-colors ${
+        col.key === "PERDUE" ? "opacity-60" : ""
+      } ${
+        dropTargetStatus === col.key ? "border-glowup-rose ring-2 ring-glowup-rose/20" : "border-gray-200"
+      }`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        onDragTarget(col.key);
+      }}
+      onDragLeave={() => onDragLeaveCol(col.key)}
+      onDrop={async (e) => {
+        e.preventDefault();
+        const id = e.dataTransfer.getData("text/plain");
+        onDragEnd();
+        if (id) await onDrop(id, col.key);
+      }}
+    >
+      <p className="text-sm font-semibold mb-3">{col.label}</p>
+      <div className="space-y-3">
+        {pipeline
+          .filter((o) => o.statut === col.key)
+          .map((o) => (
+            <div
+              key={o.id}
+              className={`rounded-xl border p-3 space-y-2 bg-white shadow-sm ${
+                isRelanceDue(o) ? "border-amber-300 bg-amber-50/40" : "border-gray-200"
+              } ${draggingOppId === o.id ? "opacity-60" : ""}`}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/plain", o.id);
+                e.dataTransfer.effectAllowed = "move";
+                onDragStart(o.id);
+              }}
+              onDragEnd={onDragEnd}
+              onClick={() => onCardClick(o)}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold">{o.nomMarque}</p>
+                {isAdmin && o.contactQualifie ? <Lock className="w-3.5 h-3.5 text-gray-500" /> : null}
+              </div>
+              {isRelanceDue(o) ? (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  Relance à faire (72h+)
+                </div>
+              ) : null}
+              <EmailTrackingBadges opportunite={o} />
+              <p className="text-xs text-gray-500">{o.secteur || "Secteur n/a"}</p>
+              <p className="text-xs">{formatMoney(o.budgetEstime)}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Talents matchés</p>
+              <div className="flex items-center gap-2">
+                {asArrayIds(o.talents).length > 0 ? (
+                  <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                    {asArrayIds(o.talents).length} talent
+                    {asArrayIds(o.talents).length > 1 ? "s" : ""}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-gray-400">Aucun talent</span>
+                )}
+              </div>
+              <select
+                className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                value={o.statut}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (next === "SIGNEE") {
+                    openDealModal(o);
+                    return;
+                  }
+                  patchOpportunite(o.id, { statut: next });
+                }}
+              >
+                <option value="IDENTIFIEE">IDENTIFIEE</option>
+                <option value="CONTACTEE">CONTACTEE</option>
+                <option value="EN_NEGO">EN_NEGO</option>
+                <option value="SIGNEE">SIGNEE</option>
+                <option value="PERDUE">PERDUE</option>
+              </select>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 function decodeClientLanguageFromAngleNote(angleNote?: string | null): {
   language: ClientLanguage;
   cleanNote: string;
@@ -382,6 +501,7 @@ export function StrategyProjectClient({
     startX: number;
     startScrollLeft: number;
   }>({ active: false, moved: false, startX: 0, startScrollLeft: 0 });
+  const [pipelineMobileStep, setPipelineMobileStep] = useState<PipelineColKey>("IDENTIFIEE");
 
   const [showAddTalent, setShowAddTalent] = useState(false);
   const [showAddMarque, setShowAddMarque] = useState(false);
@@ -1194,119 +1314,135 @@ export function StrategyProjectClient({
                   </span>
                 </div>
               </div>
-              <div
-                ref={pipelineScrollRef}
-                className="overflow-x-auto cursor-grab active:cursor-grabbing select-none"
-                onMouseDown={onPipelineMouseDown}
-                onMouseMove={onPipelineMouseMove}
-                onMouseUp={onPipelineMouseUpOrLeave}
-                onMouseLeave={onPipelineMouseUpOrLeave}
-              >
-                <div className="grid min-w-[1200px] grid-cols-5 gap-4">
-                {pipelineColumns.map((col) => (
-                  <div
-                    key={col.key}
-                    className={`rounded-xl border p-3 bg-gray-50/40 transition-colors ${
-                      col.key === "PERDUE" ? "opacity-60" : ""
-                    } ${
-                      dropTargetStatus === col.key
-                        ? "border-glowup-rose ring-2 ring-glowup-rose/20"
-                        : "border-gray-200"
-                    }`}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setDropTargetStatus(col.key);
-                    }}
-                    onDragLeave={() => setDropTargetStatus((prev) => (prev === col.key ? null : prev))}
-                    onDrop={async (e) => {
-                      e.preventDefault();
-                      const id = e.dataTransfer.getData("text/plain");
-                      setDropTargetStatus(null);
-                      setDraggingOppId(null);
-                      if (id) {
-                        await moveOpportuniteToStatus(id, col.key);
-                      }
-                    }}
-                  >
-                    <p className="text-sm font-semibold mb-3">{col.label}</p>
-                    <div className="space-y-3">
-                      {pipeline.filter((o) => o.statut === col.key).map((o) => (
-                        <div
-                          key={o.id}
-                          className={`rounded-xl border p-3 space-y-2 bg-white shadow-sm ${
-                            isRelanceDue(o) ? "border-amber-300 bg-amber-50/40" : "border-gray-200"
-                          } ${draggingOppId === o.id ? "opacity-60" : ""}`}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData("text/plain", o.id);
-                            e.dataTransfer.effectAllowed = "move";
-                            setDraggingOppId(o.id);
-                          }}
-                          onDragEnd={() => {
-                            setDraggingOppId(null);
-                            setDropTargetStatus(null);
-                          }}
-                          onClick={() => onPipelineCardClick(o)}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-semibold">{o.nomMarque}</p>
-                            {isAdmin && o.contactQualifie ? <Lock className="w-3.5 h-3.5 text-gray-500" /> : null}
-                          </div>
-                          {isRelanceDue(o) ? (
-                            <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                              Relance à faire (72h+)
-                            </div>
-                          ) : null}
-                          <EmailTrackingBadges opportunite={o} />
-                          <p className="text-xs text-gray-500">{o.secteur || "Secteur n/a"}</p>
-                          <p className="text-xs">{formatMoney(o.budgetEstime)}</p>
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                            Talents matchés
-                          </p>
-                          <div className="flex items-center gap-2">
-                            {asArrayIds(o.talents).length > 0 ? (
-                              <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">
-                                {asArrayIds(o.talents).length} talent
-                                {asArrayIds(o.talents).length > 1 ? "s" : ""}
-                              </span>
-                            ) : (
-                              <span className="text-[11px] text-gray-400">Aucun talent</span>
-                            )}
-                          </div>
-                          <select
-                            className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
-                            value={o.statut}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => {
-                              const next = e.target.value;
-                              if (next === "SIGNEE") {
-                                openDealModal(o);
-                                return;
-                              }
-                              patchOpportunite(o.id, { statut: next });
-                            }}
-                          >
-                            <option value="IDENTIFIEE">IDENTIFIEE</option>
-                            <option value="CONTACTEE">CONTACTEE</option>
-                            <option value="EN_NEGO">EN_NEGO</option>
-                            <option value="SIGNEE">SIGNEE</option>
-                            <option value="PERDUE">PERDUE</option>
-                          </select>
-                        </div>
-                      ))}
+              {(() => {
+                const columnProps = {
+                  pipeline,
+                  dropTargetStatus,
+                  draggingOppId,
+                  isAdmin,
+                  onDragTarget: setDropTargetStatus,
+                  onDragLeaveCol: (key: string) =>
+                    setDropTargetStatus((prev) => (prev === key ? null : prev)),
+                  onDrop: moveOpportuniteToStatus,
+                  onDragEnd: () => {
+                    setDraggingOppId(null);
+                    setDropTargetStatus(null);
+                  },
+                  onDragStart: setDraggingOppId,
+                  onCardClick: onPipelineCardClick,
+                  patchOpportunite,
+                  openDealModal,
+                };
+                const mobileCol =
+                  pipelineColumns.find((c) => c.key === pipelineMobileStep) ?? pipelineColumns[0];
+                const mobileCount = pipeline.filter((o) => o.statut === mobileCol.key).length;
+                return (
+                  <>
+                    <div className="md:hidden space-y-3">
+                      <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1">
+                        {pipelineColumns.map((col) => {
+                          const count = pipeline.filter((o) => o.statut === col.key).length;
+                          const active = pipelineMobileStep === col.key;
+                          return (
+                            <button
+                              key={col.key}
+                              type="button"
+                              onClick={() => setPipelineMobileStep(col.key)}
+                              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                active
+                                  ? "border-glowup-rose bg-glowup-rose/10 text-gray-900"
+                                  : "border-gray-200 bg-white text-gray-600"
+                              }`}
+                            >
+                              {col.label}
+                              <span className="ml-1 tabular-nums text-gray-500">({count})</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Étape « {mobileCol.label} » · {mobileCount} opportunité{mobileCount > 1 ? "s" : ""}
+                      </p>
+                      <PipelineKanbanColumn col={mobileCol} {...columnProps} />
                     </div>
-                  </div>
-                ))}
-                </div>
-              </div>
+                    <div
+                      ref={pipelineScrollRef}
+                      className="hidden md:block cursor-grab overflow-x-auto select-none active:cursor-grabbing [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5"
+                      onMouseDown={onPipelineMouseDown}
+                      onMouseMove={onPipelineMouseMove}
+                      onMouseUp={onPipelineMouseUpOrLeave}
+                      onMouseLeave={onPipelineMouseUpOrLeave}
+                    >
+                      <p className="mb-2 text-xs text-gray-400">Glisser horizontalement pour parcourir le pipeline</p>
+                      <div className="grid min-w-[1200px] grid-cols-5 gap-4">
+                        {pipelineColumns.map((col) => (
+                          <PipelineKanbanColumn key={col.key} col={col} {...columnProps} />
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         );
       case "planning":
         if (!planning) return <TabStub title="Planning" />;
         return (
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 overflow-auto shadow-sm">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="md:hidden space-y-3">
+              <p className="text-xs font-medium text-gray-500">Présence des talents confirmés</p>
+              {planning.participants.map((p) => {
+                const start = p.dateArrivee ? new Date(p.dateArrivee) : null;
+                const end = p.dateDepart ? new Date(p.dateDepart) : null;
+                const startDay = start ? new Date(start) : null;
+                const endDay = end ? new Date(end) : null;
+                if (startDay) startDay.setHours(0, 0, 0, 0);
+                if (endDay) endDay.setHours(0, 0, 0, 0);
+                const presentDays = planningDays.filter(
+                  (d) => startDay && endDay && d >= startDay && d <= endDay
+                );
+                const activationDays = planningDays.filter((d) =>
+                  planning.opportunitesSignees.some((o) => {
+                    if (!o.dateActivation) return false;
+                    return new Date(o.dateActivation).toDateString() === d.toDateString();
+                  })
+                );
+                return (
+                  <div key={p.id} className="rounded-xl border border-gray-200 p-3">
+                    <p className="text-sm font-medium">
+                      {p.talent.prenom} {p.talent.nom}
+                    </p>
+                    <p className="text-xs text-gray-500">{p.talent.niches?.[0] || "-"}</p>
+                    <p className="mt-1 text-xs text-gray-600">
+                      {formatDate(p.dateArrivee)} → {formatDate(p.dateDepart)}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {presentDays.map((d) => {
+                        const activation = activationDays.some(
+                          (ad) => ad.toDateString() === d.toDateString()
+                        );
+                        return (
+                          <span
+                            key={d.toISOString()}
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                              activation ? "bg-pink-200 text-pink-900" : "bg-emerald-100 text-emerald-800"
+                            }`}
+                          >
+                            {d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}
+                          </span>
+                        );
+                      })}
+                      {presentDays.length === 0 ? (
+                        <span className="text-xs text-gray-400">Dates non renseignées</span>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
+              <p className="mb-2 text-xs text-gray-400">Faites défiler horizontalement pour voir toute la période</p>
             <div className="min-w-[980px]">
               <div className="grid" style={{ gridTemplateColumns: `220px repeat(${planningDays.length}, minmax(36px,1fr))` }}>
                 <div className="font-semibold text-sm text-gray-700 p-2 border-b border-r border-gray-200">Talents confirmes</div>
@@ -1350,11 +1486,58 @@ export function StrategyProjectClient({
                 })}
               </div>
             </div>
+            </div>
           </div>
         );
       case "deals":
         return (
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 overflow-auto shadow-sm">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="md:hidden space-y-3">
+              {deals.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  className="w-full rounded-xl border border-gray-200 p-3 text-left shadow-sm transition hover:bg-gray-50"
+                  onClick={() => setSelectedDeal(d)}
+                >
+                  <p className="font-semibold text-gray-900">{d.nomMarque}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(d.talentsMeta || []).length > 0
+                      ? d.talentsMeta?.map((t) => (
+                          <TalentChip key={t.id} name={t.name} photo={t.photo} />
+                        ))
+                      : <span className="text-xs text-gray-400">Aucun talent</span>}
+                  </div>
+                  <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                    <div>
+                      <dt className="text-gray-500">Type</dt>
+                      <dd className="font-medium text-gray-800">{d.typeActivation || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Date</dt>
+                      <dd className="font-medium text-gray-800">{formatDate(d.dateActivation)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Montant</dt>
+                      <dd className="font-medium text-gray-800">{formatMoney(d.montantFinal ?? d.budgetEstime)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Livraison</dt>
+                      <dd>
+                        <span className={`rounded px-2 py-0.5 text-[11px] font-medium ${deliveryClass(d.statutLivraison)}`}>
+                          {(d.statutLivraison || "A_FAIRE").replace("_", " ")}
+                        </span>
+                      </dd>
+                    </div>
+                  </dl>
+                </button>
+              ))}
+              <p className="pt-2 text-right text-sm font-semibold">
+                Total CA signé : {formatMoney(deals.reduce((s, d) => s + (d.montantFinal ?? 0), 0))}
+              </p>
+            </div>
+            <div className="hidden md:block overflow-x-auto">
+              <p className="mb-2 text-xs text-gray-400">Faites défiler horizontalement pour toutes les colonnes</p>
             <table className="w-full min-w-[900px]">
               <thead>
                 <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
@@ -1411,6 +1594,7 @@ export function StrategyProjectClient({
                 </tr>
               </tfoot>
             </table>
+            </div>
           </div>
         );
       case "propositions":
@@ -1450,6 +1634,7 @@ export function StrategyProjectClient({
     participantByTalentId,
     participants,
     pipeline,
+    pipelineMobileStep,
     planning,
     planningDays,
     projetSlug,
@@ -1469,19 +1654,19 @@ export function StrategyProjectClient({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Projet Strategy</p>
-            <h1 className="mt-1 text-2xl font-semibold text-gray-900">{projetNom}</h1>
+            <h1 className="mt-1 text-xl font-semibold text-gray-900 sm:text-2xl">{projetNom}</h1>
             <p className="mt-1 text-sm text-gray-500">Pilotage casting, marques, planning et deals.</p>
           </div>
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex w-full flex-col items-start gap-2 sm:w-auto sm:items-end">
             <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
               Espace Strategy
             </span>
             {isAdmin ? (
-              <label className="flex items-center gap-2 text-xs text-gray-500">
+              <label className="flex max-w-full flex-col items-start gap-1.5 text-xs text-gray-500 sm:flex-row sm:items-center sm:gap-2">
                 Prospection envoyée depuis
                 <select
                   value={(projetSenderEmail || "").toLowerCase()}
@@ -1514,7 +1699,7 @@ export function StrategyProjectClient({
             )}
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
           <div className="rounded-xl border border-gray-200 p-3">
             <p className="text-xs text-gray-500">Talents confirmes</p>
             <p className="text-xl font-semibold">{kpis.talentsConfirmes}</p>
@@ -1534,8 +1719,8 @@ export function StrategyProjectClient({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-2 shadow-sm">
-        <div className="flex flex-wrap gap-2">
+      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white p-2 shadow-sm [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex w-max min-w-full gap-2 sm:w-auto sm:flex-wrap">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.key;
             return (
@@ -1543,7 +1728,7 @@ export function StrategyProjectClient({
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveTab(tab.key)}
-                className={`rounded-xl px-4 py-2 text-sm font-medium transition-all ${
+                className={`shrink-0 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-all ${
                   isActive
                     ? "bg-glowup-rose text-white shadow-sm"
                     : "text-gray-600 hover:bg-glowup-lace hover:text-glowup-licorice"
@@ -1574,7 +1759,7 @@ export function StrategyProjectClient({
                 </option>
               ))}
             </select>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <select
                 value={newTalent.statut}
                 onChange={(e) => setNewTalent((s) => ({ ...s, statut: e.target.value }))}
@@ -1759,7 +1944,7 @@ export function StrategyProjectClient({
               )}
             </div>
             {contacts.map((c, i) => (
-              <div key={i} className="grid grid-cols-4 gap-2">
+              <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <input className="rounded border border-gray-300 px-2 py-2 text-sm" placeholder="Prenom*" value={c.firstName} onChange={(e) => setContacts((arr) => arr.map((x, idx) => idx === i ? { ...x, firstName: e.target.value } : x))} />
                 <input className="rounded border border-gray-300 px-2 py-2 text-sm" placeholder="Nom" value={c.lastName} onChange={(e) => setContacts((arr) => arr.map((x, idx) => idx === i ? { ...x, lastName: e.target.value } : x))} />
                 <input className="rounded border border-gray-300 px-2 py-2 text-sm" placeholder="Email*" value={c.email} onChange={(e) => setContacts((arr) => arr.map((x, idx) => idx === i ? { ...x, email: e.target.value } : x))} />

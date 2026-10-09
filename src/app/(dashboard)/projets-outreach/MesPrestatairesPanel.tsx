@@ -445,7 +445,7 @@ export function MesPrestatairesPanel({
                           {new Date(r.dernierContactAt).toLocaleDateString("fr-FR")}
                         </span>
                       ) : null}
-                      <label className="ml-auto min-w-[200px] flex-1 text-[11.5px] font-semibold text-[var(--po-muted)]">
+                      <label className="ml-0 w-full min-w-0 flex-1 text-[11.5px] font-semibold text-[var(--po-muted)] sm:ml-auto sm:min-w-[200px] sm:w-auto">
                         Notes
                         <input
                           className="po-input mt-1"

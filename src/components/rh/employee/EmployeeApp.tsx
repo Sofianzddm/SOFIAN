@@ -1,60 +1,112 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import {
+  CalendarDays,
+  Clock3,
+  FolderOpen,
+  Home,
+  Inbox,
+  Laptop,
+  Receipt,
+} from "lucide-react";
 import {
   CommandPalette,
   RhTabBar,
   RhTopBar,
-  type RhLang,
-  type RhTab,
   type PaletteItem,
+  type RhTab,
 } from "@/components/rh/chrome/shell";
-import { EMP_COLORS } from "@/components/rh/employee/parts";
-import { HomeScreen, type EmployeeScreenId } from "@/components/rh/employee/HomeScreen";
+import {
+  HomeScreen,
+  type EmployeeScreenId,
+} from "@/components/rh/employee/HomeScreen";
 import { LeaveScreen } from "@/components/rh/employee/LeaveScreen";
 import { RemoteScreen } from "@/components/rh/employee/RemoteScreen";
 import { TimeScreen } from "@/components/rh/employee/TimeScreen";
 import { ExpensesScreen } from "@/components/rh/employee/ExpensesScreen";
 import { FolderScreen } from "@/components/rh/employee/FolderScreen";
 import { RequestsScreen } from "@/components/rh/employee/RequestsScreen";
-import { MobileScreen } from "@/components/rh/employee/MobileScreen";
+import { OnboardingWizard } from "@/components/rh/employee/OnboardingWizard";
 import { RhDataProvider, useRhData } from "@/components/rh/RhDataContext";
 
-const BASE_TABS: RhTab[] = [
-  { id: "home", label: "Accueil" },
-  { id: "leave", label: "Mes absences" },
-  { id: "remote", label: "Présence" },
-  { id: "time", label: "Mon temps" },
-  { id: "expenses", label: "Mes frais" },
-  { id: "folder", label: "Mon dossier" },
-  { id: "requests", label: "Mes demandes" },
-  { id: "mobile", label: "Mobile" },
-];
+function tab(
+  id: EmployeeScreenId,
+  label: string,
+  icon: ReactNode,
+  count?: number
+): RhTab {
+  return { id, label, icon, count };
+}
 
 const PALETTE: { title: string; items: PaletteItem[] }[] = [
   {
-    title: "ACTIONS",
+    title: "Aller à",
     items: [
-      { key: "leave", label: "Poser une absence", code: "leave.create" },
-      { key: "remote", label: "Déclarer mon télétravail", code: "remote.declare" },
-      { key: "time", label: "Saisir ma semaine", code: "timesheet.edit" },
-      { key: "expenses", label: "Note de frais", code: "expense.create" },
+      { key: "A", label: "Poser une absence", code: "leave" },
+      { key: "P", label: "Ma présence", code: "remote" },
+      { key: "T", label: "Mon temps", code: "time" },
+      { key: "F", label: "Mes frais", code: "expenses" },
+      { key: "D", label: "Mes demandes", code: "requests" },
+      { key: "O", label: "Mon dossier", code: "folder" },
     ],
   },
 ];
 
+const VALID_SCREENS: EmployeeScreenId[] = [
+  "home",
+  "leave",
+  "remote",
+  "time",
+  "expenses",
+  "folder",
+  "requests",
+];
+
 function EmployeeAppInner() {
   const router = useRouter();
-  const { me, home, inbox, loading, error } = useRhData();
-  const [screen, setScreen] = useState<EmployeeScreenId>("home");
-  const [lang, setLang] = useState<RhLang>("fr");
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { me, home, loading, error } = useRhData();
+  const tabParam = searchParams.get("tab") as EmployeeScreenId | null;
+  const [screen, setScreen] = useState<EmployeeScreenId>(
+    tabParam && VALID_SCREENS.includes(tabParam) ? tabParam : "home"
+  );
   const [palette, setPalette] = useState(false);
   const [sel, setSel] = useState(0);
 
   useEffect(() => {
     if (error === "NO_RH_PROFILE") router.replace("/rh/login");
   }, [error, router]);
+
+  const go = useCallback(
+    (next: EmployeeScreenId) => {
+      setScreen(next);
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "home") params.delete("tab");
+      else params.set("tab", next);
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [pathname, router, searchParams]
+  );
+
+  useEffect(() => {
+    if (tabParam && VALID_SCREENS.includes(tabParam) && tabParam !== screen) {
+      setScreen(tabParam);
+    }
+    // sync from URL only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabParam]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -67,35 +119,48 @@ function EmployeeAppInner() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
         setPalette(false);
-        setScreen("leave");
+        go("leave");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [go]);
 
-  const go = useCallback((next: EmployeeScreenId) => {
-    setScreen(next);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
-
-  const pending = (home?.pendingCount as number) || inbox.length;
-  const urgent = inbox.filter((i) => i.status === "PAUSED").length;
+  const pending = Number(home?.pendingCount ?? 0);
   const tabs = useMemo(
-    () =>
-      BASE_TABS.map((t) =>
-        t.id === "requests" && pending > 0 ? { ...t, count: pending } : t
+    () => [
+      tab("home", "Accueil", <Home size={14} />),
+      tab("leave", "Absences", <CalendarDays size={14} />),
+      tab("remote", "Présence", <Laptop size={14} />),
+      tab("time", "Temps", <Clock3 size={14} />),
+      tab("expenses", "Frais", <Receipt size={14} />),
+      tab("folder", "Dossier", <FolderOpen size={14} />),
+      tab(
+        "requests",
+        "Demandes",
+        <Inbox size={14} />,
+        pending > 0 ? pending : undefined
       ),
+    ],
     [pending]
   );
 
   if (loading && !me) {
     return (
       <div
-        className="grid min-h-screen place-items-center rh-mono text-[12px]"
-        style={{ background: "#08090C", color: "#8B95A5" }}
+        className="min-h-screen px-6 py-10"
+        style={{ background: "#08090C" }}
       >
-        Chargement de mon espace…
+        <div className="mx-auto max-w-[720px] flex flex-col gap-4">
+          <div className="rh-skeleton" style={{ height: 28, width: "40%" }} />
+          <div className="rh-skeleton" style={{ height: 18, width: "70%" }} />
+          <div className="grid gap-3 [grid-template-columns:repeat(2,1fr)] mt-4">
+            <div className="rh-skeleton" style={{ height: 96 }} />
+            <div className="rh-skeleton" style={{ height: 96 }} />
+            <div className="rh-skeleton" style={{ height: 96 }} />
+            <div className="rh-skeleton" style={{ height: 96 }} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -103,7 +168,7 @@ function EmployeeAppInner() {
   if (!me) {
     return (
       <div
-        className="grid min-h-screen place-items-center text-[13px]"
+        className="grid min-h-screen place-items-center text-[14px]"
         style={{ background: "#08090C", color: "#8B95A5" }}
       >
         {error || "Session RH requise"}
@@ -114,42 +179,37 @@ function EmployeeAppInner() {
   return (
     <div style={{ minHeight: "100vh", background: "#08090C" }}>
       <RhTopBar
-        badge="MON ESPACE"
-        searchPlaceholder="Poser une absence, déclarer mon télétravail…"
+        badge="Mon espace RH"
+        searchPlaceholder="Rechercher une action…"
         banner={
-          me.canAccessPeople
-            ? undefined
-            : pending > 0
-              ? {
-                  text: `À FAIRE · ${pending} ACTIONS${urgent ? ` · ${urgent} URGENTE` : ""}`,
-                  tone: "warning" as const,
-                }
-              : {
-                  text: "ESPACE SALARIÉ · GLOW UP RH",
-                  tone: "warning" as const,
-                }
+          pending > 0
+            ? {
+                text:
+                  pending === 1
+                    ? "1 demande en attente"
+                    : `${pending} demandes en attente`,
+                tone: "warning",
+              }
+            : {
+                text: me.employee.jobTitle || "Collaborateur",
+                tone: "warning",
+              }
         }
         headerAction={
           me.canAccessPeople
             ? {
-                label: "ESPACE EMPLOYEUR →",
-                // Navigation dure : évite le double-clic qui relance le bouton retour People
-                onClick: () => {
-                  window.location.assign("/rh/people");
-                },
+                label: "Console RH",
+                onClick: () => router.push("/rh/people"),
               }
             : undefined
         }
-        showOrg={false}
-        showPayrollSync={false}
         profile={{
           name: me.employee.name,
-          meta: me.employee.matricule,
+          meta: me.employee.department,
           initials: me.employee.initials,
           color: me.employee.avatarColor,
+          avatarUrl: me.employee.avatarUrl,
         }}
-        lang={lang}
-        onLang={setLang}
         onOpenPalette={() => setPalette(true)}
       />
 
@@ -157,18 +217,6 @@ function EmployeeAppInner() {
         tabs={tabs}
         active={screen}
         onChange={(id) => go(id as EmployeeScreenId)}
-        right={
-          <span
-            className="rh-mono hidden shrink-0 text-[9.5px] font-bold uppercase tracking-[0.1em] md:inline"
-            style={{ color: EMP_COLORS.dim }}
-          >
-            {me.employee.rhRole === "HR"
-              ? "RÔLE · HR ADMIN"
-              : me.employee.manager
-                ? `MANAGER · ${me.employee.manager.name.toUpperCase()}`
-                : me.employee.rhRole}
-          </span>
-        }
       />
 
       <main>
@@ -181,13 +229,30 @@ function EmployeeAppInner() {
         {screen === "requests" ? (
           <RequestsScreen sel={sel} onSelect={setSel} />
         ) : null}
-        {screen === "mobile" ? <MobileScreen /> : null}
       </main>
+
+      <OnboardingWizard onGo={go} />
 
       <CommandPalette
         open={palette}
         onClose={() => setPalette(false)}
         sections={PALETTE}
+        onSelect={(item) => {
+          const id = item.code as EmployeeScreenId;
+          if (
+            [
+              "home",
+              "leave",
+              "remote",
+              "time",
+              "expenses",
+              "folder",
+              "requests",
+            ].includes(id)
+          ) {
+            go(id);
+          }
+        }}
       />
     </div>
   );
@@ -196,7 +261,18 @@ function EmployeeAppInner() {
 export function EmployeeApp() {
   return (
     <RhDataProvider>
-      <EmployeeAppInner />
+      <Suspense
+        fallback={
+          <div
+            className="grid min-h-screen place-items-center text-[14px]"
+            style={{ background: "#08090C", color: "#8B95A5" }}
+          >
+            Chargement…
+          </div>
+        }
+      >
+        <EmployeeAppInner />
+      </Suspense>
     </RhDataProvider>
   );
 }

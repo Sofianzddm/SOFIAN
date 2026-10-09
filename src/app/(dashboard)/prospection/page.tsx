@@ -669,7 +669,7 @@ export default function ProspectionListPage() {
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-md max-h-[100dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-6 shadow-xl">
             <h2 className="text-lg font-semibold text-[#1A1110] mb-2 font-['Spectral',serif]">
               Nouveau fichier de prospection
             </h2>
@@ -740,7 +740,7 @@ export default function ProspectionListPage() {
 
       {dossierModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-md max-h-[100dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-6 shadow-xl">
             <h2 className="text-lg font-semibold text-[#1A1110] mb-2 font-['Spectral',serif]">
               Nouveau dossier
             </h2>

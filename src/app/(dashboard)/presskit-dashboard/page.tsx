@@ -860,12 +860,12 @@ export default function PressKitDashboardV5() {
   // ============================================
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto">
       {/* Header + Stepper */}
       <div className="mb-8">
-        <div className="flex items-center justify-between gap-4 mb-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Press Kit System v5</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-2">Press Kit System v5</h1>
             <p className="text-gray-600">
               Génération de landing pages personnalisées pour la prospection.
             </p>
@@ -948,7 +948,7 @@ export default function PressKitDashboardV5() {
       {/* ÉTAPE 1 : SÉLECTION DU SEGMENT HUBSPOT */}
       {/* ============================================ */}
       {currentStep === 1 && (
-        <div className="bg-white rounded-lg border p-6">
+        <div className="bg-white rounded-lg border p-4 sm:p-6">
           <div className="mb-4 flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -1004,7 +1004,7 @@ export default function PressKitDashboardV5() {
       {/* ÉTAPE 2 : CATÉGORISATION AUTOMATIQUE */}
       {/* ============================================ */}
       {currentStep === 2 && (
-        <div className="bg-white rounded-lg border p-6">
+        <div className="bg-white rounded-lg border p-4 sm:p-6">
           <div className="mb-4">
             <p className="text-gray-600">
               {contacts.length} contacts — {brands.length} marques uniques
@@ -1052,7 +1052,7 @@ export default function PressKitDashboardV5() {
                 ))}
               </div>
 
-              <div className="flex justify-between mt-6">
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between mt-6">
                 <button
                   onClick={() => setCurrentStep(1)}
                   className="px-6 py-2 border rounded-lg hover:bg-gray-50"
@@ -1075,7 +1075,7 @@ export default function PressKitDashboardV5() {
       {/* ÉTAPE 3 : SÉLECTION DES TALENTS PAR CATÉGORIE / PAR MARQUE */}
       {/* ============================================ */}
       {currentStep === 3 && (
-        <div className="bg-white rounded-lg border p-6">
+        <div className="bg-white rounded-lg border p-4 sm:p-6">
           {/* Onglets mode de sélection */}
           <div className="mb-4 inline-flex rounded-full border bg-gray-50 p-1">
             <button
@@ -1179,7 +1179,7 @@ export default function PressKitDashboardV5() {
             </div>
           )}
 
-          <div className="flex justify-between mt-6">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between mt-6">
             <button onClick={() => setCurrentStep(2)} className="px-6 py-2 border rounded-lg hover:bg-gray-50">
               ← Retour
             </button>
@@ -1197,7 +1197,7 @@ export default function PressKitDashboardV5() {
       {/* ÉTAPE 4 : RÉCAPITULATIF */}
       {/* ============================================ */}
       {currentStep === 4 && (
-        <div className="bg-white rounded-lg border p-6">
+        <div className="bg-white rounded-lg border p-4 sm:p-6">
           <div className="mb-4 flex gap-4 items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -1246,7 +1246,94 @@ export default function PressKitDashboardV5() {
             </button>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="md:hidden space-y-3">
+            {filteredRecap.map((brand) => {
+              const categoryInfo = CATEGORIES.find((c) => c.key === brand.category);
+              const talentsInfo = talents.filter((t) => brand.talentIds.includes(t.id));
+              const brandSlug = pressKitSlugFromCompanyName(brand.customName || brand.companyName);
+              const isPanelActive = blocPanelSlug === brandSlug;
+
+              return (
+                <article
+                  key={brand.domain}
+                  className={`rounded-xl border border-gray-200 bg-white p-4 space-y-3 ${isPanelActive ? "ring-2 ring-blue-200 bg-blue-50/40" : ""}`}
+                  onClick={(e) => {
+                    if (
+                      brand.talentIds.length > 0 &&
+                      !(e.target as HTMLElement).closest("button") &&
+                      !(e.target as HTMLElement).closest("input")
+                    ) {
+                      setBlocPanelSlug(brandSlug);
+                    }
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={brand.customName || brand.companyName}
+                      onChange={(e) => {
+                        const newName = e.target.value;
+                        setCategorizedBrands((prev) =>
+                          prev.map((b) =>
+                            b.domain === brand.domain
+                              ? { ...b, customName: newName }
+                              : b
+                          )
+                        );
+                      }}
+                      className="min-w-0 flex-1 font-medium px-2 py-1 border border-gray-200 rounded hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
+                      placeholder="Nom de la marque"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => openBrandEditor(brand)}
+                      className="shrink-0 text-blue-600 hover:underline text-sm"
+                      title="Éditer la sélection de talents"
+                    >
+                      ✏️
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                    <span>{brand.domain || "—"}</span>
+                    <span className="text-gray-300">·</span>
+                    <span>
+                      {brand.contacts.length > 0
+                        ? `${brand.contacts.length} contact${brand.contacts.length > 1 ? "s" : ""}`
+                        : "Aucun contact"}
+                    </span>
+                    <span className="text-gray-300">·</span>
+                    <span>{categoryInfo?.emoji} {categoryInfo?.label}</span>
+                  </div>
+                  <p className="text-sm text-gray-700">
+                    {talentsInfo.length > 0
+                      ? talentsInfo.map((t) => t.name.split(" ")[0]).join(", ")
+                      : "Aucun talent"}
+                  </p>
+                  {brand.talentIds.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-gray-100">
+                      <button
+                        type="button"
+                        onClick={() => previewBrand(brand)}
+                        disabled={previewingBrand === brand.domain}
+                        className="px-3 py-1.5 text-xs bg-blue-50 text-blue-600 rounded hover:bg-blue-100 disabled:opacity-50"
+                      >
+                        {previewingBrand === brand.domain ? "Génération..." : "Preview"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBlocPanelSlug(brandSlug)}
+                        className="px-3 py-1.5 text-xs bg-green-50 text-green-700 rounded hover:bg-green-100"
+                      >
+                        Bloc email
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
               <thead className="border-b">
                 <tr className="text-left text-sm text-gray-600">
@@ -1366,7 +1453,7 @@ export default function PressKitDashboardV5() {
             </p>
           </div>
 
-          <div className="flex justify-between mt-6">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between mt-6">
             <button onClick={() => setCurrentStep(3)} className="px-6 py-2 border rounded-lg hover:bg-gray-50">
               ← Retour
             </button>
@@ -1384,7 +1471,7 @@ export default function PressKitDashboardV5() {
       {/* ÉTAPE 5 : GÉNÉRATION */}
       {/* ============================================ */}
       {currentStep === 5 && (
-        <div className="bg-white rounded-lg border p-6">
+        <div className="bg-white rounded-lg border p-4 sm:p-6">
           <div className="p-4 bg-gray-50 rounded-lg mb-6">
             <p className="font-semibold mb-2">Résumé :</p>
             <ul className="text-sm space-y-1 text-gray-700">
@@ -1441,7 +1528,7 @@ export default function PressKitDashboardV5() {
             </div>
           )}
 
-          <div className="flex justify-between mt-6">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between mt-6">
             <button
               onClick={() => setCurrentStep(4)}
               disabled={isGenerating}
@@ -1710,7 +1797,7 @@ export default function PressKitDashboardV5() {
             </div>
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
               onClick={generateManualPresskit}
@@ -1784,7 +1871,7 @@ export default function PressKitDashboardV5() {
                 </div>
               )}
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {talents.map((talent) => {
                   const isSelected = tempSelectedTalents.includes(talent.id);
 
@@ -1830,7 +1917,7 @@ export default function PressKitDashboardV5() {
               </div>
             </div>
 
-            <div className="p-6 border-t flex justify-between items-center">
+            <div className="p-4 sm:p-6 border-t flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
               <p className="text-sm text-gray-600">{tempSelectedTalents.length} talents sélectionnés</p>
               <div className="flex gap-3">
                 <button
@@ -2191,7 +2278,7 @@ function BlocEmailSlidePanel({
         />
         <div
           ref={panelRef}
-          className={`w-full max-w-[55%] min-w-[320px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
+          className={`w-full sm:max-w-[55%] sm:min-w-[320px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
             panelMounted ? "translate-x-0" : "translate-x-full"
           }`}
           style={{ boxShadow: "-4px 0 24px rgba(0,0,0,0.12)" }}

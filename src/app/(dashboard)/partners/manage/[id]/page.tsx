@@ -376,13 +376,13 @@ export default function PartnerDetailPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto">
       <Link href="/partners" className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6">
         <ArrowLeft className="w-4 h-4" />
         Retour à la liste
       </Link>
 
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-8">
         <div className="flex items-center gap-4">
           {partner.logo ? (
             <div className="w-20 h-20 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0 p-1">
@@ -417,7 +417,7 @@ export default function PartnerDetailPage() {
       </div>
 
       {/* Période */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {[
           { value: "24h", label: "24h" },
           { value: "7d", label: "7 jours" },
@@ -595,7 +595,118 @@ export default function PartnerDetailPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="md:hidden space-y-3">
+            {(partner.agencyContacts as AgencyContact[]).map((c) => (
+              <div
+                key={c.id}
+                className={`rounded-xl border border-gray-200 bg-white p-4 ${c.excluded ? "opacity-50" : ""}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="font-medium">
+                        {c.prenom} {c.nom || ""}
+                      </p>
+                      {c.principal && (
+                        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">
+                          <Crown className="w-3 h-3" /> Principal
+                        </span>
+                      )}
+                      {c.excluded && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                          Exclu
+                        </span>
+                      )}
+                    </div>
+                    <a
+                      href={c.email ? `mailto:${c.email}` : undefined}
+                      className="mt-0.5 block text-xs text-gray-500 hover:text-blue-600 truncate"
+                    >
+                      {c.email || "—"}
+                    </a>
+                  </div>
+                  {c.bouncedAt ? (
+                    <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+                      Email incorrect
+                    </span>
+                  ) : c.inProspection && c.status ? (
+                    <span
+                      className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${
+                        STATUS_LABELS[c.status]?.className || "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {STATUS_LABELS[c.status]?.label || c.status}
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-xs text-gray-400">Hors prospection</span>
+                  )}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                  <div>
+                    <span className="block text-[10px] uppercase tracking-wide text-gray-400">Poste</span>
+                    {c.poste || "—"}
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase tracking-wide text-gray-400">Langue</span>
+                    <span className="uppercase">{c.language}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase tracking-wide text-gray-400">Dernier envoi</span>
+                    {formatDate(c.lastSentAt)}
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase tracking-wide text-gray-400">Engagement</span>
+                    {c.inProspection ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex items-center gap-0.5" title="Ouvertures">
+                          <Eye className="w-3 h-3" /> {c.openCount}
+                        </span>
+                        <span className="inline-flex items-center gap-0.5" title="Clics">
+                          <MousePointerClick className="w-3 h-3" /> {c.clickCount}
+                        </span>
+                        {c.replied && <Reply className="w-3 h-3 text-green-600" />}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+                  {canEnrollContact(c) ? (
+                    <button
+                      type="button"
+                      onClick={() => void enrollContact(c)}
+                      disabled={enrollingId === c.id || enrollingAll}
+                      className="inline-flex flex-1 items-center justify-center gap-1 px-3 py-2 text-xs font-semibold border rounded-lg hover:bg-gray-50 text-gray-800 disabled:opacity-50"
+                    >
+                      {enrollingId === c.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5" />
+                      )}
+                      Outreach
+                    </button>
+                  ) : c.inProspection && !c.excluded ? (
+                    <Link
+                      href="/agency-outreach"
+                      className="inline-flex flex-1 items-center justify-center gap-1 px-3 py-2 text-xs font-medium text-blue-600 border rounded-lg"
+                    >
+                      Voir le cycle
+                    </Link>
+                  ) : null}
+                  <button
+                    onClick={() => openEditContact(c)}
+                    className="inline-flex items-center gap-1 px-3 py-2 text-xs border rounded-lg hover:bg-gray-50 text-gray-600"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    Modifier
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 border-b">
@@ -734,6 +845,7 @@ export default function PartnerDetailPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
@@ -815,7 +927,7 @@ export default function PartnerDetailPage() {
             </p>
 
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">Prénom</label>
                   <input
@@ -852,7 +964,7 @@ export default function PartnerDetailPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">Poste</label>
                   <input

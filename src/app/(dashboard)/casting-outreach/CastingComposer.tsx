@@ -1596,7 +1596,7 @@ export default function CastingComposer({
       className={
         isInline
           ? "relative w-full"
-          : "fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-3 sm:p-4"
+          : "fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/45 p-0 sm:p-4"
       }
       role="dialog"
       aria-modal={!isInline}
@@ -1606,7 +1606,7 @@ export default function CastingComposer({
         className={
           isInline
             ? "flex w-full flex-col overflow-hidden rounded-2xl border border-[#E8DED0] shadow-sm"
-            : "flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-[#E8DED0] shadow-xl"
+            : "flex w-full max-w-5xl flex-col overflow-hidden rounded-none sm:rounded-2xl border border-[#E8DED0] shadow-xl"
         }
         style={{
           backgroundColor: OLD_LACE,
@@ -1616,13 +1616,13 @@ export default function CastingComposer({
                 maxHeight: "calc(100dvh - 5.5rem)",
               }
             : {
-                height: "min(820px, calc(100dvh - 1.5rem))",
-                maxHeight: "calc(100dvh - 1.5rem)",
+                height: "min(820px, 100dvh)",
+                maxHeight: "100dvh",
               }),
         }}
       >
         <div
-          className={`flex shrink-0 items-center justify-between border-b ${isInline ? "px-4 py-2" : "px-5 py-3"}`}
+          className={`flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b ${isInline ? "px-4 py-2" : "px-4 sm:px-5 py-3"}`}
           style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
         >
           <h2
@@ -1642,14 +1642,11 @@ export default function CastingComposer({
           </button>
         </div>
 
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          {/* Colonne talents — largeur fixe (évite le trou beige au milieu) */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
+          {/* Colonne talents — largeur fixe desktop (évite le trou beige au milieu) */}
           <div
-            className="flex shrink-0 flex-col overflow-hidden border-r"
+            className="flex w-full max-h-[38vh] shrink-0 flex-col overflow-hidden border-b md:max-h-none md:w-[260px] md:border-b-0 md:border-r"
             style={{
-              width: 260,
-              minWidth: 260,
-              maxWidth: 260,
               borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
             }}
           >
@@ -2325,7 +2322,7 @@ export default function CastingComposer({
               style={{ fontFamily: "Switzer, system-ui, sans-serif" }}
             >
               <div
-                className="flex items-center justify-between px-5 py-3 border-b shrink-0"
+                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-5 py-3 border-b shrink-0"
                 style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, backgroundColor: OLD_LACE }}
               >
                 <div className="flex items-center gap-2 min-w-0">
@@ -2588,7 +2585,7 @@ export default function CastingComposer({
                     )}
 
                     {/* Réseaux + stats essentielles (IG/TikTok + vues/clics stories) */}
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div className="rounded-xl border p-3" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
                         <p className="text-xs opacity-75" style={{ color: OLD_ROSE }}>
                           IG (audience)
@@ -2638,7 +2635,7 @@ export default function CastingComposer({
                     </div>
 
                     {/* Contact + localisation */}
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div className="rounded-xl border p-3" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
                         <p className="text-xs opacity-75" style={{ color: OLD_ROSE }}>Email</p>
                         <p className="text-sm font-medium" style={{ color: LICORICE }}>
@@ -2670,7 +2667,7 @@ export default function CastingComposer({
                       <p className="text-sm font-semibold" style={{ color: LICORICE }}>
                         Tarifs (aperçu)
                       </p>
-                      <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <p className="text-[11px] opacity-75" style={{ color: OLD_ROSE }}>Story</p>
                           <p className="text-sm font-medium" style={{ color: LICORICE }}>
@@ -2711,7 +2708,7 @@ export default function CastingComposer({
                     </div>
 
                     {/* Collaborations / Négociations (résumé) */}
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div className="rounded-xl border p-3" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
                         <p className="text-sm font-semibold" style={{ color: LICORICE }}>Collaborations</p>
                         <p className="text-xs opacity-75" style={{ color: OLD_ROSE }}>

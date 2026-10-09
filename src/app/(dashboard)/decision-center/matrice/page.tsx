@@ -75,7 +75,7 @@ export default function MatricePage() {
         </p>
       </section>
 
-      <div className="grid gap-2 md:grid-cols-5">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <input className="input" placeholder="Recherche" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="input" value={domain} onChange={(e) => setDomain(e.target.value)}>
           <option value="">Tous les domaines</option>

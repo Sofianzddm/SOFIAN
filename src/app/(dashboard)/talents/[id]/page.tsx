@@ -759,16 +759,16 @@ export default function TalentDetailPage() {
         </div>
 
         {/* Navigation */}
-        <div className="relative z-20 flex items-center justify-between p-6 max-w-7xl mx-auto">
+        <div className="relative z-20 mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 p-4 sm:p-6">
           <Link 
             href="/talents" 
-            className="flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+            className="flex items-center gap-2 rounded-2xl bg-white/10 px-3 py-2 text-white/90 backdrop-blur-md transition-all hover:scale-105 hover:bg-white/20 sm:px-4"
           >
             <ArrowLeft className="w-5 h-5" />
             <span className="font-medium">Retour</span>
           </Link>
           
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <Link
               href={`/kit/${talentSlug(talent.prenom, talent.nom)}`}
               target="_blank"
@@ -854,7 +854,7 @@ export default function TalentDetailPage() {
 
         {/* Toast feedback rafraîchissement stats */}
         {refreshFeedback && (
-          <div className="relative z-10 max-w-7xl mx-auto px-6 mt-3">
+          <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 mt-3">
             <div
               className={`text-sm rounded-2xl px-4 py-2.5 backdrop-blur-md ${
                 refreshFeedback.type === "success"
@@ -868,8 +868,8 @@ export default function TalentDetailPage() {
         )}
 
         {/* Hero Content */}
-        <div className="relative z-10 max-w-7xl mx-auto px-6 pb-32 pt-8">
-          <div className="flex flex-col lg:flex-row items-center lg:items-end gap-8 lg:gap-12">
+        <div className="relative z-10 mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 sm:pb-32 sm:pt-8">
+          <div className="flex flex-col items-center gap-6 lg:flex-row lg:items-end lg:gap-12 sm:gap-8">
             {/* Photo avec Upload */}
             <div className="relative group">
               {/* Input file caché */}
@@ -883,7 +883,7 @@ export default function TalentDetailPage() {
               
               <div className="absolute -inset-2 bg-gradient-to-br from-glowup-rose via-pink-500 to-purple-500 rounded-[2rem] opacity-75 blur-lg group-hover:opacity-100 transition-opacity" />
               <div 
-                className={`relative w-48 h-48 lg:w-56 lg:h-56 rounded-[1.5rem] bg-gradient-to-br from-glowup-rose/20 to-purple-500/20 p-1 ${canUploadPhoto ? "cursor-pointer" : ""}`}
+                className={`relative h-40 w-40 rounded-[1.5rem] bg-gradient-to-br from-glowup-rose/20 to-purple-500/20 p-1 sm:h-48 sm:w-48 lg:h-56 lg:w-56 ${canUploadPhoto ? "cursor-pointer" : ""}`}
                 onClick={handlePhotoClick}
               >
                 <div className="w-full h-full rounded-[1.25rem] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center overflow-hidden relative">
@@ -1071,7 +1071,7 @@ export default function TalentDetailPage() {
       {/* ============================================ */}
       {/* CONTENT */}
       {/* ============================================ */}
-      <div className="max-w-7xl mx-auto px-6 -mt-16 relative z-20 pb-12 space-y-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 -mt-16 relative z-20 pb-12 space-y-8">
 
         <DelegationBanner talent={talent} userId={userId} contexte="ce talent" />
 
@@ -1083,17 +1083,17 @@ export default function TalentDetailPage() {
               return (
                 <div className="relative overflow-hidden bg-gradient-to-r from-red-500 to-rose-600 rounded-3xl p-6 text-white shadow-2xl shadow-red-500/20">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-                  <div className="relative flex items-center gap-4">
-                    <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm">
+                  <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center">
+                    <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm shrink-0 self-start">
                       <BarChart3 className="w-8 h-8" />
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <p className="font-bold text-xl">⚠️ Stats à mettre à jour</p>
                       <p className="text-white/80">Dernière mise à jour il y a {daysSinceUpdate} jours</p>
                     </div>
                     <Link 
                       href={`/talents/${talent.id}/stats`}
-                      className="px-6 py-3 bg-white text-red-600 rounded-2xl font-bold hover:bg-white/90 transition-all hover:scale-105 shadow-lg"
+                      className="px-6 py-3 bg-white text-red-600 rounded-2xl font-bold hover:bg-white/90 transition-all hover:scale-105 shadow-lg shrink-0 self-start sm:self-center"
                     >
                       Mettre à jour
                     </Link>
@@ -1107,8 +1107,8 @@ export default function TalentDetailPage() {
 
         {/* Présentation */}
         {(talent.presentation || canEditBio) && (
-          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-8 border border-gray-100">
-            <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-4 sm:p-8 border border-gray-100">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-glowup-rose/10 rounded-xl">
                   <Sparkles className="w-5 h-5 text-glowup-rose" />
@@ -1182,7 +1182,7 @@ export default function TalentDetailPage() {
 
         {/* Selected Clients */}
         {talent.selectedClients.length > 0 && (
-          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-8 border border-gray-100">
+          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-4 sm:p-8 border border-gray-100">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-amber-100 rounded-xl">
                 <Crown className="w-5 h-5 text-amber-600" />
@@ -1246,11 +1246,11 @@ export default function TalentDetailPage() {
             </div>
 
             {/* Tab Content */}
-            <div className="p-8">
+            <div className="p-4 sm:p-8">
               {activeTab === "instagram" && hasInstagram && (
                 <div className="space-y-8">
                   {/* Main Stats Grid */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <StatCard 
                       label="Communauté" 
                       value={formatFollowers(stats?.igFollowers)} 
@@ -1340,7 +1340,7 @@ export default function TalentDetailPage() {
               {activeTab === "tiktok" && hasTiktok && (
                 <div className="space-y-8">
                   {/* Main Stats Grid */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <StatCard 
                       label="Communauté" 
                       value={formatFollowers(stats?.ttFollowers)} 
@@ -1432,7 +1432,7 @@ export default function TalentDetailPage() {
 
         {/* Tarifs Section */}
         {tarifs && (
-          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-8 border border-gray-100">
+          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-4 sm:p-8 border border-gray-100">
             <div className="flex items-center gap-3 mb-8">
               <div className="p-3 bg-gradient-to-br from-amber-400 to-orange-500 rounded-2xl">
                 <Euro className="w-6 h-6 text-white" />
@@ -1504,7 +1504,7 @@ export default function TalentDetailPage() {
         {/* Contact & Manager Section */}
         <div className="grid lg:grid-cols-2 gap-6">
           {/* Contact */}
-          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-8 border border-gray-100">
+          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-4 sm:p-8 border border-gray-100">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-blue-100 rounded-xl">
                 <Mail className="w-5 h-5 text-blue-600" />
@@ -1555,7 +1555,7 @@ export default function TalentDetailPage() {
             demoScreensAge.length > 0 ||
             demoScreensPays.length > 0 ||
             demoScreensVille.length > 0) && (
-            <div className="bg-gradient-to-br from-amber-50 via-white to-amber-50 rounded-3xl shadow-xl shadow-amber-100/80 p-8 border border-amber-100">
+            <div className="bg-gradient-to-br from-amber-50 via-white to-amber-50 rounded-3xl shadow-xl shadow-amber-100/80 p-4 sm:p-8 border border-amber-100">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 bg-amber-100 rounded-xl">
                   <BarChart3 className="w-5 h-5 text-amber-600" />
@@ -1758,7 +1758,7 @@ export default function TalentDetailPage() {
                     return (
                       <div key={slot} className="space-y-2">
                         <p className="text-[11px] text-amber-700 mb-1">{label}</p>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           {urls.map((url, idx) => (
                             <div key={`${slot}-${idx}`} className="space-y-1">
                               <div className="group relative block w-full max-w-[150px] pb-[177%] mx-auto rounded-[1.5rem] overflow-hidden border border-amber-100 bg-black shadow-sm hover:shadow-md transition-shadow">
@@ -1847,7 +1847,7 @@ export default function TalentDetailPage() {
           )}
 
           {/* Manager & Info */}
-          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-8 border border-gray-100">
+          <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 p-4 sm:p-8 border border-gray-100">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-glowup-rose/10 rounded-xl">
                 <Users className="w-5 h-5 text-glowup-rose" />
@@ -1869,7 +1869,7 @@ export default function TalentDetailPage() {
                 <p>Aucun manager assigné</p>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 bg-gray-50 rounded-2xl text-center">
                 <p className="text-sm text-gray-500 mb-1">Arrivée</p>
                 <p className="font-bold text-glowup-licorice">{new Date(talent.dateArrivee).toLocaleDateString("fr-FR", { month: "short", year: "numeric" })}</p>

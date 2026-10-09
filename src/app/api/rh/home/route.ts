@@ -97,53 +97,170 @@ export async function GET(request: NextRequest) {
 
   const info = isoWeekInfo(today);
 
-  return NextResponse.json({
-    today: {
-      date: today.toISOString(),
-      isoWeek: info.isoWeek,
+  // Rappels pédagogiques (récup qui expire, timesheet non soumise, NDF brouillon)
+  const reminders: Array<{
+    id: string;
+    bar: string;
+    tag: string;
+    tagBg: string;
+    title: string;
+    meta: string;
+    cta: string;
+    target: "leave" | "time" | "expenses" | "requests" | "remote" | "folder";
+    urgent?: boolean;
+  }> = [];
+
+  // Présence / TT de la semaine
+  const weekPlaces = await prisma.rhWorkDay.findMany({
+    where: {
+      employeeId: emp.id,
+      date: { gte: info.weekStart, lte: info.weekEnd },
     },
-    kpis: [
-      {
-        id: "posable",
-        label: "JOURS POSABLES",
-        value: bookable.toFixed(1).replace(".", ","),
-        unit: "j",
-        sub: balances
-          .filter((b) => b.bookable > 0)
-          .map((b) => `${b.bookable.toFixed(1)} ${b.accountCode}`)
-          .join(" · ") || "Aucun",
-        tone: "#E5F2B5",
-      },
-      {
-        id: "cp",
-        label: "CONGÉS PAYÉS",
-        value: cpRemaining.toFixed(2).replace(".", ","),
-        unit: "j",
-        sub:
-          cpBookable > 0
-            ? "Posables"
-            : `Bloqués jusqu'au ${unlock.toLocaleDateString("fr-FR")}`,
-        tone: "#46D6C0",
-        locked: cpBookable === 0,
-      },
-      {
-        id: "hs",
-        label: "HEURES SUPP. — MOIS",
-        value: ((ot25 + ot50) / 60).toFixed(1).replace(".", ","),
-        unit: "h",
-        sub: `${minutesToLabel(ot25)} à 25 % · ${minutesToLabel(ot50)} à 50 %`,
-        tone: "#F0C24E",
-      },
-      {
-        id: "frais",
-        label: "FRAIS EN COURS",
-        value: String(Math.round(fraisTotal)),
-        unit: "€",
-        sub: `${drafts.length} note(s) brouillon`,
-        tone: "#F2874E",
-      },
-    ],
-    todos: pending.map((p) => ({
+  });
+  const remoteApproved = weekPlaces.filter((p) => p.place === "REMOTE").length;
+  const pendingTt = await prisma.rhRequest.findFirst({
+    where: {
+      employeeId: emp.id,
+      type: "REMOTE_PLAN",
+      status: "PENDING",
+      dateFrom: { lte: info.weekEnd },
+      dateTo: { gte: info.weekStart },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const pendingTtDates =
+    (pendingTt?.payload as { dates?: string[] } | null)?.dates?.length ?? 0;
+
+  if (pendingTt) {
+    reminders.push({
+      id: "tt-pending",
+      bar: "#7C8CF8",
+      tag: "TT",
+      tagBg: "#7C8CF8",
+      title: pendingTt.title,
+      meta: `${pendingTt.reference} · en attente de validation manager`,
+      cta: "Voir",
+      target: "requests",
+      urgent: true,
+    });
+  } else if (
+    emp.remoteAgreement > 0 &&
+    remoteApproved === 0 &&
+    today.getDay() !== 0 &&
+    today.getDay() !== 6
+  ) {
+    reminders.push({
+      id: "tt-declare",
+      bar: "#7C8CF8",
+      tag: "Présence",
+      tagBg: "#7C8CF8",
+      title: "Déclare ta présence de la semaine",
+      meta: `Droit ${emp.remoteAgreement} j TT — le TT part en validation`,
+      cta: "Déclarer",
+      target: "remote",
+    });
+  }
+
+  const addrPending = await prisma.rhRequest.findFirst({
+    where: {
+      employeeId: emp.id,
+      type: "ADDRESS_CHANGE",
+      status: "PENDING",
+    },
+  });
+  if (addrPending) {
+    reminders.push({
+      id: "addr-pending",
+      bar: "#7C8CF8",
+      tag: "Adresse",
+      tagBg: "#7C8CF8",
+      title: "Adresse TT en validation",
+      meta: addrPending.reference,
+      cta: "Voir",
+      target: "requests",
+    });
+  }
+  const empRow = await prisma.rhEmployee.findUnique({
+    where: { id: emp.id },
+    select: { remoteAddressLine1: true },
+  });
+  if (!empRow?.remoteAddressLine1 && emp.remoteAgreement > 0 && !addrPending) {
+    reminders.push({
+      id: "addr-missing",
+      bar: "#F0C24E",
+      tag: "Adresse",
+      tagBg: "#F0C24E",
+      title: "Renseigne ton adresse de télétravail",
+      meta: "Validation RH obligatoire",
+      cta: "Compléter",
+      target: "folder",
+    });
+  }
+  void pendingTtDates;
+
+  const recupBal = balances.find((b) => b.accountCode === "RECUP" && b.bookable > 0);
+  if (recupBal?.expiresOn) {
+    const daysLeft = Math.ceil(
+      (recupBal.expiresOn.getTime() - today.getTime()) / 86400000
+    );
+    if (daysLeft <= 45) {
+      reminders.push({
+        id: "recup-expire",
+        bar: "#F2874E",
+        tag: "Récup",
+        tagBg: "#F2874E",
+        title: `Récupération à poser (${recupBal.bookable.toFixed(1).replace(".", ",")} j)`,
+        meta:
+          daysLeft <= 0
+            ? "Échéance dépassée — pose-les rapidement"
+            : `Expire dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}`,
+        cta: "Poser",
+        target: "leave",
+        urgent: daysLeft <= 14,
+      });
+    }
+  }
+
+  const openTs = await prisma.rhTimesheet.findFirst({
+    where: {
+      employeeId: emp.id,
+      isoYear: info.isoYear,
+      isoWeek: info.isoWeek,
+      status: "DRAFT",
+    },
+  });
+  if (openTs && today.getDay() >= 4) {
+    reminders.push({
+      id: "ts-week",
+      bar: "#F0C24E",
+      tag: "Temps",
+      tagBg: "#F0C24E",
+      title: `Feuille S${info.isoWeek} non soumise`,
+      meta: "Pense à la valider avant la fin de semaine",
+      cta: "Saisir",
+      target: "time",
+    });
+  }
+
+  if (drafts.length > 0) {
+    reminders.push({
+      id: "ndf-draft",
+      bar: "#F2874E",
+      tag: "Frais",
+      tagBg: "#F2874E",
+      title:
+        drafts.length === 1
+          ? "Une note de frais en brouillon"
+          : `${drafts.length} notes de frais en brouillon`,
+      meta: `${Math.round(fraisTotal)} € à finaliser`,
+      cta: "Ouvrir",
+      target: "expenses",
+    });
+  }
+
+  const todos = [
+    ...reminders,
+    ...pending.map((p) => ({
       id: p.id,
       bar: p.status === "PAUSED" ? "#F2604E" : "#F0C24E",
       tag: p.type,
@@ -154,6 +271,55 @@ export async function GET(request: NextRequest) {
       target: "requests" as const,
       urgent: p.status === "PAUSED",
     })),
+  ];
+
+  return NextResponse.json({
+    today: {
+      date: today.toISOString(),
+      isoWeek: info.isoWeek,
+    },
+    kpis: [
+      {
+        id: "posable",
+        label: "Jours posables",
+        value: bookable.toFixed(1).replace(".", ","),
+        unit: "j",
+        sub: balances
+          .filter((b) => b.bookable > 0)
+          .map((b) => `${b.bookable.toFixed(1)} ${b.accountCode}`)
+          .join(" · ") || "Aucun",
+        tone: "#E5F2B5",
+      },
+      {
+        id: "cp",
+        label: "Congés payés",
+        value: cpRemaining.toFixed(2).replace(".", ","),
+        unit: "j",
+        sub:
+          cpBookable > 0
+            ? "Disponibles"
+            : `Disponibles le ${unlock.toLocaleDateString("fr-FR")}`,
+        tone: "#46D6C0",
+        locked: cpBookable === 0,
+      },
+      {
+        id: "hs",
+        label: "Heures supp. (mois)",
+        value: ((ot25 + ot50) / 60).toFixed(1).replace(".", ","),
+        unit: "h",
+        sub: `${minutesToLabel(ot25)} à 25 % · ${minutesToLabel(ot50)} à 50 %`,
+        tone: "#F0C24E",
+      },
+      {
+        id: "frais",
+        label: "Frais en cours",
+        value: String(Math.round(fraisTotal)),
+        unit: "€",
+        sub: `${drafts.length} brouillon${drafts.length > 1 ? "s" : ""}`,
+        tone: "#F2874E",
+      },
+    ],
+    todos,
     awayToday: [
       ...awayToday.map((a) => ({
         name: displayName(a.employee.user),
@@ -170,5 +336,18 @@ export async function GET(request: NextRequest) {
     ],
     tr,
     pendingCount: pending.length,
+    presence: {
+      isoWeek: info.isoWeek,
+      weekStart: info.weekStart.toISOString().slice(0, 10),
+      places: Object.fromEntries(
+        weekPlaces.map((p) => [
+          p.date.toISOString().slice(0, 10),
+          p.place,
+        ])
+      ),
+      pendingRemote:
+        (pendingTt?.payload as { dates?: string[] } | null)?.dates ?? [],
+      remoteAgreement: emp.remoteAgreement,
+    },
   });
 }

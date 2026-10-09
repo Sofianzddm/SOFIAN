@@ -542,7 +542,7 @@ function CMDashboard({ data }: { data: any }) {
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Suivi Account Manager</h2>
             <p className="text-sm text-slate-500 mt-1">
@@ -733,7 +733,7 @@ function AdminDashboard({ data, absences }: { data: any; absences: any[] }) {
             {absences.map((absence: any) => (
               <div
                 key={absence.tmOrigine.id}
-                className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
+                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between py-2 border-b border-gray-50 last:border-0"
               >
                 <div className="flex items-center gap-2 min-w-[120px]">
                   <div className="w-7 h-7 rounded-full bg-[#F5EBE0] flex items-center justify-center">
@@ -790,7 +790,7 @@ function AdminDashboard({ data, absences }: { data: any; absences: any[] }) {
               <TrendingUp className="w-3.5 h-3.5" /> +18.5%
             </span>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
             <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-4">
               <div className="flex items-center gap-2 mb-1">
                 <Users className="w-4 h-4 text-slate-500" />
@@ -1010,7 +1010,7 @@ function HeadOfInfluenceDashboard({ data, absences }: { data: any; absences: any
             {absences.map((absence: any) => (
               <div
                 key={absence.tmOrigine.id}
-                className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
+                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between py-2 border-b border-gray-50 last:border-0"
               >
                 <div className="flex items-center gap-2 min-w-[120px]">
                   <div className="w-7 h-7 rounded-full bg-[#F5EBE0] flex items-center justify-center">
@@ -1156,7 +1156,7 @@ function HeadOfInfluenceDashboard({ data, absences }: { data: any; absences: any
       )}
 
       {/* KPI cards — vue d’ensemble */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Link
           href="/talents"
           className="group rounded-2xl bg-white border border-slate-200/80 p-5 shadow-sm hover:shadow-md hover:border-violet-200/80 hover:bg-violet-50/30 transition-all duration-200"
@@ -1533,7 +1533,7 @@ function HeadOfDashboard({ data, role }: { data: any; role?: string }) {
       </div>
 
       {/* 2. KPI CARDS - 4 carrés épurés */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Link href="/finance" className="group rounded-xl border border-slate-200 bg-white p-5 ring-1 ring-slate-200/60 hover:ring-slate-300 transition-all">
           <div className="flex items-center justify-between mb-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
@@ -1701,7 +1701,7 @@ function TMDashboard({ data }: { data: any }) {
       )}
 
       {/* Stats Cards - Style glassmorphism */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="relative overflow-hidden bg-gradient-to-br from-glowup-rose/90 to-pink-500 rounded-2xl p-5 text-white shadow-lg shadow-pink-200">
           <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
           <Users className="w-6 h-6 mb-3 opacity-80" />
@@ -1963,7 +1963,7 @@ function TMDashboard({ data }: { data: any }) {
           {/* Actions rapides */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
             <h3 className="font-bold text-glowup-licorice mb-4">Actions rapides</h3>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Link 
                 href="/talents" 
                 className="flex flex-col items-center gap-2 p-3 rounded-xl bg-glowup-rose/5 hover:bg-glowup-rose/10 transition-colors group"

@@ -336,7 +336,7 @@ export default function TalentStatsEditPage() {
             </div>
 
             {/* Followers & Engagement */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <NumberCard
                 label="Followers"
                 name="igFollowers"
@@ -372,7 +372,7 @@ export default function TalentStatsEditPage() {
             </div>
 
             {/* Démographie */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
               <PercentInput
                 icon={<Users className="w-4 h-4 text-pink-500" />}
                 label="Femmes"
@@ -431,7 +431,7 @@ export default function TalentStatsEditPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <NumberCard
                 label="Followers"
                 name="ttFollowers"
@@ -466,7 +466,7 @@ export default function TalentStatsEditPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
               <PercentInput
                 icon={<Users className="w-4 h-4 text-pink-500" />}
                 label="Femmes"
@@ -526,7 +526,7 @@ export default function TalentStatsEditPage() {
             </div>
             <span className="text-xs text-gray-400">Optionnel</span>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <NumberCard
               label="Abonnés"
               name="ytAbonnes"
@@ -701,7 +701,7 @@ function AgeGrid({
         {icon}
         {label}
       </label>
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
         {fields.map((age) => (
           <div key={age.name} className="text-center">
             <label className="block text-xs text-gray-500 mb-1">

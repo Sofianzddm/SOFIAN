@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Space_Grotesk } from "next/font/google";
 import { JetBrains_Mono } from "next/font/google";
+import { Toaster } from "sonner";
 import "@/components/rh/tokens.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -34,6 +35,19 @@ export default function RhLayout({ children }: { children: React.ReactNode }) {
       }
     >
       {children}
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        richColors
+        closeButton
+        toastOptions={{
+          style: {
+            background: "#12161C",
+            border: "1px solid #2B333F",
+            color: "#E7ECF2",
+          },
+        }}
+      />
     </div>
   );
 }

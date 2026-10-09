@@ -356,10 +356,10 @@ export function ImportCartoModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white rounded-t-2xl z-10" style={{ borderColor: "#F0EBE4" }}>
-          <h2 className="font-semibold flex items-center gap-2" style={{ color: LICORICE }}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+      <div className="w-full max-w-2xl max-h-[100dvh] sm:max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-2 px-4 sm:px-5 py-4 border-b sticky top-0 bg-white rounded-t-2xl z-10" style={{ borderColor: "#F0EBE4" }}>
+          <h2 className="font-semibold flex flex-wrap items-center gap-2 min-w-0 text-sm sm:text-base" style={{ color: LICORICE }}>
             <FileSpreadsheet className="w-4 h-4" style={{ color: "#3D8B40" }} />
             {lockedMarque
               ? `Importer une cartographie — ${lockedMarque.nom}`

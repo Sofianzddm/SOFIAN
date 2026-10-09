@@ -268,7 +268,85 @@ export default function CoiffeurView() {
         ) : visibleSlots.length === 0 ? (
           <p className="mt-6 text-sm text-[#1A1110]/50">Aucun creneau. Ajoute-en un ci-dessus.</p>
         ) : (
-          <div className="mt-6 overflow-x-auto">
+          <>
+          <div className="mt-6 space-y-3 md:hidden">
+            {visibleSlots.map((s) => {
+              const cancelled = !!s.cancelledAt;
+              const b = s.booking;
+              const confirmed = b?.status === "CONFIRMED";
+              const displayName =
+                b?.guestName?.trim() ||
+                (b?.talent ? `${b.talent.prenom} ${b.talent.nom}` : "—");
+              const displayEmail = b?.guestEmail?.trim() || "";
+
+              return (
+                <div
+                  key={s.id}
+                  className={`rounded-xl border border-[#E5E0D8] bg-white p-4 ${cancelled ? "opacity-50" : ""}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-[#1A1110]">{formatRange(s.startsAt, s.endsAt)}</p>
+                      {b?.prestation && (
+                        <p className="text-xs text-[#C08B8B] mt-0.5">{b.prestation.title}</p>
+                      )}
+                      {s.label && <p className="text-xs text-[#1A1110]/50">{s.label}</p>}
+                    </div>
+                    {cancelled ? (
+                      <span className="shrink-0 rounded-full bg-[#E5E0D8] px-2 py-0.5 text-xs">Creneau retiré</span>
+                    ) : confirmed ? (
+                      <span className="shrink-0 rounded-full bg-[#C8F285]/80 px-2 py-0.5 text-xs text-[#1A1110]">
+                        Réservé
+                      </span>
+                    ) : b?.status === "CANCELLED" ? (
+                      <span className="shrink-0 rounded-full bg-[#F5EBE0] px-2 py-0.5 text-xs">Libre (ex-annulation)</span>
+                    ) : (
+                      <span className="shrink-0 rounded-full bg-[#E8F4FF] px-2 py-0.5 text-xs">Libre</span>
+                    )}
+                  </div>
+                  {(displayName !== "—" || displayEmail) && (
+                    <div className="mt-2 text-sm text-[#1A1110]">
+                      <p>{displayName}</p>
+                      {displayEmail && <p className="text-xs text-[#1A1110]/55">{displayEmail}</p>}
+                      {b?.notes && <p className="mt-1 text-xs italic text-[#1A1110]/45">{b.notes}</p>}
+                    </div>
+                  )}
+                  {!cancelled && (
+                    <div className="mt-3 flex flex-wrap gap-2 border-t border-[#F0E8E0] pt-3">
+                      {!confirmed && (
+                        <button
+                          type="button"
+                          onClick={() => openBook(s)}
+                          className="rounded border border-[#1A1110] px-3 py-1.5 text-xs font-medium text-[#1A1110] hover:bg-[#1A1110] hover:text-[#F5EBE0]"
+                        >
+                          Réserver
+                        </button>
+                      )}
+                      {confirmed && b && (
+                        <button
+                          type="button"
+                          onClick={() => void cancelBooking(b.id)}
+                          className="rounded border border-[#C08B8B] px-3 py-1.5 text-xs text-[#C08B8B] hover:bg-[#C08B8B] hover:text-white"
+                        >
+                          Annuler resa
+                        </button>
+                      )}
+                      {!confirmed && (
+                        <button
+                          type="button"
+                          onClick={() => void cancelSlot(s.id)}
+                          className="rounded border border-[#E5E0D8] px-3 py-1.5 text-xs text-[#1A1110]/60 hover:bg-[#F5EBE0]"
+                        >
+                          Retirer creneau
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-6 hidden md:block overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
                 <tr className="border-b border-[#E5E0D8] text-[#1A1110]/55">
@@ -357,6 +435,7 @@ export default function CoiffeurView() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 

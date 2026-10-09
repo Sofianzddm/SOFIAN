@@ -422,7 +422,7 @@ export function PropositionsTab({
 
               {prop.insights && prop.insights.sessions > 0 ? (
                 <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/70 p-2.5">
-                  <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="grid grid-cols-1 gap-2 text-center sm:grid-cols-3">
                     <div>
                       <p className="text-sm font-semibold text-gray-900">{prop.insights.sessions}</p>
                       <p className="text-[10px] uppercase tracking-wide text-gray-400">Ouvertures</p>
@@ -660,7 +660,7 @@ export function ProposalBuilder({ proposalId }: { proposalId: string }) {
   }
 
   return (
-    <div className="flex h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white">
+    <div className="flex h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white sm:h-[calc(100vh-2rem)]">
       {/* Top bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3">
         <div className="flex items-center gap-3">
@@ -728,7 +728,7 @@ export function ProposalBuilder({ proposalId }: { proposalId: string }) {
       </div>
 
       {/* Onglets */}
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-gray-200 bg-white px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {BUILDER_TABS.map((t) => {
           const active = activeTab === t.id;
           return (
@@ -736,7 +736,7 @@ export function ProposalBuilder({ proposalId }: { proposalId: string }) {
               key={t.id}
               type="button"
               onClick={() => setActiveTab(t.id)}
-              className={`whitespace-nowrap border-b-2 px-3.5 py-3 text-sm font-medium transition-colors ${
+              className={`shrink-0 whitespace-nowrap border-b-2 px-3.5 py-3 text-sm font-medium transition-colors ${
                 active
                   ? "border-glowup-rose text-glowup-rose"
                   : "border-transparent text-gray-500 hover:text-gray-800"
@@ -1990,7 +1990,7 @@ function ProposalFormBody({
         {form.photos.length === 0 ? (
           <EmptyHint text="Ajoute un moodboard ou des photos d'éditions précédentes." />
         ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {form.photos.map((src, i) => (
               <div key={`${src}-${i}`} className="group relative aspect-square overflow-hidden rounded-lg border border-gray-200">
                 <img src={src} alt="" className="h-full w-full object-cover" />

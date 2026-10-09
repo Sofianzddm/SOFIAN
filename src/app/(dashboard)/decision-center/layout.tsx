@@ -11,7 +11,7 @@ export default async function DecisionCenterLayout({
   if (!ctx) redirect("/dashboard");
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-6xl px-1 sm:px-0 min-w-0">
       <DcSubNav role={ctx.dcRole} capabilities={ctx.capabilities} />
       {children}
     </div>

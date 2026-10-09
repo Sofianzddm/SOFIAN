@@ -1144,7 +1144,7 @@ export default function AgencyOutreachPage() {
 
   if (!allowed) {
     return (
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
         <p className="text-sm" style={{ color: LICORICE }}>
           Accès réservé aux administrateurs et casting managers.
         </p>
@@ -1154,7 +1154,7 @@ export default function AgencyOutreachPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto" style={{ fontFamily: "Switzer, system-ui, sans-serif" }}>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-5">
         <div>
           <h1
             className="text-2xl font-semibold flex items-center gap-2"
@@ -1448,7 +1448,7 @@ export default function AgencyOutreachPage() {
           Chargement…
         </div>
       ) : groups.length === 0 ? (
-        <div className="rounded-xl border p-8 text-center bg-white" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
+        <div className="rounded-xl border p-4 sm:p-8 text-center bg-white" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
           <Building2 className="w-8 h-8 mx-auto mb-2 opacity-50" style={{ color: OLD_ROSE }} />
           <p className="text-sm" style={{ color: LICORICE }}>
             {waitingFilter === "vacation-to-schedule"
@@ -1732,16 +1732,16 @@ export default function AgencyOutreachPage() {
 
       {/* Composer modal */}
       {composerOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 bg-black/45 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-start justify-center p-0 sm:p-4 bg-black/45 overflow-y-auto">
           <div
-            className="w-full max-w-3xl rounded-2xl shadow-xl border bg-white my-4"
+            className="w-full max-w-3xl max-h-[100dvh] sm:max-h-none overflow-y-auto rounded-t-2xl sm:rounded-2xl shadow-xl border bg-white sm:my-4"
             style={{ borderColor: "#E8DED0" }}
           >
             <div
-              className="flex items-center justify-between px-5 py-3 border-b"
+              className="flex items-start justify-between gap-2 px-4 sm:px-5 py-3 border-b sticky top-0 z-10"
               style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, backgroundColor: OLD_LACE }}
             >
-              <h2 className="text-lg font-semibold" style={{ fontFamily: "Spectral, serif", color: LICORICE }}>
+              <h2 className="text-base sm:text-lg font-semibold min-w-0 pr-2" style={{ fontFamily: "Spectral, serif", color: LICORICE }}>
                 Rédiger — {selectedTargets.length} contact{selectedTargets.length > 1 ? "s" : ""}
                 {selectedTargets.length > 1
                   ? ` · ${new Set(selectedTargets.map((t) => t.partnerId)).size} agence${new Set(selectedTargets.map((t) => t.partnerId)).size > 1 ? "s" : ""}`
@@ -2270,13 +2270,13 @@ export default function AgencyOutreachPage() {
 
       {/* Add modal */}
       {addOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 bg-black/45 overflow-y-auto">
-          <div className="w-full max-w-2xl rounded-2xl shadow-xl border bg-white my-4" style={{ borderColor: "#E8DED0" }}>
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-start justify-center p-0 sm:p-4 bg-black/45 overflow-y-auto">
+          <div className="w-full max-w-2xl max-h-[100dvh] sm:max-h-none overflow-y-auto rounded-t-2xl sm:rounded-2xl shadow-xl border bg-white sm:my-4" style={{ borderColor: "#E8DED0" }}>
             <div
-              className="flex items-center justify-between px-5 py-3 border-b"
+              className="flex items-start justify-between gap-2 px-4 sm:px-5 py-3 border-b sticky top-0 z-10"
               style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`, backgroundColor: OLD_LACE }}
             >
-              <h2 className="text-lg font-semibold" style={{ fontFamily: "Spectral, serif", color: LICORICE }}>
+              <h2 className="text-base sm:text-lg font-semibold" style={{ fontFamily: "Spectral, serif", color: LICORICE }}>
                 Ajouter une agence au cycle
               </h2>
               <button type="button" onClick={() => setAddOpen(false)} className="p-2 rounded-lg hover:bg-black/5">
@@ -2309,7 +2309,7 @@ export default function AgencyOutreachPage() {
                     Si l&apos;agence n&apos;existe pas encore, elle sera créée dans /partners (lien talent book généré).
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input
                     type="text"
                     value={newContact.prenom}

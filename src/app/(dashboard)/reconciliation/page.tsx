@@ -568,139 +568,230 @@ export default function ReconciliationPage() {
               Aucun résultat pour « {search} »
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/80">
-                    <th className="text-left py-3 px-4 font-medium text-slate-600">Date</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-600">Libellé / émetteur</th>
-                    <th className="text-right py-3 px-4 font-medium text-slate-600">Montant</th>
-                    <th className="text-right py-3 px-4 font-medium text-slate-600">Restant</th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-600">Rapprochements</th>
-                    <th className="text-right py-3 px-4 font-medium text-slate-600 w-44">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredNonAssociees.map((transaction) => {
-                    const matches = transaction.matches ?? [];
-                    const partial = matches.length > 0;
-                    const restant =
-                      toNumber(transaction.restant ?? transaction.montant);
-                    return (
-                      <tr
-                        key={transaction.id}
-                        className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors align-top"
-                      >
-                        <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                          {formatDate(transaction.dateTransaction)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-slate-900">
+            <>
+              <div className="md:hidden divide-y divide-slate-100">
+                {filteredNonAssociees.map((transaction) => {
+                  const matches = transaction.matches ?? [];
+                  const partial = matches.length > 0;
+                  const restant = toNumber(transaction.restant ?? transaction.montant);
+                  return (
+                    <article key={transaction.id} className="px-4 py-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-slate-900">
                             {transaction.libelle || "—"}
                             {transaction.statut === "PENDING" && (
                               <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 align-middle">
                                 En attente
                               </span>
                             )}
-                          </div>
-                          <div className="text-xs text-slate-500 mt-0.5">
-                            {transaction.emetteur}
-                          </div>
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">{transaction.emetteur}</p>
                           {transaction.reference && (
-                            <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                            <p className="text-[11px] text-slate-400 font-mono mt-0.5 truncate">
                               {transaction.reference}
-                            </div>
+                            </p>
                           )}
-                        </td>
-                        <td className="py-3 px-4 text-right font-medium text-slate-900 tabular-nums whitespace-nowrap">
+                        </div>
+                        <span className="shrink-0 text-xs text-slate-500 whitespace-nowrap">
+                          {formatDate(transaction.dateTransaction)}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-sm">
+                        <span className="font-medium text-slate-900 tabular-nums">
                           {formatMoney(toNumber(transaction.montant))}
-                        </td>
-                        <td className="py-3 px-4 text-right tabular-nums whitespace-nowrap">
-                          <span
-                            className={`font-semibold ${
-                              partial ? "text-amber-600" : "text-slate-900"
-                            }`}
-                          >
-                            {formatMoney(restant)}
-                          </span>
-                          {partial && (
-                            <div className="text-[11px] text-slate-500 mt-0.5">
-                              sur {formatMoney(toNumber(transaction.montant))}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          {matches.length === 0 ? (
-                            <span className="text-xs text-slate-400">—</span>
-                          ) : (
-                            <ul className="space-y-1">
-                              {matches.map((m) => (
-                                <li
-                                  key={m.id}
-                                  className="flex items-center gap-2 text-xs"
-                                >
-                                  <FileText className="w-3 h-3 text-slate-400 shrink-0" />
-                                  <span className="font-medium text-slate-800">
-                                    {m.document.reference}
-                                  </span>
-                                  <span className="text-slate-500 tabular-nums">
-                                    {formatMoney(toNumber(m.montant))}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleDissocierMatch(transaction.id, m.document.id)
-                                    }
-                                    disabled={dissociating === `${transaction.id}-${m.document.id}`}
-                                    className="ml-1 text-slate-400 hover:text-red-600 disabled:opacity-50"
-                                    title="Retirer ce rapprochement"
-                                  >
-                                    {dissociating === `${transaction.id}-${m.document.id}` ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <X className="w-3 h-3" />
-                                    )}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <div className="inline-flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => openReconcile(transaction)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-md hover:bg-slate-800"
-                            >
-                              <Link2 className="w-3.5 h-3.5" />
-                              {partial ? "Compléter" : "Rapprocher"}
-                            </button>
-                            {!partial && (
+                        </span>
+                        <span className={`tabular-nums font-semibold ${partial ? "text-amber-600" : "text-slate-700"}`}>
+                          Restant {formatMoney(restant)}
+                        </span>
+                      </div>
+                      {matches.length > 0 && (
+                        <ul className="space-y-1">
+                          {matches.map((m) => (
+                            <li key={m.id} className="flex items-center gap-2 text-xs">
+                              <FileText className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span className="font-medium text-slate-800">{m.document.reference}</span>
+                              <span className="text-slate-500 tabular-nums">{formatMoney(toNumber(m.montant))}</span>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  marquerHorsPlateforme(transaction.id, true)
-                                }
-                                disabled={markingHorsPlateforme === transaction.id}
-                                className="inline-flex items-center justify-center p-1.5 border border-slate-200 text-slate-500 rounded-md hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
-                                title="Hors plateforme"
+                                onClick={() => handleDissocierMatch(transaction.id, m.document.id)}
+                                disabled={dissociating === `${transaction.id}-${m.document.id}`}
+                                className="ml-auto text-slate-400 hover:text-red-600 disabled:opacity-50"
+                                title="Retirer ce rapprochement"
                               >
-                                {markingHorsPlateforme === transaction.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                {dissociating === `${transaction.id}-${m.document.id}` ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
                                 ) : (
-                                  <EyeOff className="w-3.5 h-3.5" />
+                                  <X className="w-3 h-3" />
                                 )}
                               </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => openReconcile(transaction)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-md hover:bg-slate-800"
+                        >
+                          <Link2 className="w-3.5 h-3.5" />
+                          {partial ? "Compléter" : "Rapprocher"}
+                        </button>
+                        {!partial && (
+                          <button
+                            type="button"
+                            onClick={() => marquerHorsPlateforme(transaction.id, true)}
+                            disabled={markingHorsPlateforme === transaction.id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 text-slate-600 rounded-md hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            {markingHorsPlateforme === transaction.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <EyeOff className="w-3.5 h-3.5" />
                             )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                            Hors plateforme
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/80">
+                      <th className="text-left py-3 px-4 font-medium text-slate-600">Date</th>
+                      <th className="text-left py-3 px-4 font-medium text-slate-600">Libellé / émetteur</th>
+                      <th className="text-right py-3 px-4 font-medium text-slate-600">Montant</th>
+                      <th className="text-right py-3 px-4 font-medium text-slate-600">Restant</th>
+                      <th className="text-left py-3 px-4 font-medium text-slate-600">Rapprochements</th>
+                      <th className="text-right py-3 px-4 font-medium text-slate-600 w-44">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredNonAssociees.map((transaction) => {
+                      const matches = transaction.matches ?? [];
+                      const partial = matches.length > 0;
+                      const restant =
+                        toNumber(transaction.restant ?? transaction.montant);
+                      return (
+                        <tr
+                          key={transaction.id}
+                          className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors align-top"
+                        >
+                          <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                            {formatDate(transaction.dateTransaction)}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-medium text-slate-900">
+                              {transaction.libelle || "—"}
+                              {transaction.statut === "PENDING" && (
+                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 align-middle">
+                                  En attente
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {transaction.emetteur}
+                            </div>
+                            {transaction.reference && (
+                              <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                                {transaction.reference}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right font-medium text-slate-900 tabular-nums whitespace-nowrap">
+                            {formatMoney(toNumber(transaction.montant))}
+                          </td>
+                          <td className="py-3 px-4 text-right tabular-nums whitespace-nowrap">
+                            <span
+                              className={`font-semibold ${
+                                partial ? "text-amber-600" : "text-slate-900"
+                              }`}
+                            >
+                              {formatMoney(restant)}
+                            </span>
+                            {partial && (
+                              <div className="text-[11px] text-slate-500 mt-0.5">
+                                sur {formatMoney(toNumber(transaction.montant))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {matches.length === 0 ? (
+                              <span className="text-xs text-slate-400">—</span>
+                            ) : (
+                              <ul className="space-y-1">
+                                {matches.map((m) => (
+                                  <li
+                                    key={m.id}
+                                    className="flex items-center gap-2 text-xs"
+                                  >
+                                    <FileText className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <span className="font-medium text-slate-800">
+                                      {m.document.reference}
+                                    </span>
+                                    <span className="text-slate-500 tabular-nums">
+                                      {formatMoney(toNumber(m.montant))}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleDissocierMatch(transaction.id, m.document.id)
+                                      }
+                                      disabled={dissociating === `${transaction.id}-${m.document.id}`}
+                                      className="ml-1 text-slate-400 hover:text-red-600 disabled:opacity-50"
+                                      title="Retirer ce rapprochement"
+                                    >
+                                      {dissociating === `${transaction.id}-${m.document.id}` ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <X className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openReconcile(transaction)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-md hover:bg-slate-800"
+                              >
+                                <Link2 className="w-3.5 h-3.5" />
+                                {partial ? "Compléter" : "Rapprocher"}
+                              </button>
+                              {!partial && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    marquerHorsPlateforme(transaction.id, true)
+                                  }
+                                  disabled={markingHorsPlateforme === transaction.id}
+                                  className="inline-flex items-center justify-center p-1.5 border border-slate-200 text-slate-500 rounded-md hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
+                                  title="Hors plateforme"
+                                >
+                                  {markingHorsPlateforme === transaction.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <EyeOff className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
 
@@ -713,7 +804,77 @@ export default function ReconciliationPage() {
                 <span className="text-slate-400 font-normal ml-2">({transactionsAssociees.length})</span>
               </h2>
             </div>
-            <div className="overflow-x-auto">
+            <div className="md:hidden divide-y divide-slate-100">
+              {transactionsAssociees.slice(0, 25).map((transaction) => (
+                <article key={transaction.id} className="px-4 py-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-slate-900">{transaction.libelle}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {formatDate(transaction.dateTransaction)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 font-medium text-slate-900 tabular-nums text-sm">
+                      {formatMoney(toNumber(transaction.montant))}
+                    </span>
+                  </div>
+                  <div>
+                    {(transaction.matches?.length ?? 0) > 0 ? (
+                      <ul className="space-y-1">
+                        {(transaction.matches ?? []).map((m) => (
+                          <li key={m.id} className="flex items-center gap-2 text-xs">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPreviewFacture({
+                                  id: m.document.id,
+                                  reference: m.document.reference,
+                                  montantTTC: toNumber(m.document.montantTTC),
+                                  dateEmission: transaction.dateTransaction,
+                                  dateEcheance: transaction.dateTransaction,
+                                  statut: m.document.statut,
+                                  collaboration: m.document.collaboration ?? null,
+                                })
+                              }
+                              className="font-medium text-slate-800 hover:underline"
+                            >
+                              {m.document.reference}
+                            </button>
+                            <span className="text-slate-500 tabular-nums">
+                              {formatMoney(toNumber(m.montant))}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : transaction.document ? (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-slate-700">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        {transaction.document.reference}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-slate-400">—</span>
+                    )}
+                  </div>
+                  <div className="pt-1 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => handleDissocierMatch(transaction.id, undefined)}
+                      disabled={dissociating === `${transaction.id}-all`}
+                      className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {dissociating === `${transaction.id}-all` ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <X className="w-3.5 h-3.5" />
+                      )}
+                      Dissocier
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">

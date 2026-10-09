@@ -1458,16 +1458,16 @@ export default function OutreachPage() {
 
   if (sessionStatus === "authenticated" && !ALLOWED.includes(role)) {
     return (
-      <div className="p-8 text-center text-sm text-gray-500">
+      <div className="p-4 sm:p-8 text-center text-sm text-gray-500">
         Vous n&apos;avez pas accès à ce module.
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: LICORICE }}>
             <Repeat className="w-6 h-6" style={{ color: OLD_ROSE }} />
@@ -2442,9 +2442,9 @@ function SendProgressOverlay({
       ? Math.min(100, Math.round((progress.done / progress.total) * 100))
       : 0;
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
       <div
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+        className="w-full max-w-md max-h-[100dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-6 shadow-xl"
         style={{ border: `1px solid ${OLD_ROSE}33` }}
       >
         <div className="flex items-center gap-2.5">
@@ -2864,7 +2864,7 @@ function ClientLineEditor({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Prénom *</label>
               <input
@@ -2886,7 +2886,7 @@ function ClientLineEditor({
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 mt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
               <input
@@ -3059,9 +3059,9 @@ function AddClientModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl">
-        <div className="flex items-start justify-between px-5 py-4 border-b sticky top-0 bg-white rounded-t-2xl z-10" style={{ borderColor: "#F0EBE4" }}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+      <div className="w-full max-w-2xl max-h-[100dvh] sm:max-h-[90vh] overflow-y-auto rounded-none sm:rounded-2xl bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-2 px-4 sm:px-5 py-4 border-b sticky top-0 bg-white rounded-t-2xl z-10" style={{ borderColor: "#F0EBE4" }}>
           <div>
             <h2 className="font-semibold" style={{ color: LICORICE }}>
               Nouveaux clients
@@ -3134,7 +3134,7 @@ function AddClientModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-2 px-5 py-4 border-t sticky bottom-0 bg-white rounded-b-2xl" style={{ borderColor: "#F0EBE4" }}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2 px-4 sm:px-5 py-4 border-t sticky bottom-0 bg-white rounded-b-2xl" style={{ borderColor: "#F0EBE4" }}>
           <span className="text-xs text-gray-400">
             {completeCount} / {lines.length} prêt{completeCount > 1 ? "s" : ""}
           </span>
@@ -3226,9 +3226,9 @@ function EditClientModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#F0EBE4" }}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+      <div className="w-full max-w-md max-h-[100dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-2 px-4 sm:px-5 py-4 border-b" style={{ borderColor: "#F0EBE4" }}>
           <h2 className="font-semibold" style={{ color: LICORICE }}>
             Modifier le client
           </h2>
@@ -3251,7 +3251,7 @@ function EditClientModal({
               </p>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Prénom *</label>
               <input
@@ -3417,9 +3417,9 @@ function ConvertToAgencyModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "#F0EBE4" }}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+      <div className="w-full max-w-md max-h-[100dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-2 px-4 sm:px-5 py-4 border-b" style={{ borderColor: "#F0EBE4" }}>
           <h2 className="font-semibold" style={{ color: LICORICE }}>
             Passer en agence
           </h2>
@@ -4187,9 +4187,9 @@ function ImportCartoModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white rounded-t-2xl z-10" style={{ borderColor: "#F0EBE4" }}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+      <div className="w-full max-w-2xl max-h-[100dvh] sm:max-h-[90vh] overflow-y-auto rounded-none sm:rounded-2xl bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-2 px-4 sm:px-5 py-4 border-b sticky top-0 bg-white rounded-t-2xl z-10" style={{ borderColor: "#F0EBE4" }}>
           <h2 className="font-semibold flex items-center gap-2" style={{ color: LICORICE }}>
             <FileSpreadsheet className="w-4 h-4" style={{ color: "#3D8B40" }} />
             Importer une cartographie de contacts

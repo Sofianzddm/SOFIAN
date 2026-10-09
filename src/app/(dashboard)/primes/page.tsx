@@ -213,14 +213,14 @@ export default function PrimesPage() {
 
   return (
     <div className="space-y-5" style={{ fontFamily: "Switzer, sans-serif" }}>
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-semibold" style={{ color: LICORICE, fontFamily: "Spectral, serif" }}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl sm:text-3xl font-semibold" style={{ color: LICORICE, fontFamily: "Spectral, serif" }}>
           Mes primes
         </h1>
         <button
           type="button"
           onClick={() => setOpenCreate(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border"
+          className="inline-flex w-fit items-center gap-2 px-4 py-2 rounded-xl border"
           style={{ borderColor: OLD_ROSE, color: LICORICE }}
         >
           <Plus className="w-4 h-4" /> Nouveau mois
@@ -253,7 +253,108 @@ export default function PrimesPage() {
                   <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: s.bg, color: s.color }}>{s.label}</span>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="md:hidden space-y-2">
+                  {lignes.map((l, i) => (
+                    <div
+                      key={l.id}
+                      className="rounded-xl border px-3 py-2.5 space-y-2"
+                      style={{
+                        borderColor: "#F2E9DD",
+                        backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : "#FCFAF8",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          {editingId === p.id ? (
+                            <select
+                              className="border rounded px-2 py-1 text-xs w-full"
+                              value={l.type}
+                              onChange={(e) => setDraftLignes((prev) => {
+                                const next = [...(prev[p.id] ?? p.lignes)];
+                                next[i] = { ...next[i], type: e.target.value as PrimeLigneType };
+                                return { ...prev, [p.id]: next };
+                              })}
+                            >
+                              {PRIME_TYPE_OPTIONS.filter((o) => o.value !== "RETRAIT_COLLABORATION").map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <p className="text-xs font-medium" style={{ color: OLD_ROSE }}>
+                              {PRIME_TYPE_LABELS[l.type] || l.type}
+                            </p>
+                          )}
+                          {editingId === p.id ? (
+                            <input
+                              className="border rounded px-2 py-1 w-full mt-1.5 text-sm"
+                              value={l.description}
+                              onChange={(e) => setDraftLignes((prev) => {
+                                const next = [...(prev[p.id] ?? p.lignes)];
+                                next[i] = { ...next[i], description: e.target.value };
+                                return { ...prev, [p.id]: next };
+                              })}
+                            />
+                          ) : (
+                            <p className="text-sm mt-0.5" style={{ color: LICORICE }}>{l.description}</p>
+                          )}
+                        </div>
+                        <div className="shrink-0 text-right" style={{ color: Number(l.montant) < 0 ? "#B91C1C" : LICORICE }}>
+                          {editingId === p.id ? (
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="border rounded px-2 py-1 w-24 text-right text-sm"
+                              value={l.montant}
+                              onChange={(e) => setDraftLignes((prev) => {
+                                const next = [...(prev[p.id] ?? p.lignes)];
+                                const raw = String(e.target.value || "0").replace(",", ".");
+                                next[i] = { ...next[i], montant: Number(raw || 0) };
+                                return { ...prev, [p.id]: next };
+                              })}
+                            />
+                          ) : (
+                            <span className="text-sm font-semibold">{eur(Number(l.montant || 0))}</span>
+                          )}
+                        </div>
+                      </div>
+                      {editingId === p.id ? (
+                        <input
+                          className="border rounded px-2 py-1 w-full text-xs"
+                          placeholder="Talent"
+                          value={l.talentNom ?? ""}
+                          onChange={(e) => setDraftLignes((prev) => {
+                            const next = [...(prev[p.id] ?? p.lignes)];
+                            next[i] = { ...next[i], talentNom: e.target.value };
+                            return { ...prev, [p.id]: next };
+                          })}
+                        />
+                      ) : l.talentNom ? (
+                        <p className="text-xs" style={{ color: OLD_ROSE }}>{l.talentNom}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5" style={{ borderColor: "#F2E9DD" }}>
+                    <span className="text-sm italic" style={{ color: OLD_ROSE }}>Prime CA (5%)</span>
+                    {editingId === p.id ? (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="border rounded px-2 py-1 w-24 text-right text-sm"
+                        value={p.editPrimeCA}
+                        onChange={(e) => setDraftPrimeCA((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                      />
+                    ) : (
+                      <span className="text-sm italic">{eur(primeCAValue)}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 px-1 pt-1">
+                    <span className="text-sm font-semibold" style={{ color: LICORICE }}>Total général</span>
+                    <span className="text-sm font-semibold" style={{ color: LICORICE }}>{eur(lignesTotal + primeCAValue)}</span>
+                  </div>
+                </div>
+
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left" style={{ color: OLD_ROSE }}>

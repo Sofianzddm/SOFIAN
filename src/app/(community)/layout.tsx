@@ -42,22 +42,23 @@ export default function CommunityLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fafafa]">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#fafafa]">
       <header className="shrink-0 border-b border-gray-200 bg-white">
-        <div className="h-14 px-4 flex items-center justify-between">
-          <Link href="/community" className="flex items-center gap-2 text-[#1A1110]">
-            <GlowUpLogo className="h-7 w-auto" />
-            <span className="text-sm font-semibold">Espace Community</span>
+        <div className="flex h-14 items-center justify-between gap-2 px-3 sm:px-4">
+          <Link href="/community" className="flex min-w-0 items-center gap-2 text-[#1A1110]">
+            <GlowUpLogo className="h-7 w-auto shrink-0" />
+            <span className="truncate text-sm font-semibold">Espace Community</span>
           </Link>
           <button
+            type="button"
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-800 transition-colors"
+            className="inline-flex shrink-0 items-center gap-2 text-sm font-medium text-gray-500 transition-colors hover:text-gray-800"
           >
             <LogOut className="h-4 w-4" />
-            Déconnexion
+            <span className="hidden sm:inline">Déconnexion</span>
           </button>
         </div>
-        <nav className="flex items-center gap-1 px-4">
+        <nav className="flex items-center gap-1 overflow-x-auto px-3 sm:px-4" style={{ scrollbarWidth: "none" }}>
           {NAV.map((item) => {
             const active =
               item.href === "/community"
@@ -68,7 +69,7 @@ export default function CommunityLayout({ children }: { children: React.ReactNod
               <Link
                 key={item.href}
                 href={item.href}
-                className={`-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                className={`-mb-px inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
                   active
                     ? "border-[#1A1110] text-[#1A1110]"
                     : "border-transparent text-gray-500 hover:text-gray-800"
@@ -81,7 +82,7 @@ export default function CommunityLayout({ children }: { children: React.ReactNod
           })}
         </nav>
       </header>
-      <main className="flex-1 min-h-0">{children}</main>
+      <main className="min-h-0 min-w-0 flex-1">{children}</main>
     </div>
   );
 }

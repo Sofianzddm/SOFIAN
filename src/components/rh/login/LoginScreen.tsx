@@ -1,10 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { signIn, useSession } from "next-auth/react";
-import { Check, Eye, EyeOff } from "lucide-react";
-import { LangSwitch, type RhLang } from "@/components/rh/chrome/shell";
+import { Check, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { RhButton } from "@/components/rh/ui/primitives";
 import {
   SESSION_REMEMBER_LABEL,
@@ -15,20 +14,20 @@ import {
   LOGIN_MESSAGE_ARRET_MALADIE,
 } from "@/lib/account-access-lock";
 
-type View = "login" | "forgot" | "sent" | "done" | "no_profile";
+type View = "login" | "forgot" | "sent" | "done" | "no_profile" | "mfa";
 
 const FEATURES = [
-  { label: "Congés, RTT et récupération", meta: "SOLDES EN DIRECT", dot: "#46D6C0" },
-  { label: "Télétravail et article 1.6", meta: "DROIT CALCULÉ", dot: "#7C8CF8" },
-  { label: "Feuilles de temps et heures supp.", meta: "25 % / 50 %", dot: "#F0C24E" },
-  { label: "Notes de frais et titres-restaurant", meta: "BARÈME 2026", dot: "#E5F2B5" },
+  { label: "Congés, RTT et récupération", meta: "Soldes en direct", dot: "#46D6C0" },
+  { label: "Télétravail (art. 1.6)", meta: "Droit calculé", dot: "#7C8CF8" },
+  { label: "Feuilles de temps & heures supp.", meta: "HS 25 % / 50 %", dot: "#F0C24E" },
+  { label: "Notes de frais & titres-resto", meta: "Simple et tracé", dot: "#E5F2B5" },
 ];
 
 export function LoginScreen() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session, status } = useSession();
   const [view, setView] = useState<View>("login");
-  const [lang, setLang] = useState<RhLang>("fr");
   const [showPwd, setShowPwd] = useState(false);
   const [stay, setStay] = useState(true);
   const [email, setEmail] = useState("");
@@ -39,6 +38,65 @@ export function LoginScreen() {
   const [homePath, setHomePath] = useState("/rh/espace");
   const [canAccessPeople, setCanAccessPeople] = useState(false);
   const [todoCount, setTodoCount] = useState(0);
+  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [otp, setOtp] = useState("");
+  const [emailHint, setEmailHint] = useState("");
+  const [devCode, setDevCode] = useState<string | null>(null);
+
+  async function startMfa() {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/rh/auth/challenge", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Impossible d’envoyer le code");
+      if (data.alreadySecure) {
+        setView("done");
+        const home = await fetch("/api/rh/home", { cache: "no-store" });
+        if (home.ok) {
+          const h = await home.json();
+          setTodoCount(h.pendingCount ?? 0);
+        }
+        return;
+      }
+      setChallengeId(data.challengeId);
+      setEmailHint(data.emailHint || "");
+      setDevCode(data.devCode || null);
+      setView("mfa");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur MFA");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function verifyMfa() {
+    if (!challengeId || otp.trim().length < 6) {
+      setError("Saisis le code à 6 chiffres");
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/rh/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challengeId, code: otp.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Code invalide");
+      setView("done");
+      const home = await fetch("/api/rh/home", { cache: "no-store" });
+      if (home.ok) {
+        const h = await home.json();
+        setTodoCount(h.pendingCount ?? 0);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (status !== "authenticated" || !session?.user) return;
@@ -53,6 +111,10 @@ export function LoginScreen() {
       setPrenom(data.employee?.prenom || session.user?.name?.split(" ")[0] || "");
       setHomePath(data.homePath || "/rh/espace");
       setCanAccessPeople(!!data.canAccessPeople);
+      if (data.canAccessPeople || searchParams.get("mfa") === "1") {
+        await startMfa();
+        return;
+      }
       setView("done");
       const home = await fetch("/api/rh/home");
       if (home.ok) {
@@ -60,6 +122,7 @@ export function LoginScreen() {
         setTodoCount(h.pendingCount ?? 0);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, session]);
 
   useEffect(() => {
@@ -130,6 +193,11 @@ export function LoginScreen() {
       setPrenom(data.employee?.prenom || "");
       setHomePath(data.homePath || "/rh/espace");
       setCanAccessPeople(!!data.canAccessPeople);
+      if (data.canAccessPeople) {
+        setLoading(false);
+        await startMfa();
+        return;
+      }
       setView("done");
       const home = await fetch("/api/rh/home", { cache: "no-store" });
       if (home.ok) {
@@ -266,7 +334,7 @@ export function LoginScreen() {
             LUCCA
           </span>
           <p className="m-0 text-[11.5px] leading-[1.55]" style={{ color: "#B9C2CE" }}>
-            Lucca résilié le 31/08/2026 — bienvenue sur Glow Up RH.
+            Absences, présence, temps et frais — tout au même endroit.
           </p>
         </div>
       </div>
@@ -275,14 +343,13 @@ export function LoginScreen() {
         className="flex flex-col"
         style={{ flex: "1 1 520px", padding: "38px 42px" }}
       >
-        <div className="flex items-center justify-between mb-8">
-          <LangSwitch lang={lang} onChange={setLang} />
+        <div className="flex items-center justify-end mb-8">
           <a
             href="mailto:maud@glowupagence.fr"
-            className="rh-mono text-[10px] tracking-[0.1em]"
+            className="text-[12.5px] font-medium"
             style={{ color: "#8B95A5" }}
           >
-            AIDE
+            Besoin d&apos;aide ?
           </a>
         </div>
 
@@ -424,6 +491,95 @@ export function LoginScreen() {
             </div>
           )}
 
+          {view === "mfa" && (
+            <div className="rh-rise flex flex-col gap-5">
+              <div className="flex items-start gap-3">
+                <div
+                  className="grid place-items-center rounded-[12px] shrink-0"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    background: "rgba(229,242,181,.14)",
+                    color: "#E5F2B5",
+                  }}
+                >
+                  <ShieldCheck size={18} />
+                </div>
+                <div>
+                  <div
+                    className="rh-mono text-[10px] tracking-[0.14em]"
+                    style={{ color: "#5F6978" }}
+                  >
+                    CONNEXION SÉCURISÉE
+                  </div>
+                  <h2 className="m-0 mt-[7px] text-[22px] font-semibold tracking-[-0.02em]">
+                    Code envoyé par e-mail
+                  </h2>
+                  <p
+                    className="m-0 mt-2 text-[13px] leading-[1.5]"
+                    style={{ color: "#8B95A5" }}
+                  >
+                    Un code à 6 chiffres a été envoyé
+                    {emailHint ? ` à ${emailHint}` : ""}. Valable 10 min.
+                  </p>
+                </div>
+              </div>
+              <label className="flex flex-col gap-1.5">
+                <span
+                  className="rh-mono text-[9.5px] tracking-[0.1em]"
+                  style={{ color: "#5F6978" }}
+                >
+                  CODE
+                </span>
+                <input
+                  className="rh-input rh-mono text-center tracking-[0.4em] text-[20px] font-bold"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) =>
+                    setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  placeholder="••••••"
+                />
+              </label>
+              {devCode ? (
+                <p className="m-0 text-[12px]" style={{ color: "#F0C24E" }}>
+                  Dev : {devCode}
+                </p>
+              ) : null}
+              {error && (
+                <p className="m-0 text-[12.5px]" style={{ color: "#F2604E" }}>
+                  {error}
+                </p>
+              )}
+              <RhButton
+                className="w-full py-[13px] text-[13.5px]"
+                disabled={loading || otp.length < 6}
+                onClick={() => void verifyMfa()}
+              >
+                {loading ? "Vérification…" : "Valider l’accès RH"}
+              </RhButton>
+              <button
+                type="button"
+                className="border-0 bg-transparent cursor-pointer text-[12.5px]"
+                style={{ color: "#8B95A5" }}
+                disabled={loading}
+                onClick={() => void startMfa()}
+              >
+                Renvoyer le code
+              </button>
+              <button
+                type="button"
+                className="border-0 bg-transparent cursor-pointer text-[12.5px]"
+                style={{ color: "#5F6978" }}
+                onClick={() => window.location.assign("/rh/espace")}
+              >
+                Continuer vers mon espace salarié →
+              </button>
+            </div>
+          )}
+
           {view === "done" && (
             <div className="rh-rise flex flex-col gap-5 items-start">
               <div
@@ -464,7 +620,7 @@ export function LoginScreen() {
                   );
                 }}
               >
-                {canAccessPeople ? "Ouvrir People" : "Entrer"}
+                {canAccessPeople ? "Ouvrir la console RH" : "Entrer"}
               </RhButton>
               {canAccessPeople ? (
                 <button

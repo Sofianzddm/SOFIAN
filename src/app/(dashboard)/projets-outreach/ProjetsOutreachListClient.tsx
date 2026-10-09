@@ -325,7 +325,7 @@ export function ProjetsOutreachListClient() {
           </div>
         </div>
 
-        <div className="mt-[22px] flex flex-wrap items-center gap-[7px]">
+        <div className="po-filters-row mt-[22px]">
           {listMode === "projets" &&
             FILTERS.map((f) => (
               <button
@@ -384,7 +384,7 @@ export function ProjetsOutreachListClient() {
             ) : awaitingItems.length === 0 ? (
               <div className="po-empty">Aucune marque en attente de contacts.</div>
             ) : (
-              <div className="po-card" style={{ overflow: "hidden" }}>
+              <div className="po-card po-table-scroll">
                 <div
                   className="po-table-head"
                   style={{
@@ -393,9 +393,9 @@ export function ProjetsOutreachListClient() {
                 >
                   <div>Marque</div>
                   <div>Projet · talent</div>
-                  <div>Demandé</div>
+                  <div className="po-col-hide-mobile">Demandé</div>
                   <div>Emails</div>
-                  <div>Depuis</div>
+                  <div className="po-col-hide-mobile">Depuis</div>
                   <div />
                 </div>
                 {awaitingItems.map((item) => (
@@ -433,7 +433,7 @@ export function ProjetsOutreachListClient() {
                         {item.talentName || item.creatorName || "—"}
                       </div>
                     </div>
-                    <div style={{ fontSize: 12.5, color: "var(--po-secondary)" }}>
+                    <div className="po-col-hide-mobile" style={{ fontSize: 12.5, color: "var(--po-secondary)" }}>
                       {item.requestedByName || "—"}
                     </div>
                     <div style={{ fontSize: 12.5, fontWeight: 600 }}>
@@ -443,7 +443,7 @@ export function ProjetsOutreachListClient() {
                         / {item.contactCount}
                       </span>
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--po-tertiary)" }}>
+                    <div className="po-col-hide-mobile" style={{ fontSize: 12, color: "var(--po-tertiary)" }}>
                       {formatRelativeFr(item.requestedAt || item.updatedAt)}
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">

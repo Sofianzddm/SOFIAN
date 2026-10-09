@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import {
   displayName,
+  canAccessRhPeople,
   homePathForRole,
   initials,
   requireRhSessionFromRequest,
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
       jobTitle: employee.jobTitle,
       department: employee.department,
       avatarColor: employee.avatarColor,
+      avatarUrl: employee.avatarUrl,
       rhRole: employee.rhRole,
       hireDate: employee.hireDate.toISOString(),
       weeklyHours: employee.weeklyHours,
@@ -65,6 +67,6 @@ export async function GET(request: NextRequest) {
     balances,
     bookableTotal,
     homePath: homePathForRole(employee.rhRole),
-    canAccessPeople: employee.rhRole === "MANAGER" || employee.rhRole === "HR",
+    canAccessPeople: canAccessRhPeople(employee.rhRole),
   });
 }

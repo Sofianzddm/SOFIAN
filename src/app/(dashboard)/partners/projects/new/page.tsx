@@ -284,7 +284,7 @@ export default function NewPartnerProjectPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto">
       <Link href={BASE} className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6">
         <ArrowLeft className="w-4 h-4" />
         Retour à la liste
@@ -317,7 +317,7 @@ export default function NewPartnerProjectPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Image de couverture</label>
             <div className="flex flex-col gap-2">
@@ -378,7 +378,7 @@ export default function NewPartnerProjectPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Date</label>
             <input
@@ -522,7 +522,7 @@ export default function NewPartnerProjectPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Ordre d'affichage</label>
             <input
@@ -552,7 +552,7 @@ export default function NewPartnerProjectPage() {
             Sélectionner les talents ({selectedTalents.length} sélectionnés)
           </label>
           <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {talents.map((talent) => {
                 const isSelected = selectedTalents.includes(talent.id);
                 return (

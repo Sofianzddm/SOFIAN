@@ -265,7 +265,7 @@ export function CastingMissionsClient() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1400px] space-y-6 p-6 md:p-8">
+    <main className="mx-auto w-full max-w-[1400px] space-y-6 p-4 sm:p-6 md:p-8">
       {notice && (
         <div
           className="fixed bottom-6 right-6 z-[200] rounded-xl border px-4 py-3 text-sm shadow-lg"
@@ -279,8 +279,8 @@ export function CastingMissionsClient() {
         </div>
       )}
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-5">
-        <div className="flex items-center justify-between gap-3">
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Missions Strategy (Casting)</h1>
             <p className="mt-1 text-sm text-gray-500">
@@ -298,8 +298,8 @@ export function CastingMissionsClient() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-5">
-        <div className="mb-3 grid gap-2 md:grid-cols-3">
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+        <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}

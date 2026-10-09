@@ -558,7 +558,7 @@ export default function AdminPrimesPage() {
 
   return (
     <div className="space-y-5" style={{ fontFamily: "Switzer, sans-serif" }}>
-      <h1 className="text-3xl font-semibold" style={{ color: LICORICE, fontFamily: "Spectral, serif" }}>Validation des primes</h1>
+      <h1 className="text-2xl sm:text-3xl font-semibold" style={{ color: LICORICE, fontFamily: "Spectral, serif" }}>Validation des primes</h1>
 
       <div className="rounded-2xl border bg-white p-4" style={{ borderColor: "#EEDFD1" }}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
@@ -671,27 +671,67 @@ export default function AdminPrimesPage() {
                     {p.statut}
                   </span>
                 </div>
-                <table className="w-full text-sm">
-                  <thead><tr className="text-left" style={{ color: OLD_ROSE }}><th className="py-2">Type</th><th className="py-2">Description</th><th className="py-2">Talent</th><th className="py-2 text-right">Montant</th></tr></thead>
-                  <tbody>
-                    {(p.lignes || []).map((l) => (
-                      <tr key={l.id} className="border-t" style={{ borderColor: "#F2E9DD", backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : undefined }}>
-                        <td className="py-2">{PRIME_TYPE_LABELS[l.type] || l.type}</td>
-                        <td className="py-2">{l.description}</td>
-                        <td className="py-2">{l.talentNom || "—"}</td>
-                        <td className="py-2 text-right" style={{ color: Number(l.montant) < 0 ? "#B91C1C" : undefined }}>{eur(Number(l.montant || 0))}</td>
+                <div className="md:hidden space-y-2">
+                  {(p.lignes || []).map((l) => (
+                    <div
+                      key={l.id}
+                      className="rounded-xl border px-3 py-2.5"
+                      style={{
+                        borderColor: "#F2E9DD",
+                        backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : "#FCFAF8",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium" style={{ color: OLD_ROSE }}>
+                            {PRIME_TYPE_LABELS[l.type] || l.type}
+                          </p>
+                          <p className="text-sm mt-0.5" style={{ color: LICORICE }}>{l.description}</p>
+                          {l.talentNom ? (
+                            <p className="text-xs mt-1" style={{ color: OLD_ROSE }}>{l.talentNom}</p>
+                          ) : null}
+                        </div>
+                        <span
+                          className="shrink-0 text-sm font-semibold"
+                          style={{ color: Number(l.montant) < 0 ? "#B91C1C" : LICORICE }}
+                        >
+                          {eur(Number(l.montant || 0))}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <span className="text-sm italic" style={{ color: OLD_ROSE }}>Prime CA (5%)</span>
+                    <span className="text-sm italic">{eur(Number(p.primeCA || 0))}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <span className="text-sm font-semibold" style={{ color: LICORICE }}>Total</span>
+                    <span className="text-sm font-semibold" style={{ color: LICORICE }}>{eur(total)}</span>
+                  </div>
+                </div>
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left" style={{ color: OLD_ROSE }}><th className="py-2">Type</th><th className="py-2">Description</th><th className="py-2">Talent</th><th className="py-2 text-right">Montant</th></tr></thead>
+                    <tbody>
+                      {(p.lignes || []).map((l) => (
+                        <tr key={l.id} className="border-t" style={{ borderColor: "#F2E9DD", backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : undefined }}>
+                          <td className="py-2">{PRIME_TYPE_LABELS[l.type] || l.type}</td>
+                          <td className="py-2">{l.description}</td>
+                          <td className="py-2">{l.talentNom || "—"}</td>
+                          <td className="py-2 text-right" style={{ color: Number(l.montant) < 0 ? "#B91C1C" : undefined }}>{eur(Number(l.montant || 0))}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t" style={{ borderColor: "#F2E9DD" }}>
+                        <td colSpan={3} className="py-2 italic" style={{ color: OLD_ROSE }}>Prime CA (5% marge pôle management)</td>
+                        <td className="py-2 text-right italic">{eur(Number(p.primeCA || 0))}</td>
                       </tr>
-                    ))}
-                    <tr className="border-t" style={{ borderColor: "#F2E9DD" }}>
-                      <td colSpan={3} className="py-2 italic" style={{ color: OLD_ROSE }}>Prime CA (5% marge pôle management)</td>
-                      <td className="py-2 text-right italic">{eur(Number(p.primeCA || 0))}</td>
-                    </tr>
-                    <tr className="border-t" style={{ borderColor: "#F2E9DD" }}>
-                      <td colSpan={3} className="py-2 font-semibold" style={{ color: LICORICE }}>Total</td>
-                      <td className="py-2 text-right font-semibold">{eur(total)}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                      <tr className="border-t" style={{ borderColor: "#F2E9DD" }}>
+                        <td colSpan={3} className="py-2 font-semibold" style={{ color: LICORICE }}>Total</td>
+                        <td className="py-2 text-right font-semibold">{eur(total)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
 
                 {p.commentaireAdmin && <p className="mt-2 text-sm text-red-700">{p.commentaireAdmin}</p>}
 
@@ -699,31 +739,78 @@ export default function AdminPrimesPage() {
                   <div className="mt-4 rounded-xl border p-3" style={{ borderColor: TEA_GREEN, backgroundColor: "#F7FBF0" }}>
                     <p className="text-sm font-semibold mb-2" style={{ color: LICORICE }}>Tableau validé / corrigé (admin)</p>
                     {Array.isArray(p.lignesAdmin) && p.lignesAdmin.length > 0 ? (
-                      <table className="w-full text-sm mb-2">
-                        <tbody>
+                      <>
+                        <div className="md:hidden space-y-2 mb-2">
                           {p.lignesAdmin.map((l) => (
-                            <tr key={l.id} className="border-t" style={{ borderColor: "#E5EED6", backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : undefined }}>
-                              <td className="py-1.5">{PRIME_TYPE_LABELS[l.type] || l.type}</td>
-                              <td className="py-1.5">{l.description}</td>
-                              <td className="py-1.5">{l.talentNom || "—"}</td>
-                              <td className="py-1.5 text-right" style={{ color: Number(l.montant) < 0 ? "#B91C1C" : undefined }}>{eur(Number(l.montant || 0))}</td>
-                            </tr>
+                            <div
+                              key={l.id}
+                              className="rounded-xl border px-3 py-2.5"
+                              style={{
+                                borderColor: "#E5EED6",
+                                backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : "white",
+                              }}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-medium" style={{ color: OLD_ROSE }}>
+                                    {PRIME_TYPE_LABELS[l.type] || l.type}
+                                  </p>
+                                  <p className="text-sm mt-0.5" style={{ color: LICORICE }}>{l.description}</p>
+                                  {l.talentNom ? (
+                                    <p className="text-xs mt-1" style={{ color: OLD_ROSE }}>{l.talentNom}</p>
+                                  ) : null}
+                                </div>
+                                <span
+                                  className="shrink-0 text-sm font-semibold"
+                                  style={{ color: Number(l.montant) < 0 ? "#B91C1C" : LICORICE }}
+                                >
+                                  {eur(Number(l.montant || 0))}
+                                </span>
+                              </div>
+                            </div>
                           ))}
-                          <tr className="border-t" style={{ borderColor: "#E5EED6" }}>
-                            <td colSpan={3} className="py-1.5 italic" style={{ color: OLD_ROSE }}>Prime CA</td>
-                            <td className="py-1.5 text-right italic">{eur(Number(p.primeCAAdmin || 0))}</td>
-                          </tr>
-                          <tr className="border-t" style={{ borderColor: "#E5EED6" }}>
-                            <td colSpan={3} className="py-1.5 font-semibold">Total corrigé</td>
-                            <td className="py-1.5 text-right font-semibold">
+                          <div className="flex items-center justify-between gap-2 px-1">
+                            <span className="text-sm italic" style={{ color: OLD_ROSE }}>Prime CA</span>
+                            <span className="text-sm italic">{eur(Number(p.primeCAAdmin || 0))}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 px-1">
+                            <span className="text-sm font-semibold" style={{ color: LICORICE }}>Total corrigé</span>
+                            <span className="text-sm font-semibold" style={{ color: LICORICE }}>
                               {eur(
                                 (p.lignesAdmin || []).reduce((s, l) => s + Number(l.montant || 0), 0) +
                                   Number(p.primeCAAdmin || 0)
                               )}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+                            </span>
+                          </div>
+                        </div>
+                        <div className="hidden md:block overflow-x-auto mb-2">
+                          <table className="w-full text-sm">
+                            <tbody>
+                              {p.lignesAdmin.map((l) => (
+                                <tr key={l.id} className="border-t" style={{ borderColor: "#E5EED6", backgroundColor: l.type === "RETRAIT_COLLABORATION" ? "#FEF2F2" : undefined }}>
+                                  <td className="py-1.5">{PRIME_TYPE_LABELS[l.type] || l.type}</td>
+                                  <td className="py-1.5">{l.description}</td>
+                                  <td className="py-1.5">{l.talentNom || "—"}</td>
+                                  <td className="py-1.5 text-right" style={{ color: Number(l.montant) < 0 ? "#B91C1C" : undefined }}>{eur(Number(l.montant || 0))}</td>
+                                </tr>
+                              ))}
+                              <tr className="border-t" style={{ borderColor: "#E5EED6" }}>
+                                <td colSpan={3} className="py-1.5 italic" style={{ color: OLD_ROSE }}>Prime CA</td>
+                                <td className="py-1.5 text-right italic">{eur(Number(p.primeCAAdmin || 0))}</td>
+                              </tr>
+                              <tr className="border-t" style={{ borderColor: "#E5EED6" }}>
+                                <td colSpan={3} className="py-1.5 font-semibold">Total corrigé</td>
+                                <td className="py-1.5 text-right font-semibold">
+                                  {eur(
+                                    (p.lignesAdmin || []).reduce((s, l) => s + Number(l.montant || 0), 0) +
+                                      Number(p.primeCAAdmin || 0)
+                                  )}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
                     ) : null}
                     {p.excelUrl ? (
                       <a

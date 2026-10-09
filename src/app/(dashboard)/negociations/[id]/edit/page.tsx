@@ -352,8 +352,8 @@ export default function EditNegociationPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4 min-w-0">
           <Link
             href={`/negociations/${params.id}`}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -418,7 +418,7 @@ export default function EditNegociationPage() {
 
       <form onSubmit={handleSubmit}>
         {/* Talent & Marque */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 mb-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-glowup-rose/10 rounded-lg">
               <User className="w-5 h-5 text-glowup-rose" />
@@ -571,7 +571,7 @@ export default function EditNegociationPage() {
         </div>
 
         {/* Brief & Budgets */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 mb-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-blue-50 rounded-lg">
               <FileText className="w-5 h-5 text-blue-600" />
@@ -642,7 +642,7 @@ export default function EditNegociationPage() {
         </div>
 
         {/* Livrables */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 mb-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-amber-50 rounded-lg">
@@ -683,8 +683,8 @@ export default function EditNegociationPage() {
                       {index + 1}
                     </span>
                     <div className="flex-1 space-y-4">
-                      <div className="grid md:grid-cols-12 gap-3">
-                        <div className="col-span-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                        <div className="sm:col-span-2">
                           <label className="block text-xs text-gray-500 mb-1">Type *</label>
                           <input
                             type="text"
@@ -701,7 +701,7 @@ export default function EditNegociationPage() {
                             ))}
                           </datalist>
                         </div>
-                        <div className="col-span-1">
+                        <div className="sm:col-span-1">
                           <label className="block text-xs text-gray-500 mb-1">Qté *</label>
                           <input
                             type="number"
@@ -712,7 +712,7 @@ export default function EditNegociationPage() {
                             className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-glowup-rose"
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div className="sm:col-span-2">
                           <label className="block text-xs text-gray-500 mb-1">Notre prix €</label>
                           <div className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm bg-gray-100 text-gray-700 font-medium">
                             {livrable.typeContenu
@@ -723,7 +723,7 @@ export default function EditNegociationPage() {
                           </div>
                           <p className="text-[10px] text-gray-400 mt-0.5">Grille DB</p>
                         </div>
-                        <div className="col-span-2">
+                        <div className="sm:col-span-2">
                           <label className="block text-xs text-gray-500 mb-1">Prix marque € HT <span className="text-slate-400">(TM)</span></label>
                           <input
                             type="number"
@@ -734,7 +734,7 @@ export default function EditNegociationPage() {
                             className="w-full px-2 py-2 rounded-lg border border-gray-200 text-sm"
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div className="sm:col-span-2">
                           <label className="block text-xs text-gray-500 mb-1">Prix souhaité € HT <span className="text-slate-400">(TM)</span></label>
                           <input
                             type="number"
@@ -760,7 +760,7 @@ export default function EditNegociationPage() {
                             </button>
                           )}
                         </div>
-                        <div className="col-span-1">
+                        <div className="sm:col-span-1">
                           <label className="block text-xs text-gray-500 mb-1" title="Contre-proposition Head of : montant accordé à la validation">
                             Prix final € <span className="text-blue-600">(Head of)</span>
                           </label>
@@ -806,7 +806,7 @@ export default function EditNegociationPage() {
         </div>
 
         {/* Actions */}
-        <div className="flex justify-between">
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
           <Link
             href={`/negociations/${params.id}`}
             className="px-6 py-2.5 text-gray-600 hover:text-glowup-licorice transition-colors"

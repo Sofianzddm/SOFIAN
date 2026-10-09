@@ -721,7 +721,7 @@ export default function DemandeModal({
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-0">
           <div
-            className="border-r p-4"
+            className="border-b p-4 lg:border-b-0 lg:border-r"
             style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 30%, transparent)` }}
           >
             <h3 className="text-lg font-semibold mb-3" style={{ color: LICORICE, fontFamily: "Spectral, serif" }}>
@@ -1068,7 +1068,7 @@ export default function DemandeModal({
                           Ouvrir la fiche
                         </button>
                       </div>
-                      <div className="grid grid-cols-3 gap-2 mt-4">
+                      <div className="grid grid-cols-1 gap-2 mt-4 sm:grid-cols-3">
                         <div className="rounded-xl bg-white/10 px-2.5 py-2">
                           <p className="text-[10px] text-white/70">Instagram</p>
                           <p className="text-sm font-semibold text-white">
@@ -1106,7 +1106,7 @@ export default function DemandeModal({
                       </div>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <div
                       className="rounded-xl border p-3"
                       style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
@@ -1149,7 +1149,7 @@ export default function DemandeModal({
                       <p className="text-base font-semibold flex items-center gap-2 mb-3" style={{ color: LICORICE }}>
                         <Instagram className="w-4 h-4" /> Instagram
                       </p>
-                      <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div className="grid grid-cols-1 gap-2 mb-3 sm:grid-cols-2">
                         <div className="rounded-xl p-3 text-white bg-gradient-to-br from-pink-500 to-rose-500">
                           <p className="text-[11px] text-white/80">Communauté</p>
                           <p className="text-lg font-bold">{formatFollowers(asNumber((talentDetail.stats as Record<string, unknown> | null)?.igFollowers))}</p>
@@ -1221,7 +1221,7 @@ export default function DemandeModal({
                       <p className="text-base font-semibold flex items-center gap-2 mb-3" style={{ color: LICORICE }}>
                         <Music2 className="w-4 h-4" /> TikTok
                       </p>
-                      <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div className="grid grid-cols-1 gap-2 mb-3 sm:grid-cols-2">
                         <div className="rounded-xl p-3 text-white bg-gradient-to-br from-gray-700 to-gray-900">
                           <p className="text-[11px] text-white/80">Communauté</p>
                           <p className="text-lg font-bold">{formatFollowers(asNumber((talentDetail.stats as Record<string, unknown> | null)?.ttFollowers))}</p>
@@ -1297,7 +1297,7 @@ export default function DemandeModal({
                     <p className="text-sm font-semibold flex items-center gap-1.5" style={{ color: LICORICE }}>
                       <Target className="w-4 h-4" /> Performances Stories (interne)
                     </p>
-                    <div className="mt-2 grid grid-cols-3 gap-2">
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <div className="rounded-lg bg-[#F5EBE0] px-2 py-1.5">
                         <p className="text-[10px] uppercase opacity-70" style={{ color: OLD_ROSE }}>Vues 30j</p>
                         <p className="text-sm font-semibold" style={{ color: LICORICE }}>
@@ -1324,7 +1324,7 @@ export default function DemandeModal({
                       </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <div className="rounded-xl border p-3" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
                       <p className="text-xs opacity-75 flex items-center gap-1" style={{ color: OLD_ROSE }}><Mail className="w-3.5 h-3.5" /> Email</p>
                       <p className="text-sm font-medium break-all" style={{ color: LICORICE }}>{talentDetail.email ? talentDetail.email : "—"}</p>
@@ -1344,7 +1344,7 @@ export default function DemandeModal({
                   </div>
                   <div className="rounded-xl border p-3" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
                     <p className="text-sm font-semibold" style={{ color: LICORICE }}>Grille tarifaire (aperçu)</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <div><p className="text-[11px] opacity-75" style={{ color: OLD_ROSE }}>Story</p><p className="text-sm font-medium" style={{ color: LICORICE }}>{((talentDetail.tarifs as Record<string, unknown> | null)?.tarifStory ?? null) ? `${String((talentDetail.tarifs as Record<string, unknown>).tarifStory)}€` : "—"}</p></div>
                       <div><p className="text-[11px] opacity-75" style={{ color: OLD_ROSE }}>Post</p><p className="text-sm font-medium" style={{ color: LICORICE }}>{((talentDetail.tarifs as Record<string, unknown> | null)?.tarifPost ?? null) ? `${String((talentDetail.tarifs as Record<string, unknown>).tarifPost)}€` : "—"}</p></div>
                       <div><p className="text-[11px] opacity-75" style={{ color: OLD_ROSE }}>Reel</p><p className="text-sm font-medium" style={{ color: LICORICE }}>{((talentDetail.tarifs as Record<string, unknown> | null)?.tarifReel ?? null) ? `${String((talentDetail.tarifs as Record<string, unknown>).tarifReel)}€` : "—"}</p></div>
@@ -1353,7 +1353,7 @@ export default function DemandeModal({
                       <div><p className="text-[11px] opacity-75" style={{ color: OLD_ROSE }}>Shooting</p><p className="text-sm font-medium" style={{ color: LICORICE }}>{((talentDetail.tarifs as Record<string, unknown> | null)?.tarifShooting ?? null) ? `${String((talentDetail.tarifs as Record<string, unknown>).tarifShooting)}€` : "—"}</p></div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <div className="rounded-xl border p-3" style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}>
                       <p className="text-sm font-semibold" style={{ color: LICORICE }}>Collaborations</p>
                       <p className="text-xs opacity-75" style={{ color: OLD_ROSE }}>{(talentDetail.collaborations?.length ?? 0)} total</p>

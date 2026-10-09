@@ -42,12 +42,12 @@ export default function ContactsView({ contacts, isAdmin }: Props) {
         )}
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden">
         {CATEGORIES.map((cat) => (
           <button
             key={cat}
             onClick={() => setCategory(cat)}
-            className={`rounded-full border px-3 py-1 text-xs ${
+            className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs ${
               category === cat ? "border-[#1A1110] bg-[#1A1110] text-[#F5EBE0]" : "border-[#E5E0D8] bg-white text-[#1A1110]"
             }`}
           >

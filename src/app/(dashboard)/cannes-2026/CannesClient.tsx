@@ -68,14 +68,18 @@ export default function CannesClient({
   return (
     <>
       <Toaster position="bottom-right" richColors />
-      <div className="min-h-screen bg-[#F5EBE0]">
+      <div className="min-h-screen overflow-x-hidden bg-[#F5EBE0]">
         <header className="border-b border-[#E5E0D8] bg-white">
-          <div className="mx-auto max-w-7xl px-6 py-8">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-[0.2em] text-[#C08B8B]">Festival de Cannes</p>
-                <h1 className="mt-1 font-[Spectral] text-4xl font-light text-[#1A1110]">Edition 2026</h1>
-                <p className="mt-2 text-sm text-[#1A1110]/60">12 -&gt; 23 mai 2026 · Espace partage Glow Up</p>
+                <h1 className="mt-1 font-[Spectral] text-3xl font-light text-[#1A1110] sm:text-4xl">
+                  Edition 2026
+                </h1>
+                <p className="mt-2 text-sm text-[#1A1110]/60">
+                  12 -&gt; 23 mai 2026 · Espace partage Glow Up
+                </p>
                 {!coiffeurOnlyUser && (
                   <p className="mt-3 max-w-xl text-sm leading-relaxed text-[#1A1110]/65">
                     <a
@@ -95,18 +99,19 @@ export default function CannesClient({
                 {isAdmin && !coiffeurOnlyUser ? <CannesVillaTvBoardManager /> : null}
               </div>
               {isAdmin && (
-                <span className="rounded-full bg-[#C8F285] px-3 py-1 text-xs font-medium text-[#1A1110]">
+                <span className="w-fit shrink-0 rounded-full bg-[#C8F285] px-3 py-1 text-xs font-medium text-[#1A1110]">
                   Mode Admin
                 </span>
               )}
             </div>
 
-            <nav className="mt-8 flex gap-1 border-b border-[#E5E0D8]">
+            <nav className="-mx-4 mt-6 flex gap-1 overflow-x-auto border-b border-[#E5E0D8] px-4 [-ms-overflow-style:none] [scrollbar-width:none] sm:mx-0 sm:mt-8 sm:px-0 [&::-webkit-scrollbar]:hidden">
               {tabs.map(([key, label]) => (
                 <button
                   key={key}
+                  type="button"
                   onClick={() => setTab(key as Tab)}
-                  className={`relative px-5 py-3 text-sm font-medium transition ${
+                  className={`relative shrink-0 whitespace-nowrap px-3 py-3 text-sm font-medium transition sm:px-5 ${
                     tab === key ? "text-[#1A1110]" : "text-[#1A1110]/50 hover:text-[#1A1110]"
                   }`}
                 >
@@ -118,7 +123,7 @@ export default function CannesClient({
           </div>
         </header>
 
-        <main className="mx-auto max-w-7xl px-6 py-8">
+        <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
           {tab === "agenda" && (
             <AgendaView events={initialEvents} presences={initialPresences} isAdmin={isAdmin} />
           )}

@@ -36,14 +36,14 @@ export default function JuristeLayout({ children }: { children: React.ReactNode 
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fafafa]">
-      <header className="shrink-0 h-14 border-b border-gray-200 bg-white px-4 flex items-center justify-between">
-        <Link href="/juriste" className="flex items-center gap-2 text-[#1A1110]">
-          <GlowUpLogo className="h-7 w-auto" />
-          <span className="text-sm font-semibold">Contrats à relire</span>
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#fafafa]">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-3 sm:px-4">
+        <Link href="/juriste" className="flex min-w-0 items-center gap-2 text-[#1A1110]">
+          <GlowUpLogo className="h-7 w-auto shrink-0" />
+          <span className="truncate text-sm font-semibold">Contrats à relire</span>
         </Link>
       </header>
-      <main className="flex-1 min-h-0">{children}</main>
+      <main className="min-h-0 min-w-0 flex-1">{children}</main>
     </div>
   );
 }

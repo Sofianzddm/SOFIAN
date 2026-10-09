@@ -3,18 +3,18 @@ import prisma from "@/lib/prisma";
 import {
   displayName,
   initials,
-  isRhManager,
+  isRhHr,
   requireRhSessionFromRequest,
 } from "@/lib/rh/auth";
 
-/** Planning équipe : leave days + TT pour gantt / absents. */
+/** Planning équipe : leave days + TT pour gantt / absents — admin RH. */
 export async function GET(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
-  if (!isRhManager(session.employee.rhRole)) {
-    return NextResponse.json({ error: "Accès manager/RH requis" }, { status: 403 });
+  if (!isRhHr(session.employee.rhRole)) {
+    return NextResponse.json({ error: "Accès RH requis" }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -26,16 +26,7 @@ export async function GET(request: NextRequest) {
   );
   to.setHours(23, 59, 59, 999);
 
-  const whereEmp =
-    session.employee.rhRole === "HR"
-      ? { actif: true as const }
-      : {
-          actif: true as const,
-          OR: [
-            { id: session.employee.id },
-            { managerId: session.employee.id },
-          ],
-        };
+  const whereEmp = { actif: true as const };
 
   const employees = await prisma.rhEmployee.findMany({
     where: whereEmp,

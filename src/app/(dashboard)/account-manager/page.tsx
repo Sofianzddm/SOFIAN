@@ -116,12 +116,12 @@ export default function AccountManagerDashboard() {
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-pink-500/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
         
         <div className="relative">
-          <div className="flex items-center gap-4 mb-2">
-            <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center mb-2">
+            <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm w-fit">
               <Users className="w-8 h-8" />
             </div>
             <div>
-              <h1 className="text-3xl font-extrabold">Dashboard Account Manager</h1>
+              <h1 className="text-2xl sm:text-3xl font-extrabold">Dashboard Account Manager</h1>
               <p className="text-white/80 mt-1">
                 Gérez vos collaborations assignées et les demandes de gifts
               </p>
@@ -131,7 +131,7 @@ export default function AccountManagerDashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           label="Mes collaborations"
           value={stats.totalCollabs}
@@ -373,9 +373,9 @@ function CollabCard({ collab }: any) {
       href={`/collaborations/${collab.id}`}
       className="group block bg-gray-50 hover:bg-purple-50 rounded-2xl border-2 border-gray-100 hover:border-purple-300 transition-all p-5"
     >
-      <div className="flex items-center gap-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-3 mb-2">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-3 mb-2">
             <span className="font-bold text-glowup-licorice text-lg group-hover:text-purple-600 transition-colors">
               {collab.reference}
             </span>
@@ -388,7 +388,7 @@ function CollabCard({ collab }: any) {
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-4 text-sm">
+          <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-gray-400" />
               <span className="text-gray-700">

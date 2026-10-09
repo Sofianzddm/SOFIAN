@@ -270,8 +270,8 @@ export default function EditMarquePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4 min-w-0">
           <Link
             href={`/marques/${params.id}`}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -400,7 +400,7 @@ export default function EditMarquePage() {
         {/* Step 1: Informations */}
         {activeStep === 1 && (
           <div className="space-y-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-glowup-rose/10 rounded-lg">
                   <Building2 className="w-5 h-5 text-glowup-rose" />
@@ -465,7 +465,7 @@ export default function EditMarquePage() {
         {activeStep === 2 && (
           <div className="space-y-6">
             {/* Adresse */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-blue-50 rounded-lg">
                   <MapPin className="w-5 h-5 text-blue-600" />
@@ -532,7 +532,7 @@ export default function EditMarquePage() {
             </div>
 
             {/* Légal */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-purple-50 rounded-lg">
                   <Landmark className="w-5 h-5 text-purple-600" />
@@ -598,8 +598,8 @@ export default function EditMarquePage() {
         {/* Step 3: Contacts */}
         {activeStep === 3 && (
           <div className="space-y-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-              <div className="flex items-center justify-between mb-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-amber-50 rounded-lg">
                     <User className="w-5 h-5 text-amber-600" />
@@ -742,7 +742,7 @@ export default function EditMarquePage() {
         {/* Step 4: Facturation */}
         {activeStep === 4 && (
           <div className="space-y-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-emerald-50 rounded-lg">
                   <CreditCard className="w-5 h-5 text-emerald-600" />
@@ -806,7 +806,7 @@ export default function EditMarquePage() {
         )}
 
         {/* Navigation */}
-        <div className="flex justify-between mt-6">
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between mt-6">
           {activeStep > 1 ? (
             <button
               type="button"

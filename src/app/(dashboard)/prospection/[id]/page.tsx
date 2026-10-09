@@ -990,8 +990,162 @@ export default function FichierProspectionPage() {
         </span>
       </div>
 
-      {/* Tableau */}
-      <div className="w-full overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
+      {/* Cartes mobile */}
+      <div className="md:hidden space-y-3">
+        {fichier.contacts.map((contact, index) => (
+          <article
+            key={contact.id}
+            className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm space-y-3"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => openContactModal(index)}
+                className="min-w-0 text-left text-sm font-semibold text-[#1A1110] hover:underline"
+              >
+                {contact.nomOpportunite || "Sans nom"}
+              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => openContactModal(index)}
+                  className="relative inline-flex items-center justify-center rounded-full p-1.5"
+                  aria-label="Commentaires"
+                >
+                  <MessageCircle
+                    className={`w-4 h-4 ${
+                      contact.commentCount && contact.commentCount > 0
+                        ? "text-[#C08B8B]"
+                        : "text-gray-300"
+                    }`}
+                  />
+                  {contact.commentCount && contact.commentCount > 0 ? (
+                    <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                      {contact.commentCount > 9 ? "9+" : contact.commentCount}
+                    </span>
+                  ) : null}
+                </button>
+                <ActionButton
+                  contact={contact}
+                  fichierId={fichier.id}
+                  onContactUpdated={(updated) => {
+                    setFichier((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            contacts: prev.contacts.map((c) =>
+                              c.id === updated.id ? { ...c, ...updated } : c
+                            ),
+                          }
+                        : prev
+                    );
+                    if (contactDetail?.id === updated.id) {
+                      setContactDetail((prev) =>
+                        prev ? { ...prev, ...updated } : prev
+                      );
+                    }
+                  }}
+                  onTriggerConvert={(id, nomOpp) =>
+                    setConvertModal({
+                      open: true,
+                      contactId: id,
+                      nomOpportunite: nomOpp,
+                    })
+                  }
+                />
+              </div>
+            </div>
+            {(contact.prenom || contact.nom || contact.email) && (
+              <p className="text-xs text-gray-500 truncate">
+                {[contact.prenom, contact.nom].filter(Boolean).join(" ")}
+                {contact.email
+                  ? `${contact.prenom || contact.nom ? " · " : ""}${contact.email}`
+                  : ""}
+              </p>
+            )}
+            <div className="grid grid-cols-1 gap-2">
+              <label className="space-y-1">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                  Talent
+                </span>
+                <select
+                  value={contact.talentId || ""}
+                  onChange={(e) =>
+                    handleUpdateContact(
+                      contact.id,
+                      "talentId" as keyof Contact,
+                      e.target.value
+                    )
+                  }
+                  onFocus={ensureTalentsLoaded}
+                  className="w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#C8F285]"
+                >
+                  <option value="">Sélectionner un talent</option>
+                  {talents.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1">
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                    Statut
+                  </span>
+                  <StatutDropdown
+                    value={contact.statut}
+                    saving={savingCell === `${contact.id}-statut`}
+                    onChange={(value) =>
+                      handleUpdateContact(contact.id, "statut", value)
+                    }
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                    Montant HT
+                  </span>
+                  <EditableInput
+                    value={
+                      contact.montantBrut !== null && contact.montantBrut !== undefined
+                        ? String(contact.montantBrut)
+                        : ""
+                    }
+                    placeholder="0"
+                    saving={savingCell === `${contact.id}-montantBrut`}
+                    onSave={(value) =>
+                      handleUpdateContact(
+                        contact.id,
+                        "montantBrut" as keyof Contact,
+                        value
+                      )
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="flex items-center justify-between border-t border-gray-100 pt-2">
+              <span className="text-[11px] text-gray-400">#{index + 1}</span>
+              <button
+                type="button"
+                onClick={() => handleDeleteContact(contact.id)}
+                disabled={savingCell === `delete-${contact.id}`}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-60"
+              >
+                {savingCell === `delete-${contact.id}` ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                Supprimer
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {/* Tableau desktop */}
+      <div className="hidden md:block w-full overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
         <table className="min-w-full text-sm">
           <thead className="bg-[#F5EBE0] text-xs uppercase tracking-wide text-gray-600">
             <tr>
@@ -1000,10 +1154,10 @@ export default function FichierProspectionPage() {
                 <MessageCircle className="w-4 h-4 inline-block" />
               </th>
               <th className="px-3 py-2 text-left w-10">#</th>
-              <th className="px-3 py-2 text-left min-w-[160px]">
+              <th className="px-3 py-2 text-left min-w-[140px] md:min-w-[160px]">
                 Talent
               </th>
-              <th className="px-3 py-2 text-left min-w-[200px]">
+              <th className="px-3 py-2 text-left min-w-[160px] md:min-w-[200px]">
                 Nom d&apos;opportunité
               </th>
               <th className="px-3 py-2 text-left min-w-[120px]">Prénom</th>
@@ -1016,11 +1170,10 @@ export default function FichierProspectionPage() {
           </thead>
           <tbody>
             {fichier.contacts.map((contact, index) => {
-              const statutConfig = getStatutConfig(contact.statut);
               return (
                 <tr
                   key={contact.id}
-                  className="border-t border-gray-50 hover:bg-[#F5EBE0]/40"
+                  className="group border-t border-gray-50 hover:bg-[#F5EBE0]/40"
                 >
                   <td className="px-3 py-2 text-center align-middle">
                     <ActionButton
@@ -1100,7 +1253,7 @@ export default function FichierProspectionPage() {
                     <button
                       type="button"
                       onClick={() => openContactModal(index)}
-                      className="text-sm font-medium text-[#1A1110] hover:underline hover:underline-offset-2 cursor-pointer"
+                      className="text-sm font-medium text-[#1A1110] hover:underline hover:underline-offset-2 cursor-pointer text-left"
                     >
                       {contact.nomOpportunite}
                     </button>
@@ -1183,11 +1336,11 @@ export default function FichierProspectionPage() {
         </table>
       </div>
 
-      <div className="sticky bottom-0 border-t border-gray-200 bg-white px-4 py-3 flex items-center justify-between text-sm rounded-t-xl">
+      <div className="sticky bottom-0 border-t border-gray-200 bg-white px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm rounded-t-xl">
         <span className="text-gray-500">
           {stats.total} contacts · {stats.gagnes} gagnés · {stats.enCours} en cours · {stats.perdus} perdus
         </span>
-        <div className="flex items-center gap-6">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-6">
           <span>
             CA gagné :
             <span className="font-semibold text-green-600 ml-1">
@@ -1203,7 +1356,7 @@ export default function FichierProspectionPage() {
         </div>
       </div>
 
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-gray-500">
           Les modifications sont enregistrées automatiquement.
         </p>
@@ -1223,11 +1376,11 @@ export default function FichierProspectionPage() {
       {/* Modale opportunité */}
       {modalOpen && contactDetail && (
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
+          className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
           onClick={() => setModalOpen(false)}
         >
           <div
-            className="relative w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl flex flex-col md:flex-row"
+            className="relative w-full max-w-5xl max-h-[100dvh] sm:max-h-[90vh] overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl flex flex-col md:flex-row"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="absolute top-3 right-3 flex items-center gap-3 text-xs text-gray-500">
@@ -1488,14 +1641,14 @@ export default function FichierProspectionPage() {
       {/* Modale conversion GAGNÉ → négo */}
       {convertModal.open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
           onClick={() =>
             !convertLoading &&
             setConvertModal({ open: false, contactId: null, nomOpportunite: "" })
           }
         >
           <div
-            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
+            className="w-full max-w-lg max-h-[100dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-4 sm:p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold text-[#1A1110] mb-1 font-['Spectral',serif]">
@@ -1545,7 +1698,7 @@ export default function FichierProspectionPage() {
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C8F285]"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Contact (prénom et nom) *</p>
                   <input
@@ -1567,7 +1720,7 @@ export default function FichierProspectionPage() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Type de contact *</p>
                   <select
@@ -1627,7 +1780,7 @@ export default function FichierProspectionPage() {
               </div>
             </div>
 
-            <div className="mt-5 flex justify-between gap-3">
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <button
                 type="button"
                 disabled={convertLoading}

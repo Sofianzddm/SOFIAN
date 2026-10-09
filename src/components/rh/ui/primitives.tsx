@@ -59,13 +59,31 @@ export function RhAvatar({
   color,
   size = 28,
   radius,
+  src,
 }: {
   initials: string;
   color: string;
   size?: number;
   radius?: number;
+  src?: string | null;
 }) {
   const r = radius ?? (size <= 28 ? 8 : size <= 34 ? 9 : 10);
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={initials}
+        className="shrink-0 object-cover"
+        style={{
+          width: size,
+          height: size,
+          borderRadius: r,
+          background: color,
+        }}
+      />
+    );
+  }
   return (
     <span
       className="rh-mono grid place-items-center font-bold shrink-0"
@@ -179,26 +197,41 @@ export function RhSwitch({
 export function RhPageHero({
   eyebrow,
   title,
+  subtitle,
   actions,
 }: {
   eyebrow: string;
   title: string;
+  subtitle?: string;
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <div className="rh-micro" style={{ color: "#5F6978" }}>
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0 max-w-[640px]">
+        <div
+          className="text-[12.5px] font-medium"
+          style={{ color: "var(--rh-text-muted)" }}
+        >
           {eyebrow}
         </div>
         <h1
-          className="m-0 mt-[7px] text-[27px] font-semibold tracking-[-0.02em]"
-          style={{ color: "#E7ECF2" }}
+          className="m-0 mt-1.5 text-[22px] font-semibold leading-[1.15] tracking-[-0.03em] sm:text-[28px]"
+          style={{ color: "var(--rh-text)" }}
         >
           {title}
         </h1>
+        {subtitle ? (
+          <p
+            className="m-0 mt-2.5 text-[14px] leading-[1.5]"
+            style={{ color: "var(--rh-text-secondary)" }}
+          >
+            {subtitle}
+          </p>
+        ) : null}
       </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex flex-wrap gap-2.5">{actions}</div>
+      ) : null}
     </div>
   );
 }
@@ -229,7 +262,7 @@ export function RhRuleBanner({
       >
         {tag}
       </span>
-      <div className="flex-1 text-[11.5px] leading-[1.55]" style={{ color: "#B9C2CE" }}>
+      <div className="flex-1 text-[13.5px] leading-[1.5]" style={{ color: "#B9C2CE" }}>
         {children}
       </div>
       {action}

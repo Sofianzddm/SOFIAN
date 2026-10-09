@@ -108,12 +108,13 @@ export function SearchBar() {
   if (!open) {
     return (
       <button
+        type="button"
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors min-w-[300px]"
+        className="flex w-full min-w-0 max-w-md items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 transition-colors hover:bg-gray-50 sm:px-4"
       >
-        <Search className="w-4 h-4 text-gray-400" />
-        <span className="text-sm text-gray-500">Rechercher...</span>
-        <kbd className="ml-auto px-2 py-0.5 text-xs bg-gray-100 border border-gray-300 rounded">
+        <Search className="h-4 w-4 shrink-0 text-gray-400" />
+        <span className="truncate text-sm text-gray-500">Rechercher...</span>
+        <kbd className="ml-auto hidden rounded border border-gray-300 bg-gray-100 px-2 py-0.5 text-xs sm:inline">
           ⌘K
         </kbd>
       </button>
@@ -124,12 +125,12 @@ export function SearchBar() {
     <>
       {/* Overlay */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
+        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
         onClick={() => setOpen(false)}
       />
 
       {/* Modal */}
-      <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-2xl bg-white rounded-xl shadow-2xl z-50 overflow-hidden">
+      <div className="fixed left-1/2 top-16 z-50 w-[calc(100%-1.5rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-xl bg-white shadow-2xl sm:top-20 sm:w-[calc(100%-2rem)]">
         {/* Search Input */}
         <div className="flex items-center gap-3 p-4 border-b border-gray-200">
           <Search className="w-5 h-5 text-gray-400 flex-shrink-0" />

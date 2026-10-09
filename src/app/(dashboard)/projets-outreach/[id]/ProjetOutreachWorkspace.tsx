@@ -405,7 +405,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
 
   if (loading && !campaign) {
     return (
-      <div className="po-root" style={{ padding: "40px", color: "var(--po-muted)" }}>
+      <div className="po-root po-workspace-loading" style={{ color: "var(--po-muted)" }}>
         <div className="inline-flex items-center gap-2 text-[13px]">
           <Loader2 className="h-4 w-4 animate-spin" /> Chargement du projet…
         </div>
@@ -415,7 +415,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
 
   if (!campaign) {
     return (
-      <div className="po-root" style={{ padding: "40px" }}>
+      <div className="po-root po-workspace-loading">
         <p className="po-alert-error" style={{ marginBottom: 16 }}>
           {error || "Projet introuvable."}
         </p>
@@ -435,7 +435,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
 
   return (
     <div className="po-root">
-      <div style={{ borderBottom: "1px solid #EEEEF0", padding: "20px 40px 0" }}>
+      <div className="po-workspace-header">
         <Link
           href="/projets-outreach"
           className="inline-flex items-center gap-1"
@@ -444,10 +444,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           <ArrowLeft className="h-3.5 w-3.5" /> Tous les projets
         </Link>
 
-        <div
-          className="flex flex-wrap items-start justify-between gap-4"
-          style={{ marginBottom: 16 }}
-        >
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             {campaign.mode === "MULTI" && (campaign.talents?.length || 0) > 1 ? (
               <div className="flex -space-x-2">
@@ -598,7 +595,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
         </div>
       </div>
 
-      <div style={{ padding: "24px 40px", maxWidth: 1160, margin: "0 auto" }}>
+      <div className="po-workspace-body">
         {(error || success) && (
           <div
             className={error ? "po-alert-error" : "po-alert-ok"}
@@ -1429,11 +1426,11 @@ function ACompleterTab({
         Complète la fiche CRM, puis clique « Contacts prêts » pour débloquer la
         rédaction.
       </p>
-      <div className="po-card" style={{ overflow: "hidden" }}>
+      <div className="po-card po-table-scroll">
         <div className="po-table-head" style={{ gridTemplateColumns: cols }}>
           <div>Marque</div>
           <div>Contacts</div>
-          <div>Priorité</div>
+          <div className="po-col-hide-mobile">Priorité</div>
           <div />
         </div>
         {awaiting.map((m) => {
@@ -1464,7 +1461,7 @@ function ACompleterTab({
               <div style={{ fontSize: 12.5, fontWeight: 600 }}>
                 {contactCount} emailé{contactCount > 1 ? "s" : ""}
               </div>
-              <div>
+              <div className="po-col-hide-mobile">
                 <PriorityBadge priority={m.priority} />
               </div>
               <div className="flex flex-wrap justify-end gap-1.5">
@@ -2165,7 +2162,7 @@ function MarquesTab({
         </div>
       )}
 
-      <div className="po-card" style={{ overflow: "hidden" }}>
+      <div className="po-card po-table-scroll">
         <div
           className="flex items-center justify-between"
           style={{ padding: "12px 22px", borderBottom: "1px solid var(--po-sep)" }}
@@ -2958,7 +2955,7 @@ function RedactionTab({
           />
         </div>
       ) : (
-      <div className="po-card" style={{ overflow: "hidden" }}>
+      <div className="po-card po-table-scroll">
         <div
           className="po-table-head"
           style={{
@@ -3283,7 +3280,7 @@ function EnvoisTab({
   const cols = "1.2fr 1.6fr 1.4fr .9fr auto";
 
   return (
-    <div className="po-card" style={{ overflow: "hidden" }}>
+    <div className="po-card po-table-scroll">
       <div className="po-table-head" style={{ gridTemplateColumns: cols }}>
         <span>Marque</span>
         <span>Objet</span>
@@ -3495,7 +3492,7 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
         <KpiCard label="Relancées" value={relanced} dot="#5B3F9E" />
       </div>
 
-      <div className="po-card" style={{ overflow: "hidden" }}>
+      <div className="po-card po-table-scroll">
         <div className="po-table-head" style={{ gridTemplateColumns: cols }}>
           <span>Marque</span>
           <span>Stage</span>

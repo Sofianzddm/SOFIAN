@@ -123,7 +123,7 @@ export default function SalesReplyPage() {
         {/* Colonne gauche : mail reçu + options */}
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <label
                 htmlFor="email-content"
                 className="flex items-center gap-2 text-sm font-medium text-slate-800"
@@ -231,13 +231,13 @@ export default function SalesReplyPage() {
         {/* Colonne droite : réponse générée */}
         <div className="space-y-4">
           <div className="flex min-h-[400px] flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-card">
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <span className="flex items-center gap-2 text-sm font-medium text-slate-800">
                 <Wand2 className="h-4 w-4 text-glowup-rose" />
                 Réponse proposée
               </span>
               {reply && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => void generate(true)}

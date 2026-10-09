@@ -50,7 +50,7 @@ export async function createRhRequest(params: {
         ? "NDF"
         : params.type === "TIMESHEET"
           ? "TS"
-          : params.type === "REMOTE_EXCEPTION"
+          : params.type === "REMOTE_EXCEPTION" || params.type === "REMOTE_PLAN"
             ? "TT"
             : "RH");
 

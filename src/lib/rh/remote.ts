@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { remoteEntitlement } from "@/lib/rh/calculations";
+import { getRhSettings } from "@/lib/rh/settings";
 import { createRhRequest, isoWeekInfo, writeRhAudit } from "@/lib/rh/workflow";
 import { notifyRhRequestCreated } from "@/lib/rh/notify";
 
@@ -9,6 +10,11 @@ export async function getRemoteWeeksForEmployee(
   fromWeekStart: Date,
   weekCount = 4
 ) {
+  const settings = await getRhSettings();
+  const remoteOpts = {
+    forOneDay: settings.remoteAbsencesForOneDay,
+    forZero: settings.remoteAbsencesForZero,
+  };
   const weeks = [];
   for (let i = 0; i < weekCount; i++) {
     const start = new Date(fromWeekStart);
@@ -30,7 +36,7 @@ export async function getRemoteWeeksForEmployee(
         },
       },
     });
-    const entitlement = remoteEntitlement(agreementDays, absences);
+    const entitlement = remoteEntitlement(agreementDays, absences, remoteOpts);
     const declared = decl?.declaredDates?.length ?? 0;
     let verdict: "compliant" | "over" | "none" | "undeclared" = "undeclared";
     if (declared === 0 && entitlement === 0) verdict = "none";
@@ -67,6 +73,7 @@ export async function upsertRemoteDeclaration(params: {
   declaredDates: Date[];
   note?: string;
 }) {
+  const settings = await getRhSettings();
   const absences = await prisma.rhLeaveDay.count({
     where: {
       employeeId: params.employeeId,
@@ -74,7 +81,10 @@ export async function upsertRemoteDeclaration(params: {
       request: { status: { in: ["PENDING", "APPROVED", "SIGNED"] } },
     },
   });
-  const entitlement = remoteEntitlement(params.agreementDays, absences);
+  const entitlement = remoteEntitlement(params.agreementDays, absences, {
+    forOneDay: settings.remoteAbsencesForOneDay,
+    forZero: settings.remoteAbsencesForZero,
+  });
   if (params.declaredDates.length > entitlement) {
     throw new Error(
       `Dépassement article 1.6 : droit ${entitlement} j, déclaré ${params.declaredDates.length} j`
@@ -142,11 +152,21 @@ export async function requestRemoteException(params: {
     },
     prefix: "TT",
   });
-  void notifyRhRequestCreated({
+  await notifyRhRequestCreated({
     employeeId: params.employeeId,
     title: request.title,
     reference: request.reference,
     type: "télétravail exceptionnel",
+  });
+  await writeRhAudit({
+    actorId: params.employeeId,
+    targetId: params.employeeId,
+    action: "remote.exception",
+    detail: {
+      requestId: request.id,
+      date: params.date.toISOString().slice(0, 10),
+      compensateNextWeek: params.compensateNextWeek,
+    },
   });
   return request;
 }

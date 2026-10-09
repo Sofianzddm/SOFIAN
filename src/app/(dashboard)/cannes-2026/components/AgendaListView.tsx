@@ -27,9 +27,9 @@ export default function AgendaListView({ events, presences, isAdmin }: Props) {
   return (
     <div className="space-y-4">
       {grouped.map(({ day, dayEvents, onSiteCount }) => (
-        <section key={day.toISOString()} className="rounded-xl border border-[#E5E0D8] bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-[Spectral] text-2xl capitalize text-[#1A1110]">{formatDayLabel(day)}</h3>
+        <section key={day.toISOString()} className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm sm:p-5">
+          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="font-[Spectral] text-xl capitalize text-[#1A1110] sm:text-2xl">{formatDayLabel(day)}</h3>
             <p className="text-sm text-[#1A1110]/60">
               {dayEvents.length} evenement(s) · {onSiteCount} personne(s) sur place
             </p>

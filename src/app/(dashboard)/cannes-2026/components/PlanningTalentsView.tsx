@@ -39,10 +39,10 @@ export default function PlanningTalentsView({ presences, isAdmin }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
+    <div className="rounded-xl border border-[#E5E0D8] bg-white p-4 shadow-sm sm:p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="font-medium text-[#1A1110]">{rows.length} talents sur place</p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <PlanningPdfExportModal
             defaults={{ team: false, talents: true, events: false }}
             buttonLabel="Exporter PDF…"
@@ -76,11 +76,30 @@ export default function PlanningTalentsView({ presences, isAdmin }: Props) {
             <p className="text-sm text-[#1A1110]/70">
               {formatParisDate(p.arrivalDate)} - {formatParisDate(p.departureDate)} · {p.hotel || "Hotel non renseigne"}
             </p>
-            <div className="mt-2 grid grid-cols-12 gap-1">
-              {CANNES_2026_DAYS.map((d) => {
-                const active = isUtcDayInIsoRange(d, p.arrivalDate, p.departureDate);
-                return <div key={d.toISOString()} className={`h-2 rounded ${active ? "bg-[#C8F285]" : "bg-[#F5EBE0]"}`} />;
-              })}
+            <div className="mt-2 overflow-x-auto">
+              <div className="min-w-[280px]">
+                <div className="mb-0.5 grid grid-cols-12 gap-1">
+                  {CANNES_2026_DAYS.map((d) => (
+                    <span
+                      key={`lbl-${d.toISOString()}`}
+                      className="text-center text-[8px] uppercase leading-none text-[#1A1110]/40"
+                    >
+                      {d.toLocaleDateString("fr-FR", { weekday: "narrow" })}
+                    </span>
+                  ))}
+                </div>
+                <div className="grid grid-cols-12 gap-1">
+                  {CANNES_2026_DAYS.map((d) => {
+                    const active = isUtcDayInIsoRange(d, p.arrivalDate, p.departureDate);
+                    return (
+                      <div
+                        key={d.toISOString()}
+                        className={`h-2 rounded ${active ? "bg-[#C8F285]" : "bg-[#F5EBE0]"}`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </button>
         ))}

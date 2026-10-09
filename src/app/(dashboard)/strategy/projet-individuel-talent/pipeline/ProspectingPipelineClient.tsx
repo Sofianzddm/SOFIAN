@@ -1896,7 +1896,7 @@ export function ProspectingPipelineClient() {
           }
           aria-label="Étapes du parcours"
         >
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex gap-1.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] md:flex-wrap md:overflow-visible md:pb-0 [&::-webkit-scrollbar]:hidden">
             {visibleStages
               .filter((stage) => stage !== "LOST")
               .map((stage) => {
@@ -1911,7 +1911,7 @@ export function ProspectingPipelineClient() {
                       setActiveStageTab(stage);
                       if (stage === "DRAFTED_FOR_VALIDATION") setReadySubTab("cards");
                     }}
-                    className="group inline-flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition sm:flex-none"
+                    className="group inline-flex min-w-[min(100%,240px)] shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition md:min-w-0 md:flex-1 md:shrink lg:flex-none"
                     style={
                       active
                         ? {
@@ -1959,7 +1959,7 @@ export function ProspectingPipelineClient() {
           </div>
 
           <div
-            className="mt-2 flex flex-wrap gap-1.5 border-t pt-2"
+            className="mt-2 flex gap-1.5 overflow-x-auto border-t pt-2 [-ms-overflow-style:none] [scrollbar-width:none] md:flex-wrap md:overflow-visible [&::-webkit-scrollbar]:hidden"
             style={{ borderColor: "#f1f5f9" }}
           >
             <button
@@ -3480,7 +3480,7 @@ export function ProspectingPipelineClient() {
       )}
 
       {scheduledSends.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-50 flex w-[360px] flex-col gap-2">
+        <div className="fixed bottom-4 left-4 right-4 z-50 flex w-auto max-w-[360px] flex-col gap-2 sm:left-auto">
           {scheduledSends.map((planned) => {
             const remaining = Math.max(0, Math.ceil((planned.scheduledAt - nowTick) / 1000));
             return (

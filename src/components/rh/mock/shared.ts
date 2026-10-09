@@ -64,6 +64,11 @@ export function buildMonth(
       bg = "rgba(70,214,192,.16)";
       fg = CP;
       fw = "500";
+    } else if (m === "pending") {
+      bg = "rgba(240,194,78,.22)";
+      fg = "#F0C24E";
+      fw = "700";
+      ring = "inset 0 0 0 1.4px rgba(240,194,78,.55)";
     } else if (m === "blocked") {
       bg = "#0E1116";
       fg = "#3A4553";

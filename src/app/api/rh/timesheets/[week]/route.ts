@@ -88,6 +88,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       const result = await signTimesheet({
         timesheetId: timesheet.id,
         employeeId: session.employee.id,
+        signatureName: typeof body.signatureName === "string" ? body.signatureName : undefined,
+        signatureImageDataUrl:
+          typeof body.signatureImageDataUrl === "string"
+            ? body.signatureImageDataUrl
+            : null,
       });
       return NextResponse.json({ timesheet: result });
     }
