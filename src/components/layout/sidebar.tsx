@@ -33,7 +33,6 @@ import {
   Camera,
   Sparkles,
   Link2,
-  CalendarDays,
   Gauge,
   Layers,
   Compass,
@@ -314,24 +313,7 @@ const menuItems = [
     icon: Calculator,
     roles: ["ADMIN"], // Espace expert-comptable (ADMIN + COMPTABLE)
   },
-  {
-    label: "RH Glow Up",
-    href: "/rh/espace",
-    icon: CalendarDays,
-    roles: [
-      "ADMIN",
-      "HEAD_OF",
-      "HEAD_OF_INFLUENCE",
-      "HEAD_OF_SALES",
-      "TM",
-      "CM",
-      "CASTING_MANAGER",
-      "COMMUNITY_MANAGER",
-      "STRATEGY_PLANNER",
-      "COMPTABLE",
-      "COIFFEUR",
-    ],
-  },
+  // RH Glow Up : masqué du layout (aucune visibilité nav)
   {
     label: "Dossiers",
     href: "/dossiers",
