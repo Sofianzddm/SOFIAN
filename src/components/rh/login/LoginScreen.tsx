@@ -16,13 +16,6 @@ import {
 
 type View = "login" | "forgot" | "sent" | "done" | "no_profile" | "mfa";
 
-const FEATURES = [
-  { label: "Congés, RTT et récupération", meta: "Soldes en direct", dot: "#46D6C0" },
-  { label: "Télétravail (art. 1.6)", meta: "Droit calculé", dot: "#7C8CF8" },
-  { label: "Feuilles de temps & heures supp.", meta: "HS 25 % / 50 %", dot: "#F0C24E" },
-  { label: "Notes de frais & titres-resto", meta: "Simple et tracé", dot: "#E5F2B5" },
-];
-
 export function LoginScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -288,53 +281,6 @@ export function LoginScreen() {
           >
             Même identifiant que la plateforme Glow Up. Connexion sécurisée pour
             poser, valider et exporter.
-          </p>
-          <div className="flex flex-col gap-3">
-            {FEATURES.map((f) => (
-              <div key={f.label} className="flex items-center gap-3">
-                <span
-                  className="shrink-0"
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: 2,
-                    background: f.dot,
-                  }}
-                />
-                <span className="flex-1 text-[12.5px]" style={{ color: "#B9C2CE" }}>
-                  {f.label}
-                </span>
-                <span
-                  className="rh-mono text-[9.5px] tracking-[0.08em]"
-                  style={{ color: "#5F6978" }}
-                >
-                  {f.meta}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div
-          className="relative flex items-start gap-3 p-[15px]"
-          style={{
-            background: "rgba(242,135,78,.05)",
-            border: "1px solid rgba(242,135,78,.28)",
-            borderRadius: 13,
-          }}
-        >
-          <span
-            className="rh-mono text-[9.5px] font-bold shrink-0 px-1.5 py-0.5"
-            style={{
-              background: "rgba(242,135,78,.15)",
-              color: "#F2874E",
-              borderRadius: 4,
-            }}
-          >
-            LUCCA
-          </span>
-          <p className="m-0 text-[11.5px] leading-[1.55]" style={{ color: "#B9C2CE" }}>
-            Absences, présence, temps et frais — tout au même endroit.
           </p>
         </div>
       </div>
