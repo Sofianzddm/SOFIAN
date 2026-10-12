@@ -90,6 +90,8 @@ export interface EmailComposerProps {
   onLanguageChange: (v: "fr" | "en") => void;
   brandName: string;
   brandResearch: BrandResearch | null;
+  /** Pays de référence de la dispo affichée ("BE" = marque Unique BE). */
+  availabilityFocus?: "FR" | "BE";
   onBrandResearch: () => void;
   isResearching: boolean;
   /**
@@ -141,6 +143,7 @@ export default function EmailComposer({
   onLanguageChange,
   brandName,
   brandResearch,
+  availabilityFocus = "FR",
   onBrandResearch,
   isResearching,
   enableTalentResearch = false,
@@ -529,7 +532,9 @@ export default function EmailComposer({
           <p>{brandResearch.newProducts}</p>
           {brandResearch.availabilityFrEu?.trim() ? (
             <p>
-              <span className="font-semibold">Dispo FR / EU : </span>
+              <span className="font-semibold">
+                {availabilityFocus === "BE" ? "Dispo BE / EU : " : "Dispo FR / EU : "}
+              </span>
               {brandResearch.availabilityFrEu}
             </p>
           ) : null}

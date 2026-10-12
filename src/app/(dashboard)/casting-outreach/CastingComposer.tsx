@@ -263,6 +263,12 @@ export interface CastingComposerProps {
    * une agence française qui développe le Benelux avec des créateurs benelux.
    */
   market?: "FR" | "BENELUX";
+  /**
+   * Pays de référence pour vérifier la dispo des nouveautés dans l'analyse marque
+   * et la rédaction : "BE" pour une marque Unique BE (Belgique, sinon Europe),
+   * "FR" par défaut (France, sinon Europe).
+   */
+  availabilityFocus?: "FR" | "BE";
   /** Libellé du bouton principal (défaut : « Marquer comme prêt »). */
   readyLabel?: string;
   /**
@@ -330,6 +336,7 @@ export default function CastingComposer({
   brandColumn,
   useHubspot = true,
   market = "FR",
+  availabilityFocus = "FR",
   readyLabel = "Marquer comme prêt",
   readyMode = "send",
   defaultLanguage = "fr",
@@ -872,6 +879,7 @@ export default function CastingComposer({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           brandName: researchBrandName,
+          availabilityFocus,
           ...(projectResearchPayload || {}),
         }),
       });
@@ -891,6 +899,7 @@ export default function CastingComposer({
     }
   }, [
     researchBrandName,
+    availabilityFocus,
     onError,
     effectiveTalentResearch,
     projectResearchPayload,
@@ -1125,6 +1134,7 @@ export default function CastingComposer({
         body: JSON.stringify({
           language: genLanguage,
           market,
+          availabilityFocus,
           brandName: researchBrandName || contact.company,
           brandResearch,
           talents: talentsPayload,
@@ -1219,6 +1229,7 @@ export default function CastingComposer({
     selectedRecipientIds,
     emailLanguage,
     market,
+    availabilityFocus,
     researchBrandName,
     editor,
     onError,
@@ -2121,6 +2132,7 @@ export default function CastingComposer({
                   onLanguageChange={setEmailLanguage}
                   brandName={brandTitle}
                   brandResearch={brandResearch}
+                  availabilityFocus={availabilityFocus}
                   onBrandResearch={runBrandResearch}
                   isResearching={isResearching}
                   enableTalentResearch={effectiveTalentResearch}

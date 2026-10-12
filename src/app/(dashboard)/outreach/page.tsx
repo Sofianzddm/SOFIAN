@@ -2406,6 +2406,15 @@ export default function OutreachPage() {
               ? "FR"
               : market
         }
+        availabilityFocus={
+          composerGroup &&
+          composerGroup.targets.length > 0 &&
+          composerGroup.targets.every(
+            (t) => t.pipeline === "BENELUX" && !t.alsoInSiblingMarket
+          )
+            ? "BE"
+            : "FR"
+        }
         allowSchedule
         readyLabel={`Envoyer depuis ${senderLabel(
           senderAccounts,

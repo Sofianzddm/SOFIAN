@@ -26,11 +26,68 @@ function isAllowed(role: string | undefined): boolean {
 export interface BrandResearchPayload {
   recentCampaigns: string;
   newProducts: string;
-  /** Dispo France d'abord, sinon Europe — critique pour ne pas citer un lancement US-only. */
+  /**
+   * Dispo dans le pays de référence (France, ou Belgique pour une marque
+   * Unique BE) d'abord, sinon Europe — critique pour ne pas citer un lancement US-only.
+   */
   availabilityFrEu: string;
   brandPositioning: string;
   influenceStrategy: string;
 }
+
+/** Pays de référence pour la dispo : France (défaut) ou Belgique (marque Unique BE). */
+type AvailabilityFocus = "FR" | "BE";
+
+function parseAvailabilityFocus(raw: unknown): AvailabilityFocus {
+  return raw === "BE" ? "BE" : "FR";
+}
+
+type RegionCopy = {
+  country: string;
+  code: string;
+  expertise: string;
+  riskNote: string;
+  localCheck: string;
+  europeCheck: string;
+  searchHints: string;
+  /** Suffixe des consignes recentCampaigns / influenceStrategy. */
+  campaignsFocus: string;
+  influenceFocus: string;
+  extraRules: string;
+};
+
+const REGION_COPY: Record<AvailabilityFocus, RegionCopy> = {
+  FR: {
+    country: "France",
+    code: "FR",
+    expertise: "France / Europe",
+    riskNote:
+      "Beaucoup de lancements sont annoncés / sortis aux US (ou UK / Asie) mais **pas encore en France ni en Europe**.",
+    localCheck:
+      "disponible / en vente / lancé en **France** (sites .fr, Sephora FR, retailers FR, banques FR, communiqués FR)",
+    europeCheck: "sinon disponible / lancé en **Europe** (UE, UK, DE, ES, IT, Benelux, etc.)",
+    searchHints: `"available in Europe", "coming to France", "sortie Europe", "disponible en France", "US exclusive", "US only", "not available in Europe"`,
+    campaignsFocus: "",
+    influenceFocus: "",
+    extraRules: "",
+  },
+  BE: {
+    country: "Belgique",
+    code: "BE",
+    expertise: "Belgique / Europe",
+    riskNote:
+      "Cette marque est prospectée UNIQUEMENT sur le marché belge. Beaucoup de lancements sont annoncés / sortis aux US, en France ou ailleurs mais **pas encore en Belgique**.",
+    localCheck:
+      "disponible / en vente / lancé en **Belgique** (site .be ou version belge du site de la marque, retailers BE type Kruidvat, ICI PARIS XL, Di, Planet Parfum, Delhaize, Colruyt, bol.com, Zalando BE, banques BE, communiqués BE en français ou néerlandais)",
+    europeCheck:
+      "sinon disponible / lancé ailleurs en **Europe** (France, Pays-Bas, Luxembourg, DE, UK, UE, etc.) — précise le pays",
+    searchHints: `"disponible en Belgique", "beschikbaar in België", "available in Belgium", "available in Europe", "sortie Europe", "US exclusive", "US only", "not available in Europe"`,
+    campaignsFocus: ", en priorité celles menées en Belgique (sinon en Europe)",
+    influenceFocus: ", en priorité sur le marché belge (créateurs belges / benelux), sinon en Europe",
+    extraRules:
+      "\n- Ne présente JAMAIS un lancement France-only (ou d'un autre pays européen) comme disponible en Belgique : indique clairement « dispo [pays] / Europe, Belgique non confirmée ».",
+  },
+};
 
 /** Contexte CRM pour ancrer l'identité de la marque (évite Wero ≠ Wuré). */
 type BrandCrmContext = {
@@ -166,9 +223,14 @@ function getResearchMonthWindow(now = new Date()): {
 }
 
 /** Prompt d'analyse pour UNE marque (casting générique). */
-function buildBrandPrompt(brand: string, crm: BrandCrmContext | null): string {
+function buildBrandPrompt(
+  brand: string,
+  crm: BrandCrmContext | null,
+  focus: AvailabilityFocus
+): string {
   const { currentLabel, previousLabel, contextLabel } = getResearchMonthWindow();
-  return `Tu es un expert en marketing d'influence et en analyse de marques, spécialisé marché France / Europe.
+  const r = REGION_COPY[focus];
+  return `Tu es un expert en marketing d'influence et en analyse de marques, spécialisé marché ${r.expertise}.
 
 ${formatBrandIdentityBlock(brand, crm)}
 
@@ -178,27 +240,27 @@ Requêtes à privilégier : nom exact entre guillemets + secteur (ex. "${brand}"
 Objectif prioritaire : Trouver et décrire précisément **le lancement le plus récent du mois en cours ou du mois précédent uniquement** (${contextLabel}). Rien d'antérieur à ${previousLabel}.
 
 CRITIQUE — DISPONIBILITÉ RÉGIONALE (à vérifier systématiquement via recherche web) :
-Beaucoup de lancements sont annoncés / sortis aux US (ou UK / Asie) mais **pas encore en France ni en Europe**. Tu DOIS vérifier si le produit / la collection / le service est :
-1) disponible / en vente / lancé en **France** (sites .fr, Sephora FR, retailers FR, banques FR, communiqués FR) ;
-2) sinon disponible / lancé en **Europe** (UE, UK, DE, ES, IT, Benelux, etc.) ;
+${r.riskNote} Tu DOIS vérifier si le produit / la collection / le service est :
+1) ${r.localCheck} ;
+2) ${r.europeCheck} ;
 3) sinon clairement **US-only / hors Europe** (ou date de sortie Europe encore inconnue).
-Cherche explicitement des indices du type "available in Europe", "coming to France", "sortie Europe", "disponible en France", "US exclusive", "US only", "not available in Europe".
+Cherche explicitement des indices du type ${r.searchHints}.
 
 Pour chaque champ JSON, rédige 2 à 4 phrases en français, concrètes et vivantes :
 
-- recentCampaigns : les activations et campagnes de ${contextLabel} uniquement, en mettant l'accent sur ce qui est en cours ou très frais.
-- newProducts : **la toute dernière nouveauté / feature / offre** dans cette fenêtre (nom exact, date de lancement, notes clés, vibe). Si plusieurs, **priorise une nouveauté disponible en France** ; à défaut en Europe ; ne retiens un lancement US-only que si aucune alternative FR/EU n'existe dans la fenêtre, et dis-le clairement.
-- availabilityFrEu : verdict clair sur la dispo de cette nouveauté : France oui/non (+ preuve courte), sinon Europe oui/non (+ preuve courte), sinon "US / hors Europe uniquement" ou "dispo Europe non confirmée". Indique aussi une date de sortie FR/EU si trouvée.
+- recentCampaigns : les activations et campagnes de ${contextLabel} uniquement${r.campaignsFocus}, en mettant l'accent sur ce qui est en cours ou très frais.
+- newProducts : **la toute dernière nouveauté / feature / offre** dans cette fenêtre (nom exact, date de lancement, notes clés, vibe). Si plusieurs, **priorise une nouveauté disponible en ${r.country}** ; à défaut en Europe ; ne retiens un lancement US-only que si aucune alternative ${r.code}/EU n'existe dans la fenêtre, et dis-le clairement.
+- availabilityFrEu : verdict clair sur la dispo de cette nouveauté : ${r.country} oui/non (+ preuve courte), sinon Europe oui/non (+ preuve courte), sinon "US / hors Europe uniquement" ou "dispo Europe non confirmée". Indique aussi une date de sortie ${r.code}/EU si trouvée.
 - brandPositioning : le positionnement actuel, ce qui les distingue vraiment aujourd'hui.
-- influenceStrategy : comment ils travaillent avec les créateurs en ce moment (type de profils, formats, tonalité).
+- influenceStrategy : comment ils travaillent avec les créateurs en ce moment${r.influenceFocus} (type de profils, formats, tonalité).
 
 Règles strictes :
 - Identité d'abord : si le contenu trouvé parle d'une autre marque (orthographe différente), ignore-le.
 - Fenêtre temporelle MAXIMALE : ${previousLabel} et ${currentLabel} seulement. Ignore tout lancement / campagne antérieur.
-- Priorise toujours la nouveauté la plus récente **et pertinente pour le marché FR/EU** dans cette fenêtre (idéalement ${currentLabel}).
-- Sois concret : nom du produit/service, date approximative, notes ou caractéristiques clés, et statut de dispo FR puis EU.
+- Priorise toujours la nouveauté la plus récente **et pertinente pour le marché ${r.code}/EU** dans cette fenêtre (idéalement ${currentLabel}).
+- Sois concret : nom du produit/service, date approximative, notes ou caractéristiques clés, et statut de dispo ${r.code} puis EU.
 - Si tu ne trouves rien dans ${contextLabel}, dis-le clairement au lieu d'inventer ou de remonter plus loin.
-- Ne présente JAMAIS un lancement US comme s'il était sorti en France/Europe sans preuve.
+- Ne présente JAMAIS un lancement US comme s'il était sorti en ${r.country}/Europe sans preuve.${r.extraRules}
 - Parle comme quelqu'un qui suit vraiment la marque, pas comme un communiqué.
 
 Réponds UNIQUEMENT en JSON strict :
@@ -220,10 +282,12 @@ Réponds UNIQUEMENT en JSON strict :
 function buildProjectBrandPrompt(
   brand: string,
   projectContext: string,
-  crm: BrandCrmContext | null
+  crm: BrandCrmContext | null,
+  focus: AvailabilityFocus
 ): string {
   const { currentLabel, previousLabel, contextLabel } = getResearchMonthWindow();
-  return `Tu es un expert en marketing d'influence et en pitch de projets marques, spécialisé marché France / Europe.
+  const r = REGION_COPY[focus];
+  return `Tu es un expert en marketing d'influence et en pitch de projets marques, spécialisé marché ${r.expertise}.
 
 ${formatBrandIdentityBlock(brand, crm)}
 
@@ -237,16 +301,16 @@ Utilise les outils de recherche (web + X) pour trouver des accroches concrètes 
 Requêtes à privilégier : nom exact entre guillemets + secteur / vertical du brief.
 
 CRITIQUE — DISPONIBILITÉ RÉGIONALE (à vérifier systématiquement via recherche web) :
-Beaucoup de lancements sont annoncés / sortis aux US (ou UK / Asie) mais **pas encore en France ni en Europe**. Tu DOIS vérifier si le produit / la collection / le service est :
-1) disponible / en vente / lancé en **France** ;
+${r.riskNote} Tu DOIS vérifier si le produit / la collection / le service est :
+1) disponible / en vente / lancé en **${r.country}** ;
 2) sinon en **Europe** ;
 3) sinon clairement **US-only / hors Europe**.
 
 Pour chaque champ JSON, rédige 2 à 4 phrases en français, concrètes et utiles pour rédiger le mail projet :
 
-- recentCampaigns : activations / campagnes de ${contextLabel} utiles pour ancrer le pitch du projet (event, collab, placement, contenu).
-- newProducts : nouveauté récente **pertinente pour ce brief** (ou dis clairement s'il n'y a rien de pertinent dans ${contextLabel}). Priorise FR puis EU.
-- availabilityFrEu : verdict clair FR / EU / US-only sur la nouveauté retenue.
+- recentCampaigns : activations / campagnes de ${contextLabel}${r.campaignsFocus} utiles pour ancrer le pitch du projet (event, collab, placement, contenu).
+- newProducts : nouveauté récente **pertinente pour ce brief** (ou dis clairement s'il n'y a rien de pertinent dans ${contextLabel}). Priorise ${r.code} puis EU.
+- availabilityFrEu : verdict clair ${r.code} / EU / US-only sur la nouveauté retenue.
 - brandPositioning : comment le positionnement actuel de la marque **résonne avec ce projet** (raison strategy / angle / livrables).
 - influenceStrategy : comment ils travaillent avec les créateurs / events / placements — ce qui aide à vendre CE type de projet (pas un roster casting).
 
@@ -255,7 +319,7 @@ Règles strictes :
 - Fenêtre temporelle MAXIMALE : ${previousLabel}–${currentLabel}.
 - Oriente TOUT vers le fit avec le brief projet (pas une fiche marque générique).
 - N'invente rien. Si une info manque, dis-le.
-- Ne présente JAMAIS un lancement US comme s'il était sorti en France/Europe sans preuve.
+- Ne présente JAMAIS un lancement US comme s'il était sorti en ${r.country}/Europe sans preuve.${r.extraRules}
 
 Réponds UNIQUEMENT en JSON strict :
 
@@ -276,6 +340,7 @@ Réponds UNIQUEMENT en JSON strict :
  */
 async function researchOneBrand(
   brand: string,
+  focus: AvailabilityFocus,
   projectContext?: string,
   crm?: BrandCrmContext | null
 ): Promise<BrandResearchPayload> {
@@ -284,8 +349,8 @@ async function researchOneBrand(
   const crmCtx = crm === undefined ? await loadBrandCrmContext(brand) : crm;
   const prompt =
     projectContext && projectContext.trim()
-      ? buildProjectBrandPrompt(brand, projectContext.trim(), crmCtx)
-      : buildBrandPrompt(brand, crmCtx);
+      ? buildProjectBrandPrompt(brand, projectContext.trim(), crmCtx, focus)
+      : buildBrandPrompt(brand, crmCtx, focus);
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const text = await xaiResponse(prompt, {
@@ -340,6 +405,7 @@ export async function POST(request: NextRequest) {
     const projectBrief =
       projectBriefs.length >= 2 ? null : parseProjectBrief(body?.projectBrief);
     const projectContext = formatProjectContextBlock(projectBrief, projectBriefs);
+    const focus = parseAvailabilityFocus(body?.availabilityFocus);
 
     // Plusieurs marques (marques filles) → on analyse CHAQUE marque dans un
     // appel dédié, en PARALLÈLE. Un seul appel couvrant 5 marques avec recherche
@@ -355,7 +421,7 @@ export async function POST(request: NextRequest) {
     if (brands.length <= 1) {
       const only = brands[0] || brandName;
       try {
-        const parsed = await researchOneBrand(only, projectContext || undefined);
+        const parsed = await researchOneBrand(only, focus, projectContext || undefined);
         return NextResponse.json(parsed);
       } catch (e: unknown) {
         console.error("x.ai brand-research:", e);
@@ -365,7 +431,7 @@ export async function POST(request: NextRequest) {
     }
 
     const settled = await Promise.allSettled(
-      brands.map((b: string) => researchOneBrand(b, projectContext || undefined))
+      brands.map((b: string) => researchOneBrand(b, focus, projectContext || undefined))
     );
     const ok: { brand: string; data: BrandResearchPayload }[] = [];
     for (let i = 0; i < settled.length; i++) {
