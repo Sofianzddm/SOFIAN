@@ -142,7 +142,10 @@ export async function findExistingMarqueForBeneluxCompany(
 
   const byName = await prisma.marque.findFirst({
     where: {
-      nom: { equals: company.nom || companyName, mode: "insensitive" },
+      nom: {
+        equals: company?.nom || companyName,
+        mode: "insensitive",
+      },
     },
     select: { id: true },
   });
