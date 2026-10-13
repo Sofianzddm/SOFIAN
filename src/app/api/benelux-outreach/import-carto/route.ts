@@ -246,7 +246,8 @@ export async function POST(request: NextRequest) {
         const conflict = alreadyInCycle
           ? null
           : await findCrossPipelineConflict(email, "benelux", {
-              allowClientBeneluxSibling: row.bothMarkets === true,
+              // FR ↔ BE : talents différents → présence sur le marché frère OK.
+              allowClientBeneluxSibling: true,
             });
         if (!alreadyInCycle && !conflict) {
           await prisma.beneluxOutreachTarget.create({

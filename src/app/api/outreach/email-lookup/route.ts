@@ -46,6 +46,10 @@ export async function GET(request: NextRequest) {
       company: string;
       market: "FR" | "BENELUX" | "AGENCY" | "FW";
       source: "CARTO" | "AO" | null;
+      /** Entreprise déjà présente sur le marché frère (FR↔BE) → onglet FR + BE. */
+      siblingCompany?: boolean;
+      /** Motif calculé aussi avec les emails du marché frère. */
+      patternCrossMarket?: boolean;
       pattern: {
         kind: string;
         domain: string;
@@ -106,16 +110,17 @@ export async function GET(request: NextRequest) {
       byMarque.set(c.marqueId, list);
     }
 
+    const { knownEmailsAcrossFrBeForMarque, knownEmailsAcrossFrBeForBenelux } =
+      await import("@/lib/cross-market-enroll");
+
     for (const [marqueId, list] of byMarque) {
       const siteWeb = list[0]?.marque.siteWeb || null;
-      const known = await prisma.marqueContact.findMany({
-        where: { marqueId, email: { not: null } },
-        select: { email: true, prenom: true, nom: true },
-        take: 50,
-      });
-      const pattern = detectEmailPattern(
-        known.filter((k): k is typeof k & { email: string } => Boolean(k.email))
+      const companyName = list[0]?.marque.nom || "";
+      const { rows: known, crossMarket } = await knownEmailsAcrossFrBeForMarque(
+        marqueId,
+        companyName
       );
+      const pattern = detectEmailPattern(known);
       const fallbackDomain = pattern?.domain || domainFromWebsite(siteWeb);
 
       for (const c of list) {
@@ -125,6 +130,7 @@ export async function GET(request: NextRequest) {
           pattern,
           fallbackDomain,
         });
+        const topSuggestion = suggestions[0]?.email || null;
         enriched.push({
           id: c.id,
           prenom: c.prenom,
@@ -135,12 +141,13 @@ export async function GET(request: NextRequest) {
           priorite: c.priorite,
           linkedinUrl: c.linkedinUrl,
           language: c.language,
-          emailSuggested: c.emailSuggested,
+          emailSuggested: c.emailSuggested || topSuggestion,
           emailLookupQueuedAt: c.emailLookupQueuedAt,
           marqueId: c.marqueId,
           company: c.marque.nom,
           market: "FR",
           source: (c.source as "CARTO" | "AO" | null) ?? null,
+          patternCrossMarket: crossMarket,
           pattern: pattern
             ? {
                 kind: pattern.kind,
@@ -202,14 +209,12 @@ export async function GET(request: NextRequest) {
 
     for (const [companyId, list] of byCompany) {
       const siteWeb = list[0]?.company.siteWeb || null;
-      const known = await prisma.beneluxContact.findMany({
-        where: { companyId, email: { not: null } },
-        select: { email: true, prenom: true, nom: true },
-        take: 50,
-      });
-      const pattern = detectEmailPattern(
-        known.filter((k): k is typeof k & { email: string } => Boolean(k.email))
+      const companyName = list[0]?.company.nom || "";
+      const { rows: known, crossMarket } = await knownEmailsAcrossFrBeForBenelux(
+        companyId,
+        companyName
       );
+      const pattern = detectEmailPattern(known);
       const fallbackDomain = pattern?.domain || domainFromWebsite(siteWeb);
 
       for (const c of list) {
@@ -219,6 +224,7 @@ export async function GET(request: NextRequest) {
           pattern,
           fallbackDomain,
         });
+        const topSuggestion = suggestions[0]?.email || null;
         enriched.push({
           id: c.id,
           prenom: c.prenom,
@@ -229,12 +235,13 @@ export async function GET(request: NextRequest) {
           priorite: c.priorite,
           linkedinUrl: c.linkedinUrl,
           language: c.language,
-          emailSuggested: c.emailSuggested,
+          emailSuggested: c.emailSuggested || topSuggestion,
           emailLookupQueuedAt: c.emailLookupQueuedAt,
           marqueId: c.companyId,
           company: c.company.nom,
           market: "BENELUX",
           source: (c.source as "CARTO" | "AO" | null) ?? null,
+          patternCrossMarket: crossMarket,
           pattern: pattern
             ? {
                 kind: pattern.kind,
@@ -408,6 +415,26 @@ export async function GET(request: NextRequest) {
           });
         }
       }
+    }
+
+    // Annote FR/BE : entreprise déjà présente sur le marché frère → UI « FR + BE ».
+    const { companyExistsOnSiblingMarket } = await import(
+      "@/lib/cross-market-enroll"
+    );
+    const siblingCache = new Map<string, boolean>();
+    for (const row of enriched) {
+      if (row.market !== "FR" && row.market !== "BENELUX") continue;
+      const cacheKey = `${row.market}:${row.marqueId}`;
+      let present = siblingCache.get(cacheKey);
+      if (present === undefined) {
+        present = await companyExistsOnSiblingMarket(
+          row.market,
+          row.marqueId,
+          row.company
+        );
+        siblingCache.set(cacheKey, present);
+      }
+      row.siblingCompany = present;
     }
 
     enriched.sort((a, b) => {

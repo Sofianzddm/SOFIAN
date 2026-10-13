@@ -134,7 +134,10 @@ export async function POST(request: NextRequest) {
     const crossMarketEmails = new Set<string>();
     /** Ids avec email valide — seuls candidats à l'enrôlement. */
     const enrollableIds: string[] = [];
-    /** Emails déjà suivis ailleurs — on ignore et on continue le reste. */
+    /**
+     * Emails déjà suivis dans un autre pipeline : on enregistre quand même
+     * le CRM (sortie de QUEUED), mais on n'enrôle pas dans le cycle local.
+     */
     const skippedAlreadyTracked: string[] = [];
 
     for (const row of rows) {
@@ -163,11 +166,15 @@ export async function POST(request: NextRequest) {
       }
 
       const bothMarkets = row.bothMarkets === true;
+      // FR ↔ BE : marchés parallèles (talents différents) → jamais un conflit.
+      // Seul un conflit agences (ou autre pipeline) bloque l'enrôlement local.
+      const allowFrBeSibling =
+        ownPipeline === "client" || ownPipeline === "benelux";
 
       const isAlreadyTracked = async (isAo: boolean): Promise<boolean> => {
         if (isAo) return false;
         const conflict = await findCrossPipelineConflict(email, ownPipeline, {
-          allowClientBeneluxSibling: bothMarkets,
+          allowClientBeneluxSibling: allowFrBeSibling || bothMarkets,
         });
         if (conflict) {
           skippedAlreadyTracked.push(
@@ -175,9 +182,11 @@ export async function POST(request: NextRequest) {
           );
           return true;
         }
-        if (bothMarkets) crossMarketEmails.add(email);
+        if (bothMarkets || allowFrBeSibling) crossMarketEmails.add(email);
         return false;
       };
+
+      let blockedFromCycle = false;
 
       if (market === "FW") {
         const contact = await prisma.fwContact.findFirst({
@@ -218,7 +227,7 @@ export async function POST(request: NextRequest) {
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
-        if (await isAlreadyTracked(false)) continue;
+        blockedFromCycle = await isAlreadyTracked(false);
         const written = await writeAgencyContactEmail(id, marqueId, email);
         if (written.blockedAsTalent) continue;
       } else if (market === "BENELUX") {
@@ -229,7 +238,7 @@ export async function POST(request: NextRequest) {
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
-        if (await isAlreadyTracked(contact.source === "AO")) continue;
+        blockedFromCycle = await isAlreadyTracked(contact.source === "AO");
         const written = await writeBeneluxContactEmail(id, marqueId, email);
         if (written.blockedAsTalent) continue;
       } else {
@@ -240,17 +249,18 @@ export async function POST(request: NextRequest) {
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
-        if (await isAlreadyTracked(contact.source === "AO")) continue;
+        blockedFromCycle = await isAlreadyTracked(contact.source === "AO");
         const written = await writeMarqueContactEmail(id, marqueId, email);
         if (written.blockedAsTalent) continue;
       }
       saved.push(email);
-      enrollableIds.push(id);
+      // Conflit cross-pipeline → CRM OK / hors file, mais pas d'enrôlement local.
+      if (!blockedFromCycle) enrollableIds.push(id);
     }
 
     const skippedNote =
       skippedAlreadyTracked.length > 0
-        ? ` · ${skippedAlreadyTracked.length} ignoré(s) (déjà suivi)`
+        ? ` · ${skippedAlreadyTracked.length} hors cycle (déjà suivi ailleurs)`
         : "";
 
     if (market === "FW") {
@@ -266,22 +276,19 @@ export async function POST(request: NextRequest) {
           saved.length > 0
             ? `${saved.length} email(s) notés — maison prête dans Fashion Week.${skippedNote}`
             : skippedAlreadyTracked.length > 0
-              ? `Aucun nouvel email : ${skippedAlreadyTracked.length} déjà suivi(s).`
+              ? `${saved.length} email(s) notés hors cycle (déjà suivi ailleurs).`
               : `${notFoundCount} contact(s) marqués sans email.`,
       });
     }
 
     if (market === "AGENCY") {
-      // Tous les ids de la fiche (email + NOT_FOUND) : le filtre contactIds
-      // évite de rebloquer sur d'autres contacts hors de cette validation.
-      // tryEnroll n'enrôle que ceux qui ont un email valide.
-      const allIds = rows.map((r) => String(r.id || "").trim()).filter(Boolean);
+      // Uniquement les ids non bloqués par un conflit cross-pipeline.
       const enroll =
         enrollableIds.length > 0
           ? await tryEnrollAgencyAfterEmailComplete({
               partnerId: marqueId,
               userId: session.user.id,
-              contactIds: allIds,
+              contactIds: enrollableIds,
             })
           : { enrolled: 0, stillQueued: 0 };
       return NextResponse.json({
@@ -297,23 +304,49 @@ export async function POST(request: NextRequest) {
             : saved.length > 0
               ? `${saved.length} email(s) enregistrés.${skippedNote}`
               : skippedAlreadyTracked.length > 0
-                ? `Aucun nouvel envoi : ${skippedAlreadyTracked.length} déjà suivi(s).`
+                ? `Fiche sortie de file : ${skippedAlreadyTracked.length} déjà suivi(s) ailleurs (hors cycle).`
                 : `${notFoundCount} contact(s) marqués sans email.`,
       });
     }
 
+    // N'enrôler que si au moins un contact n'est pas bloqué par un conflit.
     const enroll =
-      market === "BENELUX"
-        ? await tryEnrollBeneluxAfterEmailComplete({
-            companyId: marqueId,
-            userId: session.user.id,
-            crossMarketEmails,
-          })
-        : await tryEnrollMarqueAfterEmailComplete({
-            marqueId,
-            userId: session.user.id,
-            crossMarketEmails,
-          });
+      enrollableIds.length === 0
+        ? { enrolled: 0, stillQueued: 0 }
+        : market === "BENELUX"
+          ? await tryEnrollBeneluxAfterEmailComplete({
+              companyId: marqueId,
+              userId: session.user.id,
+              crossMarketEmails,
+              contactIds: enrollableIds,
+            })
+          : await tryEnrollMarqueAfterEmailComplete({
+              marqueId,
+              userId: session.user.id,
+              crossMarketEmails,
+              contactIds: enrollableIds,
+            });
+
+    // Auto FR + BE : si la même personne existe déjà sur le marché frère,
+    // on l'enrôle aussi (sans inventer de fiche).
+    const {
+      enrollExistingBeSiblings,
+      enrollExistingFrSiblings,
+    } = await import("@/lib/cross-market-enroll");
+    const sibling =
+      enrollableIds.length === 0
+        ? { enrolled: 0, matched: 0 }
+        : market === "BENELUX"
+          ? await enrollExistingFrSiblings({
+              companyId: marqueId,
+              userId: session.user.id,
+              contactIds: enrollableIds,
+            })
+          : await enrollExistingBeSiblings({
+              marqueId,
+              userId: session.user.id,
+              contactIds: enrollableIds,
+            });
 
     let awaitingNote = "";
     if (market === "FR" && saved.length > 0) {
@@ -329,14 +362,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const suffix = market === "BENELUX" ? " BENELUX" : "";
+    const totalEnrolled = enroll.enrolled + sibling.enrolled;
+    const crossNote =
+      sibling.matched > 0
+        ? sibling.enrolled > 0
+          ? ` · auto FR + BE (${sibling.enrolled} sur marché frère)`
+          : ` · aussi présent(e) sur marché frère (déjà en cycle)`
+        : "";
+    const suffix =
+      sibling.matched > 0
+        ? " FR + BE"
+        : market === "BENELUX"
+          ? " BENELUX"
+          : "";
     const message =
-      enroll.enrolled > 0
-        ? `${enroll.enrolled} contact(s) envoyés dans « À contacter »${suffix}.${skippedNote}${awaitingNote}`
+      totalEnrolled > 0
+        ? `${totalEnrolled} contact(s) envoyés dans « À contacter »${suffix}.${skippedNote}${crossNote}${awaitingNote}`
         : saved.length > 0
-          ? `${saved.length} email(s) enregistrés${suffix}.${skippedNote}${awaitingNote}`
+          ? `${saved.length} email(s) enregistrés${suffix}.${skippedNote}${crossNote}${awaitingNote}`
           : skippedAlreadyTracked.length > 0
-            ? `Aucun nouvel envoi${suffix} : ${skippedAlreadyTracked.length} déjà suivi(s).`
+            ? `Fiche sortie de file${suffix} : ${skippedAlreadyTracked.length} déjà suivi(s) ailleurs (hors cycle).`
             : `${notFoundCount} contact(s) marqués sans email${suffix}.`;
 
     return NextResponse.json({
@@ -345,7 +390,11 @@ export async function POST(request: NextRequest) {
       notFound: notFoundCount,
       skippedAlreadyTracked: skippedAlreadyTracked.length,
       skippedDetails: skippedAlreadyTracked,
-      enrolled: enroll.enrolled,
+      enrolled: totalEnrolled,
+      enrolledLocal: enroll.enrolled,
+      enrolledSibling: sibling.enrolled,
+      siblingMatched: sibling.matched,
+      crossMarket: sibling.matched > 0,
       message,
     });
   } catch (error) {

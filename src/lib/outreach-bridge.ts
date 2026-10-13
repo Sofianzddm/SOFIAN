@@ -163,10 +163,9 @@ export async function resolveOutreachPipeline(
  * Retourne le conflit (pipeline + libellé + entreprise) ou null.
  *
  * `allowClientBeneluxSibling` : FR (client) et Benelux sont des marchés
- * PARALLÈLES. Quand un contact est volontairement placé sur les deux marchés
- * (« FR + BE »), sa présence dans le marché frère n'est PAS un conflit — on
- * veut la même personne dans les deux cycles. Le conflit avec la prospection
- * agences reste bloquant dans tous les cas.
+ * PARALLÈLES (catalogues talents différents). Quand true, la présence dans
+ * le marché frère n'est PAS un conflit — la même personne peut être dans
+ * les deux cycles. Le conflit avec la prospection agences reste bloquant.
  */
 export async function findCrossPipelineConflict(
   email: string,

@@ -34,6 +34,7 @@ import {
 import {
   detectEmailPattern,
   suggestEmailsForContact,
+  type DetectedEmailPattern,
   type EmailSuggestion,
 } from "@/lib/email-pattern";
 import type {
@@ -116,6 +117,17 @@ type LookupContact = {
   company: string;
   market: Market;
   source: "CARTO" | "AO" | null;
+  /** Entreprise déjà présente sur le marché frère → auto FR + BE. */
+  siblingCompany?: boolean;
+  emailSuggested?: string | null;
+  patternCrossMarket?: boolean;
+  pattern?: {
+    kind: string;
+    domain: string;
+    matches: number;
+    label: string;
+  } | null;
+  suggestions?: EmailSuggestion[];
 };
 type PersonRef = { id: string; market: Market; marqueId: string };
 
@@ -529,6 +541,11 @@ export default function EnrichissementPage() {
       }
       const market = c.market || "FR";
       b.markets.add(market);
+      // Entreprise déjà sur le marché frère → bucket FR + BE (auto).
+      if (c.siblingCompany) {
+        if (market === "FR") b.markets.add("BENELUX");
+        if (market === "BENELUX") b.markets.add("FR");
+      }
       const personId = `${norm(c.prenom || "")}|${norm(c.nom)}|${c.source || ""}`;
       let p = b.people.get(personId);
       if (!p) {
@@ -601,8 +618,30 @@ export default function EnrichissementPage() {
     if (activeKey && !active) setActiveKey(null);
   }, [active, activeKey]);
 
-  /** Motif déduit UNIQUEMENT des mails déjà saisis sur cette fiche. */
-  const livePattern = useMemo(() => {
+  type LivePattern = DetectedEmailPattern & { crossMarket?: boolean };
+
+  /** Motif serveur (emails FR + BE connus) pour la fiche active. */
+  const serverPattern = useMemo((): LivePattern | null => {
+    if (!active) return null;
+    const ids = new Set(active.people.flatMap((p) => p.refs.map((r) => r.id)));
+    const row = contacts.find(
+      (c) => ids.has(c.id) && c.pattern?.kind && c.pattern?.domain
+    );
+    if (!row?.pattern) return null;
+    return {
+      kind: row.pattern.kind as DetectedEmailPattern["kind"],
+      domain: row.pattern.domain,
+      matches: row.pattern.matches,
+      sampleSize: row.pattern.matches,
+      crossMarket: Boolean(
+        row.patternCrossMarket ||
+          (active.markets.includes("FR") && active.markets.includes("BENELUX"))
+      ),
+    };
+  }, [active, contacts]);
+
+  /** Motif : saisies locales, sinon motif serveur (FR+BE fusionnés). */
+  const livePattern = useMemo((): LivePattern | null => {
     if (!active) return null;
     const known = active.people
       .map((p) => {
@@ -611,50 +650,60 @@ export default function EnrichissementPage() {
         return { email, prenom: p.prenom, nom: p.nom };
       })
       .filter((x): x is { email: string; prenom: string | null; nom: string } => Boolean(x));
-    if (known.length === 0) return null;
-    return detectEmailPattern(known);
-  }, [active, drafts]);
+    if (known.length > 0) {
+      const detected = detectEmailPattern(known);
+      if (detected) {
+        return {
+          ...detected,
+          crossMarket: Boolean(
+            serverPattern?.crossMarket ||
+              (active.markets.includes("FR") &&
+                active.markets.includes("BENELUX"))
+          ),
+        };
+      }
+    }
+    return serverPattern;
+  }, [active, drafts, serverPattern]);
 
   const suggestionFor = (p: Person): EmailSuggestion[] => {
-    if (!livePattern) return [];
     if (notFound[p.key]) return [];
     if (isValidEmail(drafts[p.key] || "")) return [];
-    return suggestEmailsForContact({
-      prenom: p.prenom,
-      nom: p.nom,
-      pattern: livePattern,
-    });
-  };
-
-  const remainingSuggestionCount = useMemo(() => {
-    if (!active || !livePattern) return 0;
-    let count = 0;
-    for (const p of active.people) {
-      if (notFound[p.key]) continue;
-      if (isValidEmail(drafts[p.key] || "")) continue;
-      const suggestions = suggestEmailsForContact({
+    if (livePattern) {
+      return suggestEmailsForContact({
         prenom: p.prenom,
         nom: p.nom,
         pattern: livePattern,
       });
-      if (suggestions.length > 0) count += 1;
+    }
+    // Fallback : suggestions API (déjà calculées FR+BE).
+    const refIds = new Set(p.refs.map((r) => r.id));
+    const row = contacts.find((c) => refIds.has(c.id));
+    return row?.suggestions || [];
+  };
+
+  const remainingSuggestionCount = useMemo(() => {
+    if (!active) return 0;
+    let count = 0;
+    for (const p of active.people) {
+      if (notFound[p.key]) continue;
+      if (isValidEmail(drafts[p.key] || "")) continue;
+      if (suggestionFor(p).length > 0) count += 1;
     }
     return count;
-  }, [active, livePattern, drafts, notFound]);
+    // suggestionFor depends on livePattern/contacts/drafts/notFound
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, livePattern, drafts, notFound, contacts]);
 
   const applyAgencySuggestionsToAll = () => {
-    if (!active || !livePattern) return;
+    if (!active) return;
     setDrafts((prev) => {
       const next = { ...prev };
       let changed = 0;
       for (const p of active.people) {
         if (notFound[p.key]) continue;
         if (isValidEmail(next[p.key] || "")) continue;
-        const suggestions = suggestEmailsForContact({
-          prenom: p.prenom,
-          nom: p.nom,
-          pattern: livePattern,
-        });
+        const suggestions = suggestionFor(p);
         if (suggestions.length > 0) {
           next[p.key] = suggestions[0].email;
           changed += 1;
@@ -664,7 +713,7 @@ export default function EnrichissementPage() {
         setFlash(
           `${changed} suggestion${changed > 1 ? "s" : ""} appliquée${
             changed > 1 ? "s" : ""
-          }.`
+          }${livePattern?.crossMarket ? " (motif FR + BE)" : ""}.`
         );
       }
       return next;
@@ -689,7 +738,13 @@ export default function EnrichissementPage() {
     const next: Record<string, string> = {};
     const nextNf: Record<string, boolean> = {};
     for (const p of b.people) {
-      next[p.key] = "";
+      // Préremplit avec la suggestion FR+BE si dispo (un mail → les deux marchés).
+      const refIds = new Set(p.refs.map((r) => r.id));
+      const row = contacts.find((c) => refIds.has(c.id));
+      const suggested = (row?.emailSuggested || row?.suggestions?.[0]?.email || "")
+        .trim()
+        .toLowerCase();
+      next[p.key] = isValidEmail(suggested) ? suggested : "";
       nextNf[p.key] = false;
     }
     setDrafts(next);
@@ -861,6 +916,8 @@ export default function EnrichissementPage() {
       let totalSaved = 0;
       let totalEnrolled = 0;
       let totalNotFound = 0;
+      let totalSkippedTracked = 0;
+      let autoCrossMarket = false;
       const awaitingNotes: string[] = [];
       for (const g of groups.values()) {
         const res = await fetch("/api/outreach/email-lookup/ready", {
@@ -877,6 +934,8 @@ export default function EnrichissementPage() {
         totalSaved += data.saved || 0;
         totalEnrolled += data.enrolled || 0;
         totalNotFound += data.notFound || 0;
+        totalSkippedTracked += data.skippedAlreadyTracked || 0;
+        if (data.crossMarket) autoCrossMarket = true;
         const msg = String(data.message || "");
         if (msg.includes("demande") || msg.includes("débloquée")) {
           awaitingNotes.push(msg);
@@ -904,18 +963,22 @@ export default function EnrichissementPage() {
 
       const unlockSuffix =
         awaitingNotes.length > 0 ? ` · ${awaitingNotes[awaitingNotes.length - 1]}` : "";
+      const skippedSuffix =
+        totalSkippedTracked > 0
+          ? ` · hors cycle (déjà suivi ailleurs)`
+          : "";
 
       if (totalEnrolled > 0) {
         setFlash(
-          bothMarkets
-            ? `${name} enregistré — envoyé en Outreach FR et BENELUX.${unlockSuffix}`
-            : `${name} enregistré — ${totalEnrolled} contact(s) envoyés en outreach.${unlockSuffix}`
+          bothMarkets || autoCrossMarket
+            ? `${name} enregistré — envoyé en Outreach FR et BENELUX${autoCrossMarket && !bothMarkets ? " (auto)" : ""}.${unlockSuffix}${skippedSuffix}`
+            : `${name} enregistré — ${totalEnrolled} contact(s) envoyés en outreach.${unlockSuffix}${skippedSuffix}`
         );
       } else if (isNf || totalNotFound > 0) {
         setFlash(`${name} marqué sans email.${unlockSuffix}`);
       } else {
         setFlash(
-          `${name} enregistré${totalSaved > 0 ? ` (${email})` : ""}.${unlockSuffix}`
+          `${name} enregistré${totalSaved > 0 ? ` (${email})` : ""}${autoCrossMarket ? " · aussi présent(e) marché frère" : ""}.${unlockSuffix}${skippedSuffix}`
         );
       }
       if (unlockSuffix) {
@@ -1375,6 +1438,9 @@ export default function EnrichissementPage() {
       let totalSaved = 0;
       let totalEnrolled = 0;
       let totalNotFound = 0;
+      let totalSkippedTracked = 0;
+      let autoCrossMarket = false;
+      let lastMessage = "";
       let touchedFr = false;
       let touchedBe = false;
       for (const g of groups.values()) {
@@ -1394,23 +1460,34 @@ export default function EnrichissementPage() {
         totalSaved += data.saved || 0;
         totalEnrolled += data.enrolled || 0;
         totalNotFound += data.notFound || 0;
+        totalSkippedTracked += data.skippedAlreadyTracked || 0;
+        if (data.crossMarket) autoCrossMarket = true;
+        if (typeof data.message === "string" && data.message) {
+          lastMessage = data.message;
+        }
       }
 
       const destNote =
         touchedFr && touchedBe
           ? " FR + BE"
-          : touchedBe
-            ? " BENELUX"
-            : "";
+          : autoCrossMarket
+            ? " FR + BE (auto)"
+            : touchedBe
+              ? " BENELUX"
+              : "";
+      const skippedNote =
+        totalSkippedTracked > 0
+          ? ` · ${totalSkippedTracked} hors cycle (déjà suivi ailleurs)`
+          : "";
 
       setFlash(
         totalEnrolled > 0
-          ? `${active.company} — ${totalEnrolled} contact(s) envoyés dans « À contacter »${destNote} 🎉`
+          ? `${active.company} — ${totalEnrolled} contact(s) envoyés dans « À contacter »${destNote} 🎉${skippedNote}`
           : totalSaved > 0
-            ? `${totalSaved} email(s) enregistrés.`
+            ? `${active.company} — ${totalSaved} email(s) enregistrés${destNote}${skippedNote}.`
             : totalNotFound > 0
               ? `${totalNotFound} contact(s) marqués sans email.`
-              : "Fiche validée."
+              : lastMessage || "Fiche validée."
       );
       setActiveKey(null);
       setDrafts({});
@@ -2132,7 +2209,9 @@ export default function EnrichissementPage() {
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <p className="text-xs text-gray-500 flex items-center gap-1">
                   <Sparkles className="w-3 h-3" style={{ color: ROSE }} />
-                  Motif d&apos;après tes saisies : {livePattern.kind}@{livePattern.domain}
+                  {livePattern.crossMarket
+                    ? `Motif FR + BE : ${livePattern.kind}@${livePattern.domain}`
+                    : `Motif : ${livePattern.kind}@${livePattern.domain}`}
                 </p>
                 {remainingSuggestionCount > 0 && (
                   <button
