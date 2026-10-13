@@ -377,6 +377,8 @@ export async function POST(request: NextRequest) {
       donts?: string | null;
       priority?: unknown;
       deadlineAt?: string | null;
+      /** false = pas de mail « ajouter contacts » (ajout direct par un admin). */
+      notifyAdmin?: boolean;
     };
 
     const talentId = String(body.talentId || "").trim() || null;
@@ -519,7 +521,7 @@ export async function POST(request: NextRequest) {
 
     const resendKey = process.env.RESEND_API_KEY?.trim();
     const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
-    if (resendKey && fromEmail) {
+    if (resendKey && fromEmail && body.notifyAdmin !== false) {
       const resend = new Resend(resendKey);
       const baseUrl =
         (process.env.NEXT_PUBLIC_BASE_URL || "https://app.glowupagence.fr")

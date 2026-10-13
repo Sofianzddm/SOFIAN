@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X, Clock, Feather, Sparkles, Send, Inbox, MessageCircle, Handshake, Trophy, XCircle, ShieldAlert, Layers, UserPlus, Database, ScanSearch, ExternalLink, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X, Clock, Feather, Sparkles, Send, Inbox, MessageCircle, Handshake, Trophy, XCircle, ShieldAlert, Layers, UserPlus, Database, ScanSearch, ExternalLink, Trash2, Plus } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
+import { AdminAddBrandsPanel } from "./AdminAddBrandsPanel";
 import { businessDaysAfter, hasBusinessDaysElapsed } from "@/lib/business-days";
 import { brandsLookSame } from "@/lib/brand-match";
 
@@ -478,9 +479,15 @@ export function ProspectingPipelineClient() {
     () => new Set()
   );
   const [bulkScheduling, setBulkScheduling] = useState(false);
+  const [addBrandsOpen, setAddBrandsOpen] = useState(false);
 
   const visibleStages = useMemo(() => allowedColumns(role), [role]);
   const isCastingManager = role === "CASTING_MANAGER";
+  const isAdmin = role === "ADMIN";
+  const selectedTalent =
+    selectedTalentId === ALL_TALENTS
+      ? null
+      : talents.find((t) => t.id === selectedTalentId) || null;
   // Rôles autorisés à corriger le nom de la marque sur une carte.
   const canEditBrand =
     role === "ADMIN" || role === "HEAD_OF" || role === "STRATEGY_PLANNER";
@@ -1872,7 +1879,33 @@ export function ProspectingPipelineClient() {
             <option value="oldest">Du plus ancien au plus récent</option>
             <option value="newest">Du plus récent au plus ancien</option>
           </select>
+          {isAdmin && (
+            <button
+              type="button"
+              disabled={!selectedTalent}
+              onClick={() => setAddBrandsOpen((v) => !v)}
+              className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ background: "#0f172a" }}
+              title={
+                selectedTalent
+                  ? `Ajouter des marques pour ${selectedTalent.name}`
+                  : "Sélectionne d'abord un talent"
+              }
+            >
+              <Plus className="h-4 w-4" />
+              Ajouter des marques
+            </button>
+          )}
         </div>
+        {isAdmin && addBrandsOpen && selectedTalent && (
+          <AdminAddBrandsPanel
+            talentId={selectedTalent.id}
+            talentName={selectedTalent.name}
+            missions={missions}
+            onClose={() => setAddBrandsOpen(false)}
+            onChanged={() => loadMissions().catch(() => {})}
+          />
+        )}
       </section>
 
       {error && (
