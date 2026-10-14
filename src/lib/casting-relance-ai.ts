@@ -241,7 +241,8 @@ async function loadRelanceContext(
     stats: {
       igFollowers: number | null;
       ttFollowers: number | null;
-      igEngagement: number | null;
+      // Prisma Decimal | number selon génération client
+      igEngagement: unknown;
     } | null;
   }): TalentRow => ({
     id: r.id,
