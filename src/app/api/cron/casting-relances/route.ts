@@ -31,6 +31,7 @@ export const maxDuration = 300;
  *
  * `relanceCancelledAt` (stop manuel) bloque les DEUX rounds.
  * Frequence : toutes les 15 min (cf. vercel.json), jours ouvres 8h30-18h30.
+ * Corps généré par IA (ChatGPT gpt-4o) à l'envoi — cap batch pour tenir le timeout.
  */
 
 type CronResult = {
@@ -173,10 +174,12 @@ export async function GET(request: NextRequest) {
       OR: [{ condensationRole: null }, { condensationRole: "PRIMARY" }],
     },
     select: { id: true, sentMessageIds: true, sentAt: true },
-    take: 100,
+    // Préfiltre large ; le cap effectif est appliqué après `relanceDue`
+    // (chaque mission = 1 appel gpt-4o → budget ~25/run sous maxDuration 300s).
+    take: 80,
   });
 
-  const candidates1 = (
+  const due1 = (
     rawCandidates1 as Array<{ id: string; sentMessageIds: unknown; sentAt: Date | null }>
   ).filter(
     (row) =>
@@ -199,10 +202,10 @@ export async function GET(request: NextRequest) {
       OR: [{ condensationRole: null }, { condensationRole: "PRIMARY" }],
     },
     select: { id: true, sentMessageIds: true, relanceSentAt: true },
-    take: 100,
+    take: 80,
   });
 
-  const candidates2 = (
+  const due2 = (
     rawCandidates2 as Array<{ id: string; sentMessageIds: unknown; relanceSentAt: Date | null }>
   ).filter(
     (row) =>
@@ -217,6 +220,13 @@ export async function GET(request: NextRequest) {
       )
   );
 
+  // Budget IA : ~1 appel ChatGPT / mission. Cap total pour rester sous maxDuration=300.
+  // Cap plus bas : Apify (~15–40s) + gpt-4o par mission dans maxDuration 300s.
+  const AI_RELANCE_BATCH_CAP = 12;
+  const candidates1 = due1.slice(0, AI_RELANCE_BATCH_CAP);
+  const remaining = Math.max(0, AI_RELANCE_BATCH_CAP - candidates1.length);
+  const candidates2 = due2.slice(0, remaining);
+
   const results: CronResult[] = [];
   for (const row of candidates1) {
     await processRelanceRound(row, 1, results);
@@ -229,6 +239,9 @@ export async function GET(request: NextRequest) {
     processed: candidates1.length + candidates2.length,
     round1: candidates1.length,
     round2: candidates2.length,
+    dueRound1: due1.length,
+    dueRound2: due2.length,
+    deferred: Math.max(0, due1.length + due2.length - candidates1.length - candidates2.length),
     results,
   });
 }

@@ -381,7 +381,11 @@ async function loadBrandContactLanguages(mission: {
   for (const c of contacts) {
     const email = String(c.email || "").trim().toLowerCase();
     if (!email) continue;
-    map.set(email, String(c.language || "").toLowerCase() === "en" ? "en" : "fr");
+    const raw = String(c.language || "").trim().toLowerCase();
+    // Seulement si la fiche a une langue EXPLICITE — sinon on laisse
+    // threadLangFor retomber sur la langue réelle du brouillon.
+    if (raw === "en" || raw.startsWith("en")) map.set(email, "en");
+    else if (raw === "fr" || raw.startsWith("fr")) map.set(email, "fr");
   }
   return map;
 }
@@ -862,23 +866,22 @@ export function buildDefaultRelanceTemplate(
   targetBrand: string,
   language: "fr" | "en" = "fr",
   creatorName?: string,
-  projectTitle?: string | null
+  /** @deprecated Ignoré — ne plus injecter le titre interne du projet dans le mail. */
+  _projectTitle?: string | null
 ): string {
   const brand = (targetBrand || "").trim();
   const talent = (creatorName || "").trim().replace(/\s+/g, " ");
-  const project = (projectTitle || "").trim();
 
   if (language === "en") {
     const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
     const talentPart = talent ? `<strong>${talent}</strong>` : null;
-    const projectPart = project ? ` (project <strong>${project}</strong>)` : "";
 
     return [
       `<p>Hi {{contact.firstname}},</p>`,
       `<p>I hope you're doing well 😊</p>`,
       talentPart
-        ? `<p>I'm following up on the collaboration I suggested between ${talentPart} and ${brandPart}${projectPart} — a profile that can really bring your next activations to life, with content that feels native and performs.</p>`
-        : `<p>I'm following up on my collaboration proposal for ${brandPart}${projectPart} — an activation designed to bring your next campaigns to life with creators who convert.</p>`,
+        ? `<p>I'm following up on the collaboration I suggested between ${talentPart} and ${brandPart} — a profile that can really bring your next activations to life, with content that feels native and performs.</p>`
+        : `<p>I'm following up on my collaboration proposal for ${brandPart} — an activation designed to bring your next campaigns to life with creators who convert.</p>`,
       `<p>Availability moves fast on our side: if the timing works for you, I can lock everything in quickly (media kit, estimates, content angles).</p>`,
       `<p>Would you be interested in ${talent ? "this creator" : "these creators"}, or could you let me know <strong>what your next campaigns would be</strong>?</p>`,
       `<p>Best regards,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
@@ -887,14 +890,13 @@ export function buildDefaultRelanceTemplate(
 
   const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
   const talentPart = talent ? `<strong>${talent}</strong>` : null;
-  const projectPart = project ? ` (projet <strong>${project}</strong>)` : "";
 
   return [
     `<p>Bonjour {{contact.firstname}},</p>`,
     `<p>J'espère que vous allez bien 😊</p>`,
     talentPart
-      ? `<p>Je reviens vers vous au sujet de la collaboration entre ${talentPart} et ${brandPart}${projectPart} — un profil qui peut vraiment faire vivre vos prochaines activations, avec un contenu natif et performant.</p>`
-      : `<p>Je reviens vers vous au sujet de ma proposition de collaboration pour ${brandPart}${projectPart} — une activation pensée pour faire vivre vos prochaines campagnes avec des créateurs qui convertissent.</p>`,
+      ? `<p>Je reviens vers vous au sujet de la collaboration entre ${talentPart} et ${brandPart} — un profil qui peut vraiment faire vivre vos prochaines activations, avec un contenu natif et performant.</p>`
+      : `<p>Je reviens vers vous au sujet de ma proposition de collaboration pour ${brandPart} — une activation pensée pour faire vivre vos prochaines campagnes avec des créateurs qui convertissent.</p>`,
     `<p>Les disponibilités bougent vite de notre côté : si le timing vous convient, je peux tout verrouiller rapidement (media kit, estimations, angles de contenus).</p>`,
     `<p>Seriez-vous intéressé par ${talent ? "ce créateur" : "ces créateurs"}, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?</p>`,
     `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
@@ -915,30 +917,22 @@ function formatTalentListHtml(names: string[]): string {
   return `${head} et <strong>${cleaned[cleaned.length - 1]}</strong>`;
 }
 
+/** Liste les talents uniquement — jamais le titre interne du projet (trop CRM). */
 function formatProjectsListHtml(
   projects: Array<{ creatorName: string; projectTitle: string | null }>,
-  language: "fr" | "en"
+  _language: "fr" | "en"
 ): string {
-  const items = projects
-    .map((p) => {
-      const name = (p.creatorName || "").trim();
-      const title = (p.projectTitle || "").trim();
-      if (!name && !title) return "";
-      if (name && title) {
-        return language === "en"
-          ? `<strong>${name}</strong> — project <strong>${title}</strong>`
-          : `<strong>${name}</strong> — projet <strong>${title}</strong>`;
-      }
-      if (title) {
-        return language === "en"
-          ? `project <strong>${title}</strong>`
-          : `projet <strong>${title}</strong>`;
-      }
-      return `<strong>${name}</strong>`;
-    })
-    .filter(Boolean);
-  if (items.length === 0) return "";
-  return items.map((i) => `→ ${i}`).join("<br />");
+  const seen = new Set<string>();
+  const items: string[] = [];
+  for (const p of projects) {
+    const name = (p.creatorName || "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(`→ <strong>${name}</strong>`);
+  }
+  return items.join("<br />");
 }
 
 export type CondensationRelanceProject = {
@@ -951,20 +945,11 @@ export function buildCondensationRelanceTemplate(
   targetBrand: string,
   creatorNames: string[],
   language: "fr" | "en" = "fr",
-  projects?: CondensationRelanceProject[] | null
+  /** @deprecated Titres projets internes — non injectés dans le mail. */
+  _projects?: CondensationRelanceProject[] | null
 ): string {
   const brand = (targetBrand || "").trim();
   const talentsHtml = formatTalentListHtml(creatorNames);
-  const projectsHtml = formatProjectsListHtml(
-    (projects && projects.length > 0
-      ? projects
-      : creatorNames.map((n) => ({ creatorName: n, projectTitle: null }))
-    ).map((p) => ({
-      creatorName: p.creatorName,
-      projectTitle: p.projectTitle ?? null,
-    })),
-    language
-  );
 
   if (language === "en") {
     const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
@@ -972,15 +957,10 @@ export function buildCondensationRelanceTemplate(
       `<p>Hi {{contact.firstname}},</p>`,
       `<p>I hope you're doing well 😊</p>`,
       `<p>I'm following up on our multi-talent proposal for ${brandPart}, with ${talentsHtml} — several strong angles to activate your brand with content that feels native and converts.</p>`,
-      projectsHtml
-        ? `<p>Projects on the table:<br />${projectsHtml}</p>`
-        : "",
       `<p>We can move fast: media kits, performance estimates and tailored content ideas ready to send as soon as you give us the green light.</p>`,
       `<p>Would you be interested in these creators, or could you let me know <strong>what your next campaigns would be</strong>?</p>`,
       `<p>Best regards,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
-    ]
-      .filter(Boolean)
-      .join("");
+    ].join("");
   }
 
   const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
@@ -988,15 +968,10 @@ export function buildCondensationRelanceTemplate(
     `<p>Bonjour {{contact.firstname}},</p>`,
     `<p>J'espère que vous allez bien 😊</p>`,
     `<p>Je reviens vers vous sur notre proposition multi-talents pour ${brandPart}, avec ${talentsHtml} — plusieurs angles forts pour activer votre marque avec du contenu natif et qui convertit.</p>`,
-    projectsHtml
-      ? `<p>Projets sur la table :<br />${projectsHtml}</p>`
-      : "",
     `<p>On peut avancer vite : media kits, estimations de performance et idées de contenus sur mesure prêts à partir dès votre feu vert.</p>`,
     `<p>Seriez-vous intéressé par ces créateurs, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?</p>`,
     `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
-  ]
-    .filter(Boolean)
-    .join("");
+  ].join("");
 }
 
 /** Relance 2 (valeur ajoutée) pour un mail condensé multi-projets. */
@@ -1005,27 +980,18 @@ export function buildCondensationRelance2Template(
   creatorNames: string[],
   language: "fr" | "en" = "fr",
   firstSentAt?: Date | null,
-  projects?: CondensationRelanceProject[] | null
+  /** @deprecated Titres projets internes — non injectés dans le mail. */
+  _projects?: CondensationRelanceProject[] | null
 ): string {
   const brand = (targetBrand || "").trim();
   const talentsHtml = formatTalentListHtml(creatorNames);
   const n = Math.max(creatorNames.filter(Boolean).length, 2);
-  const projectsHtml = formatProjectsListHtml(
-    (projects && projects.length > 0
-      ? projects
-      : creatorNames.map((n) => ({ creatorName: n, projectTitle: null }))
-    ).map((p) => ({
-      creatorName: p.creatorName,
-      projectTitle: p.projectTitle ?? null,
-    })),
-    language
-  );
 
   if (language === "en") {
     const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
     const intro = firstSentAt
-      ? `One last follow-up on my message from ${formatRelanceDate(firstSentAt, "en")} — I presented ${talentsHtml} and their projects for a high-impact collaboration with ${brandPart}.`
-      : `One last follow-up on my previous message — I presented ${talentsHtml} and their projects for a high-impact collaboration with ${brandPart}.`;
+      ? `One last follow-up on my message from ${formatRelanceDate(firstSentAt, "en")} — I presented ${talentsHtml} for a high-impact collaboration with ${brandPart}.`
+      : `One last follow-up on my previous message — I presented ${talentsHtml} for a high-impact collaboration with ${brandPart}.`;
 
     return [
       `Hi {{contact.firstname}},`,
@@ -1033,7 +999,6 @@ export function buildCondensationRelance2Template(
       `I hope you're doing well 😊`,
       `<br /><br />`,
       intro,
-      projectsHtml ? `<br /><br />Projects on the table:<br />${projectsHtml}` : "",
       `<br /><br />`,
       `To make the decision effortless, I can send you right away:`,
       `<br />`,
@@ -1053,8 +1018,8 @@ export function buildCondensationRelance2Template(
 
   const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
   const intro = firstSentAt
-    ? `Un dernier suivi suite à mon message du ${formatRelanceDate(firstSentAt, "fr")} — je vous présentais ${talentsHtml} et leurs projets pour une collaboration à fort impact avec ${brandPart}.`
-    : `Un dernier suivi suite à mon précédent message — je vous présentais ${talentsHtml} et leurs projets pour une collaboration à fort impact avec ${brandPart}.`;
+    ? `Un dernier suivi suite à mon message du ${formatRelanceDate(firstSentAt, "fr")} — je vous présentais ${talentsHtml} pour une collaboration à fort impact avec ${brandPart}.`
+    : `Un dernier suivi suite à mon précédent message — je vous présentais ${talentsHtml} pour une collaboration à fort impact avec ${brandPart}.`;
 
   return [
     `Bonjour {{contact.firstname}},`,
@@ -1062,7 +1027,6 @@ export function buildCondensationRelance2Template(
     `J'espère que vous allez bien 😊`,
     `<br /><br />`,
     intro,
-    projectsHtml ? `<br /><br />Projets sur la table :<br />${projectsHtml}` : "",
     `<br /><br />`,
     `Pour vous faciliter la décision, je peux vous envoyer immédiatement :`,
     `<br />`,
@@ -1166,19 +1130,18 @@ export function buildCastingRelance2Template(
   creatorName: string,
   language: "fr" | "en" = "fr",
   firstSentAt?: Date | null,
-  projectTitle?: string | null
+  /** @deprecated Ignoré — ne plus injecter le titre interne du projet dans le mail. */
+  _projectTitle?: string | null
 ): string {
   const brand = (targetBrand || "").trim();
   const talent = (creatorName || "").trim().replace(/\s+/g, " ");
-  const project = (projectTitle || "").trim();
 
   if (language === "en") {
     const brandPart = brand ? `<strong>${brand}</strong>` : `your brand`;
     const talentPart = talent ? `<strong>${talent}</strong>` : `our creator`;
-    const projectPart = project ? ` (project <strong>${project}</strong>)` : "";
     const intro = firstSentAt
-      ? `One last follow-up on my message from ${formatRelanceDate(firstSentAt, "en")} — I suggested a collaboration between ${talentPart} and ${brandPart}${projectPart}.`
-      : `One last follow-up on my previous message — I suggested a collaboration between ${talentPart} and ${brandPart}${projectPart}.`;
+      ? `One last follow-up on my message from ${formatRelanceDate(firstSentAt, "en")} — I suggested a collaboration between ${talentPart} and ${brandPart}.`
+      : `One last follow-up on my previous message — I suggested a collaboration between ${talentPart} and ${brandPart}.`;
 
     return [
       `Hi {{contact.firstname}},`,
@@ -1205,10 +1168,9 @@ export function buildCastingRelance2Template(
 
   const brandPart = brand ? `<strong>${brand}</strong>` : `votre marque`;
   const talentPart = talent ? `<strong>${talent}</strong>` : `notre talent`;
-  const projectPart = project ? ` (projet <strong>${project}</strong>)` : "";
   const intro = firstSentAt
-    ? `Un dernier suivi suite à mon message du ${formatRelanceDate(firstSentAt, "fr")} — je vous proposais une collaboration entre ${talentPart} et ${brandPart}${projectPart}.`
-    : `Un dernier suivi suite à mon précédent message — je vous proposais une collaboration entre ${talentPart} et ${brandPart}${projectPart}.`;
+    ? `Un dernier suivi suite à mon message du ${formatRelanceDate(firstSentAt, "fr")} — je vous proposais une collaboration entre ${talentPart} et ${brandPart}.`
+    : `Un dernier suivi suite à mon précédent message — je vous proposais une collaboration entre ${talentPart} et ${brandPart}.`;
 
   return [
     `Bonjour {{contact.firstname}},`,
@@ -1300,11 +1262,15 @@ export async function buildCastingRelanceDraft(
   const subjectSrc = String(mission.draftEmailSubject || "").trim();
   const defaultSubjectBase =
     relanceLang === "en" ? "Our collaboration proposal" : "Notre proposition de collaboration";
-  const subject = subjectSrc.toLowerCase().startsWith("re:")
-    ? subjectSrc
-    : `Re: ${subjectSrc || defaultSubjectBase}`;
-
   const targetBrand = String(mission.targetBrand || "").trim();
+  const subject = (
+    subjectSrc.toLowerCase().startsWith("re:")
+      ? subjectSrc
+      : `Re: ${subjectSrc || defaultSubjectBase}`
+  )
+    .replace(/\{\{\s*contact\.company\s*\}\}/gi, targetBrand || "—")
+    .replace(/\{\{\s*contact\.marques\s*\}\}/gi, targetBrand || "—");
+
   const projectTitle =
     (mission.campaign?.title && String(mission.campaign.title).trim()) || null;
   const condensationCtx = await (async () => {
@@ -1317,36 +1283,56 @@ export async function buildCastingRelanceDraft(
   })();
   const condensationNames = condensationCtx?.creators ?? null;
   const condensationProjects = condensationCtx?.projects ?? null;
-  const bodyTemplate =
-    condensationNames && condensationNames.length >= 2
-      ? round === 2
-        ? buildCondensationRelance2Template(
-            targetBrand,
-            condensationNames,
-            relanceLang,
-            mission.sentAt ? new Date(mission.sentAt) : null,
-            condensationProjects
-          )
-        : buildCondensationRelanceTemplate(
-            targetBrand,
-            condensationNames,
-            relanceLang,
-            condensationProjects
-          )
-      : round === 2
-        ? buildCastingRelance2Template(
-            targetBrand,
-            String(mission.creatorName || ""),
-            relanceLang,
-            mission.sentAt ? new Date(mission.sentAt) : null,
-            projectTitle
-          )
-        : buildDefaultRelanceTemplate(
-            targetBrand,
-            relanceLang,
-            String(mission.creatorName || ""),
-            projectTitle
-          );
+
+  let bodyTemplate: string | null = null;
+  try {
+    const { generateCastingRelanceBody } = await import("@/lib/casting-relance-ai");
+    const ai = await generateCastingRelanceBody({
+      missionId,
+      round,
+      language: relanceLang,
+      targetBrand,
+      previousSubject: subjectSrc,
+      previousBodyHtml: String(mission.draftEmailBody || ""),
+      firstSentAt: mission.sentAt ? new Date(mission.sentAt) : null,
+      creatorNames: condensationNames,
+    });
+    bodyTemplate = ai?.bodyHtml?.trim() || null;
+  } catch {
+    bodyTemplate = null;
+  }
+  if (!bodyTemplate) {
+    bodyTemplate =
+      condensationNames && condensationNames.length >= 2
+        ? round === 2
+          ? buildCondensationRelance2Template(
+              targetBrand,
+              condensationNames,
+              relanceLang,
+              mission.sentAt ? new Date(mission.sentAt) : null,
+              condensationProjects
+            )
+          : buildCondensationRelanceTemplate(
+              targetBrand,
+              condensationNames,
+              relanceLang,
+              condensationProjects
+            )
+        : round === 2
+          ? buildCastingRelance2Template(
+              targetBrand,
+              String(mission.creatorName || ""),
+              relanceLang,
+              mission.sentAt ? new Date(mission.sentAt) : null,
+              projectTitle
+            )
+          : buildDefaultRelanceTemplate(
+              targetBrand,
+              relanceLang,
+              String(mission.creatorName || ""),
+              projectTitle
+            );
+  }
 
   const recipients: CastingRelanceRecipient[] = [];
   const skipped: CastingRelanceSkipped[] = [];
@@ -1427,6 +1413,11 @@ export type CastingRelanceSendOptions = {
    * cette vérification lui-même (évite de doubler les appels API Gmail).
    */
   skipReplyCheck?: boolean;
+  /**
+   * N’ajoute pas la citation du mail d’origine sous la relance.
+   * Utile pour un renvoi « excuse formatage » (évite de republier le pavé).
+   */
+  skipQuotedOriginal?: boolean;
 };
 
 /**
@@ -1498,10 +1489,21 @@ export async function executeCastingRelance(
       ? "fr"
       : draftDeclaredLang;
   const contactLangByEmail = await loadBrandContactLanguages(mission);
-  /** Langue du thread Gmail de CE contact (cf. commentaire ci-dessus). */
+  /**
+   * Langue d’envoi = fiche client (MarqueContact.language) en priorité,
+   * sinon clientLanguage mission, sinon langue réelle du brouillon.
+   * Un contact EN ne doit JAMAIS recevoir du FR (et inversement).
+   */
   const threadLangFor = (email: string): "fr" | "en" => {
-    const declared = contactLangByEmail.get(email.toLowerCase()) ?? fallbackLang;
-    return declared !== draftDeclaredLang ? declared : draftActualLang;
+    const fromFiche = contactLangByEmail.get(email.toLowerCase());
+    if (fromFiche) return fromFiche;
+    if (
+      String(mission.clientLanguage || "").toUpperCase() === "EN" ||
+      String(mission.clientLanguage || "").toUpperCase() === "FR"
+    ) {
+      return fallbackLang;
+    }
+    return draftActualLang;
   };
 
   const subjectSrcRaw = String(mission.draftEmailSubject || "").trim();
@@ -1519,6 +1521,20 @@ export async function executeCastingRelance(
   try {
     const { getCondensationRelanceContext } = await import("@/lib/brand-condensation");
     const ctx = await getCondensationRelanceContext(missionId);
+    // Legacy multi-projets sans groupId : seule la carte anchor envoie,
+    // sinon on retombait en solo et on ne citait qu'UN talent/projet.
+    if (ctx && ctx.creators.length >= 2 && !ctx.isAnchor) {
+      return {
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        skippedReplied: 0,
+        skippedBounced: 0,
+        errors: [
+          "Carte membre d'un envoi condensé — relance portée par la carte principale (tous les talents).",
+        ],
+      };
+    }
     condensationNames = ctx?.creators ?? null;
     condensationProjects = ctx?.projects ?? null;
   } catch {
@@ -1533,8 +1549,12 @@ export async function executeCastingRelance(
     bodyTemplate: string;
     originalBodyTpl: string;
     sentDateLabel: string;
+    aiGenerated?: boolean;
   };
   const relanceVersions = new Map<"fr" | "en", RelanceVersion>();
+  /** Une génération IA par langue (pas par contact). */
+  const aiBodyByLang = new Map<"fr" | "en", string | null>();
+
   const getRelanceVersion = async (lang: "fr" | "en"): Promise<RelanceVersion> => {
     const cached = relanceVersions.get(lang);
     if (cached) return cached;
@@ -1562,46 +1582,92 @@ export async function executeCastingRelance(
         : isCondensed
           ? "Notre proposition commune"
           : "Notre proposition de collaboration";
-    const subject =
+    // Sujet : Re: du mail initial, avec {{contact.company}} déjà résolu (bug historique).
+    let subject =
       (options.subjectOverride && options.subjectOverride.trim()) ||
       (subjectSrc.toLowerCase().startsWith("re:")
         ? subjectSrc
         : `Re: ${subjectSrc || defaultSubjectBase}`);
-    const bodyTemplate =
-      (options.bodyOverride && options.bodyOverride.trim()) ||
-      (isCondensed
-        ? round === 2
-          ? buildCondensationRelance2Template(
-              targetBrand,
-              condensationNames!,
-              lang,
-              mission.sentAt ? new Date(mission.sentAt) : null,
-              condensationProjects
-            )
-          : buildCondensationRelanceTemplate(
-              targetBrand,
-              condensationNames!,
-              lang,
-              condensationProjects
-            )
-        : round === 2
-          ? buildCastingRelance2Template(
-              targetBrand,
-              String(mission.creatorName || ""),
-              lang,
-              mission.sentAt ? new Date(mission.sentAt) : null,
-              projectTitle
-            )
-          : buildDefaultRelanceTemplate(
-              targetBrand,
-              lang,
-              String(mission.creatorName || ""),
-              projectTitle
-            ));
+    subject = subject
+      .replace(/\{\{\s*contact\.company\s*\}\}/gi, targetBrand || "—")
+      .replace(/\{\{\s*contact\.marques\s*\}\}/gi, targetBrand || "—");
+
+    let bodyTemplate = options.bodyOverride && options.bodyOverride.trim();
+    let aiGenerated = false;
+
+    if (!bodyTemplate) {
+      // Génération IA (mail initial + profils) — fallback template si échec.
+      if (!aiBodyByLang.has(lang)) {
+        try {
+          const { generateCastingRelanceBody } = await import(
+            "@/lib/casting-relance-ai"
+          );
+          const ai = await generateCastingRelanceBody({
+            missionId,
+            round,
+            language: lang,
+            targetBrand,
+            previousSubject: subjectSrcRaw,
+            previousBodyHtml: originalSrcRaw,
+            firstSentAt: mission.sentAt ? new Date(mission.sentAt) : null,
+            creatorNames: condensationNames,
+          });
+          aiBodyByLang.set(lang, ai?.bodyHtml?.trim() || null);
+        } catch (e) {
+          console.warn(
+            `[executeCastingRelance] IA KO ${missionId}:`,
+            e instanceof Error ? e.message : e
+          );
+          aiBodyByLang.set(lang, null);
+        }
+      }
+      const aiBody = aiBodyByLang.get(lang);
+      if (aiBody) {
+        bodyTemplate = aiBody;
+        aiGenerated = true;
+      } else {
+        bodyTemplate = isCondensed
+          ? round === 2
+            ? buildCondensationRelance2Template(
+                targetBrand,
+                condensationNames!,
+                lang,
+                mission.sentAt ? new Date(mission.sentAt) : null,
+                condensationProjects
+              )
+            : buildCondensationRelanceTemplate(
+                targetBrand,
+                condensationNames!,
+                lang,
+                condensationProjects
+              )
+          : round === 2
+            ? buildCastingRelance2Template(
+                targetBrand,
+                String(mission.creatorName || ""),
+                lang,
+                mission.sentAt ? new Date(mission.sentAt) : null,
+                projectTitle
+              )
+            : buildDefaultRelanceTemplate(
+                targetBrand,
+                lang,
+                String(mission.creatorName || ""),
+                projectTitle
+              );
+      }
+    }
+
     const sentDateLabel = mission.sentAt
       ? formatRelanceDate(new Date(mission.sentAt), lang)
       : "";
-    const v: RelanceVersion = { subject, bodyTemplate, originalBodyTpl, sentDateLabel };
+    const v: RelanceVersion = {
+      subject,
+      bodyTemplate,
+      originalBodyTpl,
+      sentDateLabel,
+      aiGenerated,
+    };
     relanceVersions.set(lang, v);
     return v;
   };
@@ -1704,12 +1770,16 @@ export async function executeCastingRelance(
     // Citation du mail d'origine + In-Reply-To : la relance devient une vraie
     // réponse, threadée côté destinataire (le contenu initial reste visible
     // même si l'original est tombé dans ses spams).
-    const quotedOriginal = ver.originalBodyTpl
-      ? buildQuotedOriginal(applyCastingTemplateVars(ver.originalBodyTpl, vars), {
-          dateLabel: ver.sentDateLabel,
-          senderLabel,
-        })
-      : "";
+    const quotedOriginal =
+      options.skipQuotedOriginal || !ver.originalBodyTpl
+        ? ""
+        : buildQuotedOriginal(
+            applyCastingTemplateVars(ver.originalBodyTpl, vars),
+            {
+              dateLabel: ver.sentDateLabel,
+              senderLabel,
+            }
+          );
     const finalHtml = `${trackedBody}${quotedOriginal}`;
     // Relance 2 : on répond au message le plus récent du thread (la relance 1
     // si elle est partie pour ce contact), sinon au mail initial.
@@ -1725,13 +1795,20 @@ export async function executeCastingRelance(
       : undefined;
 
     try {
+      const personalizedSubject = ensureBrandInSubject(
+        applyCastingTemplateVars(ver.subject, vars),
+        targetBrand
+      );
+      // Signature déjà dans le body IA (« Leyna / Glow Up Agence ») :
+      // ne PAS ré-appender la signature Gmail (sinon doublon + trimmed content).
       const messageId = await sendGmail({
         fromEmail: LEYNA_FROM_EMAIL,
         to: email,
-        subject: ver.subject,
+        subject: personalizedSubject,
         htmlBody: finalHtml,
         threadId: record.threadId,
         inReplyTo,
+        includeSignature: false,
       });
       relanceMessages[email] = messageId;
       succeeded += 1;
@@ -1843,8 +1920,9 @@ export async function executeCastingRelance(
         }
       }
     }
+    const usedAi = [...relanceVersions.values()].some((v) => v.aiGenerated);
     console.info(
-      `[executeCastingRelance] ${missionId} round=${round} attempted=${attempted} succeeded=${succeeded} failed=${failed} skippedReplied=${skippedReplied} skippedBounced=${skippedBounced} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} relance2SentAt=${updated.relance2SentAt?.toISOString() ?? "null"} status=${updated.status}`
+      `[executeCastingRelance] ${missionId} round=${round} ai=${usedAi ? "1" : "0"} attempted=${attempted} succeeded=${succeeded} failed=${failed} skippedReplied=${skippedReplied} skippedBounced=${skippedBounced} → relanceSentAt=${updated.relanceSentAt?.toISOString() ?? "null"} relance2SentAt=${updated.relance2SentAt?.toISOString() ?? "null"} status=${updated.status}`
     );
   } catch (err) {
     // Cas critique : Gmail a expédié mais la DB n'a pas pu être mise à jour.
