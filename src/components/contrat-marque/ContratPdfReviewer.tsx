@@ -272,11 +272,26 @@ function PdfLoadedHighlightScrollKick({
     if (!pdfPagesReady) return;
     const kick = () => {
       highlighterRef.current?.hideTipAndSelection();
+      // Force PDF.js à recalculer le scale / repeindre les pages visibles.
+      // Sans ça, un conteneur mal borné laisse un grand blanc sous le 1er tableau.
+      const viewer = (
+        highlighterRef.current as unknown as {
+          viewer?: { currentScaleValue?: string; update?: () => void };
+        } | null
+      )?.viewer;
+      if (viewer) {
+        try {
+          viewer.currentScaleValue = "page-width";
+          viewer.update?.();
+        } catch {
+          /* viewer pas encore prêt */
+        }
+      }
       const inner = document.querySelector(".PdfHighlighter .pdfViewer");
       const el = (inner?.parentElement ?? document.querySelector(".PdfHighlighter")) as HTMLElement | null;
       el?.dispatchEvent(new Event("scroll", { bubbles: true }));
     };
-    const delays = [100, 400, 900, 1800];
+    const delays = [50, 200, 500, 1000, 2000];
     const timers = delays.map((ms) => setTimeout(kick, ms));
     return () => timers.forEach(clearTimeout);
   }, [pdfDocument, highlighterRef, pdfPagesReady]);
@@ -898,7 +913,7 @@ export default function ContratPdfReviewer({
       ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col gap-0 lg:flex-row">
-        <div className="relative flex h-full min-h-0 min-w-0 flex-[1_1_62%] flex-col p-3">
+        <div className="relative flex min-h-0 min-w-0 flex-[1_1_62%] flex-col p-3 lg:h-full">
           {showViewerToolbar ? (
             <div className="mb-2 flex w-full min-w-0 shrink-0 flex-col gap-2">
             <div
@@ -1123,7 +1138,7 @@ export default function ContratPdfReviewer({
           ) : null}
           <div
             ref={containerRef}
-            className="min-h-0 flex-1 rounded-xl bg-gray-100"
+            className="relative min-h-0 flex-1 overflow-hidden rounded-xl bg-gray-100"
             onDragEnterCapture={(e) => {
               if (!canShowUploadButton || isUploading) return;
               const types = e.dataTransfer?.types;
@@ -1146,8 +1161,8 @@ export default function ContratPdfReviewer({
               void uploadPdfFile(f);
             }}
             style={{
-              position: "relative",
-              overflow: "auto",
+              // Un seul scroll : celui de PdfHighlighter (absolu height 100%).
+              // overflow:auto ici cassait le lazy-render PDF.js → grand blanc sous le 1er tableau.
               minHeight: 400,
               ...(pdfViewerDropActive
                 ? {
@@ -1167,7 +1182,8 @@ export default function ContratPdfReviewer({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    height: "400px",
+                    height: "100%",
+                    minHeight: 400,
                   }}
                 >
                   Chargement du PDF...
@@ -1185,9 +1201,8 @@ export default function ContratPdfReviewer({
                   <div
                     className="PdfHighlighter"
                     style={{
-                      height: "100%",
-                      minHeight: 480,
-                      position: "relative",
+                      position: "absolute",
+                      inset: 0,
                     }}
                   >
                     <PdfHighlighter
@@ -1201,7 +1216,7 @@ export default function ContratPdfReviewer({
                       onScrollChange={() => {
                         highlighterRef.current?.hideTipAndSelection();
                       }}
-                      pdfScaleValue="auto"
+                      pdfScaleValue="page-width"
                       onSelectionFinished={(scaledPosition, content, hideTipAndSelection, _transformSelection) => {
                         if (!effectiveCanAnnotate) {
                           hideTipAndSelection();
@@ -1254,7 +1269,7 @@ export default function ContratPdfReviewer({
               )}
             </FixedPdfLoader>
           </div>
-          <p className="mt-2 text-center text-[11px] text-gray-500">
+          <p className="mt-2 shrink-0 text-center text-[11px] text-gray-500">
             Astuce : maintenez Alt pour sélectionner une zone rectangulaire.
           </p>
         </div>
