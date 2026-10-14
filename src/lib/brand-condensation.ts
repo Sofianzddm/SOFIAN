@@ -1,10 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { randomBytes } from "crypto";
-import type {
-  CondensationRole,
-  CondensationStatus,
-  OutreachWaveStatus,
-} from "@prisma/client";
+import { Prisma, type CondensationRole, type CondensationStatus, type OutreachWaveStatus } from "@prisma/client";
 import { marqueSlug } from "@/lib/marque-resolver";
 
 export const WAVE_STATUS_LABEL: Record<OutreachWaveStatus, string> = {
@@ -731,25 +727,117 @@ export async function getCondensationSiblingBriefs(missionId: string) {
   });
 }
 
-/** Contexte relance condensée : talents + titres de projets. */
+const condensationRelanceMemberSelect = {
+  id: true,
+  creatorName: true,
+  objective: true,
+  draftEmailSubject: true,
+  condensationRole: true,
+  createdAt: true,
+  campaign: {
+    select: {
+      title: true,
+      objective: true,
+      talent: { select: { prenom: true, nom: true } },
+    },
+  },
+} as const;
+
+function threadIdsFromSentMessageIds(sentMessageIds: unknown): string[] {
+  if (!sentMessageIds || typeof sentMessageIds !== "object") return [];
+  const ids = new Set<string>();
+  for (const record of Object.values(sentMessageIds as Record<string, { threadId?: string }>)) {
+    const tid = String(record?.threadId || "").trim();
+    if (tid) ids.add(tid);
+  }
+  return [...ids];
+}
+
+function sharesAnyThreadId(sentMessageIds: unknown, threadIds: Set<string>): boolean {
+  if (threadIds.size === 0) return false;
+  for (const tid of threadIdsFromSentMessageIds(sentMessageIds)) {
+    if (threadIds.has(tid)) return true;
+  }
+  return false;
+}
+
+function mapCondensationRelanceProjects(
+  members: Array<{
+    creatorName: string;
+    objective: string | null;
+    campaign: {
+      title: string | null;
+      objective: string | null;
+      talent: { prenom: string; nom: string } | null;
+    } | null;
+  }>
+): Array<{ creatorName: string; projectTitle: string | null; objective: string | null }> {
+  return members.map((m) => {
+    const creatorName =
+      m.campaign?.talent
+        ? `${m.campaign.talent.prenom} ${m.campaign.talent.nom}`.trim()
+        : m.creatorName;
+    return {
+      creatorName: creatorName.trim(),
+      // Titres CRM internes : utiles en contexte, pas à coller tels quels dans le mail.
+      projectTitle: m.campaign?.title?.trim() || null,
+      objective: (m.objective || m.campaign?.objective || null)?.trim() || null,
+    };
+  });
+}
+
+/**
+ * Parmi un groupe condensé (officiel ou legacy), quelle carte doit envoyer la relance.
+ * Préfère PRIMARY, sinon celle qui a le brouillon (sujet), sinon la plus ancienne.
+ */
+export function pickCondensationRelanceAnchorId(
+  members: Array<{
+    id: string;
+    condensationRole?: string | null;
+    draftEmailSubject?: string | null;
+    createdAt?: Date | null;
+  }>
+): string | null {
+  if (members.length === 0) return null;
+  const primary = members.find((m) => m.condensationRole === "PRIMARY");
+  if (primary) return primary.id;
+  const withDraft = members
+    .filter((m) => Boolean(String(m.draftEmailSubject || "").trim()))
+    .sort(
+      (a, b) =>
+        (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0)
+    );
+  if (withDraft[0]) return withDraft[0].id;
+  const sorted = [...members].sort(
+    (a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0)
+  );
+  return sorted[0]?.id ?? null;
+}
+
+/**
+ * Contexte relance condensée : tous les talents du mail commun.
+ * - Groupe officiel (`condensationGroupId`) → PRIMARY uniquement.
+ * - Legacy (même envoi sans groupId) → détecté via threadIds Gmail partagés ;
+ *   seul l’anchor renvoie le contexte (évite N relances solo qui ne citent qu’1 projet).
+ */
 export async function getCondensationRelanceContext(missionId: string): Promise<{
   creators: string[];
   projects: Array<{ creatorName: string; projectTitle: string | null; objective: string | null }>;
+  /** true si cette mission doit envoyer la relance du groupe. */
+  isAnchor: boolean;
 } | null> {
   const mission = await prisma.contactMission.findUnique({
     where: { id: missionId },
     select: {
+      id: true,
       condensationGroupId: true,
       condensationRole: true,
-    },
-  });
-  if (!mission?.condensationGroupId || mission.condensationRole !== "PRIMARY") {
-    return null;
-  }
-  const members = await prisma.contactMission.findMany({
-    where: { condensationGroupId: mission.condensationGroupId },
-    orderBy: { createdAt: "asc" },
-    select: {
+      targetBrandKey: true,
+      marqueId: true,
+      sentAt: true,
+      sentMessageIds: true,
+      draftEmailSubject: true,
+      createdAt: true,
       creatorName: true,
       objective: true,
       campaign: {
@@ -761,22 +849,84 @@ export async function getCondensationRelanceContext(missionId: string): Promise<
       },
     },
   });
-  const projects = members.map((m) => {
-    const creatorName =
-      m.campaign?.talent
-        ? `${m.campaign.talent.prenom} ${m.campaign.talent.nom}`.trim()
-        : m.creatorName;
-    return {
-      creatorName: creatorName.trim(),
-      projectTitle: m.campaign?.title?.trim() || null,
-      objective: (m.objective || m.campaign?.objective || null)?.trim() || null,
-    };
+  if (!mission) return null;
+
+  /* ---------- Groupe officiel ---------- */
+  if (mission.condensationGroupId) {
+    if (mission.condensationRole !== "PRIMARY") return null;
+    const members = await prisma.contactMission.findMany({
+      where: { condensationGroupId: mission.condensationGroupId },
+      orderBy: { createdAt: "asc" },
+      select: condensationRelanceMemberSelect,
+    });
+    const projects = mapCondensationRelanceProjects(members);
+    const creators = [
+      ...new Set(projects.map((p) => p.creatorName).filter(Boolean)),
+    ];
+    if (creators.length < 2) return null;
+    return { creators, projects, isAnchor: true };
+  }
+
+  /* ---------- Legacy : même thread Gmail = même mail condensé ---------- */
+  const threadIds = threadIdsFromSentMessageIds(mission.sentMessageIds);
+  if (threadIds.length === 0 || !mission.sentAt) return null;
+
+  const windowMs = 10 * 60 * 1000;
+  const sentAt = new Date(mission.sentAt);
+  const candidates = await prisma.contactMission.findMany({
+    where: {
+      id: { not: mission.id },
+      sentAt: {
+        gte: new Date(sentAt.getTime() - windowMs),
+        lte: new Date(sentAt.getTime() + windowMs),
+      },
+      sentMessageIds: { not: Prisma.DbNull },
+      OR: [
+        ...(mission.marqueId ? [{ marqueId: mission.marqueId }] : []),
+        ...(mission.targetBrandKey
+          ? [{ targetBrandKey: mission.targetBrandKey }]
+          : []),
+      ],
+      condensationGroupId: null,
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      ...condensationRelanceMemberSelect,
+      sentMessageIds: true,
+    },
+    take: 40,
   });
+
+  const threadSet = new Set(threadIds);
+  const siblings = candidates.filter((c) =>
+    sharesAnyThreadId(c.sentMessageIds, threadSet)
+  );
+  if (siblings.length === 0) return null;
+
+  const group = [
+    {
+      id: mission.id,
+      creatorName: mission.creatorName,
+      objective: mission.objective,
+      draftEmailSubject: mission.draftEmailSubject,
+      condensationRole: mission.condensationRole,
+      createdAt: mission.createdAt,
+      campaign: mission.campaign,
+    },
+    ...siblings,
+  ];
+  const projects = mapCondensationRelanceProjects(group);
   const creators = [
     ...new Set(projects.map((p) => p.creatorName).filter(Boolean)),
   ];
   if (creators.length < 2) return null;
-  return { creators, projects };
+
+  const anchorId = pickCondensationRelanceAnchorId(group);
+  return {
+    creators,
+    projects,
+    isAnchor: anchorId === mission.id,
+  };
 }
 
 /** @deprecated Preférer getCondensationRelanceContext */
