@@ -92,6 +92,7 @@ export async function buildTimesheetPdfData(
       isHoliday: isFrenchHoliday(iso),
       holidayLabel: holiday,
       exception: !!d.exception,
+      note: d.note || null,
     };
   });
 

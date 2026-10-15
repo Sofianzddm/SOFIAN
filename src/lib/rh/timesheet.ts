@@ -222,6 +222,7 @@ export async function submitTimesheet(params: {
   });
   if (!ts) throw new Error("Feuille introuvable");
   const settings = await getRhSettings();
+  const overDays: Array<{ iso: string; note: string | null }> = [];
   for (const d of ts.days) {
     const slots = (Array.isArray(d.slots) ? d.slots : []) as Slot[];
     const iso = d.date.toISOString().slice(0, 10);
@@ -237,19 +238,29 @@ export async function submitTimesheet(params: {
         { minBreak: LEGAL_BREAK_MIN_MINUTES }
       );
     }
+    const isOver =
+      d.totalMinutes > 0 &&
+      (isWeekendOrHolidayIso(iso) ||
+        d.totalMinutes > settings.workdayMinutes);
+    if (isOver) {
+      overDays.push({ iso, note: d.note });
+    }
   }
-  const dayOverHours = ts.days.some((d) => {
-    const iso = d.date.toISOString().slice(0, 10);
-    if (isWeekendOrHolidayIso(iso)) return d.totalMinutes > 0;
-    return d.totalMinutes > settings.workdayMinutes;
-  });
-  const otTotal = ts.ot25Minutes + ts.ot50Minutes;
-  const needsJustification = otTotal > 0 || dayOverHours;
-  if (needsJustification && !params.overtimeNote?.trim()) {
+  const missing = overDays.filter((d) => !d.note?.trim());
+  if (missing.length > 0) {
     throw new Error(
-      "Justification obligatoire dès que les horaires de travail sont dépassés"
+      `Justification obligatoire pour chaque jour en dépassement (${missing
+        .map((d) => d.iso)
+        .join(", ")})`
     );
   }
+  const otTotal = ts.ot25Minutes + ts.ot50Minutes;
+  const needsJustification = overDays.length > 0 || otTotal > 0;
+  const dayNotesSummary = overDays
+    .map((d) => `${d.iso} : ${d.note!.trim()}`)
+    .join("\n");
+  const overtimeNote =
+    dayNotesSummary || params.overtimeNote?.trim() || null;
   const microOt =
     otTotal > 0 && otTotal < settings.microOtMaxMinutes;
 
@@ -260,7 +271,7 @@ export async function submitTimesheet(params: {
     title: microOt
       ? `HS < 30 min · S${ts.isoWeek}`
       : `Feuille de temps S${ts.isoWeek}`,
-    comment: params.overtimeNote,
+    comment: overtimeNote,
     dateFrom: ts.weekStart,
     dateTo: ts.weekEnd,
     payload: {
@@ -270,6 +281,7 @@ export async function submitTimesheet(params: {
       ot50: ts.ot50Minutes,
       microOt,
       needsJustification,
+      dayNotes: overDays.map((d) => ({ date: d.iso, note: d.note })),
     },
     prefix: microOt ? "HS" : "TS",
   });
@@ -299,7 +311,7 @@ export async function submitTimesheet(params: {
     where: { id: ts.id },
     data: {
       status: "SUBMITTED",
-      overtimeNote: params.overtimeNote,
+      overtimeNote,
       requestId: request.id,
     },
     include: { days: true, request: true },

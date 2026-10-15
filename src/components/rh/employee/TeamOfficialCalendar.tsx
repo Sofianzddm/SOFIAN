@@ -1,53 +1,37 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { RhButton, RhCard, RhCardHead } from "@/components/rh/ui/primitives";
-import { EMP_COLORS } from "@/components/rh/employee/parts";
-import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
 import {
-  KIND_COLOR,
+  RhAvatar,
+  RhBadge,
+  RhButton,
+  RhCard,
+  RhCardHead,
+} from "@/components/rh/ui/primitives";
+import { EMP_COLORS } from "@/components/rh/employee/parts";
+import { isFrenchHoliday } from "@/lib/rh/holidays";
+import {
+  ABSENCE_KINDS,
+  CP,
   KIND_LABEL,
   KIND_SHORT,
+  LIME,
+  RTT,
+  SICK,
+  TT,
+  type PlanningEmp,
 } from "@/components/rh/people/people-utils";
-import { TT } from "@/components/rh/mock/shared";
 
 export type TeamCalKind = "ABSENCE" | "TT";
 
-type Entry = {
-  date: string;
-  employeeId: string;
-  name: string;
-  initials: string;
-  color: string;
-  department: string;
-  kind: string;
-  halfDay: boolean;
-  status: string;
-};
-
-const DOWS = ["L", "M", "M", "J", "V", "S", "D"];
-
-function monthBounds(cursor: Date) {
-  const y = cursor.getFullYear();
-  const m = cursor.getMonth();
-  const from = new Date(Date.UTC(y, m, 1));
-  const to = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59));
-  return {
-    from: from.toISOString().slice(0, 10),
-    to: to.toISOString().slice(0, 10),
-    title: cursor
-      .toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
-      .replace(/^\w/, (c) => c.toUpperCase()),
-    year: y,
-    month: m,
-    daysInMonth: new Date(y, m + 1, 0).getDate(),
-    startDow: (new Date(y, m, 1).getDay() + 6) % 7,
-  };
+function mondayOf(d = new Date()) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = (x.getDay() + 6) % 7;
+  x.setDate(x.getDate() - dow);
+  return x;
 }
 
-function todayYmd() {
-  const d = new Date();
+function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -60,294 +44,353 @@ export function TeamOfficialCalendar({
   title: string;
   subtitle?: string;
 }) {
-  const [cursor, setCursor] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
-  const [byDate, setByDate] = useState<Record<string, Entry[]>>({});
+  const [employees, setEmployees] = useState<PlanningEmp[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<string | null>(() => todayYmd());
+  const [query, setQuery] = useState("");
+  const [dept, setDept] = useState<string>("all");
+  const [weeks, setWeeks] = useState<1 | 2 | 4>(4);
+  const [offset, setOffset] = useState(0);
 
-  const bounds = useMemo(() => monthBounds(cursor), [cursor]);
+  const range = useMemo(() => {
+    const start = mondayOf();
+    start.setDate(start.getDate() + offset * 7);
+    const from = ymd(start);
+    const end = new Date(start);
+    end.setDate(start.getDate() + weeks * 7 - 1);
+    const to = ymd(end);
+    const days = Array.from({ length: weeks * 7 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return ymd(d);
+    });
+    return { from, to, days };
+  }, [weeks, offset]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/rh/team-calendar?kind=${kind}&from=${bounds.from}&to=${bounds.to}`
+        `/api/rh/team-calendar?kind=${kind}&from=${range.from}&to=${range.to}`
       );
       if (!res.ok) return;
       const data = await res.json();
-      setByDate(data.byDate || {});
+      setEmployees((data.employees || []) as PlanningEmp[]);
     } finally {
       setLoading(false);
     }
-  }, [kind, bounds.from, bounds.to]);
+  }, [kind, range.from, range.to]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    // Reselect today when month contains it, else 1st of month
-    const t = todayYmd();
-    if (t >= bounds.from && t <= bounds.to) setSelected(t);
-    else setSelected(bounds.from);
-  }, [bounds.from, bounds.to]);
+  const depts = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of employees) if (e.department) set.add(e.department);
+    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+  }, [employees]);
 
-  const selectedEntries = selected ? byDate[selected] || [] : [];
-  const accent = kind === "TT" ? TT : "#46D6C0";
+  const byDept = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const map = new Map<string, PlanningEmp[]>();
+    for (const e of employees) {
+      if (dept !== "all" && e.department !== dept) continue;
+      if (
+        q &&
+        !e.name.toLowerCase().includes(q) &&
+        !e.department.toLowerCase().includes(q) &&
+        !e.matricule.toLowerCase().includes(q)
+      ) {
+        continue;
+      }
+      // Absences : ne garder que les lignes avec au moins une absence dans la fenêtre
+      // (sinon le Gantt est énorme). TT : idem, seulement ceux en TT.
+      const events =
+        kind === "ABSENCE"
+          ? e.events.filter((ev) => ABSENCE_KINDS.has(ev.kind))
+          : e.events.filter((ev) => ev.kind === "TT");
+      const inWindow = events.some((ev) =>
+        range.days.includes(ev.date)
+      );
+      if (!inWindow && !q) continue;
+      const list = map.get(e.department) || [];
+      list.push({ ...e, events });
+      map.set(e.department, list);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "fr"));
+  }, [employees, dept, query, kind, range.days]);
 
-  const cells = useMemo(() => {
-    const out: Array<{
-      key: string;
-      n: number | null;
-      iso: string | null;
-      count: number;
-      isWeekend: boolean;
-      isToday: boolean;
-      isHoliday: boolean;
-    }> = [];
-    for (let i = 0; i < bounds.startDow; i++) {
-      out.push({
-        key: `pad-${i}`,
-        n: null,
-        iso: null,
-        count: 0,
-        isWeekend: false,
-        isToday: false,
-        isHoliday: false,
-      });
-    }
-    const today = todayYmd();
-    for (let d = 1; d <= bounds.daysInMonth; d++) {
-      const iso = `${bounds.year}-${String(bounds.month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      const dow = (bounds.startDow + d - 1) % 7;
-      out.push({
-        key: iso,
-        n: d,
-        iso,
-        count: (byDate[iso] || []).length,
-        isWeekend: dow >= 5,
-        isToday: iso === today,
-        isHoliday: isFrenchHoliday(iso),
-      });
-    }
-    return out;
-  }, [bounds, byDate]);
+  const peopleCount = useMemo(
+    () => byDept.reduce((s, [, rows]) => s + rows.length, 0),
+    [byDept]
+  );
+
+  const legend =
+    kind === "TT"
+      ? ([["TT", "Télétravail", TT]] as const)
+      : ([
+          ["CP", "Congés payés", CP],
+          ["RTT", "RTT", RTT],
+          ["Réc", "Récup", RTT],
+          ["CNP", "Sans solde", "#8B95A5"],
+          ["Mal", "Maladie", SICK],
+          ["Éco", "École", "#B48CF0"],
+          ["Aut", "Autorisée", "#8ED98A"],
+          ["Fér", "Férié", "#A78BFA"],
+        ] as const);
 
   return (
-    <RhCard>
-      <RhCardHead
-        title={title}
-        right={
-          <div className="flex items-center gap-1.5">
-            <RhButton
-              variant="secondary"
-              onClick={() =>
-                setCursor(
-                  new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1)
-                )
-              }
-            >
-              <ChevronLeft size={14} />
-            </RhButton>
-            <span
-              className="min-w-[120px] text-center text-[12.5px] font-medium"
-              style={{ color: EMP_COLORS.text }}
-            >
-              {bounds.title}
-            </span>
-            <RhButton
-              variant="secondary"
-              onClick={() =>
-                setCursor(
-                  new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
-                )
-              }
-            >
-              <ChevronRight size={14} />
-            </RhButton>
+    <div className="flex flex-col gap-3">
+      <div>
+        <h2
+          className="m-0 text-[16px] font-semibold tracking-[-0.02em]"
+          style={{ color: EMP_COLORS.text }}
+        >
+          {title}
+        </h2>
+        {subtitle ? (
+          <p
+            className="m-0 mt-1 text-[12.5px] leading-[1.45]"
+            style={{ color: EMP_COLORS.muted }}
+          >
+            {subtitle}
+          </p>
+        ) : null}
+      </div>
+
+      <RhCard className="rh-gantt-filters">
+        <div className="flex flex-col gap-3 p-3 sm:p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              className="rh-input flex-1"
+              placeholder="Rechercher un nom, pôle, matricule…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Filtrer le planning"
+            />
+            <div className="flex shrink-0 items-center gap-2">
+              <RhButton
+                variant="secondary"
+                disabled={offset <= -2}
+                onClick={() => setOffset((v) => v - 1)}
+                aria-label="Semaine précédente"
+              >
+                ‹
+              </RhButton>
+              <span
+                className="rh-mono whitespace-nowrap px-1 text-[11px]"
+                style={{ color: "#8B95A5" }}
+              >
+                {range.days[0]?.slice(5) || "—"} →{" "}
+                {range.days[range.days.length - 1]?.slice(5) || "—"}
+              </span>
+              <RhButton
+                variant="secondary"
+                disabled={offset >= 8}
+                onClick={() => setOffset((v) => v + 1)}
+                aria-label="Semaine suivante"
+              >
+                ›
+              </RhButton>
+            </div>
           </div>
-        }
-      />
-      <div className="flex flex-col gap-4 p-4 lg:flex-row">
-        <div className="min-w-0 flex-1">
-          {subtitle ? (
-            <p
-              className="m-0 mb-3 text-[12.5px] leading-[1.45]"
-              style={{ color: EMP_COLORS.muted }}
+
+          <div className="flex flex-wrap gap-1.5">
+            {(
+              [
+                [1, "1 sem."],
+                [2, "2 sem."],
+                [4, "4 sem."],
+              ] as const
+            ).map(([n, label]) => (
+              <button
+                key={n}
+                type="button"
+                className="rh-gantt-chip"
+                data-active={weeks === n ? "1" : "0"}
+                onClick={() => {
+                  setWeeks(n);
+                  setOffset(0);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+            <span className="rh-gantt-chip-sep" />
+            <button
+              type="button"
+              className="rh-gantt-chip"
+              data-active={dept === "all" ? "1" : "0"}
+              onClick={() => setDept("all")}
             >
-              {subtitle}
-            </p>
-          ) : null}
-          <div className="mb-1.5 grid grid-cols-7 gap-1">
-            {DOWS.map((d, i) => (
-              <div
-                key={`${d}-${i}`}
-                className="text-center text-[10.5px] font-medium"
-                style={{ color: EMP_COLORS.dim }}
+              Tous les pôles
+            </button>
+            {depts.map((d) => (
+              <button
+                key={d}
+                type="button"
+                className="rh-gantt-chip"
+                data-active={dept === d ? "1" : "0"}
+                onClick={() => setDept(d)}
               >
                 {d}
-              </div>
+              </button>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-1">
-            {cells.map((c) => {
-              if (c.n == null) {
-                return <div key={c.key} className="aspect-square" />;
-              }
-              const on = selected === c.iso;
-              const holiday = c.iso ? frenchHolidayLabel(c.iso) : null;
-              return (
-                <button
-                  key={c.key}
-                  type="button"
-                  onClick={() => setSelected(c.iso)}
-                  className="relative aspect-square cursor-pointer rounded-[10px] border-0 text-[12.5px] font-medium"
-                  style={{
-                    background: on
-                      ? "rgba(229,242,181,.14)"
-                      : c.count > 0
-                        ? kind === "TT"
-                          ? "rgba(124,140,248,.14)"
-                          : "rgba(70,214,192,.12)"
-                        : c.isWeekend || c.isHoliday
-                          ? "#12161C"
-                          : "#0E1116",
-                    color: on
-                      ? EMP_COLORS.accent
-                      : c.count > 0
-                        ? accent
-                        : c.isWeekend
-                          ? "#4C5563"
-                          : EMP_COLORS.body,
-                    outline: on
-                      ? `1.5px solid ${EMP_COLORS.accent}`
-                      : c.isToday
-                        ? "1px solid rgba(229,242,181,.35)"
-                        : "1px solid transparent",
-                  }}
-                  title={holiday || undefined}
-                >
-                  {c.n}
-                  {c.count > 0 ? (
-                    <span
-                      className="absolute bottom-1 left-1/2 block h-1 w-1 -translate-x-1/2 rounded-full"
-                      style={{ background: accent }}
-                    />
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        </div>
 
-        <div
-          className="flex min-h-[220px] w-full flex-col gap-2 rounded-[14px] p-3 lg:w-[320px] lg:shrink-0"
-          style={{
-            background: "#0E1116",
-            border: "1px solid #1B212A",
-          }}
-        >
-          <div className="flex items-baseline justify-between gap-2">
-            <div
-              className="text-[13px] font-semibold capitalize"
-              style={{ color: EMP_COLORS.text }}
-            >
-              {selected
-                ? new Date(selected + "T12:00:00").toLocaleDateString("fr-FR", {
-                    weekday: "long",
-                    day: "numeric",
-                    month: "long",
-                  })
-                : "—"}
-            </div>
-            <span
-              className="rh-mono text-[11px]"
-              style={{ color: EMP_COLORS.dim }}
-            >
-              {selectedEntries.length}
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 text-[12px]"
+            style={{ color: "#8B95A5" }}
+          >
+            <span>
+              {loading
+                ? "Chargement…"
+                : `${peopleCount} collab.${dept !== "all" || query ? " (filtrés)" : ""}`}
             </span>
+            {(dept !== "all" || query || weeks !== 4 || offset !== 0) && (
+              <button
+                type="button"
+                className="cursor-pointer border-0 bg-transparent text-[12px] underline"
+                style={{ color: LIME }}
+                onClick={() => {
+                  setDept("all");
+                  setQuery("");
+                  setWeeks(4);
+                  setOffset(0);
+                }}
+              >
+                Réinitialiser
+              </button>
+            )}
           </div>
-          {selected && frenchHolidayLabel(selected) ? (
-            <div
-              className="text-[11.5px]"
-              style={{ color: "#C4B5FD" }}
-            >
-              Férié · {frenchHolidayLabel(selected)}
-            </div>
-          ) : null}
-          {loading ? (
-            <div className="text-[12.5px]" style={{ color: EMP_COLORS.muted }}>
-              Chargement…
-            </div>
-          ) : selectedEntries.length === 0 ? (
-            <div className="text-[12.5px]" style={{ color: EMP_COLORS.dim }}>
-              {kind === "TT"
-                ? "Personne en télétravail ce jour."
-                : "Aucune absence ce jour."}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1.5 overflow-y-auto">
-              {selectedEntries.map((e) => (
-                <div
-                  key={`${e.employeeId}-${e.kind}-${e.date}`}
-                  className="flex items-center gap-2.5 rounded-[10px] px-2.5 py-2"
-                  style={{ background: "rgba(255,255,255,.03)" }}
+
+          <div className="rh-gantt-legend">
+            {legend.map(([code, label, color]) => (
+              <span key={code} className="rh-gantt-legend-item">
+                <b
+                  className="rh-gantt-legend-code"
+                  style={{
+                    background: color,
+                    color: "#0E1116",
+                    borderColor: color,
+                  }}
                 >
-                  <span
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
-                    style={{
-                      background: e.color || "#1D2530",
-                      color: "#0A0C0F",
-                    }}
-                  >
-                    {e.initials}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div
-                      className="truncate text-[12.5px] font-medium"
-                      style={{ color: EMP_COLORS.text }}
-                    >
-                      {e.name}
-                    </div>
-                    <div
-                      className="truncate text-[11px]"
-                      style={{ color: EMP_COLORS.dim }}
-                    >
-                      {e.department}
-                      {e.halfDay ? " · ½ j" : ""}
-                      {e.status === "PENDING" || e.status === "PAUSED"
-                        ? " · en attente"
-                        : ""}
-                    </div>
-                  </div>
-                  <span
-                    className="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold"
-                    style={{
-                      background:
-                        kind === "TT"
-                          ? "rgba(124,140,248,.18)"
-                          : `${KIND_COLOR[e.kind] || accent}22`,
-                      color:
-                        kind === "TT"
-                          ? TT
-                          : KIND_COLOR[e.kind] || accent,
-                    }}
-                  >
-                    {kind === "TT"
-                      ? "TT"
-                      : KIND_SHORT[e.kind] ||
-                        KIND_LABEL[e.kind] ||
-                        e.kind}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+                  {code}
+                </b>
+                {label}
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
-    </RhCard>
+      </RhCard>
+
+      {loading && byDept.length === 0 ? (
+        <RhCard>
+          <div className="p-6 text-[13px]" style={{ color: "#8B95A5" }}>
+            Chargement du planning…
+          </div>
+        </RhCard>
+      ) : byDept.length === 0 ? (
+        <RhCard>
+          <div className="p-6 text-[13px]" style={{ color: "#8B95A5" }}>
+            {kind === "TT"
+              ? "Personne en télétravail sur cette période."
+              : "Aucune absence sur cette période."}
+          </div>
+        </RhCard>
+      ) : (
+        byDept.map(([pole, rows]) => (
+          <RhCard key={pole} className="rh-gantt-card">
+            <RhCardHead
+              title={pole}
+              badge={
+                <RhBadge bg="#1D2530" fg="#8B95A5">
+                  {rows.length}
+                </RhBadge>
+              }
+            />
+            <div className="rh-gantt-scroll">
+              <div
+                className="rh-gantt-grid"
+                style={{
+                  gridTemplateColumns: `var(--rh-gantt-name) repeat(${range.days.length}, minmax(var(--rh-gantt-cell), 1fr))`,
+                }}
+              >
+                <div className="rh-gantt-corner" />
+                {range.days.map((d) => {
+                  const dt = new Date(d + "T12:00:00");
+                  const weekend = dt.getDay() % 6 === 0;
+                  const mon = dt.getDay() === 1;
+                  return (
+                    <div
+                      key={d}
+                      className="rh-gantt-dayhead"
+                      data-weekend={weekend ? "1" : "0"}
+                      data-mon={mon ? "1" : "0"}
+                      title={d}
+                    >
+                      <span className="rh-gantt-dow">
+                        {dt
+                          .toLocaleDateString("fr-FR", { weekday: "narrow" })
+                          .toUpperCase()}
+                      </span>
+                      <span className="rh-mono">{d.slice(8)}</span>
+                    </div>
+                  );
+                })}
+                {rows.map((r) => (
+                  <div key={r.id} className="contents">
+                    <div className="rh-gantt-name" style={{ cursor: "default" }}>
+                      <RhAvatar
+                        initials={r.initials}
+                        color={r.color}
+                        size={22}
+                      />
+                      <span className="truncate">{r.name.split(" ")[0]}</span>
+                    </div>
+                    {range.days.map((d) => {
+                      const ev = r.events.find((e) => e.date === d);
+                      const weekend =
+                        new Date(d + "T12:00:00").getDay() % 6 === 0;
+                      const ferie = isFrenchHoliday(d);
+                      const code = ev
+                        ? KIND_SHORT[ev.kind] || ev.kind.slice(0, 3)
+                        : ferie && kind === "ABSENCE"
+                          ? "Fér"
+                          : "";
+                      return (
+                        <div
+                          key={d}
+                          className="rh-gantt-cell"
+                          data-kind={
+                            ev?.kind ||
+                            (ferie && kind === "ABSENCE"
+                              ? "HOLIDAY"
+                              : weekend
+                                ? "WE"
+                                : "")
+                          }
+                          data-empty={!code ? "1" : "0"}
+                          title={
+                            ev
+                              ? `${r.name} · ${KIND_LABEL[ev.kind] || ev.kind} · ${d}`
+                              : ferie
+                                ? `Férié · ${d}`
+                                : d
+                          }
+                          style={{ opacity: ev?.halfDay ? 0.65 : 1 }}
+                        >
+                          {code}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </RhCard>
+        ))
+      )}
+    </div>
   );
 }

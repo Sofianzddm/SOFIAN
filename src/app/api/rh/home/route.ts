@@ -48,6 +48,29 @@ export async function GET(request: NextRequest) {
     take: 10,
   });
 
+  // Refus récents (30 j) — visibles sur l’accueil avec le motif
+  const refusedSince = new Date();
+  refusedSince.setDate(refusedSince.getDate() - 30);
+  const recentRefused = await prisma.rhRequest.findMany({
+    where: {
+      employeeId: emp.id,
+      status: "REFUSED",
+      reviewedAt: { gte: refusedSince },
+      type: {
+        in: [
+          "LEAVE",
+          "UNPAID_LEAVE",
+          "TIMESHEET",
+          "REMOTE_PLAN",
+          "REMOTE_EXCEPTION",
+          "EXPENSE",
+        ],
+      },
+    },
+    orderBy: { reviewedAt: "desc" },
+    take: 8,
+  });
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
@@ -258,7 +281,39 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const TYPE_TARGET: Record<
+    string,
+    "leave" | "time" | "expenses" | "requests" | "remote"
+  > = {
+    LEAVE: "leave",
+    UNPAID_LEAVE: "leave",
+    TIMESHEET: "time",
+    EXPENSE: "expenses",
+    REMOTE_PLAN: "remote",
+    REMOTE_EXCEPTION: "remote",
+  };
+
+  const refusedTodos = recentRefused.map((r) => ({
+    id: `refused-${r.id}`,
+    bar: "#F2604E",
+    tag: "Refus",
+    tagBg: "#F2604E",
+    title: r.title,
+    meta: r.reviewNote?.trim()
+      ? `Motif : ${r.reviewNote.trim()}`
+      : `Refusé · ${r.reference}`,
+    cta: "Voir",
+    target: (TYPE_TARGET[r.type] || "requests") as
+      | "leave"
+      | "time"
+      | "expenses"
+      | "requests"
+      | "remote",
+    urgent: true,
+  }));
+
   const todos = [
+    ...refusedTodos,
     ...reminders,
     ...pending.map((p) => ({
       id: p.id,

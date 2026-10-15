@@ -14,11 +14,12 @@ import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
 import { useRhData } from "@/components/rh/RhDataContext";
 import { frenchHolidayLabel } from "@/lib/rh/holidays";
 import { TeamOfficialCalendar } from "@/components/rh/employee/TeamOfficialCalendar";
+import { isRhWeekAllowed } from "@/lib/rh/constants";
 
 type Place = "OFFICE" | "REMOTE" | "TRAVEL" | "SITE";
 
 type Week = {
-  isoYear: number;
+  isoYear?: number;
   isoWeek: number;
   weekStart: string;
   weekEnd: string;
@@ -140,7 +141,14 @@ export function RemoteScreen() {
       const res = await fetch("/api/rh/office/weeks");
       if (!res.ok) return;
       const data = await res.json();
-      setWeeks(data.weeks || []);
+      setWeeks(
+        ((data.weeks || []) as Week[]).filter((w) => {
+          const y =
+            w.isoYear ??
+            new Date(w.weekStart.slice(0, 10) + "T12:00:00").getFullYear();
+          return isRhWeekAllowed(y, w.isoWeek);
+        })
+      );
       const addr = data.address || {};
       setAddress(addr);
       setAddrForm({

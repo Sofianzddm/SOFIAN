@@ -226,6 +226,7 @@ export type TimesheetPdfDay = {
   isHoliday: boolean;
   holidayLabel?: string | null;
   exception?: boolean;
+  note?: string | null;
 };
 
 export type TimesheetPdfData = {
@@ -376,6 +377,18 @@ export function TimesheetPdfDocument({ data }: { data: TimesheetPdfData }) {
             </Text>
           </View>
         ))}
+        {data.days.some((d) => d.note) ? (
+          <View style={{ marginTop: 10 }}>
+            <Text style={styles.label}>Justifications HS / exception</Text>
+            {data.days
+              .filter((d) => d.note)
+              .map((d) => (
+                <Text key={d.date} style={styles.noteText}>
+                  {d.weekday} {d.date} — {d.note}
+                </Text>
+              ))}
+          </View>
+        ) : null}
 
         <View style={styles.totals}>
           <View style={styles.totalCardAccent}>

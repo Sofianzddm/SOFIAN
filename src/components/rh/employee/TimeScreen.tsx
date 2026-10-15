@@ -14,6 +14,11 @@ import {
 } from "@/lib/rh/calculations";
 import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
 import { useRhData } from "@/components/rh/RhDataContext";
+import {
+  isRhDateAllowed,
+  RH_MIN_ISO_WEEK,
+  RH_MIN_ISO_YEAR,
+} from "@/lib/rh/constants";
 
 type Slot = { from: string; to: string };
 type DayRow = {
@@ -24,6 +29,8 @@ type DayRow = {
   totalMinutes: number;
   /** Week-end / férié : obligatoire pour saisir des heures */
   exception?: boolean;
+  /** Justification HS / exception pour ce jour */
+  note?: string | null;
 };
 
 const FALLBACK_WEEKDAY: Slot[] = [
@@ -116,7 +123,6 @@ export function TimeScreen() {
   const [refDate, setRefDate] = useState(() => ymd(new Date()));
   const [ts, setTs] = useState<Timesheet | null>(null);
   const [days, setDays] = useState<DayRow[]>([]);
-  const [otNote, setOtNote] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -187,10 +193,10 @@ export function TimeScreen() {
             date: ymd(d.date as string | Date),
             slots: (Array.isArray(d.slots) ? d.slots : []) as Slot[],
             exception: !!d.exception,
+            note: d.note || "",
           }))
           .sort((a, b) => isoDow(a.date) - isoDow(b.date))
       );
-      setOtNote(sheet.overtimeNote || "");
     } finally {
       setLoading(false);
     }
@@ -199,6 +205,14 @@ export function TimeScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Soft-launch : ne jamais rester sur une semaine < S36 2026
+  useEffect(() => {
+    if (!isRhDateAllowed(refDate)) {
+      // Lundi de la semaine ISO 36 · 2026
+      setRefDate("2026-08-31");
+    }
+  }, [refDate]);
 
   const editable = ts?.status === "DRAFT" || ts?.status === "PAUSED";
   const weeklyHours = me?.employee.weeklyHours || 35;
@@ -227,8 +241,12 @@ export function TimeScreen() {
     }
     const { at25, at50 } = splitOvertime(totalMinutes, weeklyHours * 60);
     const hasOt = at25 + at50 > 0 || overDates.size > 0;
-    return { totalMinutes, at25, at50, hasOt, overDates };
-  }, [days, weeklyHours]);
+    const missingOtNotes = [...overDates].filter((date) => {
+      const row = days.find((d) => d.date === date);
+      return !row?.note?.trim();
+    });
+    return { totalMinutes, at25, at50, hasOt, overDates, missingOtNotes };
+  }, [days, weeklyHours, schedule.workdayMinutes]);
 
   function updateDay(date: string, patch: Partial<DayRow>) {
     setDays((prev) =>
@@ -265,6 +283,7 @@ export function TimeScreen() {
                   ? effectiveBreak(slots, d.breakMinutes)
                   : 0,
                 exception,
+                note: d.note || null,
               };
             }
             const slots = d.slots.length
@@ -275,6 +294,7 @@ export function TimeScreen() {
               slots,
               breakMinutes: effectiveBreak(slots, d.breakMinutes),
               exception: false,
+              note: d.note || null,
             };
           }),
         }),
@@ -303,7 +323,7 @@ export function TimeScreen() {
       const res = await fetch(`/api/rh/timesheets/${refDate}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "submit", overtimeNote: otNote }),
+        body: JSON.stringify({ action: "submit" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
@@ -557,19 +577,32 @@ export function TimeScreen() {
               )
             ) : null}
 
-            {overDay && !special ? (
-              <div
-                className="text-[11px]"
-                style={{ color: EMP_COLORS.warning }}
-              >
-                Dépassement horaire
-              </div>
+            {overDay ? (
+              <label className="mt-2 flex flex-col gap-1">
+                <EmpLabel>Justification HS (obligatoire)</EmpLabel>
+                <input
+                  className="rh-input text-[12px]"
+                  disabled={!canEditSlots}
+                  value={d.note || ""}
+                  onChange={(e) =>
+                    updateDay(d.date, { note: e.target.value })
+                  }
+                  placeholder="Motif (client, event, deadline…)"
+                  style={
+                    !d.note?.trim()
+                      ? { borderColor: "rgba(240,194,78,.55)" }
+                      : undefined
+                  }
+                />
+              </label>
             ) : null}
           </div>
         )}
       </RhCard>
     );
   }
+
+  const canGoPrev = isRhDateAllowed(addDays(refDate, -7));
 
   async function replyPause() {
     if (!ts || !pauseReply.trim()) {
@@ -646,7 +679,11 @@ export function TimeScreen() {
         <RhButton
           data-tour="time-prev"
           variant="secondary"
-          onClick={() => setRefDate(addDays(refDate, -7))}
+          disabled={!canGoPrev}
+          onClick={() => {
+            const prev = addDays(refDate, -7);
+            if (isRhDateAllowed(prev)) setRefDate(prev);
+          }}
         >
           <ChevronLeft size={14} />
         </RhButton>
@@ -658,6 +695,12 @@ export function TimeScreen() {
           {ts
             ? `Semaine ${ts.isoWeek}`
             : "…"}
+          <span
+            className="ml-1.5 text-[11px] font-normal"
+            style={{ color: EMP_COLORS.dim }}
+          >
+            (à partir de S{RH_MIN_ISO_WEEK} {RH_MIN_ISO_YEAR})
+          </span>
         </span>
         <RhButton
           data-tour="time-next"
@@ -686,7 +729,11 @@ export function TimeScreen() {
         ) : null}
         <RhButton
           data-tour="time-send"
-          disabled={!editable || busy || (live.hasOt && !otNote.trim())}
+          disabled={
+            !editable ||
+            busy ||
+            (live.hasOt && live.missingOtNotes.length > 0)
+          }
           onClick={() => void submit()}
         >
           <Send size={13} />
@@ -779,12 +826,16 @@ export function TimeScreen() {
         >
           Horaires dépassés
           {live.overDates.size > 0
-            ? ` (${live.overDates.size} jour${live.overDates.size > 1 ? "s" : ""} > 7 h)`
+            ? ` (${live.overDates.size} jour${live.overDates.size > 1 ? "s" : ""})`
             : ""}
           {live.at25 + live.at50 > 0
             ? ` · ${minutesToLabel(live.at25 + live.at50)} HS`
             : ""}
-          . Une justification est obligatoire avant envoi.
+          . Justifie <strong>chaque</strong> jour concerné avant envoi
+          {live.missingOtNotes.length
+            ? ` (${live.missingOtNotes.length} manquante${live.missingOtNotes.length > 1 ? "s" : ""})`
+            : ""}
+          .
         </div>
       ) : null}
 
@@ -850,7 +901,7 @@ export function TimeScreen() {
 
           <RhCard className="mt-3 p-4">
             <RhCardHead title="Heures supplémentaires" />
-            <div className="p-4 flex flex-wrap gap-4 items-end">
+            <div className="flex flex-wrap gap-6 p-4">
               <div>
                 <EmpLabel>Total</EmpLabel>
                 <div className="rh-mono text-[22px]" style={{ color: EMP_COLORS.text }}>
@@ -869,28 +920,13 @@ export function TimeScreen() {
                   {minutesToLabel(live.at50)}
                 </div>
               </div>
-              <label className="flex min-w-0 flex-1 flex-col gap-1 sm:min-w-[220px]">
-                <EmpLabel>
-                  Justification {live.hasOt ? "(obligatoire)" : ""}
-                </EmpLabel>
-                <input
-                  className="rh-input"
-                  disabled={!editable}
-                  required={live.hasOt}
-                  value={otNote}
-                  onChange={(e) => setOtNote(e.target.value)}
-                  placeholder={
-                    live.hasOt
-                      ? "Motif du dépassement (client, event, deadline…)"
-                      : `Contrat ${weeklyHours} h`
-                  }
-                  style={
-                    live.hasOt && !otNote.trim()
-                      ? { borderColor: "rgba(240,194,78,.55)" }
-                      : undefined
-                  }
-                />
-              </label>
+              <p
+                className="m-0 max-w-[320px] self-center text-[12.5px] leading-[1.45]"
+                style={{ color: EMP_COLORS.dim }}
+              >
+                Contrat {weeklyHours} h · chaque jour en dépassement a sa propre
+                justification sur la carte du jour.
+              </p>
             </div>
           </RhCard>
 

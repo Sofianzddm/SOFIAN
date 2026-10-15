@@ -188,8 +188,18 @@ export async function GET(request: NextRequest) {
   );
 
   const byDate: Record<string, Entry[]> = {};
+  const eventsByEmp: Record<
+    string,
+    Array<{ date: string; kind: string; halfDay: boolean; status: string }>
+  > = {};
   for (const e of entries) {
     (byDate[e.date] ??= []).push(e);
+    (eventsByEmp[e.employeeId] ??= []).push({
+      date: e.date,
+      kind: e.kind,
+      halfDay: e.halfDay,
+      status: e.status,
+    });
   }
 
   return NextResponse.json({
@@ -199,5 +209,15 @@ export async function GET(request: NextRequest) {
     entries,
     byDate,
     employeeCount: employees.length,
+    /** Format Gantt (même shape que /api/rh/planning) */
+    employees: employees.map((e) => ({
+      id: e.id,
+      name: displayName(e.user),
+      initials: initials(e.user),
+      color: e.avatarColor,
+      department: e.department,
+      matricule: e.matricule,
+      events: eventsByEmp[e.id] || [],
+    })),
   });
 }

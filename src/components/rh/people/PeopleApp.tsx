@@ -202,11 +202,17 @@ function PeopleAppInner() {
 
   async function handleRefuse(id: string, who: string) {
     if (!window.confirm(`Refuser la demande de ${who} ?`)) return;
-    const motif = window.prompt("Motif du refus (optionnel) :") ?? undefined;
+    const motif = window.prompt("Motif du refus (obligatoire) :");
+    if (motif == null) return;
+    const trimmed = motif.trim();
+    if (!trimmed) {
+      flash("Indique un motif de refus — le collaborateur le verra sur son accueil", "err");
+      return;
+    }
     setBusy(true);
     flash("");
     try {
-      await refuse(id, motif?.trim() || undefined);
+      await refuse(id, trimmed);
       flash("Demande refusée");
     } catch (e) {
       flash(e instanceof Error ? e.message : "Erreur de refus", "err");

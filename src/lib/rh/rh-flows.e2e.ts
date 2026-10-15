@@ -137,7 +137,12 @@ async function main() {
               { from: "13:00", to: "19:00" },
             ]
           : base;
-      return { date: iso, slots, breakMinutes };
+      return {
+        date: iso,
+        slots,
+        breakMinutes,
+        note: dow === 1 ? "E2E HS — projet urgent client" : null,
+      };
     });
     await updateTimesheetDays({
       timesheetId: timesheet.id,
@@ -160,6 +165,7 @@ async function main() {
               { from: "13:00", to: "18:00" },
             ],
             breakMinutes: 5,
+            note: "E2E",
           },
         ],
       });
@@ -171,7 +177,6 @@ async function main() {
     const submitted = await submitTimesheet({
       timesheetId: timesheet.id,
       employeeId: emp.id,
-      overtimeNote: "E2E HS — projet urgent client",
     });
     assert(submitted.status === "SUBMITTED", "submit OK");
     assert(submitted.requestId, "requestId");

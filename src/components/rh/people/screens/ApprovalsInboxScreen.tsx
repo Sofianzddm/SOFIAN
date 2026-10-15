@@ -276,7 +276,7 @@ export function ApprovalsInboxScreen({
                   style={{ background: "#0E1116", border: "1px solid #1B212A" }}
                 >
                   <div className="font-semibold" style={{ color: "#E7ECF2" }}>
-                    Semaine {String(selected.detailRaw.week || "—")} ·{" "}
+                    Feuille · Semaine {String(selected.detailRaw.week || "—")} ·{" "}
                     {String(selected.detailRaw.totalLabel || "—")}
                   </div>
                   <div
@@ -286,28 +286,60 @@ export function ApprovalsInboxScreen({
                     HS 25 % {String(selected.detailRaw.ot25Label || "0 h")} · HS
                     50 % {String(selected.detailRaw.ot50Label || "0 h")}
                   </div>
-                  {selected.detailRaw.overtimeNote ? (
-                    <p className="m-0 mt-2 text-[12.5px]">
-                      Note HS : {String(selected.detailRaw.overtimeNote)}
-                    </p>
-                  ) : null}
                   {Array.isArray(selected.detailRaw.days) ? (
-                    <div className="mt-2 flex flex-col gap-1">
+                    <div className="mt-3 flex flex-col gap-2">
                       {(
                         selected.detailRaw.days as Array<
                           Record<string, unknown>
                         >
                       )
                         .filter((d) => Number(d.totalMinutes || 0) > 0)
-                        .map((d, i) => (
-                          <div
-                            key={i}
-                            className="flex justify-between text-[12px]"
-                          >
-                            <span>{String(d.date)}</span>
-                            <span>{String(d.totalLabel)}</span>
-                          </div>
-                        ))}
+                        .map((d, i) => {
+                          const slots = Array.isArray(d.slots)
+                            ? (d.slots as Array<{ from?: string; to?: string }>)
+                            : [];
+                          const slotsLabel = slots
+                            .filter((s) => s.from && s.to)
+                            .map((s) => `${s.from}→${s.to}`)
+                            .join(" · ");
+                          return (
+                            <div
+                              key={i}
+                              className="rounded-[10px] px-3 py-2.5"
+                              style={{
+                                background: "rgba(255,255,255,.03)",
+                                border: "1px solid #1B212A",
+                              }}
+                            >
+                              <div className="flex flex-wrap items-baseline justify-between gap-2 text-[12.5px]">
+                                <span className="font-medium" style={{ color: "#E7ECF2" }}>
+                                  {String(d.date)}
+                                  {d.exception ? " · exception" : ""}
+                                </span>
+                                <span className="rh-mono" style={{ color: LIME }}>
+                                  {String(d.totalLabel)}
+                                </span>
+                              </div>
+                              {slotsLabel ? (
+                                <div
+                                  className="rh-mono mt-1 text-[11px]"
+                                  style={{ color: "#8B95A5" }}
+                                >
+                                  {slotsLabel}
+                                </div>
+                              ) : null}
+                              {d.note ? (
+                                <p
+                                  className="m-0 mt-2 text-[12.5px] leading-[1.4]"
+                                  style={{ color: "#B9C2CE" }}
+                                >
+                                  <span style={{ color: "#F0C24E" }}>Justif. : </span>
+                                  {String(d.note)}
+                                </p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
                     </div>
                   ) : null}
                 </div>
