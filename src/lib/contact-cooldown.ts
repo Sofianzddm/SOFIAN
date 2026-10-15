@@ -1,20 +1,21 @@
 /**
- * Garde-fou anti-harcèlement — 3 lignes d'envoi client, strictement séparées.
+ * Garde-fou anti-harcèlement — lignes d'envoi client, strictement séparées.
  *
  * Règle métier (validée) :
  *  - 1 mail initial / ligne / email
  *    · indiv : 20 j (pipeline talent — sans event CREATED)
- *    · projet : 30 j (module Projets outreach — event CREATED, SOLO ou MULTI)
+ *    · projet : 30 j (Projets outreach SOLO — event CREATED, mode SOLO)
+ *    · projet-multi : 30 j (Projets outreach MULTI / « projet commun »)
  *    · outreach : 30 j (cycle clients 45 j)
- *  - Pas de cooldown cross-ligne : un envoi pipeline ne bloque PAS un projet
- *    outreach (et inversement) ; ni l'outreach clients. Chaque ligne a son plafond.
+ *  - Pas de cooldown cross-ligne : pipeline ≠ SOLO ≠ MULTI ≠ outreach.
+ *    Un Calendrier MULTI ne bloque PAS un Jeux Concours SOLO (et inversement).
  *  - Relances du même fil = hors compteur
  *  - Au-delà → bloqué, bypass « projet urgent » (force + motif) possible
  *  - Opt-out → toujours bloqué (pas de bypass)
  *  - Agences / Benelux : non gérés ici (inchangés)
  *
- * Classification casting : alignée sur PIPELINE_CASTING_SCOPE — la présence
- * d'un event CREATED sur la campagne = ligne « projet », pas le seul mode MULTI.
+ * Classification casting : event CREATED = module Projets outreach ;
+ * ensuite mode MULTI → ligne « projet-multi », sinon « projet » (SOLO).
  */
 
 import { prisma } from "@/lib/prisma";
@@ -66,7 +67,7 @@ function lineCapDays(line: SendLine): number {
  */
 export const EMAIL_COOLDOWN_DAYS = EMAIL_LINE_CAP_DAYS;
 
-export type SendLine = "projet" | "indiv" | "outreach";
+export type SendLine = "projet" | "projet-multi" | "indiv" | "outreach";
 
 export type ContactChannel =
   | SendLine
@@ -84,6 +85,7 @@ export type ContactTouch = {
 
 const LINE_LABEL: Record<SendLine, string> = {
   projet: "prospection projet",
+  "projet-multi": "prospection projet commun (MULTI)",
   indiv: "pipeline individuel",
   outreach: "outreach clients",
 };
@@ -107,6 +109,20 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+/** True si l'email a un envoi réussi dans la map (messageId, sans error). */
+function emailHadSuccessfulSend(
+  map: Record<string, unknown>,
+  email: string
+): boolean {
+  for (const [k, v] of Object.entries(map)) {
+    if (k.toLowerCase() !== email) continue;
+    if (!v || typeof v !== "object") continue;
+    const rec = v as { messageId?: unknown; error?: unknown };
+    if (rec.messageId && !rec.error) return true;
+  }
+  return false;
+}
+
 function formatFrDate(date: Date): string {
   return new Intl.DateTimeFormat("fr-FR", {
     day: "numeric",
@@ -127,8 +143,10 @@ function pushTouch(
 
 /**
  * Classifie une campagne casting sur la bonne ligne anti-spam.
- * Event CREATED = module Projets outreach → « projet » (SOLO ou MULTI).
- * Sinon MULTI legacy → « projet » ; SOLO / sans campagne → « indiv ».
+ * Event CREATED = module Projets outreach :
+ *   · mode MULTI → « projet-multi » (projet commun, ex. Calendrier)
+ *   · sinon → « projet » (SOLO)
+ * Sans event CREATED : MULTI legacy → « projet-multi » ; SOLO / rien → « indiv ».
  */
 export function sendLineFromCampaign(
   campaign?: {
@@ -138,8 +156,11 @@ export function sendLineFromCampaign(
   } | null
 ): SendLine {
   if (!campaign) return "indiv";
-  if (campaign.isProjetOutreach) return "projet";
-  if (campaign.mode === "MULTI") return "projet";
+  const isMulti = campaign.mode === "MULTI";
+  if (campaign.isProjetOutreach) {
+    return isMulti ? "projet-multi" : "projet";
+  }
+  if (isMulti) return "projet-multi";
   return "indiv";
 }
 
@@ -222,8 +243,8 @@ export async function listEmailTouches(
         ? (m.sentMessageIds as Record<string, unknown>)
         : null;
     if (!sm) continue;
-    const hit = Object.keys(sm).some((k) => k.toLowerCase() === normalized);
-    if (!hit) continue;
+    // Ignorer les tentatives en erreur (cooldown, Gmail…) — pas un vrai contact.
+    if (!emailHadSuccessfulSend(sm, normalized)) continue;
     const line = sendLineFromCampaign({
       mode: m.campaign?.mode,
       isProjetOutreach: (m.campaign?.events?.length || 0) > 0,
@@ -237,7 +258,7 @@ export async function listEmailTouches(
     if (
       m.relanceSentAt &&
       m.relanceSentAt >= since &&
-      Object.keys(r1).some((k) => k.toLowerCase() === normalized)
+      emailHadSuccessfulSend(r1, normalized)
     ) {
       pushTouch(touches, m.relanceSentAt, line, "relance");
     }
@@ -249,7 +270,7 @@ export async function listEmailTouches(
     if (
       m.relance2SentAt &&
       m.relance2SentAt >= since &&
-      Object.keys(r2).some((k) => k.toLowerCase() === normalized)
+      emailHadSuccessfulSend(r2, normalized)
     ) {
       pushTouch(touches, m.relance2SentAt, line, "relance");
     }

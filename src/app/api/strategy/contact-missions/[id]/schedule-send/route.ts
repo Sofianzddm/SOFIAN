@@ -114,6 +114,28 @@ export async function POST(
       );
     }
 
+    try {
+      const { logUserActivity } = await import("@/lib/user-activity-log");
+      logUserActivity({
+        userId: session.user.id,
+        action: "MAIL_SCHEDULED",
+        module: "casting",
+        summary: `Envoi planifié — ${mission.creatorName} × ${mission.targetBrand}`,
+        path: `/api/strategy/contact-missions/${id}/schedule-send`,
+        method: "POST",
+        meta: {
+          missionId: id,
+          talent: mission.creatorName,
+          brand: mission.targetBrand,
+          scheduledSendAt: scheduledSendAt.toISOString(),
+          force,
+          forceReason: force ? forceReason : undefined,
+        },
+      });
+    } catch {
+      /* ignore */
+    }
+
     return NextResponse.json({
       mission: updated,
       scheduledSendAt: scheduledSendAt.toISOString(),

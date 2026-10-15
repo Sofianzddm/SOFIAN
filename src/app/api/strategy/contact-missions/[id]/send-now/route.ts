@@ -55,6 +55,35 @@ export async function POST(
 
     const outcome = await executeCastingSend(id);
 
+    try {
+      const { logUserActivity } = await import("@/lib/user-activity-log");
+      const detail = await contactMissionModel.findUnique({
+        where: { id },
+        select: { creatorName: true, targetBrand: true },
+      });
+      const label = detail
+        ? `${detail.creatorName} × ${detail.targetBrand}`
+        : id;
+      logUserActivity({
+        userId: session.user.id,
+        action: "MAIL_SENT",
+        module: "casting",
+        summary: `Envoi casting — ${label} (${outcome.succeeded}/${outcome.attempted})`,
+        path: `/api/strategy/contact-missions/${id}/send-now`,
+        method: "POST",
+        meta: {
+          missionId: id,
+          talent: detail?.creatorName,
+          brand: detail?.targetBrand,
+          attempted: outcome.attempted,
+          succeeded: outcome.succeeded,
+          failed: outcome.failed,
+        },
+      });
+    } catch {
+      /* ignore */
+    }
+
     return NextResponse.json({
       ok: outcome.succeeded > 0,
       attempted: outcome.attempted,

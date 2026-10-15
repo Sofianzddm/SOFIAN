@@ -747,6 +747,67 @@ export async function PATCH(request: NextRequest) {
       },
     });
 
+    // Journal activité (Sofian only) — fire-and-forget
+    try {
+      const { logUserActivity, stripHtmlPreview } = await import("@/lib/user-activity-log");
+      const label = `${mission.creatorName} × ${mission.targetBrand}`;
+      const baseMeta = {
+        missionId: mission.id,
+        talent: mission.creatorName,
+        brand: mission.targetBrand,
+        status: mission.status,
+        stage: mission.stage,
+      };
+      if (draftProvided) {
+        const bodyLen = draftEmailBody ? draftEmailBody.length : 0;
+        logUserActivity({
+          userId: session.user.id,
+          action: "DRAFT_SAVED",
+          module: "casting",
+          summary: `Brouillon sauvegardé — ${label}`,
+          path: "/api/strategy/contact-missions",
+          method: "PATCH",
+          meta: {
+            ...baseMeta,
+            subject: draftEmailSubject || null,
+            bodyChars: bodyLen,
+            bodyPreview: stripHtmlPreview(draftEmailBody, 160),
+            language: draftLanguage || null,
+          },
+        });
+      }
+      if (stageProvided) {
+        logUserActivity({
+          userId: session.user.id,
+          action:
+            nextStage === "DRAFTED_FOR_VALIDATION"
+              ? "SUBMITTED_FOR_VALIDATION"
+              : "STAGE_CHANGED",
+          module: "casting",
+          summary:
+            nextStage === "DRAFTED_FOR_VALIDATION"
+              ? `Soumis pour validation — ${label}`
+              : `Étape → ${nextStage} — ${label}`,
+          path: "/api/strategy/contact-missions",
+          method: "PATCH",
+          meta: { ...baseMeta, stage: nextStage },
+        });
+      }
+      if (statusProvided && !draftProvided) {
+        logUserActivity({
+          userId: session.user.id,
+          action: "STATUS_CHANGED",
+          module: "casting",
+          summary: `Statut → ${nextStatus} — ${label}`,
+          path: "/api/strategy/contact-missions",
+          method: "PATCH",
+          meta: { ...baseMeta, status: nextStatus },
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+
     if (stageProvided && nextStage === "DRAFTED_FOR_VALIDATION") {
       const salesUsers = await prisma.user.findMany({
         where: { role: "HEAD_OF_SALES", actif: true },

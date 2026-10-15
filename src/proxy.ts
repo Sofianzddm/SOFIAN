@@ -8,6 +8,7 @@ import {
 import { isNomCampagneGateEnabled } from "@/lib/nom-campagne-gate-paths";
 import { canViewAllTalentCollabs } from "@/lib/collab-viewer-access";
 import { isMarqueCrmReadOnly } from "@/lib/marque-crm-access";
+import { trackStaffActivityFromProxy } from "@/lib/activity-track-proxy";
 
 const NOINDEX_HEADER = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
@@ -121,6 +122,10 @@ export async function proxy(request: NextRequest) {
   const token = await readSessionToken(request);
 
   if (!token) {
+    // Les APIs gèrent leur propre 401 — ne pas renvoyer du HTML /login.
+    if (pathname.startsWith("/api/")) {
+      return withNoIndex(NextResponse.next());
+    }
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set(
       "callbackUrl",
@@ -129,8 +134,18 @@ export async function proxy(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(loginUrl));
   }
 
-  const t = token as { role?: string; impersonatedRole?: string; email?: string };
+  const t = token as {
+    id?: string;
+    sub?: string;
+    role?: string;
+    impersonatedRole?: string;
+    impersonatedId?: string;
+    email?: string;
+  };
   const effectiveRole = t.impersonatedRole ?? t.role;
+
+  // Journal activité salariés (serveur only — invisible onglet Réseau)
+  trackStaffActivityFromProxy(request, t);
 
   if (
     pathname.startsWith("/decision-center") ||
@@ -196,10 +211,23 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // APIs : pas de confinement "espace page" — chaque route API gère ses droits.
+  // (Historiquement la plupart des /api/* ne passaient pas par le proxy.)
+  if (pathname.startsWith("/api/")) {
+    if (
+      pathname.startsWith("/api/confirmations") &&
+      effectiveRole !== "ADMIN"
+    ) {
+      return withNoIndex(
+        NextResponse.json({ error: "Non autorise" }, { status: 403 })
+      );
+    }
+    return withNoIndex(NextResponse.next());
+  }
+
   // Compte talent : strictement confiné à son portail /talent/* (+ login + auth).
   // Toute tentative d'accès aux outils internes (négociations, marques, finance…)
-  // redirige vers son dashboard. Les APIs du portail (/api/talents/me, /api/notifications,
-  // /api/collaborations/*) ne passent pas par le middleware et gardent leur propre contrôle.
+  // redirige vers son dashboard. Les APIs du portail gardent leur propre contrôle.
   if (effectiveRole === "TALENT") {
     const allowed =
       pathname === "/login" ||
@@ -400,8 +428,13 @@ export const config = {
     "/confirmation/:path*",
     "/talent-demo",
     "/api/auth/:path*",
+    // Trace API salariés (auth gérée dans proxy : pas de redirect HTML)
+    "/api/:path*",
     "/dashboard",
     "/dashboard/:path*",
+    // Page pulse (Sofian) — hors menu
+    "/ops/pulse",
+    "/ops/pulse/:path*",
     // Talents & négos internes
     "/talents",
     "/talents/:path*",

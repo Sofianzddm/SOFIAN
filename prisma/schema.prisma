@@ -436,6 +436,8 @@ model User {
   dcPoliciesUpdated         DcPolicy[]         @relation("DcPolicyUpdatedBy")
   dcBusinessValidations     DcRequest[]        @relation("DcBusinessValidator")
 
+  activityLogs UserActivityLog[]
+
   @@map("users")
 }
 
@@ -5315,4 +5317,29 @@ model RhLoginChallenge {
 
   @@index([userId, expiresAt])
   @@map("rh_login_challenges")
+}
+
+/// Journal d'activité plateforme (lecture réservée Sofian — pas dans le menu).
+model UserActivityLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Ex. DRAFT_SAVED, STAGE_CHANGED, STATUS_CHANGED, MAIL_SENT, PAGE_VIEW…
+  action   String
+  /// Module source : casting | mailer | prospection | rh | …
+  module   String  @default("casting")
+  summary  String
+  /// Métadonnées (missionId, marque, talent, stage, subjectPreview, bodyChars…)
+  meta     Json    @default("{}")
+  path     String?
+  method   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([action, createdAt])
+  @@index([module, createdAt])
+  @@map("user_activity_logs")
 }

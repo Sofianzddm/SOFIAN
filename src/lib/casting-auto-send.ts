@@ -212,7 +212,9 @@ export type ScheduleSendPreflight =
  *
  * Plafond : 1 mail initial / email sur la ligne
  *   - indiv : 20 j (pipeline talent)
- *   - projet / outreach : 30 j (projets outreach = event CREATED ; indépendant de l'indiv)
+ *   - projet : 30 j (Projets outreach SOLO)
+ *   - projet-multi : 30 j (Projets outreach MULTI / projet commun — séparé du SOLO)
+ *   - outreach : 30 j
  * Indiv : + 1 vague / marque / 20 j (tous talents — ex. H&M pour Flavy bloque Océane).
  * Bypass urgent : options.force=true (+ motif côté API). Opt-out non bypassable.
  */
