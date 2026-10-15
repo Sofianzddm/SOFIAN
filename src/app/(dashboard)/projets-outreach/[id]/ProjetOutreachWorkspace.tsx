@@ -3277,7 +3277,7 @@ function EnvoisTab({
           const confirmed = window.confirm(
             `${brandLabel}\n\n${
               scheduleData.error ||
-              "Ces contacts ont déjà reçu un mail récemment (cooldown 20 j / plafond 3/30 j)."
+              "Ces contacts ont déjà reçu un mail sur la ligne projet récemment (plafond 1 / 30 j)."
             }\n\nProjet urgent — envoyer quand même ? (un motif sera demandé)`
           );
           if (!confirmed) return;
@@ -3415,13 +3415,13 @@ function EnvoisTab({
                     disabled={busyId === m.id}
                     onClick={() => {
                       const ok = window.confirm(
-                        `${m.marqueNom || m.targetBrand}\n\nForcer l’envoi ignore le cooldown 20 jours (contacts déjà contactés récemment).\n\nConfirmer ?`
+                        `${m.marqueNom || m.targetBrand}\n\nForcer l’envoi ignore le plafond projet 30 jours (contacts déjà contactés sur cette ligne).\n\nConfirmer ?`
                       );
                       if (ok) void scheduleAndSend(m.id, true);
                     }}
                     className="po-btn po-btn-secondary"
                     style={{ padding: "7px 12px", fontSize: 12 }}
-                    title="Ignore le cooldown anti-spam de 20 jours"
+                    title="Ignore le plafond anti-spam projet (30 j)"
                   >
                     Forcer l’envoi
                   </button>

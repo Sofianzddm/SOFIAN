@@ -3,15 +3,18 @@
  *
  * Règle métier (validée) :
  *  - 1 mail initial / ligne / email
- *    · indiv : 20 j (pipeline talent SOLO)
- *    · projet : 30 j (campagne MULTI)
+ *    · indiv : 20 j (pipeline talent — sans event CREATED)
+ *    · projet : 30 j (module Projets outreach — event CREATED, SOLO ou MULTI)
  *    · outreach : 30 j (cycle clients 45 j)
- *  - Pas de cooldown cross-ligne : un envoi pipeline/projet ne bloque PAS
- *    l'outreach clients (et inversement). Chaque ligne a son plafond.
+ *  - Pas de cooldown cross-ligne : un envoi pipeline ne bloque PAS un projet
+ *    outreach (et inversement) ; ni l'outreach clients. Chaque ligne a son plafond.
  *  - Relances du même fil = hors compteur
  *  - Au-delà → bloqué, bypass « projet urgent » (force + motif) possible
  *  - Opt-out → toujours bloqué (pas de bypass)
  *  - Agences / Benelux : non gérés ici (inchangés)
+ *
+ * Classification casting : alignée sur PIPELINE_CASTING_SCOPE — la présence
+ * d'un event CREATED sur la campagne = ligne « projet », pas le seul mode MULTI.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -111,11 +114,32 @@ function pushTouch(
   out.push({ at: new Date(at), channel, kind });
 }
 
-/** Mission casting → ligne projet (MULTI) ou indiv (SOLO / sans campagne). */
+/**
+ * Classifie une campagne casting sur la bonne ligne anti-spam.
+ * Event CREATED = module Projets outreach → « projet » (SOLO ou MULTI).
+ * Sinon MULTI legacy → « projet » ; SOLO / sans campagne → « indiv ».
+ */
+export function sendLineFromCampaign(
+  campaign?: {
+    mode?: string | null;
+    /** true si la campagne a un event CREATED (projets outreach). */
+    isProjetOutreach?: boolean;
+  } | null
+): SendLine {
+  if (!campaign) return "indiv";
+  if (campaign.isProjetOutreach) return "projet";
+  if (campaign.mode === "MULTI") return "projet";
+  return "indiv";
+}
+
+/**
+ * @deprecated Prefer `sendLineFromCampaign` — le mode seul confond SOLO projet
+ * outreach et pipeline indiv. Conservé pour compat ; traite SOLO comme indiv.
+ */
 export function sendLineFromCampaignMode(
   mode: string | null | undefined
 ): SendLine {
-  return mode === "MULTI" ? "projet" : "indiv";
+  return sendLineFromCampaign({ mode, isProjetOutreach: false });
 }
 
 export async function resolveMissionSendLine(
@@ -123,14 +147,29 @@ export async function resolveMissionSendLine(
 ): Promise<SendLine> {
   const mission = await prisma.contactMission.findUnique({
     where: { id: missionId },
-    select: { campaign: { select: { mode: true } } },
+    select: {
+      campaign: {
+        select: {
+          mode: true,
+          events: {
+            where: { type: "CREATED" },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
+    },
   });
-  return sendLineFromCampaignMode(mission?.campaign?.mode);
+  return sendLineFromCampaign({
+    mode: mission?.campaign?.mode,
+    isProjetOutreach: (mission?.campaign?.events?.length || 0) > 0,
+  });
 }
 
 /**
  * Historique des envois app vers cet email (fenêtre `since`).
- * Les missions casting sont classées projet vs indiv via campaign.mode.
+ * Les missions casting sont classées projet vs indiv via event CREATED
+ * (module Projets outreach) — pas seulement campaign.mode.
  */
 export async function listEmailTouches(
   email: string,
@@ -154,7 +193,16 @@ export async function listEmailTouches(
       relanceMessageIds: true,
       relance2SentAt: true,
       relance2MessageIds: true,
-      campaign: { select: { mode: true } },
+      campaign: {
+        select: {
+          mode: true,
+          events: {
+            where: { type: "CREATED" },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
     },
   });
   for (const m of missions) {
@@ -165,7 +213,10 @@ export async function listEmailTouches(
     if (!sm) continue;
     const hit = Object.keys(sm).some((k) => k.toLowerCase() === normalized);
     if (!hit) continue;
-    const line = sendLineFromCampaignMode(m.campaign?.mode);
+    const line = sendLineFromCampaign({
+      mode: m.campaign?.mode,
+      isProjetOutreach: (m.campaign?.events?.length || 0) > 0,
+    });
     pushTouch(touches, m.sentAt, line, "initial");
 
     const r1 =
@@ -489,7 +540,7 @@ export function isValidForceReason(value: unknown): value is string {
 
 /**
  * IDs Gmail (message + thread) déjà émis par l'app pour cet email
- * (pipeline indiv + projets MULTI). Sert à exclure ces envois du garde-fou
+ * (pipeline indiv + projets outreach). Sert à exclure ces envois du garde-fou
  * « hors app » de l'outreach clients : les 3 lignes sont indépendantes.
  */
 export async function collectCastingGmailIdsForEmail(
