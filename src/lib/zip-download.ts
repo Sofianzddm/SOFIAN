@@ -104,6 +104,26 @@ export async function buildZipFromUrls(entries: ZipEntry[]): Promise<BuildZipRes
   return { buffer, added, failed };
 }
 
+/**
+ * Construit une archive ZIP à partir de buffers déjà en mémoire
+ * (ex. PDF générés ou lus depuis pdfBase64).
+ */
+export async function buildZipFromBuffers(
+  entries: { name: string; data: Buffer }[]
+): Promise<Buffer> {
+  const zip = new JSZip();
+  const used = new Set<string>();
+  for (const entry of entries) {
+    const name = uniqueName(sanitizeName(entry.name), used);
+    zip.file(name, entry.data);
+  }
+  return zip.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+}
+
 /** Construit les en-têtes HTTP d'une réponse de téléchargement ZIP. */
 export function zipResponseHeaders(filename: string, length: number): Headers {
   const safe = filename.replace(/["\r\n]/g, "");

@@ -805,17 +805,43 @@ export default function FacturesPage() {
     setBulkActionLoading(false);
   };
 
-  const handleBulkDownloadPdf = () => {
-    selectedIds.forEach((id) => {
-      window.open(`/api/documents/${id}/pdf`, "_blank");
-    });
+  const downloadSelectionZip = async (locale?: "fr" | "en") => {
+    if (selectedIds.size === 0 || bulkActionLoading) return;
+    setBulkActionLoading(true);
+    try {
+      const ids = Array.from(selectedIds).join(",");
+      const qs = new URLSearchParams({ ids });
+      if (locale) qs.set("locale", locale);
+      const res = await fetch(`/api/documents/download-all?${qs.toString()}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Impossible de générer l'archive");
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      const filename =
+        match?.[1] ||
+        (locale === "en" ? "documents-selection-EN.zip" : "documents-selection.zip");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Erreur téléchargement zip:", error);
+      alert("Erreur de connexion lors du téléchargement");
+    } finally {
+      setBulkActionLoading(false);
+    }
   };
 
-  const handleBulkDownloadPdfEn = () => {
-    selectedIds.forEach((id) => {
-      window.open(`/api/documents/${id}/pdf?locale=en`, "_blank");
-    });
-  };
+  const handleBulkDownloadPdf = () => downloadSelectionZip();
+  const handleBulkDownloadPdfEn = () => downloadSelectionZip("en");
 
   const handleBulkConvertirDevis = async () => {
     setBulkActionLoading(true);
@@ -1646,17 +1672,19 @@ export default function FacturesPage() {
               )}
               <button
                 onClick={handleBulkDownloadPdf}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-medium"
+                disabled={bulkActionLoading}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-medium disabled:opacity-50"
               >
-                <Download className="w-4 h-4" />
-                Télécharger PDF
+                {bulkActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {bulkActionLoading ? "Préparation…" : "Télécharger ZIP"}
               </button>
               <button
                 onClick={handleBulkDownloadPdfEn}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-medium"
+                disabled={bulkActionLoading}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-medium disabled:opacity-50"
               >
-                <Languages className="w-4 h-4" />
-                PDF (EN)
+                {bulkActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
+                ZIP (EN)
               </button>
               <button
                 onClick={clearSelection}
