@@ -150,7 +150,7 @@ for (const [nomFr, aliases] of Object.entries(PAYS_EU_ALIASES)) {
 const FRANCE_NORMALIZED = new Set(FRANCE_ALIASES.map(normalizeForComparison));
 
 /** Vérifie si le pays est la France */
-function isFrance(pays: string): boolean {
+export function isFrance(pays: string): boolean {
   if (!pays || !pays.trim()) return true; // vide = France par défaut
   return FRANCE_NORMALIZED.has(normalizeForComparison(pays));
 }

@@ -6,7 +6,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { FactureTemplate } from "@/lib/documents/templates/FactureTemplate";
 import type { FactureData, LigneFacture } from "@/lib/documents/templates/FactureTemplate";
 import { createElement } from "react";
-import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG } from "@/lib/documents/config";
+import { getTypeTVA, getMentionTVA, MENTIONS_TVA, AGENCE_CONFIG, isFrance } from "@/lib/documents/config";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { genererNumeroDocument } from "@/lib/documents/numerotation";
 import { getDeviseInfo } from "@/lib/devises";
@@ -49,6 +49,12 @@ export async function POST(
     if (!billing?.raisonSociale || !billing?.adresseRue || !billing?.codePostal || !billing?.ville || !billing?.pays) {
       return NextResponse.json(
         { error: "Informations de facturation requises (raison sociale, adresse, code postal, ville, pays)" },
+        { status: 400 }
+      );
+    }
+    if (!isFrance(billing.pays) && !String(billing.numeroTVA || "").trim()) {
+      return NextResponse.json(
+        { error: "Le numéro de TVA intracommunautaire est obligatoire pour les factures hors France" },
         { status: 400 }
       );
     }
