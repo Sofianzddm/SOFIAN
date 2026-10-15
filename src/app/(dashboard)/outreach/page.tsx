@@ -59,8 +59,8 @@ const RELANCE_BUSINESS_DAYS = 3;
 type Market = "FR" | "BENELUX";
 /** Vue file : uniques FR / uniques BE / présents dans les deux pipelines. */
 type MarketView = "FR" | "BENELUX" | "BOTH";
-// Marché choisi par contact à l'import : « BOTH » duplique le contact dans les
-// deux fiches (FR + BENELUX) et le prospecte dans chaque pipeline.
+// Marché choisi par contact à l'import : « BOTH » = fiche FR + BE, un seul mail
+// (offre talents des deux marchés). Unique FR / Unique BE = un seul pipeline.
 type RowMarket = Market | "BOTH";
 
 /**
@@ -148,6 +148,13 @@ type Target = {
   alsoInSiblingMarket?: boolean;
   /** Pipeline d'origine (utile en vue FR+BE où les deux listes sont fusionnées). */
   pipeline?: Market;
+  /**
+   * Cible miroir dans le pipeline frère (vue FR+BE fusionnée : 1 contact =
+   * 1 mail, talents FR+BE). Après envoi on avance aussi ce côté sans renvoyer.
+   */
+  siblingTargetId?: string;
+  siblingPipeline?: Market;
+  siblingMarqueId?: string;
 };
 
 /** Boîte Gmail connectée, utilisable comme expéditrice d'un cycle. */
@@ -482,23 +489,37 @@ export default function OutreachPage() {
         const bothEmails = new Set(
           [...frEmails].filter((e) => beEmails.has(e))
         );
-        // Une entrée par pipeline (FR + BE) pour pouvoir rédiger chaque côté.
-        const merged: Target[] = [
-          ...frList
-            .filter((t) => bothEmails.has((t.email || "").trim().toLowerCase()))
-            .map((t) => ({
-              ...t,
-              alsoInSiblingMarket: true,
-              pipeline: "FR" as const,
-            })),
-          ...beList
-            .filter((t) => bothEmails.has((t.email || "").trim().toLowerCase()))
-            .map((t) => ({
-              ...t,
-              alsoInSiblingMarket: true,
-              pipeline: "BENELUX" as const,
-            })),
-        ];
+        // FR+BE = 1 contact / email (pas 2 cartes). FR prioritaire ; si seul BE
+        // est encore « À contacter », on part de BE pour pouvoir envoyer.
+        const frByEmail = new Map<string, Target>();
+        for (const t of frList) {
+          const email = (t.email || "").trim().toLowerCase();
+          if (email && bothEmails.has(email)) frByEmail.set(email, t);
+        }
+        const beByEmail = new Map<string, Target>();
+        for (const t of beList) {
+          const email = (t.email || "").trim().toLowerCase();
+          if (email && bothEmails.has(email)) beByEmail.set(email, t);
+        }
+        const merged: Target[] = [];
+        for (const email of bothEmails) {
+          const fr = frByEmail.get(email);
+          const be = beByEmail.get(email);
+          if (!fr || !be) continue;
+          const preferBe =
+            fr.status !== "TO_CONTACT" && be.status === "TO_CONTACT";
+          const primary = preferBe ? be : fr;
+          const sibling = preferBe ? fr : be;
+          const pipe: Market = preferBe ? "BENELUX" : "FR";
+          merged.push({
+            ...primary,
+            alsoInSiblingMarket: true,
+            pipeline: pipe,
+            siblingTargetId: sibling.id,
+            siblingPipeline: preferBe ? "FR" : "BENELUX",
+            siblingMarqueId: sibling.marqueId,
+          });
+        }
         setTargets(merged);
         return;
       }
@@ -666,12 +687,12 @@ export default function OutreachPage() {
       return !both;
     });
     // Garde-fou anti-doublon : une même personne (email) ne doit jamais
-    // apparaître deux fois. Si un état transitoire contient deux versions de
-    // la même cible, on garde celle qui couvre le plus de marques.
+    // apparaître deux fois (surtout en FR+BE). Si un état transitoire contient
+    // deux versions, on garde celle qui couvre le plus de marques.
     const byEmail = new Map<string, (typeof filtered)[number]>();
     const order: string[] = [];
     for (const t of filtered) {
-      const key = `${t.pipeline || "FR"}:${(t.email || t.id).toLowerCase()}`;
+      const key = (t.email || t.id).toLowerCase();
       const prev = byEmail.get(key);
       if (!prev) {
         byEmail.set(key, t);
@@ -711,8 +732,12 @@ export default function OutreachPage() {
       }
     >();
     for (const t of visibleTargets) {
-      const pipe = t.pipeline || "FR";
-      const key = `${pipe}::${t.marqueId}::${brandSetKey(t.coveredBrands)}`;
+      // FR+BE : une carte par marque (pas une par pipeline) — les IDs FR/BE
+      // diffèrent, on regroupe par nom d'entreprise.
+      const key =
+        marketView === "BOTH"
+          ? `BOTH::${(t.company || "").trim().toLowerCase()}::${brandSetKey(t.coveredBrands)}`
+          : `${t.pipeline || "FR"}::${t.marqueId}::${brandSetKey(t.coveredBrands)}`;
       const group = map.get(key);
       if (group) group.targets.push(t);
       else
@@ -929,7 +954,8 @@ export default function OutreachPage() {
         return;
       setActionBusy(group.marqueId);
       try {
-        const pipeline = group.targets[0]?.pipeline;
+        const primary = group.targets[0];
+        const pipeline = primary?.pipeline;
         const res = await fetch(
           outreachApiForPipeline(pipeline, `/marques/${group.marqueId}`),
           { method: "DELETE" }
@@ -938,6 +964,26 @@ export default function OutreachPage() {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "Erreur");
         }
+        // FR+BE : retirer aussi le côté frère (autre marqueId / pipeline).
+        const siblingMarqueIds = [
+          ...new Set(
+            group.targets
+              .map((t) => t.siblingMarqueId)
+              .filter((id): id is string => Boolean(id) && id !== group.marqueId)
+          ),
+        ];
+        await Promise.all(
+          siblingMarqueIds.map(async (marqueId) => {
+            const siblingPipe =
+              group.targets.find((t) => t.siblingMarqueId === marqueId)
+                ?.siblingPipeline ||
+              (pipeline === "FR" ? "BENELUX" : "FR");
+            await fetch(
+              outreachApiForPipeline(siblingPipe, `/marques/${marqueId}`),
+              { method: "DELETE" }
+            );
+          })
+        );
         flash("success", `${group.company} retirée de l'outreach.`);
         await Promise.all([loadTargets(), loadPendingContacts()]);
       } catch (e) {
@@ -972,13 +1018,23 @@ export default function OutreachPage() {
     };
   }, [composerGroup]);
 
-  /** Brouillon partagé : enregistré sur chaque contact du groupe. */
+  /** Brouillon partagé : enregistré sur chaque contact du groupe (+ miroir FR+BE). */
   const saveDraft = useCallback(
     async (targetsInGroup: Target[], subject: string, bodyHtml: string) => {
+      const rows: { id: string; pipeline: Market | undefined }[] = [];
+      for (const t of targetsInGroup) {
+        rows.push({ id: t.id, pipeline: t.pipeline });
+        if (t.siblingTargetId) {
+          rows.push({
+            id: t.siblingTargetId,
+            pipeline: t.siblingPipeline,
+          });
+        }
+      }
       await Promise.all(
-        targetsInGroup.map(async (t) => {
+        rows.map(async (row) => {
           const res = await fetch(
-            outreachApiForPipeline(t.pipeline, `/targets/${t.id}`),
+            outreachApiForPipeline(row.pipeline, `/targets/${row.id}`),
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
@@ -994,6 +1050,33 @@ export default function OutreachPage() {
     },
     []
   );
+
+  /**
+   * Après un envoi FR+BE réussi : avance le pipeline frère sans renvoyer de mail
+   * (le contact a déjà reçu l'offre talents des deux marchés).
+   */
+  const advanceFrBeSiblings = useCallback(async (targetsInGroup: Target[]) => {
+    const byPipe = new Map<Market, string[]>();
+    for (const t of targetsInGroup) {
+      if (!t.siblingTargetId || !t.siblingPipeline) continue;
+      const list = byPipe.get(t.siblingPipeline) || [];
+      list.push(t.siblingTargetId);
+      byPipe.set(t.siblingPipeline, list);
+    }
+    await Promise.all(
+      [...byPipe.entries()].map(async ([pipe, targetIds]) => {
+        // Lots de 25 max (plafond reschedule-bulk).
+        for (let i = 0; i < targetIds.length; i += 25) {
+          const chunk = targetIds.slice(i, i + 25);
+          await fetch(outreachApiForPipeline(pipe, "/reschedule-bulk"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ targetIds: chunk }),
+          });
+        }
+      })
+    );
+  }, []);
 
   const handleComposerSaved = useCallback(
     (
@@ -1114,6 +1197,26 @@ export default function OutreachPage() {
             suggestedNextRecontactAt?: string;
           }[] = data.needsConfirmation || [];
 
+          if ((data.scheduled ?? 0) > 0 || data.sent > 0) {
+            // FR+BE : un seul mail réel → on sort aussi le côté frère de « À contacter ».
+            const okEmails = new Set(
+              group.targets
+                .filter(
+                  (t) =>
+                    !failed.some(
+                      (f) => f.email.toLowerCase() === t.email.toLowerCase()
+                    ) &&
+                    !needsConfirmation.some((c) => c.targetId === t.id)
+                )
+                .map((t) => t.email.toLowerCase())
+            );
+            await advanceFrBeSiblings(
+              group.targets.filter((t) =>
+                okEmails.has(t.email.toLowerCase())
+              )
+            );
+          }
+
           if ((data.scheduled ?? 0) > 0) {
             const n = data.scheduled ?? 0;
             const translatedNote =
@@ -1209,6 +1312,14 @@ export default function OutreachPage() {
               const forceFailed: { email: string; error: string }[] =
                 forceData.failed || [];
               if (forceData.sent > 0) {
+                const forceOk = group.targets.filter(
+                  (t) =>
+                    confirmIds.includes(t.id) &&
+                    !forceFailed.some(
+                      (f) => f.email.toLowerCase() === t.email.toLowerCase()
+                    )
+                );
+                await advanceFrBeSiblings(forceOk);
                 flash(
                   "success",
                   `${forceData.sent} mail${forceData.sent > 1 ? "s" : ""} envoyé${
@@ -1233,6 +1344,9 @@ export default function OutreachPage() {
               );
               const waitData = await resWait.json();
               if (!resWait.ok) throw new Error(waitData.error || "Erreur");
+              await advanceFrBeSiblings(
+                group.targets.filter((t) => confirmIds.includes(t.id))
+              );
               flash(
                 "success",
                 waitData.rescheduled === 1 && waitData.message
@@ -1248,7 +1362,7 @@ export default function OutreachPage() {
         }
       })();
     },
-    [composerGroup, saveDraft, flash, loadTargets]
+    [composerGroup, saveDraft, flash, loadTargets, advanceFrBeSiblings]
   );
 
   /**
@@ -1389,6 +1503,7 @@ export default function OutreachPage() {
           () => {}
         );
         if (data.sent > 0) {
+          await advanceFrBeSiblings([target]);
           flash(
             "success",
             `Mail envoyé à ${target.email} (envoi forcé) — compteur 45 jours relancé.`
@@ -1405,7 +1520,7 @@ export default function OutreachPage() {
         setActionBusy(null);
       }
     },
-    [flash, loadTargets]
+    [flash, loadTargets, advanceFrBeSiblings]
   );
 
   /** Contact de carto : on note son email → il entre dans le cycle. */
@@ -1479,7 +1594,7 @@ export default function OutreachPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             {isBothView
-              ? "Contacts présents dans les deux pipelines — rédige chaque côté (FR et BE) séparément."
+              ? "Contacts présents dans les deux marchés — un seul mail (talents FR + BE)."
               : isBenelux
                 ? "Unique BE — prospection BENELUX uniquement (hors doublons FR+BE)."
                 : "Unique FR — cycle clients France uniquement (hors doublons FR+BE)."}
@@ -1731,16 +1846,12 @@ export default function OutreachPage() {
                       <span
                         className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
                         style={{
-                          backgroundColor:
-                            group.targets[0]?.pipeline === "BENELUX"
-                              ? "#EEF2FF"
-                              : OLD_LACE,
+                          backgroundColor: "#EEF2FF",
                           color: LICORICE,
                         }}
+                        title="Contact FR+BE : un seul mail, offre talents France et Belgique"
                       >
-                        {group.targets[0]?.pipeline === "BENELUX"
-                          ? "🇧🇪 BE"
-                          : "🇫🇷 FR"}
+                        🇫🇷🇧🇪 FR+BE
                       </span>
                     )}
                     {(() => {
