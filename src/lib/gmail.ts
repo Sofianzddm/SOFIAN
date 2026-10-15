@@ -159,6 +159,80 @@ function appendSignature(htmlBody: string, signature: string): string {
   return `${trimmedBody}<br><br>${signature}`;
 }
 
+export type GmailAttachment = {
+  filename: string;
+  contentType: string;
+  /** Contenu binaire du fichier. */
+  content: Buffer;
+};
+
+function sanitizeAttachmentFilename(name: string): string {
+  const cleaned = name
+    .replace(/[\r\n"\\]/g, "")
+    .replace(/[^\w.\- ()àâäéèêëïîôùûüçÀÂÄÉÈÊËÏÎÔÙÛÜÇ]+/g, "_")
+    .trim();
+  return cleaned || "piece-jointe.pdf";
+}
+
+function buildMimeMessage(options: {
+  fromName: string;
+  fromEmail: string;
+  to: string;
+  subject: string;
+  htmlBody: string;
+  inReplyTo?: string;
+  attachments?: GmailAttachment[];
+}): string {
+  const headers = [
+    `From: ${encodeMimeHeader(options.fromName)} <${options.fromEmail}>`,
+    `To: ${options.to}`,
+    `Subject: ${encodeMimeHeader(options.subject)}`,
+  ];
+  if (options.inReplyTo) {
+    headers.push(`In-Reply-To: ${options.inReplyTo}`);
+    headers.push(`References: ${options.inReplyTo}`);
+  }
+  headers.push("MIME-Version: 1.0");
+
+  const attachments = options.attachments?.filter((a) => a.content?.length) ?? [];
+  if (attachments.length === 0) {
+    return [
+      ...headers,
+      "Content-Type: text/html; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      options.htmlBody,
+    ].join("\r\n");
+  }
+
+  const boundary = `glowup_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  const parts: string[] = [
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/html; charset=utf-8",
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    options.htmlBody,
+  ];
+
+  for (const att of attachments) {
+    const filename = sanitizeAttachmentFilename(att.filename);
+    const b64 = att.content.toString("base64").replace(/(.{76})/g, "$1\r\n");
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${att.contentType || "application/octet-stream"}; name="${filename}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${filename}"`,
+      "",
+      b64
+    );
+  }
+  parts.push(`--${boundary}--`, "");
+  return parts.join("\r\n");
+}
+
 export async function sendGmail(options: {
   fromEmail: string;
   to: string;
@@ -172,6 +246,8 @@ export async function sendGmail(options: {
    * la relance dans le MÊME fil de discussion que l'original, de son côté.
    */
   inReplyTo?: string;
+  /** Pièces jointes (ex. PDF de présentation projet outreach). */
+  attachments?: GmailAttachment[];
 }): Promise<string> {
   const accessToken = await getValidAccessToken(options.fromEmail);
 
@@ -180,24 +256,15 @@ export async function sendGmail(options: {
   const finalBody = appendSignature(options.htmlBody, signature);
 
   const fromName = await getGmailFromName(options.fromEmail);
-
-  const headers = [
-    `From: ${encodeMimeHeader(fromName)} <${options.fromEmail}>`,
-    `To: ${options.to}`,
-    `Subject: ${encodeMimeHeader(options.subject)}`,
-  ];
-  if (options.inReplyTo) {
-    headers.push(`In-Reply-To: ${options.inReplyTo}`);
-    headers.push(`References: ${options.inReplyTo}`);
-  }
-  headers.push(
-    "MIME-Version: 1.0",
-    "Content-Type: text/html; charset=utf-8",
-    "Content-Transfer-Encoding: 8bit",
-    "",
-    finalBody
-  );
-  const message = headers.join("\r\n");
+  const message = buildMimeMessage({
+    fromName,
+    fromEmail: options.fromEmail,
+    to: options.to,
+    subject: options.subject,
+    htmlBody: finalBody,
+    inReplyTo: options.inReplyTo,
+    attachments: options.attachments,
+  });
 
   const sendResponse = await fetch(GMAIL_SEND_URL, {
     method: "POST",

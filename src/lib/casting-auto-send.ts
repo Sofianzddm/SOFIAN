@@ -22,6 +22,7 @@ import {
   getMessageRfcId,
   getGmailFromName,
   checkThreadActivity,
+  type GmailAttachment,
 } from "@/lib/gmail";
 import { injectCastingTracking } from "@/lib/casting-tracking";
 import {
@@ -587,6 +588,64 @@ export async function buildCastingSendPreview(
 }
 
 /**
+ * Charge le PDF de présentation du projet outreach pour le joindre au mail
+ * (si le toggle projet est activé et qu’un fichier est uploadé).
+ */
+async function loadCampaignPresentationAttachment(
+  campaignId: string | null | undefined
+): Promise<GmailAttachment[] | undefined> {
+  const id = String(campaignId || "").trim();
+  if (!id) return undefined;
+  try {
+    const campaign = await prisma.talentProspectingCampaign.findUnique({
+      where: { id },
+      select: {
+        includePresentationInEmails: true,
+        presentationPdfUrl: true,
+        presentationFileName: true,
+      },
+    });
+    if (
+      !campaign?.includePresentationInEmails ||
+      !campaign.presentationPdfUrl
+    ) {
+      return undefined;
+    }
+    const res = await fetch(campaign.presentationPdfUrl);
+    if (!res.ok) {
+      console.error(
+        `[casting-auto-send] fetch présentation PDF échoué (${res.status})`,
+        campaign.presentationPdfUrl
+      );
+      return undefined;
+    }
+    const content = Buffer.from(await res.arrayBuffer());
+    if (content.length === 0) return undefined;
+    // Gmail ~25 Mo ; on reste prudent.
+    if (content.length > 20 * 1024 * 1024) {
+      console.error(
+        `[casting-auto-send] présentation PDF trop lourde (${content.length} octets)`
+      );
+      return undefined;
+    }
+    const filename =
+      String(campaign.presentationFileName || "").trim() || "presentation.pdf";
+    return [
+      {
+        filename: filename.toLowerCase().endsWith(".pdf")
+          ? filename
+          : `${filename}.pdf`,
+        contentType: "application/pdf",
+        content,
+      },
+    ];
+  } catch (e) {
+    console.error("[casting-auto-send] loadCampaignPresentationAttachment:", e);
+    return undefined;
+  }
+}
+
+/**
  * Envoi reel : pour chaque contact recevable (non bloque par cooldown ni
  * deja contacte avec succes sur cette mission), remplace les variables,
  * injecte le tracking, envoie via Gmail. Si la mission est deja SENT et
@@ -599,6 +658,10 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   if (!mission) {
     throw new Error("Mission introuvable");
   }
+
+  const presentationAttachments = await loadCampaignPresentationAttachment(
+    mission.campaignId
+  );
 
   const subjectTpl = String(mission.draftEmailSubject || "").trim();
   const bodyRaw = String(mission.draftEmailBody || "").trim();
@@ -754,6 +817,7 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
         to: email,
         subject: personalizedSubject,
         htmlBody: trackedBody,
+        attachments: presentationAttachments,
       });
       outcome.succeeded += 1;
       outcome.byEmail[email] = { messageId, threadId: messageId };

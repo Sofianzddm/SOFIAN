@@ -3328,6 +3328,12 @@ model TalentProspectingCampaign {
   /// Si true : le projet a besoin de prestataires (dispatch responsables).
   necessitePrestataires Boolean @default(false)
   lieu           String?
+  /// PDF de présentation du projet (brief deck) — aperçu UI + PJ mails Casting.
+  presentationPdfUrl     String?
+  presentationFileName   String?
+  presentationUploadedAt DateTime?
+  /// Si true et PDF présent : joint automatiquement aux mails de prospection marques.
+  includePresentationInEmails Boolean @default(true)
   createdAt   DateTime                   @default(now())
   updatedAt   DateTime                   @updatedAt
 

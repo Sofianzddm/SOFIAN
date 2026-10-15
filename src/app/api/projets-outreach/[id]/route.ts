@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import {
   canEditBrief,
   canManageBrands,
+  canManagePresentation,
   canSend,
   canAccessProjetsOutreach,
 } from "@/lib/projets-outreach";
@@ -156,6 +157,10 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
     endsAt: c.endsAt,
     necessitePrestataires: c.necessitePrestataires,
     lieu: c.lieu,
+    presentationPdfUrl: c.presentationPdfUrl,
+    presentationFileName: c.presentationFileName,
+    presentationUploadedAt: c.presentationUploadedAt,
+    includePresentationInEmails: c.includePresentationInEmails,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     talentId: c.talentId,
@@ -433,7 +438,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const session = await getAppSession(request);
     if (!session?.user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    if (!canEditBrief(session.user.role) && !canSend(session.user.role) && !canManageBrands(session.user.role)) {
+    if (
+      !canEditBrief(session.user.role) &&
+      !canSend(session.user.role) &&
+      !canManageBrands(session.user.role) &&
+      !canManagePresentation(session.user.role)
+    ) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -447,6 +457,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const body = (await request.json()) as Record<string, unknown>;
     const data: Record<string, unknown> = {};
+
+    // Toggle PJ présentation : Admin / TM / Casting / Strategy…
+    if (
+      body.includePresentationInEmails !== undefined &&
+      canManagePresentation(session.user.role)
+    ) {
+      data.includePresentationInEmails = Boolean(body.includePresentationInEmails);
+    }
 
     if (canEditBrief(session.user.role)) {
       if (body.title !== undefined) data.title = String(body.title || "").trim();

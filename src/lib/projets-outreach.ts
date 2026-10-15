@@ -206,6 +206,11 @@ export function canEditBrief(role: string | undefined | null): boolean {
   return role === "STRATEGY_PLANNER" || role === "ADMIN";
 }
 
+/** PDF de présentation projet : tous les rôles qui voient le hub (Admin, TM, Casting, Strategy…). */
+export function canManagePresentation(role: string | undefined | null): boolean {
+  return canAccessProjetsOutreach(role);
+}
+
 export function canManageBrands(role: string | undefined | null): boolean {
   return role === "STRATEGY_PLANNER" || role === "ADMIN";
 }

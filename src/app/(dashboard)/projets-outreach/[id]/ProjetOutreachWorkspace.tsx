@@ -1,6 +1,13 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
@@ -11,11 +18,17 @@ import {
   Send,
   Check,
   ExternalLink,
+  FileText,
+  Eye,
+  Upload,
+  Trash2,
+  X,
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import {
   STATUS_LABEL,
   canEditBrief,
+  canManagePresentation,
   canManageBrands,
   canDraft,
   canSend,
@@ -203,6 +216,10 @@ type Campaign = {
   angles: string | null;
   necessitePrestataires: boolean;
   lieu: string | null;
+  presentationPdfUrl?: string | null;
+  presentationFileName?: string | null;
+  presentationUploadedAt?: string | null;
+  includePresentationInEmails?: boolean;
   ownerTmId?: string | null;
   createdById?: string;
   talent: { id: string; name: string; photo: string | null; instagram: string | null };
@@ -299,6 +316,7 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [presentationPreviewOpen, setPresentationPreviewOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -512,6 +530,34 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {campaign.presentationPdfUrl ? (
+              <button
+                type="button"
+                onClick={() => setPresentationPreviewOpen(true)}
+                className="po-btn po-btn-primary"
+                title="Aperçu de la présentation PDF du projet"
+              >
+                <Eye className="h-4 w-4" />
+                Voir la présentation
+              </button>
+            ) : canManagePresentation(role) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("brief");
+                  requestAnimationFrame(() => {
+                    document
+                      .getElementById("presentation-projet")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  });
+                }}
+                className="po-btn po-btn-secondary"
+                title="Ajouter une présentation PDF"
+              >
+                <FileText className="h-4 w-4" />
+                Ajouter une présentation
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => void load()}
@@ -653,9 +699,11 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           <BriefTab
             campaign={campaign}
             canEdit={canEditBrief(role)}
+            canEditPresentation={canManagePresentation(role)}
             role={role}
             userId={userId}
             onSaved={load}
+            onPreviewPresentation={() => setPresentationPreviewOpen(true)}
             setError={setError}
             setSuccess={setSuccess}
           />
@@ -700,9 +748,11 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           <RedactionTab
             campaign={campaign}
             canEdit={canDraft(role)}
+            canEditPresentation={canManagePresentation(role)}
             role={role}
             isAdmin={isAdmin}
             onChanged={load}
+            onPreviewPresentation={() => setPresentationPreviewOpen(true)}
             setError={setError}
             setSuccess={setSuccess}
           />
@@ -727,6 +777,14 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
           />
         )}
       </div>
+
+      {presentationPreviewOpen && campaign.presentationPdfUrl && (
+        <PresentationPreviewModal
+          url={campaign.presentationPdfUrl}
+          fileName={campaign.presentationFileName || "Présentation.pdf"}
+          onClose={() => setPresentationPreviewOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -734,17 +792,21 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
 function BriefTab({
   campaign,
   canEdit,
+  canEditPresentation,
   role,
   userId,
   onSaved,
+  onPreviewPresentation,
   setError,
   setSuccess,
 }: {
   campaign: Campaign;
   canEdit: boolean;
+  canEditPresentation: boolean;
   role: string;
   userId: string;
   onSaved: () => Promise<void>;
+  onPreviewPresentation: () => void;
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
 }) {
@@ -814,6 +876,15 @@ function BriefTab({
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <PresentationCard
+          campaign={campaign}
+          canEdit={canEditPresentation}
+          onSaved={onSaved}
+          onPreview={onPreviewPresentation}
+          setError={setError}
+          setSuccess={setSuccess}
+        />
+
         <form
           onSubmit={onSubmit}
           className="po-card"
@@ -2366,17 +2437,21 @@ function MarquesTab({
 function RedactionTab({
   campaign,
   canEdit,
+  canEditPresentation,
   role,
   isAdmin,
   onChanged,
+  onPreviewPresentation,
   setError,
   setSuccess,
 }: {
   campaign: Campaign;
   canEdit: boolean;
+  canEditPresentation: boolean;
   role: string;
   isAdmin: boolean;
   onChanged: () => Promise<void>;
+  onPreviewPresentation: () => void;
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
 }) {
@@ -2850,47 +2925,66 @@ function RedactionTab({
     }
   }
 
+  const presentationBlock = (
+    <PresentationCard
+      campaign={campaign}
+      canEdit={canEditPresentation}
+      onSaved={onChanged}
+      onPreview={onPreviewPresentation}
+      setError={setError}
+      setSuccess={setSuccess}
+    />
+  );
+
   if (draftable.length === 0) {
     return (
-      <div className="po-empty">
-        Aucune marque à rédiger. Inès doit d&apos;abord ajouter des marques.
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {presentationBlock}
+        <div className="po-empty">
+          Aucune marque à rédiger. Inès doit d&apos;abord ajouter des marques.
+        </div>
       </div>
     );
   }
 
   if (waveBlocksCasting) {
     return (
-      <div
-        className="po-card"
-        style={{
-          padding: 28,
-          border: "1px solid #D4C4F7",
-          background: "#F4F0FC",
-        }}
-      >
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#5B3F9E" }}>
-          En pause — Strategy n&apos;a pas encore validé
-        </div>
-        {campaign.wave?.status === "COLLECTING" ? (
-          <p style={{ marginTop: 10, fontSize: 13, color: "#5B3F9E", lineHeight: 1.5 }}>
-            {`La vague « ${campaign.wave.title} » n’est pas encore terminée côté Strategy. Dès qu’elle valide, tu pourras rédiger.`}
-          </p>
-        ) : null}
-        <Link
-          href="/projets-outreach"
-          className="po-btn po-btn-primary"
-          style={{ marginTop: 16, display: "inline-flex" }}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {presentationBlock}
+        <div
+          className="po-card"
+          style={{
+            padding: 28,
+            border: "1px solid #D4C4F7",
+            background: "#F4F0FC",
+          }}
         >
-          Voir la vague
-        </Link>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#5B3F9E" }}>
+            En pause — Strategy n&apos;a pas encore validé
+          </div>
+          {campaign.wave?.status === "COLLECTING" ? (
+            <p style={{ marginTop: 10, fontSize: 13, color: "#5B3F9E", lineHeight: 1.5 }}>
+              {`La vague « ${campaign.wave.title} » n’est pas encore terminée côté Strategy. Dès qu’elle valide, tu pourras rédiger.`}
+            </p>
+          ) : null}
+          <Link
+            href="/projets-outreach"
+            className="po-btn po-btn-primary"
+            style={{ marginTop: 16, display: "inline-flex" }}
+          >
+            Voir la vague
+          </Link>
+        </div>
       </div>
     );
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {presentationBlock}
+
       {composerOpen ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <button
             type="button"
             onClick={() => {
@@ -2905,7 +2999,6 @@ function RedactionTab({
               gap: 6,
               padding: "6px 10px",
               fontSize: 12,
-              marginBottom: 4,
             }}
           >
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -3920,6 +4013,442 @@ function SuiviTab({ campaign }: { campaign: Campaign }) {
             );
           })
         )}
+      </div>
+    </div>
+  );
+}
+
+function PresentationCard({
+  campaign,
+  canEdit,
+  onSaved,
+  onPreview,
+  setError,
+  setSuccess,
+}: {
+  campaign: Campaign;
+  canEdit: boolean;
+  onSaved: () => Promise<void>;
+  onPreview: () => void;
+  setError: (v: string | null) => void;
+  setSuccess: (v: string | null) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [togglingAttach, setTogglingAttach] = useState(false);
+  const hasPdf = Boolean(campaign.presentationPdfUrl);
+  const attachInEmails = campaign.includePresentationInEmails !== false;
+
+  async function setAttachInEmails(next: boolean) {
+    if (!canEdit || !hasPdf) return;
+    setTogglingAttach(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projets-outreach/${campaign.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includePresentationInEmails: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Mise à jour impossible.");
+      setSuccess(
+        next
+          ? "PDF joint aux prochains mails de prospection."
+          : "PDF non joint aux mails (aperçu seul)."
+      );
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setTogglingAttach(false);
+    }
+  }
+
+  async function uploadFile(file: File) {
+    setUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(
+        `/api/projets-outreach/${campaign.id}/presentation`,
+        { method: "POST", credentials: "include", body: fd }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Upload impossible.");
+      setSuccess("Présentation PDF ajoutée.");
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur upload");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function removePresentation() {
+    if (!hasPdf) return;
+    if (!window.confirm("Retirer la présentation PDF de ce projet ?")) return;
+    setRemoving(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/projets-outreach/${campaign.id}/presentation`,
+        { method: "DELETE", credentials: "include" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Suppression impossible.");
+      setSuccess("Présentation retirée.");
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  return (
+    <div
+      id="presentation-projet"
+      className="po-card"
+      style={{
+        padding: 20,
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+        border: hasPdf ? "1px solid color-mix(in oklab, var(--po-accent) 35%, white)" : undefined,
+        background: hasPdf
+          ? "color-mix(in oklab, var(--po-accent) 6%, white)"
+          : undefined,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
+          <span
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: hasPdf ? "var(--po-accent-14)" : "#F4F4F5",
+              color: hasPdf ? "var(--po-accent)" : "var(--po-muted)",
+              flexShrink: 0,
+            }}
+          >
+            <FileText className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: "var(--po-ink)",
+                lineHeight: 1.3,
+              }}
+            >
+              Présentation du projet
+            </div>
+            <div
+              style={{
+                marginTop: 3,
+                fontSize: 12.5,
+                color: "var(--po-muted)",
+                lineHeight: 1.4,
+              }}
+            >
+              {hasPdf
+                ? attachInEmails
+                  ? "PDF prêt — joint automatiquement aux mails de prospection (Casting / Leyna)."
+                  : "PDF prêt — aperçu seul (non joint aux mails tant que le toggle est off)."
+                : "Ajoute le deck / PDF de présentation de ce projet (Admin, TM, Casting, Strategy…)."}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {hasPdf && (
+            <button
+              type="button"
+              className="po-btn po-btn-primary"
+              onClick={onPreview}
+            >
+              <Eye className="h-4 w-4" />
+              Aperçu
+            </button>
+          )}
+          {hasPdf && (
+            <a
+              href={campaign.presentationPdfUrl || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="po-btn po-btn-secondary"
+            >
+              <ExternalLink className="h-4 w-4" />
+              Ouvrir
+            </a>
+          )}
+          {canEdit && (
+            <>
+              <input
+                ref={inputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void uploadFile(file);
+                }}
+              />
+              <button
+                type="button"
+                className={hasPdf ? "po-btn po-btn-secondary" : "po-btn po-btn-primary"}
+                disabled={uploading}
+                onClick={() => inputRef.current?.click()}
+              >
+                {uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                {hasPdf ? "Remplacer" : "Ajouter une présentation"}
+              </button>
+              {hasPdf && (
+                <button
+                  type="button"
+                  className="po-btn po-btn-secondary"
+                  disabled={removing}
+                  onClick={() => void removePresentation()}
+                  title="Retirer la présentation"
+                  style={{ color: "var(--po-danger)" }}
+                >
+                  {removing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {hasPdf && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 12px",
+            borderRadius: 10,
+            background: "var(--po-white)",
+            border: "1px solid var(--po-border)",
+            fontSize: 12.5,
+          }}
+        >
+          <FileText className="h-4 w-4" style={{ color: "var(--po-accent)", flexShrink: 0 }} />
+          <span
+            style={{
+              fontWeight: 600,
+              color: "var(--po-ink)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
+            }}
+            title={campaign.presentationFileName || undefined}
+          >
+            {campaign.presentationFileName || "presentation.pdf"}
+          </span>
+          {campaign.presentationUploadedAt && (
+            <span style={{ color: "var(--po-muted)", marginLeft: "auto", flexShrink: 0 }}>
+              {new Date(campaign.presentationUploadedAt).toLocaleDateString("fr-FR", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </span>
+          )}
+        </div>
+      )}
+
+      {hasPdf && (
+        <label
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 10,
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: attachInEmails
+              ? "1px solid color-mix(in oklab, var(--po-success) 40%, white)"
+              : "1px solid var(--po-border)",
+            background: attachInEmails
+              ? "color-mix(in oklab, var(--po-success) 8%, white)"
+              : "#FAFAFA",
+            cursor: canEdit && !togglingAttach ? "pointer" : "default",
+            opacity: togglingAttach ? 0.7 : 1,
+          }}
+        >
+          <input
+            type="checkbox"
+            disabled={!canEdit || togglingAttach}
+            checked={attachInEmails}
+            onChange={(e) => void setAttachInEmails(e.target.checked)}
+            style={{ marginTop: 2 }}
+          />
+          <span style={{ minWidth: 0 }}>
+            <span
+              style={{
+                display: "block",
+                fontSize: 13.5,
+                fontWeight: 700,
+                color: "var(--po-ink)",
+              }}
+            >
+              Joindre ce PDF aux mails de prospection
+            </span>
+            <span
+              style={{
+                display: "block",
+                marginTop: 2,
+                fontSize: 12.5,
+                color: "var(--po-muted)",
+                lineHeight: 1.4,
+              }}
+            >
+              {attachInEmails
+                ? "Quand Casting envoie (Leyna), le PDF part en pièce jointe avec chaque mail."
+                : "Le PDF reste sur le projet (aperçu) mais n’est pas joint aux envois."}
+            </span>
+          </span>
+          {togglingAttach && (
+            <Loader2
+              className="h-4 w-4 animate-spin"
+              style={{ marginLeft: "auto", flexShrink: 0, color: "var(--po-muted)" }}
+            />
+          )}
+        </label>
+      )}
+    </div>
+  );
+}
+
+function PresentationPreviewModal({
+  url,
+  fileName,
+  onClose,
+}: {
+  url: string;
+  fileName: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Aperçu — ${fileName}`}
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 80,
+        background: "rgba(19, 19, 22, 0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+    >
+      <div
+        className="po-card"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(960px, 100%)",
+          height: "min(88vh, 900px)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          padding: 0,
+          boxShadow: "0 24px 64px rgba(9, 9, 11, 0.28)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "12px 16px",
+            borderBottom: "1px solid var(--po-border)",
+            background: "var(--po-surface)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <FileText className="h-4 w-4" style={{ color: "var(--po-accent)", flexShrink: 0 }} />
+            <span
+              style={{
+                fontWeight: 700,
+                fontSize: 13.5,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {fileName}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="po-btn po-btn-secondary"
+              style={{ padding: "6px 10px" }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Nouvel onglet
+            </a>
+            <button
+              type="button"
+              className="po-btn po-btn-icon"
+              onClick={onClose}
+              aria-label="Fermer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <iframe
+          title={fileName}
+          src={`${url}#toolbar=1&navpanes=0`}
+          style={{
+            flex: 1,
+            width: "100%",
+            border: "none",
+            background: "#525659",
+          }}
+        />
       </div>
     </div>
   );
